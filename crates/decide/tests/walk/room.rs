@@ -60,7 +60,10 @@ fn paused_itself(w: &World) -> decide::Records {
 fn the_pause_of_everything_holds_back_a_run_as_the_works_own_pause_does() {
     let mut w = ran();
     w.person_writes("background");
-    assert_eq!(decide_in(&w.flow, &w.records, PAUSED), Decision::Paused);
+    assert!(matches!(
+        decide_in(&w.flow, &w.records, PAUSED),
+        Decision::Paused { .. }
+    ));
     assert_eq!(
         decide_in(&w.flow, &w.records, PAUSED),
         decide::decide(&w.flow, &paused_itself(&w))
@@ -87,8 +90,14 @@ fn the_works_own_pause_holds_after_the_pause_of_everything_is_lifted() {
     let mut w = ran();
     w.person_writes("background");
     w.pause();
-    assert_eq!(decide_in(&w.flow, &w.records, PAUSED), Decision::Paused);
-    assert_eq!(decide_in(&w.flow, &w.records, Room::FREE), Decision::Paused);
+    assert!(matches!(
+        decide_in(&w.flow, &w.records, PAUSED),
+        Decision::Paused { .. }
+    ));
+    assert!(matches!(
+        decide_in(&w.flow, &w.records, Room::FREE),
+        Decision::Paused { .. }
+    ));
 }
 
 #[test]

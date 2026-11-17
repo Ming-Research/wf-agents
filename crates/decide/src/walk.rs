@@ -51,10 +51,11 @@ pub enum Decision {
     /// A round of this run is under way: nothing is decided until it ends, unless the work is cancelled or the owner
     /// turns to a cell before it. The run may have been abandoned already, its round being stopped.
     Busy { cell: CellId, run: RunId },
-    /// The work is paused, and what it would do next is run a cell none of whose reasons is a change of a note a person
-    /// made: that run waits for the work to be let on. A cell one of whose reasons is such a change runs as if the work
-    /// were not paused, and what begins no run is decided so too: a run at rest goes on, rests or is abandoned.
-    Paused,
+    /// The work is paused, and what it would do next is run this cell, none of whose reasons is a change of a note a
+    /// person made: that run waits for the work to be let on. A cell one of whose reasons is such a change runs as if
+    /// the work were not paused, and what begins no run is decided so too: a run at rest goes on, rests or is
+    /// abandoned.
+    Paused { cell: CellId },
     /// The cell runs: why, and the version of each block it reads or may write that the run starts from. The engine
     /// records the run as started with exactly these.
     Run {
@@ -269,7 +270,7 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
         // A pause holds back the run, unless it is for a note a person wrote or the owner turning to the cell:
         // everything before this is decided whether or not the work is paused.
         if (paused(records) || room.paused) && !walk.for_a_note(i, &because, None) {
-            return Decision::Paused;
+            return Decision::Paused { cell: cell.id.clone() };
         }
         if cell.slot && !room.slot {
             return wait(vec![Waited::Slot]);

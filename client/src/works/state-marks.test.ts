@@ -8,8 +8,11 @@ describe("the marks of a cell's state", () => {
     expect(MARKS.done).toMatchObject({ fill: '--mark-done', edge: '--mark-done' });
     // Orange says that something waits for the owner, which is said on a card, never on a cell's mark.
     for (const look of Object.values(MARKS)) expect(JSON.stringify(look)).not.toContain('orange');
-    // Running is the only mark filled in the deep step.
+    // A run under way is filled in the deep step, however it stands: running, between two rounds, or its round failed.
     const deep = Object.entries(MARKS).filter(([, l]) => l.shape === 'square' && l.fill === '--mark-running');
-    expect(deep.map(([s]) => s)).toEqual(['running']);
+    expect(deep.map(([s]) => s)).toEqual(['running', 'resting', 'failed']);
+    // Filled is what ran or runs, hollow what is still to run.
+    const hollow = Object.entries(MARKS).filter(([, l]) => l.shape === 'square' && l.fill === null);
+    expect(hollow.map(([s]) => s)).toEqual(['again', 'notYet']);
   });
 });

@@ -14,6 +14,7 @@ use reading::{Reading, Reason, Writer};
 
 pub const ONLY_FOR_A_NOTE: &str = "a paused work starts a run only for a note a person wrote";
 pub const ANSWERS: &str = "a paused work answers a note a person wrote";
+pub const NAMES_ITS_CELL: &str = "a pause names the cell that runs once the work is let on";
 
 /// What the histories reached of a pause, each of which some history must reach.
 pub const REACHED: &[&str] = &[STARTED_PAUSED, HELD_PAUSED, WENT_ON_PAUSED];
@@ -78,7 +79,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                 );
             }
         }
-        Decision::Paused => {
+        Decision::Paused { cell: held } => {
             let records = reading.records;
             let mut let_on = records.clone();
             let_on.pauses.push(Pause {
@@ -90,6 +91,12 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
             let lifted = Room { paused: false, ..room };
             if let Decision::Run { cell, .. } = decide_in(flow, &let_on, lifted) {
                 v.count(HELD_PAUSED);
+                if cell != *held {
+                    v.fail(
+                        NAMES_ITS_CELL,
+                        format!("the pause names {held}, but {cell} runs once the work is let on"),
+                    );
+                }
                 let reasons = reading.entering(flow, cell_of(&cell), now);
                 if for_a_note(flow, reading, cell_of(&cell), &reasons, now) {
                     v.fail(

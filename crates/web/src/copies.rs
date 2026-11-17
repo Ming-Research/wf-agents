@@ -1,5 +1,6 @@
-//! `GET /api/v1/backup`: how the copies of the database stand, for the line at the head of the works page. It is worked
-//! out from the records of the copies and the time now, which the engine's loop gives: the loop alone reads the clock.
+//! `GET /api/v1/backup`: how the copies of the database stand, for the System view. It is worked out from the records
+//! of the copies and the time now, which the engine's loop gives: the loop alone reads the clock. An engine that keeps
+//! no copies says so, rather than having no such path, which the page would take for a failure.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -27,14 +28,15 @@ pub struct Copies {
 #[derive(Clone)]
 struct Inner {
     handle: Handle,
-    copies: Arc<Copies>,
+    /// What is told of the copies, or none where the engine keeps none.
+    copies: Option<Arc<Copies>>,
 }
 
-/// The route of the copies, over the engine's loop.
-pub fn router(handle: Handle, copies: Copies) -> Router {
+/// The route of the copies, over the engine's loop: of the copies the engine keeps, or of none.
+pub fn router(handle: Handle, copies: Option<Copies>) -> Router {
     Router::new().route("/api/v1/backup", get(report)).with_state(Inner {
         handle,
-        copies: Arc::new(copies),
+        copies: copies.map(Arc::new),
     })
 }
 
@@ -42,7 +44,9 @@ async fn report(State(inner): State<Inner>) -> Response {
     let Ok(now) = inner.handle.now().await else {
         return fail(StatusCode::SERVICE_UNAVAILABLE, "The engine has stopped.".to_string());
     };
-    let copies = inner.copies.clone();
+    let Some(copies) = inner.copies.clone() else {
+        return Json(backup::not_kept(now)).into_response();
+    };
     let read = tokio::task::spawn_blocking(move || {
         let records = store::Backups::open(&copies.store)
             .and_then(|backups| backups.records())

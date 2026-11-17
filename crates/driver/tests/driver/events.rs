@@ -265,7 +265,7 @@ fn a_pause_holds_back_only_what_would_begin_a_round() {
         kept.work.records.finished.iter().any(|f| f.run == again),
         "the run did not finish"
     );
-    assert_eq!(h.decision(w), Decision::Paused);
+    assert!(matches!(h.decision(w), Decision::Paused { .. }));
     let todos = h.let_on(w);
     assert_eq!(rounds(&todos), [(w, "judge".to_string(), 1)]);
 }

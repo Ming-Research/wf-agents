@@ -30,6 +30,7 @@ import {
   runState,
   runTook,
   sessionWords,
+  stoppedAt,
 } from './words';
 
 /// What the owner chose: on the chart, a step by its place among the steps or a cell; in the view's line, what the work
@@ -134,6 +135,7 @@ export function HistoryChart({ page, chosen, onChoose }: {
   const chosenCell = chosen && 'cell' in chosen ? chosen.cell : null;
   const chosenStep = chosen && 'step' in chosen ? chosen.step : null;
   const states = new Map(page.summary.cells.map((c) => [c.cell, c]));
+  const stopped = stoppedAt(page.summary);
 
   return (
     <div className="frame" ref={frame} onScroll={scrolled} onMouseLeave={() => setPointed(null)}>
@@ -167,6 +169,7 @@ export function HistoryChart({ page, chosen, onChoose }: {
                 flow={flow}
                 cell={c.id}
                 now={states.get(c.id)}
+                stopped={stopped === c.id}
                 chosen={chosenCell === c.id}
                 pointed={pointed === i}
                 onChoose={() => onChoose(chosenCell === c.id ? null : { cell: c.id })}
@@ -198,18 +201,20 @@ export function HistoryChart({ page, chosen, onChoose }: {
   );
 }
 
-/// The head of a cell's column: its id, its title, and how it stands for the work now.
+/// The head of a cell's column: its id, its title, and how it stands for the work now, its mark filled red where the
+/// work is `stopped` at it.
 function HistoryHead(props: {
   flow: Flow;
   cell: string;
   now: CellNow | undefined;
+  stopped: boolean;
   chosen: boolean;
   pointed: boolean;
   onChoose: () => void;
   onPoint: () => void;
   onWidth: (width: number | null) => void;
 }) {
-  const { flow, cell, now, chosen, pointed, onChoose, onPoint, onWidth } = props;
+  const { flow, cell, now, stopped, chosen, pointed, onChoose, onPoint, onWidth } = props;
   const head = useRef<HTMLTableCellElement>(null);
   const c = flow.cells.find((x) => x.id === cell);
   return (
@@ -229,7 +234,7 @@ function HistoryHead(props: {
         </span>
         {now && (
           <span className={`cell-state state-text-${now.state}`} title={cellNowWords(now)}>
-            <StateMark state={now.state} /> {STATE_WORDS[now.state]}
+            <StateMark state={now.state} stopped={stopped} /> {STATE_WORDS[now.state]}
             {now.finished > 0 && <span className="muted"> · {now.finished}</span>}
           </span>
         )}

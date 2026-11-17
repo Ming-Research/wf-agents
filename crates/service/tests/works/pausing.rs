@@ -26,7 +26,7 @@ async fn a_pause_lets_the_round_under_way_end_and_its_calls_be_made_and_holds_th
     assert!(matches!(trial.decision(work), Decision::Wait { at, .. } if at.as_str() == "build"));
     trial.step().await.unwrap();
     // Entering it again for the result is held: nothing more comes.
-    assert_eq!(trial.decision(work), Decision::Paused);
+    assert!(matches!(trial.decision(work), Decision::Paused { .. }));
     assert!(trial.step().await.is_none());
     let runs = trial.work(work).records.started.len();
 
@@ -46,7 +46,7 @@ async fn a_paused_work_begins_no_run() {
     // The plan, entered for the answer, has its round end and finishes; the build does not begin.
     trial.step().await.unwrap();
     assert_eq!(trial.finished(work), ["plan"]);
-    assert_eq!(trial.decision(work), Decision::Paused);
+    assert!(matches!(trial.decision(work), Decision::Paused { .. }));
     assert!(trial.step().await.is_none());
 }
 

@@ -227,7 +227,9 @@ describe('the list of works', () => {
   it("says that a work the engine paused waits for you, and why, in the owner's tone, and a fault in the tone of what failed", () => {
     const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
     const row = page.querySelector('[data-work="50"]') as HTMLElement;
-    expect(row.querySelector('.now-words')?.textContent).toBe(`Waiting for you · The engine paused the work. ${FAILED}`);
+    expect(row.querySelector('.now-words')?.textContent).toBe(
+      `Waiting for you · implement · The engine paused the work. ${FAILED}`,
+    );
     expect(row.querySelector('.now')?.className).toContain('now-owner');
     expect(row.querySelector('.now-paused')).toBeNull();
     expect(row.querySelectorAll('.strip .state-failed')).toHaveLength(1);
@@ -241,8 +243,9 @@ describe('the list of works', () => {
     const pause: Wait = { key: 'pause', why: 'x', ends: { kind: 'resume' } };
     const question: Wait = { key: 'answer-scope', why: 'Which scope?', ends: { kind: 'answer', question: 'scope', version: 3 } };
     const merge: Now = { kind: 'waits', at: 'merge', on: [{ kind: 'precondition', test: 'asked', words: 'asked', by: [{ kind: 'owner' }] }] };
-    expect(pauseDiffers(at({ kind: 'paused', by: 'owner', why: null }, 'owner'))).toBe(false);
-    expect(pauseDiffers(at({ kind: 'paused', by: 'engine', why: 'A round failed.' }, 'engine', [pause]))).toBe(false);
+    expect(pauseDiffers(at({ kind: 'paused', at: 'plan', by: 'owner', why: null }, 'owner'))).toBe(false);
+    const engine = at({ kind: 'paused', at: 'plan', by: 'engine', why: 'A round failed.' }, 'engine', [pause]);
+    expect(pauseDiffers(engine)).toBe(false);
     // The owner's pause holds a work that waits for the owner as well: both are said.
     expect(pauseDiffers(at(merge, 'owner', [question]))).toBe(true);
     // The engine's pause beside what else waits for the owner is said by the state alone.

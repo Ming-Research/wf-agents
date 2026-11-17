@@ -37,9 +37,10 @@ turned down as too strong; this rests on the owner's judgment of the page (princ
 
 ### decision what-the-owner-points-at-stands-in-a-soft-light
 The item selected and the item under the pointer stand in a soft light, a blurred fill behind the card, the selected
-one's wider and its ring thicker. Over the light lies the page's ground at every card it reaches, and at an item drawn
-with no box only where the light is its own, so that it shows only round the cards.
+one's wider and its ring thicker; the light and the rings of each item take its own colour, as its card shows it.
+Over the light lies the page's ground at every card it reaches, and at an item drawn with no box only where the light
+is its own, so that it shows only round the cards.
 Why: The soft light was chosen over other marks of the selection on the owner's judgment (principle
 owner-taste-judges). The ground looks needless under a card drawn whole, but without it the light showed through a
-card drawn faint, as a flash of blue; it is the page's colour, and under a boxless item only for its own light, because
-in a card's colour, or under another's light, it drew a box where the item has none.
+card drawn faint, as a flash of colour; it is the page's colour, and under a boxless item only for its own light,
+because in a card's colour, or under another's light, it drew a box where the item has none.

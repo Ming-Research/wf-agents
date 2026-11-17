@@ -151,7 +151,10 @@ describe('what a card shows of an item', () => {
   });
 
   it('shows the work of an item that has not begun while it is paused, at fault or waits, as every new item is', () => {
-    const paused: Item = { ...item(1, 'open', [4]), work: work(1, { kind: 'paused', by: 'owner', why: null }) };
+    const paused: Item = {
+      ...item(1, 'open', [4]),
+      work: work(1, { kind: 'paused', at: 'plan', by: 'owner', why: null }),
+    };
     const fault: Item = { ...item(2, 'open'), work: work(2, { kind: 'fault', words: 'No session' }) };
     const owner: Now = {
       kind: 'waits',

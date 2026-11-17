@@ -1,24 +1,24 @@
-// What the window beside the console shows of the item selected: its number, its title, which brings the item into
-// view in the tree, and its project; a line of where the item stands and a line of what its work does, with the works
-// page's strip of the work's cells and where its time went; what the owner does to the work (let it on, pause it,
-// cancel it); two tabs; and under them, while something in the item is new to the owner, a strip that says what
+// What the window beside the console shows of the item selected: its number, its title, which brings the item into view
+// in the tree, and its project; a line of where the item stands, with the works page's strip of the work's cells and
+// where its time went at its right, and a line of what its work does; what the owner does to the work (let it on, pause
+// it, cancel it); two tabs; and under them, while something in the item is new to the owner, a strip that says what
 // changed, with a link to mark the item read. The first tab holds the body (a section for each datum the work's flow's
 // card names, in its order and by its name, with each choice that waits for the owner where it stands in it, and after
 // the last each question put to the owner that stands, the only place the panel draws it, drawn as they are: what it
 // asks, as it was written, its options with what each does and what follows, and the one it recommends; one the
-// engine's one list of what waits on the owner names on the red tint, framed in red, the look of every stop, an answered
-// one with the answer picked. Each is picked by a press on an option and let go by another, and at the end a button as
-// wide as the body confirms them, which counts the picks, waits until each choice has one and sends each question's
-// answer to the engine; once confirmed, the picks stand; and last, each block the owner may write that keeps the work from going on,
-// drawn as such a question is, its values the options, with a button that writes the one picked), each passage
-// changed since the owner read it marked at its left, and under the body the messages: the owner's and the replies, and a
-// box to write one into a block of the work that people write, chosen above it, which a passage selected in the body
-// can be quoted into and which names the cells that read it. Under the work's state line, each other stop of the work,
-// in the same look: one sentence of why and the buttons that end it, from the engine's list, and a fault or a stall,
-// which no one waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, and
-// the legend of the strip's marks. While the window is out, R marks the item read, as its link does, unless a box
-// has the keys. What the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is
-// said under the item it was for, and only there.
+// engine's one list of what waits on the owner names on the red tint, framed in red, the look of every stop, an
+// answered one with the answer picked. Each is picked by a press on an option and let go by another, and at the end a
+// button as wide as the body confirms them, which counts the picks, waits until each choice has one and sends each
+// question's answer to the engine; once confirmed, the picks stand; and last, each block the owner may write that keeps
+// the work from going on, drawn as such a question is, its values the options, with a button that writes the one
+// picked), each passage changed since the owner read it marked at its left, and under the body the messages: the
+// owner's and the replies, and a box to write one into a block of the work that people write, chosen above it, which a
+// passage selected in the body can be quoted into and which names the cells that read it. Under the work's state line,
+// each other stop of the work, in the same look: one sentence of why and the buttons that end it, from the engine's
+// list, and a fault or a stall, which no one waits on, said as the engine gives it. The second tab holds what of the
+// work the lines do not say, and the legend of the strip's marks. While the window is out, R marks the item read, as
+// its link does, unless a box has the keys. What the owner sends is sent once: its button cannot be pressed while it is
+// under way, and a refusal is said under the item it was for, and only there.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/ItemWindow.tsx`), its layout as it
 // was, its parts the page's own (parts.tsx) where it used Primer's. What the engine does not give yet comes from the
@@ -62,7 +62,9 @@ import {
   OWN_PAUSE,
   type Tone as WorkTone,
   WRITE_WORDS,
+  standingCell,
   stateOf,
+  stoppedAt,
   waitedWords,
 } from '../works/words';
 import { type ItemStanding, standingOf } from './items';
@@ -493,7 +495,9 @@ function ItemView({
         </h2>
         {item.project !== null && <span className="drawer-belongs mono">{item.project}</span>}
       </header>
-      <ItemLine item={item} goal={goal} tier={mock.tier} />
+      <ItemLine item={item} goal={goal} tier={mock.tier}>
+        <Progress w={work} page={read} />
+      </ItemLine>
       <WorkLine w={work} page={read} />
       {!ended(work) && <Acts paused={work.paused === 'owner'} act={send} />}
       <StopCards work={work} act={send} actEngine={actEngine} />
@@ -617,22 +621,55 @@ function CrossSign() {
   );
 }
 
-/// The item's line: where it stands, and when it was added. The items it waits for are said once, on its work's line.
-function ItemLine({ item, goal, tier }: { item: Item; goal: boolean; tier: string | null }) {
+/// The item's line: where it stands, and when it was added; at its right, what follows it (its work's progress). The
+/// items it waits for are said once, on its work's line.
+function ItemLine({
+  item,
+  goal,
+  tier,
+  children,
+}: {
+  item: Item;
+  goal: boolean;
+  tier: string | null;
+  children?: ReactNode;
+}) {
   const standing = standingOf(item);
   return (
     <Line tone={standing} word={STANDING_WORDS[standing]}>
       {goal ? <span className="muted">Goal</span> : null}
       {tier !== null ? <span className="muted">Tier {tier}</span> : null}
       <span className="muted">Added {ago(item.added)} ago</span>
+      {children}
     </Line>
+  );
+}
+
+/// How far the work has come and where its time went, together at the right end of the item's line, which its own
+/// line, holding the cell's title, has no room left for.
+function Progress({ w, page }: { w: Summary; page: WorkPage | null }) {
+  const standing = standingCell(w);
+  return (
+    <span className="cw-progress">
+      {/* The cell the work stands at, named before the strip as the card names it under its number. */}
+      <span className="cw-standing">
+        {standing !== null && (
+          <span className="mono" style={{ color: `var(${standing.colour})` }}>
+            {standing.cell}
+          </span>
+        )}
+        <Strip cells={w.cells} stopped={stoppedAt(w)} />
+      </span>
+      <span className="cw-track">
+        <TimeTrack spans={barSpans(w.bar ?? (page === null ? '' : barOf(page)))} />
+      </span>
+    </span>
   );
 }
 
 /// The work's state line, one line, the same part for every state: its dot and the word of its state, the cell it
 /// stands at where the engine's state names one, as a cell is shown everywhere; where it waits for the items its item
-/// depends on, which, as the engine gives them, those cancelled said so; the work, and at the right how far it has
-/// come and where its time went.
+/// depends on, which, as the engine gives them, those cancelled said so; and the work.
 function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
   const { tone, word, cell } = stateOf(w);
   const now = w.now;
@@ -648,13 +685,6 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
       <a href={`#/works/${w.number}`} className="link mono" title={`Open work ${w.number}`}>
         W{w.number}
       </a>
-      {/* How far it has come and where its time went, together at the line's right end. */}
-      <span className="cw-progress">
-        <Strip cells={w.cells} />
-        <span className="cw-track">
-          <TimeTrack spans={barSpans(w.bar ?? (page === null ? '' : barOf(page)))} />
-        </span>
-      </span>
     </Line>
   );
 }

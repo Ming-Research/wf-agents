@@ -6,6 +6,7 @@ import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { cellNowWords } from '../works/marks';
+import { standingCell, stoppedAt } from '../works/words';
 import type { Act, CellNow, Item, Now, Question, Speaking, Wait, WorkPage } from '../works-api';
 import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
@@ -174,8 +175,9 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.drawer-title')).toEqual(['Show the cost of a work']);
     expect(text(el, '.drawer-belongs')).toEqual(['wf-agents']);
     const [itemLine, workLine] = lines(el);
-    // The item's line says where it stands; what it waits for is its work's line's to say.
-    expect(itemLine).toBe('Open Added 1.1d ago');
+    // The item's line says where it stands, and at its right the cell its work stands at before the strip; what it
+    // waits for is its work's line's to say.
+    expect(itemLine).toBe('Open Added 1.1d ago review_plan');
     expect(workLine).toContain('Waiting for you review_plan Review the plan');
     expect(noKeys(el)).toBe(true);
     // What it waits for is its card, under the line, in the look of every stop: why, and the button that ends it.
@@ -226,11 +228,23 @@ describe('the panel of the item selected', () => {
   it("shows the work's cells in the works page's strip, one mark per cell in the flow's order, each by its state", () => {
     for (const n of [12, 6, 4, 9, 2]) {
       const el = draw(n, answered([]));
-      const cells = itemOf(n).work.cells;
+      const work = itemOf(n).work;
+      const cells = work.cells;
       const strip = el.querySelectorAll('.cw-item > .status-line .cw-progress .strip');
       expect(strip).toHaveLength(1);
-      expect([...strip[0].querySelectorAll('.state-mark')].map((m) => m.className)).toEqual(
-        cells.map((c) => `state-mark state-${c.state}`),
+      const marks = [...strip[0].querySelectorAll('.state-mark')];
+      expect(marks.map((m) => m.classList.item(1))).toEqual(cells.map((c) => `state-${c.state}`));
+      // The cell the work is stopped at, for the owner or by the engine, filled in red as on its card; no other.
+      const stopped = stoppedAt(work);
+      expect(marks.filter((m) => m.classList.contains('stopped')).map((m) => cells[marks.indexOf(m)].cell)).toEqual(
+        stopped === null ? [] : [stopped],
+      );
+      // The cell it stands at, named before the strip, as its card names it under its number.
+      const named = el.querySelector('.cw-item > .status-line .cw-progress .cw-standing > .mono');
+      expect(named?.textContent ?? null).toBe(standingCell(work)?.cell ?? null);
+      // The bright marks pulse, as on the card.
+      expect(marks.map((m) => m.classList.contains('pulses'))).toEqual(
+        cells.map((c) => c.state === 'running' || c.state === 'calling'),
       );
       // The strip's own words, cell by cell.
       expect(strip[0].getAttribute('aria-label')).toBe(cells.map(cellNowWords).join('; '));
@@ -247,11 +261,11 @@ describe('the panel of the item selected', () => {
       'done',
       'running',
       'call under way',
-      'at rest',
-      'failed',
+      'under way: between rounds, or failed and to be given again',
       'runs again',
       'not run yet',
       'skipped',
+      'stopped here, for you or by the engine',
     ]);
   });
 
@@ -647,16 +661,16 @@ describe("the work's state line, one part for every state", () => {
     expect(noKeys(el)).toBe(true);
   });
 
-  it('names no cell for a paused, held or faulted work, which the engine names none for', () => {
-    const states: [Now, CellNow[]][] = [
-      [{ kind: 'paused', by: 'owner', why: null }, cellsAt('implement', 'resting')],
-      [{ kind: 'paused', by: 'engine', why: 'It failed.' }, cellsAt('check', 'failed')],
-      [{ kind: 'everything', by: 'engine' }, cellsAt('implement', 'resting')],
-      [{ kind: 'fault', words: 'Two entries at 3' }, cellsAt('implement', 'resting')],
+  it('names the cell a paused or held work would go on at, as the engine names it, and none for a faulted work', () => {
+    const states: [Now, CellNow[], string | null][] = [
+      [{ kind: 'paused', at: 'implement', by: 'owner', why: null }, cellsAt('implement', 'resting'), 'implement'],
+      [{ kind: 'paused', at: 'check', by: 'engine', why: 'It failed.' }, cellsAt('check', 'failed'), 'check'],
+      [{ kind: 'everything', at: 'implement', by: 'engine' }, cellsAt('implement', 'resting'), 'implement'],
+      [{ kind: 'fault', words: 'Two entries at 3' }, cellsAt('implement', 'resting'), null],
     ];
-    for (const [now, cells] of states) {
+    for (const [now, cells, cell] of states) {
       const el = at(now, cells);
-      expect(el.querySelector('.cw-item > .status-line .cell-id')).toBeNull();
+      expect(el.querySelector('.cw-item > .status-line .cell-id')?.textContent ?? null).toBe(cell);
       act(() => root?.unmount());
       root = undefined;
     }

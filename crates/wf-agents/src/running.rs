@@ -192,16 +192,15 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         let in_dir = shown.clone();
         let mut flows_shown = web::Flows::dirs(shown.clone(), Box::new(move |_: &Source| has(&in_dir)));
         flows_shown.alike.project = project;
-        let router = match copies {
-            Some(keeping) => {
-                // One task keeps the copies, a step at a time, with the time the loop reads from its clock.
-                let handle = service.handle();
-                let copies = keeping.about();
-                keeping.run(handle.clone());
-                web::with_works_and_copies(flows_shown, handle, levels, projects, copies)
-            }
-            None => web::with_works(flows_shown, service.handle(), levels, projects),
-        };
+        // One task keeps the copies, a step at a time, with the time the loop reads from its clock; an engine that
+        // keeps none says so on the route of the copies.
+        let handle = service.handle();
+        let about = copies.map(|keeping| {
+            let about = keeping.about();
+            keeping.run(handle.clone());
+            about
+        });
+        let router = web::with_works_and_copies(flows_shown, handle, levels, projects, about);
         // The observations are read, and marked read, through connections of their own to the store's file.
         let router = router.merge(web::observations::router(service.handle(), data.join(store::FILE)));
         let router = match install {

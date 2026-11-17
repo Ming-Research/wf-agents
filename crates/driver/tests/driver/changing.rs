@@ -286,7 +286,7 @@ fn a_cancelled_item_is_reopened_paused_and_let_on_makes_its_place_again() {
     // Reopened, it is paused, as an item added is, and nothing of it begins.
     let (changed, todos) = h.changes(vec![(a, Asked::Reopen)]).expect("a is reopened");
     assert_eq!((changed, todos), (vec![true], vec![]));
-    assert_eq!(h.decision(wa), Decision::Paused);
+    assert!(matches!(h.decision(wa), Decision::Paused { .. }));
     let kept = h.d().work(wa).expect("the work is there");
     assert_eq!(kept.work.records.reopens.len(), 1);
     assert_eq!(

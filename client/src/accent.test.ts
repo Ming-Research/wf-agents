@@ -136,8 +136,6 @@ describe('a colour refused as the accent', () => {
     expect(refusal(LIGHT.orange)).toBe('orange');
     expect(refusal(LIGHT.yellow)).toBe('yellow');
     expect(refusal(LIGHT.green)).toBe('green');
-    expect(refusal(LIGHT['track-tool'])).toBe('tools');
-    expect(refusal('#0ea5e9')).toBe('tools');
     expect(refusal('#ff00f0')).toBe('red');
     expect(refusal('#64748b')).toBe('grey');
     expect(refusal('#808080')).toBe('grey');
@@ -197,7 +195,8 @@ describe('the tokens', () => {
       'track-ground',
       'track-gap',
     ];
-    const meanings = Object.values(MEANINGS).flat() as string[];
+    // The tools' time follows a meaning: it is drawn in the yellow of a call.
+    const meanings = [...(Object.values(MEANINGS).flat() as string[]), 'track-tool'];
     const placed = new Set([...accent, ...neutral, ...meanings]);
     // A token is a colour where its value is one, in any of CSS's notations, or names a token that is one.
     const notation = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\(/i;

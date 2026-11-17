@@ -75,12 +75,19 @@
   text-decoration: underline;
 }
 
-/* How far the work has come and what it has taken, together at the work's line's right end. */
+/* How far the work has come and what it has taken, together at the item's line's right end. */
 .cw-progress {
   display: flex;
   align-items: center;
   gap: var(--space-12);
   margin-left: auto;
+}
+
+/* The name of the cell the work stands at, just before its strip. */
+.cw-standing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
 }
 
 /* Where the work's time went, in the track the works page's usage draws too (styles/parts.css). */
@@ -142,7 +149,7 @@
 }
 
 /* A choice that waits for the owner: a frame in the accent on its tint; once confirmed, a hairline on the ground. Its
-   options are buttons: the one picked ringed in the accent, the one under the pointer a step darker. */
+   options are buttons: the one picked ringed in the accent, the one under the pointer on the accent's tint. */
 .cw-choice {
   margin: var(--space-8) 0;
   padding: var(--space-12);
@@ -160,6 +167,13 @@
 .cw-choice-holds {
   border-color: var(--red);
   background: var(--red-tint);
+}
+
+/* The button that ends a stop is in the stop's colour, red, as its frame is, so that it belongs to the card; a card
+   framed in the accent keeps the accent's. */
+.cw-choice-holds .button-primary:not(:disabled) {
+  border-color: var(--red);
+  background-color: var(--red);
 }
 
 /* The buttons that end a stop, and what the owner does where no button can, inside its card, under its reason. */
@@ -185,10 +199,10 @@
 }
 
 /* The options of a card, told apart by shape from the text above them, its code and its diffs included: under a
-   hairline, with more room before them, each drawn as a choice in the page's colour of what is chosen, the accent: a
-   thin frame of it, its background a step darker under the pointer (principle quiet-motion), and the one picked in a
-   stronger frame on a deeper tint of the accent than a card that waits is filled with, so that it stands out on every
-   card; a radio mark at its left, a ring, filled once picked. */
+   hairline, with more room before them, each drawn as a choice: a thin grey frame on the card, filled with the
+   accent's tint under the pointer, as every button is, and the one picked framed as thinly in the page's colour of
+   what is chosen, the accent, on the same card, so that it stands out on every card with no fill of its own; a radio
+   mark at its left, a grey ring, filled in the accent once picked. */
 .cw-options {
   margin-top: var(--space-12);
   padding-top: var(--space-12);
@@ -201,7 +215,7 @@
   gap: var(--space-8);
   width: 100%;
   padding: var(--space-8);
-  border: var(--hairline) solid var(--accent);
+  border: var(--hairline) solid var(--option-edge);
   border-radius: var(--corner);
   background: var(--card);
   color: var(--text);
@@ -216,31 +230,32 @@
 }
 
 .cw-option:hover:not(:disabled) {
-  background-image: linear-gradient(var(--step), var(--step));
+  background-color: var(--accent-tint);
 }
 
 .cw-option.on {
-  box-shadow: inset 0 0 0 var(--hairline) var(--accent);
-  background-color: var(--accent-picked);
+  border-color: var(--accent);
 }
 
 .cw-option:disabled {
   cursor: default;
 }
 
-/* The radio mark: a ring in the accent, the height of a line of the option's label, filled at its middle once picked. */
+/* The radio mark: a grey ring, the height of a line of the option's label, in the accent and filled at its middle once
+   picked. */
 .cw-radio {
   flex: none;
   box-sizing: border-box;
   width: var(--space-12);
   height: var(--space-12);
   margin-top: var(--space-2);
-  border: var(--hairline) solid var(--accent);
+  border: var(--hairline) solid var(--option-edge);
   border-radius: 50%;
   background: var(--card);
 }
 
 .cw-option.on .cw-radio {
+  border-color: var(--accent);
   border-width: var(--focus);
   background: radial-gradient(circle, var(--accent) 0 40%, var(--card) 45%);
 }
@@ -367,7 +382,7 @@
 }
 
 .cw-unquote:hover {
-  background: var(--step);
+  background: var(--accent-tint);
 }
 
 /* Typing `@` offers the names one can write to, each a button. */

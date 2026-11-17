@@ -1317,7 +1317,7 @@ impl H {
                 "work {} goes on with no round given and nothing holding it: {shown:?}",
                 number.0
             ),
-            Decision::Paused => assert!(
+            Decision::Paused { .. } => assert!(
                 paused || self.d().everything_paused().is_some(),
                 "work {} shows paused and is not",
                 number.0
