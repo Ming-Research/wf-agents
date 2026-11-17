@@ -21,8 +21,7 @@
 // in as the pointer comes. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`. An act
 // of the engine's own under way keeps its card running as a round does; a work that waits for the calls of tools the
 // engine carries out is a work that waits. Either way its cell's mark, in the yellow of a call, pulses as a running
-// cell's does. Pointing at the cell a card's work stands at, or at its strip, says the work's state in the words every
-// view says it in, and pointing at where its time went says what the stretch was.
+// cell's does. Pointing at where a card's work's time went says what the stretch was.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
 // every constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where
@@ -38,7 +37,7 @@ import { Application, BitmapText, BlurFilter, Container, FillGradient, Graphics,
 import { accentNow, onAccent, turning } from '../accent';
 import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
-import { STATE, nowWords, standingCell, stateOf, stoppedAt } from '../works/words';
+import { STATE, standingCell, stateOf, stoppedAt } from '../works/words';
 import { type Shown, type ShownWork, age } from './items';
 import { BAR_KINDS, TRACK_WORDS } from './track';
 import { indexTree, type Tree } from './tree';
@@ -1482,25 +1481,20 @@ export class SnapScene {
     return Math.abs(p.y - y(d, rank)) <= h ? t.columns[d][rank] : -1;
   }
 
-  /// What the card under the pointer says where the pointer is on its work's row: over the cell the work stands at and
-  /// its strip, the work's state, in the words every view says it in; over where its time went, what the stretch under
-  /// the pointer was, the kind of the character of the engine's bar at that place, in the words of the item window's
-  /// track; nothing elsewhere.
+  /// What the stretch of the bar under the pointer was, where the pointer is on the bar of the card under it: the kind
+  /// of the character of the engine's bar at that place, in the words of the item window's track; nothing elsewhere.
   private tip(t: Tree, x: (d: number) => number, y: (d: number, rank: number) => number): string {
     const p = this.pointer;
     const i = this.under;
     if (p === null || i < 0) return '';
-    const shown = this.shownItems[i];
-    const work = shown.work;
-    if (work === null || shown.shadow) return '';
+    const work = this.shownItems[i].work;
+    if (work === null || work.bar === '') return '';
     const d = t.depth[i];
-    const dx = p.x - x(d);
+    const dx = p.x - x(d) - BAR_X;
     const dy = p.y - y(d, t.rank[i]) - workRow(high(this.rows[i]));
-    if (dx < CARD_INSET || dx > BAR_X + BAR_W || Math.abs(dy) > BAR_REACH) return '';
-    if (dx < BAR_X) return nowWords(work);
-    if (work.bar === '') return '';
+    if (dx < 0 || dx > BAR_W || Math.abs(dy) > BAR_REACH) return '';
     const cells = [...work.bar];
-    const kind = BAR_KINDS[cells[Math.min(cells.length - 1, Math.floor(((dx - BAR_X) / BAR_W) * cells.length))]];
+    const kind = BAR_KINDS[cells[Math.min(cells.length - 1, Math.floor((dx / BAR_W) * cells.length))]];
     return kind === undefined ? '' : TRACK_WORDS[kind];
   }
 
@@ -1686,8 +1680,8 @@ export class SnapScene {
       return set;
     };
     this.under = this.pointed(t, x, y);
-    // On pointing at an item's work's row, what its cell and strip, or the stretch of its time under the pointer, say,
-    // as every mark says what it is.
+    // On pointing at where an item's work's time went, what the stretch under the pointer was, in the words of the
+    // track in the item's window, as every mark says what it is.
     const tip = this.tip(t, x, y);
     if (this.app.canvas.title !== tip) this.app.canvas.title = tip;
     const chain = lit(this.under);
