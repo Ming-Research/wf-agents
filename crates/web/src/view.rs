@@ -467,7 +467,7 @@ pub enum What {
     NoKind {
         block: String,
     },
-    /// A `do` is said for the block, of a cell or of what every agent's cell takes, and that does not watch it.
+    /// A `do` is said for the block, and the cell does not watch it.
     NotWatched {
         block: String,
     },

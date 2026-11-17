@@ -117,8 +117,7 @@ export interface Cell {
   when: Condition[];
   /// What the work waits for before it: every key of its `requires`, in the order written.
   requires: Condition[];
-  /// What runs it, in the order the engine reads it: each datum `[every_agent]` watches that its own file does not
-  /// name, by the datum's name, then each datum or group its own file's `watches` names.
+  /// What runs it: each datum or group its own file's `watches` names, in order.
   watches: Watch[];
   /// What its own file's `reads` names, in order.
   reads: Read[];
