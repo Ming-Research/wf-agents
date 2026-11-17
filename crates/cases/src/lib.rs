@@ -13,10 +13,15 @@
 //! - [`written`]: the files as written.
 //! - [`read`](mod@read): reading a flow's cases directory.
 //! - [`checked`]: each case checked against the compiled flow, its names resolved, its history as steps.
+//! - [`order`](mod@order): when each step of a history is put in through the engine's loop.
+//! - [`back`]: what a round of a history returns, in the cell's form of return.
 
+pub mod back;
 pub mod checked;
+pub mod order;
 pub mod read;
 pub mod written;
 
 pub use checked::{Case, Cases, Fault, Hand, Of, Round, Step, check};
+pub use order::{Act, Due, Order, order};
 pub use read::{COMMON, Read, read};

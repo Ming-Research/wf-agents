@@ -411,6 +411,33 @@ struct At {
 
 #[derive(Subcommand)]
 enum CasesCommand {
+    /// Builds each case through the engine, on an installation of its own made under the data directory, with a
+    /// stand-in for the agents' program, at most ten at once: its history handed in, its cell's line begun anew, and
+    /// the cell's first round sent. Prints a line for each case: what ran its cell, whether it ran before, and the
+    /// hashes of what its line was sent; or every case refused, with why, and fails. What each build made is removed.
+    Build {
+        /// The flow's definition's directory.
+        #[arg(long)]
+        flow: PathBuf,
+        /// The directory of its cases; `cases/<flow>/` beside the flows where none is given.
+        #[arg(long)]
+        cases: Option<PathBuf>,
+        /// The real installation's settings, whose agents and project the cases run as.
+        #[arg(long)]
+        settings: PathBuf,
+        /// The project of the settings whose settings the cases run as; the only one where none is given.
+        #[arg(long)]
+        project: Option<String>,
+        /// The data directory, under whose `cell-cases/` the builds are made.
+        #[arg(long)]
+        data: PathBuf,
+        /// Only the cases of this cell; given once for each.
+        #[arg(long = "cell")]
+        cells: Vec<String>,
+        /// Only this case, by its id; given once for each.
+        #[arg(long = "case")]
+        ids: Vec<String>,
+    },
     /// Reads the cases of the flow in a directory and checks them against it: each name they use of the flow and of
     /// the made project they run in. Prints a line for each cell, or every fault and fails.
     Check {
@@ -476,6 +503,36 @@ fn main() -> ExitCode {
                 }
                 None => {
                     eprintln!("no command `{}`", command.join(" "));
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Command::Cases(CasesCommand::Build {
+            flow,
+            cases,
+            settings,
+            project,
+            data,
+            cells,
+            ids,
+        }) => {
+            let runs = data.join(cases::RUNS);
+            let asked = cases::Asked {
+                flow_dir: &flow,
+                cases_dir: cases.as_deref(),
+                settings: &settings,
+                project: project.as_deref(),
+                cells: &cells,
+                ids: &ids,
+                runs: &runs,
+            };
+            match cases::build_cases(&asked, &has(&flow)) {
+                Ok(said) => {
+                    said.iter().for_each(|line| println!("{line}"));
+                    ExitCode::SUCCESS
+                }
+                Err(faults) => {
+                    faults.iter().for_each(|fault| eprintln!("{fault}"));
                     ExitCode::FAILURE
                 }
             }

@@ -24,7 +24,7 @@
 //! - [`catch_up`]: the work's branch taking main in as a run of a cell that changes the code starts.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
 //! - `tools`: the tools, `query` and `run_tests`.
-//! - `branch`: what the engine reads of a work's branch as data of the work, in one step: [`tree`], the design tree on
+//! - [`branch`]: what the engine reads of a work's branch as data of the work, in one step: [`tree`], the design tree on
 //!   it, and [`head`], the work's head, each the data of a source outside the work.
 //! - [`session`]: the sessions of each line of each work, worked out from the installation's id.
 //! - `held` and `process`: what a carrier holds while it carries something out, and the programs it runs to do so.
@@ -33,7 +33,7 @@
 pub mod account;
 mod acts;
 mod agents;
-mod branch;
+pub mod branch;
 pub mod catch_up;
 pub mod cli;
 mod cost;
@@ -69,7 +69,7 @@ use service::{Carriers, Rounds, Tools as ToolsTrait};
 use settings::Project;
 use tools::Tools;
 
-pub use acts::{MAIN, WATCH, Watch, Words, faults, main_faults, word_faults};
+pub use acts::{MAIN, WATCH, Watch, Words, begun, faults, main_faults, word_faults};
 pub use agents::{Agents, Of, ROUNDS};
 pub use branch::compared;
 pub use host::github::{GhOffsite, UPLOAD_RATE};
@@ -118,11 +118,7 @@ pub fn carry(
         return Err(faults.join("; "));
     }
     for (name, declared) in declared {
-        let mut project = declared.settings;
-        project.commits = beside.commits.clone();
-        let beside = declared.beside;
-        project.tree = beside.project.tree.clone();
-        project.guide = (beside.project.files.get(guide::FILE)).map_or_else(String::new, |file| file.path.clone());
+        let (project, beside) = carried(declared, &beside.commits);
         let tool = beside.tools.get(tools::RUN_TESTS).cloned();
         let unread = unread(&beside);
         // The check before the merge holds a change to what the project protects until the owner lets it merge.
@@ -190,6 +186,17 @@ pub fn carry(
         host: host_look,
     };
     Ok((carriers, watches))
+}
+
+/// A project as the carriers carry its works out: its settings, with how the engine's commits are made and where its
+/// declaration says its design tree and its guide are; and what is written beside the flows with its declaration.
+pub fn carried(declared: projects::Declared, commits: &flow::agents::Commits) -> (Project, flow::agents::Agents) {
+    let mut project = declared.settings;
+    project.commits = commits.clone();
+    let beside = declared.beside;
+    project.tree = beside.project.tree.clone();
+    project.guide = (beside.project.files.get(guide::FILE)).map_or_else(String::new, |file| file.path.clone());
+    (project, beside)
 }
 
 /// The tool `query` as these settings and the files beside the flows say; or why the settings cannot open it.

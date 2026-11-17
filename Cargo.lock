@@ -175,6 +175,7 @@ dependencies = [
  "decide",
  "flow",
  "serde",
+ "serde_json",
  "tempfile",
  "toml",
 ]
@@ -1185,7 +1186,9 @@ dependencies = [
  "cases",
  "clap",
  "context",
+ "decide",
  "driver",
+ "engine",
  "flow",
  "http-body-util",
  "hyper",
@@ -1193,10 +1196,12 @@ dependencies = [
  "serde",
  "serde_json",
  "service",
+ "sha1_smol",
  "store",
  "tempfile",
  "tokio",
  "web",
+ "work",
 ]
 
 [[package]]

@@ -61,15 +61,16 @@ pub fn commit(repo: &Path, name: &str) -> Result<String, String> {
 }
 
 /// A repository of the project's own at `dir`, cloned from the imported one sharing its objects, with only its main
-/// branch, at this commit, checked out.
+/// branch, at the commit of this name of the made project, checked out.
 pub fn project(imported: &Path, dir: &Path, main: &str) -> Result<PathBuf, String> {
+    let at = commit(imported, main)?;
     let from = imported.to_string_lossy();
     let to = dir.to_string_lossy();
     git(
         Path::new("."),
         &["clone", "--quiet", "--shared", "--no-checkout", &from, &to],
     )?;
-    git(dir, &["checkout", "--quiet", "-B", MAIN, main])?;
+    git(dir, &["checkout", "--quiet", "-B", MAIN, &at])?;
     git(dir, &["remote", "remove", "origin"])?;
     Ok(dir.to_path_buf())
 }

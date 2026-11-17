@@ -21,10 +21,10 @@ use crate::{guide, head, tree};
 /// What a datum of the branch is read with: the directory of the checkout that holds the design tree, the reference
 /// that holds main's head as its host last gave it, and the path of the project's guide.
 #[derive(Clone, Debug)]
-pub(crate) struct Reading {
-    pub(crate) tree: String,
-    pub(crate) main: String,
-    pub(crate) guide: String,
+pub struct Reading {
+    pub tree: String,
+    pub main: String,
+    pub guide: String,
 }
 
 /// A datum the engine reads of the work's branch, by the source that writes its block.
@@ -82,7 +82,7 @@ struct Kept {
 }
 
 /// What reads the work's branch for the blocks of its data, and says what it finds.
-pub(crate) struct Looking {
+pub struct Looking {
     reading: Reading,
     kept: Vec<Kept>,
 }
@@ -90,7 +90,7 @@ pub(crate) struct Looking {
 impl Looking {
     /// The look for the work as it is kept, each block of the flow that the branch's data are written into holding what
     /// its latest version says; none where the flow has no such block.
-    pub(crate) fn of(flow: &Compiled, work: &Work, reading: Reading) -> Looking {
+    pub fn of(flow: &Compiled, work: &Work, reading: Reading) -> Looking {
         let versions = decide::versions(&work.records);
         let kept = (flow.blocks.iter())
             .filter_map(|(block, declared)| {
@@ -110,7 +110,7 @@ impl Looking {
     /// Reads the work's branch, and gives each block of which it makes a new version with that version's content; the
     /// latest of each is then what was read. Where one cannot be read, none is taken, and the next look is made against
     /// the last versions there are, so that what this one missed is found by it.
-    pub(crate) async fn read(&mut self, place: &Place) -> Result<Vec<(BlockId, String)>, String> {
+    pub async fn read(&mut self, place: &Place) -> Result<Vec<(BlockId, String)>, String> {
         let mut new = Vec::new();
         for kept in &self.kept {
             if let Some(content) = kept.datum.read(place, &self.reading, kept.last.as_deref()).await? {
@@ -127,7 +127,7 @@ impl Looking {
 
     /// Reads the branch, and gives each new version as what the round hands in, which its run writes as it finishes; or
     /// why the branch could not be read, nothing being handed in then.
-    pub(crate) async fn handed_in(&mut self, place: &Place) -> Result<Vec<Handed>, String> {
+    pub async fn handed_in(&mut self, place: &Place) -> Result<Vec<Handed>, String> {
         let new = self.read(place).await?;
         let handed = (new.into_iter())
             .map(|(block, content)| Handed {

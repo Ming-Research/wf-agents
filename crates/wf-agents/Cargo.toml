@@ -13,7 +13,9 @@ carry = { path = "../carry" }
 cases = { path = "../cases" }
 clap = { version = "4.6.7", features = ["derive"] }
 context = { path = "../context" }
+decide = { path = "../decide" }
 driver = { path = "../driver" }
+engine = { path = "../engine" }
 flow = { path = "../flow" }
 # The commands that talk to a running engine send their requests with the HTTP library the engine serves with.
 http-body-util = "0.1.3"
@@ -22,11 +24,14 @@ hyper-util = { version = "0.1.21", features = ["tokio"] }
 serde.workspace = true
 serde_json = "1.0.154"
 service = { path = "../service" }
+# The hashes of what a case's cell was sent, by which a later run finds the cases whose texts changed.
+sha1_smol.workspace = true
 store = { path = "../store" }
 # The directories a run of the cell cases makes and removes.
 tempfile.workspace = true
-tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread"] }
+tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 web = { path = "../web" }
+work = { path = "../work" }
 
 [lints]
 workspace = true

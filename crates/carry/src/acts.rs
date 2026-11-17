@@ -313,17 +313,8 @@ impl<H: Host> Inner<H> {
         match act {
             "start" => {
                 let started = start(project, &self.host, &branch, &self.repository).await?;
-                looking().tell(&started.place, teller, false).await;
-                let content = fill(
-                    &words.start.text,
-                    &[
-                        ("branch", &started.place.reference()),
-                        ("worktree", &started.place.dir.display().to_string()),
-                        ("from", &started.from),
-                        ("main", &project.main),
-                    ],
-                );
-                Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
+                let came = begun(round, project, &started, read_with.clone(), teller, words).await;
+                Ok(Done::HandsIn(Box::new(came)))
             }
             "check" => {
                 if !self.take_turn(round.work, stop).await {
@@ -681,6 +672,33 @@ pub(crate) async fn merge(
 ) -> Result<String, NotMerged> {
     let _held = repository.lock().await;
     host.merge(branch, checked).await
+}
+
+/// What the start of a work hands in once its branch and worktree are made: what it reads of the branch said to the loop
+/// as written from outside, and its words of where the work is done, in each block it writes that is no choice. The
+/// engine's act `start` gives this once the host has given main's head and the branch is made; whoever stands in for
+/// the host, as the cell cases do, gives it the same way.
+pub async fn begun(
+    round: &Round,
+    project: &Project,
+    started: &Started,
+    reading: branch::Reading,
+    teller: &Teller,
+    words: &Words,
+) -> Came {
+    Looking::of(&round.flow, &round.kept, reading)
+        .tell(&started.place, teller, false)
+        .await;
+    let content = fill(
+        &words.start.text,
+        &[
+            ("branch", &started.place.reference()),
+            ("worktree", &started.place.dir.display().to_string()),
+            ("from", &started.from),
+            ("main", &project.main),
+        ],
+    );
+    Came::hands_in(prose(&outputs(&round.flow, round), &content))
 }
 
 /// Makes the work's branch from the head of main the host gives, and its worktree, holding the repository. Where the
