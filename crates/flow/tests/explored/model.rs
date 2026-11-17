@@ -434,6 +434,27 @@ impl Model {
             .expect("a choice has values")
     }
 
+    /// The value the content of a return of the cell at this place writes into each choice it writes, with what its
+    /// round was told.
+    fn content_values(&self, i: usize, told: &Told) -> BTreeMap<BlockId, String> {
+        (self.cells()[i].outputs.iter())
+            .filter(|b| self.choices.contains_key(*b))
+            .map(|b| {
+                let now = told.outputs.get(b).and_then(|s| s.value.as_ref());
+                (b.clone(), self.content_value(b, now))
+            })
+            .collect()
+    }
+
+    /// Of these values of choices, those a choice's file says stand with nothing but some blocks, each with its choice
+    /// and those blocks (`with_nothing_but`).
+    fn alone<'a>(
+        &'a self,
+        values: &'a BTreeMap<BlockId, String>,
+    ) -> impl Iterator<Item = (&'a BlockId, &'a Vec<BlockId>)> + 'a {
+        (values.iter()).filter_map(|(block, value)| Some((block, self.nothing_but.get(block)?.get(value)?)))
+    }
+
     /// The returns of the cell at this place other than its content, with whether a cell may give the same at every
     /// run from then on: a return that sends work round, which only the flow's limits can stop. Of its choices, each
     /// set of values but the content's, whose values these are now.
@@ -464,12 +485,22 @@ impl Model {
             }
             sets = more;
         }
+        // A value that stands with nothing but some blocks is handed in with no question, and, where the owner's words
+        // ran the round, after the answer to them, which a return of it cannot hold: no return holds both.
+        let content = self.content_values(i, told);
+        let spoken = self.spoken[i].as_ref().filter(|b| told.ran_by.contains(b));
+        let holds = |set: &BTreeMap<BlockId, String>, block: Option<&BlockId>| {
+            let mut values = content.clone();
+            values.extend(set.iter().map(|(b, v)| (b.clone(), v.clone())));
+            block.is_none_or(|block| self.alone(&values).all(|(_, only)| only.contains(block)))
+        };
         // A question with its content's choices, or with choices that skip the cell itself: one it leaves behind.
         let own: Vec<BlockId> = cell.applies.iter().flat_map(|k| self.key_reads(k)).collect();
-        for set in sets.iter().filter(|set| set.keys().all(|b| own.contains(b))) {
+        let asked = (sets.iter()).filter(|set| set.keys().all(|b| own.contains(b)));
+        for set in asked.filter(|set| holds(set, self.answered[i].as_ref()) && holds(set, spoken)) {
             out.push((Variant::Asks(set.clone()), false));
         }
-        for set in sets.into_iter().filter(|set| !set.is_empty()) {
+        for set in sets.into_iter().filter(|set| !set.is_empty() && holds(set, spoken)) {
             out.push((Variant::Choices(set), false));
         }
         if !self.forward[i].is_empty() {
@@ -531,13 +562,7 @@ impl Model {
             };
             return (ret, false);
         }
-        let mut values: BTreeMap<BlockId, String> = (cell.outputs.iter())
-            .filter(|b| self.choices.contains_key(*b))
-            .map(|b| {
-                let now = told.outputs.get(b).and_then(|s| s.value.as_ref());
-                (b.clone(), self.content_value(b, now))
-            })
-            .collect();
+        let mut values = self.content_values(i, told);
         let mut prose: Vec<BlockId> = Vec::new();
         if self.agent(i) {
             prose.extend(self.forward[i].iter().cloned());
@@ -578,7 +603,11 @@ impl Model {
                 );
             }
         }
+        // With a value that stands with nothing but some blocks, the return holds no other block (`with_nothing_but`).
+        let alone: Vec<(&BlockId, &Vec<BlockId>)> = self.alone(&values).collect();
+        let held = |block: &BlockId| (alone.iter()).all(|(choice, only)| *choice == block || only.contains(block));
         let writes = (cell.outputs.iter())
+            .filter(|block| held(block))
             .filter_map(|block| {
                 let value = values.get(block).cloned();
                 (value.is_some() || prose.contains(block)).then(|| Write {

@@ -625,12 +625,14 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
 
 /// Each way in which what came back does not meet what the flow requires, in one pass (principle `report-all-at-once`):
 /// first what was found as it was read, in the order found; then what it says it dealt with, in its order; then one
-/// for each write, in the order of the writes; then whether it asks for calls beside doing the cell's work; then
-/// whether it deals with nothing while something ran its round, asks for no call and has no question that waits for
-/// the owner's answer; then each block the cell must hand in and did not, in the order the cell lists them, where the
-/// return asks for no call, has no question that waits and its cell waits for no result, but one found written in a
-/// shape it does not take; then each question it writes that it may not, in the order it wrote them; then each block an
-/// act wrote that it deals with and leaves unanswered, in the order it dealt with them.
+/// for each write, in the order of the writes; then, of each choice it writes with a value that stands with nothing but
+/// some blocks, what else it holds; then whether it asks for calls beside doing the cell's work; then whether it deals
+/// with nothing while something ran its round, asks for no call and has no question that waits for the owner's answer;
+/// then each block the cell must hand in and did not, in the order the cell lists them, where the return asks for no
+/// call, has no question that waits, its cell waits for no result and it does more than answer the owner in the cell's
+/// own words, but one found written in a shape it does not take; then each question it writes that it may not, in the
+/// order it wrote them; then each block an act wrote that it deals with and leaves unanswered, in the order it dealt
+/// with them.
 fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     let Came {
         dealt_with,
@@ -692,6 +694,37 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             unmet.push(Unmet::ChoiceChanged { block: block() });
         }
     }
+    // A choice written with a value that stands with nothing but some blocks: the return holds no other block its cell
+    // may write, and asks and withdraws no question, but what the choice's file names. A block the cell may not write is
+    // said to be that alone.
+    for (i, write) in writes.iter().enumerate() {
+        let value = write.value.as_ref();
+        let only = value.and_then(|v| requires.nothing_but.get(&write.block)?.get(v));
+        let (Some(value), Some(only)) = (value, only) else {
+            continue;
+        };
+        if writes[..i].iter().any(|w| w.block == write.block) || !requires.outputs.contains(&write.block) {
+            continue;
+        }
+        let mut besides: Vec<BlockId> = Vec::new();
+        for other in writes.iter().map(|w| &w.block) {
+            let held = *other != write.block && !only.contains(other) && requires.outputs.contains(other);
+            if held && !besides.contains(other) {
+                besides.push(other.clone());
+            }
+        }
+        let asks = waits || !questions.is_empty();
+        if let Some(own) = requires.questions.filter(|q| asks && !only.contains(*q)) {
+            besides.push(own.clone());
+        }
+        if !besides.is_empty() {
+            unmet.push(Unmet::NothingBut {
+                block: write.block.clone(),
+                value: value.clone(),
+                besides,
+            });
+        }
+    }
     // A return of both kinds was found so as it was read, and is said so once.
     if calls > 0 && !(dealt_with.is_empty() && writes.is_empty()) && !found.contains(&Unmet::AsksAndWorks) {
         unmet.push(Unmet::AsksAndWorks);
@@ -746,7 +779,12 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     let misshapen = |block: &BlockId| {
         (found.iter()).any(|u| matches!(u, Unmet::NoValue { block: b } | Unmet::NotAChoice { block: b } if b == block))
     };
-    if calls == 0 && !waits && !told.waits {
+    // A return that deals with the cell's own words alone and writes nothing but its answer in them answers the owner
+    // first, and goes on with the cell's work in later rounds (design document `data-and-context`, 35).
+    let answers_alone = requires.words.is_some_and(|own| {
+        dealt_with == std::slice::from_ref(own) && writes.iter().all(|w| w.block == *own) && questions.is_empty()
+    });
+    if calls == 0 && !waits && !told.waits && !answers_alone {
         for block in requires.must_write {
             if !writes.iter().any(|w| w.block == *block) && !misshapen(block) {
                 unmet.push(Unmet::NotHandedIn { block: block.clone() });

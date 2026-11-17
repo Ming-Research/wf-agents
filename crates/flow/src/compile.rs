@@ -1430,6 +1430,31 @@ impl<'a> Definition<'a> {
                     Some(_) => {}
                 }
             }
+            // What a return that writes the choice with a value may hold beside it: a value of the choice, and blocks
+            // a cell that writes the choice may write.
+            let writers = &self.uses[name.as_str()].writers;
+            let may_write =
+                |output: &str| (writers.iter()).any(|(_, id)| self.cells[*id].outputs.iter().any(|o| o == output));
+            for (value, outputs) in &block.with_nothing_but {
+                let field = format!("with_nothing_but.{value}");
+                if !block.values.as_ref().is_some_and(|values| values.contains(value)) {
+                    let what = FaultKind::NothingButNotAValue {
+                        block: name.clone(),
+                        value: value.clone(),
+                    };
+                    faults.push(at(&field, what));
+                }
+                for (j, output) in outputs.iter().enumerate() {
+                    if !may_write(output) {
+                        let what = FaultKind::NothingButNotAnOutput {
+                            block: name.clone(),
+                            value: value.clone(),
+                            output: output.clone(),
+                        };
+                        faults.push(at(&format!("{field}[{j}]"), what));
+                    }
+                }
+            }
             if name == WHEN_TEST {
                 faults.push(at("", FaultKind::BlockNamedTest));
             }

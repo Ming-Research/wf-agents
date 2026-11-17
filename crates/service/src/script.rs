@@ -91,10 +91,11 @@
 //! when it has one: by default it has none, so that a script that says nothing of a judging cell has it content and
 //! does not send the work round until its limit; one the cell must write each time it writes all the same, so that the
 //! round is not sent back, and, where the block had a version as the run started, says the change does not matter, so
-//! that the work is not sent round for it either. A block handed in with no content or no value is given them the same
-//! way. The engine's own acts take no cost and no tokens. What a round returns depends on nothing but its flow, cell,
-//! run and round, and the versions its run started from, which its start recorded, so that a round given again after
-//! the process started again returns what it would have.
+//! that the work is not sent round for it either. Beside a value that stands with nothing but some blocks
+//! (`with_nothing_but`), it hands in those alone, so that it is not sent back for the rest. A block handed in with no
+//! content or no value is given them the same way. The engine's own acts take no cost and no tokens. What a round
+//! returns depends on nothing but its flow, cell, run and round, and the versions its run started from, which its
+//! start recorded, so that a round given again after the process started again returns what it would have.
 
 use std::collections::BTreeMap;
 
@@ -498,17 +499,26 @@ impl Script {
                     (readers.into_iter().flatten())
                         .any(|reader| matches!((flow.flow.place(reader), place), (Some(r), Some(p)) if r < p))
                 };
-                Came::hands_in(
-                    (outputs.iter())
-                        .filter(|block| !back(block) || cell.must_write.contains(block))
-                        .map(|block| Handed {
-                            block: block.clone(),
-                            content: content(block.as_str()),
-                            matters: !back(block) || !basis.get(block).is_some_and(Option::is_some),
-                            value: value(block.as_str()),
-                        })
-                        .collect(),
-                )
+                let handed: Vec<Handed> = (outputs.iter())
+                    .filter(|block| !back(block) || cell.must_write.contains(block))
+                    .map(|block| Handed {
+                        block: block.clone(),
+                        content: content(block.as_str()),
+                        matters: !back(block) || !basis.get(block).is_some_and(Option::is_some),
+                        value: value(block.as_str()),
+                    })
+                    .collect();
+                // Beside a value that stands with nothing but some blocks, those alone (`with_nothing_but`), as an
+                // agent that does as its task says hands it in.
+                let alone: Vec<(BlockId, Vec<BlockId>)> = (handed.iter())
+                    .filter_map(|h| {
+                        let only = flow.blocks.get(&h.block)?.with_nothing_but.get(h.value.as_ref()?)?;
+                        Some((h.block.clone(), only.clone()))
+                    })
+                    .collect();
+                let held =
+                    |h: &Handed| (alone.iter()).all(|(choice, only)| h.block == *choice || only.contains(&h.block));
+                Came::hands_in(handed.into_iter().filter(|h| held(h)).collect())
             }
         };
         // What it came across beyond its work is said beside the blocks it hands in.

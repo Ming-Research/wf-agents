@@ -230,6 +230,10 @@ export type What =
   | { kind: 'defaultNotAChoice'; block: string }
   /// The block counts before anyone writes it as a value that is not one of its values.
   | { kind: 'defaultNotAValue'; block: string; default: string }
+  /// The block says what a return with a value holds nothing else but, and the value is not one of its values.
+  | { kind: 'nothingButNotAValue'; block: string; value: string }
+  /// The block says a return with a value may hold another block, which no cell that writes the block may write.
+  | { kind: 'nothingButNotAnOutput'; block: string; value: string; output: string }
   /// A block is named `test`, which a cell's `when` reads as the name of a named test.
   | { kind: 'blockNamedTest' }
   /// A cell's `when` or `requires` has no keys.

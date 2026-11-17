@@ -547,6 +547,8 @@ export function unmetWords(unmet: Unmet): string {
       return `it handed in ${unmet.block} with a value, but it is not a choice`;
     case 'notHandedIn':
       return `it did not hand in ${unmet.block}, which the cell must hand in every time`;
+    case 'nothingBut':
+      return `it handed in ${unmet.block} as ${unmet.value}, and ${unmet.besides.join(', ')} besides, which no return of that value holds`;
     case 'unreadable':
       return `what it returned could not be read: ${unmet.why}`;
     case 'notRunBy':

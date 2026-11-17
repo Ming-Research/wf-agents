@@ -10,7 +10,9 @@
 //! it writes, its choices alone, its content with its opinions for the cells before it (all, or each alone), a judge's
 //! refusal with its reasons, its content with a question that waits for the owner (with the content's choices, or with
 //! choices that skip the cell itself), of the check's act a red check or a merge conflict, and on a path that spent
-//! nothing a return that is sent back. An agent's round that deals with what an act after its cell wrote commits,
+//! nothing a return that is sent back. A return that writes a value that stands with nothing but some blocks
+//! (`with_nothing_but`) holds nothing else, asks no question, and is not given where the owner's words ran its round,
+//! whose answer it could not hold. An agent's round that deals with what an act after its cell wrote commits,
 //! moving the work's head as it ends. A return that sends work round (opinions, a refusal, a send-back, a red check)
 //! may be given at every round of its cell from then on, for the same one spent: the flow's limits must stop it. What
 //! the outside writes, spending one: the owner speaks to a cell, changes the background, answers a question or takes
@@ -255,8 +257,15 @@ const NEVER: &[(&str, &str)] = &[
         "R2 asks the owner only where the research wrote the plan, deep_needed = no, and D2 runs only where it is \
          yes: an answer to R2's question reaches D2 only once the research has written yes since R2 asked, which takes \
          R2's question, a write from outside that runs the research again and a return of it with yes, past the bound. \
-         That D1 runs on an answer to R1's question, which the work waits for at R1, skipped once deep_needed is yes, \
-         is reached.",
+         That D2 then takes the answer is the context test's (crates/context/tests/engineer.rs).",
+    ),
+    (
+        "D1 ran on r1_questions",
+        "The research hands the work to the deep research with what it found alone and asks nothing as it does \
+         (decision the-research-hands-over-with-what-it-found-alone), so an answer to its question reaches D1 only once \
+         the research has written yes after the owner answered it: a return other than its content after a write from \
+         outside, past the bound. That the cell in charge takes an answer to the questions of the cell it took charge \
+         from is the context test's, on the plan's second looks (crates/context/tests/engineer.rs).",
     ),
     (
         "the work waited at M1 on the test settled",

@@ -327,6 +327,9 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'notHandedIn', block: 'verdict' })).toBe(
       'it did not hand in verdict, which the cell must hand in every time',
     );
+    expect(
+      unmetWords({ kind: 'nothingBut', block: 'deep_needed', value: 'yes', besides: ['plan_owner', 'r1_questions'] }),
+    ).toBe('it handed in deep_needed as yes, and plan_owner, r1_questions besides, which no return of that value holds');
     expect(unmetWords({ kind: 'notWatched', name: 'on_nothing' })).toBe(
       'it said it dealt with on_nothing, which does not run the cell',
     );

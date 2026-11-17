@@ -206,6 +206,23 @@ fn a_round_the_script_says_nothing_of_commits_where_it_hands_in_what_an_act_desc
 }
 
 #[test]
+fn a_round_the_script_says_nothing_of_hands_a_value_that_stands_alone_in_with_what_it_names_alone() {
+    let flow = engineer();
+    // The research's first value of `deep_needed` is yes, which stands with nothing but what it found: the plan and the
+    // answers in its dialogues, which no cell before it reads, are not handed in beside it.
+    let words = |block: &str| format!("The {block} as R1 wrote it in its run 1, round 1.");
+    assert_eq!(
+        Script::default()
+            .round(&flow, cell(&flow, "R1"), 1, 1, &BTreeMap::new())
+            .ends,
+        Ends::Came(Came::hands_in(vec![
+            handed("deep_needed", &words("deep_needed"), Some("yes")),
+            handed("found", &words("found"), None),
+        ]))
+    );
+}
+
+#[test]
 fn a_script_with_a_field_it_does_not_know_is_not_read() {
     assert!(Script::read("[took]\nseconds = 3\n").is_err());
     assert!(
