@@ -154,9 +154,6 @@ enum Became {
 /// `wf-agents cases run`: the cases asked, each built for its key, run where no kept try stands for it, judged and
 /// kept; what it says, ready for a pull request's comment.
 pub fn run(asked: &Asked, has: &flow::Has) -> Result<String, Vec<String>> {
-    if asked.spend.is_finite() {
-        return Err(vec!["the cases are not run yet".to_string()]);
-    }
     let c = &asked.cases;
     let read = super::read(c.flow_dir, c.cases_dir, has)?;
     let source = flow::read(c.flow_dir).map_err(|e| vec![format!("{}: {e}", c.flow_dir.display())])?;
@@ -260,11 +257,11 @@ pub fn run(asked: &Asked, has: &flow::Has) -> Result<String, Vec<String>> {
             tries.push(async move { (case, one.go(kept).await) });
         }
         for (case, result) in runtime.block_on(super::futures_all(tries)) {
-            if let Became::Ran(kept) = &result {
-                if let Err(why) = keep(asked.data, &compiled.name, kept) {
-                    became.push((case, Became::Refused(why)));
-                    continue;
-                }
+            if let Became::Ran(kept) = &result
+                && let Err(why) = keep(asked.data, &compiled.name, kept)
+            {
+                became.push((case, Became::Refused(why)));
+                continue;
             }
             became.push((case, result));
         }
