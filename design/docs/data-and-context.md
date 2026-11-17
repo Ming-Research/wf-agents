@@ -185,8 +185,11 @@ new session lacks it.
 
 34. A question the engine asks of a work, such as whether a change of a protected file may merge, is asked in the
     questions of the cell the flow names for it, one that can change the work as the answer asks and can be spoken to:
-    in the engineer flow, the implementation. The work waits for it (32), and the engine recommends nothing. Where it
-    is asked is the flow's, and never follows who made what it asks about (principle a-cell-knows-only-its-data).
+    in the engineer flow, the implementation. Of a protected change it recommends letting the change merge. Asked
+    early, as a round of a cell that may change the work ends, it does not hold the work, which goes by that option
+    until the owner answers (31); asked by the check before the merge, it holds the work (32); and the check does not
+    pass while it stands unanswered (33). Where it is asked is the flow's, and never follows who made what it asks
+    about (principle a-cell-knows-only-its-data).
 
 ## The owner's words
 

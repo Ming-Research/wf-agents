@@ -254,6 +254,16 @@ of each part.
     holding everything the round saw, can. Asking why it acted as it did is refused whole by the model's safety check
     (it happened on 2026-11-08).
 
+    Where an agent did what its cell did not mean, the words are traced before they change. Each guess at which
+    words led it there is written down first, with those words. A fork of its session, from the end of the round it
+    went wrong in, is asked of each guess what those words told it and which sentence it went by, quoting it, the
+    guess itself not told; and once more, what else it was given bore on it. Only a guess its answers bear out leads
+    to a change. A fork from the same moment is then given the changed words and asked the same questions, and the
+    words change again until it reads them as the cell means. Only then is the round given to a fork from the same
+    moment as it would now read it, and it hands in the round's return again: the change stands where that return
+    does what the cell means. In work 11, of three guesses at why an answer to the owner was put off for three
+    rounds, the fork bore out two and showed the third wrong, which would have changed words that were not at fault.
+
 35. What is read of each round is read where it shows: its inputs on the round's panel, as they were sent, and in its
     line's system prompt, against what its cell names and the order the flow declares (principle cache-order); its
     return, what was sent back and why, and the engine's reason for what runs next, on the work's page; what its agent

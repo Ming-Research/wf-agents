@@ -885,12 +885,13 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
 
   it("shows the engine's question of a protected change with each file, the reason given for it and its change", async () => {
     const sent: Sent = [];
-    // As the engine fills its words of the question: each file by its path, what became of it and why, and its diff.
+    // As the engine fills its words of the question (`flow/agents/asks.toml`): each file by its path and why, and its
+    // diff.
     const ask = [
-      "Whether this work's change to files that govern the agents may merge: the project protects them, and only the owner changes them.",
-      "`flow/agents/tools/run_tests.toml`, changed. Why, in the work's words: The tool needs a longer timeout.",
+      'This work changes files the project protects.',
+      '`flow/agents/tools/run_tests.toml`: The tool needs a longer timeout.',
       '```diff\n-ms = 1000\n+ms = 2000\n```',
-      "`flow/project.toml`, added. Why, in the work's words: it gives none.",
+      '`flow/project.toml`: it gives none.',
       '```diff\n+name = "x"\n```',
     ].join('\n\n');
     const protectedFiles = question('protected_files', {
@@ -900,9 +901,13 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
       ask,
       options: [
         { does: 'Let it merge', follows: 'the change merges with the work as it stands.' },
-        { does: 'Take it back', follows: 'the work takes the change back.' },
+        {
+          does: 'Take it back',
+          follows:
+            'the work takes the change back; it does not merge while it changes these files, unless you let a change of them merge.',
+        },
       ],
-      recommends: null,
+      recommends: 1,
       version: 44,
     });
     const el = drawQuestions(
@@ -915,14 +920,14 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(card.className).toBe('cw-choice cw-choice-holds');
     expect(text(card, '.cw-choice-q p code')).toEqual(['flow/agents/tools/run_tests.toml', 'flow/project.toml']);
     expect(text(card, '.cw-choice-q p').slice(1)).toEqual([
-      "flow/agents/tools/run_tests.toml, changed. Why, in the work's words: The tool needs a longer timeout.",
-      "flow/project.toml, added. Why, in the work's words: it gives none.",
+      'flow/agents/tools/run_tests.toml: The tool needs a longer timeout.',
+      'flow/project.toml: it gives none.',
     ]);
     expect([...card.querySelectorAll('.cw-choice-q pre.content')].map((p) => p.textContent)).toEqual([
       '-ms = 1000\n+ms = 2000',
       '+name = "x"',
     ]);
-    expect(options(el)).toEqual([['Let it merge', 'Take it back']]);
+    expect(options(el)).toEqual([['Let it mergeRecommended', 'Take it back']]);
     pick(el, 0, 0);
     await act(async () => button(el, 'Confirm (1/1)').click());
     expect(sent).toEqual([[12, { kind: 'answer', question: 'protected_files', version: 44, option: 1 }]]);

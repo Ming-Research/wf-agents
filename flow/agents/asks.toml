@@ -1,33 +1,30 @@
 # What the engine itself asks the owner, from what it finds of a work. None of it is an agent's word, and it recommends
-# none of its options (principle a-question-is-a-choice).
+# the option `merges` names (principle a-question-is-a-choice).
 
 # Asked where the work's own change touches a path `../project.toml` protects (`[protected]`): by the check before the
 # merge, which does not pass while that change is not one the owner let merge by the option `merges` names, and as a
 # round of a cell that may change the work ends, so that the owner is asked early, once the work says why each file of
-# the change is needed (`protected_changes`, `return/fields/`). A question, which waits, of the cell the flow names for what
-# the engine asks (`engine_asks_in` in its `flow.toml`), so that the work stops at that cell until the owner answers,
-# and the merge waits while it stands unanswered. Asked again under its name where that change is
+# the change is needed (`protected_changes`, `return/fields/`). A question of the cell the flow names for what the engine
+# asks (`engine_asks_in` in its `flow.toml`): asked early, it does not hold the work, which goes on to its reviews, and
+# the check before the merge waits while it stands unanswered; asked by the check itself, it holds the work at that cell
+# until the owner answers. Asked again under its name where that change is
 # another, or the work gives another reason for it before the owner answered, or it was answered with another option
 # than `merges`; withdrawn, with `withdrawn`, where the work no longer touches such a path. In `ask`, `{files}` is the
-# files the change touches, each as `file` says, a blank line between two: `{path}` its path, `{change}` one of
-# `added`, `changed` and `deleted`, `{why}` why the work says the change is needed, in its agent's words, or
-# `no_reason` where it says nothing, as where the check finds a change no round explained, and `{diff}` the file's
-# change itself, against where the work's branch left main.
+# files the change touches, each as `file` says, a blank line between two: `{path}` its path, `{why}` why the work says
+# the change is needed, in its agent's words, or `no_reason` where it says nothing, as where the check finds a change
+# no round explained, and `{diff}` the file's change itself, against where the work's branch left main.
 [protected]
 name = "protected_files"
 ask = '''
-Whether this work's change to files that govern the agents may merge: the project protects them, and only the owner changes them.
+This work changes files the project protects.
 
 {files}'''
 file = '''
-`{path}`, {change}. Why, in the work's words: {why}
+`{path}`: {why}
 
 ```diff
 {diff}
 ```'''
-added = "added"
-changed = "changed"
-deleted = "deleted"
 no_reason = "it gives none."
 withdrawn = "The work no longer changes a file the project protects."
 merges = 1

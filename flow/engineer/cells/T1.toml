@@ -16,7 +16,8 @@ records and `decisions` does not give a reason that holds for. Is it sound in st
 every place where the same thing happens, not only the one the item names? Does `evidence` show each condition on the
 change, each new test red before the change where its kind needs it and worth its time? Is each exception or expected
 value the change gives a check a choice of the design, not a fault it hides? Where cost per operation can change, is
-what it can slow measured? Do the entries written into `design/` say what `tree_edits` says, and no more?
+what it can slow measured? Do the entries written into `design/` say what `tree_edits` says, and no more? Is each
+change of a file the project protects one the work needs?
 
 List every point at once in `review`: this is your one chance, and nothing is raised later that could be raised now.
 Leave out preferences: the engineer fixes nearly all a review raises, so a wrong point makes good code worse.
