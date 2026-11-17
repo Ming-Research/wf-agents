@@ -78,7 +78,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 {
                     "cell": "plan",
                     "needs": for_the_request,
-                    "inputs": [json!({ "block": "request", "current": 3, "known": null, "changed": true })],
+                    // Each version by its number among its block's versions: the request's first.
+                    "inputs": [json!({ "block": "request", "current": 1, "known": null, "changed": true })],
                 },
                 {
                     "cell": "build",
@@ -97,9 +98,10 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "name": "dependencies",
                     "versions": [{
                         "at": 2,
+                        "number": 1,
                         "time": START,
                         "by": { "kind": "outside" },
-                        "meaning": 2,
+                        "meaning": 1,
                         "value": "merged",
                         "saidTo": null,
                         "chars": 42,
@@ -110,9 +112,10 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "name": "request",
                     "versions": [{
                         "at": 3,
+                        "number": 1,
                         "time": START,
                         "by": { "kind": "owner" },
-                        "meaning": 3,
+                        "meaning": 1,
                         "value": null,
                         "saidTo": null,
                         "chars": 23,
@@ -152,7 +155,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "because": for_the_request,
                     "basis": [
                         { "block": "plan", "version": null },
-                        { "block": "request", "version": 3 },
+                        { "block": "request", "version": 1 },
                     ],
                     "rounds": [{
                         "number": 1,
@@ -204,8 +207,8 @@ async fn a_version_a_round_and_a_call_are_given_with_their_content() {
     let router = &running.router;
     greeted(router).await;
     assert_eq!(
-        get_json(router, "/api/v1/works/1/versions/request/3").await,
-        json!({ "block": "request", "at": 3, "content": "Greet the user, please." })
+        get_json(router, "/api/v1/works/1/versions/request/1").await,
+        json!({ "block": "request", "number": 1, "content": "Greet the user, please." })
     );
     assert_eq!(
         get_json(router, "/api/v1/works/1/runs/1/rounds/1").await,
@@ -251,8 +254,8 @@ async fn what_there_is_none_of_is_refused_with_why() {
         (none, "There is no work 9.".to_string())
     );
     assert_eq!(
-        refused(router, "/api/v1/works/1/versions/request/4").await,
-        (none, "Work 1 has no version of request at 4.".to_string())
+        refused(router, "/api/v1/works/1/versions/request/2").await,
+        (none, "Work 1 has no version 2 of request.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/runs/1/rounds/7").await,

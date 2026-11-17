@@ -19,7 +19,7 @@
 //! a cell that requires it, as the merge's check does, waits while a question stands unanswered.
 
 use decide::questions::questions;
-use decide::{Answered, BlockId, CellId, Outsider, Questioned, RunId, Seq, Written};
+use decide::{Answered, BlockId, CellId, Outsider, Questioned, Records, RunId, Seq, Written};
 use flow::Compiled;
 use flow::agents::fill;
 use work::{Question, Way, Work};
@@ -54,6 +54,15 @@ pub fn questions_of<'f>(flow: &'f Compiled, cell: &CellId) -> Option<&'f BlockId
     own(flow, cell, flow::ANSWER)
 }
 
+/// The number of the version of the cell's questions that the engine wrote with this entry of the records, a version of
+/// a question or an answer to one: the version written at the place right after it, in the same act as the entry, by
+/// which an agent and the owner know it (decision a-version-is-numbered-within-its-datum). None where none was written
+/// with it, as of a cell with no questions of its own.
+pub fn number_of(flow: &Compiled, records: &Records, cell: &CellId, at: Seq) -> Option<u64> {
+    let block = questions_of(flow, cell)?;
+    records.number([block], Seq(at.0 + 1))
+}
+
 /// The block among the outputs of the cell of this id that this source of the engine's writes: a cell's own questions
 /// or its own words.
 pub(crate) fn own<'f>(flow: &'f Compiled, cell: &CellId, source: &str) -> Option<&'f BlockId> {
@@ -72,10 +81,10 @@ pub(crate) fn record(flow: &Compiled, work: &mut Work, run: RunId, cell: &CellId
         _ => cell,
     };
     for question in asked {
-        // The version it replaces, or withdraws: its latest before this one.
+        // The version it replaces, or withdraws: its latest before this one, by its number.
         let was = (work.records.questions.iter().rev())
             .find(|q| q.name == question.name())
-            .map(|q| q.at);
+            .and_then(|q| number_of(flow, &work.records, &q.cell, q.at));
         let at = work.tick();
         work.records.questions.push(Questioned {
             name: question.name().to_string(),
@@ -87,7 +96,8 @@ pub(crate) fn record(flow: &Compiled, work: &mut Work, run: RunId, cell: &CellId
             at,
         });
         if let Some(block) = questions_of(flow, cell) {
-            let content = entry(&flow.blocks[block].writes, question, at, was);
+            let number = work.records.next_number([block]);
+            let content = entry(&flow.blocks[block].writes, question, number, was);
             write(work, block, content, false);
         }
     }
@@ -97,11 +107,12 @@ pub(crate) fn record(flow: &Compiled, work: &mut Work, run: RunId, cell: &CellId
 /// asked anew in place of the version `was`, `asked_anew`, each with `{question}` its name, `{version}` this version,
 /// `{ask}` what it asks, `{options}` each option as `option` says it, `{recommends}` as `recommends` says it where it
 /// recommends one, and `{waits}` as `waits` says it where its cell waits for the answer, else as `goes_on` does;
-/// withdrawn, `withdrawn`, with `{was}` the version withdrawn and `{why}` why, as `why` says it.
-fn entry(writes: &flow::Texts, question: &Question, version: Seq, was: Option<Seq>) -> String {
+/// withdrawn, `withdrawn`, with `{was}` the version withdrawn and `{why}` why, as `why` says it. Each version is told
+/// by its number among the versions of the cell's questions.
+fn entry(writes: &flow::Texts, question: &Question, version: u64, was: Option<u64>) -> String {
     let text = |name: &str| writes.get(name).unwrap_or_default();
-    let version = version.0.to_string();
-    let was = was.map_or_else(String::new, |was| was.0.to_string());
+    let version = version.to_string();
+    let was = was.map_or_else(String::new, |was| was.to_string());
     match question {
         Question::Asked {
             name,
@@ -168,23 +179,30 @@ fn write(work: &mut Work, block: &BlockId, content: String, matters: bool) {
     });
 }
 
-/// Takes the owner's answer to the version of the question: kept, and written as the next version of the questions
-/// of the cell whose question it is, in the words of their file, changing their meaning where it answers the question
-/// as last asked with another option than the one the work goes by; or why it cannot be one.
+/// Takes the owner's answer to the version of the question of this number ([`number_of`]): kept, and written as the
+/// next version of the questions of the cell whose question it is, in the words of their file, changing their meaning
+/// where it answers the question as last asked with another option than the one the work goes by; or why it cannot be
+/// one.
 pub(crate) fn answer(
     flow: &Compiled,
     work: &mut Work,
     question: String,
-    version: decide::Seq,
+    version: u64,
     option: u64,
 ) -> Result<(), Refused> {
     let r = &work.records;
     if !r.questions.iter().any(|q| q.name == question) {
         return Err(Refused::NoSuchQuestion(question));
     }
-    let Some(asked) = (r.questions.iter()).find(|q| q.name == question && q.at == version && !q.withdrawn) else {
+    // The latest version of the question of that number: one the engine asks in the cell of the round it asks it with,
+    // where the flow names no cell for it, has versions in the questions of more than one cell, each numbered among its
+    // own cell's, and the owner answers its latest.
+    let numbered = |q: &&Questioned| q.name == question && number_of(flow, r, &q.cell, q.at) == Some(version);
+    let Some(asked) = (r.questions.iter()).rfind(numbered).filter(|q| !q.withdrawn) else {
         return Err(Refused::NoSuchVersion { question, version });
     };
+    // The place of the version answered, which the records name it by.
+    let place = asked.at;
     let way = match work.question(asked) {
         Some(Question::Asked { options, .. }) => (option as usize).checked_sub(1).and_then(|i| options.get(i)),
         _ => None,
@@ -193,7 +211,7 @@ pub(crate) fn answer(
         return Err(Refused::NotAnOption { question, option });
     };
     let standing = questions(r).get(question.as_str()).copied();
-    let latest = standing.is_some_and(|s| s.latest.at == version);
+    let latest = standing.is_some_and(|s| s.latest.at == place);
     // The option the work goes by before this answer.
     let goes_by = match standing {
         Some(s) if latest => match (s.answer, work.question(s.latest)) {
@@ -208,7 +226,7 @@ pub(crate) fn answer(
     let at = work.tick();
     work.records.answers.push(Answered {
         question: question.clone(),
-        version,
+        version: place,
         option,
         why: None,
         at,
@@ -229,16 +247,17 @@ pub(crate) fn answer(
 /// An answer, as the words that say it are filled.
 struct Said<'a> {
     question: &'a str,
-    version: decide::Seq,
+    /// The number of the version answered.
+    version: u64,
     option: u64,
     way: &'a Way,
 }
 
 impl Said<'_> {
     /// The words of the block's `writes` for an answer, `text`, with `{question}` the question's name, `{version}` the
-    /// version answered, `{option}` the option's number, and `{does}` and `{follows}` the option's.
+    /// version answered, by its number, `{option}` the option's number, and `{does}` and `{follows}` the option's.
     fn words(&self, writes: &flow::Texts) -> String {
-        let (version, option) = (self.version.0.to_string(), self.option.to_string());
+        let (version, option) = (self.version.to_string(), self.option.to_string());
         let places = [
             ("question", self.question),
             ("version", version.as_str()),

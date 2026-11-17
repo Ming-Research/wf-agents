@@ -252,6 +252,12 @@ impl Part for Asking {
                 {
                     version = q.latest.at;
                 }
+                // Answered by its number among the versions of its cell's questions, which each cell of the flow that
+                // is asked in has.
+                let asked = (r.questions.iter()).find(|q| q.name == name && q.at == version);
+                let asked = asked.expect("a version of the question");
+                let version = engine::asked::number_of(&d.flow, r, &asked.cell, asked.at);
+                let version = version.expect("a version of its cell's questions");
                 let option = 1 + d.rng.below(3) as u64;
                 Event::Answer {
                     question: name,

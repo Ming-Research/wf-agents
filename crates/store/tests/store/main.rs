@@ -27,10 +27,11 @@ use store::{Storage, Store, WorkNumber};
 use tempfile::TempDir;
 use work::{Fill, Filled};
 
-/// A writer that reads a request, the outside's main and the opinions on what it wrote; a judge that reads what the
-/// writer wrote and the outside's checks, a choice, and writes opinions for the writer and a verdict, a choice; and a
-/// merge, the engine's own cell, that waits for the owner's word: a choice, `go`, that people write and a named test
-/// reads. Returns may be sent back twice, a run may make three calls, and a cell may go round three times.
+/// A writer that reads a request, the outside's main and the opinions on what it wrote, and asks the owner in questions
+/// of its own, beside words of its own; a judge that reads what the writer wrote and the outside's checks, a choice,
+/// and writes opinions for the writer and a verdict, a choice; and a merge, the engine's own cell, that waits for the
+/// owner's word: a choice, `go`, that people write and a named test reads. Returns may be sent back twice, a run may
+/// make three calls, and a cell may go round three times.
 fn judged() -> Compiled {
     let flow = r#"
         name = "judged"
@@ -64,6 +65,10 @@ fn judged() -> Compiled {
         people = true
         [blocks.merged]
         shown = true
+        [blocks.write_questions]
+        outside = "answer"
+        [blocks.write_words]
+        outside = "words"
     "#;
     let write = r#"
         title = "Write"
@@ -71,13 +76,15 @@ fn judged() -> Compiled {
         effort = "high"
         line = "main"
         task = "Write the text the request asks for."
-        watches = ["request", "opinions", "main"]
-        outputs = ["text"]
+        watches = ["request", "opinions", "main", "write_questions", "write_words"]
+        outputs = ["text", "write_questions", "write_words"]
 
         [kinds]
         request = "last_and_latest"
         opinions = "last_and_latest"
         main = "last_and_latest"
+        write_questions = "all"
+        write_words = "all"
     "#;
     let judge = r#"
         title = "Judge"
@@ -109,7 +116,7 @@ fn judged() -> Compiled {
         ..Default::default()
     };
     let has = Has {
-        sources: ["main".to_string()].into(),
+        sources: ["main", "answer", "words"].map(str::to_string).into(),
         acts: ["merge".to_string()].into(),
         ..Default::default()
     };
@@ -408,10 +415,10 @@ fn history(d: &mut Driver) {
         reasons: BTreeMap::new(),
     }];
     d.end(came);
-    let version = d.work.records.questions.last().expect("the question is kept").at;
+    // The question is the first version of the writer's questions, which the owner answers it by.
     d.on(Event::Answer {
         question: "which".to_string(),
-        version,
+        version: 1,
         option: 2,
     });
     // Sent back twice, then the owner is called at the limit of returns and lets the run go on.

@@ -90,11 +90,12 @@ pub enum Values<'a> {
     Run(&'a Run),
 }
 
-/// What a round fills the places of its message with.
+/// What a round fills the places of its message with. A version is told by its number among the versions of its datum,
+/// never by its place in the records (decision a-version-is-numbered-within-its-datum).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Run {
-    /// Each block the last return in the session handed in, with the version it is kept as.
-    pub taken: Vec<(BlockId, Seq)>,
+    /// Each block the last return in the session handed in, with the number of the version it is kept as.
+    pub taken: Vec<(BlockId, u64)>,
     /// The work's number.
     pub work: String,
     /// The number of the item the work is done for, and its title.
@@ -114,6 +115,8 @@ pub struct Run {
     /// Why what the rounds of the run returned was sent back, each with the number of an earlier round, or none for
     /// the round's own, in their order.
     pub sent_back: Vec<(Option<usize>, Vec<Unmet>)>,
+    /// The number of each version a reason for sending back names, by its block and the place it was written at.
+    pub numbers: BTreeMap<(BlockId, Seq), u64>,
     /// Each version the round's own return would have written over, of a block the cell is not given, which its
     /// session lacks: given with why it was sent back, as a datum given `latest` is.
     pub written_over: Vec<(BlockId, Version)>,
@@ -124,27 +127,29 @@ pub struct Run {
 pub struct Datum {
     /// Its latest version.
     pub latest: Version,
-    /// The version the cell last worked from; none where it worked from none.
-    pub last: Option<Seq>,
+    /// The number of the version the cell last worked from; none where it worked from none.
+    pub last: Option<u64>,
     /// What changed from the version last worked from to the latest, where it is sent so.
     pub diff: Option<String>,
     /// Of a datum given `all`, each version sent, the first first.
     pub versions: Vec<Version>,
 }
 
-/// The versions a round is told of a datum or group new to it: of a group, its blocks' latest of each.
+/// The versions a round is told of a datum or group new to it, by their numbers: of a group, among the versions of the
+/// group, each place that wrote any of its blocks being one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NewVersions {
     /// The version the cell last consumed; none where it consumed none.
-    pub last: Option<Seq>,
+    pub last: Option<u64>,
     /// The latest version.
-    pub latest: Seq,
+    pub latest: u64,
 }
 
 /// A version of a datum.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Version {
-    pub number: Seq,
+    /// Its number among the versions of its datum, the first being 1.
+    pub number: u64,
     /// Its value, where the datum is a choice.
     pub value: Option<String>,
     pub content: String,
@@ -567,8 +572,8 @@ impl Build<'_> {
                 Some(run) => {
                     let each = part.each.as_deref().unwrap_or_default();
                     let items: Vec<String> = (run.taken.iter())
-                        .map(|(block, at)| {
-                            let number = at.0.to_string();
+                        .map(|(block, number)| {
+                            let number = number.to_string();
                             text::as_written(&fill(each, &[("block", block.as_str()), ("number", &number)]))
                         })
                         .collect();
@@ -837,7 +842,12 @@ impl Build<'_> {
             Unmet::DealtWithTwice { block: b } => (&f.dealt_with_twice, vec![("name", watched(b))]),
             Unmet::DealtWithNothing => (&f.dealt_with_nothing, vec![]),
             Unmet::WrittenOver { block: b, version } => {
-                (&f.written_over, vec![block(b), ("version", version.0.to_string())])
+                let numbers = self.run().map(|run| &run.numbers);
+                let number = numbers.and_then(|n| n.get(&(b.clone(), *version)));
+                (
+                    &f.written_over,
+                    vec![block(b), ("version", number.map_or_else(String::new, u64::to_string))],
+                )
             }
             Unmet::ChoiceChanged { block: b } => (&f.choice_changed, vec![block(b)]),
             Unmet::AsksAndWorks => (&f.asks_and_works, vec![]),
@@ -884,10 +894,10 @@ impl Build<'_> {
                     latest,
                 }) => fill(
                     &words(&part.since),
-                    &[("last", &last.0.to_string()), ("latest", &latest.0.to_string())],
+                    &[("last", &last.to_string()), ("latest", &latest.to_string())],
                 ),
                 Some(NewVersions { last: None, latest }) => {
-                    fill(&words(&part.first), &[("latest", &latest.0.to_string())])
+                    fill(&words(&part.first), &[("latest", &latest.to_string())])
                 }
                 None => Vec::new(),
             },
@@ -964,8 +974,8 @@ impl Build<'_> {
 
     /// A text of a datum with the places of this version of it filled.
     fn filled_by(&self, pieces: Vec<Piece>, datum: &Datum, version: &Version) -> Vec<Piece> {
-        let number = version.number.0.to_string();
-        let last = datum.last.map(|l| l.0.to_string()).unwrap_or_default();
+        let number = version.number.to_string();
+        let last = datum.last.map(|l| l.to_string()).unwrap_or_default();
         let given = &self.words.given;
         let by = match &version.by {
             By::Line(line) => given.by_line.replace("{line}", line),

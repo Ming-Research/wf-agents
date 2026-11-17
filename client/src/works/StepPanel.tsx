@@ -44,7 +44,8 @@ import {
 
 /// What the panels read the contents through, each read once.
 export interface Reader {
-  version(block: string, at: number): Promise<string>;
+  /// The content of the block's version of this number.
+  version(block: string, number: number): Promise<string>;
   /// A round in full; kept once read only where the round had ended, since one under way has more to come.
   round(run: number, number: number, ended: boolean): Promise<RoundPage>;
   /// What a round was told and returned, as its carrier kept them; kept once read only where the round had ended.
@@ -75,15 +76,18 @@ const RUN_TONES: Record<RunState, Tone> = {
 
 const chars = (n: number) => `${n.toLocaleString('en')} chars`;
 
-/// A version of a block, named by its place: `plan@12`.
-function VersionName({ block, at }: { block: string; at: number | null }) {
+/// A version of a block, named by its number among the block's versions: `plan v2`.
+function VersionName({ block, number }: { block: string; number: number | null }) {
   return (
     <span className="mono">
-      {block}
-      <span className="muted">@{at ?? 'none'}</span>
+      {block} <span className="muted">{number === null ? 'none' : `v${number}`}</span>
     </span>
   );
 }
+
+/// The version of the block written at this place, where there is one.
+const versionAt = (page: WorkPage, block: string, at: number) =>
+  page.blocks.find((b) => b.name === block)?.versions.find((v) => v.at === at);
 
 /// What a run said of a change it handed in: it is its word, which the engine takes for prose and not for a choice.
 export function saidWords(handed: Handed): string {
@@ -275,13 +279,13 @@ function RoundPart({ run, round, reader, shown }: { run: Run; round: Round; read
 /// value does, whatever the run said; prose, when the run said the change matters. A first version handed in as
 /// changing nothing has no meaning: the block has said nothing yet.
 function MeaningWord({ page, block, at }: { page: WorkPage; block: string; at: number }) {
-  const version = page.blocks.find((b) => b.name === block)?.versions.find((v) => v.at === at);
+  const version = versionAt(page, block, at);
   if (!version) return null;
   if (version.meaning === null) return <span className="muted">said nothing yet</span>;
-  return version.meaning === version.at ? (
+  return version.meaning === version.number ? (
     <span className="changed-word">changed its meaning</span>
   ) : (
-    <span className="muted">kept the meaning of @{version.meaning}</span>
+    <span className="muted">kept the meaning of v{version.meaning}</span>
   );
 }
 
@@ -325,7 +329,7 @@ export function RunPanel({ run, page, reader, fold }: PanelProps & { run: Run })
         <ul>
           {run.basis.map((b) => (
             <ListRow key={b.block}>
-              <VersionName block={b.block} at={b.version} />
+              <VersionName block={b.block} number={b.version} />
               {b.version === null ? (
                 <span className="muted">no version yet</span>
               ) : (
@@ -371,14 +375,22 @@ export function RunPanel({ run, page, reader, fold }: PanelProps & { run: Run })
               {end.writes.length === 0 ? 'nothing' : `${end.writes.length} block${end.writes.length === 1 ? '' : 's'}`}
             </p>
             <ul>
-              {end.writes.map((w) => (
-                <HandedRow
-                  key={w.block}
-                  handed={w}
-                  load={() => reader.version(w.block, end.at)}
-                  meaning={<MeaningWord page={page} block={w.block} at={end.at} />}
-                />
-              ))}
+              {end.writes.map((w) => {
+                // The version the run wrote, read by its number among the block's versions.
+                const number = versionAt(page, w.block, end.at)?.number;
+                return (
+                  <HandedRow
+                    key={w.block}
+                    handed={w}
+                    load={() =>
+                      number === undefined
+                        ? Promise.reject(new Error(`The work shows no version of ${w.block} its run wrote`))
+                        : reader.version(w.block, number)
+                    }
+                    meaning={<MeaningWord page={page} block={w.block} at={end.at} />}
+                  />
+                );
+              })}
             </ul>
           </>
         )}
@@ -400,11 +412,11 @@ export function readersWords(flow: Flow, block: string): string {
 
 /// A write a return did not hand in, by the owner, a cell's question or the outside, as a step of its own.
 export function WritePanel({ step, page, reader, fold }: PanelProps & { step: Step & { kind: 'wrote' } }) {
-  const version = page.blocks.find((b) => b.name === step.block)?.versions.find((v) => v.at === step.at);
+  const version = versionAt(page, step.block, step.at);
   return (
     <Panel
       label={`Write of ${step.block}`}
-      id={`@${step.at}`}
+      id={version === undefined ? undefined : `v${version.number}`}
       title={<span className="mono">{step.block}</span>}
       belongs={`written by ${writerWords(step.by)}`}
       lines={
@@ -416,7 +428,7 @@ export function WritePanel({ step, page, reader, fold }: PanelProps & { step: St
               {step.changed
                 ? 'the cells that read it run again for it'
                 : version && version.meaning !== null
-                  ? `as at @${version.meaning}`
+                  ? `as at v${version.meaning}`
                   : undefined}
             </StatusLine>
           )}
@@ -436,7 +448,14 @@ export function WritePanel({ step, page, reader, fold }: PanelProps & { step: St
         <p className="muted">{readersWords(page.flow, step.block)}</p>
       </PanelPart>
       <PanelPart label="Content">
-        <Opener label="content" load={() => reader.version(step.block, step.at)} />
+        <Opener
+          label="content"
+          load={() =>
+            version === undefined
+              ? Promise.reject(new Error(`The work shows no version of ${step.block} written here`))
+              : reader.version(step.block, version.number)
+          }
+        />
       </PanelPart>
     </Panel>
   );
@@ -567,8 +586,8 @@ export function WorkCellPanel({ cell, page, fold, onChoose }: PanelProps & { cel
             <ListRow key={input.block}>
               <span className="mono">{input.block}</span>
               <span className="muted">
-                now <span className="mono">@{input.current ?? 'none'}</span>, its record knows{' '}
-                <span className="mono">@{input.known ?? 'none'}</span>
+                now <span className="mono">{input.current === null ? 'none' : `v${input.current}`}</span>, its record knows{' '}
+                <span className="mono">{input.known === null ? 'none' : `v${input.known}`}</span>
               </span>
               {input.changed && <span className="changed-word">changed in meaning</span>}
             </ListRow>
@@ -586,7 +605,7 @@ function BlockVersions({ block, reader }: { block: Block; reader: Reader }) {
       <ul>
         {block.versions.map((v) => (
           <ListRow key={v.at}>
-            <span className="mono muted">@{v.at}</span>
+            <span className="mono muted">v{v.number}</span>
             <span>{writerWords(v.by)}</span>
             <span className="muted small" title={fullTime(v.time)}>
               {clock(v.time)}
@@ -595,12 +614,12 @@ function BlockVersions({ block, reader }: { block: Block; reader: Reader }) {
             {v.meaning === null ? (
               <span className="muted">said nothing yet</span>
             ) : (
-              <span className={v.meaning === v.at ? 'changed-word' : 'muted'}>
-                {v.meaning === v.at ? 'changed the meaning' : `same meaning as @${v.meaning}`}
+              <span className={v.meaning === v.number ? 'changed-word' : 'muted'}>
+                {v.meaning === v.number ? 'changed the meaning' : `same meaning as v${v.meaning}`}
               </span>
             )}
             <span className="muted small">{chars(v.chars)}</span>
-            <Opener label="content" load={() => reader.version(block.name, v.at)} />
+            <Opener label="content" load={() => reader.version(block.name, v.number)} />
           </ListRow>
         ))}
       </ul>

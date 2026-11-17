@@ -58,7 +58,7 @@ describe('the fixtures', () => {
         const page = fixtureWork(work.number);
         for (const block of page.blocks) {
           for (const v of block.versions) {
-            expect(fixtureVersion(work.number, block.name, v.at).content).toHaveLength(v.chars);
+            expect(fixtureVersion(work.number, block.name, v.number).content).toHaveLength(v.chars);
           }
         }
         for (const run of runs(page.steps)) {

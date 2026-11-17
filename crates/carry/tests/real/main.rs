@@ -802,13 +802,17 @@ impl Real {
         answer.try_recv().expect("answered").expect("the pause is lifted");
     }
 
-    /// The question the work waits for the owner's answer to, by its name, with the version to answer, where there is
-    /// one, as its records keep it.
-    pub fn waited_question(&self, work: WorkNumber) -> Option<(String, decide::Seq)> {
-        let records = self.work(work).records;
-        (decide::questions::questions(&records).into_iter())
+    /// The question the work waits for the owner's answer to, by its name, with the version to answer by its number
+    /// among the versions of its cell's questions, where there is one, as its records keep it.
+    pub fn waited_question(&self, work: WorkNumber) -> Option<(String, u64)> {
+        let kept = self.service.driver().work(work).expect("the work");
+        let records = &kept.work.records;
+        (decide::questions::questions(records).into_iter())
             .find(|(_, q)| q.holds())
-            .map(|(name, q)| (name.to_string(), q.latest.at))
+            .map(|(name, q)| {
+                let number = engine::asked::number_of(kept.flow, records, &q.latest.cell, q.latest.at);
+                (name.to_string(), number.expect("a version of its cell's questions"))
+            })
     }
 
     /// The owner answers the question the work waits for with its first option.

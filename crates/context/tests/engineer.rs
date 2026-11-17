@@ -78,15 +78,16 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
         sim.hands_in(&round, blocks);
     };
     let entered = sim.enter(&round, sim.begins(&round));
-    // Each datum the implementation is given that has a version is named with that version: the session holds them
-    // from the cells of its line before it, which the implementation never worked from.
+    // Each datum the implementation is given that has a version is named with that version, by its number among the
+    // datum's versions: the session holds them from the cells of its line before it, which the implementation never
+    // worked from.
     let cell = sim.cell(&round);
     for given in &cell.given {
         let block = given.block.as_str();
-        let Some(&latest) = sim.versions(block).last() else {
+        if sim.versions(block).is_empty() {
             continue;
-        };
-        let named = format!("## `{block}`, version {}", latest.0);
+        }
+        let named = format!("## `{block}`, version {}", sim.number(block));
         assert!(entered.text.contains(&named), "{named} is not in:\n{}", entered.text);
     }
     for block in ["background", "plan_owner", "plan_agent", "acceptance"] {
@@ -534,15 +535,12 @@ fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_giv
         ..Came::default()
     };
     sim.returns(&round, came, 0);
-    let version = sim.work.records.questions.last().expect("the question is kept").at;
     let entries = sim.versions("r2_questions");
     assert_eq!(entries.len(), 1, "the question is a version");
     let question = sim.content("r2_questions", entries[0]).to_string();
-    let head = format!(
-        "`naming`, version {}, asked: Which name does the greeting use?",
-        version.0
-    );
-    assert!(question.starts_with(&head), "{question}");
+    // The first version of the cell's questions, told by its number among them, whatever the work recorded before it.
+    let head = "`naming`, version 1, asked: Which name does the greeting use?";
+    assert!(question.starts_with(head), "{question}");
     for part in [
         "option 1, The first name: Shorter",
         "option 2, The full name: Longer",
@@ -559,17 +557,16 @@ fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_giv
 
     sim.take(Event::Answer {
         question: "naming".to_string(),
-        version,
+        version: 1,
         option: 2,
     });
     let entries = sim.versions("r2_questions");
     assert_eq!(entries.len(), 2, "the answer is a version");
     let answer = sim.content("r2_questions", entries[1]).to_string();
-    let said = format!(
-        "`naming`, version {}, answered: option 2, The full name: Longer.",
-        version.0
+    assert_eq!(
+        answer,
+        "`naming`, version 1, answered: option 2, The full name: Longer."
     );
-    assert_eq!(answer, said);
     // The answer is the one version of any cell's questions that changes their meaning, which runs the cell that asked.
     let answered: Vec<&str> = (sim.work.records.written.iter())
         .filter(|w| w.matters && w.block.as_str().ends_with("_questions"))
@@ -766,14 +763,14 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
             failures.push(format!("the round: told points in {:?}", told.points));
         }
         let entered = sim.enter(&round, sim.begins(&round));
+        // Told by their numbers among the dialogue's versions.
         let new = entered.run.new.get("plan_review").map(|n| (n.last, n.latest));
-        let latest = Seq(sim.version("plan_review"));
-        if new != Some((Some(since), latest)) {
+        let since = sim.number_at("plan_review", since);
+        let expected = (Some(since), sim.number("plan_review"));
+        if new != Some(expected) {
             failures.push(format!(
                 "the context: the research is told plan_review is new as {new:?} (last, latest), where the points \
-                 before version {} are new to no cell: expected {:?}",
-                since.0,
-                (Some(since), latest)
+                 before version {since} are new to no cell: expected {expected:?}"
             ));
         }
         round
@@ -894,8 +891,9 @@ fn a_question_that_waits_at_the_research_it_skipped_holds_the_deep_research_unti
         .sum();
     assert_eq!(after, words, "the refused words are written to no cell");
 
-    // The owner answers by the option the research recommends.
-    let version = sim.work.records.questions.last().expect("the question is kept").at;
+    // The owner answers by the option the research recommends: the question's version is the latest of R1's
+    // questions.
+    let version = sim.versions("r1_questions").len() as u64;
     sim.take(Event::Answer {
         question: "naming".to_string(),
         version,
