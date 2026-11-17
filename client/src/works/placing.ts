@@ -12,7 +12,7 @@
 
 import type { Flow } from '../api';
 import type { Block, Item, Run, Step, Summary } from '../works-api';
-import { isWayRound } from './words';
+import { STATE, isWayRound, stateOf } from './words';
 
 /// What a row marks in a cell's column besides a run: the cell reads the block written, its condition reads it, or it
 /// is the cell let go on.
@@ -111,24 +111,74 @@ export interface ListedWork {
   work: Summary;
 }
 
-/// What the list of works can be ordered by, each a column of it: the item's number, what the work cost, how long its
-/// rounds were under way, and when something last happened to it.
-export type OrderBy = 'item' | 'cost' | 'time' | 'last';
+/// What the list of works can be ordered by, each a column of it: the item's number, its title, the work's state, the
+/// level its rounds run at and the level of its cell, what it cost, how long its rounds were under way, and when
+/// something last happened to it.
+export type OrderBy = 'item' | 'title' | 'state' | 'level' | 'cellLevel' | 'cost' | 'time' | 'last';
 
-/// An order of the list: by a column, the largest first (`down`) or the smallest (`up`).
+/// Which way an order runs: its smallest value first, or its largest.
+export type Way = 'ascending' | 'descending';
+
+/// Which way a column orders the list at the first press: the item's number, what was spent and when, the largest
+/// first, the levels the highest first; the title from A to Z, and the states in their order (`stateRank`).
+export const FIRST_WAY: Record<OrderBy, Way> = {
+  item: 'descending',
+  title: 'ascending',
+  state: 'ascending',
+  level: 'descending',
+  cellLevel: 'descending',
+  cost: 'descending',
+  time: 'descending',
+  last: 'descending',
+};
+
+/// An order of the list: by a column, the way its first press gives, or turned by a second.
 export interface Order {
   by: OrderBy;
-  way: 'down' | 'up';
+  turned: boolean;
 }
 
 /// The list's order until the owner picks another: what happened last first.
-export const LAST_FIRST: Order = { by: 'last', way: 'down' };
+export const LAST_FIRST: Order = { by: 'last', turned: false };
 
-/// The value a work is ordered by; a work to which nothing has happened yet is the oldest.
-function valueOf({ item, work }: ListedWork, by: OrderBy): number {
+/// The way an order runs.
+export const wayOf = (order: Order): Way =>
+  (FIRST_WAY[order.by] === 'ascending') !== order.turned ? 'ascending' : 'descending';
+
+/// Where a work's state stands in the order of states: waiting for the owner, halted, running, waiting for another,
+/// paused, merged, cancelled.
+function stateRank(work: Summary): number {
+  const { tone, word } = stateOf(work);
+  if (tone === 'owner') return 0;
+  if (tone === 'failed') return 1;
+  if (tone === 'running') return 2;
+  if (tone === 'done') return 5;
+  if (word === STATE.cancelled) return 6;
+  if (word === STATE.paused) return 4;
+  return 3;
+}
+
+/// A level as the engine orders the levels: by number where it is one, by name otherwise, a name below every number;
+/// none where the engine gives none.
+function levelOf(level: string | null | undefined): number | string | null {
+  if (level === null || level === undefined) return null;
+  return /^\d+$/.test(level) ? Number(level) : level;
+}
+
+/// What a work is ordered by in a column: none where it has no value there, a work with no level; a work to which
+/// nothing has happened yet is the oldest.
+function keyOf({ item, work }: ListedWork, by: OrderBy): number | string | null {
   switch (by) {
     case 'item':
       return item.number;
+    case 'title':
+      return item.title;
+    case 'state':
+      return stateRank(work);
+    case 'level':
+      return levelOf(work.level);
+    case 'cellLevel':
+      return levelOf(work.cellLevel);
     case 'cost':
       return work.spent.usdMicros;
     case 'time':
@@ -138,11 +188,25 @@ function valueOf({ item, work }: ListedWork, by: OrderBy): number {
   }
 }
 
-/// The work of every item, in this order, works of one value by their items' numbers in the same direction. Nothing of
-/// a work's state orders it.
+/// Two keys, the smaller first: numbers by their size, words alphabetically, a word below a number.
+function compareKeys(a: number | string, b: number | string): number {
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  if (typeof a === 'string' && typeof b === 'string') return a.localeCompare(b);
+  return typeof a === 'string' ? -1 : 1;
+}
+
+/// The work of every item, in this order: works with no value in its column last, whichever way it runs, and works of
+/// one value as the list's first order has them, what happened last first. Nothing of a work's state orders it but
+/// the column of states.
 export function orderWorks(items: Item[], order: Order = LAST_FIRST): ListedWork[] {
-  const sign = order.way === 'down' ? -1 : 1;
+  const sign = wayOf(order) === 'ascending' ? 1 : -1;
+  const latest = (a: ListedWork, b: ListedWork) =>
+    (b.work.last ?? 0) - (a.work.last ?? 0) || b.item.number - a.item.number;
   return items
     .map((item) => ({ item, work: item.work }))
-    .sort((a, b) => sign * (valueOf(a, order.by) - valueOf(b, order.by) || a.item.number - b.item.number));
+    .sort((a, b) => {
+      const [x, y] = [keyOf(a, order.by), keyOf(b, order.by)];
+      if (x === null || y === null) return x === y ? latest(a, b) : x === null ? 1 : -1;
+      return sign * compareKeys(x, y) || latest(a, b);
+    });
 }

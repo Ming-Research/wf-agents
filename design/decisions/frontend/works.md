@@ -41,7 +41,7 @@ own would be a second copy, which could name another writer than the round is to
 
 ### decision the-list-is-ordered-by-a-column
 The list of works is ordered by one of its columns, when something last happened, the latest first, until the owner
-presses the head of another; nothing of a work's state orders it.
+presses the head of another; a work's state orders it only by its own column, where the owner picks it.
 Why: The list is the record of every work, for the owner to look back at, and what needs the owner now is the
 console's (principle the-console-is-where-the-owner-works). Putting first what waits for the owner, then a fault, what
 goes on, what is paused and what has ended was turned down: an order no head of the list shows is hidden from the owner.

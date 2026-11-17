@@ -151,25 +151,83 @@
   vertical-align: middle;
 }
 
-/* The head of a column that orders the list: its name as a label, pressed to order the list by it, and the arrow of
-   the order while it orders the list; under the pointer its head is filled with the accent's tint. */
+/* A head or a cell is cut at its column's edge, which the owner may drag narrower than what it holds. */
+.works th,
+.works td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Each column as wide as what it holds until the owner drags it (the width set on the table), the title as wide as the
+   others leave until then. */
+.works .col-item {
+  width: var(--col-item);
+  max-width: var(--col-item);
+}
+
+.works .col-title {
+  width: var(--col-title, 100%);
+  max-width: var(--col-title, 0);
+}
+
+.works .col-state {
+  width: var(--col-state);
+  max-width: var(--col-state);
+}
+
+.works .col-cells {
+  width: var(--col-cells);
+  max-width: var(--col-cells);
+}
+
+.works .col-level {
+  width: var(--col-level);
+  max-width: var(--col-level);
+}
+
+.works .col-cell-level {
+  width: var(--col-cell-level);
+  max-width: var(--col-cell-level);
+}
+
+.works .col-cost {
+  width: var(--col-cost);
+  max-width: var(--col-cost);
+}
+
+.works .col-time {
+  width: var(--col-time);
+  max-width: var(--col-time);
+}
+
+.works .col-last {
+  width: var(--col-last);
+  max-width: var(--col-last);
+}
+
+/* The head of a column that orders the list: the whole head, its name as a label, pressed to order the list by it, and
+   the arrow of the order while it orders the list; under the pointer it is filled with the accent's tint. A head that
+   orders nothing is its name alone, and looks like nothing to press. */
+.works th:has(> .order-head) {
+  padding: 0;
+}
+
 .order-head {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: var(--space-4);
-  padding: 0;
+  width: 100%;
+  height: var(--row);
+  padding: 0 var(--space-12);
   border: 0;
   background: none;
   letter-spacing: inherit;
   text-transform: inherit;
   cursor: pointer;
-}
-
-.works th:has(> .order-head) {
   transition: background-color var(--hover-time);
 }
 
-.works th:has(> .order-head:hover) {
+.order-head:hover {
   background: var(--accent-tint);
 }
 
@@ -185,14 +243,6 @@
 /* A work that waits for the owner is edged in red at its left. */
 .work-row.for-owner > td:first-child {
   box-shadow: inset var(--focus) 0 var(--red);
-}
-
-/* The title takes all the room the other columns leave, on one line, cut at its edge where the window is too narrow. */
-.work-title {
-  width: 100%;
-  max-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .work-title a {
@@ -220,19 +270,21 @@
 @media (width < 1200px) {
   .works .col-cells,
   .works .col-level,
+  .works .col-cell-level,
   .works-legend {
     display: none;
   }
 }
 
 @media (width < 760px) {
-  .works .col-taken {
+  .works .col-cost,
+  .works .col-time {
     display: none;
   }
 
-  .works td.col-state {
-    width: 40%;
-    max-width: 0;
+  .works .col-state {
+    width: var(--col-state, 40%);
+    max-width: var(--col-state, 0);
   }
 }
 

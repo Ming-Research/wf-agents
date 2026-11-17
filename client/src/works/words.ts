@@ -23,6 +23,7 @@ import type {
   Waited,
   Writer,
 } from '../works-api';
+import type { OrderBy, Way } from './placing';
 import { waitsOf } from './waiting';
 
 const SECOND = 1000;
@@ -487,28 +488,40 @@ export function sentence(text: string): string {
 /// backticks that mark them (a card draws them in the monospace, by `Coded` in `parts.tsx`).
 export const plain = (text: string): string => text.replace(/`([^`\n]+)`/g, '$1');
 
-/// What the head of a column of the Works list says on pointing at it: of a column that orders the list, the order a
-/// press gives it, by `down`, the largest first, or `up`; of a column of levels, what the level is and what a dash
-/// says.
-export const LIST_HEADS = {
-  item: { down: 'Order by item, the newest first', up: 'Order by item, the oldest first' },
-  cost: { down: 'Order by cost, the dearest first', up: 'Order by cost, the cheapest first' },
+/// What the head of a column of the Works list that orders it says on pointing at it: the order a press gives it, by
+/// the way it would run.
+export const ORDER_WORDS: Record<OrderBy, Record<Way, string>> = {
+  item: { descending: 'Order by item, the newest first', ascending: 'Order by item, the oldest first' },
+  title: { ascending: 'Order by title, from A to Z', descending: 'Order by title, from Z to A' },
+  state: {
+    ascending: 'Order by state: waiting for you, halted, running, waiting, paused, merged, cancelled',
+    descending: 'Order by state: cancelled, merged, paused, waiting, running, halted, waiting for you',
+  },
+  level: {
+    descending: 'Order by level, the highest first, those with none last',
+    ascending: 'Order by level, the lowest first, those with none last',
+  },
+  cellLevel: {
+    descending: "Order by the cell's level, the highest first, those with none last",
+    ascending: "Order by the cell's level, the lowest first, those with none last",
+  },
+  cost: { descending: 'Order by cost, the dearest first', ascending: 'Order by cost, the cheapest first' },
   time: {
-    down: 'Order by the time its rounds took, the longest first',
-    up: 'Order by the time its rounds took, the shortest first',
+    descending: 'Order by the time its rounds took, the longest first',
+    ascending: 'Order by the time its rounds took, the shortest first',
   },
   last: {
-    down: 'Order by when something last happened, the latest first',
-    up: 'Order by when something last happened, the earliest first',
+    descending: 'Order by when something last happened, the latest first',
+    ascending: 'Order by when something last happened, the earliest first',
   },
-  level:
-    "The level its rounds run at: its item's, or the default where the item has none; a dash where the engine cannot say it",
-  cellLevel:
-    "The level the cell it stands at runs at, its line raising it above the work's; a dash where it stands at no agent's cell",
-} as const;
+};
 
-/// What a column of levels holds where the engine gives no level.
-export const NO_LEVEL = '–';
+/// What a column of levels holds where the engine gives no level, and why, on pointing at it.
+export const NO_LEVEL = {
+  shown: '–',
+  level: 'The engine cannot say the level its rounds run at',
+  cellLevel: 'It stands at no cell an agent runs at, or the engine cannot say its level',
+} as const;
 
 /// A work's state in a line: its state's word, and the cell where the state names one; as the Works list's column of
 /// states says it, `Paused · R0`, `Merged`.

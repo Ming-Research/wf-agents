@@ -1,7 +1,7 @@
-// The widths the owner drags (the panel's, the names' column's, each cell's column's), kept in
-// this browser so that they stand when the page is loaded again; a double click on an edge forgets its width, which
-// the page then works out again. Kept only where the browser lets it be: a page that keeps nothing still works, at the
-// widths it works out.
+// The widths the owner drags (the panel's, the names' column's, each cell's column's, each column of the list of
+// works), kept in this browser so that they stand when the page is loaded again; a double click on an edge forgets its
+// width, which the page then works out again. Kept only where the browser lets it be: a page that keeps nothing still
+// works, at the widths it works out.
 import { useCallback, useState } from 'react';
 
 /// The docked panel's width at first, and the least and most it is dragged to; one width for the panel of every view.
@@ -18,6 +18,8 @@ export const WIDTH_KEYS = {
   historyCells: 'wf-agents.history-cell-widths',
   /// The flow view's window, the console's (`Drawer`), which keeps its own width under its own key.
   flowWindow: 'wf-agents.flow-window-width',
+  /// The list of works: each of its columns.
+  worksColumns: 'wf-agents.works-column-widths',
 } as const;
 
 function read(key: string): string | null {
