@@ -13,6 +13,17 @@ down: the order is the flow's, and is said once there. A key saying a flow deliv
 no agent's cell does no work of its own and delivers what its item is made of, which its cells already say, and a key
 beside them could only repeat them or contradict them.
 
+### decision a-question-stands-where-a-text-points-to-it
+A question of the work is drawn at the first pointer to it, `{{name}}` as the words of a cell's questions tell its
+agent, in the passages of the card's sections and then in the messages an agent wrote, in the order the window draws
+them; a later pointer to it is a link to it, a pointer in code is text, and a question no text points to stands after
+the body (principle asked-where-it-arises).
+Why: The form is said in the agents' words and read by the page, and neither shows the other: changed in one alone,
+every question falls back to the body's end and every pointer shows as its raw marks. A name is the work's, the engine
+reading each question by its name, so a pointer means one question whoever wrote the text: reading it as the writer's
+own was turned down, as a plan the cell that looks for a better way wrote pointed to the initial research's question
+(work 10).
+
 ### decision an-option-is-picked-by-pressing-it
 An option of a question is a button: pressing it picks it, and pressing the one picked lets it go. It carries its radio
 mark inside it, at its left.

@@ -247,7 +247,7 @@ export interface Wait {
 
 /// What the owner does that ends a wait on them.
 export type Ends =
-  /// Answers this version of the work's question by one of its options, on its card at the plan's end.
+  /// Answers this version of the work's question by one of its options, on its card in the item's window.
   | { kind: 'answer'; question: string; version: number }
   /// Answers in words the question this call puts, on its card at the plan's end.
   | { kind: 'reply'; call: number }
