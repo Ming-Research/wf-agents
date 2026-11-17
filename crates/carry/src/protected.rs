@@ -456,7 +456,7 @@ pub(crate) mod tests {
             panic!("nothing is asked");
         };
         assert_eq!(name, "protected_files");
-        assert!(waits, "the work waits for the answer");
+        assert!(!waits, "asked as a round ends, the question does not hold the work");
         assert_eq!(recommends, None, "the engine recommends nothing");
         // Each file, with its reason in the work's words, and then its own change.
         let (guide, cell) = (
