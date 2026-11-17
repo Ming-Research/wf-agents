@@ -1,6 +1,7 @@
 // The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`snap.ts`), as they stand, drawn
 // again as they change; with `?fixtures` in the page's address, made-up items that show every state the drawing has
-// (`fixtures.ts`). Beside the tree, a window shows the item selected (`ItemWindow.tsx`). Selecting an item slides the
+// (`fixtures.ts`): those still open and what stands over them, or, as the switch over the tree's corner chooses, every
+// item. Beside the tree, a window shows the item selected (`ItemWindow.tsx`). Selecting an item slides the
 // window out; letting it go slides the window back, unless the tab stuck to its left edge brought it out, in which case
 // it stays until the tab takes it back. The tab takes it back without letting the item go, and the next item selected
 // brings it out again. The window coming out over the item selected, or an item selected half under it or half off the
@@ -19,7 +20,7 @@ import './console.css';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Drawer } from '../parts';
+import { Drawer, Switch } from '../parts';
 import { WIDTH_KEYS } from '../sizes';
 import type { Items, WorkPage } from '../works-api';
 import { oneAtATime, useSource } from '../works/source';
@@ -43,6 +44,9 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
   // The panel: whether it is out, and whether its handle brought it out, which keeps it out once the item is let go.
   const [win, setWin] = useState({ open: false, byHand: false });
   const open = win.open;
+  // Whether the tree shows every item, done and cancelled too, or only those still open and what stands over them.
+  const [every, setEvery] = useState(false);
+  const everyNow = useRef(every);
 
   // The items, read at first and again each time something happened, at most one read at a time.
   const heard = useRef<(h: Heard) => void>(() => undefined);
@@ -91,7 +95,7 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
             return w.byHand ? w : { open: false, byHand: false };
           });
         };
-        if (latestData.current !== undefined) s.show(shownTree(latestData.current));
+        if (latestData.current !== undefined) s.show(shownTree(latestData.current, everyNow.current));
         selectNamed();
         // To try the drawing from the browser's console: `consoleScene.show(consoleFake(2000))` draws a made-up tree.
         Object.assign(window, { consoleScene: s, consoleFake: fakeShown });
@@ -119,9 +123,10 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
   };
   useEffect(() => {
     latestData.current = data;
-    if (data !== undefined) scene.current?.show(shownTree(data));
+    everyNow.current = every;
+    if (data !== undefined) scene.current?.show(shownTree(data, every));
     selectNamed();
-  }, [data]);
+  }, [data, every]);
   useEffect(() => {
     toSelect.current = named;
     selectNamed();
@@ -185,8 +190,19 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
         ref={host}
         onPointerDown={() => (document.activeElement as HTMLElement | null)?.blur()}
       >
-        {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
-        {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}
+        <div className="console-over">
+          <Switch
+            label="Which items the tree shows"
+            choices={[
+              { value: 'open', name: 'Open', title: 'The items still open, and what stands over them' },
+              { value: 'every', name: 'All', title: 'Every item, done and cancelled too' },
+            ]}
+            value={every ? 'every' : 'open'}
+            onChange={(v) => setEvery(v === 'every')}
+          />
+          {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
+          {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}
+        </div>
       </div>
       <Drawer
         open={open}
@@ -209,7 +225,9 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
             actEngine={works.actOnEngine}
             goal={selected !== null && goalMock(selected.work !== null, selected.children.length)}
             open={open}
-            onRead={() => latestData.current !== undefined && scene.current?.show(shownTree(latestData.current))}
+            onRead={() =>
+              latestData.current !== undefined && scene.current?.show(shownTree(latestData.current, everyNow.current))
+            }
             onTitle={() => scene.current?.reveal(item.number, room(open))}
           />
         )}
