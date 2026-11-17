@@ -102,7 +102,7 @@ use uuid::Uuid;
 use work::{Back, Measures, RanOn, Spent, Why, Work};
 
 use crate::catch_up::{self, CaughtUp};
-use crate::cli::{self, Begin, Calls, Compacted, InSession, NoResult, Words};
+use crate::cli::{self, Begin, Calls, Compacted, InSession, Words};
 use crate::guard::{Crossing, Guard};
 use crate::held::{Failing, Held, Stop};
 use crate::permissions::{self, Permissions};
