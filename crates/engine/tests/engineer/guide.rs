@@ -42,8 +42,8 @@ const BEFORE_THE_IMPLEMENTATION: [(&str, Blocks); 5] = [
     ("R0", &[]),
     ("R1", &[("deep_needed", Some("no"))]),
     ("R2", &[]),
-    ("D3", &[("plan_ok", Some("yes"))]),
-    ("D4", &[("tree_ok", Some("yes"))]),
+    ("P1", &[("plan_ok", Some("yes"))]),
+    ("P2", &[("tree_ok", Some("yes"))]),
 ];
 
 /// The implementation, which a change of the guide that touches nothing of what it writes runs, handing in nothing.
@@ -68,8 +68,8 @@ fn failed_by_the_review() -> W {
         Vec::new(),
     );
     w.hands_in("R2", &[], Vec::new());
-    w.hands_in("D3", &[("plan_ok", Some("yes"))], Vec::new());
-    w.hands_in("D4", &[("tree_ok", Some("yes"))], Vec::new());
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
     w.commits("I1", &[("code", None), ("evidence", None)], &[("head", "c1")]);
     w.hands_in(
         "T1",
@@ -141,7 +141,7 @@ fn a_guide_read_as_the_implementation_s_round_ended_runs_every_other_agent_cell_
         Vec::new(),
     );
     assert_eq!(w.round().1, "M1", "the check runs on the head the review saw");
-    for cell in ["R0", "R1", "R2", "D3", "D4", "I1", "T1"] {
+    for cell in ["R0", "R1", "R2", "P1", "P2", "I1", "T1"] {
         let new = decide::new_to(&w.flow.flow, &w.work.records, &CellId::from(cell));
         assert!(new.is_empty(), "{new:?} is new to {cell}");
     }
@@ -258,8 +258,8 @@ fn a_review_the_owner_ruled_at_no_that_the_guide_alone_runs_hands_in_its_fail_un
         Vec::new(),
     );
     w.hands_in("R2", &[], Vec::new());
-    w.hands_in("D3", &[("plan_ok", Some("yes"))], Vec::new());
-    w.hands_in("D4", &[("tree_ok", Some("yes"))], Vec::new());
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
     w.commits("I1", &[("code", None), ("evidence", None)], &[("head", "c1")]);
     // The owner pauses the work while the review judges, so that its points run nothing before the owner rules.
     assert_eq!(w.round().1, "T1");

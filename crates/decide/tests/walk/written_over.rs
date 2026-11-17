@@ -1,6 +1,6 @@
 //! What a run's round was told, for the checks of its return (`decide::told`): what ran it, which the return may name
 //! as dealt with, and of each block it may write the version it was told of and the latest, so that a return that
-//! would write over what the round never saw is sent back (plan, D4).
+//! would write over what the round never saw is sent back (plan, P2).
 
 use decide::run::Standing;
 

@@ -67,8 +67,8 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
                 ("acceptance", "The greeting names the user.", None),
             ],
             "R2" => &[],
-            "D3" => &[("plan_ok", "", Some("yes"))],
-            "D4" => &[("tree_ok", "", Some("yes"))],
+            "P1" => &[("plan_ok", "", Some("yes"))],
+            "P2" => &[("tree_ok", "", Some("yes"))],
             "I1" => break round,
             other => panic!("{other} is entered before the implementation"),
         };
@@ -150,8 +150,8 @@ fn carried_until(id: &str, deep: bool, guide: Option<&str>) -> (Sim, support::Gi
             "R1" => [("deep_needed", "", Some("no"))].into_iter().chain(plan).collect(),
             "D1" => plan.to_vec(),
             "R2" | "D2" => vec![],
-            "D3" => vec![("plan_ok", "", Some("yes"))],
-            "D4" => vec![("tree_ok", "", Some("yes"))],
+            "P1" => vec![("plan_ok", "", Some("yes"))],
+            "P2" => vec![("tree_ok", "", Some("yes"))],
             "I1" => vec![("code", "abc", None)],
             other => panic!("{other} is entered before {id}"),
         };
@@ -580,8 +580,8 @@ fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_giv
         let round = sim.round().expect("a round is given");
         let blocks: &[(&str, &str, Option<&str>)] = match round.cell.as_str() {
             "T1" => break round,
-            "D3" => &[("plan_ok", "", Some("yes"))],
-            "D4" => &[("tree_ok", "", Some("yes"))],
+            "P1" => &[("plan_ok", "", Some("yes"))],
+            "P2" => &[("tree_ok", "", Some("yes"))],
             "I1" => &[("code", "abc", None)],
             other => panic!("{other} comes between: only the plan's reviews and the implementation do"),
         };
@@ -702,7 +702,7 @@ fn the_plan_changed_by_the_owner_s_words(sim: &mut Sim, words: &str, plan: &str)
 // and B and then D, as new to it, which 39 says they are to no cell.
 #[test]
 fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_and_in_the_context_alike() {
-    let (mut sim, review) = until("D3");
+    let (mut sim, review) = until("P1");
     let dialogue = BlockId::from("plan_review");
     let mut failures: Vec<String> = Vec::new();
     // The owner pauses the work while the review judges, so that its points run nothing before the owner rules.
@@ -729,7 +729,7 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
     sim.take(Event::Resumed);
     next(
         &mut sim,
-        "D3",
+        "P1",
         &[
             ("plan_ok", "", Some("no")),
             ("plan_review", "A': the first name. C: warmly.", None),
@@ -780,7 +780,7 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
     let answer = Seq(sim.version("plan_review"));
     // The review fails again with D, and the owner rules again before the research takes it.
     let review = sim.round().expect("a round is given");
-    assert_eq!(review.cell.as_str(), "D3", "the review takes the answer");
+    assert_eq!(review.cell.as_str(), "P1", "the review takes the answer");
     tried(&mut sim, &review);
     sim.take(Event::Paused {
         by: Pauser::Owner,
@@ -792,7 +792,7 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
     );
     let d = Seq(sim.version("plan_review"));
     sim.wrote("plan_ok", "", Some("yes"), Outsider::Person);
-    for cell in ["R1", "D3"] {
+    for cell in ["R1", "P1"] {
         if !new_to(&sim, cell).is_empty() {
             failures.push(format!(
                 "the walk, after the second ruling: new to {cell}: {:?}",
@@ -804,7 +804,7 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
     sim.take(Event::Resumed);
     next(
         &mut sim,
-        "D3",
+        "P1",
         &[
             ("plan_ok", "", Some("no")),
             ("plan_review", "E: the time of day.", None),

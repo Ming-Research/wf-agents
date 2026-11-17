@@ -148,8 +148,8 @@ impl W {
             Vec::new(),
         );
         w.hands_in("R2", &[], Vec::new());
-        w.hands_in("D3", &[("plan_ok", Some("yes"))], Vec::new());
-        w.hands_in("D4", &[("tree_ok", Some("yes"))], Vec::new());
+        w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+        w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
         w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
         w.hands_in(
             "T1",
@@ -214,10 +214,10 @@ fn both_reviews_of_the_plan_run_on_a_plan_the_research_wrote_whether_or_not_it_e
         });
         // The plan's second look finds no better way, and changes nothing.
         w.hands_in("R2", &[], Vec::new());
-        assert_eq!(w.round().1, "D3", "with tree_edits {edits:?}");
-        w.hands_in("D3", &[("plan_ok", Some("yes"))], Vec::new());
-        assert_eq!(w.round().1, "D4", "with tree_edits {edits:?}");
-        w.hands_in("D4", &[("tree_ok", Some("yes"))], Vec::new());
+        assert_eq!(w.round().1, "P1", "with tree_edits {edits:?}");
+        w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+        assert_eq!(w.round().1, "P2", "with tree_edits {edits:?}");
+        w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
         assert_eq!(w.round().1, "I1", "with tree_edits {edits:?}");
     }
 }
@@ -240,16 +240,16 @@ fn the_design_review_s_points_on_the_research_s_plan_run_the_research_and_its_an
         Vec::new(),
     );
     w.hands_in("R2", &[], Vec::new());
-    w.hands_in("D3", &[("plan_ok", Some("no")), ("plan_review", None)], Vec::new());
+    w.hands_in("P1", &[("plan_ok", Some("no")), ("plan_review", None)], Vec::new());
     let (run, cell) = w.round();
     assert_eq!(cell, "R1", "the research takes the review's points");
     assert_eq!(w.told(run, "R1"), ["plan_review"]);
     w.hands_in("R1", &[("deep_needed", Some("no")), ("plan_review", None)], Vec::new());
     let (run, cell) = w.round();
-    assert_eq!(cell, "D3", "the review takes the answer");
-    assert_eq!(w.told(run, "D3"), ["plan_review"]);
-    w.hands_in("D3", &[("plan_ok", Some("yes"))], Vec::new());
-    assert_eq!(w.round().1, "D4");
+    assert_eq!(cell, "P1", "the review takes the answer");
+    assert_eq!(w.told(run, "P1"), ["plan_review"]);
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    assert_eq!(w.round().1, "P2");
 }
 
 #[test]

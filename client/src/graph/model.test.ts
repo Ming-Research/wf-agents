@@ -68,7 +68,7 @@ describe('the flowchart of the engineer flow', () => {
     expect(step(chart, forkNode('R2'), cellNode('R2'))?.branch).toBe('no');
     expect(step(chart, forkNode('R2'), cellNode('D1'))?.branch).toBe('yes');
     // A cell entered by a branch has no box of its own, and none where its when surely holds, as D2's after D1.
-    for (const id of ['R1', 'R2', 'D1', 'D2', 'D3']) expect(nodeOf(chart, wayInNode(id))).toBeUndefined();
+    for (const id of ['R1', 'R2', 'D1', 'D2', 'P1']) expect(nodeOf(chart, wayInNode(id))).toBeUndefined();
     expect(step(chart, cellNode('D1'), cellNode('D2'))?.branch).toBeNull();
     // R1 and D1 exclude each other as written; R1's own write of deep_needed is what parts them, so R1's write can run
     // D1, and D1's cannot run R1.
@@ -94,8 +94,8 @@ describe('the flowchart of the engineer flow', () => {
     }
     const into = chart.edges.filter((e) => e.kind === 'arrow' && isFork(chart, e.target));
     expect(into.map((e) => `${e.from}>${e.target} ${e.label} ${e.reaches.join(',')}`)).toEqual([
-      'D3>f:R1 plan_review R1,D1',
-      'D4>f:R1 tree_review R1,D1',
+      'P1>f:R1 plan_review R1,D1',
+      'P2>f:R1 tree_review R1,D1',
       'I1>f:R1 plan_doubts R1,D1',
     ]);
     // A way back to one of a fork's cells alone ends at that cell.
@@ -114,11 +114,11 @@ describe('the flowchart of the engineer flow', () => {
         'f:R2 yes > c:D1',
         // The short way skips D1 and D2, which run only where deep_needed is yes; the deep way goes through them. The
         // ways join at the plan's reviews, which run on every work.
-        'c:R2 > c:D3',
+        'c:R2 > c:P1',
         'c:D1 > c:D2',
-        'c:D2 > c:D3',
-        'c:D3 > c:D4',
-        'c:D4 > c:I1',
+        'c:D2 > c:P1',
+        'c:P1 > c:P2',
+        'c:P2 > c:I1',
         'c:I1 > c:T1',
         // T1 writes needs_testing: through T2 or past it, to M1's gate.
         'c:T1 > f:T2',
@@ -167,7 +167,7 @@ describe('the flowchart of the engineer flow', () => {
 
   it('draws one arrow for each pair, with the name of every datum or group it runs the cell by', () => {
     const all = arrows(chart);
-    expect(all['R1>D3']).toBe('plan, plan_review');
+    expect(all['R1>P1']).toBe('plan, plan_review');
     // A dialogue's datum runs each party: the maker's answer one way, the judge's points the other.
     expect(all['I1>T1']).toBe('change, review');
     expect(all['T1>I1']).toBe('review');
@@ -195,27 +195,27 @@ describe('the flowchart of the engineer flow', () => {
     expect(drawn(chart)).not.toContain('R1>R2');
     const d1 = step(chart, forkNode('R2'), cellNode('D1'));
     expect(`${d1?.branch} ${d1?.label}`).toBe('yes found, plan_review, tree_review, plan_doubts, r1_questions');
-    // R2's plan runs D3, which the path reaches from R2 straight.
-    expect(step(chart, cellNode('R2'), cellNode('D3'))?.folds.map((f) => f.id)).toEqual(['a:R2>D3']);
+    // R2's plan runs P1, which the path reaches from R2 straight.
+    expect(step(chart, cellNode('R2'), cellNode('P1'))?.folds.map((f) => f.id)).toEqual(['a:R2>P1']);
     expect(step(chart, cellNode('I1'), cellNode('T1'))?.label).toBe('change, review');
     expect(step(chart, cellNode('T2'), wayInNode('M1'))?.label).toBe('');
     // A step no arrow runs along carries nothing.
-    expect(step(chart, cellNode('D3'), cellNode('D4'))?.label).toBe('');
-    // An arrow with a cell of the path between stays an arrow: R1's plan runs D3, but D1 and D2 come between.
+    expect(step(chart, cellNode('P1'), cellNode('P2'))?.label).toBe('');
+    // An arrow with a cell of the path between stays an arrow: R1's plan runs P1, but D1 and D2 come between.
     expect(drawn(chart).filter((pair) => !chart.edges.some((e) => e.back && `${e.from}>${e.to}` === pair))).toEqual([
       'R1>D2',
-      'R1>D3',
-      'R1>D4',
+      'R1>P1',
+      'R1>P2',
       'R1>I1',
       'R1>T2',
-      'R2>D4',
+      'R2>P2',
       'R2>I1',
       'R2>T2',
-      'D1>D3',
-      'D1>D4',
+      'D1>P1',
+      'D1>P2',
       'D1>I1',
       'D1>T2',
-      'D2>D4',
+      'D2>P2',
       'D2>I1',
       'D2>T2',
       'I1>T2',
@@ -227,13 +227,13 @@ describe('the flowchart of the engineer flow', () => {
   it('draws an arrow back up the walk as a way back, into a cell, or into a fork for every cell it leads to', () => {
     const back = chart.edges.filter((e) => e.back).map((e) => `${e.from}>${e.target} ${e.label}`);
     expect(back).toEqual([
-      'D3>f:R1 plan_review',
-      'D4>f:R1 tree_review',
+      'P1>f:R1 plan_review',
+      'P2>f:R1 tree_review',
       'I1>f:R1 plan_doubts',
       'I1>c:R2 plan',
       'I1>c:D2 plan',
-      'I1>c:D3 plan',
-      'I1>c:D4 plan',
+      'I1>c:P1 plan',
+      'I1>c:P2 plan',
       'T1>c:I1 review',
       'T2>c:I1 testing',
       'T2>c:T1 change',
@@ -266,11 +266,11 @@ describe('the flowchart of the engineer flow', () => {
 
   it('draws the arrows a write runs into and out of the cell chosen, or every one', () => {
     const pairs = (chosen: string | null, all: boolean) => shownArrows(chart, chosen, all).map((e) => `${e.from}>${e.to}`);
-    expect(pairs('D1', false)).toEqual(['D1>D3', 'D1>D4', 'D1>I1', 'D1>T2']);
+    expect(pairs('D1', false)).toEqual(['D1>P1', 'D1>P2', 'D1>I1', 'D1>T2']);
     expect(pairs('T2', false)).toEqual(['R1>T2', 'R2>T2', 'D1>T2', 'D2>T2', 'I1>T2']);
     // None with nothing chosen, nor the folded ones nor the ways back of the cell chosen.
     expect(pairs(null, false)).toEqual([]);
-    expect(pairs('R2', false)).toEqual(['R2>D4', 'R2>I1', 'R2>T2']);
+    expect(pairs('R2', false)).toEqual(['R2>P2', 'R2>I1', 'R2>T2']);
     expect(pairs(null, true)).toHaveLength(16);
   });
 

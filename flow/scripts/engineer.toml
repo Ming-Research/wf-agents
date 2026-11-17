@@ -66,20 +66,20 @@ hands_in = []
 
 # The plan's review: one objection to the plan, then content.
 [[flows.engineer.rounds]]
-cell = "D3"
+cell = "P1"
 hands_in = [
     { block = "plan_review", content = "The plan does not say what a call that was withdrawn took." },
     { block = "plan_ok", value = "no" },
 ]
 
 [[flows.engineer.rounds]]
-cell = "D3"
+cell = "P1"
 run = 2
 hands_in = [{ block = "plan_ok", value = "yes" }]
 
 # The review against the tree: content.
 [[flows.engineer.rounds]]
-cell = "D4"
+cell = "P2"
 hands_in = [{ block = "tree_ok", value = "yes" }]
 
 # Implementation: asks for the check, which ends its run, and, entered again for its result, hands in the code with a

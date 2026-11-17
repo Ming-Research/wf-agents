@@ -48,6 +48,6 @@ found = "latest"
 plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"
 acceptance = "last_and_latest"
-# Part of the plan it judges; D4 judges it against the tree.
+# Part of the plan it judges; P2 judges it against the tree.
 tree_edits = "last_and_latest"
 plan_review = "all"

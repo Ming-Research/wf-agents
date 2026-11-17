@@ -1,6 +1,6 @@
 # Why this cell exists: so that every plan is judged against the design tree before it is built, by a session that did
 # not write it, as a judgment of its own: what it goes against, what its change makes untrue, what it leaves out, and
-# each entry it would write. On the line of the review of the plan, after D3.
+# each entry it would write. On the line of the review of the plan, after P1.
 title = "Design tree review"
 kind = "agent"
 line = "plan_reviewer"

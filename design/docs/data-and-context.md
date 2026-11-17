@@ -283,8 +283,8 @@ new session lacks it.
     | R2 Is there a better way | no deep research | plan | `background`, `tree` | plan, where it finds a better way; questions |
     | D1 Deep research | deep research | `background`, `found`, `plan_review`, `tree_review`, `plan_doubts`, R1's questions | `tree` | plan, answers in its dialogues, questions |
     | D2 Is there a better way | deep research | plan, R2's questions | `background`, `tree` | plan, where it finds a better way; questions |
-    | D3 Design review | | plan, `plan_review` | `background`, `found`, `tree` | `plan_ok` every time; points in `plan_review` where it fails |
-    | D4 Design tree review | | plan, `tree_review` | `background`, `tree` | `tree_ok` every time; points in `tree_review` where it fails |
+    | P1 Design review | | plan, `plan_review` | `background`, `found`, `tree` | `plan_ok` every time; points in `plan_review` where it fails |
+    | P2 Design tree review | | plan, `tree_review` | `background`, `tree` | `tree_ok` every time; points in `tree_review` where it fails |
     | I1 Implement | | plan, `plan_doubts`, `review`, `testing`, `check` | `background`, `tree` | `code`, `title`, `decisions`, `evidence`, `acceptance`, `head` by its commits; answers in `review` and `testing`; doubts in `plan_doubts`; questions, which hold the engine's (34) |
     | T1 Review | | change, `review` | plan, `background`, `tree` | `review_ok` and `needs_testing` every time; points in `review` where it fails |
     | T2 Adversarial testing | `needs_testing` is yes | `needs_testing`, `acceptance`, `testing` | `code`, `evidence`, `plan_agent`, `background` | `tests`, `head` by its commits, `testing_ok` every time; points in `testing` where something stays red |

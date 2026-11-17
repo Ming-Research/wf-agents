@@ -75,9 +75,9 @@ fn the_plan_s_second_look_run_by_the_plan_s_group_deals_with_it_by_its_name_once
     // Each block of the plan the research wrote ran the round, and is dealt with.
     assert_eq!(dealt_with(&w, run), blocks(&["plan_owner", "plan_agent", "acceptance"]));
     // The plan's reviews run next, then the implementation, and the second look never again.
-    assert_eq!(w.round().1, "D3");
-    w.hands_in("D3", &[("plan_ok", Some("yes"))], Vec::new());
-    w.hands_in("D4", &[("tree_ok", Some("yes"))], Vec::new());
+    assert_eq!(w.round().1, "P1");
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
     w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
     w.hands_in(
         "T1",
@@ -92,8 +92,8 @@ fn the_plan_s_second_look_run_by_the_plan_s_group_deals_with_it_by_its_name_once
 fn the_review_run_by_the_change_s_group_deals_with_it_by_its_name_once() {
     let mut w = planned();
     w.hands_in("R2", &[], Vec::new());
-    w.hands_in("D3", &[("plan_ok", Some("yes"))], Vec::new());
-    w.hands_in("D4", &[("tree_ok", Some("yes"))], Vec::new());
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
     w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
     let (run, cell) = w.round();
     assert_eq!(cell, "T1");
