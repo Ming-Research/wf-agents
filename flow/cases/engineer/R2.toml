@@ -590,7 +590,31 @@ blocks.acceptance.content = '''
 cell = "R2"
 
 [[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "yes"
+
+[[cases.history]]
+cell = "I1"
+
+[[cases.history]]
 main = "main-guide-commit-messages"
+
+[[cases.history]]
+owner = "session"
+to = "R0"
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "no"
+blocks.deep_needed.content = "只是在月报上加一个过滤，一轮能查清。"
+blocks.deep_needed.unchanged = true
 
 [cases.owes]
 not_writes = ["r2_words", "r2_questions"]
@@ -627,7 +651,31 @@ blocks.acceptance.content = '''
 cell = "R2"
 
 [[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "yes"
+
+[[cases.history]]
+cell = "I1"
+
+[[cases.history]]
 main = "main-guide-changelog"
+
+[[cases.history]]
+owner = "session"
+to = "R0"
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "no"
+blocks.deep_needed.content = "要删的东西和它们的调用方都查得清，一轮够了。"
+blocks.deep_needed.unchanged = true
 
 [cases.owes]
 changes = ["plan"]

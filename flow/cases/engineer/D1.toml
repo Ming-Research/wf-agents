@@ -744,7 +744,25 @@ Why: The owner's ledger reaches two million lines, and 50 ms is asked: building 
 cell = "D2"
 
 [[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "yes"
+
+[[cases.history]]
+cell = "I1"
+
+[[cases.history]]
 main = "main-guide-commit-messages"
+
+[[cases.history]]
+owner = "session"
+to = "R0"
+
+[[cases.history]]
+cell = "R0"
 
 [cases.owes]
 not_writes = ["plan_review", "tree_review", "plan_doubts", "d1_words"]
@@ -789,7 +807,25 @@ blocks.acceptance.content = '''
 cell = "D2"
 
 [[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "yes"
+
+[[cases.history]]
+cell = "I1"
+
+[[cases.history]]
 main = "main-guide-changelog"
+
+[[cases.history]]
+owner = "session"
+to = "R0"
+
+[[cases.history]]
+cell = "R0"
 
 [cases.owes]
 changes = ["plan"]
@@ -900,7 +936,7 @@ question = "waits"
 id = "D1-20"
 item = 27
 ran_before = true
-new = ["plan_review", "d1_words"]
+new = ["plan_review"]
 judge = '''
 Both reviews failed the plan at once: adds the header-only ledger to plan_agent with its test, keeps reports-read-the-whole-file for total and categories beside the new entry in tree_edits; answers each point in its own dialogue.'''
 
@@ -948,11 +984,6 @@ cell = "P1"
 blocks.plan_review.content = '''
 1. plan_agent, part 1, and acceptance: nothing says what `monthly_fast` gives for a ledger of the header alone, for which `monthly` gives no rows; no test covers it. Say it, and add the test.'''
 blocks.plan_ok.value = "no"
-
-[[cases.history]]
-owner = "words"
-to = "D1"
-content = "树的评审也会提意见，先按计划评审改。"
 
 [cases.owes]
 writes = { plan_review = "written", tree_review = "written" }

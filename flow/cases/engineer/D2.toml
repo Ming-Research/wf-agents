@@ -484,6 +484,23 @@ Why: The ledger's amounts have at most two decimals and its sums are shown round
 [[cases.history]]
 cell = "D2"
 
+[[cases.history]]
+cell = "P1"
+blocks.plan_review.content = "1. The plan does not say what each way is measured on."
+blocks.plan_ok.value = "no"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+把 `Amount` 从 `f64` 改成以分为单位的 `i64`：读账本时 `12.50` 读成 1250，写回账本和报表显示时一律写成两位小数（`40` 写回成 `40.00`），账本文件的格式不变。多于两位小数的金额不再悄悄四舍五入，而是让读它的命令失败并说出行号（宪法第二条、原则 no-silent-skips）；金额或和超出 `i64` 的分能存的范围时，命令也失败并说明，不悄悄溢出。决定 amounts-are-floats 不再成立，删掉，换成新的决定 amounts-are-cents。'''
+blocks.tree_edits.content = '''
+In design/decisions/amount.md, the decision amounts-are-floats is deleted and this one written:
+
+### decision amounts-are-cents
+An amount is a whole number of cents, read from text with at most two decimals and written with exactly two; an amount with more decimals fails its line.
+Why: A sum of floats cannot be compared exactly (0.10 and 0.20 do not make 0.30), and a report's numbers are exact or refused (Article 2); the owner's budget warnings compare sums. Floats were turned down for that, and so was rounding a third decimal as it is read, which rounds a number away in silence.'''
+blocks.plan_review.content = "Done: the plan says what each way is measured on."
+
 [cases.owes]
 keeps = ["plan"]
 
@@ -522,14 +539,9 @@ blocks.acceptance.content = '''
 cell = "D2"
 
 [[cases.history]]
-owner = "background"
-content = '''
-主人用 `tally report --monthly examples/ledger.csv` 看每月花销时发现：一月、二月、三月的花销合成了一行，键是 `2026-0`，十月成了 `2026-1`，看不出每个月各花了多少。这是 2026-11-09 主人在自己的账本上看到的，`examples/ledger.csv` 上也一样。要的是：月报每个月一行，键是 `YYYY-MM`（例如 `2026-01`），每行是那个月的总数。
-
-补充（2026-11-12）：月报还要把第一个月到最后一个月之间没有花销的月份也列出来，金额是 `0.00`，这样一眼能看出哪个月没花钱。'''
-
-[[cases.history]]
-cell = "R0"
+cell = "P1"
+blocks.plan_review.content = "1. The plan does not say what each way is measured on."
+blocks.plan_ok.value = "no"
 
 [[cases.history]]
 cell = "D1"
@@ -549,6 +561,7 @@ blocks.acceptance.content = '''
 2. `monthly_sums_a_month` passes in CI.
 3. `monthly_shows_empty_months` passes in CI: the month between, `2026-01`, shows 0.00.
 4. The full workflows pass.'''
+blocks.plan_review.content = "Done: the plan says what each way is measured on."
 
 [cases.owes]
 changes = ["plan"]
@@ -632,6 +645,12 @@ blocks.plan_agent.content = '''
 2. crates/tally-cli/src/main.rs: accept `report --monthly --category NAME FILE`: parse the ledger, take `ledger.only(NAME)?` and print `report::render(&report::monthly(&only))`, as the monthly report prints. USAGE names the option. A second `--category` matches no arm and fails with USAGE (question several_categories, option 2).
 3. Tests: `only_keeps_one_category` (of `food` and `foods`, `only("food")` keeps the `food` entries alone) and `only_fails_on_a_category_no_entry_holds` in crates/tally/tests/ledger.rs; `monthly_of_one_category` in crates/tally/tests/report.rs, on two categories over two months, asserting the rows of one. None builds before the change (no `only`); all pass after.
 Verified: `report::monthly` takes a `&Ledger` (report.rs line 9), so it needs no change; `run` matches the arguments as a slice (main.rs line 25), so the new arm sits beside `["report", "--monthly", file]`.'''
+blocks.d2_questions.shaped = [{ name = "several_categories", waits = false, recommends = 2, ask = "What does `tally report --monthly` do when `--category` is given more than once?", options = [{ does = "sum those categories, month by month", follows = "one report of several categories" }, { does = "refuse, saying the option is given once", follows = "the item asks for one category" }] }]
+
+[[cases.history]]
+owner = "answer"
+question = "several_categories"
+option = 1
 
 [cases.owes]
 changes = ["plan"]
@@ -767,7 +786,28 @@ Why: The monthly report must take under 50 ms on the two million lines the owner
 cell = "D2"
 
 [[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "yes"
+
+[[cases.history]]
+cell = "I1"
+
+[[cases.history]]
 main = "main-guide-commit-messages"
+
+[[cases.history]]
+owner = "session"
+to = "R0"
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "D1"
 
 [cases.owes]
 keeps = ["plan"]
@@ -806,7 +846,28 @@ blocks.acceptance.content = '''
 cell = "D2"
 
 [[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "yes"
+
+[[cases.history]]
+cell = "I1"
+
+[[cases.history]]
 main = "main-guide-changelog"
+
+[[cases.history]]
+owner = "session"
+to = "R0"
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "D1"
 
 [cases.owes]
 changes = ["plan"]

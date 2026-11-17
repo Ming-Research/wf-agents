@@ -633,6 +633,13 @@ blocks.tree_review.content = '''
 1. Taken: the entry is renamed amounts-are-cents, and tree_edits says that amounts-are-floats is deleted.
 2. Taken: the Why gives the reason that holds now: a sum of floats cannot be compared exactly, and the budget warnings compare sums.'''
 
+[[cases.history]]
+cell = "R2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
 [cases.owes]
 writes = { tree_ok = "yes" }
 not_writes = ["tree_review"]
@@ -842,6 +849,13 @@ blocks.acceptance.content = '''
 3. `tally report --monthly FILE` without `--category` is unchanged (reading the diff).
 4. The full workflows pass.'''
 
+[[cases.history]]
+cell = "R2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
 [cases.owes]
 writes = { tree_ok = "yes" }
 not_writes = ["tree_review"]
@@ -923,6 +937,13 @@ blocks.acceptance.content = '''
 3. `monthly_shows_empty_months` passes in CI: the month between, `2026-01`, shows 0.00.
 4. The full workflows pass.'''
 
+[[cases.history]]
+cell = "R2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
 [cases.owes]
 writes = { tree_ok = "no", tree_review = "written" }
 
@@ -980,7 +1001,31 @@ blocks.tree_ok.content = '''
 5. 无。'''
 
 [[cases.history]]
+cell = "I1"
+
+[[cases.history]]
 main = "main-guide-commit-messages"
+
+[[cases.history]]
+owner = "session"
+to = "R0"
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "no"
+blocks.deep_needed.content = "一轮能查清。"
+blocks.deep_needed.unchanged = true
+
+[[cases.history]]
+cell = "R2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+blocks.plan_ok.unchanged = true
 
 [cases.owes]
 writes = { tree_ok = "yes" }
@@ -1041,7 +1086,28 @@ blocks.tree_ok.content = '''
 5. 无。'''
 
 [[cases.history]]
+cell = "I1"
+
+[[cases.history]]
 main = "main-guide-machine"
+
+[[cases.history]]
+owner = "session"
+to = "R0"
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "D1"
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+blocks.plan_ok.unchanged = true
 
 [cases.owes]
 writes = { tree_ok = "no", tree_review = "written" }
