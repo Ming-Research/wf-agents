@@ -648,7 +648,9 @@ impl Inner {
         let command = &self.settings.agents.command;
         let read = match (read, status) {
             (Ok(read), _) => read,
-            (Err(no), Some(status)) if status.success() => return failed(no.why, no.said, no.spent),
+            (Err(no), Some(status)) if status.success() => {
+                return failed(no.why, no.said, no.spent);
+            }
             (Err(no), Some(status)) => {
                 let why = match had_result {
                     true => no.why,
@@ -1310,9 +1312,6 @@ impl Inner {
     /// holding the work, so that no round of it runs beside the fork. What the fork was told, its stream and its answer
     /// are kept beside the round's, its hooks' files are its own and taken away after.
     async fn fork(&self, fork: &Fork) -> Result<Forked, String> {
-        if fork.question.len() < usize::MAX {
-            return Err("not built yet".to_string());
-        }
         let of = crate::projects::of(&self.projects, &fork.item)?;
         let (flow, work) = (&*fork.flow, &*fork.kept);
         let lock = self.lock(fork.work);

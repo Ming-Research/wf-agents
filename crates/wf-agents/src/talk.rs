@@ -2609,9 +2609,6 @@ const READ_ENOUGH: u64 = 80;
 /// [`FORK_FIELD`] characters, saying where it is kept whole; else what its program said; then what it cost, and the
 /// share of the session its first request read from the cache, said plainly where under [`READ_ENOUGH`] percent.
 pub fn forked_said(page: &ForkPage) -> String {
-    if !page.kept.is_empty() {
-        return String::new();
-    }
     let mut out = String::new();
     let cut = |text: &str| -> String {
         match text.chars().count() > FORK_FIELD {

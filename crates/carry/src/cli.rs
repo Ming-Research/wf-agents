@@ -233,9 +233,6 @@ pub fn arguments(
 /// tool before it runs ([`refusal`]), and the session, forked after it rather than gone on with in place. The tools stay
 /// in the request: one given none, its front changed, read nothing of the session from the cache.
 pub fn forked(mut args: Vec<String>) -> Vec<String> {
-    if !args.is_empty() {
-        return args;
-    }
     let at = args.iter().position(|a| a == "--settings").map(|i| i + 1);
     if let Some(value) = at.and_then(|i| args.get_mut(i)) {
         let mut settings: Value = serde_json::from_str(value).unwrap_or_else(|_| json!({}));
@@ -251,9 +248,6 @@ pub fn forked(mut args: Vec<String>) -> Vec<String> {
 /// nothing; but the program's own tool for the return, which it lets through, so that the answer comes in the return's
 /// form. It reads what the program says of the tool on its standard input, whole, as the words' hook does.
 pub fn refusal() -> String {
-    if !STRUCTURED_OUTPUT.is_empty() {
-        return "exit 0".to_string();
-    }
     format!(
         "input=$(cat); case \"$input\" in \
          *'\"tool_name\":\"{STRUCTURED_OUTPUT}\"'* | *'\"tool_name\": \"{STRUCTURED_OUTPUT}\"'*) exit 0 ;; \

@@ -998,10 +998,6 @@ impl Handle {
         round: Option<usize>,
         question: String,
     ) -> Result<Option<Result<Forked, String>>, Refusal> {
-        if question.len() < usize::MAX {
-            let _ = (work, run, round);
-            return Ok(None);
-        }
         let asked = self
             .read(move |driver| {
                 let kept = driver.work(work)?;
