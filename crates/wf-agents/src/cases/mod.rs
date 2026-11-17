@@ -12,7 +12,7 @@ use flow::Compiled;
 /// A flow's definition compiled, with its cases read and checked against it, and where its made project is kept.
 pub struct Flow {
     pub compiled: Compiled,
-    pub cases: cases::Cases,
+    pub cases: ::cases::Cases,
     /// The made project's export.
     pub export: PathBuf,
 }
@@ -36,9 +36,14 @@ pub fn read(flow_dir: &Path, cases_dir: Option<&Path>, has: &flow::Has) -> Resul
         Some(dir) => dir.to_path_buf(),
         None => dir_of(flow_dir, &compiled).ok_or_else(|| shown(&"the flows' directory holds it, and it has none"))?,
     };
-    let in_dir = |faults: Vec<cases::Fault>| faults.iter().map(|f| format!("{}/{f}", dir.display())).collect();
-    let read = cases::read(&dir).map_err(in_dir)?;
-    let checked = cases::check(&compiled, &read).map_err(in_dir)?;
+    let in_dir = |faults: Vec<::cases::Fault>| {
+        faults
+            .iter()
+            .map(|f| format!("{}/{f}", dir.display()))
+            .collect::<Vec<String>>()
+    };
+    let read = ::cases::read(&dir).map_err(in_dir)?;
+    let checked = ::cases::check(&compiled, &read).map_err(in_dir)?;
     let projects = dir
         .parent()
         .map_or_else(|| dir.join(".."), Path::to_path_buf)
@@ -53,7 +58,7 @@ pub fn read(flow_dir: &Path, cases_dir: Option<&Path>, has: &flow::Has) -> Resul
 
 /// Every name of the made project the cases use: the commit each item starts from, each a round commits and each main
 /// moves to, each with where it is used.
-pub fn commits(cases: &cases::Cases) -> Vec<(String, String)> {
+pub fn commits(cases: &::cases::Cases) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     for (n, item) in &cases.items {
         out.push((item.main.clone(), format!("item {n}")));
@@ -62,8 +67,8 @@ pub fn commits(cases: &cases::Cases) -> Vec<(String, String)> {
         for case in &of.cases {
             for step in &case.history {
                 match step {
-                    cases::Step::Round(round) => out.extend(round.commit.clone().map(|c| (c, case.id.clone()))),
-                    cases::Step::Main(main) => out.push((main.clone(), case.id.clone())),
+                    ::cases::Step::Round(round) => out.extend(round.commit.clone().map(|c| (c, case.id.clone()))),
+                    ::cases::Step::Main(main) => out.push((main.clone(), case.id.clone())),
                     _ => {}
                 }
             }
