@@ -325,21 +325,36 @@
   white-space: pre-wrap;
 }
 
-/* The history: the flow chart's grid, a row for each step, its time at its left. The row chosen is marked in the
-   accent at its time's edge, as a block's name is on the flow's chart, and is brought into view clear of the cells'
-   heads. */
+/* The history: the flow chart's grid, a row for each step, what woke it or the act at its left and its time at its
+   right. The row chosen is marked in the accent at its names' edge, as a block's name is on the flow's chart, and is
+   brought into view clear of the cells' heads. */
 .step-lead {
   scroll-margin-top: var(--chart-head-room);
 }
 
 .history .step-lead .head-button {
   align-items: center;
+  gap: var(--space-8);
   height: var(--row);
   padding: 0 var(--space-8);
+  overflow: hidden;
+}
+
+/* A name at the left of a step, with its sign or its tool's mark after it, as a block's name carries them on the flow's
+   chart. */
+.step-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.step-name .glyph {
+  flex: none;
+  margin: 0;
 }
 
 .step-time {
-  flex: none;
   color: var(--muted);
   font-family: var(--mono);
   font-size: var(--size-small);

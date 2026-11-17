@@ -1,31 +1,37 @@
 // A work's history as the chart draws it, and the order of the list of works, worked out from the interface's JSON
 // alone so that they can be tested without drawing.
 //
-// The chart's columns are the cells of the work's flow in the order of the walk, and its rows the steps the owner reads
-// the work by, in the order they happened, each with one line of what it did. A run is a row, its rounds folded into it,
-// with its mark in its cell's column. An act of the owner's (a write: an answer, words to a line, a block the owner
-// writes; a let-go, a pause, a let-on, a cancel, a reopening) is a row, the owner's sign under each cell it ran, a
-// let-go's under the cell let go, an act that ran no cell yet with no sign. A write of the outside's is a row only where
-// it ran a cell, with the outside's sign under each; one that ran none is the engine's own bookkeeping. A pause of the
-// engine's is a row, since a stop matters to the owner. A write of a run is no row: it is that run's, said in its row.
-// A new session of a line is no row: it is said with the run that began it. A run of a cell the flow no longer has
-// keeps its row, in no column. A run that is a way round is drawn as the flow's chart draws a way back: a line along
-// its row from the furthest cell after it whose write it ran for, to its mark, with an arrow there.
+// The history is the chain of what woke what: a datum written woke a cell, whose run wrote data that woke the next.
+// Its columns are the cells of the work's flow in the order of the walk, and its rows, in the order they happened, the
+// runs of the cells, the owner's acts that woke none, and the pauses, resumes, cancels and reopenings of the work. A
+// run's row names what woke it: of the writes among its causes, the one written last, by the name its row has on the
+// flow's matrix, with the owner's sign or the outside's where either wrote it, or the tool whose results came in, with
+// the tool's mark; and after it each other write of the owner's that woke it, so that no act of the owner's is lost
+// from the history. Where a run of another cell wrote what woke it, that cell's column has the dot of `outputs`, from
+// which an arrow runs to the run's own column, back where that cell is the later. A write of the owner's or the
+// outside's that woke a cell is no row: the run it woke names it; one of the outside's that woke none is the engine's
+// own bookkeeping. A write of a run is no row: it is the dot of the rows of the runs it woke. A new session of a line
+// is no row: the run's Step says it. A run of a cell the flow no longer has keeps its row, in no column.
 //
-// A write ran a cell where a run of the cell is for a change of the block whose meaning that write gave: the records
-// name a run's cause by its block, and the run's basis names the version it started from, whose meaning names the
-// version that last changed it.
+// A write woke a run where the run has a change of the block among its causes and the version of the block it started
+// from has, as its meaning, the version the write wrote: the records name a run's cause by its block, and the run's
+// basis names the version it started from, whose meaning names the version that last changed it.
 
-import type { Block, Item, Run, Step, Summary, WorkPage } from '../works-api';
+import type { Cell, Flow } from '../api';
+import type { Block, CallRow, Item, Run, Step, Summary, WorkPage, Writer } from '../works-api';
 import { type RunState } from './state-marks';
-import { type Part, STATE, isWayRound, plain, sentence, stateOf, stoppedAt } from './words';
-
-/// The mark a row has under a cell: a run's, how it ended or stands; the owner's sign, of an act that ran the cell or
-/// let it go on; the outside's sign, of a write that ran the cell.
-export type RowMark = { kind: 'run'; mark: RunState; run: number } | { kind: 'owner' } | { kind: 'outside' };
+import { type Part, STATE, callWords, causeWords, plain, sentence, stateOf, stoppedAt, writerWords } from './words';
 
 /// A new session of a line, as a step.
 export type SessionStep = Step & { kind: 'session' };
+
+/// What a row names at its left: a datum, by the name its row has on the flow's matrix; a tool or a person whose
+/// results came in; or an act on the work; with the mark after it: the owner's sign where the owner wrote it, answered
+/// or acted, the outside's where the outside wrote it, the tool's mark of a tool, or none.
+export interface Named {
+  name: string;
+  mark: 'people' | 'outside' | 'tools' | null;
+}
 
 export interface HistoryRow {
   /// Unique among the rows: the step's kind and place.
@@ -33,17 +39,17 @@ export interface HistoryRow {
   /// The step's place among the steps.
   index: number;
   step: Step;
-  /// The marks under the cells' columns, by column.
-  marks: Map<number, RowMark>;
+  /// What it names at its left: of a run, what woke it; else the act.
+  names: Named[];
+  /// Of a run of a cell the flow has, its cell's column and how it ended or stands.
+  run: { column: number; state: RunState; words: string } | null;
+  /// Of a run woken by what a run of another cell the flow has wrote, that cell's column, where the dot stands and the
+  /// arrow starts, and what the dot says.
+  from: { column: number; words: string } | null;
   /// Whether the row's day differs from the day of the row before, so that the day is shown again.
   newDay: boolean;
-  /// What the step did, in one line.
+  /// What it is, in one line, said on pointing at its names: of a run, everything that woke it; else the act.
   did: Part[];
-  /// Of a write, the runs it ran, in the order they began.
-  ran: Run[];
-  /// Of a run that is a way round, the column of its cell and those of the cells after it whose writes it ran for, in
-  /// order, along which the way back is drawn; none otherwise, or where none of them can be found.
-  back: { to: number; from: number[] } | null;
 }
 
 const dayKey = (ms: number) => {
@@ -72,21 +78,113 @@ export function ranBy(steps: Step[], blocks: Block[]): Map<number, Run[]> {
   return ran;
 }
 
-/// Of a run that is a way round, the column of its cell and those of the cells after it whose writes it ran for: of each
-/// block it ran for, the cell whose run wrote the version that gave the meaning of the version it started from.
-function backOf(run: Run, column: Map<string, number>, blocks: Block[]): HistoryRow['back'] {
-  const to = column.get(run.cell);
-  if (to === undefined || !isWayRound(run)) return null;
-  const versions = new Map(blocks.map((b) => [b.name, b.versions]));
-  const from = run.because.flatMap((cause) => {
-    if (cause.kind !== 'changed') return [];
-    const all = versions.get(cause.block) ?? [];
-    const started = run.basis.find((b) => b.block === cause.block)?.version ?? null;
-    const by = all.find((v) => v.number === all.find((x) => x.number === started)?.meaning)?.by;
-    const c = by?.kind === 'run' ? column.get(by.cell) : undefined;
-    return c !== undefined && c > to ? [c] : [];
-  });
-  return from.length === 0 ? null : { to, from: [...new Set(from)].sort((a, b) => a - b) };
+/// The name a datum's row has on the flow's matrix where it runs `cell`: what the cell's `watches` names it by, a
+/// group or itself; else a group a cell watches by its name, on whose row the matrix marks its watchers; else its own.
+export function rowName(flow: Pick<Flow, 'groups' | 'cells'>, block: string, cell?: Cell): string {
+  const own = cell?.watches.find((w) => w.blocks.includes(block));
+  if (own !== undefined) return own.name;
+  const watched = (group: string) => flow.cells.some((c) => c.watches.some((w) => w.name === group));
+  return flow.groups.find((g) => g.blocks.includes(block) && watched(g.name))?.name ?? block;
+}
+
+/// The mark of who wrote a version, after its name: the owner's sign, the outside's, or none of a run.
+const signOf = (by: Writer): Named['mark'] =>
+  by.kind === 'owner' ? 'people' : by.kind === 'outside' ? 'outside' : null;
+
+/// A write, or the results of calls, that woke a run: when it came, what the row names it by and how its tip says it;
+/// the cell whose run wrote it, with the run and the version; and whether the owner wrote it.
+interface Waking {
+  time: number;
+  at: number;
+  names: Named[];
+  words: Part[];
+  by: { cell: string; run: number; version: string } | null;
+  owner: boolean;
+}
+
+/// What woke a run, the latest first: of each block among its causes, the write that gave the version it started from
+/// its meaning (of a run its cell ran with no record, each block the cell watches that it started from a version of);
+/// and the results of the calls its cell asked for, which came in as the last of them did.
+function wakings(run: Run, page: Pick<WorkPage, 'flow' | 'blocks'>, calls: Map<number, CallRow>): Waking[] {
+  const cell = page.flow.cells.find((c) => c.id === run.cell);
+  const versions = new Map(page.blocks.map((b) => [b.name, b.versions]));
+  const changed = new Set(run.because.flatMap((c) => (c.kind === 'changed' ? [c.block] : [])));
+  const first = run.because.some((c) => c.kind === 'noRecord') ? (cell?.watches.flatMap((w) => w.blocks) ?? []) : [];
+  const out: Waking[] = [];
+  for (const block of new Set([...changed, ...first])) {
+    const all = versions.get(block) ?? [];
+    const started = run.basis.find((b) => b.block === block)?.version ?? null;
+    const meaning = all.find((v) => v.number === started)?.meaning ?? null;
+    const wrote = all.find((v) => v.number === meaning);
+    const name = rowName(page.flow, block, cell);
+    if (wrote === undefined) {
+      // A change whose write the work does not show is named still, as the oldest, with no one who wrote it.
+      if (changed.has(block)) {
+        const names: Named[] = [{ name, mark: null }];
+        out.push({ time: -Infinity, at: -1, names, words: [{ name: block }], by: null, owner: false });
+      }
+      continue;
+    }
+    const version = `${block} v${wrote.number}`;
+    out.push({
+      time: wrote.time,
+      at: wrote.at,
+      names: [{ name, mark: signOf(wrote.by) }],
+      words: [{ name: version }, ` from ${writerWords(wrote.by)}`],
+      by: wrote.by.kind === 'run' ? { cell: wrote.by.cell, run: wrote.by.run, version } : null,
+      owner: wrote.by.kind === 'owner',
+    });
+  }
+  for (const cause of run.because) {
+    if (cause.kind !== 'results') continue;
+    const made = cause.calls.flatMap((id) => calls.get(id) ?? []);
+    const names = made.map((c): Named => {
+      if (c.what.kind === 'tool') return { name: c.what.name, mark: 'tools' };
+      if (c.what.kind === 'question') return { name: c.what.who, mark: 'people' };
+      return { name: c.what.kind, mark: null };
+    });
+    out.push({
+      time: Math.max(-Infinity, ...made.map((c) => c.done ?? c.made)),
+      at: Infinity,
+      names: names.filter((n, i) => names.findIndex((m) => m.name === n.name && m.mark === n.mark) === i),
+      words: ['the results of ', made.map((c) => callWords(c.what)).join(' and ') || `calls ${cause.calls.join(', ')}`],
+      by: null,
+      owner: false,
+    });
+  }
+  return out.sort((a, b) => b.time - a.time || b.at - a.at);
+}
+
+/// A run's row: what woke it, the latest and then each other write of the owner's, each name once; the column of the
+/// cell whose run wrote the latest, where the flow has it and it is another than the run's; and the run's own column
+/// and mark.
+function runRow(
+  run: Run,
+  page: Pick<WorkPage, 'flow' | 'blocks' | 'summary'>,
+  column: Map<string, number>,
+  calls: Map<number, CallRow>,
+): Pick<HistoryRow, 'names' | 'run' | 'from' | 'did'> {
+  const woke = wakings(run, page, calls);
+  const [latest, ...rest] = woke;
+  const all = [...(latest?.names ?? []), ...rest.filter((w) => w.owner).flatMap((w) => w.names)];
+  const names = all.filter((n, i) => all.findIndex((m) => m.name === n.name && m.mark === n.mark) === i);
+  const at = column.get(run.cell);
+  const state = runState(run, page.summary, page.blocks);
+  const by = latest?.by ?? null;
+  const fromAt = by === null ? undefined : column.get(by.cell);
+  const why =
+    woke.length > 0
+      ? ['woken by ', ...woke.flatMap((w, i): Part[] => [...(i === 0 ? [] : ['; ']), ...w.words])]
+      : [run.because.map((c) => causeWords(c)).join('; ')];
+  return {
+    names,
+    run: at === undefined ? null : { column: at, state, words: `${run.cell} run ${run.run}` },
+    from:
+      by === null || fromAt === undefined || at === undefined || fromAt === at
+        ? null
+        : { column: fromAt, words: `${by.cell} run ${by.run}: outputs ${by.version}` },
+    did: at === undefined ? [{ name: run.cell }, ', which the flow no longer has · ', ...why] : why,
+  };
 }
 
 /// The new sessions each run began, by the run's number. A session with an id of its own is begun by the run whose
@@ -138,21 +236,6 @@ export function runState(run: Run, summary: Pick<Summary, 'now' | 'cells' | 'wai
 const named = (block: string, value: string | null, numbers: number[]): string =>
   value !== null ? `${block} = ${value}` : `${block} ${numbers.map((n) => `v${n}`).join(' ')}`;
 
-/// Names joined by a middle dot, each a name.
-const dotted = (names: string[]): Part[] => names.flatMap((name, i) => (i === 0 ? [{ name }] : [' · ', { name }]));
-
-/// What a run wrote, each block once, in the order it first wrote them and then the flow's: with the value its last
-/// version has, or its versions.
-function wroteParts(run: Run, page: Pick<WorkPage, 'blocks' | 'flow'>): Part[] {
-  const order = new Map(page.flow.blocks.map((b, i) => [b.name, i]));
-  const written = page.blocks.flatMap((b) => {
-    const mine = b.versions.filter((v) => v.by.kind === 'run' && v.by.run === run.run).sort((x, y) => x.at - y.at);
-    return mine.length === 0 ? [] : [{ block: b.name, mine }];
-  });
-  written.sort((a, b) => a.mine[0].at - b.mine[0].at || (order.get(a.block) ?? 0) - (order.get(b.block) ?? 0));
-  return dotted(written.map((w) => named(w.block, w.mine[w.mine.length - 1].value, w.mine.map((v) => v.number))));
-}
-
 /// The question each answer of the owner's was written for, by the place of the write: the owner's latest answer to
 /// each question that has one, which the engine writes into the questions of the question's cell as it takes it, the
 /// first write after it. An earlier answer the page is not given, and its write is named as any other.
@@ -167,8 +250,8 @@ function answers(page: Pick<WorkPage, 'steps' | 'questions'>): Map<number, { que
   return out;
 }
 
-/// What a write of the owner's or the outside's did: answered a question, by its name and the option taken; said the
-/// owner's words to the cell they reached; or wrote the block, with the value it wrote or its version.
+/// What a write of the owner's did: answered a question, by its name and the option taken; said the owner's words to
+/// the cell they reached; or wrote the block, with the value it wrote or its version.
 function writeParts(
   step: Step & { kind: 'wrote' },
   page: Pick<WorkPage, 'blocks'>,
@@ -177,69 +260,62 @@ function writeParts(
   const version = page.blocks.find((b) => b.name === step.block)?.versions.find((v) => v.at === step.at);
   const answer = answered.get(step.at);
   const saidTo = version?.saidTo ?? null;
-  if (step.by.kind === 'owner' && answer !== undefined)
-    return ['answered ', { name: answer.question }, ': ', { name: String(answer.option) }];
-  if (step.by.kind === 'owner' && saidTo !== null) return ['said to ', { name: saidTo }];
+  if (answer !== undefined) return ['answered ', { name: answer.question }, ': ', { name: String(answer.option) }];
+  if (saidTo !== null) return ['said to ', { name: saidTo }];
   return ['wrote ', { name: named(step.block, step.value, version === undefined ? [] : [version.number]) }];
 }
+
+/// The owner's sign, after the name of an act of the owner's.
+const owners = (name: string): Named[] => [{ name, mark: 'people' }];
+
+/// A row of an act: its name, nothing under the cells, and what it did.
+const act = (names: Named[], did: Part[]): Pick<HistoryRow, 'names' | 'run' | 'from' | 'did'> => ({
+  names,
+  run: null,
+  from: null,
+  did,
+});
 
 /// The rows of the history, in the order the steps happened.
 export function placeSteps(page: Pick<WorkPage, 'steps' | 'flow' | 'blocks' | 'summary' | 'questions'>): HistoryRow[] {
   const { steps, flow, blocks } = page;
   const column = new Map(flow.cells.map((c, i) => [c.id, i]));
+  const calls = new Map(steps.flatMap((s) => (s.kind === 'run' ? s.calls.map((c) => [c.call, c] as const) : [])));
   const ran = ranBy(steps, blocks);
   const answered = answers(page);
+  // A step's row, or none where it is no row.
+  const rowOf = (step: Step): Pick<HistoryRow, 'names' | 'run' | 'from' | 'did'> | null => {
+    switch (step.kind) {
+      case 'run':
+        return runRow(step, page, column, calls);
+      case 'wrote':
+        if (step.by.kind !== 'owner' || (ran.get(step.at) ?? []).length > 0) return null;
+        return act(owners(rowName(flow, step.block)), writeParts(step, page, answered));
+      case 'letGo':
+        return act(owners('let go'), ['let ', { name: step.cell }, ' go on']);
+      case 'paused':
+        if (step.by === 'owner') return act(owners('paused'), ['paused']);
+        return act(
+          [{ name: 'paused', mark: null }],
+          [`the engine paused: ${plain(sentence(step.why ?? 'it gave no reason'))}`],
+        );
+      case 'resumed':
+        return act(owners('resumed'), ['resumed']);
+      case 'cancelled':
+        return act(owners('cancelled'), [step.why ? `cancelled: ${step.why}` : 'cancelled']);
+      case 'reopened':
+        return act(owners('reopened'), [`reopened: ${step.why}`]);
+      case 'session':
+        return null;
+    }
+  };
   const rows: HistoryRow[] = [];
   let day: string | null = null;
   steps.forEach((step, index) => {
-    const marks = new Map<number, RowMark>();
-    const mark = (cell: string, m: RowMark) => {
-      const c = column.get(cell);
-      if (c !== undefined) marks.set(c, m);
-    };
-    let did: Part[] = [];
-    let runs: Run[] = [];
-    let back: HistoryRow['back'] = null;
-    switch (step.kind) {
-      case 'run': {
-        mark(step.cell, { kind: 'run', mark: runState(step, page.summary, blocks), run: step.run });
-        back = backOf(step, column, blocks);
-        const wrote = wroteParts(step, page);
-        did = column.has(step.cell)
-          ? wrote
-          : [{ name: step.cell }, ', which the flow no longer has', ...(wrote.length > 0 ? [' · ', ...wrote] : [])];
-        break;
-      }
-      case 'wrote': {
-        if (step.by.kind === 'run') return;
-        runs = ran.get(step.at) ?? [];
-        if (step.by.kind === 'outside' && runs.length === 0) return;
-        const sign: RowMark = step.by.kind === 'owner' ? { kind: 'owner' } : { kind: 'outside' };
-        for (const r of runs) mark(r.cell, sign);
-        did = writeParts(step, page, answered);
-        break;
-      }
-      case 'letGo':
-        mark(step.cell, { kind: 'owner' });
-        did = ['let ', { name: step.cell }, ' go on'];
-        break;
-      case 'paused':
-        did = step.by === 'engine' ? [`the engine paused: ${plain(sentence(step.why ?? 'it gave no reason'))}`] : ['paused'];
-        break;
-      case 'resumed':
-        did = ['resumed'];
-        break;
-      case 'cancelled':
-        did = [step.why ? `cancelled: ${step.why}` : 'cancelled'];
-        break;
-      case 'reopened':
-        did = [`reopened: ${step.why}`];
-        break;
-      case 'session':
-        return;
-    }
+    const row = rowOf(step);
+    if (row === null) return;
     const today = dayKey(step.time);
-    rows.push({ key: `${step.kind}:${step.at}`, index, step, marks, newDay: today !== day, did, ran: runs, back });
+    rows.push({ key: `${step.kind}:${step.at}`, index, step, newDay: today !== day, ...row });
     day = today;
   });
   return rows;

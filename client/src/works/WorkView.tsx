@@ -176,7 +176,6 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
           sessions={sessions}
           reader={reader}
           shown={win.open && tab === 'step'}
-          onChoose={choose}
         />
       ),
     },

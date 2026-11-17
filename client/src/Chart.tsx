@@ -12,7 +12,8 @@
 // width this leaves, right of the marks, is a column of words, one line to a row: what the row's thing is, or, on the
 // rows of the cell chosen, what that cell says of it. What a head has no room for, the cell's title, its line, when it
 // runs and what it waits for, stands over that column for the cell under the pointer. A work's history, drawn as this
-// chart, takes its cells' heads and the head of its words from here (`works/History.tsx`).
+// chart, takes its cells' heads, the head of its last column and the arrow at a run's mark from here
+// (`works/History.tsx`).
 //
 // Over the data stand bands of rows, each thing drawn once: the lines, one to a line the agents' cells name, with a dot
 // under each cell on it, the dots joined along the row, so that a joined row reads as one session going on; the
@@ -103,19 +104,22 @@ const REACH = { write: 6, watch: 7.5, read: 9 } as const;
 /// `--chart-arrow` say at the mark's size.
 const ARROW = { length: 9, half: 6 } as const;
 
-/// The arrow of a way back, pointing at the mark it runs again, its point on the mark's edge, `reach` from its middle.
-function arrowAt(reach: number): ReactNode {
-  const tip = 12 + reach;
-  const base = tip + ARROW.length;
+/// The arrow of a line along a row, pointing at the mark it runs to, its point on the mark's edge, `reach` from its
+/// middle: coming from the right, as a way back does, or from the left.
+function arrowAt(reach: number, from: 'right' | 'left' = 'right'): ReactNode {
+  const side = from === 'right' ? 1 : -1;
+  const tip = 12 + side * reach;
+  const base = tip + side * ARROW.length;
   return <polygon className="part arrow" points={`${tip},12 ${base},${12 - ARROW.half} ${base},${12 + ARROW.half}`} />;
 }
 
-/// The arrow of a way back alone, over a mark that is none of the chart's glyphs, as a run's in a work's history: its
-/// point `reach` units of a glyph's box from the mark's middle.
-export function BackArrow({ reach }: { reach: number }) {
+/// The arrow of a line along a row alone, over a mark that is none of the chart's glyphs, as a run's in a work's
+/// history: its point `reach` units of a glyph's box from the mark's middle; coming from the right, a way back, in the
+/// accent; from the left, an arrow a write runs, in the colour of the data's lines.
+export function RowArrow({ reach, from }: { reach: number; from: 'right' | 'left' }) {
   return (
-    <svg className="glyph back-arrow" viewBox="0 0 24 24" aria-hidden="true">
-      {arrowAt(reach)}
+    <svg className={`glyph row-arrow ${from === 'right' ? 'back' : 'wakes'}`} viewBox="0 0 24 24" aria-hidden="true">
+      {arrowAt(reach, from)}
     </svg>
   );
 }

@@ -1,6 +1,6 @@
 /* The flow's chart, and a work's history drawn as it: the data, or the steps, down the side, the cells across, a mark
-   where they cross, and the ways back along the data's rows in the accent, with an arrow; each line's row joined along
-   it. The rows' names stay in place as the frame scrolls sideways, and the cells' heads as it scrolls down. */
+   where they cross, and the ways back along the rows in the accent, with an arrow; each line's row joined along it.
+   The rows' names stay in place as the frame scrolls sideways, and the cells' heads as it scrolls down. */
 
 /* The view under the view's line: the chart's frame. */
 .view-body {
@@ -320,6 +320,15 @@ tr.row.chosen > .block-head {
   stroke: none;
 }
 
+/* In a work's history, an arrow a write runs to a later cell, thin in the data's colour, as the flowchart draws it. */
+.seg.wakes {
+  background: var(--chart-data);
+}
+
+.row-arrow.wakes .part.arrow {
+  fill: var(--chart-data);
+}
+
 .glyph {
   display: block;
   position: relative;
@@ -329,8 +338,9 @@ tr.row.chosen > .block-head {
   overflow: visible;
 }
 
-/* The arrow of a way back over a mark that is no glyph, as a run's in a work's history: on the crossing's middle. */
-.glyph.back-arrow {
+/* The arrow of a line along a row over a mark that is no glyph, as a run's in a work's history: on the crossing's
+   middle. */
+.glyph.row-arrow {
   position: absolute;
   top: 50%;
   left: 50%;

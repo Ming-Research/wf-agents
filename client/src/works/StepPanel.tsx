@@ -4,8 +4,8 @@
 // they ran in, with each new session it began and why; why it ran; the versions it started from, those new to it first;
 // what it handed in, each version's content opened where it stands; each round, with what it was given (the reasons a
 // return was sent back among them), what came back, what it ran on, took, was filled with, was told and returned; and
-// its calls. Of a write of the owner's or the outside's: who wrote it, the block's version and value, whether it changed
-// the block's meaning, the runs it ran and its content. Of another act: what was done, and when. With nothing chosen,
+// its calls. Of a write of the owner's that woke no cell: what it did, the block's version and value, whether it
+// changed the block's meaning, and its content. Of another act: what was done, and when. With nothing chosen,
 // that a row is to be chosen. A content is read only when the owner opens it.
 
 import { Fragment, type ReactNode, useCallback } from 'react';
@@ -454,37 +454,12 @@ function RunStep({ run, mark, began, page, reader, shown }: {
   );
 }
 
-/// The runs a write ran, each by its cell and a link that chooses its row; none yet where it ran none.
-function RanRuns({ row, page, onChoose }: { row: HistoryRow; page: WorkPage; onChoose: (step: number) => void }) {
-  if (row.ran.length === 0) return <p className="muted">None yet</p>;
-  return (
-    <ul>
-      {row.ran.map((r) => {
-        const index = page.steps.findIndex((s) => s.kind === 'run' && s.run === r.run);
-        const title = page.flow.cells.find((c) => c.id === r.cell)?.title;
-        return (
-          <ListRow key={r.run}>
-            <span className="mono">{r.cell}</span>
-            {title !== undefined && <span>{title}</span>}
-            {index >= 0 && (
-              <button type="button" className="link mono" onClick={() => onChoose(index)}>
-                run {r.run}
-              </button>
-            )}
-          </ListRow>
-        );
-      })}
-    </ul>
-  );
-}
-
-/// A write of the owner's or the outside's.
-function WriteStep({ step, row, page, reader, onChoose }: {
+/// A write of the owner's that woke no cell: one that woke a cell is named by the run it woke.
+function WriteStep({ step, row, page, reader }: {
   step: Step & { kind: 'wrote' };
   row: HistoryRow;
   page: WorkPage;
   reader: Reader;
-  onChoose: (step: number) => void;
 }) {
   const version = versionAt(page, step.block, step.at);
   const who = writerWords(step.by);
@@ -511,9 +486,6 @@ function WriteStep({ step, row, page, reader, onChoose }: {
       <StatusLine word="When" dot={false}>
         {fullTime(step.time)}, {chars(step.chars)}
       </StatusLine>
-      <PanelPart label="Which cells it ran" count={row.ran.length} last>
-        <RanRuns row={row} page={page} onChoose={onChoose} />
-      </PanelPart>
       <PanelPart label="Content">
         <Opener
           label="content"
@@ -567,14 +539,13 @@ function ActStep({ step }: { step: Step & { kind: keyof typeof ACT_WORDS } }) {
 
 /// The Step: the row chosen, or, with none, that a row is to be chosen. `shown` is whether the Step is in view, which
 /// what a round's agent is doing is read only while it is.
-export function StepTab({ page, row, sessions, reader, shown, onChoose }: {
+export function StepTab({ page, row, sessions, reader, shown }: {
   page: WorkPage;
   row: HistoryRow | undefined;
   /// The new sessions each run began, by the run's number.
   sessions: Map<number, SessionStep[]>;
   reader: Reader;
   shown: boolean;
-  onChoose: (step: number) => void;
 }) {
   if (row === undefined) return <p className="muted">Choose a row of the history to see its step here</p>;
   const step = row.step;
@@ -591,7 +562,7 @@ export function StepTab({ page, row, sessions, reader, shown, onChoose }: {
         />
       );
     case 'wrote':
-      return <WriteStep step={step} row={row} page={page} reader={reader} onChoose={onChoose} />;
+      return <WriteStep step={step} row={row} page={page} reader={reader} />;
     case 'session':
       return null;
     default:

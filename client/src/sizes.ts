@@ -10,8 +10,8 @@ export const WIDTH_KEYS = {
   /// The flow's chart and a work's history, which draws the flow's cells as it does: each cell's column, which starts as
   /// wide as its marks.
   flowCells: 'wf-agents.flow-cell-widths',
-  /// The history of a work: its column of times.
-  times: 'wf-agents.history-times-width',
+  /// The history of a work: its column of names, of what woke each run or the act.
+  historyNames: 'wf-agents.history-names-width',
   /// The flow view's window, the console's (`Drawer`), which keeps its own width under its own key.
   flowWindow: 'wf-agents.flow-window-width',
   /// The window of an item, the console's and a work's page's alike, which show the same item window.

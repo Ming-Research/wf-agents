@@ -78,9 +78,9 @@ every-field-has-a-reader); in the file, a look would be saved and committed.
 
 ### decision the-way-back-is-in-the-accent
 A way back is drawn in the accent in every view, and its words are not: its line and its arrow on the matrix and on the
-flowchart, where it is thicker than an arrow a write runs and stays as it is under the pointer, and a way round's line
-and arrow in a work's history. A run's Step shows no way-round line of its own: the history's arrow at its mark
-already says it (principle say-a-thing-once).
+flowchart, where it is thicker than an arrow a write runs and stays as it is under the pointer, and in a work's history
+the line and arrow from the dot of a later cell's write to the earlier cell's run it woke. A run's Step shows no
+way-back line of its own: the history's arrow at its mark already says it (principle say-a-thing-once).
 Why: The way back is what the owner looks for, so it takes a strong mark (principle scarce-emphasis), and one thing has
 one colour in every view (Article 8); in the muted colour it read as one more line. A colour of its own was turned down
 as one more meaning to learn. What else is in the accent is told from it by shape (judgment): what is chosen is a tint

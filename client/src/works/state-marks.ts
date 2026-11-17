@@ -1,10 +1,10 @@
 // How a run ended or stands, drawn as a mark: one set of looks, which a work's history draws for its runs and the strip
 // of a work's cells draws for each cell, a cell standing as its run does. Said once for the places that draw it: the
-// page's parts (`StateMark` in `marks.tsx`), as elements styled from it, and the console's cards (`console/snap.ts`), on
-// a canvas that reads the same tokens. Each measure and colour is the name of a token of the page (styles/tokens.css),
-// so that every place follows light and dark. A mark is a square of `side` with `corner` corners, its ring drawn inside
-// that side (the page's boxes are `border-box`), filled or only ringed; a dash is the square's width, `dash` high, in
-// its middle.
+// page's part (`StateMark` in `marks.tsx`), as elements styled from it, and the console's cards (`console/snap.ts`),
+// on a canvas that reads the same tokens. Each measure and colour is the name of a token of the page
+// (styles/tokens.css), so that every place follows light and dark. A mark is a square of `side` with `corner` corners,
+// its ring drawn inside that side (the page's boxes are `border-box`), filled or only ringed; a dash is the square's
+// width, `dash` high, in its middle.
 
 import type { CellState } from '../works-api';
 

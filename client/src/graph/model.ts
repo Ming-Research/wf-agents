@@ -17,8 +17,8 @@ import type { MarkKey } from '../marks';
 import { canRun, matrix, namesItself } from '../matrix';
 
 /// The marks the flowchart draws, in the order its legend lists them (`Legend` in marks.tsx): its kinds of line, the
-/// dashed arrow from a tag, the way into a cell, and the matrix's own marks and signs where the flowchart uses them; the
-/// way back with how many the flow has.
+/// dashed arrow from a tag, the way into a cell, and the matrix's own marks and signs where the flowchart uses them;
+/// the way back with how many the flow has.
 export const FLOWCHART_MARKS: MarkKey[] = [
   'mainPath',
   'wakes',
