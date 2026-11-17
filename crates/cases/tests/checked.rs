@@ -139,8 +139,14 @@ question = "none"
     let cases::Step::Round(p1) = &case.history[1] else {
         panic!("a round second");
     };
-    assert_eq!(p1.hands_in[0].content, "The test asserts only the number of rows.");
-    assert_eq!(p1.hands_in[1].value.as_deref(), Some("no"));
+    let of = |block: &str| {
+        p1.hands_in
+            .iter()
+            .find(|h| h.block.as_str() == block)
+            .expect("handed in")
+    };
+    assert_eq!(of("plan_review").content, "The test asserts only the number of rows.");
+    assert_eq!(of("plan_ok").value.as_deref(), Some("no"));
     assert_eq!(
         case.history[2],
         cases::Step::Words {

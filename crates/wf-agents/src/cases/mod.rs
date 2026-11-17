@@ -9,9 +9,8 @@ use std::path::{Path, PathBuf};
 
 use flow::Compiled;
 
-/// A flow's definition compiled, with its cases read and checked against it, and where its made project is kept.
+/// A flow's cases read and checked against its definition, and where its made project is kept.
 pub struct Flow {
-    pub compiled: Compiled,
     pub cases: ::cases::Cases,
     /// The made project's export.
     pub export: PathBuf,
@@ -49,11 +48,7 @@ pub fn read(flow_dir: &Path, cases_dir: Option<&Path>, has: &flow::Has) -> Resul
         .map_or_else(|| dir.join(".."), Path::to_path_buf)
         .join(made::PROJECTS);
     let export = projects.join(format!("{}.fast-export", checked.project));
-    Ok(Flow {
-        compiled,
-        cases: checked,
-        export,
-    })
+    Ok(Flow { cases: checked, export })
 }
 
 /// Every name of the made project the cases use: the commit each item starts from, each a round commits and each main
@@ -83,9 +78,17 @@ pub fn check(flow_dir: &Path, cases_dir: Option<&Path>, has: &flow::Has) -> Resu
     let flow = read(flow_dir, cases_dir, has)?;
     let dir = tempfile::tempdir().map_err(|e| vec![format!("a directory to import the made project into: {e}")])?;
     let imported = made::import(&flow.export, &dir.path().join("made.git")).map_err(|e| vec![e])?;
-    let missing: Vec<String> = (commits(&flow.cases).into_iter())
+    let mut missing: Vec<String> = (commits(&flow.cases).into_iter())
         .filter_map(|(name, by)| made::commit(&imported, &name).err().map(|e| format!("{by}: {e}")))
         .collect();
+    // Each item's work starts from a repository of the project's own, its main at the item's commit.
+    for (n, item) in flow.cases.items.iter().filter(|_| missing.is_empty()) {
+        let at = dir.path().join(format!("item-{n}"));
+        match made::project(&imported, &at, &item.main) {
+            Ok(repo) => missing.extend(made::remove(&repo).err()),
+            Err(why) => missing.push(format!("item {n}: {why}")),
+        }
+    }
     if !missing.is_empty() {
         return Err(missing);
     }

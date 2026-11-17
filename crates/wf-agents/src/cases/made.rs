@@ -35,9 +35,6 @@ pub fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
 
 /// Imports the made project's export into a new bare repository at `into`.
 pub fn import(export: &Path, into: &Path) -> Result<PathBuf, String> {
-    if export.exists() {
-        return Ok(into.to_path_buf());
-    }
     let text = std::fs::File::open(export).map_err(|e| format!("{}: {e}", export.display()))?;
     git(Path::new("."), &["init", "--quiet", "--bare", &into.to_string_lossy()])?;
     let out = Command::new("git")
