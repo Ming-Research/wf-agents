@@ -173,6 +173,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
             words: None,
             shape: None,
             writes: Texts::default(),
+            with_nothing_but: BTreeMap::new(),
             writers: Writers {
                 cells: ids(writers),
                 people: who.0,

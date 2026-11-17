@@ -248,11 +248,21 @@ pub struct Requires<'a> {
     /// ([`crate::Cell::groups`]).
     pub groups: &'a BTreeMap<BlockId, Vec<BlockId>>,
     /// The blocks among those that every return that asks for no call includes, but one with a question that waits
-    /// for the owner's answer, or one of a round whose cell still waits for the results of calls
-    /// ([`Told::waits`]).
+    /// for the owner's answer, one of a round whose cell still waits for the results of calls ([`Told::waits`]), and
+    /// one that deals with the cell's own words alone and writes nothing but its answer in them ([`Requires::words`]).
     pub must_write: &'a [BlockId],
     /// The values of each block that is a choice.
     pub choices: &'a BTreeMap<BlockId, Vec<String>>,
+    /// Of each choice, by a value of it, the other blocks a return that writes it with that value may hold beside it,
+    /// and no more of what its cell may write: no other block, and no question it asks or withdraws, but where these
+    /// name the cell's questions (`with_nothing_but` of the choice's file).
+    pub nothing_but: &'a BTreeMap<BlockId, BTreeMap<String, Vec<BlockId>>>,
+    /// The cell's own questions, where it may ask: the block a return writes the questions it asks or withdraws in.
+    pub questions: Option<&'a BlockId>,
+    /// The cell's own words, its dialogue with the owner, where it has them. A return that deals with them alone and
+    /// writes nothing but its answer in them answers the owner first, and goes on with the cell's work in later rounds
+    /// (design document `data-and-context`, 35): it owes no block its cell must write.
+    pub words: Option<&'a BlockId>,
     /// How often what the run returns may be sent back.
     pub returns: u32,
     /// What the round was told, and how the blocks it may write stand.
@@ -325,6 +335,14 @@ pub enum Unmet {
     NotAChoice { block: BlockId },
     /// The block is one the cell must hand in each time, and was not handed in.
     NotHandedIn { block: BlockId },
+    /// The return writes the choice, `block`, with `value`, with which a return holds no other block its cell may
+    /// write but those the choice's file names (`with_nothing_but`), and it holds these besides, in the order it writes
+    /// them, and the cell's questions last where it asks or withdraws one.
+    NothingBut {
+        block: BlockId,
+        value: String,
+        besides: Vec<BlockId>,
+    },
     /// What came back could not be read as a return, for this reason, as whatever carried the round out says.
     Unreadable { why: String },
     /// The return names the block, or the group of this name, as dealt with, and it did not run the round: neither the

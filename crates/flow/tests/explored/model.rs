@@ -136,6 +136,9 @@ pub struct Model {
     pub compiled: Compiled,
     /// The values of each choice.
     pub choices: BTreeMap<BlockId, Vec<String>>,
+    /// Of each choice, by a value of it, the other blocks a return that writes it with that value may hold, and no
+    /// more of what its cell may write (`with_nothing_but`).
+    pub nothing_but: BTreeMap<BlockId, BTreeMap<String, Vec<BlockId>>>,
     /// Each verdict, a choice a test of what stands reads, with its refusal.
     pub refusals: BTreeMap<BlockId, String>,
     /// Each choice a precondition waits on, with the value it waits for.
@@ -180,6 +183,10 @@ impl Model {
         let cells = flow.cells();
         let choices: BTreeMap<BlockId, Vec<String>> = (compiled.blocks.iter())
             .filter_map(|(b, declared)| declared.values.clone().map(|values| (b.clone(), values)))
+            .collect();
+        let nothing_but = (compiled.blocks.iter())
+            .filter(|(_, declared)| !declared.with_nothing_but.is_empty())
+            .map(|(b, declared)| (b.clone(), declared.with_nothing_but.clone()))
             .collect();
         let mut refusals = BTreeMap::new();
         for test in flow.tests().values().filter(|t| t.kind == TestKind::NoneStanding) {
@@ -336,6 +343,7 @@ impl Model {
         Self {
             compiled,
             choices,
+            nothing_but,
             refusals,
             passing,
             contents,

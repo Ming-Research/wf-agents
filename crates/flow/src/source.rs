@@ -423,6 +423,10 @@ pub struct BlockFile {
     pub writes: Texts,
     /// Of a block a source outside the work writes, who changes what it writes by their acts, where only one does.
     pub changed_by: Option<ChangedBy>,
+    /// Of a choice, by a value of it, the other blocks a return that writes it with that value may hold, and no more
+    /// of what its cell may write; none where it says none.
+    #[serde(default)]
+    pub with_nothing_but: BTreeMap<String, Vec<String>>,
 }
 
 /// Who changes what a source outside the work writes of a block, by their acts: the owner, as the record of the
@@ -467,6 +471,10 @@ pub struct LaidOutBlockFile {
     /// Of a block a source outside the work writes, who changes what it writes by their acts, where only one does: the
     /// owner, so that a precondition that reads it waits on the owner.
     pub changed_by: Option<ChangedBy>,
+    /// Of a choice, by a value of it, the other blocks a return that writes it with that value may hold, and no more
+    /// of what its cell may write, its questions and its words among them; none where it says none.
+    #[serde(default)]
+    pub with_nothing_but: BTreeMap<String, Vec<String>>,
 }
 
 /// Who writes a block from outside the cells, as `from` says it: whether the owner does, and the source outside the
@@ -494,6 +502,7 @@ impl From<LaidOutBlockFile> for BlockFile {
             shape: block.shape,
             writes: block.writes,
             changed_by: block.changed_by,
+            with_nothing_but: block.with_nothing_but,
         }
     }
 }

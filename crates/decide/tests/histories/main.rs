@@ -708,6 +708,11 @@ impl History {
             answered_by: &BTreeMap::new(),
             dialogues: &cell.dialogues,
             verdicts: &cell.verdicts,
+            // No value of these flows' choices stands with nothing but some blocks, and their cells must write nothing
+            // every time, which an answer to the owner's words could let them off.
+            nothing_but: &BTreeMap::new(),
+            questions: None,
+            words: None,
         };
         let hold = decide::hold_in(&flow, &self.w.records, run, self.room);
         let step = run::next(&self.log_of(run), requires, hold);

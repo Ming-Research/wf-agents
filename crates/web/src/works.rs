@@ -1171,6 +1171,13 @@ pub enum Unmet {
     NotAChoice { block: String },
     /// The block is one the cell must hand in each time, and was not handed in.
     NotHandedIn { block: String },
+    /// It writes the choice with the value, with which a return holds no other block its cell may write but those the
+    /// choice's file names, and holds these besides.
+    NothingBut {
+        block: String,
+        value: String,
+        besides: Vec<String>,
+    },
     /// What came back could not be read as a return, for this reason.
     Unreadable { why: String },
     /// The block is named as dealt with, and it did not run the round.
@@ -2899,6 +2906,11 @@ impl Unmet {
             UnmetOf::Unreadable { why } => Unmet::Unreadable { why: why.clone() },
             UnmetOf::NotHandedIn { block } => Unmet::NotHandedIn {
                 block: block.to_string(),
+            },
+            UnmetOf::NothingBut { block, value, besides } => Unmet::NothingBut {
+                block: block.to_string(),
+                value: value.clone(),
+                besides: besides.iter().map(BlockId::to_string).collect(),
             },
             UnmetOf::NotRunBy { block } => Unmet::NotRunBy {
                 block: block.to_string(),
