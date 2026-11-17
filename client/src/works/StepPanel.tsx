@@ -303,12 +303,7 @@ export function RunPanel({ run, page, reader, fold }: PanelProps & { run: Run })
             began {clock(run.time)}, {isOpen(state) ? 'open for' : 'took'}{' '}
             {duration(runTook(run, now))}
           </StatusLine>
-          <StatusLine word="Took">{spentWords(run.spent)}</StatusLine>
-          {wayRound && (
-            <StatusLine tone="back" word="Way round">
-              each of its reasons is a block a cell after it changed
-            </StatusLine>
-          )}
+          <StatusLine word="Took" dot={false}>{spentWords(run.spent)}</StatusLine>
         </>
       }
       {...fold}

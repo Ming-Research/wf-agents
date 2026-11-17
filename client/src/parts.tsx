@@ -366,19 +366,20 @@ export function Drawer({
 }
 
 /// The colours a status line's dot takes: none; green for done; red for a stop, for the owner or because something
-/// failed; orange for a change of a block's meaning; the running colour for running; a way back the muted grey, as the
-/// dot of a run that may be running stands beside it in the accent.
-export type Tone = 'quiet' | 'added' | 'removed' | 'changed' | 'running' | 'back';
+/// failed; orange for a change of a block's meaning; the running colour for running.
+export type Tone = 'quiet' | 'added' | 'removed' | 'changed' | 'running';
 
-/// A status line of a panel: a dot in the colour of what it says, a word in semibold, and the facts after it.
-export function StatusLine({ tone = 'quiet', word, children }: {
+/// A status line of a panel: a dot in the colour of what it says, a word in semibold, and the facts after it. A line
+/// with nothing for the dot to say takes `dot={false}` and draws none.
+export function StatusLine({ tone = 'quiet', dot = true, word, children }: {
   tone?: Tone;
+  dot?: boolean;
   word: ReactNode;
   children?: ReactNode;
 }) {
   return (
     <div className="status-line">
-      <span className={`dot dot-${tone}`} aria-hidden="true" />
+      {dot && <span className={`dot dot-${tone}`} aria-hidden="true" />}
       <span className="status-word">{word}</span>
       {children !== undefined && <span className="muted">{children}</span>}
     </div>

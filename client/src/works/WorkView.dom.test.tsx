@@ -443,8 +443,11 @@ describe('the panel of a step', () => {
     expect(panel.textContent).toContain('it handed in code, which the cell may not write');
     await chooseStep(page, 9);
     const way = page.querySelector('aside[aria-label="Run 8 of implement"]') as HTMLElement;
-    expect(way.textContent).toContain('Way round');
     expect(way.querySelector('.way-back')?.textContent).toContain('by a cell after it: a way round');
+    // The way back is drawn on the chart beside it; the run's panel says nothing more of it.
+    expect(way.textContent).not.toContain('Way round');
+    const lines = [...way.querySelectorAll('.status-line')];
+    expect(lines.map((l) => l.querySelector('.dot') !== null)).toEqual([true, false]);
   });
 
   it('says what a run said of each change, and what the engine made of each block it wrote', async () => {

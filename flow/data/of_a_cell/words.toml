@@ -7,7 +7,7 @@ what = "What the owner says to the cell and what the cell answers, in order."
 from = "words"
 shown = true
 words = '''
-`{cell}_words`: your answer to what the owner said to the cell, only where the owner said something to it.'''
+`{cell}_words`: your answer to what the owner said in it, only where that is new to this round.'''
 
 # The content of each version, which names no cell: `owner`, the owner's, with `{words}` what the owner said; `reply`,
 # the cell's answer, with `{reply}` what its return writes of it in `outputs`.
