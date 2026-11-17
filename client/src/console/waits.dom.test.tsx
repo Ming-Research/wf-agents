@@ -115,12 +115,12 @@ const OWNERS: [string, Now, Wait][] = [
   ],
   [
     'a pause the engine made',
-    { kind: 'paused', by: 'engine', why: 'a round failed' },
+    { kind: 'paused', at: 'plan', by: 'engine', why: 'a round failed' },
     wait('pause', 'The engine paused the work. A round failed.', { kind: 'resume' }),
   ],
   [
     'the works held after the engine started again',
-    { kind: 'everything', by: 'engine' },
+    { kind: 'everything', at: 'plan', by: 'engine' },
     wait('held', 'The engine paused every work as it started again.', { kind: 'resumeEverything' }),
   ],
   [
@@ -155,8 +155,8 @@ const OWNERS: [string, Now, Wait][] = [
 
 /// What the engine's list leaves out, which is not the owner's to end whatever the work does.
 const NOT_OWNERS: [string, Now][] = [
-  ['a pause of the owner', { kind: 'paused', by: 'owner', why: null }],
-  ['a pause of everything by the owner', { kind: 'everything', by: 'owner' }],
+  ['a pause of the owner', { kind: 'paused', at: 'plan', by: 'owner', why: null }],
+  ['a pause of everything by the owner', { kind: 'everything', at: 'plan', by: 'owner' }],
   ['a fault', { kind: 'fault', words: 'Two entries at 3' }],
   ['a free slot', { kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }],
   ['a stalled work', STALLED],
@@ -308,9 +308,13 @@ describe("the work's state line", () => {
     };
     expect(said({ kind: 'fault', words: 'Two entries at 3' })).toEqual({ word: 'Halted', cell: null, keys: null });
     expect(said(STALLED)).toEqual({ word: 'Halted', cell: 'merge', keys: null });
-    expect(said({ kind: 'paused', by: 'owner', why: null })).toEqual({ word: 'Paused', cell: null, keys: null });
-    expect(said({ kind: 'everything', by: 'owner' })).toEqual({ word: 'Paused', cell: null, keys: null });
-    expect(said(OWNERS[3][1], [OWNERS[3][2]])).toEqual({ word: 'Waiting for you', cell: null, keys: null });
+    expect(said({ kind: 'paused', at: 'plan', by: 'owner', why: null })).toEqual({
+      word: 'Paused',
+      cell: 'plan',
+      keys: null,
+    });
+    expect(said({ kind: 'everything', at: 'plan', by: 'owner' })).toEqual({ word: 'Paused', cell: 'plan', keys: null });
+    expect(said(OWNERS[3][1], [OWNERS[3][2]])).toEqual({ word: 'Waiting for you', cell: 'plan', keys: null });
     expect(said(OWNERS[2][1], [OWNERS[2][2]])).toEqual({ word: 'Waiting for you', cell: 'plan', keys: null });
     expect(said({ kind: 'waits', at: 'M2', on: [{ kind: 'turn', holder: 12, since: 0 }] })).toEqual({
       word: 'Waiting for W12',
@@ -466,7 +470,8 @@ describe('the cards of what waits for the owner', () => {
     expect(engine.querySelector('.cw-acts .switch')?.getAttribute('aria-label')).toBe('Your own pause of the work');
     expect(pressed(engine)).toBe('Start');
     unmount();
-    expect(pressed(draw({ kind: 'paused', by: 'owner', why: null }, [], undefined, none, { paused: 'owner' }))).toBe('Pause');
+    const own = draw({ kind: 'paused', at: 'plan', by: 'owner', why: null }, [], undefined, none, { paused: 'owner' });
+    expect(pressed(own)).toBe('Pause');
   });
 
   it('offer a ruling\'s values as options drawn as choices, the one that makes it hold picked, and write the one picked', async () => {

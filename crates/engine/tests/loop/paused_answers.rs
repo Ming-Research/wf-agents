@@ -60,7 +60,7 @@ fn a_run_for_what_a_person_wrote_during_a_pause_has_its_rounds_and_calls_and_fin
     // It finishes; the judge would run for the new text, and waits for the work to be let on.
     assert_eq!(w.returns(again, hands_in(&[("text", None)])), vec![]);
     assert!(w.work.records.finished.iter().any(|f| f.run == again));
-    assert_eq!(w.decision(), decide::Decision::Paused);
+    assert!(matches!(w.decision(), decide::Decision::Paused { .. }));
     let effects = w.on(Event::Resumed);
     let judge = w.work.records.started.last().expect("a run").run;
     assert_eq!(effects, vec![round_effect(judge, "judge", 1, Given::Task)]);
@@ -71,7 +71,7 @@ fn a_request_a_person_writes_during_a_pause_is_no_note_and_waits_for_the_work_to
     let (mut w, ..) = ran_and_paused();
     let (effects, request) = w.person_writes("request");
     assert_eq!(effects, vec![]);
-    assert_eq!(w.decision(), decide::Decision::Paused);
+    assert!(matches!(w.decision(), decide::Decision::Paused { .. }));
     let effects = w.on(Event::Resumed);
     let again = w.work.records.started.last().expect("a run").run;
     assert_eq!(effects, vec![round_effect(again, "write", 1, Given::Task)]);

@@ -47,7 +47,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, records: &Records) {
             );
         }
         match &under {
-            Decision::Paused => v.count(EVERYTHING_HELD),
+            Decision::Paused { .. } => v.count(EVERYTHING_HELD),
             Decision::Run { .. } => v.count(EVERYTHING_ANSWERS),
             _ => {}
         }

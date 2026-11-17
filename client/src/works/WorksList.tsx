@@ -11,12 +11,11 @@
 import { memo, useCallback, useMemo, useState } from 'react';
 
 import type { Item, Items } from '../works-api';
-import { CopiesLine } from './Copies';
 import { NowLine, StateLegend, Strip } from './marks';
 import { orderWorks, rank } from './placing';
 import { useChanges, useItems, useReading, useSource } from './source';
 import { waitingCount } from './waiting';
-import { clock, fullTime, spentWords, waitCount } from './words';
+import { clock, fullTime, spentWords, stoppedAt, waitCount } from './words';
 
 /// No change the stream tells of is a change of the projects.
 const noChange = () => undefined;
@@ -85,7 +84,6 @@ export function WorksTable({ items, projects = [], failed = null }: {
           {chosen !== null && `, ${works.length} shown`}
         </span>
         <span className="view-end">
-          <CopiesLine />
           <StateLegend />
         </span>
       </div>
@@ -154,7 +152,7 @@ export const WorkRow = memo(function WorkRow({ item }: { item: Item }) {
         <NowLine work={work} />
       </td>
       <td>
-        <Strip cells={work.cells} />
+        <Strip cells={work.cells} stopped={stoppedAt(work)} />
       </td>
       <td className="small muted nowrap">{spentWords(work.spent)}</td>
       <td className="small muted nowrap" title={work.last === null ? undefined : fullTime(work.last)}>

@@ -23,7 +23,7 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
     );
     assert_eq!(
         engine.says(&["list"]),
-        "Works go on; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: paused\n"
+        "Works go on; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: paused at plan\n"
     );
     assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
     let now = engine.until(&["show", "1"], |line| line.starts_with("Now: waits"));
@@ -101,7 +101,7 @@ fn an_item_is_added_at_the_level_it_is_given_and_one_the_engine_lacks_is_refused
     // work is stalled, and shown as the pause it was added with holds it.
     assert_eq!(
         engine.says(&["list"]),
-        "Works go on; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: paused\n"
+        "Works go on; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: paused at merge\n"
     );
     // An item is put at another level as it is added, and refused alike.
     assert_eq!(

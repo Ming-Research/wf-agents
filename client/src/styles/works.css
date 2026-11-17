@@ -24,31 +24,32 @@
   font-size: var(--size-small);
 }
 
-/* How the copies of the database stand, in the works view's line: muted when all is well, orange for what the owner is
-   to look at, red for a failure. Cut words are read in full on the pointer's tip. */
-.copies {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.copies.warn {
-  color: var(--orange-text);
-}
-
-.copies.failed {
-  color: var(--red-text);
-}
-
-/* A cell's state as a square, in the colour of its state: done filled, running filled in a deep step, at rest a ring of
-   it, runs again a ring of done's colour, not run yet a hairline ring, skipped a dash. Its size, ring, corners and colours are set on it from
-   works/state-marks.ts, which the console's cards draw from too. */
+/* A cell's state as a square, in the colour of its state: filled where it ran or runs (done in a light step, a run
+   under way in a deep one, a call in yellow), hollow where it is still to run (runs again a ring of done's colour, not
+   run yet a hairline ring), a dash where it is skipped, and filled red where the work is stopped at it. Its size, ring,
+   corners and colours are set on it from works/state-marks.ts, which the console's cards draw from too. */
 .state-mark {
   display: inline-block;
   flex: none;
   vertical-align: baseline;
+}
+
+/* The bright marks, running and a call under way, pulse as the console's cards draw them: lit most of each beat, they
+   fade out and back in during its last part. */
+.state-mark.pulses {
+  animation: mark-pulse var(--pulse) linear infinite;
+}
+
+@keyframes mark-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 1;
+  }
+
+  80% {
+    opacity: var(--pulse-faint);
+  }
 }
 
 /* The strip: one square per cell of a work's flow, in the order of the walk, the room between them set on it from

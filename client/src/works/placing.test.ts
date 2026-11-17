@@ -141,16 +141,16 @@ describe('the list of works', () => {
       summary(2, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 500),
       summary(3, { kind: 'waits', at: 'plan', on: [{ kind: 'call', call: 1, who: null, what: { kind: 'tool', name: 'x', input: '' } }] }, 800),
       summary(4, { kind: 'waits', at: 'merge', on: [{ kind: 'limit', runs: 3 }] }, 100, null, ['limit']),
-      summary(5, { kind: 'paused', by: 'owner', why: null }, 950, 'owner'),
+      summary(5, { kind: 'paused', at: 'plan', by: 'owner', why: null }, 950, 'owner'),
       summary(6, { kind: 'fault', words: 'x' }, 10),
       summary(7, { kind: 'waits', at: 'plan', on: [{ kind: 'precondition', test: 't', words: 'w', by: [{ kind: 'owner' }] }] }, 200, null, ['write-t']),
       summary(8, { kind: 'cancelled' }, 990),
       summary(9, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 600, 'owner'),
       // The engine's pause and its pause of everything as it started again wait for the owner, as the engine's list
       // says; the owner's pause of everything does not.
-      summary(10, { kind: 'paused', by: 'engine', why: 'A round failed.' }, 300, 'engine', ['pause']),
-      summary(11, { kind: 'everything', by: 'engine' }, 250, null, ['held']),
-      summary(12, { kind: 'everything', by: 'owner' }, 700),
+      summary(10, { kind: 'paused', at: 'plan', by: 'engine', why: 'A round failed.' }, 300, 'engine', ['pause']),
+      summary(11, { kind: 'everything', at: 'plan', by: 'engine' }, 250, null, ['held']),
+      summary(12, { kind: 'everything', at: 'plan', by: 'owner' }, 700),
       // A work held for main to move goes with what goes on by itself, not with what waits for the owner.
       summary(13, { kind: 'waits', at: 'M2', on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'w' }] }, 1000),
       // A stalled work comes with a fault.

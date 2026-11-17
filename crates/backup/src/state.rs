@@ -22,6 +22,8 @@ pub enum State {
     Clock,
     /// The last step that failed, with nothing done since to mend it.
     Failed { at: Time, step: String, why: String },
+    /// The engine keeps no copies: it runs from a script, which keeps none.
+    NotKept,
 }
 
 /// What the page shows of the copies.
@@ -69,6 +71,18 @@ fn failure(records: &Records) -> Option<&store::Failure> {
         .mended
         .is_none_or(|mended| newest.seq > mended)
         .then_some(newest)
+}
+
+/// How the copies stand at `now` where the engine keeps none.
+pub fn not_kept(now: Time) -> Report {
+    Report {
+        state: State::NotKept,
+        now,
+        last_taken: None,
+        last_uploaded: None,
+        pending: 0,
+        last_failure: None,
+    }
 }
 
 /// How the copies stand at `now`, with the copies kept being the `keep` newest and `configured` being whether a place

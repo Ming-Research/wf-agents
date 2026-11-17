@@ -19,7 +19,9 @@ import {
   plain,
   runState,
   sentence,
+  standingCell,
   stateOf,
+  stoppedAt,
   tokens,
   unmetWords,
   waitCount,
@@ -56,8 +58,9 @@ describe('what a work does now, in words', () => {
     expect(nowWords(doing({ kind: 'merged' }))).toBe('Merged');
     expect(nowWords(doing({ kind: 'cancelled' }))).toBe('Cancelled');
     expect(nowWords(doing({ kind: 'round', cell: 'implement', run: 5, round: 2, since }))).toBe('Running · implement');
-    expect(nowWords(doing({ kind: 'paused', by: 'owner', why: null }))).toBe('Paused');
-    expect(nowWords(doing({ kind: 'everything', by: 'owner' }))).toBe('Paused');
+    // A paused or held work names the cell it would go on at, as the engine names it.
+    expect(nowWords(doing({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toBe('Paused · plan');
+    expect(nowWords(doing({ kind: 'everything', at: 'plan', by: 'owner' }))).toBe('Paused · plan');
     // A stall is said as the engine says it, its names bare on the line.
     const stall = 'Nothing new runs this last cell, and no cell can write what runs it.';
     expect(nowWords(doing({ kind: 'stalled', at: 'M2', on: [], by: [], why: stall }))).toBe(
@@ -70,8 +73,9 @@ describe('what a work does now, in words', () => {
       why: 'The engine paused the work. The agent could not start',
       ends: { kind: 'resume' },
     };
-    expect(nowWords(doing({ kind: 'paused', by: 'engine', why: 'The agent could not start' }, [pause]))).toBe(
-      'Waiting for you · The engine paused the work. The agent could not start.',
+    const engine = doing({ kind: 'paused', at: 'plan', by: 'engine', why: 'The agent could not start' }, [pause]);
+    expect(nowWords(engine)).toBe(
+      'Waiting for you · plan · The engine paused the work. The agent could not start.',
     );
     // The cell is said once, in its place: the reason beside it does not name it.
     const atLimit = nowWords(doing({ kind: 'waits', at: 'merge', on: [precondition, { kind: 'limit', runs: 3 }] }, [limit]));
@@ -108,8 +112,52 @@ describe('what a work does now, in words', () => {
     expect(nowWords(doing({ kind: 'next', cell: 'plan' }))).toBe('Running · plan');
   });
 
+  it('names the cell a work is stopped at, for the owner or by the engine, and none while it is not so stopped', () => {
+    expect(stoppedAt(doing({ kind: 'waits', at: 'merge', on: [precondition] }, [limit]))).toBe('merge');
+    expect(stoppedAt(doing({ kind: 'stalled', at: 'I1', on: [], by: [], why: 'x' }))).toBe('I1');
+    const open = { cell: 'I1', state: 'resting' as const, finished: 1, record: 7, open: 9 };
+    expect(stoppedAt({ now: { kind: 'fault', words: 'x' }, cells: [open], waits: [] })).toBe('I1');
+    expect(stoppedAt(doing({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toBeNull();
+    expect(stoppedAt(doing({ kind: 'next', cell: 'plan' }))).toBeNull();
+  });
+
+  it("names the cell a work stands at in the stop's red, the running mark's colour or grey, or none", () => {
+    expect(standingCell(doing({ kind: 'paused', at: 'plan', by: 'engine', why: 'x' }, [limit]))).toEqual({
+      cell: 'plan',
+      colour: '--red-text',
+    });
+    expect(standingCell(doing({ kind: 'waits', at: 'merge', on: [precondition] }, [limit]))).toEqual({
+      cell: 'merge',
+      colour: '--red-text',
+    });
+    const running = { cell: 'plan', state: 'running' as const, finished: 0, record: null, open: 3 };
+    expect(standingCell({ now: { kind: 'next', cell: 'plan' }, cells: [running], waits: [] })).toEqual({
+      cell: 'plan',
+      colour: '--running-text',
+    });
+    const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } };
+    const call = { cell: 'M1', state: 'calling' as const, finished: 0, record: null, open: 1 };
+    expect(standingCell({ now: { kind: 'waits', at: 'M1', on: [tool] }, cells: [call], waits: [] })).toEqual({
+      cell: 'M1',
+      colour: '--yellow-text',
+    });
+    expect(standingCell(doing({ kind: 'waits', at: 'plan', on: [precondition] }))).toEqual({
+      cell: 'plan',
+      colour: '--muted',
+    });
+    expect(standingCell(doing({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toEqual({
+      cell: 'plan',
+      colour: '--muted',
+    });
+    expect(standingCell(doing({ kind: 'fault', words: 'x' }))).toBeNull();
+  });
+
   it('says the state word of the catalogue, and the cell only where the state names one', () => {
-    expect(stateOf(doing({ kind: 'paused', by: 'owner', why: null }))).toEqual({ tone: 'quiet', word: STATE.paused, cell: null });
+    expect(stateOf(doing({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toEqual({
+      tone: 'quiet',
+      word: STATE.paused,
+      cell: 'plan',
+    });
     expect(stateOf(doing({ kind: 'fault', words: 'x' }))).toEqual({ tone: 'failed', word: STATE.halted, cell: null });
     const architect: Waited = {
       kind: 'call',
@@ -171,13 +219,14 @@ describe('what a work does now, in words', () => {
   });
 
   it('gives what waits on the owner and a halted work the one red tone of a stop, and the owner\'s pause a quiet one', () => {
-    expect(nowTone(doing({ kind: 'paused', by: 'engine', why: 'x' }, [{ key: 'pause', why: 'x', ends: { kind: 'resume' } }]))).toBe(
+    const pause = { key: 'pause', why: 'x', ends: { kind: 'resume' as const } };
+    expect(nowTone(doing({ kind: 'paused', at: 'plan', by: 'engine', why: 'x' }, [pause]))).toBe(
       'owner',
     );
     expect(nowTone(doing({ kind: 'fault', words: 'Two entries at place 3' }))).toBe('failed');
     expect(nowTone(doing({ kind: 'stalled', at: 'M2', on: [], by: [], why: 'x' }))).toBe('failed');
-    expect(nowTone(doing({ kind: 'paused', by: 'owner', why: null }))).toBe('quiet');
-    expect(nowTone(doing({ kind: 'everything', by: 'owner' }))).toBe('quiet');
+    expect(nowTone(doing({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toBe('quiet');
+    expect(nowTone(doing({ kind: 'everything', at: 'plan', by: 'owner' }))).toBe('quiet');
     expect(pauseWords('engine', 'The agent could not start.')).toBe('The engine paused the work. The agent could not start.');
     expect(pauseWords('owner', null)).toBe('The owner paused the work.');
   });

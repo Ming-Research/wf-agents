@@ -661,7 +661,7 @@ fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) 
             Decision::Fault(_)
             | Decision::Ended(_)
             | Decision::Busy { .. }
-            | Decision::Paused
+            | Decision::Paused { .. }
             | Decision::Wait { .. }
             | Decision::Stalled { .. } => {
                 return Ok(());

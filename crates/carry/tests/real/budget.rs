@@ -15,15 +15,17 @@ async fn a_work_over_its_budget_is_paused_after_each_round_that_ends_over_it() {
     let mut real = Real::open(On::Trial, fake, Some(3.0), "true");
     let work = real.add().await;
     real.act(work, Act::Resume);
-    real.until(|real| real.finished(work) == ["plan"] && real.decision(work) == Decision::Paused)
+    real.until(|real| real.finished(work) == ["plan"] && matches!(real.decision(work), Decision::Paused { .. }))
         .await;
     assert_eq!(real.holds, 1);
     assert_eq!(real.calls().len(), 1, "no round began after the one over the budget");
 
     // Let on, the build runs, and the work, still over its budget, is paused again.
     real.act(work, Act::Resume);
-    real.until(|real| real.finished(work) == ["plan", "build"] && real.decision(work) == Decision::Paused)
-        .await;
+    real.until(|real| {
+        real.finished(work) == ["plan", "build"] && matches!(real.decision(work), Decision::Paused { .. })
+    })
+    .await;
     assert_eq!(real.holds, 2);
     assert_eq!(real.calls().len(), 2);
 }

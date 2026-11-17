@@ -467,7 +467,7 @@ impl History {
                 );
                 false
             }
-            Decision::Paused => {
+            Decision::Paused { .. } => {
                 if people {
                     self.lift();
                 }

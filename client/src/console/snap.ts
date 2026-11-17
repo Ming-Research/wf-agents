@@ -12,15 +12,15 @@
 // Under each item that depends on an item besides its main dependent, a shadow of it stands: a white card with a dashed
 // edge and grey words, pointing to where the item stands. A filled funnel, grey, joins each item's top and bottom to
 // the first item under it and the last. Two items are lit, each with the way from it to its root, and from each of its
-// shadows to theirs, by rings and by ribbons joining each to the one above: the item under the pointer in a light blue,
-// faded out once the pointer leaves, and the item selected by a click in the accent, until it is let go; a click on a
-// shadow selects the item it points to and brings it to the middle of the screen. The mark of a cell running pulses,
-// while its card stands still. The way from each item whose work runs up to its root is dashed in the colour of a
-// running card's edge, its dashes moving from the root's side to the item's. Every column fades out into the page near
-// the top and the bottom of the screen; at those two edges the column under the pointer has a line of blue, faded in as
-// the pointer comes. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`. A call the
-// engine carries out for a cell, a tool's or an act of its own, keeps its card running as a round does, and its cell's
-// mark, in the yellow of a call, pulses as a running cell's does.
+// shadows to theirs, by rings and by ribbons joining each to the one above: the item under the pointer, faded out once
+// the pointer leaves, and the item selected by a click, until it is let go, each ring in the colour of its own item; a
+// click on a shadow selects the item it points to and brings it to the middle of the screen. The mark of a cell running
+// pulses, while its card stands still. The way from each item whose work runs up to its root is dashed in the colour of
+// a running card's edge, its dashes moving from the root's side to the item's. Every column fades out into the page
+// near the top and the bottom of the screen; at those two edges the column under the pointer has a line of blue, faded
+// in as the pointer comes. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`. A call
+// the engine carries out for a cell, a tool's or an act of its own, keeps its card running as a round does, and its
+// cell's mark, in the yellow of a call, pulses as a running cell's does.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
 // every constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where
@@ -34,9 +34,9 @@
 import { Application, BitmapText, BlurFilter, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
 import { accentNow, onAccent, turning } from '../accent';
-import { MARK, MARKS } from '../works/state-marks';
+import { MARK, MARKS, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
-import { STATE, stateOf } from '../works/words';
+import { STATE, standingCell, stateOf, stoppedAt } from '../works/words';
 import { type Shown, type ShownWork } from './items';
 import { BAR_KINDS, TRACK_WORDS } from './track';
 import { indexTree, type Tree } from './tree';
@@ -94,8 +94,8 @@ const RING = 2;
 const CHOSEN_RING = 3;
 /// How far in from the side of the room an item brought into view stands.
 const INSET = 24;
-/// The soft light round the item under the pointer, and round the item selected: a fill of the pointer's blue (or of
-/// the accent) behind its card, this many pixels past its edge, blurred this much, at this strength, so that the light
+/// The soft light round the item under the pointer, and round the item selected: a fill of the item's own colour behind
+/// its card, this many pixels past its edge, blurred this much, at this strength, so that the light
 /// shows only as a narrow glow round the card; the item selected's a little wider and softer, so that it stands out
 /// from the one under the pointer. Over the light and under the cards lies the page's ground at every item the light
 /// reaches, so that none of it shows through a card drawn faint.
@@ -115,11 +115,20 @@ function softBlur(strength: number): BlurFilter {
   blur.padding = BLUR_ROOM * strength;
   return blur;
 }
-/// The mark of a cell running pulses: lit most of each beat, it fades out and back in during the last part of it.
-/// How long a beat is, in milliseconds; the part of it the fade takes; and how faint the mark goes at its faintest.
+/// The mark of a cell running pulses: lit most of each beat, it fades out and back in during the last part of it, the
+/// part the works page's marks fade in too (styles/works.css, `mark-pulse`). How long a beat is, in milliseconds, and
+/// how faint the mark goes at its faintest are the page's tokens (`--pulse`, `--pulse-faint`), read as the scene is
+/// drawn; these are taken where the page has none, as in a test with no styles.
 const PULSE_MS = 750;
 const FADE = 0.4;
 const DARK = 0.15;
+
+/// The beat of a running cell's mark, as the page's tokens give it.
+function beatOf(): { ms: number; faint: number } {
+  const ms = length('--pulse');
+  const faint = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pulse-faint'));
+  return { ms: ms > 0 ? ms : PULSE_MS, faint: Number.isFinite(faint) ? faint : DARK };
+}
 /// The part of the way to where they are going that the columns move sideways each frame, when the scene brings an
 /// item into view.
 const SNAP = 0.32;
@@ -164,7 +173,7 @@ const LIGHT = {
   branch: '#abd3fd',
   /// The ribbons from the item under the pointer up to its root.
   hoverRibbon: '#d5e2ff',
-  /// The ring round the item selected and those on its way to its root, and the ribbons between them.
+  /// The accent: the mark on the map of where the item selected stands.
   chosen: '#3673f5',
   chosenRibbon: '#d0ddff',
   /// A column's bar on the map, light, so that the marks across it show.
@@ -178,7 +187,8 @@ const LIGHT = {
   amber: '#d97706',
   red: '#e5484d',
   green: '#2f9e6e',
-  /// The item under the pointer, and those above it, ringed; the lines at the edges of the column under it.
+  /// The pointer's blue: the lines at the edges of the column under it, and the own colour of an item with no work of
+  /// its own above a work, ringed and lit in it.
   over: '#6d9bf9',
   /// The words on a filled tag.
   onTag: '#ffffff',
@@ -189,7 +199,7 @@ const LIGHT = {
   /// tools', idle, and the ground they lie on with how far it lets the card through. An idle stretch takes the colour
   /// of what the work waited for: the owner's red, a pause's muted grey, or idle.
   model: '#3673f5',
-  tools: '#14a3a8',
+  tools: '#eab308',
   idle: '#e8ecf2',
   track: '#818b98',
   trackAlpha: 0x1f / 255,
@@ -430,19 +440,12 @@ export function moodOf(w: Pick<ShownWork, 'now' | 'cells' | 'waits'>): Mood {
   return word === STATE.paused ? 'paused' : 'waiting';
 }
 
-/// The cell a work is at, and the colour its mark takes: red while the work is stopped for the owner or by the
-/// engine, as its card is; none in any other state, where the mark's own state says enough.
-function here(w: ShownWork, mood: Mood): { cell: string; colour: string } | null {
-  const colour = mood === 'owner' || mood === 'halted' ? PALETTE.halted : null;
-  if (colour === null) return null;
-  const now = w.now;
-  const cell =
-    now.kind === 'round' || now.kind === 'next'
-      ? now.cell
-      : now.kind === 'waits'
-        ? now.at
-        : (w.cells.find((c) => c.open !== null)?.cell ?? null);
-  return cell === null ? null : { cell, colour };
+/// The cell a work is stopped at, for the owner or by the engine, and the colour its mark takes, red, as its card is
+/// and as the work's strip anywhere on the page draws it ([`stoppedAt`]); none in any other state, where the mark's own
+/// state says enough.
+function here(w: ShownWork): { cell: string; colour: string } | null {
+  const cell = stoppedAt(w);
+  return cell === null ? null : { cell, colour: PALETTE.halted };
 }
 
 /// The colour of what an item's work does, which tints its card.
@@ -502,11 +505,19 @@ export type DrawnMark = {
   fill: string | null;
   edge: string | null;
   ring: number;
+  /// Whether its ring is drawn: not where it is of the fill's own colour, which covers it already.
+  ringed: boolean;
   pulses: boolean;
 };
 
-/// A card's strip as it was drawn: its marks, how many cells did not fit, and where its room ends.
-export type DrawnStrip = { marks: DrawnMark[]; more: number; end: number };
+/// A card's strip as it was drawn: its marks, how many cells did not fit, and where its room ends; and the name of the
+/// cell its work stands at, under the card's number, with its colour, or none.
+export type DrawnStrip = {
+  marks: DrawnMark[];
+  more: number;
+  end: number;
+  name: { text: string; colour: string } | null;
+};
 
 /// How much of its work's colour a card in work takes, the rest white, and its edge, a deeper shade of it.
 /// How much of its state's colour fills a card whose work is running or that needs the owner.
@@ -624,9 +635,15 @@ export class SnapScene {
   private lit: Uint8Array = new Uint8Array(0);
   /// For each item, whether a work has begun on it or under it: the title of one with none is greyer.
   private begun: Uint8Array = new Uint8Array(0);
+  /// Each item's own colour, which its soft light and its ring take when it is pointed at or selected, as its card
+  /// shows it: its work's state's (red, the running colour, or grey); for an item with no work of its own above a work,
+  /// whose edge is a light blue, the pointer's blue; else grey.
+  private own: string[] = [];
   /// The parts of a node that change while it is shown: the marks of the cells running, which pulse, and the label of
   /// how long its work has gone on, with when the work started.
   private pulses = new Map<number, Graphics>();
+  /// The beat the marks of cells running pulse at ([`beatOf`]).
+  private beat = { ms: PULSE_MS, faint: DARK };
   private ages = new Map<number, { from: number; label: BitmapText; shown: string; row: number }>();
   private styles: Styles | null = null;
   /// The cells' marks in the theme's tokens, read each time the tree is drawn; and each card's strip as drawn, by its
@@ -822,6 +839,11 @@ export class SnapScene {
       if (i.work === null) return;
       for (let p = k; p >= 0 && this.lit[p] === 0; p = tree.parent[p]) this.lit[p] = 1;
     });
+    this.own = items.map((i, k) => {
+      if (i.shadow) return PALETTE.paused;
+      if (i.work !== null) return WORK()[moodOf(i.work)];
+      return this.lit[k] === 1 ? PALETTE.over : PALETTE.paused;
+    });
     // The items whose work has begun, and those above them: an item with nothing begun on it or under it is quieter.
     this.begun = new Uint8Array(items.length);
     items.forEach((i, k) => {
@@ -829,6 +851,7 @@ export class SnapScene {
       for (let p = k; p >= 0 && this.begun[p] === 0; p = tree.parent[p]) this.begun[p] = 1;
     });
     this.pulses = new Map();
+    this.beat = beatOf();
     this.runWays = waysUp(
       items.flatMap((i, k) => (!i.shadow && i.work !== null && moodOf(i.work) === 'running' ? [k] : [])),
       tree.parent,
@@ -1021,7 +1044,21 @@ export class SnapScene {
     }
     // The second row: the work's strip, as the works page draws it, from under the title, so that the number stands
     // alone in a column at the card's left, ending short of where its time went.
-    this.strip(view, item.id, k, w.cells, title.x, row2, barX - 8, here(w, mood));
+    const at = here(w);
+    this.strip(view, item.id, k, w.cells, title.x, row2, barX - 8, at);
+    // Under the number, the name of the cell the work stands at, in the colour [`standingCell`] gives it, as the item's
+    // window names it before its strip. A name wider than the room under the number is cut.
+    const standing = standingCell(w);
+    if (standing !== null) {
+      const colour = token(standing.colour, PALETTE.muted);
+      const name = new BitmapText({ text: standing.cell, style: s.mono(colour) });
+      const room = title.x - x - 4;
+      while (name.text.length > 1 && name.width > room) name.text = name.text.slice(0, -1);
+      name.position.set(x, row2 - name.height / 2);
+      view.addChild(name);
+      const drawn = this.drawnStrips.get(item.id);
+      if (drawn !== undefined) drawn.name = { text: name.text, colour };
+    }
     // How long it has gone on, at the right, its colour by its age; the label is kept up as time passes.
     const label = new BitmapText({ text: '', style: s.mono(PALETTE.muted) });
     view.addChild(track, label);
@@ -1073,7 +1110,8 @@ export class SnapScene {
         fill: look.fill,
         edge: look.edge,
         ring: look.ring,
-        pulses: c.state === 'running' || c.state === 'calling',
+        ringed: look.edge !== null && look.edge !== look.fill,
+        pulses: pulsing(c.state),
       };
     });
     const still = new Graphics();
@@ -1081,9 +1119,11 @@ export class SnapScene {
     for (const m of marks) {
       const g = m.pulses ? running : still;
       if (m.fill !== null) g.roundRect(m.x, m.y, m.width, m.height, m.corner).fill(m.fill);
-      // The ring inside the mark's side, as the page's boxes draw a border: its line's middle half its width in.
+      // The ring inside the mark's side, as the page's boxes draw a border: its line's middle half its width in. A ring of
+      // the fill's own colour is not drawn over it: the fill covers it already, and drawn twice, the ring would show as
+      // a border once the card is dimmed and both are drawn faint.
       const r = m.ring;
-      if (m.edge !== null)
+      if (m.edge !== null && m.ringed)
         g.roundRect(m.x + r / 2, m.y + r / 2, m.width - r, m.height - r, Math.max(0, m.corner - r / 2)).stroke({
           color: m.edge,
           width: r,
@@ -1092,7 +1132,7 @@ export class SnapScene {
     view.addChild(still, running);
     if (more !== null) view.addChild(more);
     if (marks.some((m) => m.pulses)) this.pulses.set(k, running);
-    this.drawnStrips.set(id, { marks, more: cells.length - shown, end });
+    this.drawnStrips.set(id, { marks, more: cells.length - shown, end, name: null });
   }
 
   /// What the card of item `id` drew for its work's cells, for the tests: each mark, where it stands from the card's
@@ -1576,9 +1616,9 @@ export class SnapScene {
     const half = (d: number, rank: number) => high(this.rowsAt(d, rank)) / 2;
     // The marks of cells running: lit, then in the last part of each beat faded out and back in, every running node
     // at once.
-    const beat = (now % PULSE_MS) / PULSE_MS;
+    const beat = (now % this.beat.ms) / this.beat.ms;
     const fade = beat < 1 - FADE ? 0 : Math.sin((Math.PI * (beat - (1 - FADE))) / FADE) ** 2;
-    const pulse = 1 - (1 - DARK) * fade;
+    const pulse = 1 - (1 - this.beat.faint) * fade;
     // Moved sideways no further than leaves half of the first column on the screen at its right, or half of the last at
     // its left, so that one always sees where the tree ends.
     const last = Math.max(0, t.columns.length - 1) * PITCH;
@@ -1634,8 +1674,8 @@ export class SnapScene {
     }
     this.links.fill({ color: PALETTE.other, alpha: PALETTE.otherAlpha * linksStrength(this.dim) });
     // The item under the pointer and those above it up to its root, each joined to the one above by a ribbon of light
-    // blue and ringed in blue, under the selection's rings alone, the item itself glowing too; each comes in quickly,
-    // and fades out once the pointer has left.
+    // blue and ringed in its own colour, under the selection's rings alone, the item itself glowing too; each comes in
+    // quickly, and fades out once the pointer has left.
     // Over a shadow, the item it points to and those above it light too; over an item, each of its shadows and those
     // above each, up to its root, which depend on it too. The items straight under it, which it depends on, light
     // as well, one level and no further, so that both what waits for it and what it waits for show at once.
@@ -1740,9 +1780,9 @@ export class SnapScene {
       this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
       this.links.fill({ color: PALETTE.hoverRibbon, alpha: a });
     }
-    // The soft lights: behind the item selected, in the accent, and behind the item under the pointer, in the
-    // pointer's blue, as far as it has come in; over them, the page's ground where [`grounded`] says, so that the light
-    // shows only round the cards and never through one drawn faint.
+    // The soft lights, each in its item's own colour: behind the item selected, and behind the item under the
+    // pointer, as far as it has come in; over them, the page's ground where [`grounded`] says, so that the light shows
+    // only round the cards and never through one drawn faint.
     this.chosenGlow.clear();
     this.hoverGlow.clear();
     const lights: Light[] = [];
@@ -1755,8 +1795,8 @@ export class SnapScene {
       });
       lights.push({ item: i, gx, gy, gh, reach: out + BLUR_ROOM * blur });
     };
-    if (picked >= 0) softLight(this.chosenGlow, picked, CHOSEN_SPREAD, CHOSEN_BLUR, PALETTE.chosen, 1);
-    for (const [i, a] of this.softLit) softLight(this.hoverGlow, i, SOFT_SPREAD, SOFT_BLUR, PALETTE.over, a);
+    if (picked >= 0) softLight(this.chosenGlow, picked, CHOSEN_SPREAD, CHOSEN_BLUR, this.own[picked], 1);
+    for (const [i, a] of this.softLit) softLight(this.hoverGlow, i, SOFT_SPREAD, SOFT_BLUR, this.own[i], a);
     this.glowGround.clear();
     if (lights.length > 0) {
       for (const j of drawn) {
@@ -1767,19 +1807,21 @@ export class SnapScene {
         this.glowGround.roundRect(jx, jy - jh, NODE_W, 2 * jh, CARD_CORNER).fill(PALETTE.page);
       }
     }
-    // The rings: of the item under the pointer and those above it, in the pointer's blue, as far as each has come in;
-    // over them, of the item selected and those above it, in the accent, the item selected's wider, so that the
-    // selection stands out under the pointer too.
+    // The rings, each in its item's own colour: of the item under the pointer and those above it, as far as each has
+    // come in; over them, of the item selected and those above it, the item selected's wider, so that the selection
+    // stands out under the pointer too.
     for (const [i, a] of this.glowing) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
-      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: PALETTE.over, width: RING, alpha: a });
+      this.marks
+        .roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER)
+        .stroke({ color: this.own[i], width: RING, alpha: a });
     }
     for (const i of chosen) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
       const ring = i === picked ? CHOSEN_RING : RING;
-      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: PALETTE.chosen, width: ring });
+      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: this.own[i], width: ring });
     }
     // The columns fade into the page at the top and the bottom; at those edges the column under the pointer has a line
     // of blue.

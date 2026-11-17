@@ -316,7 +316,7 @@ async fn a_round_that_ends_with_its_work_to_wait_is_taken_and_no_round_begins_af
     service.take(inbox.recv().await.unwrap()).unwrap();
     let kept = records(&service);
     assert_eq!(kept.finished.len(), 1);
-    assert_eq!(decision(&service), Decision::Paused);
+    assert!(matches!(decision(&service), Decision::Paused { .. }));
     let pause = decide::pause(&kept).expect("the work is paused");
     assert_eq!((pause.by, pause.why.as_deref()), (Pauser::Engine, Some(OVER)));
     assert_eq!(service.driver().pending(), vec![]);

@@ -295,7 +295,7 @@ impl Standing {
         match decision {
             Decision::Fault(fault) => Standing::Fault(fault),
             Decision::Ended(end) => Standing::Ended(end),
-            Decision::Paused => paused(),
+            Decision::Paused { .. } => paused(),
             // A run at rest holds its next round while the work is paused, as the pages show it.
             Decision::GoOn { .. } if decide::paused(records) => paused(),
             Decision::Wait { at, on } if !on.is_empty() && on.iter().all(on_items) => Standing::Items { at },

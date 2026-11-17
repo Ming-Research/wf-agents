@@ -261,7 +261,7 @@ fn the_pause_of_everything_holds_back_every_work_and_lifted_lets_on_all_but_thos
     let (_, going) = h.add_let_on(new_item("going", &[], "plain"));
     let (_, held) = h.add(new_item("held", &[], "plain"));
     assert_eq!(rounds(&h.d().pending()), []);
-    assert_eq!(h.decision(going), Decision::Paused);
+    assert!(matches!(h.decision(going), Decision::Paused { .. }));
     assert_eq!(h.d().held(going), Some(Holder::Everything));
     assert_eq!(h.d().held(held), None, "never started, it would begin no round");
     // Set again, it changes nothing, and is kept once.
@@ -298,7 +298,7 @@ fn the_pause_of_everything_holds_across_a_stop_and_the_store_keeps_it() {
     let (_, work) = h.add_let_on(new_item("work", &[], "plain"));
     assert_eq!(h.reopen(), []);
     assert_eq!(h.d().everything_paused(), paused, "the owner's pause is kept as it was");
-    assert_eq!(h.decision(work), Decision::Paused);
+    assert!(matches!(h.decision(work), Decision::Paused { .. }));
     let todos = h.pause_everything(false);
     assert_eq!(rounds(&todos), [(work, "write".to_string(), 1)]);
     // Opened again with no work going on, the driver pauses nothing.

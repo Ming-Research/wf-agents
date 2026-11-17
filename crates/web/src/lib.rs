@@ -130,13 +130,13 @@ pub fn with_works(
     router(flows).merge(interface::router(handle, levels, projects))
 }
 
-/// The same, with the route of how the copies of the database stand.
+/// The same, with the route of how the copies of the database stand: of those the engine keeps, or of none.
 pub fn with_works_and_copies(
     flows: Flows,
     handle: service::Handle,
     levels: service::Levels,
     projects: service::Projects,
-    copies: Copies,
+    copies: Option<Copies>,
 ) -> Router {
     with_works(flows, handle.clone(), levels, projects).merge(copies::router(handle, copies))
 }

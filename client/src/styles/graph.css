@@ -152,7 +152,7 @@ button.graph-node {
 }
 
 button.graph-node:hover {
-  background-image: linear-gradient(var(--step), var(--step));
+  background-image: linear-gradient(var(--accent-tint), var(--accent-tint));
 }
 
 /* A cell: its id and its line on its first row, its title under them. */
@@ -236,7 +236,7 @@ button.graph-node:hover {
 }
 
 .graph-row:hover {
-  background: var(--step);
+  background: var(--accent-tint);
 }
 
 .graph-row[aria-pressed='true'] {
@@ -306,7 +306,7 @@ button.graph-node:hover {
 }
 
 .graph-context-tag:hover {
-  background: var(--step);
+  background: var(--accent-tint);
 }
 
 .graph-context-tag .glyphs {

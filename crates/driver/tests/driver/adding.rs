@@ -233,7 +233,7 @@ fn a_work_added_takes_what_people_write_and_begins_only_once_let_on() {
     let request = last_written(&h, w);
     assert_eq!(h.on(w, wrote("opinions", Outsider::Person, None)), vec![]);
     let opinions = last_written(&h, w);
-    assert_eq!(h.decision(w), Decision::Paused);
+    assert!(matches!(h.decision(w), Decision::Paused { .. }));
     let todos = h.let_on(w);
     let (run, ..) = h.round(w);
     assert_eq!(

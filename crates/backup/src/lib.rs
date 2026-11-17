@@ -30,7 +30,7 @@ use work::Time;
 
 pub use ground::{Disk, Fail, Ground};
 pub use offsite::{Nowhere, Offsite, RELEASE};
-pub use state::{Report, Shown, State, report};
+pub use state::{Report, Shown, State, not_kept, report};
 
 /// How long a copy is the day's: a copy is taken when none was taken in this many milliseconds.
 pub const PERIOD: u64 = 24 * 60 * 60 * 1000;

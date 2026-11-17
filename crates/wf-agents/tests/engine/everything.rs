@@ -34,8 +34,8 @@ fn everything_is_paused_and_let_on_again_from_the_command_line() {
     assert_eq!(
         engine.says(&["list"]),
         format!(
-            "{paused}; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: held back by the pause of \
-             everything\n"
+            "{paused}; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: held back at plan by the \
+             pause of everything\n"
         )
     );
     assert!(engine.says(&["resume", "--all"]).starts_with("Works go on; "));

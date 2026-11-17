@@ -49,7 +49,7 @@ fn a_paused_work_does_not_answer_what_a_person_wrote_that_is_no_note() {
     let (mut w, ..) = ran();
     w.pause();
     w.person_writes("background");
-    assert_eq!(w.decide(), Decision::Paused);
+    assert!(matches!(w.decide(), Decision::Paused { .. }));
     // A note besides it is answered, and the run is for both.
     w.person_writes("to research");
     assert_eq!(
@@ -66,7 +66,7 @@ fn a_paused_work_whose_cell_needs_to_run_for_what_no_person_wrote_is_paused() {
     let (mut w, ..) = ran();
     w.pause();
     w.outside_writes("main");
-    assert_eq!(w.decide(), Decision::Paused);
+    assert!(matches!(w.decide(), Decision::Paused { .. }));
     w.resume();
     assert_eq!(reasons(&w.decide()), ("research".into(), vec![("main".into(), false)]));
 }
@@ -89,7 +89,7 @@ fn once_the_run_for_what_a_person_wrote_finishes_a_paused_work_runs_nothing_for_
     w.person_writes("to research");
     w.run("research", &[("plan", Matters)]);
     // The implementation reads the new plan, which a cell wrote: it waits for the work to be let on.
-    assert_eq!(w.decide(), Decision::Paused);
+    assert!(matches!(w.decide(), Decision::Paused { .. }));
     w.resume();
     assert_eq!(reasons(&w.decide()), ("implement".into(), vec![("plan".into(), false)]));
 }
@@ -101,7 +101,7 @@ fn a_paused_work_whose_earlier_cell_needs_to_run_for_something_else_answers_a_la
     w.outside_writes("main");
     w.person_writes("to implement");
     // The research comes first in the order, and runs for what no person wrote.
-    assert_eq!(w.decide(), Decision::Paused);
+    assert!(matches!(w.decide(), Decision::Paused { .. }));
     w.resume();
     assert_eq!(reasons(&w.decide()), ("research".into(), vec![("main".into(), false)]));
 }
@@ -128,7 +128,7 @@ fn a_cell_that_never_ran_waits_for_the_work_to_be_let_on_though_a_person_wrote_a
     w.pause();
     w.person_writes("to research");
     // It runs because it has no record: the work, added paused, begins nothing before it is let on.
-    assert_eq!(w.decide(), Decision::Paused);
+    assert!(matches!(w.decide(), Decision::Paused { .. }));
 }
 
 /// A research that ran once, and an implementation of the plan that reads a note to it, whose first run has started:
@@ -196,7 +196,7 @@ fn a_paused_work_does_not_answer_a_note_written_before_the_cell_last_ran_that_a_
     w.pause();
     // The changed flow gives the implementation the note, which a person wrote before it last ran.
     w.install(vec![cell("implement", &["plan", "to implement"], &["code"]), gate()]);
-    assert_eq!(w.decide(), Decision::Paused);
+    assert!(matches!(w.decide(), Decision::Paused { .. }));
     // Written again by a person, it is answered.
     w.person_writes("to implement");
     assert_eq!(
@@ -290,7 +290,7 @@ fn a_persons_choice_runs_nothing_while_the_work_is_paused() {
     assert_eq!(w.decide(), resting());
     // Changed by the person, the choice is a reason of the cell that reads it, and no note: it waits.
     w.person_sets("choice", "no");
-    assert_eq!(w.decide(), Decision::Paused);
+    assert!(matches!(w.decide(), Decision::Paused { .. }));
     w.resume();
     assert_eq!(reasons(&w.decide()), ("use".into(), vec![("choice".into(), false)]));
 }

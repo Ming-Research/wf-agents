@@ -37,16 +37,18 @@ describe('where a work stands', () => {
     expect(standingOf(work({ kind: 'cancelled' }))).toBeNull();
     expect(standingOf(work({ kind: 'fault', words: 'broken' }))).toBe('halted');
     // What the engine's list holds waits for the owner, the engine's pause and its pause of everything among it.
-    expect(standingOf(work({ kind: 'paused', by: 'engine', why: 'failed' }, [wait('pause')]))).toBe('owner');
-    expect(standingOf(work({ kind: 'everything', by: 'engine' }, [wait('held')]))).toBe('owner');
-    expect(standingOf(work({ kind: 'paused', by: 'owner', why: null }))).toBe('paused');
+    expect(standingOf(work({ kind: 'paused', at: 'plan', by: 'engine', why: 'failed' }, [wait('pause')]))).toBe(
+      'owner',
+    );
+    expect(standingOf(work({ kind: 'everything', at: 'plan', by: 'engine' }, [wait('held')]))).toBe('owner');
+    expect(standingOf(work({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toBe('paused');
     expect(standingOf(work({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }))).toBe('running');
     const question = { kind: 'call', call: 2, who: 'owner', what: { kind: 'question', who: 'owner', question: '?' } } as const;
     expect(standingOf(work({ kind: 'waits', at: 'plan', on: [question, { kind: 'slot' }] }, [wait('call-2')]))).toBe('owner');
     expect(standingOf(work({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }))).toBe('due');
-    expect(standingOf(work({ kind: 'everything', by: 'owner' }))).toBe('due');
+    expect(standingOf(work({ kind: 'everything', at: 'plan', by: 'owner' }))).toBe('due');
     // What the engine's list does not hold is not the owner's, whatever the work does.
-    expect(standingOf(work({ kind: 'paused', by: 'engine', why: 'failed' }))).toBe('paused');
+    expect(standingOf(work({ kind: 'paused', at: 'plan', by: 'engine', why: 'failed' }))).toBe('paused');
     expect(standingOf(work({ kind: 'next', cell: 'plan' }))).toBe('due');
     const tool = { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: '' } } as const;
     expect(standingOf(work({ kind: 'waits', at: 'build', on: [tool] }))).toBe('others');
