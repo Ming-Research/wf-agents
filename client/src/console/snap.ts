@@ -69,11 +69,10 @@ const EDGE_LINE = 6;
 const GLOW_IN = 30;
 /// How bright the items not in focus are drawn while an item is in focus or selected; the least of the links' own
 /// strength they could be drawn at, were the items drawn at no brightness ([`linksStrength`]); and how long an item
-/// takes to fade down and to come back up, in milliseconds.
+/// takes to fade, down and back up alike, in milliseconds.
 export const DIM = 0.35;
 const DIM_LINKS = 0.4;
-const FADE_DOWN = 220;
-const FADE_UP = 110;
+const FADE_MS = 220;
 /// The way from each item whose work runs up to its root, dashed in the colour of a running card's edge and moving
 /// from the root's side to the item's: a dash's length and the gap after it, in pixels; how fast the dashes move, in
 /// pixels a second; and the line's width.
@@ -250,9 +249,9 @@ export function wayAims(ways: Iterable<number>, parent: ArrayLike<number>, lit: 
 }
 
 /// One frame's step, `step` milliseconds long, of a brightness from `was` towards `to`: about two thirds of the way in
-/// [`FADE_DOWN`] going down and in [`FADE_UP`] going up, so that nothing lit jumps as the light moves or goes out.
+/// [`FADE_MS`], going down or up alike, so that nothing lit jumps as the light moves or goes out.
 export function eased(was: number, to: number, step: number): number {
-  return was + (to - was) * (1 - Math.exp(-step / (to < was ? FADE_DOWN : FADE_UP)));
+  return was + (to - was) * (1 - Math.exp(-step / FADE_MS));
 }
 
 /// A soft light: the item it is behind, where its card stands (`gx`, and `gy` with `gh` half its height), and how far
