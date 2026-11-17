@@ -346,6 +346,7 @@ function ItemView({
       },
       (e: unknown) => {
         failed(e);
+        if (alive) setReadWith(names);
       },
     );
     readRulings(read, waitsOf(read.summary), loadVersion).then((r) => alive && setRulings(r), failed);
