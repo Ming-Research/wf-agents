@@ -62,11 +62,13 @@ Why: It is how the page looks to the one who reads it there, which the engine ne
 every-field-has-a-reader); in the file, a look would be saved and committed.
 
 ### decision the-way-back-is-in-the-accent
-A way back is drawn in the accent in every view: its line and its arrow on the matrix and on the flowchart, where it is
-thicker than an arrow a write runs, and a way round's line, dots and arrow in a work's history; its words keep the
-text's colour.
+A way back is drawn in the accent in every view, and its words are not: its line and its arrow on the matrix and on the
+flowchart, where it is thicker than an arrow a write runs and stays as it is under the pointer, and a way round's line,
+dots and arrow in a work's history. The dot of a run's status line that says it is a way round stays grey.
 Why: The way back is what the owner looks for, so it takes a strong mark (principle scarce-emphasis), and one thing has
 one colour in every view (Article 8); in the muted colour it read as one more line. A colour of its own was turned down
 as one more meaning to learn. What else is in the accent is told from it by shape (judgment): what is chosen is a tint
-or an edge, a line's row a row of dots, an arrow under the pointer thinner than a way back, and a run under way its
-cell's box, while a way back is a line along a row or between cells, with an arrow.
+or an edge, a line's row a row of dots and a run under way its cell's box, while a way back is a line along a row or
+between cells, with an arrow; any other arrow takes the accent only under the pointer. A dot has no shape to tell it
+by, and the run's status line of a way round stands under the one of its state, whose dot is in the accent while the
+run is under way.

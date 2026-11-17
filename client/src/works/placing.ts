@@ -6,8 +6,9 @@
 // not hand in, by the owner, a cell's question or the outside; a let-go, a pause, a let-on, a cancel) is a row of its
 // own: its words at the row's left, and, for a write, a mark in the column of each cell that takes the block, the
 // flow's chart's for that cell; for a let-go, a mark in the column of the cell let go. A run that is a way round is
-// drawn as the flow's views draw a way back: a line in the accent from the columns of the cells after it whose writes it
-// ran for, each marked, to the run, with an arrow there. A run of a cell the flow no longer has keeps its row, in no column.
+// drawn as the flow's views draw a way back: a line in the accent from the columns of the cells after it whose writes
+// it ran for, each marked, to the run, with an arrow there. A run of a cell the flow no longer has keeps its row, in no
+// column.
 
 import type { Flow } from '../api';
 import type { Block, Item, Run, Step, Summary } from '../works-api';

@@ -74,10 +74,10 @@
   --text: #1f2937;
   --muted: #6b7280;
   --line: #e3e6ea;
-  /* The accent: what is chosen, a link and the focus, what runs, and a way back. The default is a blue. A colour the owner picks
-     in the Settings view gives each tone of the accent here an `--own-` one, worked out from it (accent.ts),
-     `--own-<tone>` in light and `--own-<tone>-dark` in dark, each `#rrggbb`, set on the root; a tone takes its own
-     where one is set, and else the default. Its tint fills a row or a column chosen. */
+  /* The accent: what is chosen, a link and the focus, what runs, and a way back. The default is a blue. A colour the
+     owner picks in the Settings view gives each tone of the accent here an `--own-` one, worked out from it
+     (accent.ts), `--own-<tone>` in light and `--own-<tone>-dark` in dark, each `#rrggbb`, set on the root; a tone
+     takes its own where one is set, and else the default. Its tint fills a row or a column chosen. */
   --accent: var(--own-accent, #3673f5);
   --accent-text: var(--own-accent-text, #3163d9);
   --accent-tint: var(--own-accent-tint, #e9efff);
