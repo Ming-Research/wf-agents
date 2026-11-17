@@ -41,14 +41,11 @@ and the data it reads keep theirs among the data.
 Why: Drawn in the band and again among the data, such a datum stood twice, its writer on one row and the cells that
 wait for its value on the other (principle say-a-thing-once); a named test is no datum, and its data are many.
 
-### decision the-way-back-is-in-the-accent
-On the matrix a way back's line and arrow are drawn in the accent, and the arrow is drawn with the mark it points to, its
-point on that mark's edge.
-Why: The way back is what the owner looks for on the matrix, so it takes a strong mark (principle scarce-emphasis): in
-the muted colour it read as one more of the rows' lines. A colour of its own was turned down as one more meaning to
-learn; what else the matrix draws in the accent, what is chosen and the lines' rows, is told from it by shape, a way
-back being a thick line along a datum's row with an arrow (judgment). Placed by the crossing's middle, the arrow reached
-into the second of two marks.
+### decision the-way-back-s-arrow-is-drawn-with-its-mark
+On the matrix a way back's arrow is drawn with the mark it points to, its point on that mark's outer edge, and its line
+stops short of all of a crossing's marks.
+Why: Placed by the crossing's middle, the arrow reached into the second of two marks, as a cell that writes and watches
+a dialogue has.
 
 ### decision the-corner-names-only-the-cells
 The matrix's corner names the cells across, and no kind of row.

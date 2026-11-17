@@ -5,8 +5,8 @@
 // matrix's square; a tag of what the outside writes with the matrix's sign; an arrow's label the value of its branch,
 // where it leaves a fork, and the names of the data and groups it runs a cell by. Three kinds of line: the main path
 // thick in the text's colour, over the others; an arrow a write runs thin in the muted colour, behind it, drawn only
-// where it was routed over the layout (`data.ts`); a way back thin in the muted colour, a step stronger than those. An
-// arrow from a tag is dashed; the arrow under the pointer is in the accent. The cell chosen is on the accent's tint,
+// where it was routed over the layout (`data.ts`); a way back thick in the accent, as on the matrix. An arrow from a tag
+// is dashed; the arrow under the pointer is in the accent, a way back staying as it is. The cell chosen is on the accent's tint,
 // the cells that write what its own file gives it are edged in the accent, and beside it stand those blocks, each with
 // the matrix's mark: the ring of `watches`, or the ring of `reads` with the kind it is given in.
 
@@ -201,7 +201,7 @@ function lineOf(e: ChartEdge): Line {
   return e.back ? 'back' : 'data';
 }
 
-/// The arrowhead's length: the main path's larger, as its line is thicker.
+/// The arrowhead's length: the main path's and a way back's larger, as their lines are thicker.
 const HEAD_LENGTH = 7;
 const MAIN_HEAD_LENGTH = 10;
 
@@ -210,11 +210,12 @@ const HEADS = ['main', 'data', 'back', 'outside', 'pointed', 'pointed-main'] as 
 type Head = (typeof HEADS)[number];
 
 function headOf(line: Line, pointed: boolean): Head {
-  if (pointed) return line === 'main' ? 'pointed-main' : 'pointed';
+  if (pointed && line !== 'back') return line === 'main' ? 'pointed-main' : 'pointed';
   return line;
 }
 
-const headLength = (head: Head) => (head === 'main' || head === 'pointed-main' ? MAIN_HEAD_LENGTH : HEAD_LENGTH);
+const headLength = (head: Head) =>
+  head === 'main' || head === 'pointed-main' || head === 'back' ? MAIN_HEAD_LENGTH : HEAD_LENGTH;
 
 /// The order the lines are drawn in, the later over the earlier: the arrows behind, the main path over them.
 const DEPTH: Record<Line, number> = { data: 0, outside: 0, back: 1, main: 2 };

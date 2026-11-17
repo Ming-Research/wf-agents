@@ -60,3 +60,13 @@ settings that Save writes into the installation's file, whose part says nothing 
 design of the owner's page, item 28).
 Why: It is how the page looks to the one who reads it there, which the engine never reads (principle
 every-field-has-a-reader); in the file, a look would be saved and committed.
+
+### decision the-way-back-is-in-the-accent
+A way back is drawn in the accent in every view: its line and its arrow on the matrix and on the flowchart, where it is
+thicker than an arrow a write runs, and a way round's line, dots and arrow in a work's history; its words keep the
+text's colour.
+Why: The way back is what the owner looks for, so it takes a strong mark (principle scarce-emphasis), and one thing has
+one colour in every view (Article 8); in the muted colour it read as one more line. A colour of its own was turned down
+as one more meaning to learn. What else is in the accent is told from it by shape (judgment): what is chosen is a tint
+or an edge, a line's row a row of dots, an arrow under the pointer thinner than a way back, and a run under way its
+cell's box, while a way back is a line along a row or between cells, with an arrow.

@@ -366,8 +366,8 @@ export function Drawer({
 }
 
 /// The colours a status line's dot takes: none; green for done; red for a stop, for the owner or because something
-/// failed; orange for a change of a block's meaning; the running colour for running; a way back none of its own, the
-/// muted grey.
+/// failed; orange for a change of a block's meaning; the running colour for running; a way back the muted grey, as the
+/// dot of a run that may be running stands beside it in the accent.
 export type Tone = 'quiet' | 'added' | 'removed' | 'changed' | 'running' | 'back';
 
 /// A status line of a panel: a dot in the colour of what it says, a word in semibold, and the facts after it.
