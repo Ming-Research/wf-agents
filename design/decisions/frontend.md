@@ -3,10 +3,9 @@
 What is common to the views of the owner's page.
 
 ### decision the-page-draws-markdown-itself
-The page draws what agents write with a small renderer of its own, for the few formats it shows, and uses no markdown
-library.
-Why: The page needs only a few formats, and nothing an agent writes may become markup the page did not mean (principle
-agent-writing-is-data); a library was turned down for that.
+The page draws what agents write with a renderer of its own, for the Markdown they write, and uses no markdown library.
+Why: Nothing an agent writes may become markup the page did not mean (principle agent-writing-is-data), and the page
+draws Markdown with its own parts; a library was turned down for that.
 
 ### decision the-page-uses-no-component-library
 The page is drawn with a small set of parts of its own (`client/src/parts.tsx`), and uses no component library.

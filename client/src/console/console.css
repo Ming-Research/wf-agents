@@ -145,14 +145,60 @@
   border-left-color: var(--accent);
 }
 
-/* A text written in Markdown: its paragraphs and its code (`.content`) a small step apart. */
-.cw-md > p,
-.cw-md > .content {
+/* A text written in Markdown, drawn with the page's own parts: its blocks a small step apart, in an item of a list and
+   in a quote as in the text itself; a heading of any level small, semibold in the body's size, a step further from
+   what stands over it (principle an-agents-heading-is-small); every list numbered; a quote as a passage quoted is
+   anywhere in the window (`.cw-quote`); a rule a hairline; a table the page's (`.table`), as wide as the text, its
+   cells wrapping; a picture no wider than the text. */
+.cw-md :is(p, .content, ol, blockquote, hr, table) {
   margin: 0 0 var(--space-8);
 }
 
-.cw-md > :last-child {
+.cw-md .cw-md-head {
+  margin: var(--space-12) 0 var(--space-4);
+  font-weight: var(--weight-strong);
+}
+
+.cw-md .cw-md-head:first-child {
+  margin-top: 0;
+}
+
+.cw-md > :last-child,
+.cw-md li > :last-child,
+.cw-md blockquote > :last-child {
   margin-bottom: 0;
+}
+
+.cw-md ol {
+  padding-left: calc(var(--space-16) + var(--space-8));
+  list-style: decimal;
+}
+
+.cw-md li + li {
+  margin-top: var(--space-4);
+}
+
+.cw-md hr {
+  border: 0;
+  border-top: var(--hairline) solid var(--line);
+}
+
+.cw-md .cw-md-table {
+  width: 100%;
+}
+
+.cw-md-table th,
+.cw-md-table td {
+  overflow-wrap: anywhere;
+}
+
+.cw-md img {
+  max-width: 100%;
+  height: auto;
+}
+
+.cw-md strong {
+  font-weight: var(--weight-strong);
 }
 
 .cw-md code {
