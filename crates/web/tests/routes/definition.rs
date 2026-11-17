@@ -24,7 +24,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
     // Each cell is given as its file writes it: what it watches and what it reads, each a datum or a group with the
     // blocks it stands for, what it does when one it watches is new, and each block it is given, with its kind and the
     // list that gives it. An engine's cell is given nothing.
-    let watched = |name: &str| json!({ "name": name, "blocks": [name], "do": null, "list": "watches" });
+    let watched = |name: &str| json!({ "name": name, "blocks": [name], "do": null });
     let given = |block: &str| json!({ "block": block, "kind": "lastAndLatest", "list": "watches" });
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
@@ -47,7 +47,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                 "tools": [],
                 "groups": [],
                 "card": [],
-                "everyAgent": { "watches": [], "reads": [], "kinds": {} },
+                "everyAgent": { "reads": [], "kinds": {} },
                 "cells": [
                     {
                         "id": "plan",
@@ -243,7 +243,7 @@ async fn how_a_cell_takes_a_block_and_what_a_block_is_are_given_as_written() {
     let answer = get_json(&router, "/api/v1/flow").await;
     assert_eq!(
         answer["flow"]["cells"][1]["watches"],
-        json!([{ "name": "plan", "blocks": ["plan"], "do": "Review what changed in it.", "list": "watches" }])
+        json!([{ "name": "plan", "blocks": ["plan"], "do": "Review what changed in it." }])
     );
     // Each block an agent's cell watches is given to it in the kind it names; what it does for one it leaves unsaid
     // is none; an engine's cell is given nothing.
@@ -626,7 +626,7 @@ fn names_of(list: &Value) -> Vec<String> {
 // given as the files write them (principle definitions-shown-as-written): each name as written, a group's with its
 // blocks as `flow.toml` names them, a name with `{each}` with the datum of each cell that has one (decision
 // a-datum-of-a-cell-s-own-is-made-where-a-cell-names-it), and each block a cell is given by the list that gives it,
-// what every agent cell is given first and none of it a block the cell's own file names.
+// what every agent cell reads first and none of it a block the cell's own file names.
 #[tokio::test]
 async fn the_engineer_flow_s_cells_are_given_as_their_files_write_what_they_watch_and_read() {
     let answer = get_json(&the_engineer_s_flow(), "/api/v1/flow").await;
@@ -668,27 +668,17 @@ async fn the_engineer_flow_s_cells_are_given_as_their_files_write_what_they_watc
         }
     };
     let every = file["every_agent"].as_table().unwrap();
-    let every_does = by_name(every, "do");
-    let taken = |list: &str| -> Value {
-        Value::Array(
-            (written(every, list).iter())
-                .map(|name| {
-                    let mut entry = json!({ "name": name, "blocks": every_blocks(name) });
-                    if list == "watches" {
-                        entry["do"] = json!(every_does.get(name));
-                    }
-                    entry
-                })
-                .collect(),
-        )
-    };
+    let taken: Value = Value::Array(
+        (written(every, "reads").iter())
+            .map(|name| json!({ "name": name, "blocks": every_blocks(name) }))
+            .collect(),
+    );
     let kinds: BTreeMap<String, String> = by_name(every, "kinds");
     assert_eq!(
         flow["everyAgent"],
-        json!({ "watches": taken("watches"), "reads": taken("reads"), "kinds": kinds_json(&kinds) })
+        json!({ "reads": taken, "kinds": kinds_json(&kinds) })
     );
 
-    let every_watched: Vec<String> = written(every, "watches").iter().flat_map(|n| every_blocks(n)).collect();
     let every_read: Vec<String> = written(every, "reads").iter().flat_map(|n| every_blocks(n)).collect();
     for ((id, own), cell) in cells.iter().zip(flow["cells"].as_array().unwrap()) {
         assert_eq!(cell["id"], json!(id));
@@ -699,25 +689,18 @@ async fn the_engineer_flow_s_cells_are_given_as_their_files_write_what_they_watc
             .flat_map(|k| written(own, k))
             .flat_map(|n| blocks_of(&n))
             .collect();
-        // What runs it: of an agent's cell, each datum every agent cell watches that its own file does not name, by
-        // the datum's name, what `[every_agent]` says to do of it given once, with `[every_agent]` (principle
-        // say-a-thing-once); then what its own file watches, each with what its file says to do.
+        // What runs it: what its own file watches, each with what its file says to do.
         let mut watches: Vec<Value> = Vec::new();
-        for written_name in written(every, "watches").iter().filter(|_| agent) {
-            for block in every_blocks(written_name).into_iter().filter(|b| !mine.contains(b)) {
-                watches.push(json!({ "name": block, "blocks": [block], "list": "every_agent" }));
-            }
-        }
         for name in written(own, "watches") {
-            watches.push(json!({ "name": name, "blocks": blocks_of(&name), "do": does.get(&name), "list": "watches" }));
+            watches.push(json!({ "name": name, "blocks": blocks_of(&name), "do": does.get(&name) }));
         }
         let reads: Vec<Value> = (written(own, "reads").iter())
             .map(|name| json!({ "name": name, "blocks": blocks_of(name) }))
             .collect();
         assert_eq!(cell["watches"], json!(watches), "{id}");
         assert_eq!(cell["reads"], json!(reads), "{id}");
-        // What it is given, by list: what every agent cell is given that its own file does not name, then what it
-        // reads, then what it watches, each name's blocks in order; nothing for an engine's cell.
+        // What it is given, by list: what every agent cell reads that its own file does not name, then what it reads,
+        // then what it watches, each name's blocks in order; nothing for an engine's cell.
         let lists: Vec<(String, String)> = (cell["given"].as_array().unwrap().iter())
             .map(|g| {
                 (
@@ -728,7 +711,7 @@ async fn the_engineer_flow_s_cells_are_given_as_their_files_write_what_they_watc
             .collect();
         let mut expected: Vec<(String, String)> = Vec::new();
         if agent {
-            for block in every_watched.iter().chain(&every_read).filter(|b| !mine.contains(b)) {
+            for block in every_read.iter().filter(|b| !mine.contains(b)) {
                 expected.push((block.clone(), "every_agent".to_string()));
             }
             for list in ["reads", "watches"] {
