@@ -51,6 +51,9 @@ pub struct Try {
     pub mechanical: Vec<String>,
     pub reading: Option<(bool, String)>,
     pub fork: Option<String>,
+    /// Of the fork's first request, the tokens read from the session's cache and those sent fresh.
+    #[serde(default)]
+    pub fork_cache: Option<(u64, u64)>,
     pub did: Did,
     /// Each round of the cell: its run and number, what came back, what it cost in millionths of a dollar.
     pub rounds: Vec<(u64, usize, String, u64)>,
@@ -446,15 +449,21 @@ impl One<'_> {
         if !t.passed
             && let Some(last) = last
         {
-            let worktree = carry::git::place(
-                &building.installation.data,
-                &carry::git::tag(&carry::session::installation(&building.installation.data).unwrap_or_default()),
-                building.work,
-            )
-            .dir;
-            let answer = ask::fork(self.real, self.words, &worktree, &last.session, &self.ran_on.0);
-            t.cost_usd += answer.cost_usd;
-            t.fork = Some(answer.text);
+            let words = self.words;
+            match building
+                .fork(self.compiled, last.run, last.number, &words.fork, &words.fork_refused)
+                .await
+            {
+                Ok(forked) => {
+                    t.cost_usd += forked.cost_usd;
+                    let observations = (forked.answer.as_ref())
+                        .and_then(|a| a["outcome"]["observations"].as_array().cloned())
+                        .map(|o| o.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(" "));
+                    t.fork = Some(observations.filter(|o| !o.is_empty()).unwrap_or(forked.text));
+                    t.fork_cache = Some((forked.cached, forked.fresh));
+                }
+                Err(why) => t.fork = Some(format!("The fork could not be asked: {why}")),
+            }
         }
         t.did = did;
         let _ = building.remove();
@@ -510,7 +519,17 @@ fn said(flow: &str, at: &str, became: &[(&cases::Case, Became)]) -> String {
                         if let Some((false, why)) = &t.reading {
                             let _ = writeln!(details, "- Reading: {why}");
                         }
-                        if let Some(fork) = &t.fork {
+                        if let Some((cached, fresh)) = t.fork_cache
+                            && cached < 4 * fresh
+                        {
+                            let _ = writeln!(
+                                details,
+                                "- The fork read {cached} of its first request's {} tokens from the session's cache, \
+                                 not the bulk of it: its request did not begin as the session's did.",
+                                cached + fresh
+                            );
+                        }
+                        if let Some(fork) = t.fork.as_ref().filter(|f| !f.trim().is_empty()) {
                             let fork: String = fork.split_whitespace().collect::<Vec<_>>().join(" ");
                             let short: String = fork.chars().take(1200).collect();
                             let _ = writeln!(details, "- The fork about the text: {short}");

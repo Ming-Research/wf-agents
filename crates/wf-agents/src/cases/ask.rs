@@ -1,8 +1,8 @@
-//! What the program that runs the cases asks the agents' program beside the cases' own rounds (design document
-//! `testing`, 14, 15, 34): a fork of a round's session, about the cell's text, where the case's return was wrong; and
-//! an agent of its own that judges what only reading can judge of a return. Each runs as the agents' command line the
-//! installation names, with the environment a round's command line is given ([`carry::cli::environment`]), on the
-//! model the case's cell runs on, with no tool, and in a fork nothing of the work changes.
+//! What the program that runs the cases asks beside the cases' own rounds (design document `testing`, 14, 15, 34): the
+//! words of a fork of a round's session about the cell's text, which the agents' carrier asks through the round's own
+//! command line ([`carry::Agents::fork`]); and an agent of its own, in a session of its own, that judges what only
+//! reading can judge of a return, run as the agents' command line the installation names, with the environment a
+//! round's command line is given ([`carry::cli::environment`]), on the model the case's cell runs on, with no tool.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -15,6 +15,8 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 pub struct Words {
     pub fork: String,
+    /// What a fork is told where it would use a tool, which it may not.
+    pub fork_refused: String,
     pub judge: String,
     pub judge_form: toml::Value,
 }
@@ -95,20 +97,6 @@ fn plain(model: &str) -> Vec<String> {
     ]
     .map(str::to_string)
     .to_vec()
-}
-
-/// Asks a fork of the session, which ran in this worktree, about the cell's text.
-pub fn fork(settings: &carry::Settings, words: &Words, worktree: &Path, session: &str, model: &str) -> Answer {
-    let mut args = plain(model);
-    args.extend([
-        "--resume".to_string(),
-        session.to_string(),
-        "--fork-session".to_string(),
-    ]);
-    ask(settings, worktree, &args, words.fork.trim()).unwrap_or_else(|why| Answer {
-        text: format!("The fork could not be asked: {why}"),
-        ..Answer::default()
-    })
 }
 
 /// Has an agent judge what only reading can judge of the return: whether it passes, and why.

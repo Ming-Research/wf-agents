@@ -227,7 +227,7 @@ fn a_case_runs_is_judged_runs_twice_more_where_it_fails_is_kept_and_then_stands_
     );
     assert!(said.contains("| R1-01 | — | would run (cost unknown) | — |"), "{said}");
     // The stand-in hands in nothing, which the engine sends back: the case fails, runs twice more, and each try says
-    // what was found and that the fork could not be asked of a program that is no agent.
+    // what was found.
     let ran = run(true);
     let said = String::from_utf8_lossy(&ran.stdout);
     assert!(ran.status.success(), "{}{said}", String::from_utf8_lossy(&ran.stderr));

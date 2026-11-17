@@ -227,6 +227,29 @@ pub fn arguments(
     args
 }
 
+/// The arguments of a fork of a round's session: the round's own, so that the fork's first request begins as the
+/// session's did and is read from the prompt cache (the same system prompt, form of return, tools, model and effort),
+/// but for the session, forked rather than gone on with in place, and a hook that refuses every use of a tool before it
+/// runs, with these words, so that nothing of the work changes while the tools stay in the request. Given the round's
+/// arguments with `--resume`, as [`arguments`] makes them.
+pub fn forked(mut args: Vec<String>, refused: &str) -> Vec<String> {
+    let at = args.iter().position(|a| a == "--settings").map(|i| i + 1);
+    if let Some(value) = at.and_then(|i| args.get_mut(i)) {
+        let mut settings: serde_json::Value = serde_json::from_str(value).unwrap_or_else(|_| json!({}));
+        let refuse = format!("printf '%s\\n' {} >&2; exit 2", shell_word(refused));
+        settings["hooks"]["PreToolUse"] =
+            json!([{ "matcher": "*", "hooks": [{ "type": "command", "command": refuse }] }]);
+        *value = settings.to_string();
+    }
+    args.push("--fork-session".to_string());
+    args
+}
+
+/// A text as one word of the shell, between single quotes.
+fn shell_word(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
 /// The families of models the command line knows, each also its alias for the family's latest model.
 const FAMILIES: [&str; 5] = ["haiku", "sonnet", "opus", "fable", "mythos"];
 
@@ -1469,5 +1492,78 @@ mod tests {
         assert!(named.contains(&"ANTHROPIC_API_KEY".to_string()));
         assert!(named.contains(&"CLAUDE_CONFIG_DIR".to_string()));
         assert!(!named.contains(&"SECRET_TOKEN".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod fork_tests {
+    use super::*;
+
+    /// A round's arguments as `arguments` makes them, cut to what a fork is told apart by: the request's front (the
+    /// model, the effort, the system prompt, the form of return, the tools) and the settings and session after it.
+    fn round() -> Vec<String> {
+        let settings =
+            json!({ "autoMemoryEnabled": false, "hooks": { "SessionStart": [{ "matcher": "compact" }] } }).to_string();
+        [
+            "-p",
+            "--model",
+            "claude-sonnet-5-5",
+            "--effort",
+            "high",
+            "--append-system-prompt",
+            "The rules.",
+            "--json-schema",
+            "{\"type\":\"object\"}",
+            "--setting-sources",
+            "user",
+            "--settings",
+            settings.as_str(),
+            "--tools",
+            "Bash,Read,Edit",
+            "--disallowedTools",
+            "Bash(cargo *)",
+            "--resume",
+            "1d2e",
+        ]
+        .map(str::to_string)
+        .to_vec()
+    }
+
+    #[test]
+    fn a_fork_keeps_every_argument_of_its_round_but_its_settings_refuse_each_tool_and_its_session_is_forked() {
+        let round = round();
+        let fork = forked(round.clone(), "No tool is used.");
+        assert_eq!(fork.len(), round.len() + 1);
+        assert_eq!(fork.last().map(String::as_str), Some("--fork-session"));
+        let at = round.iter().position(|a| a == "--settings").expect("settings") + 1;
+        for (i, (was, is)) in round.iter().zip(&fork).enumerate() {
+            if i != at {
+                assert_eq!(was, is, "argument {i}");
+            }
+        }
+        let settings: serde_json::Value = serde_json::from_str(&fork[at]).expect("settings are JSON");
+        assert_eq!(settings["hooks"]["SessionStart"][0]["matcher"], "compact");
+        assert_eq!(settings["autoMemoryEnabled"], false);
+        let refuse = &settings["hooks"]["PreToolUse"][0];
+        assert_eq!(refuse["matcher"], "*");
+        // The hook refuses the use, its words given to the agent, as the command line takes a hook's exit with 2.
+        let command = refuse["hooks"][0]["command"].as_str().expect("a command");
+        let ran = std::process::Command::new("sh")
+            .args(["-c", command])
+            .output()
+            .expect("sh runs");
+        assert_eq!(ran.status.code(), Some(2));
+        assert_eq!(String::from_utf8_lossy(&ran.stderr), "No tool is used.\n");
+        // Words with a quote in them stay one word.
+        let quoted = forked(round, "Don't.");
+        let settings: serde_json::Value = serde_json::from_str(&quoted[at]).expect("settings are JSON");
+        let command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+            .as_str()
+            .expect("a command");
+        let ran = std::process::Command::new("sh")
+            .args(["-c", command])
+            .output()
+            .expect("sh runs");
+        assert_eq!(String::from_utf8_lossy(&ran.stderr), "Don't.\n");
     }
 }

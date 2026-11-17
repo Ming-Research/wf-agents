@@ -180,6 +180,17 @@ impl Of {
     }
 }
 
+/// What a fork of a round's session answered: the return it wrote, as its program printed it, what it cost, and, of its
+/// first request, the tokens read from the prompt cache and those sent fresh, written to the cache among them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Forked {
+    pub answer: Option<serde_json::Value>,
+    pub text: String,
+    pub cost_usd: f64,
+    pub cached: u64,
+    pub fresh: u64,
+}
+
 /// What came of running a round's program.
 enum Carried {
     Came(Came, Spent),
@@ -216,6 +227,121 @@ impl Agents {
                 said: std::sync::Mutex::new(BTreeMap::new()),
             }),
         }
+    }
+}
+
+impl Agents {
+    /// Asks a fork of the session the round of this number of the run ran in a question, through the round's own
+    /// command line ([`cli::forked`]): the system prompt and the form of return that session began with, as they were
+    /// kept, the line's tools and permissions, and the model and effort the round's last try ran on, so that the fork's
+    /// first request is read from the session's cache; every use of a tool refused, so that nothing of the work
+    /// changes; and the answer written in the return's form. It needs only the work as it is kept, its flow and its
+    /// item, which may be any work's: the cases ask it after a wrong return, and whoever asks about a round's text.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn fork(
+        &self,
+        kept: &Work,
+        flow: &flow::Compiled,
+        item: &store::Item,
+        work: WorkNumber,
+        run: RunId,
+        round: usize,
+        question: &str,
+        refused: &str,
+    ) -> Result<Forked, String> {
+        let inner = &self.inner;
+        let of = crate::projects::of(&inner.projects, item)?;
+        let started = (kept.records.started.iter())
+            .find(|s| s.run == run)
+            .ok_or("the work has no such run")?;
+        let cell = (flow.cells.iter())
+            .find(|c| c.id == started.cell)
+            .ok_or("the flow has no such cell")?;
+        let line = cell.line.clone().ok_or("the cell runs in no session")?;
+        let on = (kept.ran.iter())
+            .rev()
+            .find(|r| r.run == run && r.round == round)
+            .map(|r| r.on.clone());
+        let on = on.ok_or("the work keeps nothing the round ran on")?;
+        let number = work::sessions::number_at(kept, &line, work::sessions::start(kept, run, round));
+        let session = session::session(inner.installation, work, &line, number);
+        let read = |what: system::Begun| {
+            let at = system::kept_at(&inner.data, session, what);
+            std::fs::read_to_string(&at).map_err(|e| format!("{}: {e}", at.display()))
+        };
+        let (prompt, form) = (read(system::Begun::System)?, read(system::Begun::Form)?);
+        let (args, added) = (&inner.settings.agents.args, &inner.settings.agents.permissions);
+        let refusing = permissions::refused_commands(&of.beside);
+        let permissions = Permissions::of(cell.reads_only, args, &refusing, added);
+        let dir = inner.data.join("forks").join(format!("{}-{}-{round}", work.0, run.0));
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .map_err(|e| format!("{}: {e}", dir.display()))?;
+        let compacted = Compacted {
+            marks: dir.join("compacted"),
+            again: dir.join("again.md"),
+        };
+        let words = Words {
+            waiting: dir.join("words.json"),
+            given: dir.join("given"),
+        };
+        let agents = &inner.settings.agents;
+        let round_args = cli::arguments(
+            agents,
+            &on,
+            &prompt,
+            &form,
+            &permissions,
+            &compacted,
+            &words,
+            session,
+            Begin::Resume,
+        );
+        let place = git::place(&inner.data, &git::tag(&inner.installation), work);
+        let mut command = Command::new(&agents.command);
+        command
+            .args(cli::forked(round_args, refused))
+            .env_clear()
+            .envs(cli::environment(agents, std::env::vars()))
+            .current_dir(&place.dir)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut child = command.spawn().map_err(|e| format!("{}: {e}", agents.command))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            use tokio::io::AsyncWriteExt as _;
+            stdin
+                .write_all(&cli::stdin(question))
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        let out = child.wait_with_output().await.map_err(|e| e.to_string())?;
+        let mut forked = Forked::default();
+        let mut first = true;
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            let usage = &value["event"]["message"]["usage"];
+            if first && value["type"] == "stream_event" && value["event"]["type"] == "message_start" {
+                first = false;
+                let n = |key: &str| usage[key].as_u64().unwrap_or_default();
+                forked.cached = n("cache_read_input_tokens");
+                forked.fresh = n("input_tokens") + n("cache_creation_input_tokens");
+            }
+            if value["type"] == "result" {
+                forked.answer = value.get("structured_output").cloned().filter(|v| !v.is_null());
+                forked.text = value["result"].as_str().unwrap_or_default().to_string();
+                forked.cost_usd = value["total_cost_usd"].as_f64().unwrap_or_default();
+            }
+        }
+        if forked.answer.is_none() && forked.text.is_empty() {
+            return Err(format!(
+                "the fork gave no result: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Ok(forked)
     }
 }
 

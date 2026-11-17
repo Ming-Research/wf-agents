@@ -2,10 +2,12 @@
 # 15, 34). Neither is sent in a work.
 
 # What a fork of a round's session is asked where the case's return was wrong: about the cell's text alone, quoting it,
-# never why the agent acted as it did, which the model's safety check refuses; in a fork with no tools, so that nothing
-# of the work changes.
+# never why the agent acted as it did, which the model's safety check refuses. The fork keeps the round's tools, so that
+# its request is read from the session's cache, and is refused every use of them, with `fork_refused`; it answers in the
+# return's form.
 fork = '''
-A question about the words you worked under in your last message, not about the work: the task under its heading, what "What this cell returns" says of each block, and "Why you are run", with the rules of the system prompt that bear on them. Which words can be read in more than one way? What is missing, and what is not needed? For each, quote the words and say how you would rewrite them. Answer in English, in plain text.'''
+A question about the words you worked under in your last message, not about the work: the task under its heading, what "What this cell returns" says of each block, and "Why you are run", with the rules of the system prompt that bear on them. Which words can be read in more than one way? What is missing, and what is not needed? For each, quote the words and say how you would rewrite them. Answer in English, in plain text, as a return that deals with nothing and hands in nothing, your answer its `observations`.'''
+fork_refused = "No tool is used to answer this question: answer from what this session holds."
 
 # The task of the agent that judges what only reading can judge of a cell's return (testing 14): `{judge}` what the case
 # says to judge, `{message}` the message the cell was sent, `{back}` what it returned at its end.

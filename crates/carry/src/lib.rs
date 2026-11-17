@@ -70,7 +70,7 @@ use settings::Project;
 use tools::Tools;
 
 pub use acts::{MAIN, WATCH, Watch, Words, begun, faults, main_faults, word_faults};
-pub use agents::{Agents, Of, ROUNDS};
+pub use agents::{Agents, Forked, Of, ROUNDS};
 pub use branch::compared;
 pub use host::github::{GhOffsite, StoodIn, UPLOAD_RATE, said_of};
 pub use process::{STOP_WAIT, TAIL};

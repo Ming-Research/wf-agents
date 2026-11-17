@@ -421,6 +421,23 @@ impl Building {
         records.rounds.len() == records.returned.len() && engine_calls.clone().all(|c| done(&c))
     }
 
+    /// Asks a fork of the session the cell's round of this run and number ran in, through the agents' carrier's own
+    /// command line, as any round's session may be asked ([`carry::Agents::fork`]).
+    pub async fn fork(
+        &self,
+        flow: &Compiled,
+        run: RunId,
+        number: usize,
+        question: &str,
+        refused: &str,
+    ) -> Result<carry::Forked, String> {
+        let kept = self.service.driver().work(self.work).ok_or("the work is not kept")?;
+        let (work, item) = (kept.work.clone(), kept.item.clone());
+        let real = &self.agents.real;
+        real.fork(&work, flow, &item, self.work, run, number, question, refused)
+            .await
+    }
+
     /// What the case's cell did, from its first round on, as the work's records keep it.
     pub fn did(&self, flow: &Compiled, case: &Case) -> Result<cases::judged::Did, String> {
         let kept = self.service.driver().work(self.work).ok_or("the work is not kept")?;
