@@ -163,46 +163,55 @@
 .works .col-item {
   width: var(--col-item);
   max-width: var(--col-item);
+  min-width: var(--col-item);
 }
 
 .works .col-title {
   width: var(--col-title, 100%);
   max-width: var(--col-title, 0);
+  min-width: var(--col-title);
 }
 
 .works .col-state {
   width: var(--col-state);
   max-width: var(--col-state);
+  min-width: var(--col-state);
 }
 
 .works .col-cells {
   width: var(--col-cells);
   max-width: var(--col-cells);
+  min-width: var(--col-cells);
 }
 
 .works .col-level {
   width: var(--col-level);
   max-width: var(--col-level);
+  min-width: var(--col-level);
 }
 
 .works .col-cell-level {
   width: var(--col-cell-level);
   max-width: var(--col-cell-level);
+  min-width: var(--col-cell-level);
 }
 
 .works .col-cost {
   width: var(--col-cost);
   max-width: var(--col-cost);
+  min-width: var(--col-cost);
 }
 
 .works .col-time {
   width: var(--col-time);
   max-width: var(--col-time);
+  min-width: var(--col-time);
 }
 
 .works .col-last {
   width: var(--col-last);
   max-width: var(--col-last);
+  min-width: var(--col-last);
 }
 
 /* The head of a column that orders the list: the whole head, its name as a label, pressed to order the list by it, and
