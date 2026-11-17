@@ -6,7 +6,19 @@ import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { cellNowWords } from '../works/marks';
-import type { Act, CellNow, Item, Now, Question, Speaking, Wait, WorkPage } from '../works-api';
+import type {
+  Act,
+  CellNow,
+  Item,
+  Now,
+  Question,
+  Speaking,
+  Version,
+  VersionPage,
+  Wait,
+  WorkPage,
+  Writer,
+} from '../works-api';
 import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
@@ -927,5 +939,191 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-done');
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it *']]);
     expect(el.querySelector('.cw-confirm')).toBeNull();
+  });
+});
+
+/// A place for each version the tests below write, never the same twice: the page keeps what it read of a version by
+/// its work, block and place for as long as it runs.
+let place = 1000;
+
+/// Draws the panel of item 25, its flow's card naming `request` and then `outline`, each with the text given, written
+/// by the owner and by the research; its page giving `questions`; the research's words holding a message of the
+/// owner's and the research's answer `reply`, where one is given; its work waiting on the owner for the answers to
+/// `holding`; `wait` the card the address names. Done once the body is read, unless `reading` holds its read.
+async function drawPointing(
+  texts: { request?: string; outline?: string; reply?: string },
+  questions: Question[],
+  o: { send?: (work: number, what: Act) => Promise<unknown>; holding?: string[]; wait?: string; reading?: boolean } = {},
+) {
+  const i = itemOf(25);
+  const versions = new Map(questions.map((q) => [q.name, q.version]));
+  const holding = o.holding ?? [];
+  const now: Now =
+    holding.length === 0
+      ? { kind: 'next', cell: 'implement' }
+      : { kind: 'waits', at: 'research', on: holding.map((question) => ({ kind: 'answer', question })) };
+  const item: Item = { ...i, work: { ...i.work, now, waits: holding.map((n) => answering(n, versions.get(n))) } };
+  const contents = new Map<string, string>();
+  const research: Writer = { kind: 'run', run: 1, cell: 'research' };
+  const write = (block: string, by: Writer, content: string): Version => {
+    place += 1;
+    contents.set(`${block}@${place}`, content);
+    return { at: place, time: place * 1000, by, meaning: place, value: null, saidTo: null, chars: content.length, empty: false };
+  };
+  const blocks = [
+    ...(texts.request === undefined ? [] : [{ name: 'request', versions: [write('request', { kind: 'owner' }, texts.request)] }]),
+    ...(texts.outline === undefined ? [] : [{ name: 'outline', versions: [write('outline', research, texts.outline)] }]),
+    ...(texts.reply === undefined
+      ? []
+      : [
+          {
+            name: 'research_words',
+            versions: [write('research_words', { kind: 'owner' }, 'Why this way?'), write('research_words', research, texts.reply)],
+          },
+        ]),
+  ];
+  const load = (_: number, block: string, at: number): Promise<VersionPage> =>
+    o.reading === true ? new Promise(() => undefined) : Promise.resolve({ block, at, content: contents.get(`${block}@${at}`) ?? '' });
+  const page = pageOf(item);
+  if (page === null || !('page' in page)) throw new Error('no page');
+  const flow: Flow = { ...ASKING, card: ['request', 'outline'] };
+  container = document.createElement('div');
+  document.body.append(container);
+  root = createRoot(container);
+  const r = root;
+  act(() =>
+    r.render(
+      <ItemPanel
+        item={item}
+        page={{ page: { ...page.page, flow, blocks, questions } }}
+        act={o.send ?? answered([])}
+        loadVersion={load}
+        onTitle={() => undefined}
+        wait={o.wait}
+      />,
+    ),
+  );
+  await act(async () => {
+    await new Promise((done) => setTimeout(done, 0));
+  });
+  return container;
+}
+
+/// The card of the question of this name.
+const cardOf = (el: HTMLElement, name: string) => el.querySelector<HTMLElement>(`[data-wait="answer-${name}"]`);
+
+/// The section of the body of this title.
+const sectionOf = (el: HTMLElement, title: string) =>
+  [...el.querySelectorAll<HTMLElement>('.cw-body > .cw-fold')].find(
+    (f) => f.querySelector('.cw-fold-head')?.textContent?.trim() === title,
+  );
+
+/// What a text drawn as markdown holds, in its order: each paragraph by its words, each card by the wait it carries.
+const piecesOf = (md: Element | null | undefined) =>
+  [...(md?.children ?? [])].map((c) =>
+    c.classList.contains('cw-choice')
+      ? `card ${c.getAttribute('data-wait') ?? ''}`
+      : `${c.tagName.toLowerCase()} ${c.textContent?.replace(/\s+/g, ' ').trim() ?? ''}`,
+  );
+
+describe('a question a text of the window points to', () => {
+  it("is drawn in the text at the pointer, between the words around it, and one no text points to after the body, each once", async () => {
+    const el = await drawPointing(
+      { request: 'What the item asks.', outline: 'Two ways stand. {{scope}} The plan takes the first.' },
+      [question('scope'), question('later')],
+    );
+    const md = cardOf(el, 'scope')?.parentElement;
+    expect(md?.className).toBe('cw-md');
+    expect(piecesOf(md)).toEqual(['p Two ways stand.', 'card answer-scope', 'p The plan takes the first.']);
+    expect(el.textContent).not.toContain('{{');
+    // The one no text points to stands after the last section's text, in a part of its own, as before.
+    expect(cardOf(el, 'later')?.parentElement?.className).toBe('cw-part');
+    expect(el.querySelectorAll('[data-wait="answer-scope"]')).toHaveLength(1);
+    expect(el.querySelectorAll('.cw-choice')).toHaveLength(2);
+  });
+
+  it('is drawn at the first text that points to it, a later pointer being a link that brings it into view', async () => {
+    const shown = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const el = await drawPointing(
+      { outline: 'Asked: {{scope}}.', reply: 'I asked {{scope}} since the item leaves it open.' },
+      [question('scope')],
+    );
+    expect(cardOf(el, 'scope')?.closest('.cw-fold')).toBe(sectionOf(el, 'outline'));
+    expect(el.querySelectorAll('.cw-choice')).toHaveLength(1);
+    const link = discussion(el).querySelector<HTMLButtonElement>('.cw-message button.link');
+    expect(link?.textContent).toBe('scope');
+    expect(link?.classList.contains('mono')).toBe(true);
+    expect(link?.title).not.toBe('');
+    expect(text(discussion(el), '.cw-message .cw-md p')).toContain('I asked scope since the item leaves it open.');
+    shown.mockClear();
+    act(() => link?.click());
+    expect(shown.mock.contexts).toEqual([cardOf(el, 'scope')]);
+  });
+
+  it('is drawn at the first of two pointers in one text, the second a link', async () => {
+    const el = await drawPointing({ outline: '{{scope}} decides the rest; see {{scope}} again.' }, [question('scope')]);
+    const md = cardOf(el, 'scope')?.parentElement;
+    expect(piecesOf(md)).toEqual(['card answer-scope', 'p decides the rest; see scope again.']);
+    expect(text(md as HTMLElement, 'p button.link')).toEqual(['scope']);
+  });
+
+  it('is drawn at a pointer inside strong words, the words going on strong after it', async () => {
+    const el = await drawPointing({ outline: '**Pick {{scope}} first.**' }, [question('scope')]);
+    const md = cardOf(el, 'scope')?.parentElement;
+    expect(md?.className).toBe('cw-md');
+    expect(piecesOf(md)).toEqual(['p Pick', 'card answer-scope', 'p first.']);
+    expect(text(md as HTMLElement, 'p > strong')).toEqual(['Pick', 'first.']);
+  });
+
+  it("is drawn in the cell's message that alone points to it", async () => {
+    const el = await drawPointing({ outline: 'The plan.', reply: 'One thing is open: {{scope}}' }, [question('scope')]);
+    const card = cardOf(el, 'scope');
+    expect(card?.closest('.cw-message')).not.toBeNull();
+    expect(card?.parentElement?.className).toBe('cw-md');
+    expect(el.querySelectorAll('.cw-choice')).toHaveLength(1);
+  });
+
+  it('is not one a pointer in code points to, nor is a pointer to no question that stands: both are shown as written', async () => {
+    const el = await drawPointing(
+      { outline: 'In backticks: `{{scope}}`.\n\n```\n{{scope}}\n```\n\nGone: {{gone}}. Never asked: {{nobody}}.' },
+      [question('scope'), question('gone', { withdrawn: 'Settled in the plan', ask: null, options: [] })],
+    );
+    expect(text(el, '.cw-md code')).toEqual(['{{scope}}', '{{scope}}']);
+    expect(text(el, '.cw-md p')).toContain('Gone: {{gone}}. Never asked: {{nobody}}.');
+    // No text points to it: it stands after the body.
+    expect(cardOf(el, 'scope')?.parentElement?.className).toBe('cw-part');
+    expect(el.querySelectorAll('.cw-md button.link')).toHaveLength(0);
+  });
+
+  it('is counted and its answer sent by the Confirm under the last section, drawn there even where that has nothing else', async () => {
+    const sent: Sent = [];
+    const el = await drawPointing({ request: 'Pick one: {{scope}}' }, [question('scope', { waits: true })], {
+      send: answered(sent),
+      holding: ['scope'],
+    });
+    expect(cardOf(el, 'scope')?.closest('.cw-fold')).toBe(sectionOf(el, 'request'));
+    expect(text(el, '.cw-body > .cw-fold > .cw-fold-body > p.muted')).toEqual(['Nothing is written yet']);
+    expect(el.querySelector('.cw-confirm')?.closest('.cw-fold')).toBe(sectionOf(el, 'outline'));
+    expect(button(el, 'Confirm (0/1)').disabled).toBe(true);
+    act(() => (cardOf(el, 'scope')?.querySelectorAll('.cw-option')[1] as HTMLButtonElement).click());
+    await act(async () => button(el, 'Confirm (1/1)').click());
+    expect(sent).toEqual([[25, { kind: 'answer', question: 'scope', version: 30, option: 2 }]]);
+  });
+
+  it('is brought into view where it is held by the address that names its wait', async () => {
+    const shown = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const el = await drawPointing({ outline: 'Open: {{scope}}' }, [question('scope', { waits: true })], {
+      holding: ['scope'],
+      wait: 'answer-scope',
+    });
+    const card = cardOf(el, 'scope');
+    expect(card?.parentElement?.className).toBe('cw-md');
+    expect(shown.mock.contexts).toContain(card);
+  });
+
+  it('is drawn nowhere while the texts that may point to it are still being read', async () => {
+    const el = await drawPointing({ outline: 'Open: {{scope}}' }, [question('scope')], { reading: true });
+    expect(text(el, '.cw-body > .cw-fold > .cw-fold-body > p.muted')).toEqual(['Reading', 'Reading']);
+    expect(el.querySelectorAll('.cw-choice')).toHaveLength(0);
   });
 });
