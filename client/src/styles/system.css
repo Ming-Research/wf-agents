@@ -52,7 +52,7 @@
 }
 
 .tile-opens:hover {
-  background: var(--step);
+  background: var(--accent-tint);
 }
 
 .tile-opens .tile-value {
@@ -180,7 +180,7 @@
 }
 
 .accent-own:hover {
-  background-image: linear-gradient(var(--step), var(--step));
+  background-color: var(--accent-tint);
 }
 
 .accent-own-taken {

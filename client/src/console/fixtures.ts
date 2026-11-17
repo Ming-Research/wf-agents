@@ -333,14 +333,24 @@ export function fixtureItems(start = Date.now()): Items {
     3: {
       title: 'Keep what each run costs',
       dependsOn: [11, 12],
-      work: work({ kind: 'paused', by: 'owner', why: null }, notStarted, { hours: 1, dollars: 0, rounds: 0, paused: 'owner' }),
+      work: work({ kind: 'paused', at: ORDER[0], by: 'owner', why: null }, notStarted, {
+        hours: 1,
+        dollars: 0,
+        rounds: 0,
+        paused: 'owner',
+      }),
     },
     4: {
       title: 'Let the owner write to any cell',
       dependsOn: [13, 9],
       // Paused by the engine: the implementation's last round failed.
       work: work(
-        { kind: 'paused', by: 'engine', why: "the agent's program exited with an error: the session could not be resumed" },
+        {
+          kind: 'paused',
+          at: 'implement',
+          by: 'engine',
+          why: "the agent's program exited with an error: the session could not be resumed",
+        },
         cellsAt('implement', 'failed'),
         {
           hours: 50,
@@ -656,7 +666,11 @@ export function fixtureSource(start = Date.now()): Source {
       case 'pause':
         if (ended) throw new Error('The work has ended');
         s.paused = 'owner';
-        if (s.now.kind !== 'round') s.now = { kind: 'paused', by: 'owner', why: null };
+        if (s.now.kind !== 'round') {
+          const now = s.now;
+          const at = now.kind === 'next' ? now.cell : 'at' in now && typeof now.at === 'string' ? now.at : ORDER[0];
+          s.now = { kind: 'paused', at, by: 'owner', why: null };
+        }
         return;
       case 'resume': {
         if (ended) throw new Error('The work has ended');

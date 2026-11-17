@@ -20,6 +20,12 @@ pub(crate) fn serving_with_handle(
     off_machine: bool,
     keep: usize,
 ) -> (axum::Router, Backups, tempfile::TempDir, service::Handle) {
+    serving_kept(Some((off_machine, keep)))
+}
+
+/// The interface over the engine's loop, with the route of the copies: of those kept as `kept` says (whether a place
+/// off the machine is given, and how many are kept), or of none.
+fn serving_kept(kept: Option<(bool, usize)>) -> (axum::Router, Backups, tempfile::TempDir, service::Handle) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("store.sqlite");
     let store = Store::open(&path).unwrap();
@@ -39,13 +45,22 @@ pub(crate) fn serving_with_handle(
     let handle = service.handle();
     tokio::spawn(service.run(inbox));
     let flows = Flows::dirs(trial_dir().join("flow"), Box::new(trial_has));
-    let copies = Copies {
+    let copies = kept.map(|(off_machine, keep)| Copies {
         store: path.clone(),
         keep,
         off_machine,
-    };
+    });
     let router = web::with_works_and_copies(flows, handle.clone(), levels(), projects(), copies);
     (router, Backups::open(&path).unwrap(), dir, handle)
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_engine_that_keeps_no_copies_says_so_rather_than_having_no_such_path() {
+    let (router, _records, _dir, _handle) = serving_kept(None);
+    let report = get_json(&router, "/api/v1/backup").await;
+    assert_eq!(report["state"], json!({ "kind": "notKept" }));
+    assert_eq!(report["now"], START);
+    assert_eq!(report["lastTaken"], json!(null));
 }
 
 #[tokio::test(start_paused = true)]

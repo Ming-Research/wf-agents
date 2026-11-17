@@ -34,7 +34,7 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     pass(2000).await;
     let failed_at = START + 4500;
     let page = get_json(router, "/api/v1/works/1").await;
-    let paused = json!({ "kind": "paused", "by": "engine", "why": WHY });
+    let paused = json!({ "kind": "paused", "at": "plan", "by": "engine", "why": WHY });
     assert_eq!(page["summary"]["now"], paused);
     assert_eq!(page["summary"]["paused"], "engine");
     assert_eq!(

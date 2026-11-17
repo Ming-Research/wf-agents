@@ -143,10 +143,10 @@ export type Now =
   | { kind: 'round'; cell: string; run: number; round: number; since: number; at?: string | null }
   /// It is paused, and what it would do next is begin a round: by the owner, who gives no reason, or by the engine
   /// for this one.
-  | { kind: 'paused'; by: Pauser; why: string | null }
+  | { kind: 'paused'; at: string; by: Pauser; why: string | null }
   /// The pause of everything holds it back, and what it would do next is begin a round; its own pause does not. `by` is
   /// who set it: the owner, or the engine as it started again with works going on.
-  | { kind: 'everything'; by: Pauser }
+  | { kind: 'everything'; at: string; by: Pauser }
   /// It waits at this cell, for each of these.
   | { kind: 'waits'; at: string; on: Waited[] }
   /// It is about to do something at this cell; a work is never left so between two things that happen to it.
@@ -851,7 +851,9 @@ export type CopiesState =
   /// A copy is dated more than a day ahead of now: the clock is wrong.
   | { kind: 'clock' }
   /// The last step that failed, and nothing done since mends it.
-  | { kind: 'failed'; at: number; step: string; why: string };
+  | { kind: 'failed'; at: number; step: string; why: string }
+  /// The engine keeps no copies: it runs from a script, which keeps none.
+  | { kind: 'notKept' };
 
 export interface Copies {
   state: CopiesState;

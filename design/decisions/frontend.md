@@ -47,10 +47,9 @@ own lightness was turned down, as each theme needs each tone at its own lightnes
 
 ### decision an-accent-keeps-clear-of-the-meanings
 A colour is refused as the accent where a tone of the accent it gives, in light or in dark, is within 45 degrees of hue
-of red, orange, yellow, green or the tools' teal, or where it is weaker than 0.4 of the default accent; the refusal
-names the nearest.
+of red, orange, yellow or green, or where it is weaker than 0.4 of the default accent; the refusal names the nearest.
 Why: One meaning has one colour (principle scarce-emphasis): near green a work running reads as done, near yellow a
-cell running as a call under way, near teal the model's time as the tools', and grey as a pause; moving a refused
+cell running or the model's time as a call under way or the tools' time, and grey as a pause; moving a refused
 colour to the nearest free hue was turned down, as a green's is a blue the owner did not pick. The bounds rest on
 judgment, and the console's lit edges and map bars, which carry no meaning, are not held to them.
 

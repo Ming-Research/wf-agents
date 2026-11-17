@@ -1522,10 +1522,12 @@ fn now(now: &Now) -> String {
         Now::Paused {
             by: Pauser::Engine,
             why: Some(why),
+            ..
         } => format!("paused by the engine. {}", sentence(why)),
         Now::Paused {
             by: Pauser::Engine,
             why: None,
+            ..
         } => "paused by the engine, which gave no reason".to_string(),
         Now::Everything { .. } => "held back by the pause of everything".to_string(),
         Now::Waits { at, on } => {

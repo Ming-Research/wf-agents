@@ -150,7 +150,7 @@ fn the_engine_pausing_a_work_with_a_reason_as_its_round_ends_lets_the_return_be_
     assert_eq!(w.on(paused), vec![]);
     assert_eq!(w.returns(write, hands_in(&[("text", None)])), vec![]);
     assert!(w.work.records.finished.iter().any(|f| f.run == write));
-    assert_eq!(w.decision(), decide::Decision::Paused);
+    assert!(matches!(w.decision(), decide::Decision::Paused { .. }));
     let pause = decide::pause(&w.work.records).expect("the work is paused");
     assert_eq!(
         (pause.by, pause.why.as_deref()),

@@ -34,13 +34,12 @@ export const TONES: Record<Theme, Record<string, Kind>> = {
 };
 
 /// The colours with a meaning of their own, which the accent keeps clear of, by the tokens that draw each: red, a
-/// problem; orange, a block's meaning changed; yellow, a call under way; green, a work done; teal, the tools' time.
+/// problem; orange, a block's meaning changed; yellow, a call under way, and the tools' time; green, a work done.
 export const MEANINGS = {
   red: ['red', 'red-text'],
   orange: ['orange', 'orange-text'],
   yellow: ['yellow'],
   green: ['green', 'green-text'],
-  tools: ['track-tool'],
 } as const;
 
 export type Meaning = keyof typeof MEANINGS;

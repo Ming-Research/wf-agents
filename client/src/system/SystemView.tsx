@@ -11,7 +11,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Coded, PanelPart, Switch } from '../parts';
 import { hashOf, type Period } from '../route';
 import type { Copies, Engine, Item, Items, Spent } from '../works-api';
-import { copiesTone, copiesWords } from '../works/Copies';
 import { NowLine } from '../works/marks';
 import { useChanges, useItems, useReading, useSource } from '../works/source';
 import { waitingCount } from '../works/waiting';
@@ -28,6 +27,7 @@ import {
   waitCounted,
 } from '../works/words';
 import { type RanOn, type System, useSystemSource } from './api';
+import { copiesTone, copiesWords } from './copies';
 import { ItemName, Tile, Tiles, ViewTable, WorkLink } from './parts';
 import {
   cacheShare,
@@ -182,16 +182,21 @@ function NowPart({ items, engine, copies, copiesFailed }: {
         <dd>{engine === null ? 'not given' : `${engine.taken} taken of ${engine.slots}`}</dd>
         <dt>The wait every work shares</dt>
         <dd className={shared === null ? undefined : 'failed'}>{shared === null ? 'none' : <Coded text={shared} />}</dd>
-        <dt>Copies of the database</dt>
-        <dd>
-          {copies === null ? (
-            <span className={copiesFailed ? 'failed' : 'muted'}>
-              {copiesFailed ? `could not be read: ${copiesFailed}` : 'reading'}
-            </span>
-          ) : (
-            <CopiesFacts copies={copies} />
-          )}
-        </dd>
+        {/* An engine that keeps no copies, one that runs a script, has none to show. */}
+        {copies?.state.kind !== 'notKept' && (
+          <>
+            <dt>Copies of the database</dt>
+            <dd>
+              {copies === null ? (
+                <span className={copiesFailed ? 'failed' : 'muted'}>
+                  {copiesFailed ? `could not be read: ${copiesFailed}` : 'reading'}
+                </span>
+              ) : (
+                <CopiesFacts copies={copies} />
+              )}
+            </dd>
+          </>
+        )}
       </dl>
       <Tiles>
         {by.map(({ standing, list }) => {

@@ -174,8 +174,8 @@ describe("the browser's notifications", () => {
       return { items, outage: null };
     };
     draw(at({ kind: 'stalled', at: 'M2', on: [], by: [], why: 'Nothing new runs `M2`.' }));
-    draw(at({ kind: 'paused', by: 'owner', why: null }));
-    draw(at({ kind: 'everything', by: 'owner' }));
+    draw(at({ kind: 'paused', at: 'plan', by: 'owner', why: null }));
+    draw(at({ kind: 'everything', at: 'plan', by: 'owner' }));
     draw(at({ kind: 'fault', words: 'Two entries at 3' }));
     draw(at({ kind: 'waits', at: 'M1', on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'w' }] }));
     expect(Told.made).toEqual([]);

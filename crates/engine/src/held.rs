@@ -26,7 +26,7 @@ pub fn held(flow: &Compiled, work: &Work, room: Room) -> Option<Holder> {
         }
     };
     match decide_in(&flow.flow, records, room) {
-        Decision::Paused => Some(pause()),
+        Decision::Paused { .. } => Some(pause()),
         Decision::Wait { on, .. } if on == [decide::Waited::Slot] => Some(Holder::Slot),
         Decision::GoOn { run, .. } => {
             let choices = choices(flow);

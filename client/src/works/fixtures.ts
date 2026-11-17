@@ -822,7 +822,13 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     h.did('resumed', 60);
     h.did('paused', 10);
     keep({
-      page: h.page(46, 146, 'Fold the panel away', { kind: 'paused', by: 'owner', why: null }, { paused: 'owner' }),
+      page: h.page(
+        46,
+        146,
+        'Fold the panel away',
+        { kind: 'paused', at: 'implement', by: 'owner', why: null },
+        { paused: 'owner' },
+      ),
       history: h,
     });
   }
@@ -846,7 +852,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
         50,
         150,
         'Say why a work is paused',
-        { kind: 'paused', by: 'engine', why },
+        { kind: 'paused', at: 'implement', by: 'engine', why },
         { paused: 'engine', waits: [paused] },
       ),
       history: h,

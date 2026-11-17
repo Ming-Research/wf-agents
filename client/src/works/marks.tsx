@@ -5,17 +5,17 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import type { CellNow, CellState, Summary } from '../works-api';
-import { markStyle, stripStyle } from './state-marks';
-import { STATE, STATE_WORDS, nowTone, nowWords, stateOf } from './words';
+import { markStyle, pulsing, stripStyle } from './state-marks';
+import { STATE, STATE_WORDS, STOPPED_WORDS, nowTone, nowWords, stateOf } from './words';
 
-/// A cell's state as a square: filled when done, filled in a deep step while running, a ring of that step at rest, a
-/// red ring when its last round failed, a ring of done's colour when it runs again, a hairline ring before its first
-/// run, a dash when skipped. Its look is `state-marks.ts`'s, which the console's cards draw too.
-export function StateMark({ state, title }: { state: CellState; title?: string }) {
+/// A cell's state as a square: filled when it ran or runs, hollow when still to run, a dash when skipped; filled in red
+/// where the work is `stopped` at it. Running and a call under way pulse. Its look is `state-marks.ts`'s, which the
+/// console's cards draw too.
+export function StateMark({ state, title, stopped = false }: { state: CellState; title?: string; stopped?: boolean }) {
   return (
     <span
-      className={`state-mark state-${state}`}
-      style={markStyle(state)}
+      className={`state-mark state-${state}${stopped ? ' stopped' : ''}${pulsing(state) ? ' pulses' : ''}`}
+      style={markStyle(state, stopped)}
       title={title ?? STATE_WORDS[state]}
       aria-hidden="true"
     />
@@ -27,20 +27,21 @@ export function cellNowWords(c: CellNow): string {
   return `${c.cell}: ${STATE_WORDS[c.state]}, ${c.finished} run${c.finished === 1 ? '' : 's'} finished`;
 }
 
-/// One mark per cell of a work's flow, in the order of the walk.
-export function Strip({ cells }: { cells: CellNow[] }) {
+/// One mark per cell of a work's flow, in the order of the walk, the cell the work is `stopped` at filled in red.
+export function Strip({ cells, stopped = null }: { cells: CellNow[]; stopped?: string | null }) {
   return (
     <span className="strip" style={stripStyle()} role="img" aria-label={cells.map(cellNowWords).join('; ')}>
       {cells.map((c) => (
-        <StateMark key={c.cell} state={c.state} title={cellNowWords(c)} />
+        <StateMark key={c.cell} state={c.state} title={cellNowWords(c)} stopped={c.cell === stopped} />
       ))}
     </span>
   );
 }
 
-/// The legend of the states' marks.
+/// The legend of the marks: one entry for each look, a run under way standing for the states drawn as it is (between
+/// two rounds, or its round failed), and last the cell a work is stopped at.
 export function StateLegend() {
-  const states: CellState[] = ['done', 'running', 'calling', 'resting', 'failed', 'again', 'notYet', 'skipped'];
+  const states: CellState[] = ['done', 'running', 'calling', 'resting', 'again', 'notYet', 'skipped'];
   return (
     <ul className="legend" aria-label="What the marks of a cell's state mean">
       {states.map((s) => (
@@ -48,6 +49,9 @@ export function StateLegend() {
           <StateMark state={s} /> {STATE_WORDS[s]}
         </li>
       ))}
+      <li>
+        <StateMark state="resting" stopped /> {STOPPED_WORDS}
+      </li>
     </ul>
   );
 }

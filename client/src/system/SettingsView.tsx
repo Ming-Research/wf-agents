@@ -485,7 +485,6 @@ const MEANING_WORDS: Record<Meaning, string> = {
   orange: "the orange of a block's meaning changed",
   yellow: 'the yellow of a call under way',
   green: 'the green of a work done',
-  tools: "the teal of the tools' time",
 };
 
 /// Why a colour is not taken as the accent, in a clause, the colour as a value.

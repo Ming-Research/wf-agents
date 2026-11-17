@@ -120,7 +120,7 @@ fn the_engine_pausing_a_work_for_its_reason_is_a_line_and_the_owner_pausing_one_
         let heeds = heeds(&since(&h, Some(&mark)));
         assert!(!heeds.contains(&Heed::ForAPerson { work }), "{heeds:?}");
         h.hands_in(work, &[("text", None)]);
-        assert_eq!(h.decision(work), Decision::Paused);
+        assert!(matches!(h.decision(work), Decision::Paused { .. }));
         rested.push(Time(h.clock));
     }
     assert_eq!(

@@ -100,7 +100,7 @@ fn a_deliverable_made_of_no_item_is_delivered_as_soon_as_it_is_let_on() {
     let (_, wd) = h.add(new_item("d", &[], "deliver"));
     // It waits for nothing but the owner, who added it paused.
     assert_eq!(h.dependencies(wd).as_deref(), Some(MERGED));
-    assert_eq!(h.decision(wd), Decision::Paused);
+    assert!(matches!(h.decision(wd), Decision::Paused { .. }));
     let todos = h.let_on(wd);
     assert_eq!(rounds(&todos), [(wd, "V1".to_string(), 1)]);
     h.hands_in(wd, &[("delivered", None)]);

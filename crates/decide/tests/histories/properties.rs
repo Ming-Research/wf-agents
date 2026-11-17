@@ -949,7 +949,7 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
         Decision::Wait { at, .. } => (records.clone(), place(at)),
         Decision::Stalled { at, on, .. } if !on.is_empty() => (records.clone(), place(at)),
         Decision::Stalled { .. } => (records.clone(), cells.len()),
-        Decision::Paused | Decision::GoOn { .. } => {
+        Decision::Paused { .. } | Decision::GoOn { .. } => {
             let mut let_on = records.clone();
             let_on.pauses.push(Pause {
                 paused: false,

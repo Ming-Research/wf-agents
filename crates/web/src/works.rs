@@ -347,13 +347,17 @@ pub enum Now {
         #[serde(default)]
         at: Option<String>,
     },
-    /// It is paused, and what it would do next is begin a round: by the owner, or by the engine itself for this
-    /// reason, as when a round failed.
-    Paused { by: Pauser, why: Option<String> },
-    /// The pause of everything holds it back, and what it would do next is begin a round; its own pause does not hold
-    /// it. `by` is who set it: the owner, or the engine as it started with works going on, which holds every work until
-    /// the owner lifts it.
-    Everything { by: Pauser },
+    /// It is paused, and what it would do next is begin a round at this cell: by the owner, or by the engine itself
+    /// for this reason, as when a round failed.
+    Paused {
+        at: String,
+        by: Pauser,
+        why: Option<String>,
+    },
+    /// The pause of everything holds it back, and what it would do next is begin a round at this cell; its own pause
+    /// does not hold it. `by` is who set it: the owner, or the engine as it started with works going on, which holds
+    /// every work until the owner lifts it.
+    Everything { at: String, by: Pauser },
     /// It waits at this cell, for each of these.
     Waits { at: String, on: Vec<Waited> },
     /// It is about to do something at this cell. A work is never left so between two things that happen to it.
@@ -1997,7 +2001,7 @@ fn waited(kept: Kept<'_>, records: &Records, then: driver::owner::Shared<'_>) ->
         return 'o';
     }
     match decision {
-        Decision::Paused => 'p',
+        Decision::Paused { .. } => 'p',
         Decision::Stalled { .. } | Decision::Run { .. } | Decision::GoOn { .. } if paused => 'p',
         _ if held.is_some() => 'p',
         Decision::Wait { on, .. } if on.iter().any(on_items) => 'w',
@@ -2026,9 +2030,9 @@ impl Now {
     ) -> Result<Now, Broken> {
         let work = kept.work;
         // Held by the pause of everything, which holds while the driver says it holds the work.
-        let everything = || -> Result<Now, Broken> {
+        let everything = |at: &CellId| -> Result<Now, Broken> {
             let by = (outages.everything).ok_or_else(|| Broken("the pause of everything holds no work".to_string()))?;
-            Ok(Now::Everything { by })
+            Ok(Now::Everything { at: at.to_string(), by })
         };
         // The wait that holds the rounds of a cell now: the agents' for an agent's, the host's for an act's.
         let holding = |cell: &CellId| {
@@ -2079,12 +2083,12 @@ impl Now {
                     },
                 }
             }
-            Decision::Paused if held == Some(Holder::Everything) => everything()?,
-            Decision::Paused => Now::paused(work)?,
+            Decision::Paused { cell } if held == Some(Holder::Everything) => everything(cell)?,
+            Decision::Paused { cell } => Now::paused(work, cell)?,
             // A run at rest that goes on holds its next round while something holds it back: the engine leaves a work
             // so only then, as when the run's last round failed and the work was paused.
-            Decision::GoOn { .. } if held == Some(Holder::Pause) => Now::paused(work)?,
-            Decision::GoOn { .. } if held == Some(Holder::Everything) => everything()?,
+            Decision::GoOn { cell, .. } if held == Some(Holder::Pause) => Now::paused(work, cell)?,
+            Decision::GoOn { cell, .. } if held == Some(Holder::Everything) => everything(cell)?,
             // A cell that would run or go on, and does not, is held by the wait every work shares, where it holds now
             // and holds the cell's rounds: the engine leaves a work so only then. It is said before a slot.
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if shared(cell) => waits_shared(cell),
@@ -2140,7 +2144,7 @@ impl Now {
                 Now::Next { cell: cell.to_string() }
             }
             // A stalled work that its own pause holds is shown paused: it is the pauser's to let on.
-            Decision::Stalled { .. } if decide::paused(&work.records) => Now::paused(work)?,
+            Decision::Stalled { at, .. } if decide::paused(&work.records) => Now::paused(work, at)?,
             Decision::Stalled { at, on, by } => {
                 let on: Vec<CellKey> = (on.iter())
                     .map(|key| key_of(&kept, key))
@@ -2173,10 +2177,11 @@ impl Now {
         })
     }
 
-    /// The work's pause, with who paused it and why.
-    pub(crate) fn paused(work: &Work) -> Result<Now, Broken> {
+    /// The work's pause at the cell it would go on at, with who paused it and why.
+    pub(crate) fn paused(work: &Work, at: &CellId) -> Result<Now, Broken> {
         let pause = decide::pause(&work.records).ok_or_else(|| Broken("the work has no pause".to_string()))?;
         Ok(Now::Paused {
+            at: at.to_string(),
             by: Pauser::of(pause.by),
             why: pause.why.clone(),
         })

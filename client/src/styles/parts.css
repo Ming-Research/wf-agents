@@ -262,7 +262,13 @@ button {
   transition: background-color var(--hover-time);
 }
 
-.button:hover {
+/* Under the pointer, a button that can be pressed is filled with the accent's tint, so that what will be pressed
+   shows at once; the primary one, filled with the accent already, a step darker. */
+.button:not(.button-primary, :disabled):hover {
+  background-color: var(--accent-tint);
+}
+
+.button-primary:hover {
   background-image: linear-gradient(var(--step), var(--step));
 }
 
@@ -338,7 +344,7 @@ textarea:disabled {
 }
 
 .switch-choice:not([aria-pressed='true']):hover {
-  background: var(--step);
+  background: var(--accent-tint);
 }
 
 /* The choice taken: on the accent's tint, in its text, ringed in it. Pressing it does nothing, so it shows no hover and

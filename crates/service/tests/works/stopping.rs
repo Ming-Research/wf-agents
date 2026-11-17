@@ -94,7 +94,7 @@ async fn started_again_with_a_work_going_on_it_gives_the_round_under_way_and_beg
     // Nothing more begins: entering the plan again for the answer waits for the owner.
     assert!(trial.step().await.is_none());
     assert_eq!(trial.work(work).records.rounds.len(), rounds);
-    assert_eq!(trial.decision(work), Decision::Paused);
+    assert!(matches!(trial.decision(work), Decision::Paused { .. }));
     trial.everything(false);
     assert_eq!(trial.work(work).records.rounds.len(), rounds + 1);
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));

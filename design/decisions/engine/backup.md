@@ -13,3 +13,7 @@ Why: A flow is a work's and the backup belongs to no work, so the flow cannot sa
 ### decision backup-records-are-written-beside-the-engines-turn
 The backup's records are written by the backup itself as it goes, not through the engine's one turn of changes to the works' records.
 Why: Nothing decides by these records and they are only added to, so a second writer cannot make a work's records diverge (principle state-from-records). A row written at once after the act it records leaves the shortest stop between the two, which is a judgment and was not measured.
+
+### decision an-engine-that-keeps-no-copies-says-so
+The route of the copies answers on every engine; one that keeps none, as one that runs a script, says that it keeps none, and the page then shows no copies.
+Why: An engine that kept none had no such route, and the page took the missing path for a failure, in red, on every page served from a script.

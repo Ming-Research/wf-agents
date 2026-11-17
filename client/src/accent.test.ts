@@ -136,8 +136,6 @@ describe('a colour refused as the accent', () => {
     expect(refusal(LIGHT.orange)).toBe('orange');
     expect(refusal(LIGHT.yellow)).toBe('yellow');
     expect(refusal(LIGHT.green)).toBe('green');
-    expect(refusal(LIGHT['track-tool'])).toBe('tools');
-    expect(refusal('#0ea5e9')).toBe('tools');
     expect(refusal('#ff00f0')).toBe('red');
     expect(refusal('#64748b')).toBe('grey');
     expect(refusal('#808080')).toBe('grey');

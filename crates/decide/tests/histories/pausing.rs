@@ -78,7 +78,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                 );
             }
         }
-        Decision::Paused => {
+        Decision::Paused { .. } => {
             let records = reading.records;
             let mut let_on = records.clone();
             let_on.pauses.push(Pause {

@@ -36,6 +36,10 @@
   --hairline: 1px;
   --focus: 2px;
   --hover-time: 100ms;
+  /* The beat of a running cell's mark, and how faint it goes at its faintest, as the console's cards draw it
+     (console/snap.ts, PULSE_MS and DARK). */
+  --pulse: 750ms;
+  --pulse-faint: 0.15;
 
   /* The docked panel's width until the owner drags it, and the height of the handle on its edge. */
   --panel: 360px;
@@ -111,13 +115,13 @@
   --red-text: #c53030;
   --on-colour: #ffffff;
 
-  /* Where a work's time went: a model's stretches in the accent, the tools' in a teal of their own, which no other
-     meaning has and the accent keeps clear of, those nothing ran in a light grey, on a muted ground. A stretch nothing
+  /* Where a work's time went: a model's stretches in the accent, the tools' in the yellow of a call under way, as a
+     cell's mark says a call, those nothing ran in a light grey, on a muted ground. A stretch nothing
      ran in takes the colour of what the work waited for: the owner's red, a pause's muted grey, and this light grey for
      the items it depends on as for anything else. */
   --track-ground: #818b981f;
   --track-model: var(--accent);
-  --track-tool: #14a3a8;
+  --track-tool: var(--yellow);
   --track-gap: #e8ecf2;
 
   color-scheme: light;
@@ -151,7 +155,7 @@
     --red-text: #ff6b70;
     --on-colour: #0f1012;
     --track-ground: #656c7633;
-    --track-tool: #1f7f84;
+    --track-tool: var(--yellow);
     --track-gap: #2a2d33;
     color-scheme: dark;
   }
@@ -180,7 +184,7 @@
   --red-text: #ff6b70;
   --on-colour: #0f1012;
   --track-ground: #656c7633;
-  --track-tool: #1f7f84;
+  --track-tool: var(--yellow);
   --track-gap: #2a2d33;
   color-scheme: dark;
 }
@@ -192,9 +196,9 @@
   --orange-tint: color-mix(in srgb, var(--orange) 10%, var(--card));
   --red-tint: color-mix(in srgb, var(--red) 10%, var(--card));
   --running-tint: color-mix(in srgb, var(--running) 10%, var(--card));
-  /* An option picked: a deeper tint of the accent than a card that waits for an answer is filled with, so that the
-     option stands out on that card as on any other. */
-  --accent-picked: color-mix(in srgb, var(--accent) 24%, var(--card));
+  /* The frame of an option not picked, and its radio mark: a grey halfway from the muted colour to the card, so that it
+     shows on a card that waits for an answer as on any other. */
+  --option-edge: color-mix(in srgb, var(--muted) 50%, var(--card));
   /* The flowchart's arrows a write runs: the muted colour a step towards the ground, so that they stand behind the main
      path, which is in the text's colour. */
   --chart-data: color-mix(in srgb, var(--muted) 70%, var(--ground));

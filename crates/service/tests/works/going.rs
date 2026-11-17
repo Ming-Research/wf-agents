@@ -11,7 +11,10 @@ use crate::Trial;
 async fn a_work_goes_through_its_cells_round_the_objection_to_the_merge() {
     let mut trial = Trial::open();
     let (_, work) = trial.add("Greet the user", &[]);
-    assert_eq!(trial.decision(work), Decision::Paused, "a work is added paused");
+    assert!(
+        matches!(trial.decision(work), Decision::Paused { .. }),
+        "a work is added paused"
+    );
 
     trial.act(work, Act::Resume).unwrap();
     assert!(matches!(trial.decision(work), Decision::Busy { cell, .. } if cell.as_str() == "plan"));

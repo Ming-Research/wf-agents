@@ -639,7 +639,8 @@ mod tests {
     fn the_engines_pause_is_the_owners_with_its_reason_and_the_owners_own_is_not() {
         let mut work = Work::default();
         paused(&mut work, Pauser::Engine, Some("It spent more than it may."));
-        let waits = of(&work, &Decision::Paused);
+        let held = Decision::Paused { cell: "write".into() };
+        let waits = of(&work, &held);
         assert_eq!(keys(&waits), [PAUSE]);
         assert_eq!(waits[0].why, "The engine paused the work. It spent more than it may.");
         assert_eq!(waits[0].ends, Ends::Resume);
@@ -651,7 +652,7 @@ mod tests {
         assert_eq!(of(&work, &busy), Vec::<Waiting>::new());
         let mut work = Work::default();
         paused(&mut work, Pauser::Owner, None);
-        assert_eq!(of(&work, &Decision::Paused), Vec::<Waiting>::new());
+        assert_eq!(of(&work, &held), Vec::<Waiting>::new());
     }
 
     #[test]

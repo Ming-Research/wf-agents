@@ -107,16 +107,16 @@ fn an_answered_call_does_not_make_its_run_go_on_while_a_round_of_another_run_is_
 }
 
 #[test]
-fn a_paused_work_whose_next_step_is_to_run_a_cell_is_paused_and_resuming_runs_it() {
+fn a_paused_work_whose_next_step_is_to_run_a_cell_is_paused_at_that_cell_and_resuming_runs_it() {
     let mut w = World::with_gate(vec![cell("a", &["brief"], &[]), cell("b", &["brief"], &[])]);
     let brief = w.person_writes("brief");
     w.pause();
-    assert_eq!(w.decide(), Decision::Paused);
+    assert_eq!(w.decide(), Decision::Paused { cell: "a".into() });
     w.resume();
     assert_eq!(w.decide(), runs("a", first(&["brief"]), &[("brief", Some(brief))]));
     w.run("a", &[]);
     w.pause();
-    assert_eq!(w.decide(), Decision::Paused);
+    assert_eq!(w.decide(), Decision::Paused { cell: "b".into() });
     w.resume();
     assert_eq!(w.decide(), runs("b", first(&["brief"]), &[("brief", Some(brief))]));
 }

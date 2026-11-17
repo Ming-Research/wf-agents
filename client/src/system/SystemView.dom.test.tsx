@@ -107,6 +107,15 @@ function part(root: ParentNode, label: string): HTMLElement {
 }
 
 describe('the System view', () => {
+  it('shows no copies of the database where the engine keeps none, as one that runs a script does', async () => {
+    const s = sources();
+    s.works.loadCopies = async () => ({ ...fixtureCopies(), state: { kind: 'notKept' } });
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    expect(texts(part(container, 'Now'), 'dt')).not.toContain('Copies of the database');
+    expect(container.textContent).not.toContain('could not be read');
+  });
+
   it('says how the engine stands now: its pause, its slots, the copies, the works by where they stand, the rounds under way', async () => {
     const s = sources({ slots: 3, taken: 1, paused: { since: Date.now(), by: 'owner' } });
     const { container } = draw(<SystemView period="week" />, s);

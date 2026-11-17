@@ -23,6 +23,7 @@ import type {
   Waited,
   Writer,
 } from '../works-api';
+import { MARKS } from './state-marks';
 import { waitsOf } from './waiting';
 
 const SECOND = 1000;
@@ -413,7 +414,12 @@ export interface WorkState {
 /// whoever gives it.
 export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState {
   const now = s.now;
-  const at = now.kind === 'waits' || now.kind === 'stalled' ? now.at : now.kind === 'round' || now.kind === 'next' ? now.cell : null;
+  const at =
+    now.kind === 'waits' || now.kind === 'stalled' || now.kind === 'paused' || now.kind === 'everything'
+      ? now.at
+      : now.kind === 'round' || now.kind === 'next'
+        ? now.cell
+        : null;
   if (waitsOf(s).length > 0) return { tone: 'owner', word: STATE.owner, cell: at };
   switch (now.kind) {
     case 'round':
@@ -428,7 +434,7 @@ export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState 
     }
     case 'paused':
     case 'everything':
-      return { tone: 'quiet', word: STATE.paused, cell: null };
+      return { tone: 'quiet', word: STATE.paused, cell: at };
     case 'fault':
       return { tone: 'failed', word: STATE.halted, cell: null };
     case 'stalled':
@@ -438,6 +444,34 @@ export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState 
     case 'cancelled':
       return { tone: 'quiet', word: STATE.cancelled, cell: null };
   }
+}
+
+/// The cell a work is stopped at, for the owner or by the engine, whose mark is filled in the stop's red wherever the
+/// work's cells are drawn (`STOPPED` in state-marks.ts); none while it is not so stopped. Where the engine names no
+/// cell, the cell with a run open.
+export function stoppedAt(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string | null {
+  const { tone } = stateOf(s);
+  if (tone !== 'owner' && tone !== 'failed') return null;
+  const now = s.now;
+  if (now.kind === 'round' || now.kind === 'next') return now.cell;
+  if (now.kind === 'waits' || now.kind === 'stalled' || now.kind === 'paused' || now.kind === 'everything') {
+    return now.at;
+  }
+  return s.cells.find((c) => c.open !== null)?.cell ?? null;
+}
+
+/// The cell a work stands at, named under its card's number and before its strip in the item's window, with the token
+/// of the colour it is named in: the stop's red where the work is stopped there, the colour of the cell's mark while
+/// the work runs, else the muted grey; none where it stands at no cell.
+export function standingCell(s: Pick<Summary, 'now' | 'cells' | 'waits'>): { cell: string; colour: string } | null {
+  const stopped = stoppedAt(s);
+  if (stopped !== null) return { cell: stopped, colour: '--red' };
+  const { tone, cell } = stateOf(s);
+  if (cell === null) return null;
+  const state = s.cells.find((c) => c.cell === cell)?.state;
+  if (tone !== 'running' || state === undefined) return { cell, colour: '--muted' };
+  const look = MARKS[state];
+  return { cell, colour: look.shape === 'dash' ? look.fill : (look.fill ?? look.edge) };
 }
 
 /// The first line of a text, for a line of a list or a notification.
@@ -587,6 +621,9 @@ export const STATE_WORDS: Record<CellState, string> = {
   again: 'runs again',
   done: 'done',
 };
+
+/// The words of the mark of the cell a work is stopped at, in a legend of the marks.
+export const STOPPED_WORDS = 'stopped here, for you or by the engine';
 
 /// How a run stands: it finished, it was abandoned, a round of it is under way, its last round failed, or it is at
 /// rest between rounds.
