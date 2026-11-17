@@ -180,6 +180,14 @@ pub struct Tests {
     pub mark: String,
     pub name_after: String,
     pub under: Vec<String>,
+    /// The jobs of the made project's full workflows, each running every test.
+    pub full: Vec<String>,
+    /// The job of its fast workflow that runs the tests named; each check named is a job of its name.
+    pub fast: String,
+    /// How long each job takes, in seconds, as the run says.
+    pub seconds: u64,
+    /// Where the runs are said to be seen, each by its number after it.
+    pub url: String,
 }
 
 /// The tests that fail where this holds of them and of the commit run.

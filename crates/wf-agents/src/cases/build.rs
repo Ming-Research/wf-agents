@@ -31,7 +31,7 @@ use super::made;
 
 /// How long the loop may wait for the next thing to happen while no round runs on the agents' program: a history's
 /// round and an act end in moments, so a wait this long is a round held that nothing will stop.
-const QUIET: Duration = Duration::from_secs(20);
+const QUIET: Duration = Duration::from_secs(5);
 
 /// How long the loop may wait for the next thing while a round runs on the agents' program, which its own guard and
 /// the work's budget hold besides.
@@ -50,10 +50,15 @@ pub struct With<'a> {
     pub imported: &'a Path,
     pub commits: &'a BTreeMap<String, String>,
     pub beside: &'a flow::agents::Agents,
+    /// The rules the cases' calls get their results by, by name, and how the made project's tests are found.
+    pub rules: &'a BTreeMap<String, cases::written::Rules>,
+    pub tests: Option<&'a cases::written::Tests>,
     /// The directory the try's installation is made in.
     pub dir: &'a Path,
     /// The agents' program, where another stands in for the installation's.
     pub program: Option<&'a Path>,
+    /// Whether the build ends with the cell's first round, as it does to give the texts the cell is sent.
+    pub first_only: bool,
 }
 
 /// What the case's cell was sent, as the engine sent it, and the situation it was entered in.
@@ -85,6 +90,23 @@ pub struct Building {
     shared: Arc<Shared>,
     /// Whether the build ends with the cell's first round, as it does where a stand-in carries it.
     first_only: bool,
+    /// A tool the cell called that the case holds no result for, where it called one.
+    pub unanswered: Option<String>,
+}
+
+/// A round of the case's cell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Rounded {
+    pub run: RunId,
+    pub number: usize,
+    /// What it was told.
+    pub message: String,
+    /// What came back of it, as the work keeps it.
+    pub back: String,
+    pub usd_micros: u64,
+    pub tokens: u64,
+    /// The id of the session it ran in.
+    pub session: String,
 }
 
 /// The block people write that is no choice: the item's background, written as it is added and anew by the owner.
@@ -146,7 +168,21 @@ pub async fn build(with: &With<'_>) -> Result<Building, String> {
     let carriers = Carriers {
         agents: agents.clone(),
         acts: Arc::new(Acts { shared: shared.clone() }),
-        tools: Arc::new(Calls { shared: shared.clone() }),
+        tools: Arc::new(Calls {
+            shared: shared.clone(),
+            rules: (case.results.as_ref())
+                .and_then(|name| with.rules.get(name))
+                .cloned()
+                .zip(with.tests.cloned()),
+            query: carry::Querying::new(
+                &installation.settings.query,
+                installation.beside.tools.get(carry::QUERY),
+                &installation.data,
+                store::SCHEMA,
+            )
+            .ok()
+            .map(Arc::new),
+        }),
         slots: 1,
         outside: Arc::new(outside),
         host: None,
@@ -164,7 +200,8 @@ pub async fn build(with: &With<'_>) -> Result<Building, String> {
         notes,
         agents,
         shared,
-        first_only: with.program.is_some(),
+        first_only: with.first_only,
+        unanswered: None,
     };
     building.work = building.add(flow, case, with.item)?;
     building.history(flow, case, &order, with.commits).await?;
@@ -343,20 +380,82 @@ impl Building {
             if let (Some(index), Some(run)) = (index, ended) {
                 self.sent_back(case, index, run)?;
             }
-            if let Some(tool) = &heard.called {
-                return Err(format!("{}: a call of {tool} the case holds no result for", case.id));
-            }
             if let Some(run) = ended {
                 heard.ended.push(run);
-                let target = (heard.real.iter()).find(|(cell, r, _)| *cell == case.cell && *r == run);
-                if target.is_some() {
-                    break run;
+            }
+            let first = (heard.real.iter())
+                .find(|(cell, _, _)| *cell == case.cell)
+                .map(|(_, run, _)| *run);
+            let Some(first) = first else {
+                if let Some(tool) = &heard.called {
+                    return Err(format!("{}: a call of {tool} before its cell was entered", case.id));
                 }
+                continue;
+            };
+            if self.first_only && heard.ended.contains(&first) {
+                break first;
+            }
+            // The case ends where the cell's run asked for a call the case holds no result for, where the engine
+            // went on to another cell, or where nothing of the work is under way or waits for a result.
+            if heard.called.is_some() || !heard.held.is_empty() || (!heard.running() && self.at_rest()) {
+                self.shared.over();
+                break first;
             }
         };
         self.run = first;
+        self.unanswered = heard.called.take();
         self.built = self.read(flow, case, &heard)?;
         Ok(())
+    }
+
+    /// Whether nothing of the work is under way or waits for a result: every round begun has ended, and every call
+    /// the engine made has its result.
+    fn at_rest(&self) -> bool {
+        let Some(kept) = self.service.driver().work(self.work) else {
+            return true;
+        };
+        let records = &kept.work.records;
+        // A call a person gives the result of, as the owner's word at a limit, waits for nobody here.
+        let engine_calls = records.called.iter().filter(|c| c.on.is_none());
+        let done = |c: &&decide::Called| records.done.iter().any(|d| d.call == c.call);
+        records.rounds.len() == records.returned.len() && engine_calls.clone().all(|c| done(&c))
+    }
+
+    /// What the case's cell did, from its first round on, as the work's records keep it.
+    pub fn did(&self, flow: &Compiled, case: &Case) -> Result<cases::judged::Did, String> {
+        let kept = self.service.driver().work(self.work).ok_or("the work is not kept")?;
+        Ok(cases::judged::did(flow, kept.work, &case.cell, self.run))
+    }
+
+    /// Each round of the case's cell, from its first on: its run and number, what it was told, what it took, and the
+    /// session it ran in.
+    pub fn rounds(&self, flow: &Compiled, case: &Case) -> Result<Vec<Rounded>, String> {
+        let kept = self.service.driver().work(self.work).ok_or("the work is not kept")?;
+        let spec = (flow.cells.iter())
+            .find(|c| c.id == case.cell)
+            .ok_or("the cell is not in the flow")?;
+        let line = spec.line.clone().unwrap_or_default();
+        let id = carry::session::installation(&self.installation.data)?;
+        let mut out = Vec::new();
+        let runs = (kept.work.records.started.iter()).filter(|s| s.cell == case.cell && s.run >= self.run);
+        for started in runs {
+            for ((run, number), spent) in kept.work.spent.iter().filter(|((r, _), _)| *r == started.run) {
+                let told = self.agents.told(self.work, *run, *number)?;
+                let message = told.tries.first().map(|t| t.message.clone()).unwrap_or_default();
+                let at = work::sessions::start(kept.work, *run, *number);
+                let session = work::sessions::number_at(kept.work, &line, at);
+                out.push(Rounded {
+                    run: *run,
+                    number: *number,
+                    message,
+                    back: format!("{:?}", kept.work.back.get(&(*run, *number))),
+                    usd_micros: spent.usd_micros,
+                    tokens: spent.input_tokens + spent.cached_tokens + spent.output_tokens,
+                    session: carry::session::session(id, self.work, &line, session).to_string(),
+                });
+            }
+        }
+        Ok(out)
     }
 
     fn put_act(&mut self, act: service::Act) -> Result<(), String> {

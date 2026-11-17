@@ -173,11 +173,13 @@ name = "cases"
 version = "0.1.0"
 dependencies = [
  "decide",
+ "engine",
  "flow",
  "serde",
  "serde_json",
  "tempfile",
  "toml",
+ "work",
 ]
 
 [[package]]

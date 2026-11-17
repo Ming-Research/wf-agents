@@ -361,20 +361,138 @@ impl Rounds for Acts {
     }
 }
 
-/// The calls of a case's work: each is said to whoever runs the case, which ends it where the case holds no result for
-/// it (design document `testing`, 13).
+/// The calls of a case's work (design document `testing`, 13). A call of `run_tests` gets what a run of the made
+/// project's workflows gives, by the case's rules, in the words the engine's tool gives a run on GitHub in, read of the
+/// commit at the head of the work's branch; a call of `query` gets what the tool answers of the installation's own
+/// store, as the settings open it. Any other call, and a call of `run_tests` where the case names no rules, is one the
+/// case holds no result for: it is said to whoever runs the case, which ends it there.
 pub struct Calls {
     pub shared: Arc<Shared>,
+    /// The rules of the case's calls of `run_tests`, and how the made project's tests are found.
+    pub rules: Option<(cases::written::Rules, cases::written::Tests)>,
+    pub query: Option<Arc<carry::Querying>>,
 }
 
 impl Tools for Calls {
     fn call(&self, call: ToolCall, reply: CallReply) {
-        drop(reply);
-        self.shared.note(Note::Called { tool: call.name });
+        let shared = self.shared.clone();
+        let name = call.name.clone();
+        match (name.as_str(), &self.rules, &self.query) {
+            (carry::RUN_TESTS, Some((rules, how)), _) => {
+                let (rules, how) = (rules.clone(), how.clone());
+                tokio::task::spawn_blocking(move || match run_tests(&shared, &rules, &how, &call) {
+                    Ok(said) => reply.done(said),
+                    Err(why) => reply.done(why),
+                });
+            }
+            (carry::QUERY, _, Some(query)) => {
+                let query = query.clone();
+                tokio::task::spawn_blocking(move || {
+                    let cancel = Arc::new(carry::Cancel::default());
+                    reply.done(query.answer(&call.input, &cancel));
+                });
+            }
+            _ => {
+                drop(reply);
+                self.shared.note(Note::Called { tool: call.name });
+            }
+        }
     }
 
     fn withdraw(&self, call: ToolCall, reply: CallReply) {
         let _ = call;
         reply.done(service::WITHDRAWN.to_string());
     }
+}
+
+/// The tests and checks a request of `run_tests` names, or why it cannot be read as one.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Request {
+    #[serde(default)]
+    tests: Vec<String>,
+    #[serde(default)]
+    checks: Vec<String>,
+}
+
+/// What a run of the made project's tests gives the call, by the rules, as the engine's tool says a run on GitHub.
+fn run_tests(
+    shared: &Shared,
+    rules: &cases::written::Rules,
+    how: &cases::written::Tests,
+    call: &ToolCall,
+) -> Result<String, String> {
+    let tool = shared
+        .beside
+        .tools
+        .get(carry::RUN_TESTS)
+        .ok_or("the files beside the flows have no run_tests")?;
+    let words = tool.result.as_ref().ok_or("run_tests says no words of a result")?;
+    let ci = shared
+        .beside
+        .project
+        .ci
+        .as_ref()
+        .ok_or("the made project declares no workflows")?;
+    let request: Request = match serde_json::from_str(&call.input) {
+        Ok(request) => request,
+        Err(e) => {
+            let unread = tool.unread.clone().unwrap_or_default();
+            return Ok(flow::agents::fill(&unread, &[("error", &e.to_string())]));
+        }
+    };
+    let dir = carry::git::place(&shared.data, &shared.tag, call.work).dir;
+    let commit = made::git(&dir, &["rev-parse", "HEAD"])?;
+    let files_at = |at: &str| -> Result<Vec<(String, String)>, String> {
+        let names = made::git(&dir, &["ls-tree", "-r", "--name-only", at])?;
+        let under = |path: &&str| how.under.iter().any(|d| path.starts_with(d.as_str())) && path.ends_with(".rs");
+        (names.lines().filter(under))
+            .map(|path| {
+                let spec = format!("{at}:{path}");
+                Ok((path.to_string(), made::git(&dir, &["show", spec.as_str()])?))
+            })
+            .collect()
+    };
+    let tests = cases::ran::tests_in(&files_at("HEAD")?, how);
+    let main: Vec<String> = cases::ran::tests_in(&files_at(made::MAIN)?, how)
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+    let file = |path: &str| {
+        let spec = format!("HEAD:{path}");
+        made::git(&dir, &["show", spec.as_str()]).ok()
+    };
+    let outcomes = cases::ran::outcomes(rules, &tests, &main, file);
+    let xml = cases::ran::junit(&tests, &outcomes);
+    let failed = |test: &cases::ran::Test| {
+        let at = tests.iter().position(|t| t == test);
+        at.is_some_and(|at| outcomes[at].is_some())
+    };
+    let jobs: Vec<(String, bool, u64)> = match request.tests.is_empty() && request.checks.is_empty() {
+        true => {
+            let green = !tests.iter().any(failed);
+            how.full.iter().map(|job| (job.clone(), green, how.seconds)).collect()
+        }
+        false => {
+            let named = |test: &&cases::ran::Test| request.tests.contains(&test.name);
+            let found = request.tests.iter().all(|name| tests.iter().any(|t| &t.name == name));
+            let green = found && !tests.iter().filter(named).any(failed);
+            let mut jobs = Vec::new();
+            if !request.tests.is_empty() {
+                jobs.push((how.fast.clone(), green, how.seconds));
+            }
+            jobs.extend(request.checks.iter().map(|c| (c.clone(), true, how.seconds)));
+            jobs
+        }
+    };
+    let url = format!("{}{}", how.url, call.call.0);
+    let stood = carry::StoodIn {
+        tests: request.tests,
+        checks: request.checks,
+        commit: &commit,
+        url: &url,
+        jobs: &jobs,
+        files: &[("junit.xml".to_string(), xml.into_bytes())],
+    };
+    carry::said_of(words, ci, stood)
 }

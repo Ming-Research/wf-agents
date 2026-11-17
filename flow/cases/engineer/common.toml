@@ -4,10 +4,15 @@
 
 project = "tally"
 
+# How the made project's tests are found in a commit, and the jobs of its workflows as a run of them says them.
 [tests]
 mark = "#[test]"
 name_after = "fn "
 under = ["crates/"]
+full = ["test"]
+fast = "named"
+seconds = 40
+url = "https://ci.example.invalid/tally/runs/"
 
 # defect
 [items.21]

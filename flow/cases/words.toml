@@ -1,0 +1,30 @@
+# What the program that runs the cell cases asks agents beside the cases' own rounds (design document `testing`, 14,
+# 15, 34). Neither is sent in a work.
+
+# What a fork of a round's session is asked where the case's return was wrong: about the cell's text alone, quoting it,
+# never why the agent acted as it did, which the model's safety check refuses; in a fork with no tools, so that nothing
+# of the work changes.
+fork = '''
+A question about the words you worked under in your last message, not about the work: the task under its heading, what "What this cell returns" says of each block, and "Why you are run", with the rules of the system prompt that bear on them. Which words can be read in more than one way? What is missing, and what is not needed? For each, quote the words and say how you would rewrite them. Answer in English, in plain text.'''
+
+# The task of the agent that judges what only reading can judge of a cell's return (testing 14): `{judge}` what the case
+# says to judge, `{message}` the message the cell was sent, `{back}` what it returned at its end.
+judge = '''
+You judge whether an agent's return does what was asked of it. The agent was sent the message below, and returned what follows it. Judge only this: {judge}
+
+Pass the return where it does that, and fail it where it does not, saying in one or two sentences which part of the return shows it. Judge nothing else.
+
+# The message the agent was sent
+
+{message}
+
+# What the agent returned
+
+{back}'''
+
+# The form of the judge's answer.
+[judge_form]
+type = "object"
+properties = { passed = { type = "boolean" }, why = { type = "string" } }
+required = ["passed", "why"]
+additionalProperties = false

@@ -157,3 +157,67 @@ blocks.plan_ok.value = "yes"
         "{said}"
     );
 }
+
+/// The stand-in for the agents' program built beside the command.
+fn stand_in() -> PathBuf {
+    PathBuf::from(env!("CARGO_BIN_EXE_wf-agents-stand-in"))
+}
+
+#[test]
+fn a_case_runs_is_judged_runs_twice_more_where_it_fails_is_kept_and_then_stands_for_its_texts() {
+    let data = tempfile::tempdir().expect("a directory");
+    let run = |go: bool| {
+        let mut args = vec![
+            "run".to_string(),
+            "--flow".into(),
+            engineer().to_string_lossy().into(),
+            "--settings".into(),
+            settings().to_string_lossy().into(),
+            "--data".into(),
+            data.path().to_string_lossy().into(),
+            "--case".into(),
+            "R1-01".into(),
+            "--spend".into(),
+            "1".into(),
+            "--program".into(),
+            stand_in().to_string_lossy().into(),
+        ];
+        if go {
+            args.push("--go".into());
+        }
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        cases(&args)
+    };
+    // Without going, nothing runs: the case is said to be one that would.
+    let planned = run(false);
+    let said = String::from_utf8_lossy(&planned.stdout);
+    assert!(
+        planned.status.success(),
+        "{}{said}",
+        String::from_utf8_lossy(&planned.stderr)
+    );
+    assert!(said.contains("| R1-01 | — | would run (cost unknown) | — |"), "{said}");
+    // The stand-in hands in nothing, which the engine sends back: the case fails, runs twice more, and each try says
+    // what was found and that the fork could not be asked of a program that is no agent.
+    let ran = run(true);
+    let said = String::from_utf8_lossy(&ran.stdout);
+    assert!(ran.status.success(), "{}{said}", String::from_utf8_lossy(&ran.stderr));
+    assert!(said.contains("| R1-01 | — | failed (0/3 passed) | $0.00 |"), "{said}");
+    assert!(said.contains("#### R1-01 failed (0/3 passed)"), "{said}");
+    assert!(said.contains("- the engine sent back round 1 of run "), "{said}");
+    assert!(
+        said.contains("- The fork about the text: The fork could not be asked"),
+        "{said}"
+    );
+    let kept = data.path().join("cell-cases/results/engineer/R1/R1-01.json");
+    let text = std::fs::read_to_string(&kept).expect("the tries are kept");
+    assert_eq!(text.matches("\"passed\": false").count(), 3, "{text}");
+    // Its texts unchanged, the kept tries stand: nothing runs again.
+    let again = run(true);
+    let said = String::from_utf8_lossy(&again.stdout);
+    assert!(
+        said.contains("| R1-01 | — (kept) | failed (0/3 passed) | $0.00 |"),
+        "{said}"
+    );
+    assert!(said.contains("0 cases ran, for $0.00."), "{said}");
+}

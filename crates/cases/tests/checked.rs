@@ -55,6 +55,10 @@ project = "tally"
 mark = "#[test]"
 name_after = "fn "
 under = ["crates/"]
+full = ["test"]
+fast = "named"
+seconds = 40
+url = "https://ci.example.invalid/tally/runs/"
 
 [items.21]
 title = "月报"

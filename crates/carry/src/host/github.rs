@@ -38,6 +38,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 pub use api::{Api, Pull, State};
+pub use fast::{StoodIn, said_of};
 pub use gh::{Gh, GhOffsite, UPLOAD_RATE};
 
 use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};

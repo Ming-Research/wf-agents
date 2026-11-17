@@ -9,10 +9,12 @@ repository.workspace = true
 
 [dependencies]
 decide = { path = "../decide" }
+engine = { path = "../engine" }
 flow = { path = "../flow" }
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
+work = { path = "../work" }
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -15,10 +15,14 @@
 //! - [`checked`]: each case checked against the compiled flow, its names resolved, its history as steps.
 //! - [`order`](mod@order): when each step of a history is put in through the engine's loop.
 //! - [`back`]: what a round of a history returns, in the cell's form of return.
+//! - [`judged`]: what the case's cell did, and how it is judged mechanically.
+//! - [`ran`]: what a run of the made project's tests gives, by a case's rules.
 
 pub mod back;
 pub mod checked;
+pub mod judged;
 pub mod order;
+pub mod ran;
 pub mod read;
 pub mod written;
 

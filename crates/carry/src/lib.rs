@@ -72,10 +72,10 @@ use tools::Tools;
 pub use acts::{MAIN, WATCH, Watch, Words, begun, faults, main_faults, word_faults};
 pub use agents::{Agents, Of, ROUNDS};
 pub use branch::compared;
-pub use host::github::{GhOffsite, UPLOAD_RATE};
+pub use host::github::{GhOffsite, StoodIn, UPLOAD_RATE, said_of};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
-pub use tools::{QUERY, Querying, RUN_TESTS};
+pub use tools::{Cancel, QUERY, Querying, RUN_TESTS};
 
 /// The carriers of these settings, keeping what they keep in the data directory: the installation's id, the works'
 /// worktrees, and what each round was told and returned. The agents' rounds are told, and given the form of return,

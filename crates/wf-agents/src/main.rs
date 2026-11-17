@@ -411,6 +411,46 @@ struct At {
 
 #[derive(Subcommand)]
 enum CasesCommand {
+    /// Runs the cases on the agents' program and judges them, at most ten at once, keeping every try under the data
+    /// directory's `cell-cases/results/`. Each case is first built with a stand-in for the program, which gives the
+    /// key of its texts; a case a kept try stands for is not run. Without `--go`, says what would run and how the kept
+    /// tries stand, and runs nothing. Prints, ready for a pull request's comment, each case's tries before and after
+    /// its text changed, and for each that failed, what was found and what a fork of its session said of the text.
+    Run {
+        /// The flow's definition's directory.
+        #[arg(long)]
+        flow: PathBuf,
+        /// The directory of its cases; `cases/<flow>/` beside the flows where none is given.
+        #[arg(long)]
+        cases: Option<PathBuf>,
+        /// The real installation's settings, whose agents and project the cases run as.
+        #[arg(long)]
+        settings: PathBuf,
+        /// The project of the settings whose settings the cases run as; the only one where none is given.
+        #[arg(long)]
+        project: Option<String>,
+        /// The data directory, under whose `cell-cases/` the runs are made and the results kept.
+        #[arg(long)]
+        data: PathBuf,
+        /// Only the cases of this cell; given once for each.
+        #[arg(long = "cell")]
+        cells: Vec<String>,
+        /// Only this case, by its id; given once for each.
+        #[arg(long = "case")]
+        ids: Vec<String>,
+        /// The most the run may spend, in dollars: no case starts once what it is expected to cost would pass it.
+        #[arg(long)]
+        spend: f64,
+        /// Runs what is to run.
+        #[arg(long)]
+        go: bool,
+        /// Runs every case asked, whatever is kept.
+        #[arg(long)]
+        all: bool,
+        /// The agents' program, in place of the one the settings name.
+        #[arg(long)]
+        program: Option<PathBuf>,
+    },
     /// Builds each case through the engine, on an installation of its own made under the data directory, with a
     /// stand-in for the agents' program, at most ten at once: its history handed in, its cell's line begun anew, and
     /// the cell's first round sent. Prints a line for each case: what ran its cell, whether it ran before, and the
@@ -503,6 +543,47 @@ fn main() -> ExitCode {
                 }
                 None => {
                     eprintln!("no command `{}`", command.join(" "));
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Command::Cases(CasesCommand::Run {
+            flow,
+            cases,
+            settings,
+            project,
+            data,
+            cells,
+            ids,
+            spend,
+            go,
+            all,
+            program,
+        }) => {
+            let runs = data.join(cases::RUNS);
+            let asked = cases::run::Asked {
+                cases: cases::Asked {
+                    flow_dir: &flow,
+                    cases_dir: cases.as_deref(),
+                    settings: &settings,
+                    project: project.as_deref(),
+                    cells: &cells,
+                    ids: &ids,
+                    runs: &runs,
+                },
+                data: &data,
+                spend,
+                all,
+                program: program.as_deref(),
+                go,
+            };
+            match cases::run::run(&asked, &has(&flow)) {
+                Ok(said) => {
+                    print!("{said}");
+                    ExitCode::SUCCESS
+                }
+                Err(faults) => {
+                    faults.iter().for_each(|fault| eprintln!("{fault}"));
                     ExitCode::FAILURE
                 }
             }

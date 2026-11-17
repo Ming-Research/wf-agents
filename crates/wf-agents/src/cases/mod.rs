@@ -5,11 +5,15 @@
 //! - [`installation`]: the installation a try of a case runs on, apart from the real one.
 //! - [`carriers`]: what carries out the rounds, acts and calls of a case's work.
 //! - [`build`](mod@build): a try of a case built through the engine, its cell's first round sent.
+//! - [`ask`]: what is asked of the agents' program beside the cases: a fork about the text, and the reading judge.
+//! - [`run`](mod@run): the cases run, judged and kept, and what the run says.
 
+pub mod ask;
 pub mod build;
 pub mod carriers;
 pub mod installation;
 pub mod made;
+pub mod run;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -185,8 +189,11 @@ pub fn build_cases(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, Vec<St
                         imported,
                         commits,
                         beside,
+                        rules: &read.cases.rules,
+                        tests: read.cases.tests.as_ref(),
                         dir: &dir,
                         program: Some(stand_in),
+                        first_only: true,
                     };
                     built_line(&with, case).await
                 });

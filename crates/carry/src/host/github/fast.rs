@@ -608,6 +608,65 @@ impl<A: Api> GitHub<A> {
     }
 }
 
+/// A run of the project's tests as whoever stands in for GitHub gives it: the tests and checks named, the commit run,
+/// the run's link, each job by its name with whether it passed and its seconds, and the JUnit files of its artifact.
+pub struct StoodIn<'a> {
+    pub tests: Vec<String>,
+    pub checks: Vec<String>,
+    pub commit: &'a str,
+    pub url: &'a str,
+    pub jobs: &'a [(String, bool, u64)],
+    pub files: &'a [(String, Vec<u8>)],
+}
+
+/// What a run of the project's tests on GitHub says to the agent that asked for it, in the tool's words, for whoever
+/// stands in for GitHub, as the cell cases do: of the workflow's run at `url` on `commit`, the jobs it ran, each by its
+/// name with whether it passed and its seconds, and the JUnit files of its artifact; the full workflows where nothing
+/// is named, and the fast workflow running what is named otherwise. Or why it cannot be said: the project declares no
+/// such workflow.
+pub fn said_of(words: &ResultWords, ci: &Ci, stood: StoodIn<'_>) -> Result<String, String> {
+    let StoodIn {
+        tests,
+        checks,
+        commit,
+        url,
+        jobs,
+        files,
+    } = stood;
+    let named = Named { tests, checks };
+    let role = match (named.is_empty(), &ci.full, &ci.fast) {
+        (true, Some(full), _) => Role::Full(full),
+        (false, _, Some(fast)) => Role::Fast(fast),
+        _ => return Err("the project declares no workflow that runs such a request".to_string()),
+    };
+    let run = Run {
+        id: 1,
+        title: String::new(),
+        started: true,
+        completed: true,
+        cancelled: false,
+        url: url.to_string(),
+    };
+    let checks = (jobs.iter())
+        .enumerate()
+        .map(|(n, (name, passed, took))| Check {
+            name: name.clone(),
+            outcome: match passed {
+                true => Outcome::Passed,
+                false => Outcome::Failed("failure".to_string()),
+            },
+            url: Some(format!("{url}/job/{}", n + 1)),
+            took: Some(*took),
+        })
+        .collect();
+    let ran = [Ran {
+        run,
+        jobs: checks,
+        results: results::read(files),
+    }];
+    Ok(said(words, &role, commit, &ran, &named, false))
+}
+
 /// What became of the runs, in words for the agent: a line of what they came to, the tests that did not pass, each
 /// job, and the tests that passed, so that what a cut result gives is what matters. A run whose results could not be
 /// read says no test's result is known.

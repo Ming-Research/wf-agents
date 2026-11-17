@@ -27,7 +27,7 @@ use crate::held::{Held, Stop};
 use crate::host::{Asking, Branch, Host, Named};
 use crate::settings::Project;
 
-pub use query::{QUERY, Querying};
+pub use query::{Cancel, QUERY, Querying};
 
 /// The name of the tool that runs the work's tests and checks.
 pub const RUN_TESTS: &str = "run_tests";
