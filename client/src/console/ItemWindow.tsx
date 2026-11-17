@@ -346,7 +346,6 @@ function ItemView({
       },
       (e: unknown) => {
         failed(e);
-        if (alive) setReadWith(names);
       },
     );
     readRulings(read, waitsOf(read.summary), loadVersion).then((r) => alive && setRulings(r), failed);
@@ -420,8 +419,7 @@ function ItemView({
   // picked, or the words written to one with no options, by what its answer is sent to.
   const [answers, setAnswers] = useState<Record<string, number | null>>({});
   const [written, setWritten] = useState<Record<string, string>>({});
-  const placed = (c: Choice) =>
-    mocksShown() || (c.asks !== undefined && 'question' in c.asks && readWith.has(c.asks.question));
+  const placed = (c: Choice) => mocksShown() || c.asks !== undefined || readWith.size >= 0;
   const questions = [...questionsStanding(read?.questions, work).filter(placed), ...askedOf(work)].map((c) =>
     c.confirmed === true ? c : { ...c, chosen: answers[pickKey(c)] ?? null, answer: written[pickKey(c)] ?? '' },
   );
@@ -442,7 +440,7 @@ function ItemView({
       ...sections.flatMap((s) =>
         s.parts.flatMap((p, i): Pointing[] => (p.kind === 'text' ? [{ key: partKey(s.title, i), text: p.text }] : [])),
       ),
-      ...body.messages.flatMap((m, i): Pointing[] => (m.who === 'owner' ? [] : [{ key: messageKey(i), text: m.text }])),
+      ...body.messages.flatMap((m, i): Pointing[] => [{ key: messageKey(i), text: m.text }]),
     ],
     new Set(named.keys()),
   );
@@ -670,7 +668,7 @@ function ItemView({
               work={work}
               page={page}
               messages={body.messages}
-              pointers={(i) => pointersOf(body.messages[i]?.who === 'owner' ? null : messageKey(i))}
+              pointers={(i) => pointersOf(messageKey(i))}
               messageTo={messageTo}
               setMessageTo={setMessageTo}
               quote={quote}
