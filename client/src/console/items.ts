@@ -1,8 +1,9 @@
 // The items as the console shows them: a tree by their dependencies, each item under the item whose dependency on it is
 // its main one, at the top the items nothing depends on; under each other item that depends on it, after the items
 // standing there, a shadow of it that points to its place. Done and cancelled items are left out, unless something
-// under them is still open. Each item carries its own state, its work while it goes on, whether the work has begun, and
-// how many of the things its work waits for wait for the owner. Pure, so that it is tested on its own.
+// under them is still open or the owner asked to see every item. Each item carries its own state, its work while it
+// goes on, whether the work has begun, and how many of the things its work waits for wait for the owner. Pure, so that
+// it is tested on its own.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/items.ts`), reading the items as
 // `works-api.ts` gives them. The interface does not say which of an item's dependents is its main one: the first of
@@ -89,7 +90,8 @@ const drawn = (w: Summary) =>
     w.now.kind === 'waits' ||
     w.now.kind === 'stalled');
 
-export function shownTree(data: Items): Shown[] {
+/// The tree of the items: of those still open and what stands over them, or, with `every`, of every item.
+export function shownTree(data: Items, every = false): Shown[] {
   const byId = new Map(data.items.map((i) => [i.number, i]));
   const standing = (id: number): ItemStanding => standingOf(byId.get(id));
   // Each item's main dependent: the first by number of the items that depend on it.
@@ -109,15 +111,16 @@ export function shownTree(data: Items): Shown[] {
       under.set(i.number, [...(under.get(i.number) ?? []), d]);
       above.add(d);
     }
-  // An item is kept when it or something under it is open. An item met again on its own way down, which only a cycle of
-  // dependencies does, is not gone down again.
+  // An item is kept when it or something under it is open, or when every item is shown. An item met again on its own
+  // way down, which only a cycle of dependencies does, is not gone down again.
   const kept = new Map<number, boolean>();
   const keep = (id: number): boolean => {
     const known = kept.get(id);
     if (known !== undefined) return known;
-    kept.set(id, standing(id) === 'open');
+    const own = every || standing(id) === 'open';
+    kept.set(id, own);
     const children = (under.get(id) ?? []).map(keep);
-    const k = standing(id) === 'open' || children.some((c) => c);
+    const k = own || children.some((c) => c);
     kept.set(id, k);
     return k;
   };

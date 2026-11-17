@@ -36,10 +36,21 @@
   display: block;
 }
 
-.console-message {
+/* Over the tree's top left corner: the switch of which items the tree shows, and under it what went wrong reading or
+   drawing the items. */
+.console-over {
   position: absolute;
-  top: var(--space-16);
+  top: var(--space-12);
   left: var(--space-16);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-8);
+}
+
+.console-message {
+  margin: 0;
   color: var(--red-text);
 }
 
