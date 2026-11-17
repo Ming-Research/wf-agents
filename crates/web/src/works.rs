@@ -1633,7 +1633,7 @@ pub enum Act {
     Say { to: SpokenTo, words: String },
 }
 
-/// A fork of a round's session asked by whoever plans the work (design document `testing`, 34): the round, the run's
+/// A fork of a round's session asked by whoever plans the work (design document `testing`, 27): the round, the run's
 /// last that ran where none is named, and the question.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

@@ -42,9 +42,9 @@ Why: Asked on the side, it is not thought through (experience, not measured). Ma
 The side that did the work may dispute a review's finding, and a dispute the review does not accept goes to whoever decides between them.
 Why: Reviews are not always right, and a wrong finding that cannot be disputed forces a wrong change. (Article 9)
 
-### principle change-cells-after-their-cases
-A cell's prompt, rules, data or outputs change only for a problem that can be named, and a change takes effect only after the changed cell's cases pass (design document `testing`), its returns before and after the change set side by side for the owner. What has no serious problem is left alone.
-Why: Changes made by reasoning alone made cells worse than before, and changing a cell that works puts at risk what it already does well. A cell tried only on the case that showed its problem breaks on another its works bring (a judgment, with no case behind it).
+### principle change-cells-on-what-their-forks-bear-out
+A cell's prompt, rules, data or outputs change only for a problem a real round showed, at the words a fork of that round bears out, and the change takes effect once a fork from the same moment reads the changed words as the cell means and the round, given to it again, does what the cell means (design document `testing`). What has no serious problem is left alone.
+Why: Changes made by reasoning alone made cells worse than before, and changing a cell that works puts at risk what it already does well. In work 11 a fork bore out two of three guesses at a fault and showed the third wrong.
 
 ### principle audit-cell-by-cell
 The flow is audited or redone one cell at a time, each finished before the next, starting from the problem the cell is there to stop and the ideal cell, with existing cells and recorded rounds only as evidence; the cell's decision says what problem it stops, how, why by that means and at what cost. A cell is frozen once the owner has reviewed it as it stands in the definition, on the chart, and only the owner reopens it.
