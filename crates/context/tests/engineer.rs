@@ -10,7 +10,7 @@ use std::path::Path;
 use context::Stands;
 use decide::{BlockId, CellId, Decision, Outsider, Pauser, Seq, Waited};
 use engine::spoken::{self, NoOne, To};
-use engine::{Came, Effect, Event, Fill, Handed};
+use engine::{Came, Effect, Event, Handed};
 use flow::{Compiled, Has};
 use support::Sim;
 use work::{Question, Said, Way};
@@ -30,7 +30,6 @@ fn engineer() -> Compiled {
             "answer",
             "asked",
             "dependencies",
-            "guide",
             "main",
             "session",
             "start",
@@ -95,38 +94,51 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
     }
 }
 
+// The project's guide is in the system prompt of each session, and is no datum a cell is given (design document
+// `data-and-context`, 24): the first message of the first agent's cell of a work names it nowhere, neither among what
+// it is given nor among what ran it.
+#[test]
+fn the_first_message_of_an_agent_s_cell_names_no_guide() {
+    let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
+    let mut sim = Sim::of(engineer(), beside);
+    sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
+    sim.writes("background", "Greet the user by name.");
+    let start = sim.round().expect("the start is given");
+    sim.hands_in(&start, &[("place", "the branch and its worktree", None)]);
+    let round = sim.round().expect("the reading is given");
+    assert_eq!(sim.cell(&round).id.as_str(), "R0");
+    // As the session begins, and as one reopened, which holds nothing, is given everything from the top.
+    for anew in [sim.begins(&round), true] {
+        let entered = sim.enter(&round, anew);
+        assert!(entered.text.contains("`background`"), "{}", entered.text);
+        assert!(!entered.text.contains("guide"), "{}", entered.text);
+        assert!(
+            !entered.situation.data.contains_key("guide"),
+            "{:?}",
+            entered.situation.data
+        );
+    }
+}
+
 /// A work of the engineer's flow, carried out with the plan written by the research, nothing better found and the
 /// plan's reviews content, until the round of this cell is given, which is not carried out: gives the work and that
 /// round.
 fn until(id: &str) -> (Sim, support::Given) {
-    carried_until(id, false, None)
+    carried_until(id, false)
 }
 
 /// A work of the engineer's flow, carried out with the plan written by the deep research, nothing better found and the
 /// plan's reviews content, until the round of this cell is given, which is not carried out: gives the work and that
 /// round.
 fn deeply_until(id: &str) -> (Sim, support::Given) {
-    carried_until(id, true, None)
-}
-
-/// A work of the engineer's flow whose start read the project's guide with this text, carried out as [`until`] does
-/// until the round of this cell is given: gives the work and that round.
-fn guided_until(id: &str, guide: &str) -> (Sim, support::Given) {
-    carried_until(id, false, Some(guide))
+    carried_until(id, true)
 }
 
 /// A work of the engineer's flow, carried out until the round of this cell is given, which is not carried out, the plan
-/// written by the deep research where `deep` holds and by the research otherwise, and the project's guide, where one is
-/// given, written with this text before the first round, as the start reads it as it makes the work's place: gives the
-/// work and that round.
-fn carried_until(id: &str, deep: bool, guide: Option<&str>) -> (Sim, support::Given) {
+/// written by the deep research where `deep` holds and by the research otherwise: gives the work and that round.
+fn carried_until(id: &str, deep: bool) -> (Sim, support::Given) {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
     let mut sim = Sim::of(engineer(), beside);
-    // The guide comes first: written once the background is, it would reach the reading of the tree while its first
-    // round is under way, which the background began, and the line's session would begin with none.
-    if let Some(text) = guide {
-        sim.wrote("guide", text, None, Outsider::Outside);
-    }
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
     sim.writes("background", "Greet the user by name.");
     let plan = [
@@ -927,64 +939,4 @@ fn a_question_that_waits_at_the_research_it_skipped_holds_the_deep_research_unti
     );
     let after = sim.round().expect("a round is given");
     assert_ne!(after.cell.as_str(), "R1", "the research, skipped, runs for the answer");
-}
-
-/// A guide of the project's, with the rule of this line among others, so that what changed in it is shorter than it.
-fn guide(rule: &str) -> String {
-    let mut lines: Vec<String> = (1..=12).map(|n| format!("Rule {n}.")).collect();
-    lines[5] = rule.to_string();
-    format!("{}\n", lines.join("\n"))
-}
-
-// The guide changes after the engineer's session began, and the session is compacted during a round and goes on under
-// its id (design document `data-and-context`, 15, 24; decisions a-session-holds-the-guide-it-began-with and
-// a-compaction-reopens-the-session-under-its-id): the session's system prompt is still the guide it began with, which
-// the context manager still takes it to hold, so that the next round of the line that the guide runs is told what
-// changed from that version, not that the session holds the latest. So again after a round that was told the change
-// and was compacted in turn, which leaves the session holding what that round handed in, and its prompt.
-#[test]
-fn a_session_compacted_after_the_guide_changed_holds_the_guide_it_began_with_and_is_told_what_changed() {
-    let (mut sim, second_look) = guided_until("R2", &guide("Write in English."));
-    let first = Seq(sim.version("guide"));
-    tried(&mut sim, &second_look);
-    // The guide changes on the branch while the plan's second look is under way, and the session is compacted during
-    // that round, which finds no better way.
-    sim.wrote("guide", &guide("Write in plain English."), None, Outsider::Outside);
-    let latest = Seq(sim.version("guide"));
-    sim.returns(&second_look, Came::hands_in(Vec::new()), 1);
-    for (cell, blocks) in [("R0", Vec::new()), ("R1", vec![handed("deep_needed", "", Some("no"))])] {
-        let round = sim.round().expect("a round is given");
-        assert_eq!(round.cell.as_str(), cell, "the guide runs {cell}");
-        assert!(
-            !sim.begins(&round),
-            "{cell}'s round goes on in the session, under its id"
-        );
-        let begun = context::begun_with(&sim.flow, &sim.words, &sim.work, round.run, round.number);
-        assert_eq!(
-            begun,
-            [(BlockId::from("guide"), first)],
-            "the system prompt of {cell}'s session"
-        );
-        let entered = sim.enter(&round, false);
-        assert_eq!(
-            entered.situation.data["guide"],
-            Stands::HoldsLast,
-            "{cell}:\n{}",
-            entered.text
-        );
-        let change = Fill::Change {
-            block: BlockId::from("guide"),
-            version: latest,
-            since: first,
-        };
-        assert!(entered.fills.contains(&change), "{cell}: {:?}", entered.fills);
-        let told = format!(
-            "## `guide`, what changed from version {} to version {}",
-            first.0, latest.0
-        );
-        assert!(entered.text.contains(&told), "{cell}:\n{}", entered.text);
-        // The round is given the change, and its session is compacted during it.
-        sim.tries(&round, 1, entered.fills);
-        sim.returns(&round, Came::hands_in(blocks), 1);
-    }
 }

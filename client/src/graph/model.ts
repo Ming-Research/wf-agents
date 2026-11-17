@@ -136,8 +136,8 @@ function outsideOf(blocks: Block[]): Outside | null {
   return people || sources.length > 0 ? { people, sources } : null;
 }
 
-/// What an arrow from `writer` to `reader` carries: each datum or group the reader watches, by its own file or by
-/// `[every_agent]`, a block of which the writer writes, by its name, once.
+/// What an arrow from `writer` to `reader` carries: each datum or group the reader watches, a block of which the writer
+/// writes, by its name, once.
 export function carried(flow: Flow, writer: Cell, reader: Cell): Carried[] {
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
   const out: Carried[] = [];
@@ -371,7 +371,7 @@ export function chartOf(flow: Flow): Chart {
     nodes.push(node({ id: cellNode(cell.id), kind: 'cell', cell: cell.id }));
     // What runs it from outside the cells: each datum or group its own file watches that people or a source outside
     // the work writes.
-    for (const w of cell.watches.filter((x) => x.list === 'watches')) {
+    for (const w of cell.watches) {
       const outside = outsideOf(w.blocks.flatMap((b) => blocks.get(b) ?? []));
       const id = outsideNode(cell.id, w.name);
       if (outside === null || nodes.some((n) => n.id === id)) continue;
@@ -512,7 +512,7 @@ export function contextOf(flow: Flow, id: string): ContextTag[] {
   const cell = flow.cells.find((c) => c.id === id);
   if (!cell) return [];
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
-  const watched = new Set(cell.watches.filter((w) => w.list === 'watches').flatMap((w) => w.blocks));
+  const watched = new Set(cell.watches.flatMap((w) => w.blocks));
   const own = new Set([...watched, ...cell.reads.flatMap((r) => r.blocks)]);
   return cell.given
     .filter((g) => own.has(g.block))

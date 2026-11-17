@@ -108,9 +108,9 @@ Why: A rule in the project's own guide, left to the engineer and the review to k
 missed it, the change merged (Article 7). The paths are a project's and not the flow's (Article 1).
 
 ### principle the-flow-gives-the-trees-rules
-The rules of the design tree, the tree's own file of rules, are data the cell of every agent takes, as the project's
-guide is (the design of data and context): the flow gives them, and no cell is left to find them by following the
-guide. The guide points to them as well, for the agents that work outside the flow.
+The rules of the design tree, the tree's own file of rules, are given to every agent by the flow, in the system prompt
+of every session, as the project's guide is: no cell is left to find them by following the guide. The guide points to
+them as well, for the agents that work outside the flow.
 Why: Every project's agents need the same rules, and said once in the flow they reach every cell, where a rule an
 agent must find by itself may go unread. An agent outside the flow is given nothing by the flow and has only the
 guide.

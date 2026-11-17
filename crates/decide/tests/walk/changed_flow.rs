@@ -27,6 +27,20 @@ fn what_a_cell_taken_out_of_the_flow_wrote_stays_current() {
     assert_eq!(w.decide(), runs("c", first(&["p"]), &[("p", Some(p))]));
 }
 
+// A datum taken out of the flow with the only cell that watched it: its versions and the run's `dealt_with` that names
+// it stay in the records, and the walk of the changed flow neither fails on them nor runs a cell for them.
+#[test]
+fn a_datum_taken_out_of_the_flow_leaves_its_versions_in_the_records_and_runs_no_cell() {
+    let mut w = World::with_gate(vec![cell("a", &["old"], &[]), cell("b", &["brief"], &[])]);
+    w.person_writes("old");
+    w.person_writes("brief");
+    w.run("a", &[]);
+    w.run("b", &[]);
+    assert_eq!(w.decide(), resting());
+    w.install(vec![cell("b", &["brief"], &[]), gate()]);
+    assert_eq!(w.decide(), resting());
+}
+
 #[test]
 fn a_run_at_rest_of_a_cell_taken_out_of_the_flow_is_abandoned() {
     let mut w = World::with_gate(vec![cell("a", &["brief"], &[]), cell("b", &["brief"], &[])]);

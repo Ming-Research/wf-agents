@@ -185,7 +185,7 @@ fn refused_stream() -> String {
             event(json!({ "type": "message_stop" })),
         ]
     };
-    let plan = json!({ "dealt_with": ["guide", "request"], "outputs": { "plan": "Greet by name." } }).to_string();
+    let plan = json!({ "dealt_with": ["request"], "outputs": { "plan": "Greet by name." } }).to_string();
     let mut lines = vec![json!({ "type": "system", "subtype": "init", "session_id": "s" }).to_string()];
     lines.extend(attempt("so-1", r#"{"outcome": "{\"dealt_with\": [], "#));
     lines.extend(attempt("so-2", &json!({ "outcome": plan }).to_string()));
@@ -331,11 +331,11 @@ fn compiled(on: On) -> Compiled {
     if let Some(build) = source
         .cells
         .get_mut("build")
-        .filter(|build| build.contains("watches = [\"guide\", \"plan\", \"opinions\"]"))
+        .filter(|build| build.contains("watches = [\"plan\", \"opinions\"]"))
     {
         *build = (build.replace(
-            "watches = [\"guide\", \"plan\", \"opinions\"]",
-            "watches = [\"guide\", \"plan\", \"opinions\", \"build_questions\", \"build_words\"]",
+            "watches = [\"plan\", \"opinions\"]",
+            "watches = [\"plan\", \"opinions\", \"build_questions\", \"build_words\"]",
         ))
         .replace(
             "outputs = [\"code\"]",
@@ -378,7 +378,6 @@ fn compiled(on: On) -> Compiled {
             driver::SESSION,
             carry::tree::TREE,
             carry::head::HEAD,
-            carry::guide::GUIDE,
             flow::ANSWER,
             flow::WORDS,
             "main",
@@ -682,7 +681,6 @@ fn project(repo: &Path, check: &str) -> Project {
         github: None,
         commits: Default::default(),
         tree: "design/".to_string(),
-        guide: "AGENTS.md".to_string(),
     }
 }
 
@@ -856,10 +854,7 @@ impl Real {
     /// Adds an item that depends on these items, with a request where its flow has one, paused so that its work begins
     /// once the test lets it on, and makes its work's place where the flow has agents to run in it and no cell that
     /// makes it. There it stands in for the start's act, which the trial flows have no cell of, so that the tests of
-    /// what the carriers do for its agents need none: as the act does, it reads the project's guide on the work's
-    /// branch and writes it from outside, before any round, so that every session begins with a version the records
-    /// hold, as the engine gives a session its guide only so. That the act itself reads the guide is the tests' of the
-    /// flows that have one (`crate::tree`, `carry`'s branch tests).
+    /// what the carriers do for its agents need none.
     pub async fn add_made_of(&mut self, depends_on: &[ItemNumber]) -> WorkNumber {
         let request = (self.flow.blocks.contains_key(&"request".into())).then(|| FirstWrite {
             block: "request".into(),
@@ -888,21 +883,6 @@ impl Real {
             git::start(&project, &place, &project.main)
                 .await
                 .expect("the work's place is made");
-            let guide =
-                (self.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(carry::guide::GUIDE));
-            if let Some((block, _)) = guide {
-                let text = std::fs::read_to_string(place.dir.join(PROJECT_FILES[0].0)).expect("the guide is read");
-                let event = Event::Wrote {
-                    block: block.clone(),
-                    by: decide::Outsider::Outside,
-                    content: text.trim_end().to_string(),
-                    matters: true,
-                    value: None,
-                };
-                self.service
-                    .take(Message::Happened { work, event })
-                    .expect("the loop takes it");
-            }
         }
         work
     }

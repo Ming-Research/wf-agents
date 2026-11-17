@@ -477,7 +477,7 @@ export function Chart({ matrix, chosen, onChoose, hidden = false, covered = 0 }:
           <tbody className="band">
             {every.map((row) => (
               <EveryLine
-                key={`${row.list}:${row.name}`}
+                key={row.name}
                 row={row}
                 chosen={chosenEvery || (chosenBlock !== null && row.blocks.includes(chosenBlock))}
                 onChoose={() => onChoose(chosenEvery ? null : { everyAgent: true })}
@@ -895,7 +895,7 @@ function EveryLine(props: BandProps & { row: EveryRow; chosen: boolean; onChoose
       <BandHead
         name={row.name}
         label="every_agent"
-        aria={`every_agent ${row.list} ${row.name}`}
+        aria={`every_agent reads ${row.name}`}
         chosen={chosen}
         onChoose={onChoose}
         onPoint={onPoint}

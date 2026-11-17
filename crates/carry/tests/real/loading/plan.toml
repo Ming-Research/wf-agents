@@ -4,10 +4,9 @@ effort = "high"
 line = "engineer"
 task = "Write the plan from the request."
 requires = { test = "ready" }
-watches = ["guide", "request", "session"]
+watches = ["request", "session"]
 outputs = ["plan"]
 
 [kinds]
-guide = "last_and_latest"
 request = "last_and_latest"
 session = "last_and_latest"

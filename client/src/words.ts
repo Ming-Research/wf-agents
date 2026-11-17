@@ -82,8 +82,8 @@ export function faultWords(fault: Fault): string {
       if (fault.field === 'tools') {
         return `The cell names ${w.name} of its own, and the flow already gives its agent cells theirs.`;
       }
-      // A name read that the cell watches already, in its own file or in what every agent cell takes.
-      return fault.field.startsWith('reads[') || fault.field.startsWith('every_agent.reads[')
+      // A name read that the cell watches already.
+      return fault.field.startsWith('reads[')
         ? `${w.name} is watched already, and is given with what is watched.`
         : `${w.name} is named a second time in the same list.`;
     case 'takenTwice':
@@ -276,16 +276,13 @@ export function markWords(
 }
 
 /// What a crossing of a row of `[every_agent]` says, by the cell's keys: what runs the cell of the data the row stands
-/// for, by `[every_agent]` or by its own file, what its own file reads of them, each with its kind, and what it writes.
+/// for, by its own file, what its own file reads of them, each with its kind, and what it writes.
 export function everyMarkWords(cell: Cell, row: EveryRow): string {
   const of = (names: string[]) => [...new Set(names.filter((n) => row.blocks.includes(n)))];
-  const watched = (list: string) => of(cell.watches.filter((w) => w.list === list && namesItself(w)).map((w) => w.name));
-  const alike = watched('every_agent');
-  const own = watched('watches');
-  const read = of(cell.reads.flatMap((r) => r.blocks)).filter((b) => !alike.includes(b) && !own.includes(b));
+  const own = of(cell.watches.filter((w) => namesItself(w)).map((w) => w.name));
+  const read = of(cell.reads.flatMap((r) => r.blocks)).filter((b) => !own.includes(b));
   const written = of(cell.outputs);
   const parts = [
-    ...(alike.length > 0 ? [`every_agent watches ${namesWithKinds(cell, alike)}`] : []),
     ...(own.length > 0 ? [`watches ${namesWithKinds(cell, own)}`] : []),
     ...(read.length > 0 ? [`reads ${namesWithKinds(cell, read)}`] : []),
     ...(written.length > 0 ? [`outputs ${written.join(', ')}`] : []),
@@ -317,9 +314,8 @@ export function thereWhen(flow: Flow, reader: string, block: Block): string {
 export function cellSays(cell: Cell, block: string, what: string | null = null): string {
   const parts: string[] = [];
   const kind = kindAfter(kindOf(cell, block));
-  const own = cell.watches.filter((w) => w.list === 'watches');
-  const itself = own.find((w) => w.name === block && namesItself(w));
-  const group = own.find((w) => !namesItself(w) && w.blocks.includes(block));
+  const itself = cell.watches.find((w) => w.name === block && namesItself(w));
+  const group = cell.watches.find((w) => !namesItself(w) && w.blocks.includes(block));
   const read = cell.reads.find((r) => r.blocks.includes(block));
   if (itself) parts.push(`watches${kind}`);
   else if (group) parts.push(`watches ${group.name},${kind}`);
@@ -335,7 +331,7 @@ export function cellSays(cell: Cell, block: string, what: string | null = null):
 /// file names the group, `outputs` and the blocks of it the cell writes; then, after a colon, what the cell does when
 /// the group is new.
 export function groupSays(cell: Cell, group: string, blocks: string[]): string {
-  const watched = cell.watches.filter((w) => w.list === 'watches').find((w) => w.name === group);
+  const watched = cell.watches.find((w) => w.name === group);
   const written = blocks.filter((b) => cell.outputs.includes(b));
   const said = [...(watched ? ['watches'] : []), ...(written.length > 0 ? [`outputs ${written.join(', ')}`] : [])].join(
     '; ',
@@ -345,11 +341,10 @@ export function groupSays(cell: Cell, group: string, blocks: string[]): string {
 
 /// What a cell's file and `[every_agent]` say of a row of `[every_agent]`, for the chart's column of words: what its
 /// own file watches and reads of the data the row stands for, each with its kind, and what it writes of them; then
-/// what it takes of them by `[every_agent]`, by the row's list and kind. What `[every_agent]` says the cell does is said
-/// once, in its panel.
+/// that it takes them by `[every_agent]`, by the row's kind.
 export function everySays(cell: Cell, row: EveryRow): string {
   const of = (names: string[]) => [...new Set(names.filter((n) => row.blocks.includes(n)))];
-  const watched = of(cell.watches.filter((w) => w.list === 'watches' && namesItself(w)).map((w) => w.name));
+  const watched = of(cell.watches.filter((w) => namesItself(w)).map((w) => w.name));
   const read = of(cell.reads.flatMap((r) => r.blocks)).filter((b) => !watched.includes(b));
   const written = of(cell.outputs);
   const alike = row.blocks.some((b) => cell.given.some((g) => g.block === b && g.list === 'every_agent'));
@@ -357,14 +352,14 @@ export function everySays(cell: Cell, row: EveryRow): string {
     ...(watched.length > 0 ? [`watches ${namesWithKinds(cell, watched)}`] : []),
     ...(read.length > 0 ? [`reads ${namesWithKinds(cell, read)}`] : []),
     ...(written.length > 0 ? [`outputs ${written.join(', ')}`] : []),
-    ...(alike ? [`every_agent ${row.list}${kindAfter(row.kind)}`] : []),
+    ...(alike ? [`every_agent reads${kindAfter(row.kind)}`] : []),
   ].join('; ');
 }
 
-/// What a row of `[every_agent]` is, for the chart's column of words: its list and its kind as `flow.toml` writes
-/// them, and what its data are.
+/// What a row of `[every_agent]` is, for the chart's column of words: that it is read, and its kind as `flow.toml`
+/// writes it, and what its data are.
 export function everyIs(row: EveryRow, what: string | null): string {
-  const said = `every_agent ${row.list}${kindAfter(row.kind)}`;
+  const said = `every_agent reads${kindAfter(row.kind)}`;
   return what ? `${said}: ${what}` : said;
 }
 

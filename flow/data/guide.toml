@@ -1,5 +1,0 @@
-# The project's guide for its agents (`[files.guide]` of the project's declaration), as the work's branch has it: data
-# the cell of every agent watches. A session holds the version it began with in its system prompt, and is given what
-# changed since (design document `data-and-context`, 15, 24).
-what = "The project's guide for its agents, as the work's branch has it; between two versions, what changed."
-from = "guide"

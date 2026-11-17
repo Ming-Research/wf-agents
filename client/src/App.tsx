@@ -186,14 +186,9 @@ function BarEngine({ onRead }: { onRead: (bar: BarItems) => void }) {
   return <Engine items={items} failed={failed} />;
 }
 
-/// What `[every_agent]` names, after its key, as `flow.toml` writes it: ` watches guide, reads {each}_questions`.
+/// What `[every_agent]` names, after its key, as `flow.toml` writes it: ` reads {each}_questions, {each}_words`.
 function everyAgentWords(flow: Flow): string {
-  const { watches, reads } = flow.everyAgent;
-  const parts = [
-    ...(watches.length > 0 ? [`watches ${watches.map((n) => n.name).join(', ')}`] : []),
-    ...(reads.length > 0 ? [`reads ${reads.map((n) => n.name).join(', ')}`] : []),
-  ];
-  return ` ${parts.join(', ')}`;
+  return ` reads ${flow.everyAgent.reads.map((n) => n.name).join(', ')}`;
 }
 
 /// The limits of the flow as a whole, by their keys as `flow.toml` writes them.
@@ -367,7 +362,7 @@ export function FlowPage({ definition, given, active = true }: {
                 ))}
               </>
             )}
-            {chartView === 'flowchart' && (flow.everyAgent.watches.length > 0 || flow.everyAgent.reads.length > 0) && (
+            {chartView === 'flowchart' && flow.everyAgent.reads.length > 0 && (
               <>
                 {' · '}
                 <button

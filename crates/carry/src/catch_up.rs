@@ -273,7 +273,6 @@ mod tests {
         let reading = crate::branch::Reading {
             tree: repo.project.tree.clone(),
             main: "refs/heads/main".to_string(),
-            guide: repo.project.guide.clone(),
         };
         let mut looking = crate::branch::Looking::head_only(reading, Some(&built));
         let seen = [Some(built.clone())];

@@ -26,21 +26,21 @@ function drawnIn(token: string): string {
 }
 
 /// Three ways back, each to a cell with other marks or none: `ring` watches `a` alone; `both` writes and watches `b`;
-/// `reads`, an agent's cell, watches `c_x` by `[every_agent]` and reads `d_x`, of the same name there, whose ring of
-/// `reads` stands last on the name's row.
+/// `reads`, an agent's cell, watches `c_x` and reads `d_x`, of the same name in `[every_agent]`, whose ring of `reads`
+/// stands last on the name's row.
 function flow(): Flow {
   const engine = { kind: 'engine' as const, line: null, task: null, act: 'merge' };
   return flowOf(
     [
       cell('ring', { ...engine, watches: ['a'] }),
       cell('both', { ...engine, watches: ['b'], outputs: ['b'] }),
-      cell('reads', { reads: ['d_x'], kinds: { d_x: 'all' } }),
+      cell('reads', { watches: ['c_x'], reads: ['d_x'], kinds: { c_x: 'latest', d_x: 'all' } }),
       cell('later', { ...engine, outputs: ['a', 'b', 'c_x'] }),
     ],
     { a: {}, b: {}, c_x: {}, d_x: {} },
     'small',
     {},
-    everyAgent({ watches: [['{each}_x', ['c_x', 'd_x']]], kinds: { '{each}_x': 'latest' } }),
+    everyAgent({ reads: [['{each}_x', ['c_x', 'd_x']]], kinds: { '{each}_x': 'latest' } }),
   );
 }
 

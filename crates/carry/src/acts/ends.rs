@@ -55,7 +55,7 @@ fn acts_flow() -> Compiled {
     let source = flow::read(&dir).unwrap();
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = flow::Has {
-        sources: names(&["tree", "main", "guide"]),
+        sources: names(&["tree", "main"]),
         acts: names(&["start", "check", "merge"]),
         ..Default::default()
     };
@@ -416,7 +416,7 @@ fn acts_flow_with_head() -> Compiled {
         .push_str("\n[blocks.head]\noutside = \"head\"\nshown = true\n");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = flow::Has {
-        sources: names(&["tree", "main", "head", "guide"]),
+        sources: names(&["tree", "main", "head"]),
         acts: names(&["start", "check", "merge"]),
         ..Default::default()
     };

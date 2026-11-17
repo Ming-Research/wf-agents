@@ -313,10 +313,8 @@ describe('the ways back', () => {
 
 describe('the band of what every agent cell is given alike', () => {
   const every = everyAgent({
-    watches: [['guide', ['guide']]],
     reads: [['{each}_questions', ['a_questions', 'b_questions']]],
-    kinds: { guide: 'lastAndLatest', '{each}_questions': 'all' },
-    does: { guide: 'Work under it.' },
+    kinds: { '{each}_questions': 'all' },
   });
   const flow = () =>
     flowOf(
@@ -330,7 +328,7 @@ describe('the band of what every agent cell is given alike', () => {
         }),
         cell('e', { kind: 'engine', line: null, watches: ['x'] }),
       ],
-      { guide: { outside: 'guide' }, a_questions: { outside: 'answer' }, b_questions: { outside: 'answer' }, x: {} },
+      { a_questions: { outside: 'answer' }, b_questions: { outside: 'answer' }, x: {} },
       'small',
       {},
       every,
@@ -338,22 +336,15 @@ describe('the band of what every agent cell is given alike', () => {
 
   it('has a row for each name as flow.toml writes it, and the data it stands for have none of their own', () => {
     const m = matrix(flow());
-    expect(m.every.map((r) => [r.name, r.list, r.kind, r.blocks])).toEqual([
-      ['guide', 'watches', 'lastAndLatest', ['guide']],
-      ['{each}_questions', 'reads', 'all', ['a_questions', 'b_questions']],
+    expect(m.every.map((r) => [r.name, r.kind, r.blocks])).toEqual([
+      ['{each}_questions', 'all', ['a_questions', 'b_questions']],
     ]);
     expect(m.blocks.map((b) => b.name)).toEqual(['x']);
   });
 
-  it('marks what it watches under every agent cell, and under each what its own file says of the data it stands for', () => {
+  it('marks under each cell what its own file says of the data a row stands for', () => {
     const m = matrix(flow());
-    const [guide, questions] = m.every;
-    expect(guide.spots.map((s) => s.mark)).toEqual([
-      mark({ watch: true, kind: 'lastAndLatest' }),
-      mark({ watch: true, kind: 'lastAndLatest' }),
-      mark({ watch: true, kind: 'lastAndLatest' }),
-      mark({}),
-    ]);
+    const [questions] = m.every;
     // What every agent cell only reads is said by the row's words, not marked under each cell.
     expect(questions.spots.map((s) => s.mark)).toEqual([
       mark({ watch: true, write: true, kind: 'all' }),
@@ -365,11 +356,11 @@ describe('the band of what every agent cell is given alike', () => {
 
   it('draws a way back on its row where a later cell writes a datum an earlier one watches', () => {
     const later = flowOf(
-      [cell('a', {}), cell('b', { outputs: ['guide'] })],
-      { guide: { outside: 'guide' } },
+      [cell('a', { watches: ['a_questions'], kinds: { a_questions: 'all' } }), cell('b', { outputs: ['a_questions'] })],
+      { a_questions: { outside: 'answer' } },
       'small',
       {},
-      everyAgent({ watches: [['guide', ['guide']]], kinds: { guide: 'lastAndLatest' } }),
+      everyAgent({ reads: [['{each}_questions', ['a_questions']]], kinds: { '{each}_questions': 'all' } }),
     );
     const m = matrix(later);
     expect(m.every[0].spots.map((s) => [s.back, s.backTo])).toEqual([
@@ -470,22 +461,18 @@ describe('a way back between two cells that never both run', () => {
 });
 
 describe('the mark of a cell on a datum, wherever the page draws one', () => {
-  it('is the matrix’s: watches by itself, through a group or as every agent cell, else reads with its kind', () => {
+  it('is the matrix’s: watches by itself or through a group, else reads with its kind', () => {
     const f = flowOf(
       [
         cell('g', { watches: [{ group: 'both', blocks: ['x', 'y'] }] }),
         cell('r', { reads: ['x'], kinds: { x: 'latest' } }),
         cell('e', { kind: 'engine', line: null, watches: ['x'] }),
       ],
-      { x: {}, y: {}, guide: { outside: 'guide' } },
-      'small',
-      {},
-      everyAgent({ watches: [['guide', ['guide']]], kinds: { guide: 'lastAndLatest' } }),
+      { x: {}, y: {} },
     );
     expect(markOf(f.cells[0], 'y')).toEqual(mark({ watch: true, kind: 'lastAndLatest' }));
-    expect(markOf(f.cells[0], 'guide')).toEqual(mark({ watch: true, kind: 'lastAndLatest' }));
     expect(markOf(f.cells[1], 'x')).toEqual(mark({ read: true, kind: 'latest' }));
     expect(markOf(f.cells[2], 'x')).toEqual(mark({ watch: true }));
-    expect(markOf(f.cells[2], 'guide')).toEqual(mark({}));
+    expect(markOf(f.cells[2], 'y')).toEqual(mark({}));
   });
 });

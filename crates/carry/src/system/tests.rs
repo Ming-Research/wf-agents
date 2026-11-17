@@ -26,7 +26,6 @@ fn engineer() -> Compiled {
             "answer",
             "asked",
             "dependencies",
-            "guide",
             "main",
             "session",
             "start",
@@ -47,11 +46,6 @@ fn settings() -> Settings {
     let github = "repository = \"owner/name\"\n";
     settings.projects.get_mut("example").unwrap().github = Some(toml::from_str(github).unwrap());
     settings
-}
-
-/// The version of the datum `guide` a session begins with, as the records hold it: the project's guide.
-fn guide(name: &str) -> Option<String> {
-    (name == "guide").then(|| "# Working here\n\nThe guide.\n".to_string())
 }
 
 /// The project's files, by their paths in `project.toml`.
@@ -89,16 +83,7 @@ fn of(line: &str) -> String {
     let tests = cell.tests_only.then(|| crate::tests_only::paths(&beside.project));
     let permissions = Permissions::of(cell.reads_only, &[], &[], &Default::default());
     let your_line = permissions.told(&beside.your_line, protected, tests);
-    of_line(
-        &beside,
-        &filling(&settings, &beside),
-        &flow,
-        cell,
-        &your_line,
-        project,
-        guide,
-    )
-    .expect("it is made")
+    of_line(&beside, &filling(&settings, &beside), &flow, cell, &your_line, project).expect("it is made")
 }
 
 // The system prompt holds, in the order `session.toml` names them, the project's files each headed by its path, the
@@ -205,25 +190,25 @@ fn a_line_that_changes_only_the_tests_of_a_flow_with_no_head_is_refused_as_the_e
     assert_eq!(faults(&settings(), &beside(), &flow), [fault]);
 }
 
-// Every session begins with the version of the guide's datum its system prompt holds (design document
-// `data-and-context`, 24): a flow of agents' cells with no such datum is refused as the engine starts.
+// The guide is a file of the project like the constitution and the tree's rules (design document `data-and-context`,
+// 24; decision the-projects-files-as-the-work-has-them): a session begins with the file as the work's worktree has it
+// as the session begins, a change the work made to it before then included.
 #[test]
-fn a_flow_of_agents_cells_without_the_datum_its_sessions_begin_with_is_refused_as_the_engine_starts() {
-    let mut flow = engineer();
-    assert!(faults(&settings(), &beside(), &flow).is_empty());
-    flow.blocks.retain(|block, _| block.as_str() != "guide");
-    let fault = "flow engineer: session.toml begins each session with the datum `guide`, which the flow does not have";
-    assert_eq!(faults(&settings(), &beside(), &flow), [fault]);
-}
-
-// The guide a session begins with is the version of its datum, and nothing else (design document `data-and-context`,
-// 24): where the datum has none as the session begins, no prompt is made, and the file is not read in its place.
-#[test]
-fn a_session_whose_guide_has_no_version_is_given_no_prompt_and_the_file_is_not_read_in_its_place() {
-    let (beside, flow) = (beside(), engineer());
-    let filling = filling(&settings(), &beside);
-    let why = of_line(&beside, &filling, &flow, cell(&flow, "engineer"), "", project, |_| None).expect_err("no guide");
-    assert!(why.contains("`guide`") && why.contains("no version"), "{why}");
+fn a_session_begins_with_the_guide_the_worktree_has_as_it_begins() {
+    let (settings, beside, flow) = (settings(), beside(), engineer());
+    let filling = filling(&settings, &beside);
+    let dir = tempfile::tempdir().expect("a directory");
+    std::fs::create_dir_all(dir.path().join("design")).unwrap();
+    for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+        std::fs::write(dir.path().join(path), project(path).unwrap()).unwrap();
+    }
+    std::fs::write(dir.path().join("AGENTS.md"), "# Working here\n\nChanged by the work.\n").unwrap();
+    let read = |path: &str| read_within(dir.path(), path);
+    let began = of_line(&beside, &filling, &flow, cell(&flow, "engineer"), "", read).expect("it is made");
+    assert!(
+        began.starts_with("# `AGENTS.md`\n\n# Working here\n\nChanged by the work."),
+        "{began}"
+    );
 }
 
 // A session keeps the system prompt and the form it began with, each alike: made and kept where it has none, and the
@@ -269,9 +254,7 @@ fn a_session_cut_off_and_begun_again_keeps_its_prompt() {
     }
     let make = || {
         let read = |path: &str| read_within(&worktree, path);
-        // The guide as the work's branch has it now, as a later version of the datum would give it.
-        let guide = |_: &str| std::fs::read_to_string(worktree.join("AGENTS.md")).ok();
-        of_line(&beside, &filling, &flow, cell, "", read, guide)
+        of_line(&beside, &filling, &flow, cell, "", read)
     };
     let at = kept_at(&dir.path().join("data"), Uuid::nil(), Begun::System);
     // The first try begins the session, and is cut off before the program runs.
@@ -292,7 +275,7 @@ fn a_projects_file_the_worktree_lacks_is_said() {
     };
     let cell = cell(&flow, "engineer");
     let filling = filling(&settings(), &beside);
-    let why = of_line(&beside, &filling, &flow, cell, "", lacking, guide).expect_err("no tree rules");
+    let why = of_line(&beside, &filling, &flow, cell, "", lacking).expect_err("no tree rules");
     assert!(
         why.starts_with("design/README.md cannot be read in the work's worktree"),
         "{why}"
@@ -368,7 +351,7 @@ fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workfl
     let told = |beside: &Agents| {
         assert_eq!(faults(&settings(), beside, &flow), Vec::<String>::new());
         let cell = cell(&flow, "engineer");
-        of_line(beside, &filling(&settings(), beside), &flow, cell, "", project, guide).expect("it is made")
+        of_line(beside, &filling(&settings(), beside), &flow, cell, "", project).expect("it is made")
     };
     let declared = |checks: &[&str]| {
         let mut declared = beside.clone();
@@ -530,7 +513,7 @@ fn the_store_the_words_of_query_name_is_what_the_settings_say_of_it() {
     let (beside, flow) = (beside(), engineer());
     let closed = &beside.tools["query"].texts["closed"];
     let cell = cell(&flow, "engineer");
-    let prompt = |filling: &Filling| of_line(&beside, filling, &flow, cell, "", project, guide).expect("it is made");
+    let prompt = |filling: &Filling| of_line(&beside, filling, &flow, cell, "", project).expect("it is made");
     let settings = settings();
     assert!(
         !settings.query.open,
@@ -566,7 +549,7 @@ fn the_real_store_opened_to_agents_is_described_in_the_system_prompt_without_the
     open.query.open = true;
     assert_eq!(faults(&open, &beside, &flow), Vec::<String>::new());
     let cell = cell(&flow, "engineer");
-    let told = of_line(&beside, &filling(&open, &beside), &flow, cell, "", project, guide).expect("it is made");
+    let told = of_line(&beside, &filling(&open, &beside), &flow, cell, "", project).expect("it is made");
     let described = crate::store(&open, &beside).expect("the schema hides what agents may not read");
     assert!(told.contains(&described), "{told}");
     assert!(

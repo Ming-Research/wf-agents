@@ -68,7 +68,6 @@ fn engineer() -> Compiled {
             "answer",
             "asked",
             "dependencies",
-            "guide",
             "main",
             "session",
             "start",
@@ -268,20 +267,6 @@ const NEVER: &[(&str, &str)] = &[
          exploration's owner makes, or a maker that, run again by the owner's answer to the question it put the \
          dispute to, having dealt with the points as it asked, hands in nothing: a judge's fail, the question, the \
          answer and a return of nothing, which the exploration does not reach within its bound.",
-    ),
-    (
-        "the work waited at M1 on review_ok = yes",
-        "The review runs before the check on every work: the guide, which the start's act reads as it makes the work's \
-         place, is new to it at its first entry whatever else is, and its round hands in review_ok every time; so \
-         review_ok is never unwritten at the check, and a review_ok of no stands only with settled failing, which the \
-         wait on settled says the exploration does not reach.",
-    ),
-    (
-        MAIN_WHILE_THE_CHECK_WAITS,
-        "The check waits at its gate only on review_ok = yes, settled or asked = answered, none of which the \
-         exploration reaches, as each says: so main moves while the check waits on no path of it. What main moving does \
-         to the check is reached where it does not wait (\"main moves: M1\"), and main moving while the check waits \
-         for the review's yes is the engineer's tests' (crates/engine/tests/engineer/merging.rs).",
     ),
     (
         "the work waited at M1 on asked = answered",

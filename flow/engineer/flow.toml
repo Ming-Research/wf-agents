@@ -6,7 +6,7 @@ order = ["S1", "R0", "R1", "R2", "D1", "D2", "P1", "P2", "I1", "T1", "T2", "M1",
 # The engine's own data this flow uses, each defined once in `../data/`; a datum each cell or each line has its own of,
 # in `../data/of_a_cell/` or `../data/of_a_line/`, is used where a cell names it. The flow's own data are in `blocks/`,
 # its lines in `lines/`, its named tests in `tests/` and its cells in `cells/`, one file each.
-data = ["start", "background", "dependencies", "asked", "tree", "head", "main", "guide"]
+data = ["start", "background", "dependencies", "asked", "tree", "head", "main"]
 
 # What the item's card shows the owner of the work, in this order: the page shows what this names, and names no datum
 # of its own.
@@ -21,22 +21,15 @@ engine_asks_in = "I1"
 # return holds them, the same for every line of the flow (`../agents/return/return.toml`).
 tools = ["query", "run_tests"]
 
-# What every agent cell of the flow watches and reads beside what its own file names, given first: the project's
-# guide, and every cell's questions and every cell's words, so that what was asked, answered and said is known to the
-# whole work (design document `data-and-context`, 15, 24, 33, 35). `{each}_` names each cell's own datum.
+# What every agent cell of the flow reads beside what its own file names, given first: every cell's questions and every
+# cell's words, so that what was asked, answered and said is known to the whole work (design document
+# `data-and-context`, 15, 33, 35). `{each}_` names each cell's own datum.
 [every_agent]
-watches = ["guide"]
 reads = ["{each}_questions", "{each}_words"]
 
 [every_agent.kinds]
-guide = "last_and_latest"
 "{each}_questions" = "all"
 "{each}_words" = "all"
-
-# What a cell does when the guide is new to it: at its first round, where its session holds the guide from its start,
-# and once the guide changed (design document `data-and-context`, 22).
-[every_agent.do]
-guide = """Work under it as it now stands. Where it changed since the version you last worked from, look over what you hand in for what the change touches and bring that up to date; where the change touches nothing, hand in nothing new for it."""
 
 # The blocks of the plan and of the change, each watched or read as one: a new version of any of them is new to a cell
 # that watches the group, and its round deals with the group by its name (design document `data-and-context`, 12).

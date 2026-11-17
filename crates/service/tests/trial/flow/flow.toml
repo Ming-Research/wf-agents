@@ -16,11 +16,6 @@ reads_only = true
 [blocks.request]
 people = true
 
-# The project's guide for its agents as the work's branch has it, which every session begins with and every agent's
-# cell watches.
-[blocks.guide]
-outside = "guide"
-
 [blocks.dependencies]
 values = ["waiting", "merged"]
 outside = "dependencies"

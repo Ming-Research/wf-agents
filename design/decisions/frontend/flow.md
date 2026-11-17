@@ -59,13 +59,12 @@ marked what the cell takes of the data a row stands for and what it writes of th
 reads, which the row's words say; the data a `{each}_` name stands for have no rows of their own. A way back runs
 along a row of the band as along any row, from a later cell's write of a datum it stands for to each earlier cell that
 watches that datum, and is counted so. On the flowchart nothing of it is drawn coming in from outside; the view's line
-names it. A cell's panel lists it first among the cell's inputs, by that key, its `do` said once in its own panel.
+names it. A cell's panel lists it first among the cell's inputs, by that key.
 Why: Drawn for each datum and each cell, what every agent cell reads was 88 marks on the ten rows of the cells'
-questions and words, the guide was split between a trigger row and a data row, and the flowchart drew ten tags of it,
-all saying the same few things and burying each cell's own data. The guide's ring stays under each agent column: it
-marks which cells a new guide runs, which nothing else on the matrix says. Leaving the band's ways back out, as the
-data's rows they stood on were left out, was turned down: a cell that wrote a datum every agent's cell watches would
-run the cells before it again unseen and uncounted.
+questions and words, and the flowchart drew ten tags of it, all saying the same few things and burying each cell's own
+data. Leaving the band's ways back out, as the data's rows they stood on were left out, was turned down: a later
+cell's write of a datum the band stands for, which an earlier cell watches, would run that cell again unseen and
+uncounted.
 
 ### decision the-tools-are-a-band-of-rows
 On the matrix each of the engine's tools is a row of a band of its own, marked under each cell that may call it.

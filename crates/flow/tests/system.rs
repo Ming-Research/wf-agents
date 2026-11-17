@@ -22,7 +22,6 @@ fn engineer() -> Compiled {
             "answer",
             "asked",
             "dependencies",
-            "guide",
             "main",
             "session",
             "start",
@@ -44,11 +43,6 @@ fn beside() -> Agents {
 /// Each file of the project, by its path, as a text that says which it is.
 fn project(path: &str) -> Result<Option<String>, String> {
     Ok(Some(format!("The text of {path}.\n")))
-}
-
-/// The version of a datum of the flow a session begins with, as the records would hold it.
-fn datum(name: &str) -> Result<Option<String>, String> {
-    Ok(Some(format!("The {name} as the work's branch has it.\n")))
 }
 
 /// The agent cells of the line.
@@ -94,8 +88,7 @@ fn the_system_prompt_is_the_same_bytes_for_every_cell_of_a_line_and_every_sessio
     let lines: BTreeSet<&str> = flow.cells.iter().filter_map(|c| c.line.as_deref()).collect();
     assert!(lines.contains("engineer") && lines.len() > 1, "{lines:?}");
     for line in lines {
-        let of_cell =
-            |cell: &CellSpec| system::parts(&agents, &flow, cell, project, datum).expect("the parts are made");
+        let of_cell = |cell: &CellSpec| system::parts(&agents, &flow, cell, project).expect("the parts are made");
         let cells = cells(&flow, line);
         let first = sent(&of_cell(cells[0]), &agents);
         for cell in &cells {
@@ -104,7 +97,7 @@ fn the_system_prompt_is_the_same_bytes_for_every_cell_of_a_line_and_every_sessio
         }
         // Another session of the line, from the same files read again, begins with the same bytes.
         let again = beside();
-        let parts = system::parts(&again, &flow, cells[0], project, datum).expect("the parts are made");
+        let parts = system::parts(&again, &flow, cells[0], project).expect("the parts are made");
         assert_eq!(sent(&parts, &again), first, "{line}");
     }
     assert!(cells(&flow, "engineer").len() > 1);
@@ -115,7 +108,7 @@ fn the_system_prompt_is_the_same_bytes_for_every_cell_of_a_line_and_every_sessio
 #[test]
 fn a_lines_system_prompt_holds_the_parts_session_toml_names_in_its_order() {
     let (flow, agents) = (engineer(), beside());
-    let parts = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project, datum).unwrap();
+    let parts = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project).unwrap();
     let named: Vec<(Of, &str, &str)> = (parts.iter())
         .map(|p| (p.of, p.name.as_str(), p.source.as_str()))
         .collect();
@@ -131,12 +124,9 @@ fn a_lines_system_prompt_holds_the_parts_session_toml_names_in_its_order() {
             (Of::Returns, "how_you_return", "flow/agents/return/return.toml"),
         ]
     );
-    // The guide is the version of the datum `guide` the session begins with, under the path of its file (design
-    // document `data-and-context`, 24).
-    assert_eq!(
-        as_written(&parts[0].pieces),
-        "# `AGENTS.md`\n\nThe guide as the work's branch has it."
-    );
+    // The guide is the first part, read as the project's file, under the path of its file (design document
+    // `data-and-context`, 24).
+    assert_eq!(as_written(&parts[0].pieces), "# `AGENTS.md`\n\nThe text of AGENTS.md.");
     assert_eq!(as_written(&parts[3].pieces), agents.rules["general"].text.trim_end());
     assert_eq!(
         as_written(&parts[5].pieces),
@@ -144,14 +134,14 @@ fn a_lines_system_prompt_holds_the_parts_session_toml_names_in_its_order() {
     );
     // Each line is given the sets of rules its file names, in their order, and no other.
     for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
-        let parts = system::parts(&agents, &flow, cell, project, datum).unwrap();
+        let parts = system::parts(&agents, &flow, cell, project).unwrap();
         let rules: Vec<&String> = (parts.iter()).filter(|p| p.of == Of::Rules).map(|p| &p.name).collect();
         assert_eq!(rules, cell.system.iter().collect::<Vec<_>>(), "{}", cell.id.as_str());
     }
     // As sent, the engine's words have their place filled, and the settings the texts name, but for the project's
     // files, their values beside them.
     let sent = sent(&parts, &agents);
-    assert!(sent.starts_with("# `AGENTS.md`\n\nThe guide as the work's branch has it.\n\n# `design/constitution.md`"));
+    assert!(sent.starts_with("# `AGENTS.md`\n\nThe text of AGENTS.md.\n\n# `design/constitution.md`"));
     assert!(
         sent.contains("worktree of the work's own branch. YOUR LINE Never switch"),
         "{sent}"
@@ -200,7 +190,7 @@ fn how_you_return_holds_each_fields_and_each_flow_tools_words() {
 #[test]
 fn a_setting_the_texts_name_with_no_value_makes_no_prompt() {
     let (flow, mut agents) = (engineer(), beside());
-    let parts = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project, datum).unwrap();
+    let parts = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project).unwrap();
     let fills = |name: &str| ["your_line", "store", "named_checks"].contains(&name);
     assert_eq!(system::check(&parts, &settings(&agents), fills), Vec::<String>::new());
     // The way the project names its tests, which the words of `run_tests` name, given as the installation's here, with
@@ -243,7 +233,7 @@ fn a_tools_place_is_filled_from_its_own_file() {
     let ways: Vec<&str> = run_tests.places["named_checks"].keys().map(String::as_str).collect();
     assert_eq!(ways, ["named", "none_named", "whole"]);
     assert!(!agents.installation.names.iter().any(|n| n.starts_with("github.")));
-    let parts = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project, datum).unwrap();
+    let parts = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project).unwrap();
     let returns = parts.iter().find(|p| p.of == Of::Returns).expect("how a cell returns");
     for words in run_tests.places["named_checks"].values() {
         assert!(
@@ -256,21 +246,25 @@ fn a_tools_place_is_filled_from_its_own_file() {
     }
 }
 
-// The project's guide is data every agent's cell watches (design document `data-and-context`, 24, 45): given first,
-// what changed since the version the cell last worked from, with what the cell does when it is new.
+// Every agent's cell is given every cell's questions and words first, each in full, and is run by data of its own
+// alone (design document `data-and-context`, 33, 35, 45); the project's guide is in the system prompt, not among them.
 #[test]
-fn every_agent_cell_of_the_engineers_flow_watches_the_guide_first_with_what_it_does_for_it() {
+fn every_agent_cell_of_the_engineers_flow_is_given_every_cells_questions_and_words_first() {
     let flow = engineer();
     for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
         let id = cell.id.as_str();
-        let watched = (cell.watches.iter()).find(|w| w.name == "guide");
-        let watched = watched.unwrap_or_else(|| panic!("{id} does not watch the guide"));
-        assert!(watched.does.is_some(), "{id}");
-        let first = cell.given.first().expect("a datum given");
-        assert_eq!(
-            (first.block.as_str(), first.kind),
-            ("guide", flow::InputKind::LastAndLatest),
-            "{id}"
-        );
+        let alike: Vec<_> = (cell.given.iter())
+            .take_while(|g| g.list == flow::Listed::EveryAgent)
+            .collect();
+        assert!(!alike.is_empty(), "{id}");
+        for given in alike {
+            let block = given.block.as_str();
+            assert_eq!(given.kind, flow::InputKind::All, "{id}: {block}");
+            assert!(
+                block.ends_with("_questions") || block.ends_with("_words"),
+                "{id}: {block}"
+            );
+        }
+        assert!(!cell.watches.is_empty(), "{id}");
     }
 }

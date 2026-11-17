@@ -70,7 +70,6 @@ pub(crate) fn the_engine_s(_: &flow::Source) -> flow::Has {
             "answer",
             "asked",
             "dependencies",
-            "guide",
             "main",
             "session",
             "start",
@@ -278,8 +277,7 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
                 "{id}: what it returns lacks {block}"
             );
         }
-        // What is new to it has a line for each datum or group it watches, every agent cell's among them, by its
-        // name, which names it.
+        // What is new to it has a line for each datum or group it watches, by its name, which names it.
         let lines = named("message", "new")["items"]
             .as_array()
             .expect("the lines of what is new");

@@ -49,19 +49,13 @@ export interface Test {
 
 export type Kind = 'agent' | 'engine';
 
-/// The list of a definition that names what a cell takes, as the files write it: what every agent's cell takes
+/// The list of a definition that gives a cell a block, as the files write it: what every agent's cell reads
 /// (`[every_agent]` of `flow.toml`), or the cell's own `reads` or `watches`.
 export type List = 'every_agent' | 'reads' | 'watches';
 
 /// A datum or group a cell watches: its name as the definition writes it, the blocks it stands for (of a datum, the
-/// datum alone), and the list that names it; of what its own file watches, what the cell does when it is new, which
-/// of what `[every_agent]` watches `[every_agent]` says once (principle say-a-thing-once).
-export type Watch =
-  | { name: string; blocks: string[]; list: 'watches'; do: string | null }
-  | { name: string; blocks: string[]; list: 'every_agent' };
-
-/// A name `[every_agent]` watches: as written, with the data it stands for and what a cell does when one is new.
-export interface EveryWatch {
+/// datum alone), and what the cell does when it is new.
+export interface Watch {
   name: string;
   blocks: string[];
   do: string | null;
@@ -81,11 +75,9 @@ export interface GivenBlock {
   list: List;
 }
 
-/// What every agent's cell watches and reads beside what its own file names, as `flow.toml` writes it
-/// (`[every_agent]`): each name with the data it stands for and, of what it watches, what a cell does when it is new;
-/// and the kind of each, by its name.
+/// What every agent's cell reads beside what its own file names, as `flow.toml` writes it (`[every_agent]`): each name
+/// with the data it stands for, and the kind of each, by its name.
 export interface EveryAgent {
-  watches: EveryWatch[];
   reads: Read[];
   kinds: Record<string, InputKind>;
 }
@@ -125,8 +117,7 @@ export interface Cell {
   when: Condition[];
   /// What the work waits for before it: every key of its `requires`, in the order written.
   requires: Condition[];
-  /// What runs it, in the order the engine reads it: each datum `[every_agent]` watches that its own file does not
-  /// name, by the datum's name, then each datum or group its own file's `watches` names.
+  /// What runs it: each datum or group its own file's `watches` names, in order.
   watches: Watch[];
   /// What its own file's `reads` names, in order.
   reads: Read[];
@@ -183,7 +174,7 @@ export interface Flow {
   groups: Group[];
   /// What the item's card shows the owner of the work, in the order `flow.toml` names them; none where it names none.
   card: string[];
-  /// What every agent's cell watches and reads beside what its own file names.
+  /// What every agent's cell reads beside what its own file names.
   everyAgent: EveryAgent;
   /// In the order of the walk.
   cells: Cell[];
@@ -272,7 +263,7 @@ export type What =
   /// The flow names a cell for the engine to ask in that cannot change the work or cannot be spoken to.
   | { kind: 'cannotBeAskedIn'; cell: string }
   | { kind: 'engineIsGiven'; block: string }
-  /// A `do` is said for the block, of a cell or of what every agent's cell takes, and that does not watch it.
+  /// A `do` is said for the block, and the cell does not watch it.
   | { kind: 'notWatched'; block: string }
   /// The cell watches a datum or group whose every block's every writer runs only where the cell cannot: `needs` is the
   /// cell's own `when` and `requires`, and each writer a cell with its own, as written.

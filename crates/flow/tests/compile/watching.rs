@@ -34,8 +34,7 @@ fn given(spec: &CellSpec) -> Vec<(String, InputKind)> {
     spec.given.iter().map(|g| (g.block.to_string(), g.kind)).collect()
 }
 
-/// The blocks whose new version runs the cell, each once, in order: those of what it watches, every agent cell's
-/// first, as the walk takes them.
+/// The blocks whose new version runs the cell, each once, in order: those of what it watches, as the walk takes them.
 fn runs_on(spec: &CellSpec) -> Vec<&str> {
     let mut blocks: Vec<&str> = Vec::new();
     for block in spec.watches.iter().flat_map(|w| w.blocks.iter().map(BlockId::as_str)) {
@@ -232,15 +231,17 @@ fn what_a_cell_does_is_said_of_a_datum_it_watches() {
         block: "opinions".to_string(),
     };
     assert_eq!(faults(&source), [at("cells/plan.toml", "do.opinions", what)]);
-    // So too in what every agent cell takes.
-    let mut every = plan_takes("watches = [\"request\"]\nreads = [\"opinions\"]");
-    every
+}
+
+// What every agent cell takes is read and given, and runs no cell: `[every_agent]` has no `watches` and no `do`.
+#[test]
+fn what_every_agent_cell_takes_is_only_read() {
+    let mut source = plan_takes("watches = [\"request\"]\nreads = [\"opinions\"]");
+    source
         .flow
-        .push_str("\n[every_agent]\n\n[every_agent.do]\nrequest = \"Read it.\"\n");
-    let what = NotWatched {
-        block: "request".to_string(),
-    };
-    assert_eq!(faults(&every), [at(FLOW_FILE, "every_agent.do.request", what)]);
+        .push_str("\n[every_agent]\nwatches = [\"request\"]\n\n[every_agent.kinds]\nrequest = \"latest\"\n");
+    let message = unreadable(&source, FLOW_FILE);
+    assert!(message.contains("unknown field `watches`"), "{message}");
 }
 
 #[test]
@@ -328,7 +329,7 @@ fn a_datum_a_cell_has_its_own_of_takes_its_kind_from_what_every_agent_cell_takes
 }
 
 #[test]
-fn what_every_agent_cell_watches_and_reads_is_given_it_first_and_to_no_engine_cell() {
+fn what_every_agent_cell_reads_is_given_it_first_and_to_no_engine_cell() {
     let mut source = plan_takes("watches = [\"opinions\"]");
     let source = {
         let plan = source.cells.get_mut("plan").expect("the planning cell");
@@ -356,22 +357,15 @@ fn what_every_agent_cell_watches_and_reads_is_given_it_first_and_to_no_engine_ce
 }
 
 // What the page shows as the files write it: of each cell, what its own file reads, a group by its name, and what it
-// watches told apart from what every agent cell watches; of the flow, `[every_agent]` with the data each name stands for.
+// watches; of the flow, `[every_agent]` with the data each name stands for.
 #[test]
 fn what_a_cell_reads_and_what_every_agent_cell_takes_are_kept_as_written() {
     let mut source = answer_asks();
     source.flow.push_str(
-        "\n[every_agent]\nwatches = [\"request\"]\nreads = [\"{each}_questions\"]\n\n[every_agent.kinds]\nrequest = \"latest\"\n\"{each}_questions\" = \"all\"\n\n[every_agent.do]\nrequest = \"Read it again.\"\n",
+        "\n[every_agent]\nreads = [\"{each}_questions\"]\n\n[every_agent.kinds]\n\"{each}_questions\" = \"all\"\n",
     );
     let all = compiled_all(&source);
     let every = &all.every_agent;
-    assert_eq!(
-        every.watches,
-        [Taken {
-            name: "request".to_string(),
-            blocks: vec!["request".into()]
-        }]
-    );
     assert_eq!(
         every.reads,
         [Taken {
@@ -380,8 +374,7 @@ fn what_a_cell_reads_and_what_every_agent_cell_takes_are_kept_as_written() {
         }]
     );
     assert_eq!(every.kinds["{each}_questions"], InputKind::All);
-    assert_eq!(every.does["request"], "Read it again.");
-    // The judge takes the request by every agent cell's list, and what its own file watches by its own.
+    // The judge's own file watches what runs it, and takes nothing by every agent cell's list as a run.
     let judge = cell(&all, "judge");
     assert_eq!(
         judge
@@ -389,9 +382,8 @@ fn what_a_cell_reads_and_what_every_agent_cell_takes_are_kept_as_written() {
             .iter()
             .map(|w| (w.name.as_str(), w.list))
             .collect::<Vec<_>>(),
-        [("request", Listed::EveryAgent), ("plan", Listed::Watches)]
+        [("plan", Listed::Watches)]
     );
-    assert_eq!(judge.watches[0].does.as_deref(), Some("Read it again."));
     assert!(judge.reads.is_empty());
     // A group a cell reads is kept by its name, with its blocks.
     let mut grouped = plan_takes("watches = [\"request\"]\nreads = [\"heard\"]");

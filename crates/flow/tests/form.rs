@@ -142,7 +142,6 @@ fn engineer() -> Compiled {
             "answer",
             "asked",
             "dependencies",
-            "guide",
             "main",
             "session",
             "start",

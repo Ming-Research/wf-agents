@@ -62,7 +62,7 @@ function flowOf(
     tools: [],
     when: c.condition ? [c.condition] : [],
     requires: (c.preconditions ?? []).map((test) => ({ on: 'test', test })),
-    watches: c.inputs.map((b) => ({ name: b, blocks: [b], do: null, list: 'watches' as const })),
+    watches: c.inputs.map((b) => ({ name: b, blocks: [b], do: null })),
     reads: [],
     given:
       c.line === null ? [] : c.inputs.map((b) => ({ block: b, kind: 'lastAndLatest' as const, list: 'watches' as const })),
@@ -112,7 +112,7 @@ function flowOf(
     tools: [],
     groups: [],
     card: [],
-    everyAgent: { watches: [], reads: [], kinds: {} },
+    everyAgent: { reads: [], kinds: {} },
     cells: all,
     blocks: named,
   };

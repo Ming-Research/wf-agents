@@ -87,17 +87,14 @@ pub enum Piece {
 
 /// The parts of the system prompt of the session of the cell's line, in their order. A file of the project is read by
 /// `read`, by its path in the project's checkout: its text, nothing where there is nothing to read it in, or why it
-/// cannot be read; a datum that stands for one by `datum`, by its name, as the version the session begins with gives
-/// it, none where there is none to give, and `datum` says why it cannot be given where a session has none. Or
-/// everything that keeps it from being made, as [`made`] says it.
+/// cannot be read. Or everything that keeps it from being made, as [`made`] says it.
 pub fn parts(
     agents: &Agents,
     flow: &Compiled,
     cell: &CellSpec,
     read: impl Fn(&str) -> Result<Option<String>, String>,
-    datum: impl Fn(&str) -> Result<Option<String>, String>,
 ) -> Result<Vec<Part>, Vec<String>> {
-    let (parts, wrong) = made(agents, flow, cell, read, datum);
+    let (parts, wrong) = made(agents, flow, cell, read);
     if wrong.is_empty() { Ok(parts) } else { Err(wrong) }
 }
 
@@ -109,14 +106,13 @@ pub fn made(
     flow: &Compiled,
     cell: &CellSpec,
     read: impl Fn(&str) -> Result<Option<String>, String>,
-    datum: impl Fn(&str) -> Result<Option<String>, String>,
 ) -> (Vec<Part>, Vec<String>) {
     let session = &agents.session;
     let mut out = Vec::new();
     let mut wrong: Vec<String> = Vec::new();
     for part in &session.parts {
         match part {
-            SessionPart::Project(_) | SessionPart::Datum(_) => {
+            SessionPart::Project(_) => {
                 let project = part.file().unwrap_or_default().to_string();
                 let Some(file) = agents.project.files.get(&project) else {
                     wrong.push(format!(
@@ -129,12 +125,7 @@ pub fn made(
                     text: as_written(&fill(&session.heading, &[("path", &file.path), ("text", "")])),
                     places: true,
                 };
-                // A datum that stands for the file is the version the session begins with, as the work's branch has it.
-                let text = match part {
-                    SessionPart::Datum(_) => datum(&project),
-                    _ => read(&file.path),
-                };
-                let pieces = match text {
+                let pieces = match read(&file.path) {
                     Ok(Some(text)) => fill(&session.heading, &[("path", &file.path), ("text", text.trim_end())]),
                     Ok(None) => Vec::new(),
                     Err(why) => {
@@ -434,7 +425,7 @@ pub fn flow_texts(flow: &Compiled) -> Vec<Said> {
 pub fn reserved(agents: &Agents) -> Vec<String> {
     (agents.session.parts.iter())
         .filter_map(|part| match part {
-            SessionPart::Project(_) | SessionPart::Datum(_) => part.file().map(str::to_string),
+            SessionPart::Project(_) => part.file().map(str::to_string),
             SessionPart::Words(WordsPart { words }) => Some(words.clone()),
             SessionPart::Returns(ReturnsPart { returns }) => Some(returns.name().to_string()),
             SessionPart::Line(_) => None,
