@@ -23,7 +23,7 @@ function inline(text: string, strong: boolean): Inline[] {
   let at = 0;
   for (const m of text.matchAll(re)) {
     if (m.index > at) out.push({ kind: 'text', text: text.slice(at, m.index), strong });
-    if (m[1] !== undefined) out.push(...inline(m[1], strong));
+    if (m[1] !== undefined) out.push({ kind: 'code', text: m[1], strong });
     else if (m[2] !== undefined) out.push(...inline(m[2], true));
     else out.push({ kind: 'pointer', name: m[3], written: m[0], strong });
     at = m.index + m[0].length;
