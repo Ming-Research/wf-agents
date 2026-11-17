@@ -25,6 +25,16 @@ reading each question by its name, so a pointer means one question whoever wrote
 own was turned down, as a plan the cell that looks for a better way wrote pointed to the initial research's question
 (work 10).
 
+### decision a-diff-is-drawn-as-the-text-it-changes
+A ```diff block in the window is drawn as the text it changes reads after the change, each change in its place: the
+words removed, struck through in red, then the words added, in green. The two sides' words are compared, their blanks
+only where nothing else differs, and two changes fewer than four words apart are drawn as one. The diff's signs, its
+numbers and what git keeps of a file are not drawn, a file's path only where the block changes several, and a block
+that is no unified diff is drawn as code.
+Why: Drawn as written, the diff's long lines folded away from their signs, and shown word by word ("the ~~cell~~
+**flow**") changes close together could not be read either (work 11). Compared with their blanks, a paragraph wrapped
+again would read as rewritten whole. How far apart two changes stay apart rests on judgment.
+
 ### decision an-option-is-picked-by-pressing-it
 An option of a question that waits for its answer is a button: pressing it picks it, and pressing the one picked lets
 it go. It carries its radio mark inside it, at its left. Once the question is answered its options are words alone,

@@ -206,6 +206,29 @@
   font-size: var(--size-small);
 }
 
+/* A change of files (diff.tsx): in the look of code (`.content`), the text it changes as it reads after the change,
+   each passage removed in red and struck through and each passage added in green; what the diff says of a file beside
+   its lines, and its path where it changes several, muted; the parts of a file, and the files, a hairline apart. */
+.cw-removed {
+  color: var(--red-text);
+  text-decoration: line-through;
+}
+
+.cw-added {
+  color: var(--green-text);
+  text-decoration: none;
+}
+
+.cw-diff-file {
+  color: var(--muted);
+}
+
+.cw-diff-apart {
+  margin-top: var(--space-8);
+  padding-top: var(--space-8);
+  border-top: var(--hairline) solid var(--line);
+}
+
 /* A choice that waits for the owner: a frame in the accent on its tint; once confirmed, settled, a hairline on the
    ground. While it waits its options are buttons: the one picked ringed in the accent, the one under the pointer on the
    accent's tint. */

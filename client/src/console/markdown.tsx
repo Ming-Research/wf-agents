@@ -1,15 +1,17 @@
 // A passage of Markdown as the item window shows it, drawn with the page's own parts by a parser of its own (decision
 // the-page-draws-markdown-itself): headings, each a small heading whatever its level (principle
 // an-agents-heading-is-small); paragraphs; lists, every one numbered (the design of the owner's page, 14), each item
-// holding blocks of its own; quotes; tables, in the page's table; rules; and blocks of code between fences (a diagram
-// among them, shown as its source: the page has no library that draws one). In a line: `code`, **strong**, *stressed*
-// and ~~struck~~ words, links, pictures, breaks, and a pointer to a question of the work, `{{name}}`, as the words of a
-// cell's questions tell its agent to write one (decision a-question-stands-where-a-text-points-to-it). What stands in
-// code is text, a pointer too. Nothing written becomes markup the page did not mean (principle agent-writing-is-data):
-// a link leads only to the web or to a view of the page, a picture is drawn only from the web or the page's own server,
-// and any other is shown as it was written.
+// holding blocks of its own; quotes; tables, in the page's table; rules; and blocks of code between fences, a change of
+// files among them drawn as the text it changes (`diff.tsx`) and a diagram shown as its source (the page has no library
+// that draws one). In a line: `code`, **strong**, *stressed* and ~~struck~~ words, links, pictures, breaks, and a
+// pointer to a question of the work, `{{name}}`, as the words of a cell's questions tell its agent to write one
+// (decision a-question-stands-where-a-text-points-to-it). What stands in code is text, a pointer too. Nothing written
+// becomes markup the page did not mean (principle agent-writing-is-data): a link leads only to the web or to a view of
+// the page, a picture is drawn only from the web or the page's own server, and any other is shown as it was written.
 
 import { Fragment, type ReactNode } from 'react';
+
+import { Diff } from './diff';
 
 /// How a piece of a line is set: strong, stressed, struck, and the link it stands in, none where it stands in none.
 type Marks = { strong: boolean; stressed: boolean; struck: boolean; href: string | null };
@@ -33,13 +35,13 @@ type Align = 'left' | 'center' | 'right' | null;
 type Block =
   | { kind: 'paragraph'; pieces: Inline[] }
   | { kind: 'heading'; pieces: Inline[] }
-  | { kind: 'code'; text: string }
+  | { kind: 'code'; text: string; lang: string }
   | { kind: 'quote'; blocks: Block[] }
   | { kind: 'list'; start: number; items: Block[][] }
   | { kind: 'table'; align: Align[]; head: Inline[][]; rows: Inline[][][] }
   | { kind: 'rule' };
 
-const FENCE = /^( {0,3})(`{3,}|~{3,})[^`]*$/;
+const FENCE = /^( {0,3})(`{3,}|~{3,})[ \t]*([^\s`]*)[^`]*$/;
 const HEADING = /^ {0,3}#{1,6}(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
 const RULE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 const ITEM = /^( *)([-*+]|\d{1,9}[.)])(?:[ \t]+(.*))?$/;
@@ -93,14 +95,14 @@ function blocksOf(lines: string[]): Block[] {
     if (fence !== null) {
       // The lines up to a fence of the same sign at least as long, or to the end where none closes it, each with as
       // much of the opening fence's indent taken off as it has.
-      const [, indent, open] = fence;
+      const [, indent, open, lang] = fence;
       const close = new RegExp(`^ {0,3}${open[0]}{${open.length},}[ \\t]*$`);
       const body: string[] = [];
       for (i += 1; i < lines.length && !close.test(lines[i]); i++) {
         body.push(lines[i].slice(Math.min(indent.length, indentOf(lines[i]))));
       }
       i += 1;
-      out.push({ kind: 'code', text: body.join('\n') });
+      out.push({ kind: 'code', text: body.join('\n'), lang: lang.toLowerCase() });
       continue;
     }
     const heading = HEADING.exec(line);
@@ -484,9 +486,13 @@ function drawBlocks(blocks: Block[], pointers: Pointers | undefined, held: Set<s
     switch (block.kind) {
       case 'code':
         drawn.push(
-          <pre key={key} className="content">
-            <code>{block.text}</code>
-          </pre>,
+          block.lang === 'diff' ? (
+            <Diff key={key} text={block.text} />
+          ) : (
+            <pre key={key} className="content">
+              <code>{block.text}</code>
+            </pre>
+          ),
         );
         break;
       case 'heading':
