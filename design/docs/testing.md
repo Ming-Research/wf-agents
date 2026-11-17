@@ -245,12 +245,14 @@ of each part.
     trial goes so: the work is let on and paused again as soon as its round has begun, so that the round ends and the
     next one waits.
 
-34. What an agent thinks of a cell is asked after its round, in a fork of its session with no tools and nothing of the
-    work changed; the round itself runs as usual, and the agent is not told it is being tested. The fork is asked only
-    about the cell's text: which words can be read another way, what is missing or unneeded, how to fix each, quoting
-    the text. An agent that knows it is being tested does not do what it would in real work (an inference, not
-    measured). The return cannot show which words can be read another way; the fork, holding everything the round saw,
-    can. Asking why it acted as it did is refused whole by the model's safety check (it happened on 2026-11-08).
+34. What an agent thinks of a cell is asked after its round, in a fork of its session, nothing of the work changed:
+    `wf-agents fork` asks it through the engine, on the command line of the session's last round, every use of a tool
+    refused (decision a-fork-keeps-the-sessions-tools); the round itself runs as usual, and the agent is not told it is
+    being tested. The fork is asked only about the cell's text: which words can be read another way, what is missing or
+    unneeded, how to fix each, quoting the text. An agent that knows it is being tested does not do what it would in
+    real work (an inference, not measured). The return cannot show which words can be read another way; the fork,
+    holding everything the round saw, can. Asking why it acted as it did is refused whole by the model's safety check
+    (it happened on 2026-11-08).
 
 35. What is read of each round is read where it shows: its inputs on the round's panel, as they were sent, and in its
     line's system prompt, against what its cell names and the order the flow declares (principle cache-order); its
@@ -274,5 +276,5 @@ of each part.
     its lines' sessions is forked, as 34 says, and asked about the rules it worked under.
 
 39. Not built: a round's panel showing first what was new to it (document `the-owners-page`, 3), and a work's cost by
-    kind of token (the same, 4); asking a fork of a round's session about its cell's text, which is done by hand;
-    and walking a changed flow without acting (document `changed-flow-walks-the-records`, 3).
+    kind of token (the same, 4); and walking a changed flow without acting (document `changed-flow-walks-the-records`,
+    3).

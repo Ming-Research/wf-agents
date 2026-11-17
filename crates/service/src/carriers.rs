@@ -100,6 +100,16 @@ pub trait Rounds: Send + Sync {
         None
     }
 
+    /// Asks a fork of the session the round ran in a question (design document `testing`, 34), as the planner asks
+    /// it: what the fork answered, or why it could not be asked. It is called off the loop, as [`Rounds::told`] is,
+    /// and takes no slot. Rounds carried out in no session have none to fork, as by default.
+    fn fork(&self, fork: Fork) -> Pin<Box<dyn Future<Output = Result<Forked, String>> + Send + '_>> {
+        let _ = fork;
+        Box::pin(async {
+            Err("these rounds are carried out in no session, which a fork could be asked of".to_string())
+        })
+    }
+
     /// Sends the session a keep-warm ping, which only keeps its prompt cache from letting it go while its line waits:
     /// the reply says once what it took, or why it failed. Rounds carried out in no session are given none; by default
     /// a ping fails, saying so.
@@ -119,6 +129,37 @@ pub trait Rounds: Send + Sync {
         let _ = release;
         reply.released();
     }
+}
+
+/// A fork of a round's session, asked a question: the work as it is kept, its flow and item, the run and the round of it
+/// whose session is forked, the question, and whether the work has ended.
+#[derive(Clone, Debug)]
+pub struct Fork {
+    pub work: WorkNumber,
+    pub flow: Arc<Compiled>,
+    pub item: Item,
+    pub kept: Arc<Work>,
+    pub run: RunId,
+    pub round: usize,
+    pub question: String,
+    pub ended: bool,
+}
+
+/// What a fork answered: its return, as JSON, where it wrote one, and what its program said at its end; what the fork
+/// cost, in millionths of a dollar; what its first call read from the cache, and what the session held, the context its
+/// last round ended with, in tokens, where each is known; how many minutes before the session's cache had expired, its
+/// last call, by a round or a keep-warm ping, more than the cache's life before, where it had; the later rounds the
+/// session holds, by run and number; and the file the answer is kept in.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Forked {
+    pub answer: Option<String>,
+    pub text: String,
+    pub usd_micros: u64,
+    pub read: Option<u64>,
+    pub held: Option<u64>,
+    pub expired: Option<u64>,
+    pub later: Vec<(RunId, usize)>,
+    pub kept: String,
 }
 
 /// A keep-warm ping of the session of this number of a line of the work.
