@@ -9,11 +9,12 @@ import { read, write } from './kept';
 /// The key under which the page keeps a width.
 export const WIDTH_KEYS = {
   names: 'wf-agents.names-width',
-  /// The flow's chart and a work's history, which draws the flow's cells as it does: each cell's column, which starts as
-  /// wide as its marks.
+  /// The flow's chart: each cell's column, which starts as wide as its marks.
   flowCells: 'wf-agents.flow-cell-widths',
-  /// The history of a work: its column of names, of what woke each run or the act.
+  /// The history of a work: its column of names, of what woke each run, and each cell's column, which holds one mark and
+  /// starts narrower than the flow chart's.
   historyNames: 'wf-agents.history-names-width',
+  historyCells: 'wf-agents.history-cell-widths',
   /// The flow view's window, the console's (`Drawer`), which keeps its own width under its own key.
   flowWindow: 'wf-agents.flow-window-width',
   /// The window of an item, the console's and a work's page's alike, which show the same item window.

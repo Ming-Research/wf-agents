@@ -40,6 +40,10 @@ export const HISTORY_MARKS: MarkKey[] = [
   'stopped',
 ];
 
+/// The width of a cell's column at first, which holds one mark and the arrows through it, and the least it is dragged
+/// to.
+const CELLS = { first: 36, min: 28 };
+
 /// The width of the column of names at first, and the least and most it is dragged to.
 const NAMES = { first: 240, min: WIDTHS.namesMin, max: WIDTHS.namesMax };
 
@@ -75,11 +79,11 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
   const cells = page.flow.cells;
   const frame = useRef<HTMLDivElement>(null);
   const [lead, setLead] = useKeptWidth(WIDTH_KEYS.historyNames, NAMES.min, NAMES.max);
-  const [widths, setWidth] = useKeptWidths(WIDTH_KEYS.flowCells, FLOW_WIDTHS.cell, WIDTHS.cellMax);
+  const [widths, setWidth] = useKeptWidths(WIDTH_KEYS.historyCells, CELLS.min, WIDTHS.cellMax);
   const [pointed, setPointed] = useState<number | null>(null);
   useWheel(frame);
   const leadWidth = lead ?? NAMES.first;
-  const widthOf = (id: string) => widths[id] ?? FLOW_WIDTHS.cell;
+  const widthOf = (id: string) => widths[id] ?? CELLS.first;
   const taken = cells.reduce((sum, cell) => sum + widthOf(cell.id), leadWidth);
   // Under the window the table keeps its whole width, as the flow's chart does (styles/chart.css).
   const size = { width: 'calc(100% + var(--window-covers, 0px))', minWidth: taken + FLOW_WIDTHS.words };
