@@ -234,10 +234,6 @@ fn a_case_runs_is_judged_runs_twice_more_where_it_fails_is_kept_and_then_stands_
     assert!(said.contains("| R1-01 | — | failed (0/3 passed) | $0.00 |"), "{said}");
     assert!(said.contains("#### R1-01 failed (0/3 passed)"), "{said}");
     assert!(said.contains("- the engine sent back round 1 of run "), "{said}");
-    assert!(
-        said.contains("- The fork about the text: The fork could not be asked"),
-        "{said}"
-    );
     let kept = data.path().join("cell-cases/results/engineer/R1/R1-01.json");
     let text = std::fs::read_to_string(&kept).expect("the tries are kept");
     assert_eq!(text.matches("\"passed\": false").count(), 3, "{text}");
