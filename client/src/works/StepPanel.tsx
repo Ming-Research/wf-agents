@@ -1,5 +1,6 @@
 // The Step of the item's window on a work's page: everything about the row of the work's history the owner chose. Of a
-// run: how it ended or stands, when it began and how long it took, what it took, what its rounds ran on and the sessions
+// run: how it ended or stands, where the work waits at it for the calls of tools in the words the work's state says
+// that in everywhere, when it began and how long it took, what it took, what its rounds ran on and the sessions
 // they ran in, with each new session it began and why; why it ran; the versions it started from, those new to it first;
 // what it handed in, each version's content opened where it stands; each round, with what it was given (the reasons a
 // return was sent back among them), what came back, what it ran on, took, was filled with, was told and returned; and
@@ -11,17 +12,19 @@ import { Fragment, type ReactNode, useCallback } from 'react';
 
 import { ListRow, PanelPart, Sign, StatusLine } from '../parts';
 import type { CallRow, Doing, Handed, Round, RoundPage, Run, Step, ToldPage, WorkPage } from '../works-api';
-import { Parts } from './History';
-import { RunMarkSign, Opener } from './marks';
-import { type HistoryRow, type Part, type SessionStep, runMark } from './placing';
+import { CallsTook, Opener, Parts, RunMarkSign } from './marks';
+import { type HistoryRow, type SessionStep, runMark } from './placing';
 import { ContextKeys, DoingNow, Filled, Keys, MissedKeys, RanKeys, SystemPrompt, TookKeys } from './Round';
 import type { RunMark } from './state-marks';
 import { RoundTold } from './Told';
 import {
+  type Part,
   RUN_MARK_WORDS,
   askWords,
   callState,
+  callWaitParts,
   callWords,
+  callsWaited,
   causeRest,
   clock,
   duration,
@@ -303,6 +306,8 @@ function RunStep({ run, mark, began, page, reader, shown }: {
   const now = Date.now();
   const end = run.end;
   const wayRound = isWayRound(run);
+  // The calls of tools the work waits at this run for, where it does: the run then stands as the work does.
+  const calls = mark === 'calling' ? callsWaited(page.summary) : [];
   // What its rounds ran on and the sessions they ran in, each once, in the order its rounds first did.
   const ranOn = [
     ...new Map(
@@ -328,7 +333,10 @@ function RunStep({ run, mark, began, page, reader, shown }: {
     <>
       <div className="status-line">
         <RunMarkSign mark={mark} />
-        <span className="status-word">{standWords(run, mark)}</span>
+        <span className="status-word">
+          {calls.length > 0 ? <Parts parts={callWaitParts(calls)} /> : standWords(run, mark)}
+        </span>
+        {calls.length > 0 && <CallsTook work={page.summary} />}
         <span className="mono">{run.cell}</span>
         {cell !== undefined && <span>{cell.title}</span>}
         <span className="mono muted">run {run.run}</span>
@@ -385,13 +393,7 @@ function RunStep({ run, mark, began, page, reader, shown }: {
         </ul>
       </PanelPart>
       <PanelPart label="Handed in" last>
-        {end === null && (
-          <p className="muted">
-            {mark === 'running'
-              ? 'Nothing yet: a round of it is under way'
-              : `Nothing yet${run.calls.some((c) => c.done === null) ? ': it rests at a call with no result yet' : ''}`}
-          </p>
-        )}
+        {end === null && <p className="muted">Nothing yet</p>}
         {end?.kind === 'abandoned' && <p>Abandoned {clock(end.time)}; it wrote nothing</p>}
         {end?.kind === 'finished' && (
           <>

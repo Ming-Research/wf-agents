@@ -87,6 +87,11 @@
   background: var(--running);
 }
 
+/* A work that waits for the calls of tools the engine carries out: the yellow of a call under way. */
+.now-calling .now-dot {
+  background: var(--yellow);
+}
+
 /* What waits for the owner and what the engine halted are both a stop: red, the one colour of a stop. */
 .now-owner .now-dot {
   background: var(--red);

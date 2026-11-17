@@ -16,9 +16,9 @@ import { BackArrow, CellHead, FLOW_WIDTHS, WIDTHS, WordsHead, useWheel } from '.
 import { Arrow, Edge, Sign } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
 import type { WorkPage } from '../works-api';
-import { type HistoryRow, type Part, type RowMark, partsText } from './placing';
-import { RunMarkSign } from './marks';
-import { RUN_MARK_WORDS, SIGNED_WORDS, dayOf, fullTime, minuteOf } from './words';
+import { type HistoryRow, type RowMark } from './placing';
+import { Parts, RunMarkSign } from './marks';
+import { RUN_MARK_WORDS, SIGNED_WORDS, dayOf, fullTime, minuteOf, partsText } from './words';
 
 /// The width of the column of times at first, and the least and most it is dragged to.
 const TIMES = { first: 96, min: 56, max: 200 };
@@ -35,23 +35,6 @@ function backAt(back: HistoryRow['back'], column: number): 'right' | 'through' |
   if (column === back.to) return 'right';
   if (column === furthest) return 'left';
   return column > back.to && column < furthest ? 'through' : null;
-}
-
-/// A line of pieces, each name or value in monospace.
-export function Parts({ parts }: { parts: Part[] }) {
-  return (
-    <>
-      {parts.map((p, i) =>
-        typeof p === 'string' ? (
-          p
-        ) : (
-          <span key={i} className="mono">
-            {p.name}
-          </span>
-        ),
-      )}
-    </>
-  );
 }
 
 /// What a row's mark under a cell says, on the pointer's tip and to a reader of the screen.

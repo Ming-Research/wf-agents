@@ -18,13 +18,7 @@
 
 import type { Block, Item, Run, Step, Summary, WorkPage } from '../works-api';
 import { type RunMark } from './state-marks';
-import { STATE, isWayRound, plain, sentence, stateOf, stoppedAt } from './words';
-
-/// A piece of a row's line: the page's own words, or a name or a value as the files write it, drawn in monospace.
-export type Part = string | { name: string };
-
-/// A line of pieces as one text, for the pointer's tip.
-export const partsText = (parts: Part[]): string => parts.map((p) => (typeof p === 'string' ? p : p.name)).join('');
+import { type Part, STATE, isWayRound, plain, sentence, stateOf, stoppedAt } from './words';
 
 /// The mark a row has under a cell: a run's, how it ended or stands; the owner's sign, of an act that ran the cell or
 /// let it go on; the outside's sign, of a write that ran the cell.

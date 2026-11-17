@@ -58,7 +58,7 @@ import {
   type Waited,
   type WorkPage,
 } from '../works-api';
-import { StateLegend, Strip } from '../works/marks';
+import { CallsTook, Parts, StateLegend, Strip } from '../works/marks';
 import { type Wait, type WaitAct, actOf, drawnInBody, waitsOf } from '../works/waiting';
 import {
   CANCEL_DOES,
@@ -70,6 +70,7 @@ import {
   WRITE_WORDS,
   standingCell,
   stateOf,
+  stateParts,
   stoppedAt,
   waitedWords,
 } from '../works/words';
@@ -195,10 +196,12 @@ function CellName({ cell, page }: { cell: string; page: WorkPage | null }) {
 type Tone = ItemStanding | WorkTone;
 
 /// The dot of each tone, as the look's status line colours it: red for a stop, a work that waits for the owner or one
-/// the engine halted, as its card is; grey for one that waits for anything else.
+/// the engine halted, as its card is; the yellow of a call for one that waits for the calls of tools; grey for one that
+/// waits for anything else.
 const DOT: Record<Tone, string> = {
   open: 'dot dot-running',
   running: 'dot dot-running',
+  calling: 'dot dot-calling',
   done: 'dot dot-added',
   owner: 'dot dot-removed',
   failed: 'dot dot-removed',
@@ -700,15 +703,17 @@ function Progress({ w, page }: { w: Summary; page: WorkPage | null }) {
   );
 }
 
-/// The work's state line, one line, the same part for every state: its dot and the word of its state, the cell it
-/// stands at where the engine's state names one, as a cell is shown everywhere; where it waits for the items its item
-/// depends on, which, as the engine gives them, those cancelled said so; and the work.
+/// The work's state line, one line, the same part for every state: its dot and the word of its state, the calls of
+/// tools it waits for with a link to where each runs, and how long it has waited for them; the cell it stands at where
+/// the engine's state names one, as a cell is shown everywhere; where it waits for the items its item depends on,
+/// which, as the engine gives them, those cancelled said so; and the work.
 function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
-  const { tone, word, cell } = stateOf(w);
+  const { tone, cell } = stateOf(w);
   const now = w.now;
   const items = now.kind === 'waits' ? now.on.filter((x) => x.kind === 'items') : [];
   return (
-    <Line tone={tone} word={word}>
+    <Line tone={tone} word={<Parts parts={stateParts(w)} />}>
+      {tone === 'calling' && <CallsTook work={w} />}
       {cell !== null && <CellName cell={cell} page={page} />}
       {items.map((x, i) => (
         <span key={i} className="muted">

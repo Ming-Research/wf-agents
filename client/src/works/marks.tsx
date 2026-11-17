@@ -1,7 +1,8 @@
 // The marks of the works page: how a cell stands for a work, as a small square in the colour of its state, and the
 // strip of one such mark per cell of a work's flow; how a run in a work's history ended or stands, in the same marks,
-// and the legend of the history's marks and signs; the line of what a work does now, a dot in its tone and its words;
-// and a part that opens a content, or anything read, only when the owner asks for it.
+// and the legend of the history's marks and signs; the line of what a work does now, a dot in its tone and its words,
+// and how long a work has waited for the calls of tools, kept current; a line of pieces of words; and a part that
+// opens a content, or anything read, only when the owner asks for it.
 
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 
@@ -9,17 +10,63 @@ import { Sign } from '../parts';
 import type { CellNow, CellState, Summary } from '../works-api';
 import { RUN_MARKS, type RunMark, lookStyle, markStyle, pulsing, runPulsing, stripStyle } from './state-marks';
 import {
+  type Part,
   RUN_MARK_WORDS,
   SIGNED_WORDS,
   STATE,
   STATE_WORDS,
   STOPPED_WORDS,
   UNDER_WAY_WORDS,
+  callsTook,
+  callsWaited,
   nowTone,
   nowWords,
   stateOf,
   stateWords,
 } from './words';
+
+/// A line of pieces, each name or value in monospace, and a link out of the page opened beside it.
+export function Parts({ parts }: { parts: Part[] }) {
+  return (
+    <>
+      {parts.map((p, i) =>
+        typeof p === 'string' ? (
+          p
+        ) : 'name' in p ? (
+          <span key={i} className="mono">
+            {p.name}
+          </span>
+        ) : (
+          <a key={i} className="link" href={p.href} target="_blank" rel="noreferrer">
+            {p.link}
+          </a>
+        ),
+      )}
+    </>
+  );
+}
+
+/// The time now, kept current each second while `on`: how long a work has waited for the calls of tools is said where
+/// the work is shown, and would otherwise stand still until something else changed.
+function useNow(on: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!on) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [on]);
+  return now;
+}
+
+/// How long a work has waited for the calls of tools it waits for, kept current; nothing where it waits for none, or
+/// the engine does not say when they were made.
+export function CallsTook({ work }: { work: Pick<Summary, 'now'> }) {
+  const calls = callsWaited(work);
+  const now = useNow(calls.length > 0);
+  const took = callsTook(calls, now);
+  return took === null ? null : <span className="muted">{took}</span>;
+}
 
 /// A cell's state as a square: filled when it ran or runs, hollow when still to run, a dash when skipped; filled in red
 /// where the work is `stopped` at it. Running and a call under way pulse. Its look is `state-marks.ts`'s, which the
@@ -118,14 +165,16 @@ export function pauseDiffers(work: Pick<Summary, 'now' | 'cells' | 'waits' | 'pa
   return work.paused === 'owner' && !ended && word !== STATE.paused;
 }
 
-/// What a work does now: a dot in its tone, its state's words, the state's word first, from the one catalogue, and why,
-/// but where it stands in a column of states, which holds the state alone (principle a-column-holds-what-is-alike);
-/// and its pause where the state says something else.
+/// What a work does now: a dot in its tone, its state's words, the state's word first, from the one catalogue, with how
+/// long it has waited for the calls of tools it waits for, kept current, and why, but where it stands in a column of
+/// states, which holds the state alone (principle a-column-holds-what-is-alike); and its pause where the state says
+/// something else.
 export function NowLine({ work, why = true }: {
   work: Pick<Summary, 'now' | 'cells' | 'waits' | 'paused'>;
   why?: boolean;
 }) {
-  const words = why ? nowWords(work) : stateWords(work);
+  const now = useNow(callsWaited(work).length > 0);
+  const words = why ? nowWords(work, now) : stateWords(work, now);
   return (
     <span className={`now now-${nowTone(work)}`} title={words}>
       <span className="now-dot" aria-hidden="true" />
