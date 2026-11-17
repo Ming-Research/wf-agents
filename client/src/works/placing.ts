@@ -12,7 +12,6 @@
 
 import type { Flow } from '../api';
 import type { Block, Item, Run, Step, Summary } from '../works-api';
-import { waitsOnOwner } from './waiting';
 import { isWayRound } from './words';
 
 /// What a row marks in a cell's column besides a run: the cell reads the block written, its condition reads it, or it
@@ -107,25 +106,43 @@ export function findRun(steps: Step[], run: number): Run | undefined {
   return runsOf(steps).find((r) => r.run === run);
 }
 
-/// Where a work stands in the list: what waits for the owner first, as the engine's one list of it says, then a fault or
-/// a stall, then what goes on by itself, then what the owner paused, then what has ended.
-export function rank(summary: Summary): number {
-  const now = summary.now;
-  if (waitsOnOwner(summary)) return 0;
-  if (now.kind === 'fault' || now.kind === 'stalled') return 1;
-  if (now.kind === 'merged' || now.kind === 'cancelled') return 4;
-  if (summary.paused || now.kind === 'paused' || now.kind === 'everything') return 3;
-  return 2;
-}
-
 export interface ListedWork {
   item: Item;
   work: Summary;
 }
 
-/// The work of every item, in the list's order: by rank, and within a rank what happened last first.
-export function orderWorks(items: Item[]): ListedWork[] {
+/// What the list of works can be ordered by, each a column of it: the item's number, what the work cost, how long its
+/// rounds were under way, and when something last happened to it.
+export type OrderBy = 'item' | 'cost' | 'time' | 'last';
+
+/// An order of the list: by a column, the largest first (`down`) or the smallest (`up`).
+export interface Order {
+  by: OrderBy;
+  way: 'down' | 'up';
+}
+
+/// The list's order until the owner picks another: what happened last first.
+export const LAST_FIRST: Order = { by: 'last', way: 'down' };
+
+/// The value a work is ordered by; a work to which nothing has happened yet is the oldest.
+function valueOf({ item, work }: ListedWork, by: OrderBy): number {
+  switch (by) {
+    case 'item':
+      return item.number;
+    case 'cost':
+      return work.spent.usdMicros;
+    case 'time':
+      return work.spent.workingMs;
+    case 'last':
+      return work.last ?? 0;
+  }
+}
+
+/// The work of every item, in this order, works of one value by their items' numbers in the same direction. Nothing of
+/// a work's state orders it.
+export function orderWorks(items: Item[], order: Order = LAST_FIRST): ListedWork[] {
+  const sign = order.way === 'down' ? -1 : 1;
   return items
     .map((item) => ({ item, work: item.work }))
-    .sort((a, b) => rank(a.work) - rank(b.work) || (b.work.last ?? 0) - (a.work.last ?? 0) || a.work.number - b.work.number);
+    .sort((a, b) => sign * (valueOf(a, order.by) - valueOf(b, order.by) || a.item.number - b.item.number));
 }

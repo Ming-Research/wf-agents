@@ -454,9 +454,16 @@ export function Sign({ name, className }: { name: SignName; className?: string }
   );
 }
 
-/// An arrow that says which way a label's things run, to the right or down, drawn by the page as the signs are, in the
-/// colour of the words round it; the words say what it means.
-export function Arrow({ to }: { to: 'right' | 'down' }) {
+/// The arrow's path for each way it points, on a box 12 wide.
+const ARROWS = {
+  right: 'M1.5 6h9M7 2.5 10.5 6 7 9.5',
+  down: 'M6 1.5v9M2.5 7 6 10.5 9.5 7',
+  up: 'M6 10.5v-9M2.5 5 6 1.5 9.5 5',
+} as const;
+
+/// An arrow that says which way a label's things run, to the right, down or up, drawn by the page as the signs are, in
+/// the colour of the words round it; the words say what it means.
+export function Arrow({ to }: { to: keyof typeof ARROWS }) {
   return (
     <svg
       className="label-arrow"
@@ -468,7 +475,7 @@ export function Arrow({ to }: { to: 'right' | 'down' }) {
       strokeWidth="1.25"
       aria-hidden="true"
     >
-      <path d={to === 'right' ? 'M1.5 6h9M7 2.5 10.5 6 7 9.5' : 'M6 1.5v9M2.5 7 6 10.5 9.5 7'} />
+      <path d={ARROWS[to]} />
     </svg>
   );
 }

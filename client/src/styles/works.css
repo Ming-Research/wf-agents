@@ -147,7 +147,30 @@
   height: var(--row);
   padding: var(--space-4) var(--space-12);
   border-bottom: var(--hairline) solid var(--line);
+  white-space: nowrap;
   vertical-align: middle;
+}
+
+/* The head of a column that orders the list: its name as a label, pressed to order the list by it, and the arrow of
+   the order while it orders the list; under the pointer its head is filled with the accent's tint. */
+.order-head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0;
+  border: 0;
+  background: none;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.works th:has(> .order-head) {
+  transition: background-color var(--hover-time);
+}
+
+.works th:has(> .order-head:hover) {
+  background: var(--accent-tint);
 }
 
 .work-row {
@@ -164,6 +187,14 @@
   box-shadow: inset var(--focus) 0 var(--red);
 }
 
+/* The title takes all the room the other columns leave, on one line, cut at its edge where the window is too narrow. */
+.work-title {
+  width: 100%;
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .work-title a {
   color: var(--text);
   font-weight: var(--weight-strong);
@@ -174,37 +205,39 @@
   text-decoration: underline;
 }
 
-/* What it does now takes what the other columns leave, cut to one line. */
-.work-now {
-  width: 40%;
-  max-width: 0;
+/* The legend of the strip's marks stays on one line. */
+.works-legend {
+  flex: none;
 }
 
-/* Below a tablet's width the strip and what was taken give their room to the words, which wrap to two lines; below a
-   phone's, when it last happened gives its room too. */
+.works-legend .legend {
+  flex-wrap: nowrap;
+}
+
+/* Below a wide window the strip, its legend and the levels give their room to the title; below a tablet's width the
+   cost and the time give theirs too, and the state shares the room with the title, cut at its edge; below a phone's,
+   when it last happened gives its room too. */
+@media (width < 1200px) {
+  .works .col-cells,
+  .works .col-level,
+  .works-legend {
+    display: none;
+  }
+}
+
 @media (width < 760px) {
-  .works th:nth-child(4),
-  .works td:nth-child(4),
-  .works th:nth-child(5),
-  .works td:nth-child(5) {
+  .works .col-taken {
     display: none;
   }
 
-  .work-now {
-    width: 50%;
-  }
-
-  .work-now .now-words {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    white-space: normal;
+  .works td.col-state {
+    width: 40%;
+    max-width: 0;
   }
 }
 
 @media (width < 480px) {
-  .works th:nth-child(6),
-  .works td:nth-child(6) {
+  .works .col-last {
     display: none;
   }
 }

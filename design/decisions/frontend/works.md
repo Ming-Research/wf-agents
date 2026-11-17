@@ -38,3 +38,16 @@ a-version-is-told-by-the-line-that-wrote-it): the owner, the run that wrote it, 
 Why: The record of a write from outside names no one, the owner's words, a cell's ask and the owner's answer all being
 written by the engine's sources, so by the record alone the owner's words read as the outside's; a rule of the page's
 own would be a second copy, which could name another writer than the round is told (principle one-thing-one-place).
+
+### decision the-list-is-ordered-by-a-column
+The list of works is ordered by one of its columns, when something last happened, the latest first, until the owner
+presses the head of another; nothing of a work's state orders it.
+Why: The list is the record of every work, for the owner to look back at, and what needs the owner now is the
+console's (principle the-console-is-where-the-owner-works). Putting first what waits for the owner, then a fault, what
+goes on, what is paused and what has ended was turned down: an order no head of the list shows is hidden from the owner.
+
+### decision an-engine-cell-has-no-level
+The level of the cell a work stands at, which the engine gives with the work's own, is none at an engine cell, as at no
+cell at all.
+Why: A level chooses the model an agent's rounds run on (decision a-level-is-a-difficulty), and an engine cell's act
+runs on none; given the item's level, the list would say that a model of that level runs the merge.

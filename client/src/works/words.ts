@@ -487,11 +487,41 @@ export function sentence(text: string): string {
 /// backticks that mark them (a card draws them in the monospace, by `Coded` in `parts.tsx`).
 export const plain = (text: string): string => text.replace(/`([^`\n]+)`/g, '$1');
 
-/// What a work does now, in a line of the Works list: its state's word, the cell where the state names one, once, and
-/// why: for what waits on the owner, the engine's reasons, each a sentence; for a fault or a stall, what is wrong, a
-/// stall as the engine says it; for what waits on another, what it waits for.
-export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
+/// What the head of a column of the Works list says on pointing at it: of a column that orders the list, the order a
+/// press gives it, by `down`, the largest first, or `up`; of a column of levels, what the level is and what a dash
+/// says.
+export const LIST_HEADS = {
+  item: { down: 'Order by item, the newest first', up: 'Order by item, the oldest first' },
+  cost: { down: 'Order by cost, the dearest first', up: 'Order by cost, the cheapest first' },
+  time: {
+    down: 'Order by the time its rounds took, the longest first',
+    up: 'Order by the time its rounds took, the shortest first',
+  },
+  last: {
+    down: 'Order by when something last happened, the latest first',
+    up: 'Order by when something last happened, the earliest first',
+  },
+  level:
+    "The level its rounds run at: its item's, or the default where the item has none; a dash where the engine cannot say it",
+  cellLevel:
+    "The level the cell it stands at runs at, its line raising it above the work's; a dash where it stands at no agent's cell",
+} as const;
+
+/// What a column of levels holds where the engine gives no level.
+export const NO_LEVEL = '–';
+
+/// A work's state in a line: its state's word, and the cell where the state names one; as the Works list's column of
+/// states says it, `Paused · R0`, `Merged`.
+export function stateWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
   const { word, cell } = stateOf(s);
+  return cell ? `${word} · ${cell}` : word;
+}
+
+/// What a work does now, in its view's line: its state's words, and why: for what waits on the owner, the engine's
+/// reasons, each a sentence; for a fault or a stall, what is wrong, a stall as the engine says it; for what waits on
+/// another, what it waits for.
+export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
+  const { word } = stateOf(s);
   const now = s.now;
   const waits = waitsOf(s);
   const why =
@@ -504,7 +534,7 @@ export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
           : now.kind === 'waits' && word !== STATE.running
             ? now.on.map(waitedWords).join('; ')
             : null;
-  return [word, cell, why === null ? null : plain(why)].filter((x) => x !== null && x !== '').join(' · ');
+  return [stateWords(s), why === null ? null : plain(why)].filter((x) => x !== null && x !== '').join(' · ');
 }
 
 /// The tone of what a work does now, as its state takes it (`stateOf`).

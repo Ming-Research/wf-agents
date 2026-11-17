@@ -236,6 +236,14 @@ export interface Summary {
   /// count, each item's mark, the cards and the notifications read, and nothing else. Absent from an engine that does
   /// not give it yet.
   waits?: Wait[];
+  /// The level its rounds run at, by the engine's rule that gives a round its level: its item's, or the default where
+  /// its item has none; none where the rule refuses it, the item's level being none an item may be at. Absent from
+  /// made-up data, as none.
+  level?: string | null;
+  /// The level the rounds of the cell it stands at run at, by the same rule: its level raised as far as the cell's line
+  /// says, never above the highest an item may be at; none where it stands at no cell, as a work that ended, at an
+  /// engine cell, whose acts run on no level, or where the rule refuses its level. Absent from made-up data, as none.
+  cellLevel?: string | null;
 }
 
 /// One thing a work waits on the owner for: its key within the work, which a notification's address and the card that

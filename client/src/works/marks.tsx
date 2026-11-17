@@ -6,7 +6,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import type { CellNow, CellState, Summary } from '../works-api';
 import { markStyle, pulsing, stripStyle } from './state-marks';
-import { STATE, STATE_WORDS, STOPPED_WORDS, UNDER_WAY_WORDS, nowTone, nowWords, stateOf } from './words';
+import { STATE, STATE_WORDS, STOPPED_WORDS, UNDER_WAY_WORDS, nowTone, nowWords, stateOf, stateWords } from './words';
 
 /// A cell's state as a square: filled when it ran or runs, hollow when still to run, a dash when skipped; filled in red
 /// where the work is `stopped` at it. Running and a call under way pulse. Its look is `state-marks.ts`'s, which the
@@ -66,10 +66,14 @@ export function pauseDiffers(work: Pick<Summary, 'now' | 'cells' | 'waits' | 'pa
   return work.paused === 'owner' && !ended && word !== STATE.paused;
 }
 
-/// What a work does now: a dot in its tone, its state's words, the state's word first, from the one catalogue; and its
-/// pause where the state says something else.
-export function NowLine({ work }: { work: Pick<Summary, 'now' | 'cells' | 'waits' | 'paused'> }) {
-  const words = nowWords(work);
+/// What a work does now: a dot in its tone, its state's words, the state's word first, from the one catalogue, and why,
+/// but where it stands in a column of states, which holds the state alone (principle a-column-holds-what-is-alike);
+/// and its pause where the state says something else.
+export function NowLine({ work, why = true }: {
+  work: Pick<Summary, 'now' | 'cells' | 'waits' | 'paused'>;
+  why?: boolean;
+}) {
+  const words = why ? nowWords(work) : stateWords(work);
   return (
     <span className={`now now-${nowTone(work)}`} title={words}>
       <span className="now-dot" aria-hidden="true" />
