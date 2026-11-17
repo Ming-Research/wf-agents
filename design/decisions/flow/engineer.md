@@ -60,3 +60,13 @@ research that handed in no plan, or an implementation that handed in nothing, le
 reviewed, holding the research's commits or nothing, whose CI passed and which merged. The old flow merged only after
 its review approved. The answer to a question the check asks is asked in the implementation's questions, and the
 implementation may have nothing to do for it: run only by what it writes, the check never looked again.
+
+### decision no-cell-runs-the-cell-cases
+No cell of the engineer flow runs the cell cases of a work that changes a cell's text: before the owner's yes at its
+merge, the assistant runs them with `wf-agents cases run` and posts what they found in the work's pull request (design
+document `testing`, 16).
+Why: Such a work changes files under `flow/`, which the project protects, so its merge waits for the owner's yes
+already. A cell of the engine's own that ran them before the check before the merge, its verdict among what the check
+of what is settled reads and its results among what the check describes, was turned down: every step of the flow that
+runs them needs a mechanism the engine does not have, an act that runs agents' rounds, which the owner's yes on the
+protected paths makes needless.

@@ -91,64 +91,91 @@ of each part.
     wrong becomes a case.
 
 12. **Its data and its session.** A case's data are made for it, covering each kind of work the flow serves so that the
-    words are not tuned to one project's works, in a repository made for the tests; or taken as they were from the
-    latest work of the installation that had them. Every case runs in the form its situation takes after its line's
-    session is reopened: in a new session, where a cell of the line that only reads the tree runs first and writes
-    nothing, and the cell is then filled from the top with all its data ask for (design document `data-and-context`, 15,
-    25). Every work can reach that form, and nothing a round before it wrote stands beside the case's data; how the cell
-    reads the same situation in a session that still holds earlier rounds, with what they read and reasoned, only a
-    trial shows. A judgment is tested on data whose answer is known: a review on a plan that leaves a condition of the
-    item unmet, which it must fail with a point that names it, and on one it must pass. A case and what it says the cell
-    owes are made by an agent that did not write the cell's words. Made cases are kept beside the flows as scripts are
-    (21), and come in by a pull request, reviewed as any change is; cases taken from works, which hold the owner's
-    language and the installation's own data, stay in its data directory (principle harness-only), what each says the
-    cell owes reviewed by the work that adds it.
+    words are not tuned to one project's works, in a made project; or taken as they were from the latest work of the
+    installation that had them. A case gives them as they were written, in order, each by the round of the cell that
+    handed it in, the owner's act, or main moving, with what the case's cell is then entered for and whether it ran
+    before; the engine itself brings the case to that situation, the history's rounds handed in as the case says and
+    each read as the engine reads an agent's return, so that what the cell is sent, its session and the checks of its
+    return are the engine's own. Every case runs in the form its situation takes after its line's session is reopened:
+    in a new session, where a cell of the line that only reads the tree runs first and writes nothing, and the cell is
+    then filled from the top with all its data ask for (design document `data-and-context`, 15, 25). Every work can
+    reach that form, and nothing a round before it wrote stands beside the case's data; how the cell reads the same
+    situation in a session that still holds earlier rounds, with what they read and reasoned, only a trial shows. A
+    form of the case without tools, or without the line's reading round, does not stand in for it: of 80 runs of cases
+    in one call with no tool, each taken from a full run that failed, 46 passed. A judgment is tested on data whose
+    answer is known: a review on a plan that leaves a condition of the item unmet, which it must fail with a point
+    that names it, and on one it must pass. A case and what it says the cell owes are made by an agent that did not
+    write the cell's words. Made cases are kept beside the flows as scripts are (21), in `cases/<flow>/`: a file of
+    what the flow's cases share, its made items, texts, sets of blocks and rules among it, and a file for each agent's
+    cell holding its cases; with the words the program asks agents in beside the cases (14, 15), and the made project,
+    a `git fast-export` text of its branches, from which every run imports it with the same commit ids. They come in by
+    a pull request, reviewed as any change is, and wait for the owner's yes as anything under `flow/` does. Cases taken
+    from works, which hold the owner's language and the installation's own data, stay in its data directory (principle
+    harness-only), what each says the cell owes reviewed by the work that adds it.
 
-13. **How it runs.** A program runs each case on an installation apart from the real one, in a copy of a checkout at the
-    case's versions, so that nothing it does reaches a project. It runs the real program on the model of the lowest
-    level of the settings, with the cell's effort; the agent is not told it is tested (34). A call the round asks for is
-    answered with the result the case holds for it, and the case goes on to the round that hands in; a call the case
-    holds no result for fails it. A case whose reading cell's round fails, before its own cell runs, fails as that
-    reading cell's case, and runs again once that one passes. Each case runs once, and one that fails runs twice more,
-    so that a fault of the words is told from one that comes and goes; one that failed only sometimes is recorded as an
-    observation as well (9). A round on the lowest level's model cost $0.0135 on average over the 73 rounds of three
-    small works run with every level on it; on the real installation a round of the second level's model cost $0.1493 on
-    average over 229, and of the third's $0.5126 over 12, and a reading round of this repository's tree, on the second
-    level's model, $0.1724 over 10. So a cell's twenty cases come to well under a dollar on a small project and some
-    dollars on this one, and each case that a reading judges or that runs again on its cell's model (15) adds a round on
-    that model.
+    Turned down: filling the situations `flow situations` writes with a case's data, as the cases were first run by
+    hand, which needs a second copy of the context manager's rules and builds messages in another order than the
+    engine's (it did, and versions were numbered otherwise); records of a case written by hand, which can hold a state
+    no engine reaches (24); and a case as a script of every round before its cell, which ties each case to the routing
+    of the whole flow, where a cell is to be tested on its own data (principle a-cell-knows-only-its-data).
 
-14. **How it is judged.** First mechanically, by the engine's own checks of a return and against what the case says
-    the cell owes: a return sent back, a block owed and left out, a verdict other than the case expects, a point where
-    none is owed, or a version handed in as changing its meaning where what woke the cell asks no change (design
-    document `data-and-context`, 22; decisions meaning-told-by-the-writer and
-    a-return-hands-in-what-its-cell-must-every-time), fails the case. Then, where only reading can judge, such as
-    whether a point names what the case planted, by an agent given the case and the return, on the model the cell
-    runs at or a stronger one (principle the-reviewer-knows-no-less).
+13. **How it runs.** `wf-agents cases run` runs each case on an installation apart from the real one, made for each try
+    of it under the data directory: the real installation's settings, its one project the made one, declared as the
+    real project is, so that the agents are sent the words a real work is sent, its repository a clone of the made
+    project sharing its objects, with no file linked twice, removed once the try is kept. Every act and tool of the case
+    is the case's own, so that nothing reaches a project or its host. It runs the real agents' program on the model and
+    with the effort the case's cell's line runs on, as the flow's levels give them for an item of the default level (a
+    review of the plan and the deep research a level up), and at most ten cases at once; the agent is not told it is
+    tested (34). A call of `run_tests` is answered by the case's rules, written in the words the engine's tool gives a
+    run on GitHub: each test of the commit run, as the made project's tests are found, fails where a rule names it,
+    whether main has it, what the commit's files hold and what the test's own text holds, and passes otherwise. Rules
+    only approximate a run of the code: they do not evaluate what a test asserts. A call of `query` is answered by the
+    tool, of the case's own store; a call of any other tool, or of `run_tests` where the case names no rules, ends the
+    case, failed. A case whose reading cell's round fails, before its own cell runs, fails as that reading cell's case,
+    and runs again once that one passes. Each case runs once, and one that fails runs twice more, so that a fault of the
+    words is told from one that comes and goes; one that failed only sometimes is recorded as an observation as well
+    (9). A round of the second level's model cost $0.1493 on average over 229 on the real installation, and of the
+    third's $0.5126 over 12, and a reading round of this repository's tree, on the second level's model, $0.1724 over
+    10; what a case is expected to cost is its last try's, said before it runs, and a run starts no case once that would
+    pass the bound it is given.
 
-15. **A case that fails** runs again, whole and in a new session, on the model its cell runs at: that of the level of
-    the item its data come from, made data taking the default level, raised by the line's levels above as far as the
-    highest level. It runs there as on the cheaper model, once and twice more where it fails. Where it passes there,
-    the case passes, and its failure on the cheaper model is recorded as an observation of what that model cannot do;
-    where it fails there too, a fork of that round's session is asked about the cell's text (34), and what failed is
-    mended: words that can be read otherwise are rewritten (principle lean-agent-input), a definition that does not
-    give the cell what it needs or a case that expects wrongly is put right, and no exception is made for the case
-    (principle a-cell-knows-only-its-data); where rewriting cannot stop the mistake, principle
-    locate-and-price-the-fix says what may be added. A situation where a real run went wrong and no case held becomes
-    a case.
+14. **How it is judged.** First mechanically, by the engine's own checks of a return, the agents' carrier's among them,
+    and against what the case says the cell owes: a return sent back, a block owed and left out, a verdict other than
+    the case expects, a point where none is owed, or a version handed in as changing its meaning where what woke the
+    cell asks no change (design document `data-and-context`, 22; decisions meaning-told-by-the-writer and
+    a-return-hands-in-what-its-cell-must-every-time), fails the case; and so do, in any case, an answer written in a
+    dialogue the cell holds as the maker, or in its own words, where nothing of it ran the round, and a judge's pass
+    written with points. Then, where only reading can judge, such as whether a point names what the case planted, by an
+    agent given what the case says to judge, the cell's message and its return, on the model the cell runs at
+    (principle the-reviewer-knows-no-less), in the words beside the cases.
 
-16. **When it runs.** A cell's cases run where the text any of its situations is sent changed, as the situations written
-    before and after the change show (5): in the work that makes the change, before it merges, its results in its pull
-    request for the owner, each case passed or failed, with its returns before and after the change side by side for the
-    made cases (principle change-cells-after-their-cases); those of a case taken from a work stay in the data directory
-    with it, since the repository is public. Where the agents' program or the lowest level's model changes, every case
-    runs; where the model of another level changes, the cases whose cell's model is that level's run on it; both before
-    the installation runs the new one, the results shown to the owner first.
+15. **A case that fails**, on the model its cell runs at, has a fork of the session of its last round asked about the
+    cell's text at once (34), and what failed is mended: words that can be read otherwise are rewritten (principle
+    lean-agent-input), a definition that does not give the cell what it needs or a case that expects wrongly is put
+    right, and no exception is made for the case (principle a-cell-knows-only-its-data); where rewriting cannot stop
+    the mistake, principle locate-and-price-the-fix says what may be added. A situation where a real run went wrong and
+    no case held becomes a case.
 
-17. Not built: the program that builds, runs and judges the cases; the step of the flow that runs them in a work that
-    changes a cell's text; holding a new program or model until its cases pass; and the results on the page. Until they
-    are, the cases are run by hand on the situations the compiled flow writes (5), and their results put in the work's
-    pull request as 16 says.
+16. **When it runs.** A cell's cases run where the text any of its situations is sent changed: in the work that makes
+    the change, which changes files under `flow/` and so waits at its merge for the owner's yes; before that yes, the
+    assistant runs the cases of each cell whose text changed with `wf-agents cases run`, and posts what it says in the
+    work's pull request: each case passed or failed, before and after the change, and what the fork said of the text
+    where one failed (principle change-cells-after-their-cases). What a case taken from a work found stays in the data
+    directory with it, since the repository is public. Every try is kept under the data directory's
+    `cell-cases/results/`, with the key of the texts it ran on: the hashes of the system prompt of the cell's line, of
+    the reading round's message and of the cell's first message, as the engine sent them, built again for each run with
+    a stand-in for the agents' program and no model, what differs from one try to the next (where it ran, and the
+    commits it made) said alike; the hash of the words beside the flows and of the cell's own file, which hold what
+    later rounds are sent; and the model, the effort and the agents' program's version. A case a kept try stands for
+    does not run again, and one whose texts are the same but whose owed changed is judged again on what it did, which
+    is kept with it. So a change of a cell's words runs that cell's cases whose texts changed, and a change of the
+    agents' program or of a model runs every case it touches, before the installation runs the new one, the results
+    shown to the owner first.
+
+17. Not built: holding a new program or model until its cases pass; the results on the page; the engine's question of
+    a change under a protected path made by a round of a case's history; and the situations written (5) holding the
+    reopened form of a cell after its line's reading cell. No step of the flow runs the cases (decision
+    no-cell-runs-the-cell-cases).
 
 ## Rare cases, brought about on purpose
 
@@ -274,5 +301,6 @@ of each part.
     its lines' sessions is forked, as 34 says, and asked about the rules it worked under.
 
 39. Not built: a round's panel showing first what was new to it (document `the-owners-page`, 3), and a work's cost by
-    kind of token (the same, 4); asking a fork of a round's session about its cell's text, which is done by hand;
-    and walking a changed flow without acting (document `changed-flow-walks-the-records`, 3).
+    kind of token (the same, 4); asking a fork of a round's session about its cell's text in a trial, which is done by
+    hand there, as `wf-agents cases run` does it for a case; and walking a changed flow without acting (document
+    `changed-flow-walks-the-records`, 3).
