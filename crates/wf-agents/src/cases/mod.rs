@@ -82,7 +82,8 @@ pub fn check(flow_dir: &Path, cases_dir: Option<&Path>, has: &flow::Has) -> Resu
         .filter_map(|(name, by)| made::commit(&imported, &name).err().map(|e| format!("{by}: {e}")))
         .collect();
     // Each item's work starts from a repository of the project's own, its main at the item's commit.
-    for (n, item) in flow.cases.items.iter().filter(|_| missing.is_empty()) {
+    let all_found = missing.is_empty();
+    for (n, item) in flow.cases.items.iter().filter(|_| all_found) {
         let at = dir.path().join(format!("item-{n}"));
         match made::project(&imported, &at, &item.main) {
             Ok(repo) => missing.extend(made::remove(&repo).err()),
