@@ -39,7 +39,7 @@ pub struct Flow {
     pub groups: Vec<Group>,
     /// What the item's card shows the owner of the work, in the order the flow names them; none where it names none.
     pub card: Vec<String>,
-    /// What every agent's cell watches and reads beside what its own file names, as `flow.toml` writes it.
+    /// What every agent's cell reads beside what its own file names, as `flow.toml` writes it.
     pub every_agent: EveryAgent,
     /// The cells, in the order of the walk.
     pub cells: Vec<Cell>,
@@ -133,8 +133,7 @@ pub struct Cell {
     pub when: Vec<Condition>,
     /// What the work waits for before the cell: every key of its `requires`, in the order written.
     pub requires: Vec<Condition>,
-    /// What runs it, in the order the engine reads it: each datum `[every_agent]` watches that its own file does not
-    /// name, by the datum's name, then each datum or group its own file's `watches` names.
+    /// What runs it: each datum or group its own file's `watches` names, in order.
     pub watches: Vec<Watch>,
     /// What its own file's `reads` names, in order; what every agent's cell reads is the flow's (`every_agent`).
     pub reads: Vec<Read>,
@@ -159,27 +158,18 @@ pub struct Group {
     pub blocks: Vec<String>,
 }
 
-/// A datum or group a cell watches, by the list that names it (`every_agent` or `watches`): its name as the definition
-/// writes it and the blocks it stands for (of a datum, the datum alone); of what the cell's own file watches, what the
-/// cell does when it is new. What a cell does for what `[every_agent]` watches is given once, with `[every_agent]`
-/// (principle say-a-thing-once).
+/// A datum or group a cell watches: its name as the definition writes it, the blocks it stands for (of a datum, the
+/// datum alone) and what the cell does when it is new.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "list", rename_all = "snake_case")]
-pub enum Watch {
-    Watches {
-        name: String,
-        blocks: Vec<String>,
-        #[serde(rename = "do")]
-        does: Option<String>,
-    },
-    EveryAgent {
-        name: String,
-        blocks: Vec<String>,
-    },
+pub struct Watch {
+    pub name: String,
+    pub blocks: Vec<String>,
+    #[serde(rename = "do")]
+    pub does: Option<String>,
 }
 
-/// A datum or group a cell only reads, or every agent's cell watches or reads: its name as the definition writes it,
-/// and the blocks it stands for.
+/// A datum or group a cell only reads, or every agent's cell reads: its name as the definition writes it, and the
+/// blocks it stands for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Read {
@@ -197,36 +187,18 @@ pub struct GivenBlock {
     pub list: String,
 }
 
-/// What every agent's cell of a flow watches and reads, as `flow.toml` writes it (`[every_agent]`): each name with the
-/// data it stands for and, of what it watches, what a cell does when it is new; and the kind of each, by its name.
+/// What every agent's cell of a flow reads, as `flow.toml` writes it (`[every_agent]`): each name with the data it
+/// stands for, and the kind of each, by its name.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EveryAgent {
-    pub watches: Vec<EveryWatch>,
     pub reads: Vec<Read>,
     pub kinds: BTreeMap<String, InputKind>,
-}
-
-/// A name `[every_agent]` watches: as written, with the data it stands for and what a cell does when one is new.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EveryWatch {
-    pub name: String,
-    pub blocks: Vec<String>,
-    #[serde(rename = "do")]
-    pub does: Option<String>,
 }
 
 impl EveryAgent {
     fn of(every: &flow::EveryAgent) -> Self {
         EveryAgent {
-            watches: (every.watches.iter())
-                .map(|t| EveryWatch {
-                    name: t.name.clone(),
-                    blocks: names(&t.blocks),
-                    does: every.does.get(&t.name).cloned(),
-                })
-                .collect(),
             reads: every.reads.iter().map(Read::of).collect(),
             kinds: (every.kinds.iter())
                 .map(|(name, kind)| (name.clone(), InputKind::of(*kind)))
@@ -662,16 +634,10 @@ impl Flow {
                 when: cell.applies.iter().map(|c| Condition::of(c, compiled)).collect(),
                 requires: cell.requires.iter().map(|c| Condition::of(c, compiled)).collect(),
                 watches: (spec.watches.iter())
-                    .map(|w| {
-                        let (name, blocks) = (w.name.clone(), names(&w.blocks));
-                        match w.list {
-                            flow::Listed::EveryAgent => Watch::EveryAgent { name, blocks },
-                            _ => Watch::Watches {
-                                name,
-                                blocks,
-                                does: w.does.clone(),
-                            },
-                        }
+                    .map(|w| Watch {
+                        name: w.name.clone(),
+                        blocks: names(&w.blocks),
+                        does: w.does.clone(),
                     })
                     .collect(),
                 reads: spec.reads.iter().map(Read::of).collect(),

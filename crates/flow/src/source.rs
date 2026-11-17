@@ -303,30 +303,24 @@ pub struct LaidOutFlowFile {
     /// project protects may merge: one that can change the work as the answer asks, and can be spoken to (design
     /// document `data-and-context`, 34). None where the flow names none.
     pub engine_asks_in: Option<String>,
-    /// What every agent cell of the flow watches and reads beside what its own file names, given it first.
+    /// What every agent cell of the flow reads beside what its own file names, given it first.
     #[serde(default)]
     pub every_agent: EveryAgentFile,
 }
 
-/// What every agent cell of a flow watches and reads, as its `flow.toml` writes it: each the engine's datum the flow
-/// names in `data`, or `{each}_` and the rest of the name of a datum each cell has its own of (`../data/of_a_cell/`),
-/// standing for that datum of each cell that has one. A cell watches or reads a datum this names only once, as its
-/// own file names it where it does.
+/// What every agent cell of a flow reads, as its `flow.toml` writes it: each the engine's datum the flow names in
+/// `data`, or `{each}_` and the rest of the name of a datum each cell has its own of (`../data/of_a_cell/`), standing
+/// for that datum of each cell that has one. A cell watches or reads a datum this names only once, as its own file
+/// names it where it does.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EveryAgentFile {
-    /// The data whose new version runs every agent cell, in the order named.
-    #[serde(default)]
-    pub watches: Vec<String>,
     /// The data every agent cell is given that run nothing, in the order named.
     #[serde(default)]
     pub reads: Vec<String>,
     /// The kind each is given in, by its name as written.
     #[serde(default)]
     pub kinds: BTreeMap<String, InputKind>,
-    /// What a cell does when a datum it watches so is new, by its name as written.
-    #[serde(default, rename = "do")]
-    pub does: BTreeMap<String, String>,
 }
 
 /// The limits as written. They are read as any whole number so that one that is not positive is a fault of the

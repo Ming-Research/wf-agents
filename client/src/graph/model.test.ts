@@ -256,8 +256,6 @@ describe('the flowchart of the engineer flow', () => {
     expect(tags('M1')).toEqual(['head head', 'main main', 'asked asked']);
     expect(tags('R2')).toEqual(['r2_questions answer', 'r2_words words']);
     expect(nodeOf(chart, outsideNode('R0', 'engineer_session'))?.cell).toBe('R0');
-    // What every agent cell watches comes into no cell from outside: the view's line names it.
-    expect(chart.nodes.filter((n) => n.kind === 'outside' && n.name === 'guide')).toEqual([]);
   });
 
   it('needs no tie where the main path reaches every cell', () => {
@@ -291,8 +289,8 @@ describe('the flowchart of the engineer flow', () => {
       'i1_words all watches',
     ]);
     expect(context.find((t) => t.block === 'tree')?.outside).toEqual({ people: false, sources: ['tree'] });
-    // What every agent cell is given (the guide, every cell's questions and words) is the view line's, not the box's.
-    expect(context.some((t) => t.block === 'guide' || t.block === 'r1_questions')).toBe(false);
+    // What every agent cell is given (every cell's questions and words) is the view line's, not the box's.
+    expect(context.some((t) => t.block === 'r1_questions')).toBe(false);
     expect([...litBy(engineer, 'I1')].sort()).toEqual(['D1', 'D2', 'M1', 'R1', 'R2', 'T1', 'T2']);
   });
 });

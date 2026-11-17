@@ -204,12 +204,11 @@ export interface ToolRow {
   spots: boolean[];
 }
 
-/// A row of a name `[every_agent]` writes: whether it watches or reads it, the kind it gives it in, the data it stands
-/// for, and under each cell what runs the cell of those data, what its own file reads of them and what it writes; what
-/// every agent's cell only reads is said by the row's words.
+/// A row of a name `[every_agent]` writes: the kind it gives it in, the data it stands for, and under each cell what
+/// runs the cell of those data, what its own file reads of them and what it writes; what every agent's cell only reads
+/// is said by the row's words.
 export interface EveryRow {
   name: string;
-  list: 'watches' | 'reads';
   kind: InputKind | null;
   blocks: string[];
   /// The data it stands for, as the flow declares them.
@@ -233,7 +232,7 @@ export interface Matrix {
   conditions: ConditionRow[];
   /// The rows of the engine's tools: the flow's, or else each a cell names, in the order named.
   tools: ToolRow[];
-  /// The rows of what `[every_agent]` names, as `flow.toml` writes it: what it watches, then what it reads.
+  /// The rows of what `[every_agent]` names, as `flow.toml` writes it.
   every: EveryRow[];
   /// How many ways back the flow has: pairs of a cell that watches a name and a later cell's write of a block the name
   /// stands for, of two cells that can both run in one work.
@@ -291,11 +290,10 @@ export function matrix(flow: Flow): Matrix {
   // the band of the conditions are theirs; a group a cell watches by its name stands right above the first of its
   // blocks' rows.
   const every = flow.everyAgent;
-  const alike = new Set([...every.watches, ...every.reads].flatMap((n) => n.blocks));
+  const alike = new Set(every.reads.flatMap((n) => n.blocks));
   const ofTheData = blockOrder(flow).filter((name) => !alike.has(name));
   const order = ofTheData.filter((name) => !conditionBlocks.has(name));
-  const watchesGroup = (cell: Cell, group: string) =>
-    cell.watches.some((w) => w.list === 'watches' && w.name === group);
+  const watchesGroup = (cell: Cell, group: string) => cell.watches.some((w) => w.name === group);
   const groups = flow.groups.filter((g) => cells.some((c) => watchesGroup(c, g.name)));
   const firstOf = (g: { blocks: string[] }) =>
     Math.min(...g.blocks.map((b) => (order.includes(b) ? order.indexOf(b) : Infinity)));
@@ -345,18 +343,14 @@ export function matrix(flow: Flow): Matrix {
   });
 
   // The band of `[every_agent]`: under each cell, what runs it of the data a name stands for, each datum by its own name
-  // in the cell's file or by `[every_agent]` (a group's watcher is marked on the group's row), what its own file reads
-  // of them, and what it writes; what every agent's cell only reads is said by the row's words. Its ways back are
-  // drawn datum by datum, to each cell that watches the datum so, and so counted once.
-  const named = [
-    ...every.watches.map((n) => ({ name: n.name, blocks: n.blocks, list: 'watches' as const })),
-    ...every.reads.map((n) => ({ name: n.name, blocks: n.blocks, list: 'reads' as const })),
-  ];
-  const everyRows: EveryRow[] = named.map(({ name, blocks: of, list }) => {
+  // in the cell's file (a group's watcher is marked on the group's row), what its own file reads of them, and what it
+  // writes; what every agent's cell only reads is said by the row's words. Its ways back are drawn datum by datum, to
+  // each cell that watches the datum so, and so counted once.
+  const everyRows: EveryRow[] = every.reads.map(({ name, blocks: of }) => {
     const row = cells.map((cell): Spot => {
       const watched = of.filter((b) => watchesItself(cell, b));
       const read = of.filter((b) => !watched.includes(b) && cell.reads.some((n) => n.blocks.includes(b)));
-      // The kind drawn is the one of what it reads, inside the ring of `reads`; else of what it watches, for its words.
+      // The kind drawn is the one of what it reads; else of what it watches, for its words.
       const first = read[0] ?? watched[0];
       return {
         mark: {
@@ -378,7 +372,7 @@ export function matrix(flow: Flow): Matrix {
       (w, block) => cells[w].outputs.includes(block),
     );
     const data = of.flatMap((b) => blockIn(b) ?? []);
-    return { name, list, kind: every.kinds[name] ?? null, blocks: of, data, spots: row };
+    return { name, kind: every.kinds[name] ?? null, blocks: of, data, spots: row };
   });
 
   // The tools: the flow's, which every agent's cell may call, or else each a cell names, in the order named.

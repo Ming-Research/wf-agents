@@ -16,15 +16,14 @@ use service::Teller;
 use work::{Handed, Work};
 
 use crate::git::Place;
-use crate::{guide, head, tree};
+use crate::{head, tree};
 
-/// What a datum of the branch is read with: the directory of the checkout that holds the design tree, the reference
-/// that holds main's head as its host last gave it, and the path of the project's guide.
+/// What a datum of the branch is read with: the directory of the checkout that holds the design tree, and the reference
+/// that holds main's head as its host last gave it.
 #[derive(Clone, Debug)]
 pub(crate) struct Reading {
     pub(crate) tree: String,
     pub(crate) main: String,
-    pub(crate) guide: String,
 }
 
 /// A datum the engine reads of the work's branch, by the source that writes its block.
@@ -32,7 +31,6 @@ pub(crate) struct Reading {
 enum Datum {
     Tree,
     Head,
-    Guide,
 }
 
 impl Datum {
@@ -41,15 +39,8 @@ impl Datum {
         match source {
             tree::TREE => Some(Datum::Tree),
             head::HEAD => Some(Datum::Head),
-            guide::GUIDE => Some(Datum::Guide),
             _ => None,
         }
-    }
-
-    /// Whether the engine compares its versions itself, as git compares the tree's and the head's; what changed in
-    /// the guide is what differs in its text.
-    fn compares(self) -> bool {
-        self != Datum::Guide
     }
 
     /// The content of the new version the branch makes of the datum after the latest, which says `last`, where it makes
@@ -58,7 +49,6 @@ impl Datum {
         match self {
             Datum::Tree => tree::read(place, &reading.tree, last).await,
             Datum::Head => head::read(place, &reading.main, last).await,
-            Datum::Guide => guide::read(place, &reading.guide, last).await,
         }
     }
 
@@ -68,7 +58,6 @@ impl Datum {
         match self {
             Datum::Tree => tree::changed(dir, &reading.tree, was, now).await,
             Datum::Head => head::between(dir, &reading.main, was, now).await,
-            Datum::Guide => unreachable!("the engine compares no versions of the guide: {was} {now}"),
         }
     }
 }
@@ -179,7 +168,6 @@ impl Looking {
         let reading = Reading {
             tree: String::new(),
             main: String::new(),
-            guide: String::new(),
         };
         Looking {
             reading,
@@ -210,17 +198,10 @@ impl Looking {
 }
 
 /// The blocks of the flow whose versions the engine compares itself, as git compares them: each a source of the work's
-/// branch writes, but the guide (`context::Carried::compared`).
+/// branch writes (`context::Carried::compared`).
 pub fn compared(flow: &Compiled) -> BTreeSet<BlockId> {
     (flow.blocks.iter())
-        .filter(|(_, declared)| {
-            declared
-                .writers
-                .outside
-                .as_deref()
-                .and_then(Datum::of)
-                .is_some_and(Datum::compares)
-        })
+        .filter(|(_, declared)| declared.writers.outside.as_deref().and_then(Datum::of).is_some())
         .map(|(block, _)| block.clone())
         .collect()
 }
@@ -240,7 +221,7 @@ pub(crate) async fn changes(
     let began = work::sessions::began_at(work, run, number).unwrap_or_else(|| work.tick());
     let versions = decide::versions(&work.records.before(began));
     for (block, declared) in &flow.blocks {
-        let Some(datum) = (declared.writers.outside.as_deref().and_then(Datum::of)).filter(|d| d.compares()) else {
+        let Some(datum) = declared.writers.outside.as_deref().and_then(Datum::of) else {
             continue;
         };
         let Some((latest, earlier)) = versions.get(block).and_then(|all| all.split_last()) else {

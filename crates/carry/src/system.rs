@@ -26,8 +26,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use decide::BlockId;
-use flow::agents::{Agents, DatumPart, SessionPart};
+use flow::agents::Agents;
 use flow::{Compiled, Kind};
 use uuid::Uuid;
 
@@ -158,9 +157,8 @@ pub fn named(settings: &Settings, beside: &Agents) -> flow::system::Settings {
 }
 
 /// The system prompt of the session of the cell's line, for a line whose agents are told `your_line` of what they may
-/// do in the worktree, its project's files read by `read` by their paths within the repository, and a datum that stands
-/// for one given by `datum` by its name, the version the session begins with, none where it has none yet; or why it
-/// cannot be made.
+/// do in the worktree, and its project's files read by `read` by their paths within the repository; or why it cannot
+/// be made.
 pub(crate) fn of_line(
     beside: &Agents,
     filling: &Filling,
@@ -168,16 +166,10 @@ pub(crate) fn of_line(
     cell: &flow::CellSpec,
     your_line: &str,
     read: impl Fn(&str) -> std::io::Result<String>,
-    datum: impl Fn(&str) -> Option<String>,
 ) -> Result<String, String> {
     let read =
         |path: &str| (read(path).map(Some)).map_err(|e| format!("{path} cannot be read in the work's worktree: {e}"));
-    // A session begins with the version of the datum its prompt holds, and with no other: with none, it begins not.
-    let datum = |name: &str| match datum(name) {
-        Some(text) => Ok(Some(text)),
-        None => Err(format!("the datum `{name}` the session begins with has no version yet")),
-    };
-    let parts = flow::system::parts(beside, flow, cell, read, datum).map_err(|wrong| wrong.join("; "))?;
+    let parts = flow::system::parts(beside, flow, cell, read).map_err(|wrong| wrong.join("; "))?;
     let fill = |name: &str| filled(name, your_line, filling);
     flow::system::prompt(&parts, &filling.named, fill).map_err(|wrong| wrong.join("; "))
 }
@@ -199,19 +191,6 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
             faults.push(fault);
         }
     };
-    // A session begins with the version of each datum the system prompt names that its flow has; a flow of agents'
-    // cells without one would begin every session without the file it stands for (design document
-    // `data-and-context`, 24).
-    let agents = flow.cells.iter().any(|c| c.kind == Kind::Agent);
-    for part in beside.session.parts.iter().filter(|_| agents) {
-        if let SessionPart::Datum(DatumPart { datum }) = part
-            && !flow.blocks.contains_key(&BlockId::from(datum.as_str()))
-        {
-            add(format!(
-                "session.toml begins each session with the datum `{datum}`, which the flow does not have"
-            ));
-        }
-    }
     // The prompt is the same for every cell of a line: its first cell stands for it.
     let mut lines: Vec<&str> = Vec::new();
     for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
@@ -221,7 +200,7 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
         }
         lines.push(line);
         let given = |_: &str| Ok(Some(String::new()));
-        let (parts, wrong) = flow::system::made(beside, flow, cell, given, given);
+        let (parts, wrong) = flow::system::made(beside, flow, cell, given);
         let fills = |name: &str| filled(name, "", &filling).is_some();
         for what in wrong.into_iter().chain(flow::system::check(&parts, named, fills)) {
             add(format!("the system prompt of the line {line}: {what}"));

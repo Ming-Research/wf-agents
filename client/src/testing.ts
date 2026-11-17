@@ -50,7 +50,7 @@ function taken(n: Named): { name: string; blocks: string[] } {
 export function cell(id: string, fields: CellIn = {}): Cell {
   const { watches = [], reads = [], does = {}, kinds = {}, ...rest } = fields;
   const kind = rest.kind ?? 'agent';
-  const watched: Watch[] = watches.map((n) => ({ ...taken(n), do: does[taken(n).name] ?? null, list: 'watches' as const }));
+  const watched: Watch[] = watches.map((n) => ({ ...taken(n), do: does[taken(n).name] ?? null }));
   const read: Read[] = reads.map(taken);
   const given: GivenBlock[] = [];
   if (kind === 'agent') {
@@ -90,28 +90,21 @@ export function cell(id: string, fields: CellIn = {}): Cell {
 
 /// The blocks a cell's own file names, in what it watches and what it reads.
 export function named(c: Cell): string[] {
-  const own = c.watches.filter((w) => w.list === 'watches');
-  return [...new Set([...own, ...c.reads].flatMap((n) => n.blocks))];
+  return [...new Set([...c.watches, ...c.reads].flatMap((n) => n.blocks))];
 }
 
-/// What `[every_agent]` names, in short: each name it watches and reads, with the data it stands for, and the kind of
-/// each and what a cell does when one it watches is new, by the name.
-export function everyAgent(fields: {
-  watches?: [string, string[]][];
-  reads?: [string, string[]][];
-  kinds?: Record<string, InputKind>;
-  does?: Record<string, string>;
-}): EveryAgent {
-  const { watches = [], reads = [], kinds = {}, does = {} } = fields;
+/// What `[every_agent]` names, in short: each name it reads, with the data it stands for, and the kind of each, by the
+/// name.
+export function everyAgent(fields: { reads?: [string, string[]][]; kinds?: Record<string, InputKind> }): EveryAgent {
+  const { reads = [], kinds = {} } = fields;
   return {
-    watches: watches.map(([name, blocks]) => ({ name, blocks, do: does[name] ?? null })),
     reads: reads.map(([name, blocks]) => ({ name, blocks })),
     kinds,
   };
 }
 
 /// What a flow with no `[every_agent]` names.
-export const NO_EVERY_AGENT: EveryAgent = { watches: [], reads: [], kinds: {} };
+export const NO_EVERY_AGENT: EveryAgent = { reads: [], kinds: {} };
 
 /// Keys of a cell's `when` or `requires`, each one of these named tests.
 export function tested(...tests: Test[]): Condition[] {
@@ -137,9 +130,9 @@ export type Declared = Partial<{
 
 /// The flow of these cells in this order, with these blocks, and the named tests the cells use; each line in a file of
 /// its own, with what `lines` writes of it; the flow's tools those its cells may ask for, and its groups those its
-/// cells name; and what `[every_agent]` names, which every agent cell watches and is given first, each block its own
-/// file does not name by the block's own name (a group it names does not make the group's blocks its own, as the
-/// compiler has it), by the block's name, in the kind `[every_agent]` gives the name that stands for it.
+/// cells name; and what `[every_agent]` names, which every agent cell is given first, each block its own file does
+/// not name by the block's own name (a group it names does not make the group's blocks its own, as the compiler has
+/// it), by the block's name, in the kind `[every_agent]` gives the name that stands for it.
 export function flowOf(
   listed: Cell[],
   blocks: Record<string, Declared>,
@@ -149,23 +142,16 @@ export function flowOf(
 ): Flow {
   const cells = listed.map((c): Cell => {
     if (c.kind !== 'agent') return c;
-    const own = [...c.watches.filter((w) => w.list === 'watches'), ...c.reads].map((n) => n.name);
+    const own = [...c.watches, ...c.reads].map((n) => n.name);
     const alike: GivenBlock[] = [];
-    const runs: Watch[] = [];
     const fresh = (blocks: string[]) => blocks.filter((b) => !own.includes(b) && !alike.some((g) => g.block === b));
-    for (const n of every.watches) {
-      for (const block of fresh(n.blocks)) {
-        alike.push({ block, kind: every.kinds[n.name] ?? 'lastAndLatest', list: 'every_agent' });
-        runs.push({ name: block, blocks: [block], list: 'every_agent' });
-      }
-    }
     for (const n of every.reads) {
       for (const block of fresh(n.blocks)) {
         alike.push({ block, kind: every.kinds[n.name] ?? 'lastAndLatest', list: 'every_agent' });
       }
     }
     const rest = c.given.filter((g) => !alike.some((a) => a.block === g.block));
-    return { ...c, watches: [...runs, ...c.watches], given: [...alike, ...rest] };
+    return { ...c, given: [...alike, ...rest] };
   });
   const keys = (c: Cell) => [...c.when, ...c.requires];
   const used = cells.flatMap((c) => keys(c).flatMap((k) => (k.on === 'test' ? [k.test] : [])));
@@ -205,7 +191,7 @@ export function flowOf(
   );
   const tools = [...new Set(cells.flatMap((c) => c.tools))];
   const groups: Group[] = [];
-  for (const n of cells.flatMap((c) => [...c.watches.filter((w) => w.list === 'watches'), ...c.reads])) {
+  for (const n of cells.flatMap((c) => [...c.watches, ...c.reads])) {
     if (!namesItself(n) && !groups.some((g) => g.name === n.name)) groups.push({ name: n.name, blocks: n.blocks });
   }
   return {

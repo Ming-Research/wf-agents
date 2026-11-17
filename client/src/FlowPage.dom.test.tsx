@@ -1066,10 +1066,8 @@ describe('the panel and the widths', () => {
 
   it('draws what every agent cell is given alike as a band of rows as flow.toml writes them, and names it in the view’s line on the flowchart', () => {
     const every = everyAgent({
-      watches: [['guide', ['guide']]],
       reads: [['{each}_questions', ['a_questions', 'b_questions']]],
-      kinds: { guide: 'lastAndLatest', '{each}_questions': 'all' },
-      does: { guide: 'Work under it.' },
+      kinds: { '{each}_questions': 'all' },
     });
     const flow = flowOf(
       [
@@ -1079,7 +1077,6 @@ describe('the panel and the widths', () => {
         cell('e', { kind: 'engine', line: null, act: 'merge', task: null }),
       ],
       {
-        guide: { outside: 'guide', what: 'The guide.' },
         a_questions: { outside: 'answer', what: 'The questions.' },
         b_questions: { outside: 'answer', what: 'The questions.' },
       },
@@ -1088,18 +1085,11 @@ describe('the panel and the widths', () => {
       every,
     );
     const page = draw({ state: 'compiled', flow });
-    expect(texts(page, 'tbody.band .every-row .block-name')).toEqual(['guide', '{each}_questions']);
+    expect(texts(page, 'tbody.band .every-row .block-name')).toEqual(['{each}_questions']);
     // The data a name stands for have no rows of their own.
     expect(rows(page).map((tr) => tr.querySelector('.block-name')?.textContent)).toEqual([]);
-    const guide = bandRow(page, 'every-row', 'guide');
-    expect(guide.querySelector('.row-label')?.textContent).toBe('every_agent');
-    expect(texts(guide, '.spot .visually-hidden')).toEqual([
-      'a every_agent watches guide, last_and_latest',
-      'n every_agent watches guide, last_and_latest',
-      'b every_agent watches guide, last_and_latest',
-    ]);
-    expect(guide.querySelector('.words')?.textContent).toBe('every_agent watches last_and_latest: The guide.');
     const questions = bandRow(page, 'every-row', '{each}_questions');
+    expect(questions.querySelector('.row-label')?.textContent).toBe('every_agent');
     expect(questions.querySelector('[title="from answer"]')).not.toBeNull();
     expect(texts(questions, '.spot .visually-hidden')).toEqual([
       'a watches a_questions, all; outputs a_questions',
@@ -1108,32 +1098,28 @@ describe('the panel and the widths', () => {
     expect(questions.querySelector('.words')?.textContent).toBe('every_agent reads all: The questions.');
     click(page.querySelectorAll('thead .cell-head .head-button')[1]);
     expect(questions.querySelector('.words')?.textContent).toBe('every_agent reads all');
-    expect(guide.querySelector('.words')?.textContent).toBe('every_agent watches last_and_latest');
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
     expect(questions.querySelector('.words')?.textContent).toBe(
       'watches a_questions, all; outputs a_questions; every_agent reads all',
     );
-    // A cell's panel lists it first among what runs the cell, by its key; its do is said once, in its own panel.
+    // A cell's panel lists it first among what the cell reads, by its key.
     const a = page.querySelector('section[aria-label="Cell a"]') as HTMLElement;
-    const watches = [...a.querySelectorAll('.panel-part')].find((p) =>
-      p.querySelector('.panel-part-label')?.textContent?.startsWith('watches'),
+    const reads = [...a.querySelectorAll('.panel-part')].find((p) =>
+      p.querySelector('.panel-part-label')?.textContent?.startsWith('reads'),
     ) as HTMLElement;
-    expect(items(watches)[0]).toBe('every_agent watches guide');
-    click([...watches.querySelectorAll('button.link')].find((b) => b.textContent === 'every_agent'));
+    expect(items(reads)[0]).toBe('every_agent reads {each}_questions');
+    click([...reads.querySelectorAll('button.link')].find((b) => b.textContent === 'every_agent'));
     const panel = page.querySelector('section[aria-label="every_agent"]') as HTMLElement;
     expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('flow.toml');
-    expect(items(panel)).toEqual([
-      'guide kind last_and_latest do Work under it.',
-      '{each}_questions data [a_questions, b_questions] kind all',
-    ]);
+    expect(items(panel)).toEqual(['{each}_questions data [a_questions, b_questions] kind all']);
     // Chosen by its row, the band opens the same panel.
-    click(guide.querySelector('.head-button'));
-    click(guide.querySelector('.head-button'));
+    click(questions.querySelector('.head-button'));
+    click(questions.querySelector('.head-button'));
     expect(page.querySelector('section[aria-label="every_agent"]')).not.toBeNull();
     expect(page.querySelector('.view-facts')?.textContent).toBe('limits runs 3, returns 2, calls 40');
     click([...page.querySelectorAll('button')].find((b) => b.textContent === 'Flowchart'));
     expect(page.querySelector('.view-facts')?.textContent).toBe(
-      'limits runs 3, returns 2, calls 40 · every_agent watches guide, reads {each}_questions',
+      'limits runs 3, returns 2, calls 40 · every_agent reads {each}_questions',
     );
   });
 

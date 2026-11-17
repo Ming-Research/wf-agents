@@ -53,20 +53,18 @@ pub struct Compiled {
     /// The cell in whose questions the engine asks what it asks of a work (design document `data-and-context`, 34);
     /// none where the flow names none.
     pub engine_asks_in: Option<CellId>,
-    /// What every agent cell of the flow watches and reads beside what its own file names, as `flow.toml` writes it
+    /// What every agent cell of the flow reads beside what its own file names, as `flow.toml` writes it
     /// (`[every_agent]`), for the page to show as written.
     pub every_agent: EveryAgent,
 }
 
-/// What every agent cell of a flow watches and reads, as its `flow.toml` writes it (`[every_agent]`): each name as
-/// written, with the data it stands for (of a name holding `{each}`, the datum of each cell that has its own of it, in
-/// the order of the walk), the kind each is given in and what a cell does when one it watches is new, by the name.
+/// What every agent cell of a flow reads, as its `flow.toml` writes it (`[every_agent]`): each name as written, with
+/// the data it stands for (of a name holding `{each}`, the datum of each cell that has its own of it, in the order of
+/// the walk), and the kind each is given in, by the name.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EveryAgent {
-    pub watches: Vec<Taken>,
     pub reads: Vec<Taken>,
     pub kinds: BTreeMap<String, InputKind>,
-    pub does: BTreeMap<String, String>,
 }
 
 /// A name a definition writes among what a cell watches or reads, with the blocks it stands for: of a group, the
@@ -193,8 +191,7 @@ pub struct CellSpec {
     /// The work's branch takes the latest main in as each run of the cell starts, as an agent cell that changes the
     /// code says; an engine cell's never does.
     pub takes_main: bool,
-    /// What runs the cell, by its data: what every agent cell watches, for an agent cell, then what it watches itself,
-    /// each in the order named.
+    /// What runs the cell, by its data: what it watches, each in the order named.
     pub watches: Vec<Watched>,
 }
 
@@ -202,14 +199,14 @@ pub struct CellSpec {
 /// `data-and-context`, 5, 12).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Watched {
-    /// Its name, as the cell or what every agent cell watches names it: a datum's, or a group's.
+    /// Its name, as the cell names it: a datum's, or a group's.
     pub name: String,
     /// The blocks it stands for, a new version of any of which runs the cell: of a group, the group's, in the order
     /// the flow names them; of a datum, the datum alone.
     pub blocks: Vec<BlockId>,
     /// What the cell does when it is new, as its definition says; none where it says nothing.
     pub does: Option<String>,
-    /// Where the definition names it: what every agent cell watches (`[every_agent]`), or the cell's own `watches`.
+    /// Where the definition names it: the cell's own `watches`.
     pub list: Listed,
 }
 
@@ -469,7 +466,7 @@ pub enum FaultKind {
     RunByNothing,
     /// The cell does not say of a block it is given what its session must hold of it.
     NoKind { block: String },
-    /// A `do` is said for the block, of a cell or of what every agent cell takes, and that does not watch it.
+    /// A `do` is said for the block, and the cell does not watch it.
     NotWatched { block: String },
     /// The cell says how it is given the block, and it is not given the block.
     NotGiven { block: String },
@@ -674,7 +671,7 @@ struct Parsed {
     card: Vec<String>,
     /// The cell the engine asks in, as `flow.toml` names it.
     engine_asks_in: Option<String>,
-    /// Of a flow laid out one thing to a file, what every agent cell watches and reads, as `flow.toml` names it.
+    /// Of a flow laid out one thing to a file, what every agent cell reads, as `flow.toml` names it.
     every_agent: EveryAgentFile,
     /// The data each cell or each line has its own of that the flow's cells name.
     own: Own,
@@ -682,7 +679,7 @@ struct Parsed {
 
 /// What `flow.toml` says of the flow as a whole beside its order, limits and groups: of a flow laid out one thing to a
 /// file, the engine's data it uses, the tools of every agent cell, what the item's card shows and what every agent
-/// cell watches and reads; and of any flow, the cell the engine asks in.
+/// cell reads; and of any flow, the cell the engine asks in.
 #[derive(Default)]
 struct Whole {
     data: Vec<String>,
@@ -1271,10 +1268,8 @@ struct Definition<'a> {
     uses: BTreeMap<&'a str, Uses<'a>>,
     /// The tests a cell of the order uses, as its condition or a precondition.
     used: BTreeSet<&'a str>,
-    /// What every agent cell watches and reads, as `flow.toml` writes it.
+    /// What every agent cell reads, as `flow.toml` writes it.
     every: &'a EveryAgentFile,
-    /// What every agent cell watches, each name with the data it stands for, in the order written.
-    every_watches: Vec<Named>,
     /// What every agent cell reads, each name with the data it stands for, in the order written.
     every_reads: Vec<Named>,
     /// The data each cell or each line has its own of that the flow's cells name.
@@ -1285,11 +1280,11 @@ struct Definition<'a> {
     engine_asks_in: Option<&'a str>,
 }
 
-/// What stands in the name every agent cell watches or reads for each cell that has its own of a datum, the rest of the
+/// What stands in the name every agent cell reads for each cell that has its own of a datum, the rest of the
 /// name being that datum's file's name with `{cell}` in its place.
 const EACH: &str = "{each}";
 
-/// A name of what every agent cell watches or reads, as written, with the data it stands for: the datum it names, or of
+/// A name of what every agent cell reads, as written, with the data it stands for: the datum it names, or of
 /// a name holding `{each}`, the datum of each cell that has its own of it, in the order of the walk.
 struct Named {
     written: String,
@@ -1324,7 +1319,6 @@ impl<'a> Definition<'a> {
             uses: BTreeMap::new(),
             used: BTreeSet::new(),
             every: &parsed.every_agent,
-            every_watches: named(&parsed.every_agent.watches),
             every_reads: named(&parsed.every_agent.reads),
             own: &parsed.own,
             card: &parsed.card,
@@ -1771,7 +1765,7 @@ impl<'a> Definition<'a> {
     }
 
     /// The blocks the cell of this id watches by its own file, each group by its blocks: what should make it judge
-    /// again (design document `data-and-context`, 38), not what the flow has every agent cell watch.
+    /// again (design document `data-and-context`, 38).
     fn judges_by(&self, id: &str) -> Vec<BlockId> {
         let file = self.cells.get(id).filter(|_| self.place.contains_key(id));
         let mut out: Vec<BlockId> = Vec::new();
@@ -1865,8 +1859,7 @@ impl<'a> Definition<'a> {
     }
 
     /// Of each dialogue the cell of this id holds as the judge, what it judges: the blocks it watches by its own file
-    /// besides the dialogue, never what every agent cell watches, which is not what it judges (design document
-    /// `data-and-context`, 38).
+    /// besides the dialogue (design document `data-and-context`, 38).
     fn judges(&self, id: &str, file: &CellFile) -> BTreeMap<BlockId, Vec<BlockId>> {
         (self.judged(id, file).into_iter())
             .map(|dialogue| {
@@ -1930,7 +1923,7 @@ impl<'a> Definition<'a> {
     /// has only cells for writers, each of which writes it only where a block has a value that this cell's `when` or
     /// `requires` rules out, and which no cell can change from that value. A person or the outside writing a block, or a
     /// writer with no condition on a block the cell reads, makes it live; so does a test, which is not read here. Of
-    /// what the cell watches, only what its own file names is looked at, not what every agent cell watches.
+    /// what the cell watches, only what its own file names is looked at.
     fn check_never_new(&self, id: &str, file: &CellFile, watches: &[Watched]) -> Vec<(String, FaultKind)> {
         let needs = keys_of(file).filter(|(k, _)| *k != WHEN_TEST).collect::<Vec<_>>();
         if needs.is_empty() {
@@ -2026,15 +2019,14 @@ impl<'a> Definition<'a> {
 
     /// What a cell takes (design document `data-and-context`, 5 to 12, 17): what it watches, each datum or group of it
     /// running it on each of its blocks, what it does when it is new being what its `[do]` says; and what it is given.
-    /// An agent cell watches what every agent cell watches first, and is given, in this order, what every agent cell
-    /// watches and reads, then what it reads, then what it watches, each block in the kind its `[kinds]` gives it, or
-    /// `[every_agent.kinds]` of what every agent cell takes; a datum it names itself it takes as it names it. An engine
-    /// cell is given nothing.
+    /// An agent cell is given, in this order, what every agent cell reads, then what it reads, then what it watches,
+    /// each block in the kind its `[kinds]` gives it, or `[every_agent.kinds]` of what every agent cell takes; a datum
+    /// it names itself it takes as it names it. An engine cell is given nothing.
     fn watching(&self, file: &CellFile) -> Takes {
         let agent = file.kind == Kind::Agent;
         let its_own = |block: &str| file.watches.iter().chain(&file.reads).any(|n| n == block);
-        // Of what every agent cell watches or reads, each block with the name written that stands for it, but those the
-        // cell names itself; none of an engine cell.
+        // Of what every agent cell reads, each block with the name written that stands for it, but those the cell
+        // names itself; none of an engine cell.
         let every = |named: &[Named]| -> Vec<(String, String)> {
             let mut blocks = Vec::new();
             for n in named.iter().filter(|_| agent) {
@@ -2044,26 +2036,14 @@ impl<'a> Definition<'a> {
             }
             blocks
         };
-        let mut watches: Vec<Watched> = Vec::new();
-        for (written, block) in every(&self.every_watches) {
-            watches.push(Watched {
-                name: block.clone(),
-                blocks: vec![BlockId(block)],
-                does: self.every.does.get(&written).cloned(),
-                list: Listed::EveryAgent,
-            });
-        }
-        for name in &file.watches {
-            if watches.iter().any(|w| &w.name == name) {
-                continue;
-            }
-            watches.push(Watched {
+        let watches: Vec<Watched> = (file.watches.iter())
+            .map(|name| Watched {
                 name: name.clone(),
                 blocks: self.members(name),
                 does: file.does.get(name).cloned(),
                 list: Listed::Watches,
-            });
-        }
+            })
+            .collect();
         let mut runs_on: Vec<BlockId> = Vec::new();
         for block in watches.iter().flat_map(|w| &w.blocks) {
             if !runs_on.contains(block) {
@@ -2078,7 +2058,7 @@ impl<'a> Definition<'a> {
                 given.push(Given { block, kind, list });
             }
         };
-        for (written, block) in every(&self.every_watches).into_iter().chain(every(&self.every_reads)) {
+        for (written, block) in every(&self.every_reads) {
             give(
                 BlockId(block),
                 self.every.kinds.get(&written).copied(),
@@ -2114,8 +2094,7 @@ impl<'a> Definition<'a> {
     fn check_watches(&self, file: &CellFile) -> Vec<(String, FaultKind)> {
         let mut found = Vec::new();
         let agent = file.kind == Kind::Agent;
-        let every_watched = self.every_watches.iter().any(|n| !n.blocks.is_empty());
-        if agent && file.watches.is_empty() && !every_watched {
+        if agent && file.watches.is_empty() {
             found.push(("watches".to_string(), FaultKind::RunByNothing));
         }
         let known = |name: &str| self.flow.blocks.contains_key(name) || self.flow.groups.contains_key(name);
@@ -2240,7 +2219,7 @@ impl<'a> Definition<'a> {
         found
     }
 
-    /// What every agent cell watches and reads, as `flow.toml` writes it, each name with the data it stands for.
+    /// What every agent cell reads, as `flow.toml` writes it, each name with the data it stands for.
     fn every_agent(&self) -> EveryAgent {
         let taken = |named: &[Named]| -> Vec<Taken> {
             (named.iter())
@@ -2251,46 +2230,36 @@ impl<'a> Definition<'a> {
                 .collect()
         };
         EveryAgent {
-            watches: taken(&self.every_watches),
             reads: taken(&self.every_reads),
             kinds: self.every.kinds.clone(),
-            does: self.every.does.clone(),
         }
     }
 
-    /// The faults of what every agent cell watches and reads: a name given twice, or both watched and read; one that is
-    /// neither the engine's datum the flow names nor, with `{each}`, a datum each cell has its own of; one with no kind;
-    /// a kind of what is not named; what is done for what is not watched. All in `flow.toml`.
+    /// The faults of what every agent cell reads: a name given twice; one that is neither the engine's datum the flow
+    /// names nor, with `{each}`, a datum each cell has its own of; one with no kind; a kind of what is not named. All
+    /// in `flow.toml`.
     fn check_every_agent(&self, faults: &mut Vec<Fault>) {
         let every = self.every;
         let known = |written: &str| match written.contains(EACH) {
             true => self.own.made.contains_key(&written.replace(EACH, CELL)),
             false => self.places.data.contains_key(written),
         };
-        for (list, names) in [("watches", &every.watches), ("reads", &every.reads)] {
-            for (i, name) in names.iter().enumerate() {
-                let what = if names[..i].contains(name) || (list == "reads" && every.watches.contains(name)) {
-                    FaultKind::Twice { name: name.clone() }
-                } else if !known(name.as_str()) {
-                    FaultKind::NoSuchData { name: name.clone() }
-                } else if !every.kinds.contains_key(name) {
-                    FaultKind::NoKind { block: name.clone() }
-                } else {
-                    continue;
-                };
-                faults.push(fault(FLOW_FILE, format!("every_agent.{list}[{i}]"), what));
-            }
+        for (i, name) in every.reads.iter().enumerate() {
+            let what = if every.reads[..i].contains(name) {
+                FaultKind::Twice { name: name.clone() }
+            } else if !known(name.as_str()) {
+                FaultKind::NoSuchData { name: name.clone() }
+            } else if !every.kinds.contains_key(name) {
+                FaultKind::NoKind { block: name.clone() }
+            } else {
+                continue;
+            };
+            faults.push(fault(FLOW_FILE, format!("every_agent.reads[{i}]"), what));
         }
         for name in every.kinds.keys() {
-            if !(every.watches.contains(name) || every.reads.contains(name)) {
+            if !every.reads.contains(name) {
                 let what = FaultKind::NotGiven { block: name.clone() };
                 faults.push(fault(FLOW_FILE, format!("every_agent.kinds.{name}"), what));
-            }
-        }
-        for name in every.does.keys() {
-            if !every.watches.contains(name) {
-                let what = FaultKind::NotWatched { block: name.clone() };
-                faults.push(fault(FLOW_FILE, format!("every_agent.do.{name}"), what));
             }
         }
     }

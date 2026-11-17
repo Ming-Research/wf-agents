@@ -71,8 +71,8 @@ describe('the words of the page', () => {
     expect(faultWords({ file: 'cells/a.toml', field: 'reads[0]', what: { kind: 'twice', name: 'plan' } })).toBe(
       'plan is watched already, and is given with what is watched.',
     );
-    expect(faultWords({ file: 'flow.toml', field: 'every_agent.reads[1]', what: { kind: 'twice', name: 'guide' } })).toBe(
-      'guide is watched already, and is given with what is watched.',
+    expect(faultWords({ file: 'flow.toml', field: 'every_agent.reads[1]', what: { kind: 'twice', name: 'tree' } })).toBe(
+      'tree is named a second time in the same list.',
     );
     // A block a cell takes by two names: by itself and through a group, or through two groups.
     expect(
@@ -127,9 +127,6 @@ describe('the words of the page', () => {
     // What a cell does for a datum it does not watch: in its own file, or in what every agent cell is given alike.
     expect(faultWords({ file: 'cells/plan.toml', field: 'do.opinions', what: { kind: 'notWatched', block: 'opinions' } })).toBe(
       'There is a do for opinions, but opinions is not watched.',
-    );
-    expect(faultWords({ file: 'flow.toml', field: 'every_agent.do.tree', what: { kind: 'notWatched', block: 'tree' } })).toBe(
-      'There is a do for tree, but tree is not watched.',
     );
     expect(
       faultWords({

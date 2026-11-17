@@ -56,19 +56,19 @@ function Kinds({ cell, taken }: { cell: Cell; taken: { name: string; blocks: str
   return kinds.length > 0 ? <Attr name="kinds" value={listed(kinds.map((b) => `${b} ${kind(b)}`))} /> : null;
 }
 
-/// The row of what a cell takes by `[every_agent]` in a list of its panel: the key, chosen to open its panel, and the
-/// names it takes so, as `flow.toml` writes them; none where it takes nothing so.
-function EveryAgentRow(props: { cell: Cell; flow: Flow; list: 'watches' | 'reads'; onChoose: (c: Chosen) => void }) {
-  const { cell, flow, list, onChoose } = props;
+/// The row of what a cell reads by `[every_agent]` in the reads of its panel: the key, chosen to open its panel, and the
+/// names it reads so, as `flow.toml` writes them; none where it reads nothing so.
+function EveryAgentRow(props: { cell: Cell; flow: Flow; onChoose: (c: Chosen) => void }) {
+  const { cell, flow, onChoose } = props;
   const alike = new Set(cell.given.filter((g) => g.list === 'every_agent').map((g) => g.block));
-  const names = flow.everyAgent[list].filter((n) => n.blocks.some((b) => alike.has(b))).map((n) => n.name);
+  const names = flow.everyAgent.reads.filter((n) => n.blocks.some((b) => alike.has(b))).map((n) => n.name);
   if (names.length === 0) return null;
   return (
     <ListRow>
       <Choose chosen={{ everyAgent: true }} onChoose={onChoose}>
         <span className="mono">every_agent</span>
       </Choose>
-      <Attr name={list} value={names.join(', ')} />
+      <Attr name="reads" value={names.join(', ')} />
     </ListRow>
   );
 }
@@ -339,9 +339,8 @@ export function CellPanel(props: {
       const writer = cellOf(id);
       return where(flow, cell.id, id) === 'below' && writer !== undefined && canRun(writer, cell);
     });
-  // What its own file watches, and whether it takes anything by `[every_agent]`, which one row of each list says.
-  const own = cell.watches.filter((w) => w.list === 'watches');
-  const alikeWatched = cell.watches.some((w) => w.list === 'every_agent');
+  // What its own file watches, and whether it reads anything by `[every_agent]`, which one row of the reads says.
+  const own = cell.watches;
   const alikeRead = cell.given.some((g) => g.list === 'every_agent' && !cell.watches.some((w) => w.blocks.includes(g.block)));
   return (
     <Panel
@@ -374,9 +373,8 @@ export function CellPanel(props: {
     >
       {sent && sent.length > 0 ? (
         <>
-          <PanelPart label="watches" count={own.length + (alikeWatched ? 1 : 0)}>
+          <PanelPart label="watches" count={own.length}>
             <ul className="uses">
-              <EveryAgentRow cell={cell} flow={flow} list="watches" onChoose={onChoose} />
               {own.map((w) => (
                 <ListRow key={w.name}>
                   <Choose chosen={chosenOf(w)} onChoose={onChoose}>
@@ -404,9 +402,8 @@ export function CellPanel(props: {
         </>
       ) : (
         <>
-          <PanelPart label="watches" count={own.length + (alikeWatched ? 1 : 0)}>
+          <PanelPart label="watches" count={own.length}>
             <ul className="uses">
-              <EveryAgentRow cell={cell} flow={flow} list="watches" onChoose={onChoose} />
               {own.map((w, place) => {
                 // Of a group, there is no one block: its group is chosen by its name.
                 const block = namesItself(w) ? blocks.get(w.name) : undefined;
@@ -444,7 +441,7 @@ export function CellPanel(props: {
           {cell.kind === 'agent' && (cell.reads.length > 0 || alikeRead) && (
             <PanelPart label="reads" count={cell.reads.length + (alikeRead ? 1 : 0)}>
               <ul className="uses">
-                <EveryAgentRow cell={cell} flow={flow} list="reads" onChoose={onChoose} />
+                <EveryAgentRow cell={cell} flow={flow} onChoose={onChoose} />
                 {cell.reads.map((r, place) => {
                   const block = namesItself(r) ? blocks.get(r.name) : undefined;
                   return (
@@ -866,7 +863,7 @@ export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chos
   const { name, flow, onChoose } = props;
   const blocks = flow.groups.find((g) => g.name === name)?.blocks ?? [];
   const named = (list: { name: string }[]) => list.some((n) => n.name === name);
-  const runs = flow.cells.filter((c) => named(c.watches.filter((w) => w.list === 'watches')));
+  const runs = flow.cells.filter((c) => named(c.watches));
   const reads = flow.cells.filter((c) => named(c.reads));
   // Each cell that watches it, with the cells after it that write a block of the group and whose write can run it.
   const at = (id: string) => flow.cells.findIndex((c) => c.id === id);
@@ -917,15 +914,15 @@ export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chos
   );
 }
 
-/// Everything about what every agent's cell watches and reads beside what its own file names, as `flow.toml` writes it
+/// Everything about what every agent's cell reads beside what its own file names, as `flow.toml` writes it
 /// (`[every_agent]`): each name as written, with the data it stands for where it stands for others than itself, each
-/// chosen by its name, its kind, and, of what it watches, what a cell does when it is new.
+/// chosen by its name, and its kind.
 export function EveryAgentPanel(props: { flow: Flow; onChoose: (c: Chosen) => void }) {
   const { flow, onChoose } = props;
   const every = flow.everyAgent;
-  const list = (label: 'watches' | 'reads', names: { name: string; blocks: string[]; do?: string | null }[]) =>
+  const list = (names: { name: string; blocks: string[] }[]) =>
     names.length > 0 && (
-      <PanelPart label={label} count={names.length}>
+      <PanelPart label="reads" count={names.length}>
         <ul className="uses">
           {names.map((n) => {
             const itself = namesItself(n);
@@ -958,12 +955,6 @@ export function EveryAgentPanel(props: { flow: Flow; onChoose: (c: Chosen) => vo
                   />
                 )}
                 {every.kinds[n.name] && <Attr name="kind" value={inputKindWords(every.kinds[n.name])} />}
-                {n.do && (
-                  <div className="row-note">
-                    <Attr name="do" value="" />
-                    {n.do}
-                  </div>
-                )}
               </ListRow>
             );
           })}
@@ -972,8 +963,7 @@ export function EveryAgentPanel(props: { flow: Flow; onChoose: (c: Chosen) => vo
     );
   return (
     <Panel label="every_agent" title={<span className="mono">every_agent</span>} belongs={<span className="mono">flow.toml</span>}>
-      {list('watches', every.watches)}
-      {list('reads', every.reads)}
+      {list(every.reads)}
     </Panel>
   );
 }
