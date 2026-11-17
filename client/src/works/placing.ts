@@ -155,18 +155,21 @@ function wakings(run: Run, page: Pick<WorkPage, 'flow' | 'blocks'>, calls: Map<n
   return out.sort((a, b) => b.time - a.time || b.at - a.at);
 }
 
-/// A run's row: what woke it, the latest and then each other write of the owner's, each name once; the column of the
-/// cell whose run wrote the latest, where the flow has it and it is another than the run's; and the run's own column
-/// and mark.
+/// A run's row: what woke it, the latest and then each other write of the owner's made since the cell's run before, each
+/// name once; the column of the cell whose run wrote the latest, where the flow has it and it is another than the run's;
+/// and the run's own column and mark.
 function runRow(
   run: Run,
   page: Pick<WorkPage, 'flow' | 'blocks' | 'summary'>,
   column: Map<string, number>,
   calls: Map<number, CallRow>,
+  /// When the cell's run before this one began; none where this is its first.
+  before: number | null,
 ): Pick<HistoryRow, 'names' | 'run' | 'from' | 'did'> {
   const woke = wakings(run, page, calls);
   const [latest, ...rest] = woke;
-  const all = [...(latest?.names ?? []), ...rest.filter((w) => w.owner).flatMap((w) => w.names)];
+  const said = rest.filter((w) => w.owner && (before === null || w.time > before));
+  const all = [...(latest?.names ?? []), ...said.flatMap((w) => w.names)];
   const names = all.filter((n, i) => all.findIndex((m) => m.name === n.name && m.mark === n.mark) === i);
   const at = column.get(run.cell);
   const state = runState(run, page.summary, page.blocks);
@@ -283,11 +286,16 @@ export function placeSteps(page: Pick<WorkPage, 'steps' | 'flow' | 'blocks' | 's
   const calls = new Map(steps.flatMap((s) => (s.kind === 'run' ? s.calls.map((c) => [c.call, c] as const) : [])));
   const ran = ranBy(steps, blocks);
   const answered = answers(page);
+  // When each cell's latest run so far began.
+  const began = new Map<string, number>();
   // A step's row, or none where it is no row.
   const rowOf = (step: Step): Pick<HistoryRow, 'names' | 'run' | 'from' | 'did'> | null => {
     switch (step.kind) {
-      case 'run':
-        return runRow(step, page, column, calls);
+      case 'run': {
+        const row = runRow(step, page, column, calls, began.get(step.cell) ?? null);
+        began.set(step.cell, step.time);
+        return row;
+      }
       case 'wrote':
         if (step.by.kind !== 'owner' || (ran.get(step.at) ?? []).length > 0) return null;
         return act(owners(rowName(flow, step.block)), writeParts(step, page, answered));

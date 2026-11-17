@@ -41,7 +41,7 @@ export const HISTORY_MARKS: MarkKey[] = [
 ];
 
 /// The width of the column of names at first, and the least and most it is dragged to.
-const NAMES = { first: 160, min: WIDTHS.namesMin, max: WIDTHS.namesMax };
+const NAMES = { first: 240, min: WIDTHS.namesMin, max: WIDTHS.namesMax };
 
 /// How far a run's mark reaches from its middle, in the units of a glyph's box: half its side (`--space-8`) where the
 /// box is `--chart-mark` wide in 24 units.
