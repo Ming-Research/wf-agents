@@ -98,6 +98,9 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
     let mut waits = false;
     let mut misshapen = false;
     let mut asked: Vec<&'static str> = Vec::new();
+    // Whether the return only answers the owner: it deals with the cell's words alone, writes nothing else of the cell's
+    // and asks nothing, so that it owes nothing the cell must write (design document `data-and-context`, 35).
+    let mut answers_alone = false;
     if with_outcome {
         let mut outcome = Map::new();
         let mut names: Vec<&str> = Vec::new();
@@ -263,6 +266,7 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
                 name: "write_words".to_string(),
             });
         }
+        answers_alone = dealt_with == [BlockId::from("write_words")] && handed.is_empty() && questions.is_empty();
         // The work's questions are a block it writes, which the engine keeps as questions of their own.
         if !questions.is_empty() {
             outputs.insert("write_questions".into(), Value::Array(questions));
@@ -284,7 +288,7 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
     if asks == 0 && dealt_with.is_empty() && !waits {
         faults.push(Unmet::DealtWithNothing);
     }
-    if asks == 0 && !waits && !handed.contains(&"ok") && !misshapen {
+    if asks == 0 && !waits && !handed.contains(&"ok") && !misshapen && !answers_alone {
         faults.push(Unmet::NotHandedIn { block: "ok".into() });
     }
     Drawn {

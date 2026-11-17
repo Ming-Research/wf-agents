@@ -249,7 +249,8 @@ pub struct Requires<'a> {
     pub groups: &'a BTreeMap<BlockId, Vec<BlockId>>,
     /// The blocks among those that every return that asks for no call includes, but one with a question that waits
     /// for the owner's answer, one of a round whose cell still waits for the results of calls ([`Told::waits`]), and
-    /// one that deals with the cell's own words alone and writes nothing but its answer in them ([`Requires::words`]).
+    /// one that deals with the cell's own words alone, writes nothing but its answer in them and asks nothing
+    /// ([`Requires::words`]).
     pub must_write: &'a [BlockId],
     /// The values of each block that is a choice.
     pub choices: &'a BTreeMap<BlockId, Vec<String>>,
@@ -259,9 +260,9 @@ pub struct Requires<'a> {
     pub nothing_but: &'a BTreeMap<BlockId, BTreeMap<String, Vec<BlockId>>>,
     /// The cell's own questions, where it may ask: the block a return writes the questions it asks or withdraws in.
     pub questions: Option<&'a BlockId>,
-    /// The cell's own words, its dialogue with the owner, where it has them. A return that deals with them alone and
-    /// writes nothing but its answer in them answers the owner first, and goes on with the cell's work in later rounds
-    /// (design document `data-and-context`, 35): it owes no block its cell must write.
+    /// The cell's own words, its dialogue with the owner, where it has them. A return that deals with them alone,
+    /// writes nothing but its answer in them and asks nothing answers the owner first, and goes on with the cell's work
+    /// in later rounds (design document `data-and-context`, 35): it owes no block its cell must write.
     pub words: Option<&'a BlockId>,
     /// How often what the run returns may be sent back.
     pub returns: u32,
@@ -779,8 +780,9 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     let misshapen = |block: &BlockId| {
         (found.iter()).any(|u| matches!(u, Unmet::NoValue { block: b } | Unmet::NotAChoice { block: b } if b == block))
     };
-    // A return that deals with the cell's own words alone and writes nothing but its answer in them answers the owner
-    // first, and goes on with the cell's work in later rounds (design document `data-and-context`, 35).
+    // A return that deals with the cell's own words alone, writes nothing but its answer in them and asks nothing
+    // answers the owner first, and goes on with the cell's work in later rounds (design document `data-and-context`,
+    // 35).
     let answers_alone = requires.words.is_some_and(|own| {
         dealt_with == std::slice::from_ref(own) && writes.iter().all(|w| w.block == *own) && questions.is_empty()
     });

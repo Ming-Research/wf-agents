@@ -88,7 +88,8 @@
 //! cell that no cell before it reads, and each the cell must write, each with a short content made up for it, saying
 //! the change matters, and with the value the script names for the block or else its first, where the block is a
 //! choice. An output a cell before it reads is a way back, an opinion on what that cell did, which an agent writes only
-//! when it has one: by default it has none, so that a script that says nothing of a judging cell has it content and
+//! when it has one, unless that cell never runs where this one does, its condition wanting another value of a block
+//! than this one's, which this one does not write: by default it has none, so that a script that says nothing of a judging cell has it content and
 //! does not send the work round until its limit; one the cell must write each time it writes all the same, so that the
 //! round is not sent back, and, where the block had a version as the run started, says the change does not matter, so
 //! that the work is not sent round for it either. Beside a value that stands with nothing but some blocks
@@ -104,7 +105,7 @@ use serde::Deserialize;
 use work::{Ask, Handed, Spent, Time};
 
 use decide::run::Failure;
-use decide::{BlockId, Seq, Who};
+use decide::{BlockId, Condition, Seq, Who};
 use engine::Came;
 
 /// How long a round takes where the script says nothing, in milliseconds.
@@ -490,14 +491,32 @@ impl Script {
                 let outputs = place.map_or(&[][..], |place| &flow.flow.cells()[place].outputs);
                 // An output an earlier cell reads is a way back, an opinion on what that cell did: an agent writes one
                 // only when it has one, and by default it has none, unless the cell must write it each time; then,
-                // once the block has a version, it is written as a change that does not matter.
+                // once the block has a version, it is written as a change that does not matter. An earlier cell whose
+                // condition wants another value of a block than this cell's does, one this cell does not write, never
+                // runs where this one does, and reads nothing of it as a way back.
+                let wants = |c: &decide::Cell| -> Vec<(BlockId, String)> {
+                    (c.applies.iter())
+                        .filter_map(|key| match key {
+                            Condition::Is { block, value } => Some((block.clone(), value.clone())),
+                            Condition::Test(_) => None,
+                        })
+                        .collect()
+                };
+                let own = place.map(|p| wants(&flow.flow.cells()[p])).unwrap_or_default();
+                let apart = |reader: usize| {
+                    let theirs = wants(&flow.flow.cells()[reader]);
+                    (own.iter()).any(|(b, v)| {
+                        !outputs.contains(b) && theirs.iter().any(|(their, value)| their == b && value != v)
+                    })
+                };
                 let back = |block: &BlockId| {
                     let readers = flow
                         .blocks
                         .get(block)
                         .map(|b| b.readers.cells.iter().chain(&b.readers.conditions));
-                    (readers.into_iter().flatten())
-                        .any(|reader| matches!((flow.flow.place(reader), place), (Some(r), Some(p)) if r < p))
+                    (readers.into_iter().flatten()).any(
+                        |reader| matches!((flow.flow.place(reader), place), (Some(r), Some(p)) if r < p && !apart(r)),
+                    )
                 };
                 let handed: Vec<Handed> = (outputs.iter())
                     .filter(|block| !back(block) || cell.must_write.contains(block))
