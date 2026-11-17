@@ -80,8 +80,7 @@ joining small things into one work, not leaving out the review.
 ### principle a-question-is-a-choice
 What is asked of a person is a question of yes or no, or a choice of one or more among options, with the answer its
 asker recommends. The answer is the option taken and nothing else: why, where the owner wants to say it, is said in
-the owner's words to the cell. What the engine itself asks, such as an approval the flow requires, judges nothing and
-recommends nothing.
+the owner's words to the cell.
 Why: A question in free words cannot be answered quickly, and words given with an answer, taken as part of it, could
 not be told from what the owner says to the cell.
 

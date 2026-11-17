@@ -2,19 +2,22 @@
 //! a flow (principle engine-knows-no-cell). It compiles every flow the repository defines, collects every name those
 //! flows give (each cell, line, group and block, a datum each cell or each line has its own of by its name as made),
 //! leaves out what the engine itself declares, read from its declarations (the sources, acts, tools and system parts of
-//! what it has, its data beside the flows and their values, every place the words beside the flows fill, and the
-//! directories of the format), and fails where a source that is not a test holds one of the rest: as a string literal
-//! whole, inside a longer one, or as a key of an object written in the page's code, in each Rust file of a crate's
-//! `src` outside its items marked `#[cfg(test)]` and the files they declare, and in the page's code without its tests,
-//! fixtures, mocks and made-up data, but for those a module of it imports.
+//! what it has, its data beside the flows and their values, every place the words beside the flows fill, the kinds its
+//! page's interface tags what it sends with, and the directories of the format), and fails where a source that is not a
+//! test holds one of the rest: as a string literal whole, inside a longer one, or as a key of an object written in the
+//! page's code, in each Rust file of a crate's `src` outside its items marked `#[cfg(test)]` and the files they
+//! declare, and in the page's code without its tests, fixtures, mocks and made-up data, but for those a module of it
+//! imports.
 //!
 //! Its limit: what the engine declares as its own, its acts, sources, tools and the places its words fill, is the
 //! engine's vocabulary, which its code may name, so a flow's name that is also one of them (the block `check` and the
-//! act `check`, the flow `deliver` and the act `deliver`, the blocks `title`, `code`, `tests`, `checked` and the group
-//! `change`, each a place) is left out, as nothing tells the two apart in a text; and a name that is a plain word, such
-//! as `plan` or `found`, is found inside a longer text only where it is written as a name, between backticks, and never
-//! as a key, since prose and the code's own words use it for its meaning. A name with a digit or an `_` is no word, and
-//! is found wherever it stands, but in the path of a drawing, and a regular expression is no text at all.
+//! act `check`, the flow `deliver` and the act `deliver`, the blocks `title`, `code`, `tests` and `checked`, each a
+//! place, and the group `change` and the block `merged`, kinds of what the interface sends) is left out, as nothing
+//! tells the two apart in a text; the name of an event the page listens for is the browser's word, and is no name of a
+//! flow; and a name that is a plain word, such as `plan` or `found`, is found inside a longer text only where it is
+//! written as a name, between backticks, and never as a key, since prose and the code's own words use it for its
+//! meaning. A name with a digit or an `_` is no word, and is found wherever it stands, but in the path of a drawing,
+//! and a regular expression is no text at all.
 //!
 //! It reads every source of the repository once and compiles the two flows, 0.9 s on CI. It is worth that: a name
 //! written in the code holds for one flow alone, and nothing else finds it until a flow renames the thing and the code
@@ -475,11 +478,77 @@ fn places() -> BTreeSet<String> {
     places
 }
 
+/// The kinds the page's interface tags what it sends with: each variant of an enum of the web crate tagged by `kind`,
+/// named as its `rename_all` names it.
+fn interface_kinds() -> BTreeSet<String> {
+    let mut kinds = BTreeSet::new();
+    let Ok(entries) = fs::read_dir(root().join("crates/web/src")) else {
+        return kinds;
+    };
+    for path in entries.filter_map(|e| e.ok().map(|e| e.path())) {
+        let Ok(text) = fs::read_to_string(&path) else { continue };
+        let mut lines = text.lines();
+        while let Some(line) = lines.next() {
+            if !(line.starts_with("#[serde(") && line.contains("tag = \"kind\"")) {
+                continue;
+            }
+            let snake = line.contains("rename_all = \"snake_case\"");
+            let Some(_) = lines.by_ref().find(|l| l.starts_with("pub enum ")) else {
+                break;
+            };
+            for line in lines.by_ref().take_while(|l| !l.starts_with('}')) {
+                let Some(rest) = line.strip_prefix("    ") else {
+                    continue;
+                };
+                let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+                if !name.starts_with(|c: char| c.is_ascii_uppercase()) {
+                    continue;
+                }
+                kinds.insert(if snake { snake_cased(&name) } else { camel_cased(&name) });
+            }
+        }
+    }
+    kinds
+}
+
+/// A variant's name as `rename_all = "camelCase"` writes it.
+fn camel_cased(name: &str) -> String {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .map(|c| c.to_ascii_lowercase().to_string() + chars.as_str())
+        .unwrap_or_default()
+}
+
+/// A variant's name as `rename_all = "snake_case"` writes it.
+fn snake_cased(name: &str) -> String {
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_ascii_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
+/// Whether a literal is the name of an event the page's code listens for, given to `addEventListener` or
+/// `removeEventListener` on its line: the browser's word.
+fn listened(lines: &[&str], literal: &Literal) -> bool {
+    let line = literal.line.checked_sub(1).and_then(|i| lines.get(i));
+    line.is_some_and(|l| {
+        ['\'', '"']
+            .iter()
+            .any(|q| l.contains(&format!("EventListener({q}{}{q}", literal.text)))
+    })
+}
+
 /// The names the flows give that are not the engine's own: each cell, line, group and block of every flow the
 /// repository defines, without what the engine declares.
 fn flow_names() -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     let mut engines = places();
+    engines.extend(interface_kinds());
     let format = [
         CELLS_DIR, LINES_DIR, BLOCKS_DIR, TESTS_DIR, RULES_DIR, DATA_DIR, OF_A_CELL, OF_A_LINE,
     ];
@@ -657,7 +726,9 @@ fn no_source_names_a_cell_line_group_or_block_of_a_flow() {
     let mut found = Vec::new();
     for (path, scanned) in rust_sources().into_iter().chain(page_sources()) {
         let at = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
-        for literal in &scanned.literals {
+        let text = fs::read_to_string(&path).unwrap_or_default();
+        let lines: Vec<&str> = text.lines().collect();
+        for literal in scanned.literals.iter().filter(|l| !listened(&lines, l)) {
             for name in named(&literal.text, &names) {
                 found.push(format!("{at}:{}: {name} in \"{}\"", literal.line, literal.text));
             }

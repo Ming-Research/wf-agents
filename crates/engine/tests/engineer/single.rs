@@ -130,10 +130,9 @@ impl W {
             .expect("the cell is in the flow")
     }
 
-    /// The work from its start to the review's yes on the implementation's code: the research hands in a plan with no
-    /// deeper look and no change of the tree, both reviews of the plan find nothing to change, and the review asks for
-    /// no testing.
-    pub(super) fn reviewed() -> W {
+    /// The work from its start to the implementation's round: the research hands in a plan with no deeper look and no
+    /// change of the tree, and both reviews of the plan find nothing to change.
+    pub(super) fn planned() -> W {
         let mut w = W::started();
         w.hands_in("S1", &[("place", None)], Vec::new());
         w.hands_in("R0", &[], Vec::new());
@@ -150,6 +149,14 @@ impl W {
         w.hands_in("R2", &[], Vec::new());
         w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
         w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
+        assert_eq!(w.round().1, "I1");
+        w
+    }
+
+    /// The work from its start to the review's yes on the implementation's code: planned ([`W::planned`]), and the
+    /// review asks for no testing.
+    pub(super) fn reviewed() -> W {
+        let mut w = W::planned();
         w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
         w.hands_in(
             "T1",

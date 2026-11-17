@@ -21,7 +21,8 @@ Judge it by the tree's rules, on each of these points:
 4. Each entry of `tree_edits`, as one that must earn its place: its kind and its concept in the tree, whether its
    reason is the real one, an entry it contradicts or repeats, its form, and whether it says what this plan builds and
    no more.
-5. A change of a principle or the constitution with no question of its writer's that asks the owner.
+5. A change of the tree in `tree_edits`, of the constitution, a principle, a decision or a document, that no
+   question asks the owner about.
 
 In the why of `tree_ok`, answer each point by its number: none, or what you found. Write what the writer must take in
 `tree_review`, every point at once: this is your one chance, and nothing is raised later that could be raised now.

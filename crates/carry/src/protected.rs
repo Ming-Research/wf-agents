@@ -6,10 +6,10 @@
 //! does not: each file it adds, changes or deletes, by its path and the content it ends with, so that main moving on
 //! asks nothing again where the work's own change is the same. The engine asks the owner of it by itself, in the
 //! question of `agents/asks.toml` (`[protected]`), which shows each file with why the work says it is needed and its
-//! change, waits, and recommends none of its options: asked again under its name where the change is another, or where
-//! the work gives another reason for it before the owner answered, withdrawn once the work touches none of the paths.
-//! The owner's yes to the change holds while the change is the same, whatever reason is given for it after. The
-//! question is the engine's, beside what the round returns, and no agent writes it.
+//! change, and recommends the option `merges` names, which lets the change merge: asked again under its name where the
+//! change is another, or where the work gives another reason for it while the question stands unanswered, withdrawn
+//! once the work touches none of the paths. The owner's yes to the change holds while the change is the same, whatever
+//! reason is given for it after. The question is the engine's, beside what the round returns, and no agent writes it.
 //!
 //! Why a file is changed is the work's, said in the field `protected_changes` of a return that does the cell's work,
 //! under the file's path, and it stands for the file as it then is: the question asked carries it, and a later version
@@ -22,8 +22,11 @@
 //! pass while that change is not empty and is not one the owner let merge, by the option `merges` names; it asks, or
 //! asks again, where the question does not stand unanswered for that change, with the reasons the question that stands
 //! says and a file no round explained said to have none. A look the check cannot make fails the check. As a round of
-//! a line that may change the work ends, the engine looks as well, so that the owner is asked early; a look that fails
-//! there asks nothing and sends nothing back, the check being what holds the merge.
+//! a line that may change the work ends, the engine looks as well, so that the owner is asked early; that question does
+//! not hold the work, which goes on to its reviews by the option it recommends until the owner answers, and the check
+//! waits while it stands unanswered (`asked`). A look that fails there asks nothing and sends nothing back, the check
+//! being what holds the merge. Where the check itself asks, the question holds the work, as nothing else would bring
+//! the owner's answer before the merge.
 //!
 //! Git is run with no program the repository's configuration or attributes could name, and so that what attributes
 //! say of a file cannot keep its content out of the change shown: the configuration is refused first as the acts
@@ -46,8 +49,6 @@ const SAFE_DIFF: [&str; 4] = ["--no-ext-diff", "--no-textconv", "--text", "--no-
 /// A file of the work's own change under the protected paths.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct File {
-    /// Its kind of change: `A`, `M` or `D` as git says it.
-    pub(crate) status: char,
     pub(crate) path: String,
     /// The content it ends with, as git names it.
     pub(crate) blob: String,
@@ -100,7 +101,7 @@ pub(crate) async fn change(
     let mut files = Vec::new();
     while let (Some(fields), Some(path)) = (parts.next(), parts.next()) {
         let fields: Vec<&str> = fields.split_whitespace().collect();
-        let (Some(blob), Some(status)) = (fields.get(3), fields.get(4).and_then(|s| s.chars().next())) else {
+        let Some(blob) = fields.get(3) else {
             continue;
         };
         let literal = format!(":(literal){path}");
@@ -109,7 +110,6 @@ pub(crate) async fn change(
         args.extend([base, head, "--", literal.as_str()]);
         let diff = git::git(&place.dir, &args).await?;
         files.push(File {
-            status,
             path: path.to_string(),
             blob: blob.to_string(),
             diff,
@@ -219,7 +219,7 @@ pub(crate) fn asking(
     given: &BTreeMap<String, String>,
 ) -> Option<Question> {
     let standing = standing(work, words);
-    asked(standing.as_ref(), words, change, given)
+    asked(standing.as_ref(), words, change, given, true)
 }
 
 fn asked(
@@ -227,6 +227,7 @@ fn asked(
     words: &AskProtected,
     change: &Change,
     given: &BTreeMap<String, String>,
+    waits: bool,
 ) -> Option<Question> {
     if change.files.is_empty() {
         return standing.filter(|s| s.stands).map(|_| Question::Withdrawn {
@@ -243,26 +244,16 @@ fn asked(
     }
     let files: Vec<String> = (change.files.iter())
         .map(|file| {
-            let kind = match file.status {
-                'A' => &words.added,
-                'D' => &words.deleted,
-                _ => &words.changed,
-            };
             let why = reasons.get(&file.path).unwrap_or(&words.no_reason);
-            let places = [
-                ("path", &file.path),
-                ("change", kind),
-                ("why", why),
-                ("diff", &file.diff),
-            ];
+            let places = [("path", &file.path), ("why", why), ("diff", &file.diff)];
             fill(&words.file, &places.map(|(name, value)| (name, value.as_str())))
         })
         .collect();
     let ask = fill(&words.ask, &[("files", &files.join("\n\n"))]);
     Some(Question::Asked {
         name: words.name.clone(),
-        waits: true,
-        recommends: None,
+        waits,
+        recommends: Some(words.merges),
         ask,
         options: (words.options.iter())
             .map(|o| Way {
@@ -314,7 +305,7 @@ pub(crate) async fn look(
         });
     }
     Ok(Looked {
-        asks: asked(standing.as_ref(), words, &change, said),
+        asks: asked(standing.as_ref(), words, &change, said, false),
         unexplained: Vec::new(),
     })
 }
@@ -463,16 +454,19 @@ pub(crate) mod tests {
             panic!("nothing is asked");
         };
         assert_eq!(name, "protected_files");
-        assert!(waits, "the work waits for the answer");
-        assert_eq!(recommends, None, "the engine recommends nothing");
+        assert!(!waits, "asked as a round ends, the question does not hold the work");
+        assert_eq!(
+            recommends,
+            Some(words().merges),
+            "it recommends letting the change merge"
+        );
         // Each file, with its reason in the work's words, and then its own change.
         let (guide, cell) = (
-            ask.find("- AGENTS.md: added. Why: The guide must say it.\n")
-                .expect(&ask),
-            ask.find("- flow/cell.toml: added. Why: The flow needs the cell.\n")
+            ask.find("- AGENTS.md. Why: The guide must say it.\n").expect(&ask),
+            ask.find("- flow/cell.toml. Why: The flow needs the cell.\n")
                 .expect(&ask),
         );
-        assert!(ask.starts_with("May this merge?\n\n- AGENTS.md: "), "{ask}");
+        assert!(ask.starts_with("May this merge?\n\n- AGENTS.md. "), "{ask}");
         let (rules, title) = (
             ask.find("+Rules.").expect(&ask),
             ask.find("+title = \"A cell\"").expect(&ask),
@@ -576,12 +570,12 @@ pub(crate) mod tests {
         assert_eq!(reasons, second);
     }
 
-    // Another reason for the file as it is asks anew while the question waits, and lets nothing merge before the
-    // answer; the owner's yes to the change holds whatever reason a round gives after it, so that the same change is
-    // not asked again. A yes given to a question with no reason was asked again for the reason a later round gave
-    // (work 9).
+    // Another reason for the file as it is asks anew while the question stands unanswered, and lets nothing merge
+    // before the answer; the owner's yes to the change holds whatever reason a round gives after it, so that the same
+    // change is not asked again. A yes given to a question with no reason was asked again for the reason a later round
+    // gave (work 9).
     #[tokio::test]
-    async fn another_reason_asks_anew_while_the_question_waits_and_a_yes_holds_whatever_reason_comes_after_it() {
+    async fn another_reason_asks_anew_while_the_question_stands_unanswered_and_a_yes_holds_whatever_reason_follows() {
         let (repo, place) = started().await;
         commits(&place.dir, "AGENTS.md", "Rules.\n");
         let first = because(&[("AGENTS.md", "The guide must say it.")]);
@@ -603,7 +597,7 @@ pub(crate) mod tests {
         let change = change_at(&repo.project, &place, "main", &head, &paths()).await.unwrap();
         assert!(
             !let_merge(&asked_with(question, None), &words(), &change),
-            "asked anew, it waits for an answer"
+            "asked anew, it stands unanswered"
         );
         let let_it = asked_with(asked, Some(words().merges));
         assert_eq!(found(&repo, &place, &let_it, Some(&other)).await, Ok(Looked::default()));
@@ -624,7 +618,7 @@ pub(crate) mod tests {
         else {
             panic!("nothing is asked");
         };
-        assert!(ask.contains("- AGENTS.md: added. Why: none.\ndiff --git"), "{ask}");
+        assert!(ask.contains("- AGENTS.md. Why: none.\ndiff --git"), "{ask}");
         assert!(reasons.is_empty());
         // The owner's yes to it as it is needs no reason after it: a later round is not sent back, and nothing is asked.
         let backstop = asking(&Work::default(), &words(), &change, &BTreeMap::new()).unwrap();
@@ -655,10 +649,7 @@ pub(crate) mod tests {
         let Some(Question::Asked { ask, .. }) = asking(&taken_back, &words(), &change, &BTreeMap::new()) else {
             panic!("the change is not asked anew");
         };
-        assert!(
-            ask.contains("- AGENTS.md: added. Why: The guide must say it.\n"),
-            "{ask}"
-        );
+        assert!(ask.contains("- AGENTS.md. Why: The guide must say it.\n"), "{ask}");
     }
 
     #[tokio::test]
@@ -826,7 +817,7 @@ pub(crate) mod tests {
             panic!("nothing is asked: {asked:?}");
         };
         let (star, plain) = (
-            ask.find("- flow/a*.toml: added").expect(&ask),
+            ask.find("- flow/a*.toml. Why").expect(&ask),
             ask.find("- flow/ab.toml").expect(&ask),
         );
         let shown = &ask[star..plain];
@@ -834,5 +825,158 @@ pub(crate) mod tests {
             shown.contains("+star = true") && !shown.contains("+plain = true"),
             "{ask}"
         );
+    }
+
+    /// The words of the real flow this repository runs, read from `flow/agents/asks.toml`, as `acts`'s tests
+    /// read them: not the small flow's own words, kept apart in `tests::words` above.
+    fn real_words() -> AskProtected {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        flow::agents::read(&root)
+            .expect("the words beside the flows of this repository are read")
+            .asks
+            .protected
+    }
+
+    /// The question the engine asked of work 11's own change under the protected paths, rendered from the real
+    /// words and this real content (the four files of the change, each with the reason its return gave and its
+    /// diff against main, read from the live engine's record of the work), compared whole with the text kept in
+    /// `../tests/fixtures/protected-question.txt`.
+    #[test]
+    fn the_question_of_a_real_change_renders_as_the_text_kept_beside_the_tests() {
+        let files: Vec<(&str, &str, &str)> = vec![
+            (
+                "design/principles/flow.md",
+                r#"原则 `the-flow-gives-the-trees-rules` 里"规则是数据，和 guide 一样"已与代码不符，且 guide 不再是数据，改为"在每个会话的 system prompt 里给"；你在问题 `principle_wording` 里选了同意。"#,
+                r#"diff --git a/design/principles/flow.md b/design/principles/flow.md
+index fdf38c577..efdd261eb 100644
+--- a/design/principles/flow.md
++++ b/design/principles/flow.md
+@@ -108,9 +108,9 @@ Why: A rule in the project's own guide, left to the engineer and the review to k
+ missed it, the change merged (Article 7). The paths are a project's and not the flow's (Article 1).
+ 
+ ### principle the-flow-gives-the-trees-rules
+-The rules of the design tree, the tree's own file of rules, are data the cell of every agent takes, as the project's
+-guide is (the design of data and context): the flow gives them, and no cell is left to find them by following the
+-guide. The guide points to them as well, for the agents that work outside the flow.
++The rules of the design tree, the tree's own file of rules, are given to every agent by the flow, in the system prompt
++of every session, as the project's guide is: no cell is left to find them by following the guide. The guide points to
++them as well, for the agents that work outside the flow.
+ Why: Every project's agents need the same rules, and said once in the flow they reach every cell, where a rule an
+ agent must find by itself may go unread. An agent outside the flow is given nothing by the flow and has only the
+ guide."#,
+            ),
+            (
+                "flow/agents/session.toml",
+                r#"system prompt 的第一个 part 由 `datum = "guide"` 改为 `project = "guide"`，AGENTS.md 仍排在最前，从该 work 的 worktree 读，并去掉不再有的 `datum` 这种 part 的说明。"#,
+                r#"diff --git a/flow/agents/session.toml b/flow/agents/session.toml
+index 590af4a69..7ef79d5b8 100644
+--- a/flow/agents/session.toml
++++ b/flow/agents/session.toml
+@@ -1,18 +1,16 @@
+ # What a line's session begins with: its system prompt, these parts in this order (design statement 24). The program
+ # takes it once, as the session begins, and keeps it: a change of a part reaches a session only when it is reopened.
+ #
+-# A part is one of: `project`, a file of the project that `../project.toml` names; `datum`, the datum of the flow that
+-# stands for the file of that name there, as the work's branch has it, in the version current as the session begins,
+-# which the session then holds and is given what changed in since (design document `data-and-context`, 24): with no
+-# version, no prompt is made, and a flow of agents' cells without the datum is refused as the engine starts;
+-# `line = "rules"`, the sets of rules the line takes (`rules/`), in the order its file names them; `words`, a text of
+-# the engine's in this directory, its place `{your_line}` filled from `your_line.toml`; `returns = "how_you_return"`,
+-# how a cell returns, made from `return/` (`[how_you_return]` in `return.toml`) for the tools the flow names, the place
+-# `{store}` in the words of `query` filled with what the engine's records hold. The engine gives each setting these
+-# texts name, but for a file of the project, its value beside its name: the project's in its `project.toml`, and the
+-# installation's that `installation.toml` names.
++# A part is one of: `project`, a file of the project that `../project.toml` names, read from the work's worktree as the
++# session begins (decision the-projects-files-as-the-work-has-them); `line = "rules"`, the sets of rules the line
++# takes (`rules/`), in the order its file names them; `words`, a text of the engine's in this directory, its place
++# `{your_line}` filled from `your_line.toml`; `returns = "how_you_return"`, how a cell returns, made from `return/`
++# (`[how_you_return]` in `return.toml`) for the tools the flow names, the place `{store}` in the words of `query` filled
++# with what the engine's records hold. The engine gives each setting these texts name, but for a file of the project,
++# its value beside its name: the project's in its `project.toml`, and the installation's that `installation.toml`
++# names.
+ parts = [
+-  { datum = "guide" },
++  { project = "guide" },
+   { project = "constitution" },
+   { project = "tree_rules" },
+   { line = "rules" },"#,
+            ),
+            (
+                "flow/data/guide.toml",
+                r#"删除：`guide` 不再是数据，AGENTS.md 只放在每个会话的 system prompt 里（item #11，background v5）。"#,
+                r#"diff --git a/flow/data/guide.toml b/flow/data/guide.toml
+deleted file mode 100644
+index eeb352e96..000000000
+--- a/flow/data/guide.toml
++++ /dev/null
+@@ -1,5 +0,0 @@
+-# The project's guide for its agents (`[files.guide]` of the project's declaration), as the work's branch has it: data
+-# the cell of every agent watches. A session holds the version it began with in its system prompt, and is given what
+-# changed since (design document `data-and-context`, 15, 24).
+-what = "The project's guide for its agents, as the work's branch has it; between two versions, what changed."
+-from = "guide""#,
+            ),
+            (
+                "flow/engineer/flow.toml",
+                r#"从 `data` 和 `[every_agent]` 里去掉 `guide`（watches、kinds、do），`[every_agent]` 只剩 `reads` 和 `kinds`；每个代理格子不再关注它，消息里不再出现它。"#,
+                r#"diff --git a/flow/engineer/flow.toml b/flow/engineer/flow.toml
+index 4a67d05ec..dd504b920 100644
+--- a/flow/engineer/flow.toml
++++ b/flow/engineer/flow.toml
+@@ -6,7 +6,7 @@ order = ["S1", "R0", "R1", "R2", "D1", "D2", "P1", "P2", "I1", "T1", "T2", "M1",
+ # The engine's own data this flow uses, each defined once in `../data/`; a datum each cell or each line has its own of,
+ # in `../data/of_a_cell/` or `../data/of_a_line/`, is used where a cell names it. The flow's own data are in `blocks/`,
+ # its lines in `lines/`, its named tests in `tests/` and its cells in `cells/`, one file each.
+-data = ["start", "background", "dependencies", "asked", "tree", "head", "main", "guide"]
++data = ["start", "background", "dependencies", "asked", "tree", "head", "main"]
+ 
+ # What the item's card shows the owner of the work, in this order: the page shows what this names, and names no datum
+ # of its own.
+@@ -21,23 +21,16 @@ engine_asks_in = "I1"
+ # return holds them, the same for every line of the flow (`../agents/return/return.toml`).
+ tools = ["query", "run_tests"]
+ 
+-# What every agent cell of the flow watches and reads beside what its own file names, given first: the project's
+-# guide, and every cell's questions and every cell's words, so that what was asked, answered and said is known to the
+-# whole work (design document `data-and-context`, 15, 24, 33, 35). `{each}_` names each cell's own datum.
++# What every agent cell of the flow reads beside what its own file names, given first: every cell's questions and every
++# cell's words, so that what was asked, answered and said is known to the whole work (design document
++# `data-and-context`, 15, 33, 35). `{each}_` names each cell's own datum.
+ [every_agent]
+-watches = ["guide"]
+ reads = ["{each}_questions", "{each}_words"]
+ 
+ [every_agent.kinds]
+-guide = "last_and_latest"
+ "{each}_questions" = "all"
+ "{each}_words" = "all"
+ 
+-# What a cell does when the guide is new to it: at its first round, where its session holds the guide from its start,
+-# and once the guide changed (design document `data-and-context`, 22).
+-[every_agent.do]
+-guide = """Work under it as it now stands. Where it changed since the version you last worked from, look over what you hand in for what the change touches and bring that up to date; where the change touches nothing, hand in nothing new for it."""
+-
+ # The blocks of the plan and of the change, each watched or read as one: a new version of any of them is new to a cell
+ # that watches the group, and its round deals with the group by its name (design document `data-and-context`, 12).
+ [groups]"#,
+            ),
+        ];
+        let change = Change {
+            files: (files.iter())
+                .map(|(path, _, diff)| File {
+                    path: path.to_string(),
+                    blob: "blob".to_string(),
+                    diff: diff.to_string(),
+                })
+                .collect(),
+        };
+        let given: BTreeMap<String, String> = (files.iter())
+            .map(|(path, why, _)| (path.to_string(), why.to_string()))
+            .collect();
+        let Some(Question::Asked { ask, .. }) = asking(&Work::default(), &real_words(), &change, &given) else {
+            panic!("the change is asked");
+        };
+        let expected = include_str!("../tests/fixtures/protected-question.txt");
+        assert_eq!(ask, expected);
     }
 }

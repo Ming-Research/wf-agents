@@ -9,12 +9,12 @@ what = "The questions the cell asks the owner, each under its name, and the owne
 from = "answer"
 shown = true
 words = '''
-`{cell}_questions`: what you ask the owner, only where ways that each would do are left, no fact decides between them, and
-a wrong choice costs much; decide the rest yourself. Set `waits` where you cannot go on without the answer, or where
-going on by your recommendation would likely be undone at a cost: the work stops at this cell, and you are entered
-again with the answer. Otherwise the work goes on by your recommendation. A text points to a question as `{{name}}`;
-`recommends` counts the options from 1. Write a question again under its name to rewrite it, or give its name and why
-to withdraw it; a question you do not write stands, with its answer.
+`{cell}_questions`: what you ask the owner: what you are told to ask, and otherwise only where ways that each would do
+are left, no fact decides between them, and a wrong choice costs much; decide the rest yourself. Set `waits` where you
+cannot go on without the answer, or where going on by your recommendation would likely be undone at a cost: the work
+stops at this cell, and you are entered again with the answer. Otherwise the work goes on by your recommendation. A text
+points to a question as `{{name}}`; `recommends` counts the options from 1. Write a question again under its name to
+rewrite it, or give its name and why to withdraw it; a question you do not write stands, with its answer.
 
 A return with a question you wait for may leave out the blocks marked "hand it in every time", since the work stops at this cell until the answer comes.'''
 

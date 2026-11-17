@@ -14,9 +14,9 @@ reach, ask the owner how to go on, with a question that waits. A test goes with 
 make in `project.research`, committed. If the design itself is at fault, say so.
 
 Decide `deep_needed`. With yes, write only `found`. With no, write the plan (`plan_owner`, `plan_agent`,
-`acceptance`, and `tree_edits`) and no `found`. Where the solution needs a decision changed,
-propose that in `tree_edits` rather than bend the solution; a principle or the constitution, ask the owner. Before
-handing in, ask yourself where the plan is most likely wrong, and check that point.
+`acceptance`, and `tree_edits`) and no `found`. Where the solution needs the design tree changed, propose that in
+`tree_edits` rather than bend the solution. Before handing in, ask yourself where the plan is most likely wrong, and
+check that point.
 '''
 when = { deep_needed = "no" }
 watches = ["background", "plan_review", "tree_review", "plan_doubts", "r1_questions", "r1_words"]
