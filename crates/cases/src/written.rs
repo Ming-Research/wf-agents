@@ -10,6 +10,9 @@ use serde::Deserialize;
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Common {
+    /// The made project the cases run in, by the name of its file in `projects/` beside the flows' cases.
+    #[serde(default)]
+    pub project: Option<String>,
     #[serde(default)]
     pub tests: Option<Tests>,
     /// The made items, by their number.

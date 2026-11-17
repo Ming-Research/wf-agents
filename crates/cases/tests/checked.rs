@@ -49,6 +49,8 @@ fn faults(common: &str, cell: &str) -> Vec<String> {
 }
 
 const COMMON: &str = r##"
+project = "tally"
+
 [tests]
 mark = "#[test]"
 name_after = "fn "

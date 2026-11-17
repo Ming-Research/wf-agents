@@ -2,6 +2,8 @@
 # the texts and sets of blocks the cases name, and the rules their calls' results are given by.
 # The items' titles and backgrounds are in the made installation owner's language.
 
+project = "tally"
+
 [tests]
 mark = "#[test]"
 name_after = "fn "

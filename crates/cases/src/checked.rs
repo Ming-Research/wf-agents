@@ -37,6 +37,8 @@ impl fmt::Display for Fault {
 /// A flow's cases, checked: the made items, the rules by name, and each cell's cases.
 #[derive(Clone, Debug, Default)]
 pub struct Cases {
+    /// The made project the cases run in, by name.
+    pub project: String,
     pub items: BTreeMap<u64, Item>,
     /// How the made project's tests are found, where any case names rules.
     pub tests: Option<Tests>,
@@ -114,9 +116,6 @@ pub const WRITTEN: &str = "written";
 
 /// Checks every case against the compiled flow; every fault is said.
 pub fn check(flow: &Compiled, read: &Read) -> Result<Cases, Vec<Fault>> {
-    if !flow.name.is_empty() || read.cells.is_empty() {
-        return Ok(Cases::default());
-    }
     let mut faults = Vec::new();
     let mut items = BTreeMap::new();
     for (number, item) in &read.common.items {
@@ -131,7 +130,16 @@ pub fn check(flow: &Compiled, read: &Read) -> Result<Cases, Vec<Fault>> {
             }),
         }
     }
+    let project = read.common.project.clone().unwrap_or_default();
+    if project.is_empty() && !read.cells.is_empty() {
+        faults.push(fault(
+            COMMON,
+            None,
+            "project: the made project the cases run in is named".into(),
+        ));
+    }
     let mut cases = Cases {
+        project,
         items,
         tests: read.common.tests.clone(),
         ..Cases::default()
