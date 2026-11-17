@@ -102,8 +102,8 @@ pub struct Part {
     pub held_new: Vec<Piece>,
     /// Of the content of a block, what is sent in place of its text where the session lacks what the text needs.
     pub whole: Vec<Piece>,
-    /// Of the triggers' part, the line of each trigger of the cell, by the trigger's name, in the order the cell names
-    /// them, which come after `pieces` for each trigger that ran the cell; and then `after`.
+    /// Of the part of what is new, the line of each datum or group the cell watches, by its name, in the order the cell
+    /// names them, which come after `pieces` for each that is new to the cell; and then `after`.
     pub items: Vec<(String, Vec<Piece>)>,
     pub after: Vec<Piece>,
 }
@@ -264,7 +264,7 @@ impl<'a> Build<'a> {
             self.flow
                 .cells
                 .iter()
-                .flat_map(|c| c.triggers.iter().map(|t| t.name.clone())),
+                .flat_map(|c| c.watches.iter().map(|w| w.name.clone())),
         );
         // The project's own files are the project's to word, and are not checked.
         let project: Vec<&String> = agents.project.files.values().map(|f| &f.path).collect();
@@ -380,7 +380,9 @@ impl<'a> Build<'a> {
             let checkout = self.alike.project.as_ref();
             Ok(checkout.and_then(|checkout| std::fs::read_to_string(checkout.join(path)).ok()))
         };
-        for part in flow::system::parts(agents, self.flow, cell, read).map_err(|wrong| wrong.join("; "))? {
+        // A datum that stands for a file of the project is shown as the checkout has the file.
+        let datum = |name: &str| agents.project.files.get(name).map_or(Ok(None), |file| read(&file.path));
+        for part in flow::system::parts(agents, self.flow, cell, read, datum).map_err(|wrong| wrong.join("; "))? {
             out.push(self.part(What::System, Carried::System, &part.name, part.source, part.pieces));
         }
         // The message as the engine's builder defines it, each form of each part with the places of a run open.
@@ -413,7 +415,7 @@ impl<'a> Build<'a> {
             PartIs::Task => (What::Task, self.task_source(cell)),
             PartIs::Results => (What::Message, self.source("agents/message/results.toml")),
             PartIs::SentBack => (What::Message, self.source("agents/return/sent_back.toml")),
-            PartIs::Taken | PartIs::Heading | PartIs::Work | PartIs::Main | PartIs::Triggers => {
+            PartIs::Taken | PartIs::Heading | PartIs::Work | PartIs::Main | PartIs::New => {
                 (What::Message, self.source("agents/message/message.toml"))
             }
         }

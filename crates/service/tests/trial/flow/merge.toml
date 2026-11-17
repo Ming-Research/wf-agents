@@ -2,5 +2,5 @@ title = "Merge"
 kind = "engine"
 act = "merge"
 requires = { test = "content" }
-inputs = ["code"]
+watches = ["code"]
 outputs = ["merged"]

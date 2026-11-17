@@ -1,4 +1,4 @@
-//! The situations an entry of a cell of the small flow can reach: the entries, the triggers that ran it, how its
+//! The situations an entry of a cell of the small flow can reach: the entries, what ran it of what it watches, how its
 //! session stands with each datum, and what is counted of every datum's own state.
 
 mod support;
@@ -6,7 +6,7 @@ mod support;
 use context::Stands;
 use context::situations::{Named, combinations, situations};
 use flow::CellSpec;
-use support::{flow, words};
+use support::{compared, flow, words};
 
 /// The source no block of the small flow is written by.
 const REOPENED: &str = "session";
@@ -17,7 +17,7 @@ fn cell<'a>(flow: &'a flow::Compiled, id: &str) -> &'a CellSpec {
 
 fn of(cell_id: &str) -> Vec<Named> {
     let (flow, words) = (flow(), words());
-    situations(&flow, &words, cell(&flow, cell_id), REOPENED)
+    situations(&flow, &words, cell(&flow, cell_id), REOPENED, &compared())
 }
 
 fn holding(named: &Named) -> bool {
@@ -39,7 +39,7 @@ fn the_first_cell_of_a_line_is_entered_first_holding_nothing_and_run_by_all_the_
             named.name
         );
         assert!(!holding(named), "{}", named.name);
-        assert_eq!(named.situation.triggers, ["request", "opinions"], "{}", named.name);
+        assert_eq!(named.situation.new, ["request", "opinions"], "{}", named.name);
     }
 }
 
@@ -90,7 +90,7 @@ fn a_reopened_session_holds_nothing_and_a_return_that_asked_or_was_sent_back_han
 }
 
 #[test]
-fn a_datum_of_a_trigger_that_did_not_run_the_cell_stands_as_nothing_new_to_it_does() {
+fn a_datum_watched_that_did_not_run_the_cell_stands_as_nothing_new_to_it_does() {
     let all = of("plan");
     let opinions = |name: &str| {
         let named = all
@@ -107,7 +107,7 @@ fn a_datum_of_a_trigger_that_did_not_run_the_cell_stands_as_nothing_new_to_it_do
 fn every_situation_is_written_once_and_every_datum_s_own_state_is_counted() {
     let (flow, words) = (flow(), words());
     for id in ["plan", "build", "review", "close"] {
-        let all = situations(&flow, &words, cell(&flow, id), REOPENED);
+        let all = situations(&flow, &words, cell(&flow, id), REOPENED, &compared());
         for (n, named) in all.iter().enumerate() {
             let again = all[..n].iter().find(|o| o.situation == named.situation);
             assert!(
@@ -117,6 +117,35 @@ fn every_situation_is_written_once_and_every_datum_s_own_state_is_counted() {
                 again.map_or("", |o| &o.name)
             );
         }
-        assert!(combinations(&flow, &words, cell(&flow, id), REOPENED) > 0, "{id}");
+        assert!(
+            combinations(&flow, &words, cell(&flow, id), REOPENED, &compared()) > 0,
+            "{id}"
+        );
     }
+}
+
+// A block the cell writes that nothing else gives it is given only where the session lacks its latest: held or lacking,
+// never a line that it is held; and the tree, whose versions the carrier compares, is unread where the session lacks it
+// (design document `data-and-context`, 21, 23).
+#[test]
+fn what_the_cell_only_writes_stands_held_or_lacking_and_the_tree_lacking_stands_unread() {
+    let review = of("review");
+    for named in &review {
+        let verdict = named.situation.data["verdict"];
+        let can = if named.name.starts_with("reopened") {
+            vec![Stands::Lacks, Stands::Unwritten]
+        } else {
+            vec![Stands::Holds, Stands::Lacks, Stands::Unwritten]
+        };
+        assert!(can.contains(&verdict), "{}: {verdict:?}", named.name);
+    }
+    // Lacking where the session holds nothing, a reopened one standing as a first entry does; held on a later entry.
+    let stands: Vec<Stands> = review.iter().map(|n| n.situation.data["verdict"]).collect();
+    assert!(
+        stands.contains(&Stands::Lacks) && stands.contains(&Stands::Holds),
+        "{stands:?}"
+    );
+    let plan = of("plan");
+    assert!(plan.iter().any(|n| n.situation.data["tree"] == Stands::Unread));
+    assert!(plan.iter().all(|n| n.situation.data["tree"] != Stands::Lacks));
 }

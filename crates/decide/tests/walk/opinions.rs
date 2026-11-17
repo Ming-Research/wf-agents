@@ -95,3 +95,39 @@ fn an_answer_to_an_opinion_that_changes_nothing_else_brings_the_judge_to_look_ag
         )
     );
 }
+
+// The owner's ruling on a judge's dialogue (design document `data-and-context`, 39): the owner writes the verdict in the
+// judge's place, and the points the judge wrote before it are new to no cell from then on; the verdict, which the judge
+// does not watch, runs it no more than its maker.
+#[test]
+fn the_owner_s_verdict_in_a_judge_s_place_leaves_the_points_it_wrote_before_new_to_no_cell() {
+    let mut review = cell("review", &["code", "opinions"], &["verdict", "opinions"]);
+    let verdict = decide::Verdict {
+        fails: "no".to_string(),
+        dialogue: "opinions".into(),
+    };
+    review.verdicts = BTreeMap::from([("verdict".into(), verdict)]);
+    let cells = vec![cell("implement", &["plan", "opinions"], &["code", "opinions"]), review];
+    let mut w = World::with_gate(cells);
+    w.person_writes("plan");
+    w.run("implement", &[("code", Matters)]);
+    w.run("review", &[("verdict", Value("no")), ("opinions", Matters)]);
+    // The point runs the implementation.
+    assert!(
+        matches!(w.decide(), Decision::Run { ref cell, .. } if cell.as_str() == "implement"),
+        "{:?}",
+        w.decide()
+    );
+    // The owner rules that the work passes: the point runs nothing any more.
+    w.person_sets("verdict", "yes");
+    assert_eq!(w.decide(), resting());
+    // A point the judge writes after the ruling, on a change it judges again, runs the implementation again.
+    w.person_writes("plan");
+    w.run("implement", &[("code", Matters)]);
+    w.run("review", &[("verdict", Value("no")), ("opinions", Matters)]);
+    assert!(
+        matches!(w.decide(), Decision::Run { ref cell, .. } if cell.as_str() == "implement"),
+        "{:?}",
+        w.decide()
+    );
+}

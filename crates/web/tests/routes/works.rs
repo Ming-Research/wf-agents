@@ -40,6 +40,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "number": 1,
                 "item": 1,
                 "flow": "trial",
+                "delivers": false,
                 "added": START,
                 "paused": null,
                 "now": {
@@ -77,18 +78,25 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 {
                     "cell": "plan",
                     "needs": for_the_request,
-                    "inputs": [{ "block": "request", "current": 3, "known": null, "changed": true }],
+                    "inputs": [
+                        input("guide", Value::Null),
+                        json!({ "block": "request", "current": 3, "known": null, "changed": true }),
+                    ],
                 },
                 {
                     "cell": "build",
                     "needs": [],
                     "inputs": [
+                        input("guide", Value::Null),
                         input("plan", Value::Null),
                         input("opinions", Value::Null),
-                        input("answered", Value::Null),
                     ],
                 },
-                { "cell": "review", "needs": [], "inputs": [input("code", Value::Null)] },
+                {
+                    "cell": "review",
+                    "needs": [],
+                    "inputs": [input("guide", Value::Null), input("code", Value::Null)],
+                },
                 { "cell": "merge", "needs": [], "inputs": [input("code", Value::Null)] },
             ],
             "blocks": [
@@ -110,7 +118,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "versions": [{
                         "at": 3,
                         "time": START,
-                        "by": { "kind": "person" },
+                        "by": { "kind": "owner" },
                         "meaning": 3,
                         "value": null,
                         "saidTo": null,
@@ -136,7 +144,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "at": 3,
                     "time": START,
                     "block": "request",
-                    "by": { "kind": "person" },
+                    "by": { "kind": "owner" },
                     "changed": true,
                     "value": null,
                     "chars": 23,
@@ -149,7 +157,11 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "at": 5,
                     "time": resumed,
                     "because": for_the_request,
-                    "basis": [{ "block": "plan", "version": null }, { "block": "request", "version": 3 }],
+                    "basis": [
+                        { "block": "guide", "version": null },
+                        { "block": "plan", "version": null },
+                        { "block": "request", "version": 3 },
+                    ],
                     "rounds": [{
                         "number": 1,
                         "began": resumed,
@@ -177,17 +189,17 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
             ],
             // The plan's question is a call of the earlier form: no question of the work's own is asked.
             "questions": [],
-            // The owner's words run no cell of the trial flow.
+            // No cell of the trial flow has words of its own.
             "speaking": [
                 {
                     "to": { "kind": "line", "line": "engineer" },
                     "cell": null,
-                    "refused": "the owner's words run no cell of the line engineer",
+                    "refused": "no cell of the line engineer has words of its own",
                 },
                 {
                     "to": { "kind": "line", "line": "reviewer" },
                     "cell": null,
-                    "refused": "the owner's words run no cell of the line reviewer",
+                    "refused": "no cell of the line reviewer has words of its own",
                 },
             ],
         })

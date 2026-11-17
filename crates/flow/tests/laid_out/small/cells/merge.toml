@@ -3,4 +3,4 @@ title = "Merge"
 kind = "engine"
 act = "merge"
 requires = { test = "may_merge" }
-triggered_by = ["on_ci"]
+watches = ["ci"]

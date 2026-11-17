@@ -370,7 +370,7 @@
   color: var(--muted);
 }
 
-/* A way round, as the flow chart draws a way back: a line in the muted colour along the row from the furthest cell whose
+/* A way round, as the flow's views draw a way back: a line in the accent along the row from the furthest cell whose
    write it ran for, a dot at each such cell, and an arrow at the run. */
 .seg-back {
   position: absolute;
@@ -378,7 +378,7 @@
   left: 0;
   right: 0;
   height: var(--chart-back);
-  background: var(--muted);
+  background: var(--accent);
 }
 
 .back-from:not(.back-through) .seg-back {
@@ -393,7 +393,7 @@
   width: calc(2 * var(--chart-arrow));
   height: calc(2 * var(--chart-arrow));
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--accent);
 }
 
 .run-arrow {
@@ -401,7 +401,7 @@
   top: calc(var(--row) / 2 - var(--chart-arrow) + 1px);
   right: 0;
   border-top: var(--chart-arrow) solid transparent;
-  border-right: var(--chart-arrow-length) solid var(--muted);
+  border-right: var(--chart-arrow-length) solid var(--accent);
   border-bottom: var(--chart-arrow) solid transparent;
 }
 

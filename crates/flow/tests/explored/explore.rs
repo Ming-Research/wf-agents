@@ -17,13 +17,14 @@ use std::time::{Duration, Instant};
 
 use decide::run::{self, Hold, Requires, Step};
 use decide::{
-    Abandoned, BlockId, CallId, Called, Cause, CellId, Condition, Decision, Done, End, Finished, LetGo, Maker, PutIn,
-    Records, Returned, Round, RunId, Seq, Stalling, Started, Unrun, Waited, Who, decide, told,
+    Abandoned, Answered, BlockId, CallId, Called, Cause, CellId, Condition, Decision, Done, End, Finished, LetGo,
+    Maker, PutIn, Questioned, Records, Returned, Round, RunId, Seq, Stalling, Started, Unrun, Waited, Who, decide,
+    told,
 };
 
 use crate::model::{
-    BACKGROUND, DEPENDENCIES, DISCUSSION, Event, HEAD, MAIN, Model, Q_AND_A, START, TREE, Variant, ran, ran_back_on,
-    ran_on, reply_loop, show_key, skipped, waited_at_gate,
+    BACKGROUND, DEPENDENCIES, Event, GUIDE, HEAD, MAIN, Model, START, TREE, Variant, dialogue_loop, ran, ran_back_on,
+    ran_on, show_key, skipped, waited_at_gate,
 };
 use crate::support::World;
 use reading::{Reading, Reason, Writer};
@@ -31,7 +32,7 @@ use reading::{Reading, Reason, Writer};
 /// The properties, by their numbers in the owner's test plan.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Property {
-    /// 1. A cell runs only on a version of one of its own triggers that it has not consumed and did not write.
+    /// 1. A cell runs only on a version of what it watches that it has not consumed and did not write.
     NewToIt = 1,
     /// 2. Cells whose conditions want another value of a block never both run off the same version of it.
     Contradicting = 2,
@@ -172,9 +173,9 @@ struct State {
     logs: BTreeMap<RunId, run::Log>,
     /// What the round of each run that has ended and was not yet taken returned.
     returning: BTreeMap<RunId, Variant>,
-    /// The cell whose question each call on the owner asks; a call on the owner not here is the owner's word at a
-    /// run's limit of returns.
-    questions: BTreeMap<CallId, CellId>,
+    /// The cell that asked each question put to the owner, by the question's name: each a question that waits, recorded
+    /// as the engine records one.
+    questions: BTreeMap<String, CellId>,
     /// The return each cell gives at every round from now on, where one was chosen for all.
     always: BTreeMap<CellId, Variant>,
     spent: u8,
@@ -289,7 +290,8 @@ impl Explorer<'_> {
     }
 
     /// The work as the owner starts it: the start written, the background written, the items the work depends on not
-    /// yet merged, and main written, as the watch of main writes it into every work that has not ended.
+    /// yet merged, and main written, as the watch of main writes it into every work that has not ended; and the
+    /// project's guide, which the start's act reads as it makes the work's place, before any agent's round.
     fn first(&self) -> State {
         let m = self.model;
         let mut world = World::of(m.compiled.flow.clone());
@@ -297,6 +299,9 @@ impl Explorer<'_> {
         world.person_writes(BACKGROUND);
         world.outside_sets(m.sources[&DEPENDENCIES].as_str(), "waiting");
         world.outside_writes(m.sources[&MAIN].as_str());
+        if let Some(guide) = m.sources.get(&GUIDE) {
+            world.outside_writes(guide.as_str());
+        }
         State {
             world,
             logs: BTreeMap::new(),
@@ -379,7 +384,7 @@ impl Explorer<'_> {
         let i = self.model.place(&cell);
         let names: Vec<String> = (because.iter())
             .map(|c| match c {
-                Cause::Changed { block, .. } => self.model.triggers[i].get(block).cloned().unwrap_or(block.0.clone()),
+                Cause::Changed { block, .. } => self.model.watched[i].get(block).cloned().unwrap_or(block.0.clone()),
                 Cause::Results { .. } => "the answers it waited for".to_string(),
                 Cause::NoRecord => "no record".to_string(),
             })
@@ -417,7 +422,7 @@ impl Explorer<'_> {
 
     /// Whether a run of the cell at this place for these reasons runs for what the write from outside reached.
     fn tainted(&self, s: &State, i: usize, because: &[Cause], taint: &Taint) -> bool {
-        let r = Reading::new(&s.world.records);
+        let r = Reading::new(self.flow(), &s.world.records);
         let cell = &self.model.cells()[i].id;
         because.iter().any(|cause| match cause {
             Cause::Changed { block, .. } => (r.new_to(cell, block, NOW).iter()).any(|v| taint.versions.contains(&v.at)),
@@ -474,6 +479,8 @@ impl Explorer<'_> {
             returns: spec.returns,
             told: &told,
             answered_by: &m.answered_by[i],
+            dialogues: &m.cells()[i].dialogues,
+            verdicts: &m.cells()[i].verdicts,
         };
         let step = run::next(log, requires, Hold::Nothing);
         let sent_back = variant.as_ref() == Some(&Variant::SentBack);
@@ -493,17 +500,9 @@ impl Explorer<'_> {
                         shown.join(", ")
                     }
                 );
+                let question = format!("{cell}_question");
                 if asks {
-                    let call = CallId(s.world.id());
-                    let at = s.world.tick();
-                    s.world.records.called.push(Called {
-                        call,
-                        run,
-                        on: Some(Who::Owner),
-                        at,
-                    });
-                    s.questions.insert(call, cell.clone());
-                    said.push_str(&format!(", and the owner is asked, the call {}", call.0));
+                    said.push_str(&format!(", and asks the owner {question}, which it waits for"));
                 }
                 s.trace = s.trace.then(s.spent, said);
                 let at = s.world.tick();
@@ -514,6 +513,25 @@ impl Explorer<'_> {
                     dealt_with: Some(dealt_with),
                     waits_for: None,
                 });
+                // As the engine records a question the run asks: a version of it, then one of the cell's questions,
+                // which changes nothing, and the questions' standing, where it changes.
+                if asks {
+                    let at = s.world.tick();
+                    s.world.records.questions.push(Questioned {
+                        name: question.clone(),
+                        cell: cell.clone(),
+                        run,
+                        engine: false,
+                        waits: true,
+                        withdrawn: false,
+                        at,
+                    });
+                    if let Some(block) = &m.answered[i] {
+                        s.world.outside_writes_not_mattering(block.as_str());
+                    }
+                    s.questions.insert(question, cell.clone());
+                    stand(m, &mut s.world, &s.questions);
+                }
                 if let Some(t) = s.outside.as_mut()
                     && t.runs.contains(&run)
                 {
@@ -521,15 +539,26 @@ impl Explorer<'_> {
                 }
             }
             // A return is sent back where it would write over a version its round was not told of: a cell before it
-            // ran while the return waited to be taken, and wrote what this one writes.
+            // ran while the return waited to be taken, and wrote what this one writes; and where it leaves the next
+            // word owed, a maker woken by a point answering nothing, or a judge failing with no point, as a return of
+            // its choices alone may (design document `data-and-context`, 42).
             Step::SendBack { unmet }
                 if variant.is_none()
                     || sent_back
-                    || unmet.iter().all(|u| matches!(u, run::Unmet::WrittenOver { .. })) =>
+                    || unmet.iter().all(|u| {
+                        matches!(
+                            u,
+                            run::Unmet::WrittenOver { .. } | run::Unmet::WordOwed { .. } | run::Unmet::NoPoint { .. }
+                        )
+                    }) =>
             {
                 self.reach("a return was sent back".to_string());
                 if !sent_back && variant.is_some() {
-                    self.reach(WRITTEN_OVER.to_string());
+                    if unmet.iter().any(|u| matches!(u, run::Unmet::WrittenOver { .. })) {
+                        self.reach(WRITTEN_OVER.to_string());
+                    } else {
+                        self.reach(WORD_OWED.to_string());
+                    }
                 }
                 s.trace = s
                     .trace
@@ -653,13 +682,10 @@ impl Explorer<'_> {
                 {
                     // The owner answers a question the work waits on, whatever the path spent.
                     for w in on {
-                        if let Waited::Call {
-                            call,
-                            on: Some(Who::Owner),
-                        } = w
-                            && s.questions.contains_key(call)
+                        if let Waited::Answer { question } = w
+                            && s.questions.contains_key(question)
                         {
-                            out.push(self.event(s, d, Event::Answers(*call)));
+                            out.push(self.event(s, d, Event::Answer(question.clone())));
                         }
                     }
                 }
@@ -693,7 +719,7 @@ impl Explorer<'_> {
     fn events(&self, s: &State, d: &Decision) -> Vec<Event> {
         let m = self.model;
         let r = &s.world.records;
-        let reading = Reading::new(r);
+        let reading = Reading::new(&m.compiled.flow, r);
         let applies = |i: usize| reading.applies(&m.compiled.flow, i);
         let mut events = vec![Event::Background];
         for (i, cell) in m.cells().iter().enumerate() {
@@ -714,11 +740,11 @@ impl Explorer<'_> {
                 events.push(Event::Answers(c.call));
             }
         }
-        for (i, cell) in m.cells().iter().enumerate() {
-            let finished =
-                (r.started.iter()).any(|st| st.cell == cell.id && r.finished.iter().any(|f| f.run == st.run));
-            if m.answered[i].is_some() && finished && applies(i) {
-                events.push(Event::OtherOption(cell.id.clone()));
+        for (question, asker) in &s.questions {
+            if unanswered(r, question) {
+                events.push(Event::Answer(question.clone()));
+            } else if applies(m.place(asker)) {
+                events.push(Event::OtherOption(asker.clone()));
             }
         }
         if let Decision::Wait { at, on } = d
@@ -755,35 +781,58 @@ impl Explorer<'_> {
             Event::Speaks(cell) => {
                 let i = m.place(cell);
                 let block = m.spoken[i].clone().expect("the cell is spoken to");
-                person(w, &block, &mut written);
-                person(w, &DISCUSSION.into(), &mut written);
+                let at = w.outside_writes(block.as_str());
+                written.push((block, at));
             }
             Event::Background => person(w, &BACKGROUND.into(), &mut written),
             Event::Answers(call) => {
                 let at = w.tick();
                 w.records.done.push(Done { call: *call, at });
                 answer = Some(at);
-                match c.questions.get(call).cloned() {
-                    Some(asker) => {
-                        entered = Some(m.place(&asker));
-                        person(w, &Q_AND_A.into(), &mut written);
-                        if let Some(block) = m.answered[m.place(&asker)].clone() {
-                            person(w, &block, &mut written);
-                        }
-                    }
-                    None => {
-                        // The owner's word at a run's limit: the run goes on, the counts starting anew.
-                        let run = w.records.called.iter().find(|x| x.call == *call).map(|x| x.run);
-                        if let Some(log) = run.and_then(|run| c.logs.get_mut(&run)) {
-                            log.let_go = log.rounds.len();
-                        }
-                    }
+                // The owner's word at a run's limit: the run goes on, the counts starting anew.
+                let run = w.records.called.iter().find(|x| x.call == *call).map(|x| x.run);
+                if let Some(log) = run.and_then(|run| c.logs.get_mut(&run)) {
+                    log.let_go = log.rounds.len();
                 }
             }
-            Event::OtherOption(cell) => {
-                person(w, &Q_AND_A.into(), &mut written);
-                let block = m.answered[m.place(cell)].clone().expect("the cell is answered");
-                person(w, &block, &mut written);
+            // The owner answers as the engine takes an answer: kept, and a version of the asking cell's questions,
+            // which changes their meaning, the one answering a question that waits and the other taking another option
+            // than the one the work goes by; then the questions' standing, where it changes.
+            Event::Answer(_) | Event::OtherOption(_) => {
+                let question = match &e {
+                    Event::OtherOption(cell) => (c.questions.iter())
+                        .find(|(_, asker)| *asker == cell)
+                        .map(|(name, _)| name.clone())
+                        .expect("a question of the cell stands"),
+                    Event::Answer(question) => question.clone(),
+                    _ => unreachable!("an answer"),
+                };
+                let asker = c.questions[&question].clone();
+                let version = (w.records.questions.iter())
+                    .filter(|q| q.name == question)
+                    .map(|q| q.at)
+                    .max()
+                    .expect("the question was asked");
+                let taken = (w.records.answers.iter())
+                    .filter(|a| a.question == question && a.version == version)
+                    .map(|a| a.option)
+                    .next_back();
+                let at = w.tick();
+                w.records.answers.push(Answered {
+                    question,
+                    version,
+                    option: if taken == Some(1) { 2 } else { 1 },
+                    why: None,
+                    at,
+                });
+                answer = Some(at);
+                let i = m.place(&asker);
+                entered = Some(i);
+                if let Some(block) = m.answered[i].clone() {
+                    let at = w.outside_writes(block.as_str());
+                    written.push((block, at));
+                }
+                stand(m, w, &c.questions);
             }
             Event::LetsGo(cell) => {
                 let at = w.tick();
@@ -831,7 +880,7 @@ impl Explorer<'_> {
         let m = self.model;
         let flow = self.flow();
         let records = &s.world.records;
-        let r = Reading::new(records);
+        let r = Reading::new(flow, records);
         let mut h = DefaultHasher::new();
         for block in m.choices.keys() {
             match r.current(block) {
@@ -857,11 +906,15 @@ impl Explorer<'_> {
                 code.hash(&mut h);
             }
             for call in r.owed(&cell.id, NOW) {
-                (r.done(call, NOW), s.questions.contains_key(&call)).hash(&mut h);
+                r.done(call, NOW).hash(&mut h);
             }
             streaks(records, &cell.id).hash(&mut h);
             let finished = (r.started.values()).any(|st| st.cell == cell.id && r.finished.contains_key(&st.run));
             finished.hash(&mut h);
+        }
+        // Each question put to the owner, and whether it stands with no answer.
+        for question in s.questions.keys() {
+            (question, unanswered(records, question)).hash(&mut h);
         }
         for st in records.started.iter().filter(|st| !r.finished.contains_key(&st.run)) {
             if records.abandoned.iter().any(|a| a.run == st.run) {
@@ -928,12 +981,12 @@ impl Explorer<'_> {
     fn check_run(&mut self, s: &State, cell: &CellId, because: &[Cause]) {
         let m = self.model;
         let flow = &m.compiled.flow;
-        let r = Reading::new(&s.world.records);
+        let r = Reading::new(flow, &s.world.records);
         let i = m.place(cell);
         let def = &m.cells()[i];
         let trace = &s.trace;
         self.reach(ran(cell));
-        // 1: what runs it is its own trigger, new to it, and not its own write; nothing new to it is left out.
+        // 1: what runs it is what it watches, new to it, and not its own write; nothing new to it is left out.
         for cause in because {
             match cause {
                 Cause::NoRecord => {
@@ -945,7 +998,7 @@ impl Explorer<'_> {
                     );
                 }
                 Cause::Changed { block, was, behind } => {
-                    let trigger = m.triggers[i].get(block).cloned();
+                    let trigger = m.watched[i].get(block).cloned();
                     match &trigger {
                         Some(t) => {
                             self.reach(ran_on(cell, t));
@@ -954,7 +1007,7 @@ impl Explorer<'_> {
                             }
                         }
                         None => {
-                            let name = format!("{cell} ran on {block}, which is none of its triggers");
+                            let name = format!("{cell} ran on {block}, which it does not watch");
                             self.breach(Property::NewToIt, name, trace, String::new());
                         }
                     }
@@ -1089,8 +1142,8 @@ impl Explorer<'_> {
             }
         }
         if i == m.check {
-            for (call, asker) in &s.questions {
-                if !r.done(*call, NOW) {
+            for (question, asker) in &s.questions {
+                if unanswered(&s.world.records, question) {
                     let applies = r.applies(flow, m.place(asker));
                     let name = format!(
                         "{cell} ran while a question of {asker} waited for the owner, {asker} being {}",
@@ -1100,11 +1153,12 @@ impl Explorer<'_> {
                 }
             }
         }
-        // The loops of an opinion and its reply.
-        for (o, reply) in m.loops() {
+        // A dialogue going round: the judge runs again on the maker's answer in it, which the maker wrote in a run the
+        // judge's point started.
+        for o in m.dialogues() {
             let replies = because
                 .iter()
-                .any(|c| matches!(c, Cause::Changed { block, .. } if *block == reply));
+                .any(|c| matches!(c, Cause::Changed { block, .. } if *block == o));
             let answered = (r.started.values()).any(|st| {
                 m.place(&st.cell) < i
                     && st
@@ -1113,10 +1167,10 @@ impl Explorer<'_> {
                         .any(|c| matches!(c, Cause::Changed { block, .. } if *block == o))
                     && r.finished
                         .get(&st.run)
-                        .is_some_and(|f| f.writes.iter().any(|w| w.block == reply))
+                        .is_some_and(|f| f.writes.iter().any(|w| w.block == o))
             });
             if replies && answered {
-                self.reach(reply_loop(&o, &reply));
+                self.reach(dialogue_loop(&o));
             }
         }
         // 7: what a write from outside reaches.
@@ -1135,7 +1189,7 @@ impl Explorer<'_> {
     /// 5, of a run: a block of a group that runs the cell is one of the group's.
     fn check_group(&mut self, s: &State, i: usize, block: &BlockId) {
         let m = self.model;
-        if let Some(trigger) = m.triggers[i].get(block)
+        if let Some(trigger) = m.watched[i].get(block)
             && let Some(members) = m.groups[i].get(trigger)
             && !members.contains(block)
         {
@@ -1152,7 +1206,7 @@ impl Explorer<'_> {
         let m = self.model;
         let flow = &m.compiled.flow;
         let cells = m.cells();
-        let r = Reading::new(&s.world.records);
+        let r = Reading::new(flow, &s.world.records);
         let i = m.place(at);
         let mut wrong = Vec::new();
         let unmet: Vec<&Condition> = (cells[i].requires.iter())
@@ -1256,18 +1310,9 @@ impl Explorer<'_> {
             self.breach(Property::NextStep, stop, trace, String::new());
         }
         if let Decision::Wait { on, .. } = d
-            && on.iter().any(|w| {
-                matches!(
-                    w,
-                    Waited::Call {
-                        on: Some(Who::Owner),
-                        ..
-                    }
-                )
-            })
-            && s.questions
-                .keys()
-                .any(|c| on.iter().any(|w| matches!(w, Waited::Call { call, .. } if call == c)))
+            && on
+                .iter()
+                .any(|w| matches!(w, Waited::Answer { question } if s.questions.contains_key(question)))
         {
             self.reach(A_QUESTION_WAITED.to_string());
         }
@@ -1275,7 +1320,7 @@ impl Explorer<'_> {
         let Some(t) = &s.outside else {
             return;
         };
-        let r = Reading::new(&s.world.records);
+        let r = Reading::new(&m.compiled.flow, &s.world.records);
         let upto = match d {
             Decision::Wait { at, .. } => m.place(at),
             Decision::Stalled { at, on, .. } if !on.is_empty() => m.place(at),
@@ -1353,7 +1398,7 @@ fn show_waited(w: &Waited) -> String {
 /// What an outside write is, apart from the call it answers.
 fn kind_of(e: &Event) -> String {
     match e {
-        Event::Answers(_) => "the owner answers".to_string(),
+        Event::Answers(_) | Event::Answer(_) => "the owner answers".to_string(),
         e => e.to_string(),
     }
 }
@@ -1364,3 +1409,36 @@ pub const WAITED_FOR_THE_OWNER: &str = "the work waited for the owner or the out
 pub const STALLED_SHOWN: &str = "a stalled work was shown as waiting for the owner";
 pub const A_QUESTION_WAITED: &str = "a question waited for the owner";
 pub const WRITTEN_OVER: &str = "a return was sent back as it would write over what its round was not told of";
+
+/// A return of the cell's choices or content that leaves the next word owed, sent back for it.
+pub const WORD_OWED: &str = "a return that leaves the next word owed was sent back";
+
+/// Whether the question of this name stands with no answer to its latest version, as the records say.
+fn unanswered(records: &Records, question: &str) -> bool {
+    let latest = (records.questions.iter())
+        .filter(|q| q.name == question)
+        .map(|q| q.at)
+        .max();
+    latest.is_some_and(|at| !(records.answers.iter()).any(|a| a.question == question && a.version == at))
+}
+
+/// Writes the questions' standing as the engine does, where its value would change: `waiting` while a question stands
+/// with no answer to its latest version, `answered` otherwise.
+fn stand(m: &Model, w: &mut World, questions: &BTreeMap<String, CellId>) {
+    let Some(block) = &m.asked else {
+        return;
+    };
+    let value = if questions.keys().any(|q| unanswered(&w.records, q)) {
+        "waiting"
+    } else {
+        "answered"
+    };
+    let now = (w.records.written.iter())
+        .rev()
+        .find(|x| x.block == *block)
+        .and_then(|x| x.value.as_deref());
+    let default = m.compiled.flow.default_of(block);
+    if now.or(default) != Some(value) {
+        w.outside_sets(block.as_str(), value);
+    }
+}

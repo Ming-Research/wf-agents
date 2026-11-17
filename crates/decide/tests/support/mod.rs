@@ -217,6 +217,18 @@ impl World {
         self.install(self.flow.cells().to_vec());
     }
 
+    /// Makes the block the owner's answers to the questions of the cells it runs: written from outside by the source
+    /// of the answers, the owner turning to the cells it runs as the owner's words do.
+    pub fn answering(&mut self, block: &str) {
+        let outsiders = Outsiders {
+            outside: Some("answer".to_string()),
+            interrupts: true,
+            ..Outsiders::default()
+        };
+        self.outsiders.insert(block.into(), outsiders);
+        self.install(self.flow.cells().to_vec());
+    }
+
     /// Makes the cells that have the block among their outputs its only writers: people write it no longer.
     pub fn written_by_cells(&mut self, block: &str) {
         self.outsiders.insert(block.into(), Outsiders::default());

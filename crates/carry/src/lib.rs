@@ -40,6 +40,7 @@ mod cost;
 pub mod failure;
 pub mod git;
 pub mod guard;
+pub mod guide;
 pub mod head;
 mod held;
 mod host;
@@ -70,6 +71,7 @@ use tools::Tools;
 
 pub use acts::{MAIN, WATCH, Watch, Words, faults, main_faults, word_faults};
 pub use agents::{Agents, Of, ROUNDS};
+pub use branch::compared;
 pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
@@ -120,6 +122,7 @@ pub fn carry(
         project.commits = beside.commits.clone();
         let beside = declared.beside;
         project.tree = beside.project.tree.clone();
+        project.guide = (beside.project.files.get(guide::FILE)).map_or_else(String::new, |file| file.path.clone());
         let tool = beside.tools.get(tools::RUN_TESTS).cloned();
         let unread = unread(&beside);
         // The check before the merge holds a change to what the project protects until the owner lets it merge.

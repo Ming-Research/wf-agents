@@ -31,8 +31,12 @@ fn checked() -> Compiled {
         effort = "high"
         line = "main"
         task = "Write the text the request asks for."
-        inputs = ["request", "main"]
+        watches = ["request", "main"]
         outputs = ["text"]
+
+        [kinds]
+        request = "last_and_latest"
+        main = "last_and_latest"
     "#;
     let check = r#"
         title = "Check"
@@ -40,15 +44,18 @@ fn checked() -> Compiled {
         effort = "high"
         line = "main"
         task = "Check the text."
-        inputs = ["text"]
+        watches = ["text"]
         outputs = ["checked"]
+
+        [kinds]
+        text = "last_and_latest"
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
         requires = { checked = "yes" }
-        inputs = ["checked"]
+        watches = ["checked"]
         outputs = ["merged"]
     "#;
     let source = Source {

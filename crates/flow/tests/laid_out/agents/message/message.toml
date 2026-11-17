@@ -1,8 +1,8 @@
 # A message of the tests, its parts in this order: one written anew each time, one sent only to a cell that takes
 # main in, the data by the cell's kinds, what the cell writes and its task as the session keeps them, the results and
-# what was sent back, and the triggers.
+# what was sent back, and what is new to the cell.
 compacted = "Compacted: the round again."
-said = "Said: {entry} ({trigger}{do})"
+said = "Said: {entry} ({block}{do})"
 
 [[parts]]
 part = "taken"
@@ -28,6 +28,7 @@ between = ", "
 
 [[parts]]
 part = "context"
+order = ["every_agent", "reads", "watches", "outputs"]
 
 [[parts]]
 part = "outputs"
@@ -46,9 +47,10 @@ part = "results"
 part = "sent_back"
 
 [[parts]]
-part = "triggers"
+part = "new"
 text = "## Why you are run\n"
-each = "\n- `{trigger}`{detail}{do}"
-detail = " ({detail})"
+each = "\n- `{datum}`{versions}{do}"
+since = ", new since version {last}, now version {latest}"
+first = ", version {latest}"
 do = ": {do}"
 after = "\n\nName in `dealt_with` each of these you have dealt with."

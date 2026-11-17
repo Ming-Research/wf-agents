@@ -54,7 +54,7 @@ describe('the words of the page', () => {
   });
 
   it('say what is wrong with a definition from the data of the fault', () => {
-    expect(faultWords({ file: 'plan.toml', field: 'inputs[2]', what: { kind: 'noSuchBlock', block: 'ghost' } })).toBe(
+    expect(faultWords({ file: 'plan.toml', field: 'watches[2]', what: { kind: 'noSuchBlock', block: 'ghost' } })).toBe(
       'The block ghost is not declared in flow.toml.',
     );
     expect(
@@ -66,6 +66,29 @@ describe('the words of the page', () => {
     expect(faultWords({ file: 'cells/a.toml', field: 'tools', what: { kind: 'twice', name: 'tools' } })).toBe(
       'The cell names tools of its own, and the flow already gives its agent cells theirs.',
     );
+    // A name read that the cell watches already, in its own file or in what every agent cell takes, as the command line
+    // says it.
+    expect(faultWords({ file: 'cells/a.toml', field: 'reads[0]', what: { kind: 'twice', name: 'plan' } })).toBe(
+      'plan is watched already, and is given with what is watched.',
+    );
+    expect(faultWords({ file: 'flow.toml', field: 'every_agent.reads[1]', what: { kind: 'twice', name: 'guide' } })).toBe(
+      'guide is watched already, and is given with what is watched.',
+    );
+    // A block a cell takes by two names: by itself and through a group, or through two groups.
+    expect(
+      faultWords({
+        file: 'cells/a.toml',
+        field: 'reads[0]',
+        what: { kind: 'takenTwice', block: 'acceptance', first: 'plan', also: 'acceptance' },
+      }),
+    ).toBe('acceptance is taken by two names, plan and acceptance, which says twice how the cell takes it.');
+    expect(
+      faultWords({
+        file: 'cells/a.toml',
+        field: 'reads[0]',
+        what: { kind: 'takenTwice', block: 'opinions', first: 'planned', also: 'talked' },
+      }),
+    ).toBe('opinions is taken by two names, planned and talked, which says twice how the cell takes it.');
     expect(
       faultWords({
         file: 'flow.toml',
@@ -85,7 +108,7 @@ describe('the words of the page', () => {
     expect(
       faultWords({ file: 'judge.toml', field: 'must_write[1]', what: { kind: 'notAnOutput', block: 'plan' } }),
     ).toBe('The cell must write plan every time, but plan is not among the blocks it may write.');
-    expect(faultWords({ file: 'plan.toml', field: 'give.request', what: { kind: 'notGiven', block: 'request' } })).toBe(
+    expect(faultWords({ file: 'plan.toml', field: 'kinds.request', what: { kind: 'notGiven', block: 'request' } })).toBe(
       'The cell says how it is given request, but it is not given request.',
     );
     expect(
@@ -99,32 +122,31 @@ describe('the words of the page', () => {
       faultWords({ file: 'lines/review.toml', field: 'tests_only', what: { kind: 'readsOnlyAndTestsOnly' } }),
     ).toBe("The line says its agents change only the project's tests, and that they only read, which changes no file.");
     expect(
-      faultWords({ file: 'check.toml', field: 'input.main.kind', what: { kind: 'engineIsGiven', block: 'main' } }),
+      faultWords({ file: 'check.toml', field: 'kinds.main', what: { kind: 'engineIsGiven', block: 'main' } }),
     ).toBe("An engine's cell says how it is given main, but it has no session.");
-    expect(faultWords({ file: 'plan.toml', field: 'inputs', what: { kind: 'twoForms' } })).toBe(
-      'Name them one way: inputs, runs_on and given, or triggered_by and context.',
+    // What a cell does for a datum it does not watch: in its own file, or in what every agent cell is given alike.
+    expect(faultWords({ file: 'cells/plan.toml', field: 'do.opinions', what: { kind: 'notWatched', block: 'opinions' } })).toBe(
+      'There is a do for opinions, but opinions is not watched.',
+    );
+    expect(faultWords({ file: 'flow.toml', field: 'every_agent.do.tree', what: { kind: 'notWatched', block: 'tree' } })).toBe(
+      'There is a do for tree, but tree is not watched.',
     );
     expect(
       faultWords({
-        file: 'cells/plan.toml',
-        field: 'triggered_by[3]',
-        what: { kind: 'noSuchTrigger', trigger: 'nothing_happened' },
+        file: 'cells/D2.toml',
+        field: 'watches[1]',
+        what: {
+          kind: 'neverNew',
+          watched: 'found',
+          block: 'found',
+          needs: 'deep_needed = yes',
+          writers: [['R1', 'deep_needed = no']],
+        },
       }),
-    ).toBe('The cell names the trigger nothing_happened, which nothing in ../triggers/ defines.');
-    expect(
-      faultWords({
-        file: 'cells/judge.toml',
-        field: 'triggered_by[1]',
-        what: { kind: 'readNotInContext', trigger: 'on_request', block: 'request' },
-      }),
-    ).toBe("The trigger on_request has the agent read request, but request is not in the cell's context.");
-    expect(
-      faultWords({
-        file: 'cells/plan.toml',
-        field: 'triggered_by[2]',
-        what: { kind: 'noSuchDatum', trigger: 'on_ghost', datum: 'ghost' },
-      }),
-    ).toBe('The cell names the trigger on_ghost, but the flow has no datum ghost.');
+    ).toBe(
+      'The cell watches found, but it runs only where deep_needed = yes, and each writer of found runs only where it ' +
+        'cannot: R1 (deep_needed = no); found can never be new to it.',
+    );
     expect(
       faultWords({
         file: 'blocks/plan.toml',
@@ -132,10 +154,7 @@ describe('the words of the page', () => {
         what: { kind: 'definedTwice', name: 'plan', also: 'blocks/other/plan.toml' },
       }),
     ).toBe('plan is defined here and again in blocks/other/plan.toml.');
-    expect(
-      faultWords({ file: 'judge.toml', field: 'input.opinions', what: { kind: 'takenNotRead', block: 'opinions' } }),
-    ).toBe('The cell says how it takes opinions, but opinions is not among the blocks it reads.');
-    expect(faultWords({ file: 'plan.toml', field: 'runs_on', what: { kind: 'runByNothing' } })).toBe(
+    expect(faultWords({ file: 'plan.toml', field: 'watches', what: { kind: 'runByNothing' } })).toBe(
       "Nothing runs this agent's cell, so it would never be entered.",
     );
     expect(

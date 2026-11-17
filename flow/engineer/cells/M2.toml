@@ -2,6 +2,6 @@ title = "Merge"
 kind = "engine"
 act = "merge"
 requires = { checked = "yes" }
-triggered_by = ["on_checked"]
+watches = ["checked"]
 outputs = ["merged"]
 named_by = "title"

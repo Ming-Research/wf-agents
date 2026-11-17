@@ -1,0 +1,9 @@
+# A tally the owner keeps, in a shape of its own where a cell writes it.
+what = "What the owner counted."
+from = "owner"
+shown = true
+words = "`tally`: each count, each with `waits`."
+
+[shape]
+type = "array"
+items = { type = "object", properties = { name = { type = "string" }, waits = { type = "boolean" } }, required = ["name", "waits"], additionalProperties = false }

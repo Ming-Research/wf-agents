@@ -588,15 +588,19 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
         line = "main"
         task = "Write the text the request asks for."
         effort = "high"
-        inputs = ["start", "request"]
+        watches = ["start", "request"]
         outputs = ["text"]
+
+        [kinds]
+        start = "last_and_latest"
+        request = "last_and_latest"
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
         requires = { test = "may_merge" }
-        inputs = ["text"]
+        watches = ["text"]
         outputs = ["merged"]
     "#;
     let mut h = H::with(vec![compiled(flow, &[("write", write), ("merge", merge)])]);

@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use crate::InputKind;
+use crate::{InputKind, Listed};
 
 /// The directory beside the flows that holds what the engine says to every agent.
 pub const AGENTS_DIR: &str = "agents";
@@ -280,7 +280,7 @@ impl Agents {
     pub fn declared(&self, text: &str, at: &str) -> Result<Agents, String> {
         let project: Project = toml::from_str(text).map_err(|e| format!("{at}: {}", e.to_string().trim_end()))?;
         for part in &self.session.parts {
-            if let SessionPart::Project(ProjectPart { project: name }) = part
+            if let Some(name) = part.file()
                 && !project.files.contains_key(name)
             {
                 let session = self.root.join(AGENTS_DIR).join("session.toml");
@@ -477,9 +477,22 @@ pub struct Session {
 #[serde(untagged)]
 pub enum SessionPart {
     Project(ProjectPart),
+    Datum(DatumPart),
     Line(LinePart),
     Words(WordsPart),
     Returns(ReturnsPart),
+}
+
+impl SessionPart {
+    /// The file of the project the part holds, by its name in `project.toml`: a file of the project's, or the datum
+    /// that stands for one.
+    pub fn file(&self) -> Option<&str> {
+        match self {
+            SessionPart::Project(ProjectPart { project }) => Some(project),
+            SessionPart::Datum(DatumPart { datum }) => Some(datum),
+            SessionPart::Line(_) | SessionPart::Words(_) | SessionPart::Returns(_) => None,
+        }
+    }
 }
 
 /// A file of the project, by its name in `project.toml`.
@@ -487,6 +500,15 @@ pub enum SessionPart {
 #[serde(deny_unknown_fields)]
 pub struct ProjectPart {
     pub project: String,
+}
+
+/// A datum of the flow that stands for a file of the project of the same name in `project.toml`, as the work's branch
+/// has it: the version of it current as the session begins, which the session then holds (design document
+/// `data-and-context`, 24).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatumPart {
+    pub datum: String,
 }
 
 /// What the line names for its own system prompt.
@@ -743,7 +765,7 @@ pub struct Unread {
 }
 
 /// The words of each thing that can be wrong with a return, by its kind. In a text, `{block}` is a block's name,
-/// `{name}` a name as the return wrote it or, of what it dealt with, the trigger's name, `{value}` a value it wrote,
+/// `{name}` a name as the return wrote it or, of what it dealt with, the datum's or the group's name, `{value}` a value it wrote,
 /// `{values}` the values of a choice, each between backticks, `{version}` a version's number and `{why}` why what came
 /// back could not be read.
 #[derive(Clone, Debug, Deserialize)]
@@ -763,7 +785,7 @@ pub struct SentBackFaults {
     pub written_over: String,
     pub choice_changed: String,
     pub asks_and_works: String,
-    pub not_a_trigger: String,
+    pub not_watched: String,
     pub not_a_tool: String,
     pub unchanged_not_written: String,
     pub question_taken: String,
@@ -779,6 +801,12 @@ pub struct SentBackFaults {
     pub not_a_test: String,
     /// `{block}` what an act of the engine's wrote, dealt with by a return that leaves nothing new that runs the act.
     pub unanswered: String,
+    /// `{name}` a dialogue the cell answers as the maker, named as dealt with and answered in nothing, and `{watched}`
+    /// what the other side watches, each between backticks, joined by `between` (design document `data-and-context`,
+    /// 42).
+    pub word_owed: String,
+    /// `{block}` a verdict written with `{value}`, which does not pass, and no version of its dialogue, `{name}`.
+    pub no_point: String,
 }
 
 /// Where a field's words go in the part on returning.
@@ -944,8 +972,8 @@ pub struct Message {
     /// What a session compacted during a round is told before the round's message is given again, whole.
     pub compacted: String,
     /// What the owner says to a round while it runs, as its session is given it after its next use of a tool: `{entry}`
-    /// the owner's entry of the record of what is said, `{block}` the record's name, `{number}` the entry's version,
-    /// `{trigger}` the trigger it is new to the round as, `{do}` what the cell does for it.
+    /// the owner's version of the cell's words, `{block}` their name, `{number}` the version's place, `{do}` what the
+    /// cell does when its words are new.
     pub said: String,
 }
 
@@ -975,13 +1003,20 @@ pub struct MessagePart {
     pub between: Option<String>,
     /// What is sent in its place where the session holds it already.
     pub held: Option<String>,
-    /// Of the triggers: what a trigger's line says of what happened, `{detail}` the trigger's own place.
-    pub detail: Option<String>,
-    /// Of the triggers: what a trigger's line says the cell does, `{do}` its words.
+    /// Of what is new to the cell: what a datum's line says of its versions where the cell consumed one before,
+    /// `{last}` that version's place and `{latest}` the latest's (design document `data-and-context`, 11).
+    pub since: Option<String>,
+    /// Of what is new to the cell: what a datum's line says of its version where the cell consumed none,
+    /// `{latest}` the latest's place.
+    pub first: Option<String>,
+    /// Of what is new to the cell: what a datum's line says the cell does, `{do}` its words.
     #[serde(rename = "do")]
     pub does: Option<String>,
     /// What follows the list.
     pub after: Option<String>,
+    /// Of the part `context`, the order of what a round is given, by where the cell's definition gives it: each list
+    /// named once, each in the order it names its data (design document `data-and-context`, 14, 15, 21).
+    pub order: Option<Vec<Listed>>,
 }
 
 /// What a part of a message is: what the engine puts into it.
@@ -1006,8 +1041,8 @@ pub enum Part {
     Results,
     /// Why what a round of the run returned was sent back, where its session lacks it.
     SentBack,
-    /// Each trigger new to the cell.
-    Triggers,
+    /// Each datum or group the cell watches that is new to it.
+    New,
 }
 
 impl Part {
@@ -1023,7 +1058,7 @@ impl Part {
             Part::Task => "task",
             Part::Results => "results",
             Part::SentBack => "sent_back",
-            Part::Triggers => "triggers",
+            Part::New => "new",
         }
     }
 }
@@ -1058,6 +1093,10 @@ pub struct Given {
     /// cell worked from an earlier version, `held_new` where it never worked from it.
     pub held: String,
     pub held_new: String,
+    /// Who wrote a version, as a round is told it at `{by}` in each heading of a version: the line of the cell whose
+    /// run wrote it, `{line}`; or the owner. Nothing where neither did (design document `data-and-context`, 29).
+    pub by_line: String,
+    pub by_owner: String,
     pub latest: GivenKind,
     pub last_and_latest: GivenKind,
     pub all: GivenKind,
@@ -1070,6 +1109,9 @@ pub struct GivenKind {
     pub text: String,
     /// What is sent in place of `text` where the session lacks what it needs, or `text` would be longer.
     pub whole: Option<String>,
+    /// Of a datum whose versions the engine compares itself, as the design tree, what is sent in place of `text` where
+    /// the session holds none of its versions: its latest whole, saying so (design document `data-and-context`, 23).
+    pub unread: Option<String>,
 }
 
 /// `agents/message/results.toml`: what a round is told of the results of the calls it is given. In a text, `{name}` is
@@ -1287,7 +1329,8 @@ pub fn read(root: &Path) -> Result<Agents, String> {
             SessionPart::Words(WordsPart { words: name }) => {
                 words.insert(name.clone(), text(&at.join(name))?);
             }
-            SessionPart::Project(ProjectPart { project: name }) if !project.files.contains_key(name) => {
+            part if part.file().is_some_and(|name| !project.files.contains_key(name)) => {
+                let name = part.file().unwrap_or_default();
                 let named = format!("names the file {name}, which {PROJECT_FILE} does not have");
                 return Err(format!("{}: {named}", session_file.display()));
             }
@@ -1328,6 +1371,33 @@ pub fn read(root: &Path) -> Result<Agents, String> {
             return Err(format!("{}: {what}", file.display()));
         }
     }
+    let message_file = at.join("message").join("message.toml");
+    let message: Message = file(&message_file)?;
+    for part in &message.parts {
+        let order = part.order.as_deref().unwrap_or_default();
+        let wrong = match part.part {
+            Part::Context => {
+                let named = |list: Listed| order.iter().filter(|l| **l == list).count();
+                let lists: Vec<&str> = (Listed::ALL.into_iter())
+                    .filter(|l| named(*l) != 1)
+                    .map(Listed::name)
+                    .collect();
+                (!lists.is_empty()).then(|| {
+                    format!(
+                        "the part context names in `order` not once each of: {}",
+                        lists.join(", ")
+                    )
+                })
+            }
+            _ => part
+                .order
+                .is_some()
+                .then(|| format!("the part {} has an `order`, which only context has", part.part.name())),
+        };
+        if let Some(wrong) = wrong {
+            return Err(format!("{}: {wrong}", message_file.display()));
+        }
+    }
     let writes = writes(root)?;
     Ok(Agents {
         root: root.to_path_buf(),
@@ -1342,7 +1412,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         sent_back: file(&at.join("return").join("sent_back.toml"))?,
         fields,
         tools,
-        message: file(&at.join("message").join("message.toml"))?,
+        message,
         given: file(&at.join("message").join("given.toml"))?,
         results: file(&at.join("message").join("results.toml"))?,
         acts: writes.acts,

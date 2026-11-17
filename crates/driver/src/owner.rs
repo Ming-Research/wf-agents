@@ -341,15 +341,18 @@ mod tests {
             effort = "high"
             line = "main"
             task = "Write the text the request asks for."
-            inputs = ["request"]
+            watches = ["request"]
             outputs = ["text", "verdict"]
+
+            [kinds]
+            request = "last_and_latest"
         "#;
         let merge = r#"
             title = "Merge"
             kind = "engine"
             act = "merge"
             requires = { verdict = "yes", asked = "answered" }
-            inputs = ["text"]
+            watches = ["text"]
             outputs = ["merged"]
         "#;
         let source = Source {

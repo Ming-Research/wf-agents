@@ -24,6 +24,7 @@ mod room;
 mod sessions;
 mod stalling;
 mod times;
+mod words;
 
 use std::collections::BTreeMap;
 
@@ -79,8 +80,13 @@ fn judged_source() -> Source {
         effort = "high"
         line = "main"
         task = "Write the text the request asks for."
-        inputs = ["request", "opinions", "main"]
+        watches = ["request", "opinions", "main"]
         outputs = ["text"]
+
+        [kinds]
+        request = "last_and_latest"
+        opinions = "last_and_latest"
+        main = "last_and_latest"
     "#;
     let judge = r#"
         title = "Judge"
@@ -88,15 +94,18 @@ fn judged_source() -> Source {
         effort = "high"
         line = "other"
         task = "Judge the text, and give a verdict."
-        inputs = ["text"]
+        watches = ["text"]
         outputs = ["opinions", "verdict"]
+
+        [kinds]
+        text = "last_and_latest"
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
         requires = { test = "may_merge" }
-        inputs = ["text", "verdict"]
+        watches = ["text", "verdict"]
         outputs = ["merged"]
     "#;
     // Beside it, the words the engine says to the owner, as beside the repository's flows.

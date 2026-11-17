@@ -9,6 +9,7 @@ mod failing;
 mod handing_in;
 mod limits;
 mod malformed;
+mod owed;
 mod paused;
 mod paused_answers;
 mod rounds;
@@ -18,7 +19,7 @@ use std::collections::BTreeMap;
 use decide::run::{
     Answer, Asked, Asking, Call, Failure, Hold, Limit, Log, Requires, Return, Round, Standing, Step, Told, Unmet, next,
 };
-use decide::{BlockId, CallId, Seq, Write};
+use decide::{BlockId, CallId, Seq, Verdict, Write};
 
 /// What the flow requires of a cell, owned so that tests can lend it as `Requires`.
 struct Spec {
@@ -29,6 +30,8 @@ struct Spec {
     returns: u32,
     told: Told,
     answered_by: BTreeMap<BlockId, Answer>,
+    dialogues: BTreeMap<BlockId, Vec<BlockId>>,
+    verdicts: BTreeMap<BlockId, Verdict>,
 }
 
 impl Spec {
@@ -41,6 +44,8 @@ impl Spec {
             returns: self.returns,
             told: &self.told,
             answered_by: &self.answered_by,
+            dialogues: &self.dialogues,
+            verdicts: &self.verdicts,
         }
     }
 }
@@ -63,6 +68,8 @@ fn spec() -> Spec {
         returns: 2,
         told: Told {
             ran_by: vec!["request".into(), "opinions".into()],
+            points: Vec::new(),
+            woken_to_judge: Vec::new(),
             outputs: BTreeMap::from([
                 ("plan".into(), standing(4, None)),
                 ("verdict".into(), standing(5, Some("yes"))),
@@ -71,6 +78,8 @@ fn spec() -> Spec {
             questions: BTreeMap::new(),
         },
         answered_by: BTreeMap::new(),
+        dialogues: BTreeMap::new(),
+        verdicts: BTreeMap::new(),
     }
 }
 

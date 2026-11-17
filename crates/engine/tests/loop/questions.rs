@@ -1,20 +1,66 @@
-//! The questions a cell puts to the owner and the owner's answers (design document `data-and-context`, 32 to 36): a
-//! question is data of its own, by its name, with versions, which a return asks, asks anew or withdraws; the owner's
-//! answer is kept, and runs the asking cell again where it takes another option than the one the work goes by; the
-//! engine says in the block of the source `asked` whether every question that stands is answered, which the merge
-//! requires.
+//! The questions a cell puts to the owner and the owner's answers (design document `data-and-context`, 30 to 34): a
+//! cell that may ask has a datum of its own for its questions, which it writes and watches; each question is asked,
+//! asked anew or withdrawn by a return, and each such version of it is a version of that datum, written by the
+//! engine's source of answers, which is new to no cell; the owner's answer is the option taken, the datum's next
+//! version, new to the cells that watch it only where it changes the option the work goes by; the engine asks its own
+//! questions in those of the cell the flow names for it; and the engine says in the block of the source `asked`
+//! whether every question that stands is answered, which the merge requires.
 
 use decide::{Questioned, Waited};
 use engine::{Question, Way};
 
 use super::*;
 
-/// A research that what people ask for and the owner's answers to it run, writing the plan; an implementation of the
-/// plan; and a merge that requires every question to be answered.
-fn asking() -> Compiled {
-    let flow = r#"
+/// The blocks of the questions and of the words a cell has its own of, each written by the engine's source, the
+/// questions in these words for each entry.
+pub(super) fn own(cell: &str) -> String {
+    format!(
+        r#"
+        [blocks.{cell}_questions]
+        outside = "answer"
+        shown = true
+        [blocks.{cell}_questions.writes]
+        text = "{{question}}, {{version}}: {{option}}, {{does}}."
+        asked = "{{question}}, {{version}}: {{ask}}{{options}}{{recommends}}{{waits}}"
+        asked_anew = "{{question}}, {{version}} for {{was}}: {{ask}}{{options}}{{recommends}}{{waits}}"
+        option = " [{{option}}. {{does}}]"
+        recommends = " Recommends {{option}}."
+        waits = " Waits."
+        goes_on = " Goes on."
+        withdrawn = "{{question}}, {{version}}: {{was}} withdrawn.{{why}}"
+        why = " Why: {{why}}"
+        [blocks.{cell}_words]
+        outside = "words"
+        [blocks.{cell}_words.writes]
+        owner = "The owner: {{words}}"
+        reply = "{{reply}}"
+        "#
+    )
+}
+
+/// A cell of an agent on the line `main` that watches what it is given besides its own questions and words, and writes
+/// what it writes besides them.
+fn asking_cell(title: &str, task: &str, watches: &[&str], outputs: &[&str], id: &str) -> String {
+    let list = |names: &[&str]| names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ");
+    let kinds: String = watches.iter().map(|n| format!("{n} = \"latest\"\n")).collect();
+    format!(
+        "title = \"{title}\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"{task}\"\n\
+         watches = [{}, \"{id}_questions\", \"{id}_words\"]\noutputs = [{}, \"{id}_questions\", \"{id}_words\"]\n\
+         [kinds]\n{kinds}{id}_questions = \"all\"\n{id}_words = \"all\"\n",
+        list(watches),
+        list(outputs),
+    )
+}
+
+/// A research that what people ask for runs, writing the plan; an implementation of the plan, in whose questions the
+/// engine asks its own; and a merge that requires every question to be answered. The research and the implementation
+/// each have questions and words of their own.
+pub(super) fn asking() -> Compiled {
+    let flow = format!(
+        r#"
         name = "asking"
         order = ["research", "implement", "merge"]
+        engine_asks_in = "implement"
         [limits]
         runs = 3
         returns = 2
@@ -22,8 +68,6 @@ fn asking() -> Compiled {
         [lines.main]
         [blocks.request]
         people = true
-        [blocks.answered]
-        outside = "answer"
         [blocks.asked]
         values = ["waiting", "answered"]
         default = "answered"
@@ -31,52 +75,50 @@ fn asking() -> Compiled {
         shown = true
         [blocks.asked.writes]
         answered = "Every question has the owner's answer."
-        waiting = "Waits for the owner's answer to {questions}."
+        waiting = "Waits for the owner's answer to {{questions}}."
         between = " and "
         [blocks.plan]
         [blocks.code]
         [blocks.merged]
         shown = true
-    "#;
-    let research = r#"
-        title = "Research"
-        kind = "agent"
-        effort = "high"
-        line = "main"
-        task = "Write the plan the request asks for."
-        inputs = ["request", "answered"]
-        outputs = ["plan"]
-    "#;
-    let implement = r#"
-        title = "Implement"
-        kind = "agent"
-        effort = "high"
-        line = "main"
-        task = "Build the plan."
-        inputs = ["plan"]
-        outputs = ["code"]
-    "#;
+        {}{}"#,
+        own("research"),
+        own("implement")
+    );
+    let research = asking_cell(
+        "Research",
+        "Write the plan the request asks for.",
+        &["request"],
+        &["plan"],
+        "research",
+    );
+    let implement = asking_cell("Implement", "Build the plan.", &["plan"], &["code"], "implement");
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
         requires = { asked = "answered" }
-        inputs = ["code"]
+        watches = ["code"]
         outputs = ["merged"]
     "#;
     let source = Source {
-        flow: flow.to_string(),
-        cells: [("research", research), ("implement", implement), ("merge", merge)]
-            .iter()
-            .map(|(id, text)| (id.to_string(), text.to_string()))
-            .collect(),
+        flow,
+        cells: [
+            ("research", research.as_str()),
+            ("implement", implement.as_str()),
+            ("merge", merge),
+        ]
+        .iter()
+        .map(|(id, text)| (id.to_string(), text.to_string()))
+        .collect(),
         ..Default::default()
     };
-    compile(&source, &has(&["answer", "asked"])).expect("the definition compiles")
+    compile(&source, &has(&["answer", "asked", "words"]))
+        .unwrap_or_else(|faults| panic!("the definition does not compile: {faults:#?}"))
 }
 
 /// A question asked, which the cell waits for or not, with two options, recommending the first.
-fn asked(name: &str, waits: bool) -> Question {
+pub(super) fn asked(name: &str, waits: bool) -> Question {
     Question::Asked {
         name: name.to_string(),
         waits,
@@ -105,7 +147,7 @@ fn plans(questions: Vec<Question>) -> Came {
 }
 
 /// A work on the asking flow whose research's first round is under way, for what people asked for.
-fn researching() -> (W, RunId) {
+pub(super) fn researching() -> (W, RunId) {
     let mut w = W {
         flow: asking(),
         work: Work::default(),
@@ -140,7 +182,6 @@ impl W {
             question: name.to_string(),
             version,
             option,
-            why: Some(format!("Option {option}.")),
         })
     }
 
@@ -149,6 +190,21 @@ impl W {
         (self.work.records.written.iter())
             .filter(|w| w.block.as_str() == block && w.by == Outsider::Outside)
             .count()
+    }
+
+    /// How many versions of the block the outside wrote as changing its meaning: those new to the cells that watch it.
+    fn turned(&self, block: &str) -> usize {
+        (self.work.records.written.iter())
+            .filter(|w| w.block.as_str() == block && w.by == Outsider::Outside && w.matters)
+            .count()
+    }
+
+    /// The content of each version of the block the outside wrote, in order.
+    fn entries(&self, block: &str) -> Vec<String> {
+        (self.work.records.written.iter())
+            .filter(|e| e.block.as_str() == block && e.by == Outsider::Outside)
+            .map(|e| self.work.contents[&(BlockId::from(block), e.at)].clone())
+            .collect()
     }
 
     /// The value and the words of the latest version of `asked`; none where it was never written.
@@ -160,7 +216,7 @@ impl W {
 }
 
 #[test]
-fn a_question_a_return_asks_is_a_version_of_its_own_of_the_asking_cell() {
+fn a_question_a_return_asks_is_a_version_of_its_own_and_of_the_asking_cell_s_questions_that_changes_nothing() {
     let (w, _) = researched(vec![asked("which", false)]);
     let run = w.work.records.finished[0].run;
     let finish = w.last_finished();
@@ -182,6 +238,36 @@ fn a_question_a_return_asks_is_a_version_of_its_own_of_the_asking_cell() {
         Some(&asked("which", false)),
         "its content is what came back"
     );
+    // The version of the research's questions that asks it, in the words of its file, the engine's and changing
+    // nothing.
+    let version = (w.work.records.written.iter())
+        .find(|v| v.block.as_str() == "research_questions")
+        .expect("the questions have a version");
+    assert_eq!(
+        (version.by, version.matters, version.at),
+        (Outsider::Outside, false, Seq(finish.0 + 2))
+    );
+    assert_eq!(
+        w.entries("research_questions"),
+        [format!(
+            "which, {}: Which way for which? [1. the short way] [2. the long way] Recommends 1. Goes on.",
+            q.at.0
+        )]
+    );
+}
+
+#[test]
+fn a_version_that_asks_is_new_to_no_cell_the_asking_one_and_one_that_waits_included() {
+    for waits in [false, true] {
+        let (w, _) = researched(vec![asked("which", waits)]);
+        for cell in ["research", "implement", "merge"] {
+            let new = decide::new_to(&w.flow.flow, &w.work.records, &cell.into());
+            assert!(
+                !new.contains(&BlockId::from("research_questions")),
+                "{cell} is run by the ask: {new:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -217,10 +303,12 @@ fn a_question_that_does_not_wait_lets_the_work_go_on_by_its_recommendation_but_h
         panic!("the work does not wait: {:?}", w.decision())
     };
     assert_eq!(at.as_str(), "merge");
-    // The answer that takes the recommended option runs nothing, and the merge begins.
+    // The answer that takes the recommended option is kept as a version that changes nothing: the research does not
+    // run again, and the merge begins.
     let version = w.version("which");
     let effects = w.answers("which", version, 1);
-    assert_eq!(w.written("answered"), 0, "the research does not run again");
+    assert_eq!(w.written("research_questions"), 2, "the ask and the answer");
+    assert_eq!(w.turned("research_questions"), 0, "the research does not run again");
     let (_, cell, ..) = round(&effects);
     assert_eq!(cell, "merge");
     assert_eq!(
@@ -233,18 +321,25 @@ fn a_question_that_does_not_wait_lets_the_work_go_on_by_its_recommendation_but_h
 }
 
 #[test]
-fn any_answer_to_a_question_that_waits_runs_the_asking_cell_again() {
+fn any_answer_to_a_question_that_waits_runs_the_asking_cell_again_by_a_version_of_its_questions() {
     let (mut w, _) = researched(vec![asked("which", true)]);
     let version = w.version("which");
     let effects = w.answers("which", version, 1);
-    assert_eq!(w.written("answered"), 1);
+    assert_eq!(w.turned("research_questions"), 1);
     let (run, cell, ..) = round(&effects);
     assert_eq!(cell, "research");
     let (because, _) = start_of(&w, run);
-    assert_eq!(because, vec![changed("answered", None, false)]);
+    assert_eq!(because, vec![changed("research_questions", None, false)]);
+    // The answer is the option taken and nothing else.
     let answer = w.work.records.answers.last().expect("the answer is kept");
-    assert_eq!((answer.version, answer.option), (version, 1));
-    assert_eq!(answer.why.as_deref(), Some("Option 1."));
+    assert_eq!(
+        (answer.version, answer.option, answer.why.as_deref()),
+        (version, 1, None)
+    );
+    assert_eq!(
+        w.entries("research_questions").last().map(String::as_str),
+        Some(format!("which, {}: 1, the short way.", version.0).as_str())
+    );
     assert_eq!(w.asked().map(|(value, _)| value), Some("answered".to_string()));
 }
 
@@ -258,14 +353,17 @@ fn an_answer_taking_another_option_than_the_one_the_work_goes_by_stops_a_later_r
     let effects = w.returns(implementing, Came::hands_in(Vec::new()));
     let (_, cell, ..) = round(&effects);
     assert_eq!(cell, "research");
-    // Answered again with the option the work now goes by, it runs nothing more.
-    let before = w.written("answered");
+    // Answered again with the option the work now goes by, it is kept, and runs nothing more.
+    let before = (w.written("research_questions"), w.turned("research_questions"));
     w.answers("which", version, 2);
-    assert_eq!(w.written("answered"), before);
+    assert_eq!(
+        (w.written("research_questions"), w.turned("research_questions")),
+        (before.0 + 1, before.1)
+    );
 }
 
 #[test]
-fn an_answer_to_an_earlier_version_of_a_question_answers_nothing() {
+fn an_answer_to_an_earlier_version_of_a_question_is_kept_as_a_version_that_changes_nothing() {
     let (mut w, run) = researching();
     w.returns(run, plans(vec![asked("which", false)]));
     let first = w.version("which");
@@ -284,9 +382,11 @@ fn an_answer_to_an_earlier_version_of_a_question_answers_nothing() {
     let second = w.version("which");
     assert!(second > first);
     let asked_before = w.asked();
+    let versions = w.written("research_questions");
     let effects = w.answers("which", first, 2);
     assert_eq!(effects, []);
-    assert_eq!(w.written("answered"), 0, "the cell does not run");
+    assert_eq!(w.written("research_questions"), versions + 1, "the answer is a version");
+    assert_eq!(w.turned("research_questions"), 0, "the cell does not run");
     assert_eq!(w.asked(), asked_before, "the question still waits");
     assert!(matches!(w.decision(), decide::Decision::Wait { at, .. } if at.as_str() == "research"));
     assert_eq!(w.work.records.answers.len(), 1, "the answer is kept");
@@ -301,7 +401,7 @@ fn a_question_written_twice_in_one_return_is_sent_back() {
         .rfind(|s| s.cell.as_str() == "research")
         .expect("the research runs again")
         .run;
-    let mut came = Came::works(vec!["answered".into()], Vec::new());
+    let mut came = Came::works(vec!["research_questions".into()], Vec::new());
     came.said.questions = vec![
         asked("other", false),
         Question::Withdrawn {
@@ -360,47 +460,58 @@ fn a_question_the_cell_withdraws_lets_the_merge_begin() {
 }
 
 #[test]
-fn what_the_engine_asks_with_a_round_is_kept_as_the_round_ends_whatever_becomes_of_the_return() {
+fn what_the_engine_asks_with_a_round_is_kept_in_the_questions_of_the_cell_the_flow_names_whatever_becomes_of_the_return()
+ {
     let (mut w, run) = researching();
     let mut came = hands_in(&[("code", None)]);
     came.engine = vec![asked("protected_files", true)];
     let effects = w.returns(run, came);
-    // The return is sent back; the engine's question stands, of the research, and is no word of the agent's.
+    // The return is sent back; the engine's question stands, of the implementation, and is no word of the agent's.
     let (_, _, _, given) = round(&effects);
     assert!(matches!(given, Given::SentBack(_)), "{given:?}");
     let q = w.work.records.questions.last().expect("the question is kept");
     assert_eq!(
         (q.cell.as_str(), q.run, q.engine, q.waits),
-        ("research", run, true, true)
+        ("implement", run, true, true)
     );
     assert_eq!(w.work.question(q), Some(&asked("protected_files", true)));
+    assert_eq!(
+        w.written("implement_questions"),
+        1,
+        "a version of the implementation's questions asks it"
+    );
+    assert_eq!(w.turned("implement_questions"), 0);
     assert_eq!(w.asked().map(|(value, _)| value), Some("waiting".to_string()));
-    // Handed in rightly, the run finishes, and the work waits at the research for the owner's answer.
+    // Handed in rightly, the run finishes, and the work waits at the implementation for the owner's answer.
     w.returns(run, plans(Vec::new()));
-    assert!(matches!(w.decision(), decide::Decision::Wait { at, .. } if at.as_str() == "research"));
+    assert!(
+        matches!(w.decision(), decide::Decision::Wait { at, .. } if at.as_str() == "implement"),
+        "{:?}",
+        w.decision()
+    );
 }
 
 #[test]
-fn an_answer_to_the_engine_s_question_runs_the_last_cell_that_takes_an_answer_whichever_round_it_was_asked_with() {
-    let (mut w, effects) = researched(Vec::new());
-    let (implementing, cell, ..) = round(&effects);
-    assert_eq!(cell, "implement");
-    let mut came = hands_in(&[("code", None)]);
+fn an_answer_to_the_engine_s_question_runs_the_cell_the_flow_names_whichever_round_it_was_asked_with() {
+    let (mut w, run) = researching();
+    let mut came = plans(Vec::new());
     let mut question = asked("protected_files", true);
     if let Question::Asked { recommends, .. } = &mut question {
         *recommends = None;
     }
     came.engine = vec![question];
-    w.returns(implementing, came);
-    let q = w.work.records.questions.last().expect("the question is kept");
-    assert_eq!((q.cell.as_str(), q.engine), ("implement", true));
+    assert_eq!(w.returns(run, came), [], "the implementation waits for the answer");
     let version = w.version("protected_files");
-    let before = w.written("answered");
     let effects = w.answers("protected_files", version, 2);
-    // The implementation has no trigger of an answer: the research, the last cell that has one, runs for it.
-    assert_eq!(w.written("answered"), before + 1, "the research's answer is written");
-    let (_, cell, ..) = round(&effects);
-    assert_eq!(cell, "research");
+    assert_eq!(w.turned("implement_questions"), 1);
+    assert_eq!(w.turned("research_questions"), 0);
+    let (implementing, cell, ..) = round(&effects);
+    assert_eq!(cell, "implement");
+    let (because, _) = start_of(&w, implementing);
+    assert!(
+        because.contains(&changed("implement_questions", None, false)),
+        "{because:?}"
+    );
 }
 
 #[test]
@@ -411,7 +522,6 @@ fn an_answer_to_no_question_to_no_version_or_with_no_such_option_is_refused() {
         question: question.to_string(),
         version,
         option,
-        why: None,
     };
     assert_eq!(
         w.refused(answer("none", version, 1)),
@@ -437,48 +547,52 @@ fn an_answer_to_no_question_to_no_version_or_with_no_such_option_is_refused() {
 }
 
 #[test]
-fn what_stands_for_the_questions_and_the_answers_is_the_engine_s_alone_to_write() {
+fn what_stands_for_the_questions_the_answers_and_the_words_is_the_engine_s_alone_to_write() {
     let (mut w, _) = researched(vec![asked("which", true)]);
-    for (block, value) in [("asked", Some("answered")), ("answered", None)] {
-        assert_eq!(
-            w.refused(wrote(block, Outsider::Outside, true, value)),
-            Refused::NotTheirs {
-                block: block.into(),
-                by: Outsider::Outside
-            }
-        );
+    for (block, value) in [
+        ("asked", Some("answered")),
+        ("research_questions", None),
+        ("research_words", None),
+    ] {
+        for by in [Outsider::Outside, Outsider::Person] {
+            assert_eq!(
+                w.refused(wrote(block, by, true, value)),
+                Refused::NotTheirs {
+                    block: block.into(),
+                    by
+                }
+            );
+        }
     }
 }
 
-/// A flow laid out one thing to a file: a cell `ask` that what people ask for and the owner's answers to it run, its
-/// agent reading for an answer the record `q_and_a` of the questions and the answers, each entry of which the engine
-/// writes in the words of its file; and the merge.
+/// A flow laid out one thing to a file: a cell `ask` that what people ask for runs, with questions and words of its
+/// own made from the files beside the flows, the engine writing each version of its questions in the words of that
+/// file; and the merge.
 fn laid_out() -> Compiled {
-    let flow = "name = \"laid\"\norder = [\"ask\", \"merge\"]\ndata = [\"request\", \"q_and_a\"]\n\
+    let flow = "name = \"laid\"\norder = [\"ask\", \"merge\"]\ndata = [\"request\"]\n\
                 [limits]\nruns = 3\nreturns = 2\ncalls = 3\n";
     let ask = "title = \"Ask\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Plan, and ask.\"\n\
-               triggered_by = [\"on_request\", \"on_answer\"]\ncontext = [\"request\", \"q_and_a\"]\n\
-               outputs = [\"plan\"]\n[kinds]\nrequest = \"latest\"\nq_and_a = \"all\"\n";
-    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ntriggered_by = [\"on_plan\"]\n";
+               watches = [\"request\", \"ask_questions\", \"ask_words\"]\n\
+               outputs = [\"plan\", \"ask_questions\", \"ask_words\"]\n\
+               [kinds]\nrequest = \"latest\"\nask_questions = \"all\"\nask_words = \"all\"\n";
+    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"plan\"]\n";
     let files = [
         ("lines/main.toml", ""),
         ("blocks/plan.toml", "shown = true\n"),
         ("../data/request.toml", "from = \"owner\"\n"),
         (
-            "../data/q_and_a.toml",
-            "from = \"answer\"\nshown = true\n[writes]\ntext = \"{question}, {version}: {option}, {does}.{why}\"\n\
+            "../data/of_a_cell/questions.toml",
+            "name = \"{cell}_questions\"\nfrom = \"answer\"\nshown = true\n\
+             [writes]\ntext = \"{question}, {version}: {option}, {does}.\"\n\
              why = \" Why: {why}\"\nasked = \"{question}, {version}: {ask}{options}{recommends}{waits}\"\n\
              asked_anew = \"{question}, {version} for {was}: {ask}{options}{recommends}{waits}\"\n\
              option = \" [{option}. {does}]\"\nrecommends = \" Recommends {option}.\"\nwaits = \" Waits.\"\n\
              goes_on = \" Goes on.\"\nwithdrawn = \"{question}, {version}: {was} withdrawn.{why}\"\n",
         ),
         (
-            "../triggers/of_a_datum/changed.toml",
-            "name = \"on_{datum}\"\nread = [\"{datum}\"]\n",
-        ),
-        (
-            "../triggers/of_a_cell/on_answer.toml",
-            "block = \"{cell}_answered\"\nfrom = \"answer\"\nread = [\"q_and_a\"]\n",
+            "../data/of_a_cell/words.toml",
+            "name = \"{cell}_words\"\nfrom = \"words\"\n[writes]\nowner = \"The owner: {words}\"\nreply = \"{reply}\"\n",
         ),
         (
             "../agents/waits.toml",
@@ -497,14 +611,15 @@ fn laid_out() -> Compiled {
             .collect(),
         ..Default::default()
     };
-    compile(&source, &has(&["answer"])).unwrap_or_else(|faults| panic!("the flow does not compile: {faults:#?}"))
+    compile(&source, &has(&["answer", "words"]))
+        .unwrap_or_else(|faults| panic!("the flow does not compile: {faults:#?}"))
 }
 
-// Each version of a question and each answer to a question's latest version is an entry of the record of the questions
-// and the answers the asking cell reads for its trigger of an answer, a version the engine writes; an answer to an
-// earlier version is none, and the answer runs the asking cell alone, by its trigger's block.
+// Each version of a question and each answer is a version of the asking cell's questions, which the engine writes in
+// the words of their file: the asks and an answer that changes nothing the cell goes by run no cell, and an answer that
+// takes another option runs the asking cell, by that version, and stops a later round.
 #[test]
-fn each_question_and_each_answer_to_its_latest_version_is_an_entry_of_the_record_the_asking_cell_reads() {
+fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_in_the_words_of_their_file() {
     let mut w = W {
         flow: laid_out(),
         work: Work::default(),
@@ -517,52 +632,48 @@ fn each_question_and_each_answer_to_its_latest_version_is_an_entry_of_the_record
     came.said.questions = vec![asked("which", false)];
     w.returns(run, came);
     let version = w.version("which");
-    let entries = |w: &W| -> Vec<String> {
-        (w.work.records.written.iter())
-            .filter(|e| e.block.as_str() == "q_and_a" && e.by == Outsider::Outside)
-            .map(|e| w.work.contents[&(BlockId::from("q_and_a"), e.at)].clone())
-            .collect()
-    };
-    // The question is the record's first entry, with its options, the one it recommends and whether it waits.
+    // The question is the first version, with its options, the one it recommends and whether it waits.
     let question = format!(
         "which, {}: Which way for which? [1. the short way] [2. the long way] Recommends 1. Goes on.",
         version.0
     );
-    assert_eq!(entries(&w), vec![question.clone()]);
-    // The option the work goes by: the entry is written, and the cell is not run.
+    assert_eq!(w.entries("ask_questions"), vec![question.clone()]);
+    // The option the work goes by: a version, which runs nothing.
     w.answers("which", version, 1);
     assert_eq!(
-        entries(&w),
-        [
-            question,
-            format!("which, {}: 1, the short way. Why: Option 1.", version.0)
-        ]
+        w.entries("ask_questions"),
+        [question, format!("which, {}: 1, the short way.", version.0)]
     );
-    assert_eq!(w.written("ask_answered"), 0);
-    // Another option: the entry, and the cell's block of an answer, which stops the merge's round under way.
+    assert_eq!(w.turned("ask_questions"), 0);
+    // Another option: a version that runs the asking cell, which stops the merge's round under way.
     let effects = w.answers("which", version, 2);
-    assert_eq!(entries(&w).len(), 3);
-    assert_eq!(w.written("ask_answered"), 1);
+    assert_eq!(w.entries("ask_questions").len(), 3);
+    assert_eq!(w.turned("ask_questions"), 1);
     let [Effect::Stop { run: merging }] = effects.as_slice() else {
         panic!("the merge's round is not stopped: {effects:?}");
     };
     w.returns(*merging, Came::hands_in(Vec::new()));
-    // Asked anew, the new version is an entry that says which it replaces; an answer to the earlier version is kept
-    // in the owner's record, and is no entry of what the cell reads.
+    // Asked anew, the new version says which it replaces; an answer to the earlier version is a version too, kept,
+    // which runs nothing.
     let again = (w.work.records.started.iter())
         .rfind(|s| s.cell.as_str() == "ask")
         .expect("the cell runs again")
         .run;
-    let mut asked_anew = Came::works(vec!["ask_answered".into()], Vec::new());
+    let mut asked_anew = Came::works(vec!["ask_questions".into()], Vec::new());
     asked_anew.said.questions = vec![asked("which", false)];
     w.returns(again, asked_anew);
     let anew = w.version("which");
     assert!(anew > version);
-    assert_eq!(entries(&w).len(), 4);
+    assert_eq!(w.entries("ask_questions").len(), 4);
     let replaces = format!("which, {} for {}: Which way for which?", anew.0, version.0);
-    assert!(entries(&w)[3].starts_with(&replaces), "{:?}", entries(&w));
+    assert!(
+        w.entries("ask_questions")[3].starts_with(&replaces),
+        "{:?}",
+        w.entries("ask_questions")
+    );
     w.answers("which", version, 2);
-    assert_eq!(entries(&w).len(), 4);
+    assert_eq!(w.entries("ask_questions").len(), 5);
+    assert_eq!(w.turned("ask_questions"), 1);
     assert_eq!(w.work.records.answers.len(), 3);
 }
 
@@ -571,9 +682,11 @@ fn each_question_and_each_answer_to_its_latest_version_is_an_entry_of_the_record
 /// questions' standing run, that alone says whether the work passed, and that is skipped where a person turns
 /// `checking` off; and a merge that waits for its yes.
 fn asking_then_checked() -> Compiled {
-    let flow = r#"
+    let flow = format!(
+        r#"
         name = "asking_then_checked"
         order = ["research", "implement", "check", "merge"]
+        engine_asks_in = "implement"
         [limits]
         runs = 3
         returns = 2
@@ -581,10 +694,6 @@ fn asking_then_checked() -> Compiled {
         [lines.main]
         [blocks.request]
         people = true
-        [blocks.answered]
-        outside = "answer"
-        [blocks.implement_answered]
-        outside = "answer"
         [blocks.asked]
         values = ["waiting", "answered"]
         default = "answered"
@@ -592,7 +701,7 @@ fn asking_then_checked() -> Compiled {
         shown = true
         [blocks.asked.writes]
         answered = "Every question has the owner's answer."
-        waiting = "Waits for the owner's answer to {questions}."
+        waiting = "Waits for the owner's answer to {{questions}}."
         between = " and "
         [blocks.head]
         outside = "head"
@@ -610,31 +719,30 @@ fn asking_then_checked() -> Compiled {
         [blocks.failures]
         [blocks.merged]
         shown = true
-    "#;
-    let research = r#"
-        title = "Research"
-        kind = "agent"
-        effort = "high"
-        line = "main"
-        task = "Write the plan the request asks for."
-        inputs = ["request", "answered"]
-        outputs = ["plan"]
-    "#;
-    let implement = r#"
-        title = "Implement"
-        kind = "agent"
-        effort = "high"
-        line = "main"
-        task = "Build the plan, and fix what the check finds."
-        inputs = ["plan", "failures", "implement_answered"]
-        outputs = ["code"]
-    "#;
+        {}{}"#,
+        own("research"),
+        own("implement")
+    );
+    let research = asking_cell(
+        "Research",
+        "Write the plan the request asks for.",
+        &["request"],
+        &["plan"],
+        "research",
+    );
+    let implement = asking_cell(
+        "Implement",
+        "Build the plan, and fix what the check finds.",
+        &["plan", "failures"],
+        &["code"],
+        "implement",
+    );
     let check = r#"
         title = "Check"
         kind = "engine"
         act = "check"
         when = { checking = "on" }
-        inputs = ["head", "main", "asked"]
+        watches = ["head", "main", "asked"]
         outputs = ["passed", "failures"]
         describes = ["code"]
     "#;
@@ -643,14 +751,14 @@ fn asking_then_checked() -> Compiled {
         kind = "engine"
         act = "merge"
         requires = { passed = "yes" }
-        inputs = ["passed"]
+        watches = ["passed"]
         outputs = ["merged"]
     "#;
     let source = Source {
-        flow: flow.to_string(),
+        flow,
         cells: [
-            ("research", research),
-            ("implement", implement),
+            ("research", research.as_str()),
+            ("implement", implement.as_str()),
             ("check", check),
             ("merge", merge),
         ]
@@ -660,11 +768,11 @@ fn asking_then_checked() -> Compiled {
         ..Default::default()
     };
     let has = Has {
-        sources: ["answer", "asked", "head", "main"].map(str::to_string).into(),
+        sources: ["answer", "asked", "head", "main", "words"].map(str::to_string).into(),
         acts: ["check", "merge"].map(str::to_string).into(),
         ..Default::default()
     };
-    compile(&source, &has).expect("the definition compiles")
+    compile(&source, &has).unwrap_or_else(|faults| panic!("the definition does not compile: {faults:#?}"))
 }
 
 // A question the owner has answered gets no answer to come, which is what would run the check again: a return that
@@ -731,7 +839,7 @@ fn an_answer_the_check_has_not_run_on_answers_what_the_check_found() {
     let effects = w.answers("not_this_change", version, 1);
     let (answered, cell, ..) = round(&effects);
     assert_eq!(cell, "implement");
-    let dealt_with = vec!["failures".into(), "implement_answered".into()];
+    let dealt_with = vec!["failures".into(), "implement_questions".into()];
     let effects = w.returns(answered, Came::works(dealt_with, Vec::new()));
     let (_, cell, number, _) = round(&effects);
     assert_eq!((cell.as_str(), number), ("check", 1));

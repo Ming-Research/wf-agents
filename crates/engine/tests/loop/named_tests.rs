@@ -25,10 +25,10 @@ fn forked() -> Compiled {
         is = "yes"
     "#;
     let ask = "title = \"Ask\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Ask whether more is wanted.\"\n\
-               inputs = [\"request\"]\noutputs = [\"choice\"]\n";
+               watches = [\"request\"]\noutputs = [\"choice\"]\n[kinds]\nrequest = \"last_and_latest\"\n";
     let extra = "title = \"Extra\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write the notes.\"\n\
-                 when = { test = \"more\" }\ninputs = [\"request\"]\noutputs = [\"notes\"]\n";
-    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"choice\", \"notes\"]\n";
+                 when = { test = \"more\" }\nwatches = [\"request\"]\noutputs = [\"notes\"]\n[kinds]\nrequest = \"last_and_latest\"\n";
+    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"choice\", \"notes\"]\n";
     let source = Source {
         flow: flow.to_string(),
         cells: [("ask", ask), ("extra", extra), ("merge", merge)]

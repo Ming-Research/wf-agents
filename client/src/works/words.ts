@@ -562,7 +562,7 @@ export function unmetWords(unmet: Unmet): string {
       return `it handed in ${unmet.block}, a choice, as changing nothing in meaning with another value`;
     case 'asksAndWorks':
       return 'it asked for calls and also did the cell\'s work';
-    case 'notATrigger':
+    case 'notWatched':
       return `it said it dealt with ${unmet.name}, which does not run the cell`;
     case 'notATool':
       return `it asked for ${unmet.name}, which is not a tool the cell may ask for`;
@@ -582,8 +582,14 @@ export function unmetWords(unmet: Unmet): string {
       return `it dealt with the owner's words by ${unmet.name}, and gave no reply`;
     case 'unexplained':
       return `it left ${unmet.path}, a file the project protects, changed, and said not why`;
+    case 'notATest':
+      return `it changed ${unmet.path}, which is none of the project's tests`;
     case 'unanswered':
       return `it dealt with ${unmet.block}, and committed nothing and asked nothing`;
+    case 'wordOwed':
+      return `it dealt with ${unmet.name}, woken by a point in it, and answered none of its points, changed none of ${unmet.watched.join(', ')}, and asked no question the work waits for`;
+    case 'noPoint':
+      return `it handed in ${unmet.block} as ${unmet.value}, which does not pass, and gave no ${unmet.name}`;
   }
 }
 
@@ -602,8 +608,8 @@ export function givenWords(given: Given): string {
 /// Who wrote a version.
 export function writerWords(writer: Writer): string {
   switch (writer.kind) {
-    case 'person':
-      return 'a person';
+    case 'owner':
+      return 'the owner';
     case 'outside':
       return 'the outside';
     case 'run':

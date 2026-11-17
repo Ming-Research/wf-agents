@@ -2,6 +2,14 @@
 An agent has its tests run by asking the engine for `run_tests`, which runs them where the host checks the work; where the host is GitHub, that is the project's workflows run by hand on the last commit of the work's branch, which the engine pushes, and where it is the local repository, the project's check command run on the worktree as it stands, uncommitted changes included. Nothing is run on the machine the agents run on.
 Why: Run in an agent's own shell, a heavy command fights the owner for the machine, appears in none of the engine's records, and on GitHub would need the agent to push, which puts the engine's credential within its reach. Letting one exact command through an agent's command line was turned down for the same reasons.
 
+### decision no-cell-runs-the-tests
+No cell of a flow runs the tests a cell asks for: they stay a call within its round.
+Why: An engine's cell before the cells that ask for tests was considered and turned down: its request and its result as
+data needed exemptions from the walk's rules (a return that deals with nothing, blocks handed in every time, a result
+coming forward that starts the count of ways round again, the act's own count growing over the whole work), and the
+owner's words to the cell that asked would have waited until its CI ended. A call keeps those rules as they are; that
+the chart showed no call, which a cell would have mended, the tools' rows mend (decision the-tools-are-a-band-of-rows).
+
 ### decision only-a-commit-is-checked-on-github
 Where the host is GitHub, `run_tests` refuses a worktree with changes not committed and pushes nothing, while a local run is on the worktree as it stands.
 Why: CI can judge only a pushed commit, and a verdict must belong to the commit it judged, or it would be taken for that of changes it never saw; locally the command costs nothing more to run on what the worktree holds, and an agent may want to try before it commits.

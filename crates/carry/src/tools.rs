@@ -642,7 +642,7 @@ mod tests {
         let tools = Tools::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string(), None);
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow");
         let has = flow::Has {
-            sources: ["tree", "main"].map(str::to_string).into(),
+            sources: ["tree", "main", "guide"].map(str::to_string).into(),
             acts: ["start", "check", "merge"].map(str::to_string).into(),
             ..Default::default()
         };

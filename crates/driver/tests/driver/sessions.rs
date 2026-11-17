@@ -51,16 +51,21 @@ fn flow() -> Compiled {
         [blocks.merged]
         shown = true
     "#;
-    let cell = |line: &str, inputs: &str, outputs: &str| {
+    let cell = |line: &str, watches: &str, outputs: &str| {
+        // Each datum it watches given as it last worked from it and as it is now.
+        let kinds: Vec<String> = (watches.split('"').skip(1).step_by(2))
+            .map(|datum| format!("{datum} = \"last_and_latest\""))
+            .collect();
         format!(
-            "title = \"A cell\"\nkind = \"agent\"\nline = \"{line}\"\neffort = \"low\"\ntask = \"Do it.\"\ninputs = {inputs}\noutputs = {outputs}\n"
+            "title = \"A cell\"\nkind = \"agent\"\nline = \"{line}\"\neffort = \"low\"\ntask = \"Do it.\"\nwatches = {watches}\noutputs = {outputs}\nkinds = {{ {} }}\n",
+            kinds.join(", ")
         )
     };
     let load = cell("engineer", r#"["request", "session"]"#, r#"["context"]"#);
     let build = cell("engineer", r#"["request", "context"]"#, r#"["code"]"#) + "when = { test = \"going\" }\n";
     let review = cell("review", r#"["code"]"#, r#"["verdict"]"#);
     let merge =
-        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"verdict\"]\noutputs = [\"merged\"]\n";
+        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"verdict\"]\noutputs = [\"merged\"]\n";
     let source = flow::Source {
         flow: flow.to_string(),
         cells: [
@@ -82,7 +87,7 @@ fn flow() -> Compiled {
     flow::compile(&source, &has).expect("the flow compiles")
 }
 
-/// The words the driver writes into a session block, as the flow's own trigger gives them.
+/// The words the driver writes into a session block, as the flow's own datum gives them.
 const SESSION_WRITES: &str = r#"writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit}", model = "its rounds now run on another model than {was}, which it was begun on", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", lost = "the agents' program no longer had the session it was in", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }"#;
 
 /// Two lines, each loading its session by a cell that reads a session block of its own: `load` the engineer's, which
@@ -114,13 +119,18 @@ fn two_lines() -> Compiled {
         shown = true
     "#
     );
-    let cell = |line: &str, inputs: &str, outputs: &str| {
+    let cell = |line: &str, watches: &str, outputs: &str| {
+        // Each datum it watches given as it last worked from it and as it is now.
+        let kinds: Vec<String> = (watches.split('"').skip(1).step_by(2))
+            .map(|datum| format!("{datum} = \"last_and_latest\""))
+            .collect();
         format!(
-            "title = \"A cell\"\nkind = \"agent\"\nline = \"{line}\"\neffort = \"low\"\ntask = \"Do it.\"\ninputs = {inputs}\noutputs = {outputs}\n"
+            "title = \"A cell\"\nkind = \"agent\"\nline = \"{line}\"\neffort = \"low\"\ntask = \"Do it.\"\nwatches = {watches}\noutputs = {outputs}\nkinds = {{ {} }}\n",
+            kinds.join(", ")
         )
     };
     let merge =
-        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"verdict\"]\noutputs = [\"merged\"]\n";
+        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"verdict\"]\noutputs = [\"merged\"]\n";
     let source = flow::Source {
         flow,
         cells: [
@@ -532,10 +542,10 @@ fn the_engineers_flow_gives_each_line_that_loads_its_session_a_block_of_its_own(
             "start",
             "head",
             "tree",
+            "guide",
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        details: names(&["files"]),
         ..Default::default()
     };
     let flow = flow::compile(&source, &has).expect("the engineer's flow compiles");
@@ -550,13 +560,7 @@ fn the_engineers_flow_gives_each_line_that_loads_its_session_a_block_of_its_own(
         .collect();
     assert_eq!(
         read,
-        [
-            (
-                "deep_researcher_session".to_string(),
-                vec!["D1 on deep_researcher".to_string()]
-            ),
-            ("engineer_session".to_string(), vec!["R0 on engineer".to_string()]),
-        ]
+        [("engineer_session".to_string(), vec!["R0 on engineer".to_string()])]
     );
 }
 

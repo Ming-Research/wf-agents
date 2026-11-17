@@ -10,7 +10,7 @@ fn asked(waits: bool) -> (World, Seq) {
         cell("research", &["brief", "research answered"], &["plan"]),
         cell("implement", &["plan"], &["code"]),
     ]);
-    w.turning("research answered");
+    w.answering("research answered");
     w.person_writes("brief");
     w.run("research", &[("plan", Matters)]);
     let version = w.questions("research", "which", waits);
@@ -73,6 +73,28 @@ fn a_question_withdrawn_holds_the_work_no_more() {
 }
 
 #[test]
+fn a_question_the_cell_waits_for_holds_the_work_at_the_cell_while_the_cell_is_skipped() {
+    // Design document `data-and-context`, 32: no later cell runs while it stands unanswered, whether or not its cell
+    // applies now.
+    let mut w = World::with_gate(vec![
+        cell("research", &["brief"], &["plan"]),
+        when("deep", "yes", cell("design", &["plan"], &["design"])),
+        cell("implement", &["plan", "design"], &["code"]),
+    ]);
+    w.person_writes("brief");
+    w.person_sets("deep", "yes");
+    w.run("research", &[("plan", Matters)]);
+    w.run("design", &[("design", Matters)]);
+    let version = w.questions("design", "how", true);
+    assert_eq!(w.decide(), waits_for("design", "how"));
+    w.person_sets("deep", "no");
+    assert_eq!(w.decide(), waits_for("design", "how"));
+    // Once answered, the skipped cell is passed, and the work goes on after it.
+    w.answers("how", version, 1);
+    assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "implement"));
+}
+
+#[test]
 fn a_question_the_cell_does_not_wait_for_holds_nothing() {
     let (w, _) = asked(false);
     assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "implement"));
@@ -107,7 +129,7 @@ fn the_owner_speaking_to_a_cell_held_by_its_question_enters_it_and_it_goes_on_wa
         ),
         cell("implement", &["plan"], &["code"]),
     ]);
-    w.turning("research answered");
+    w.answering("research answered");
     w.turning("spoken to research");
     w.person_writes("brief");
     w.run("research", &[("plan", Matters)]);
@@ -174,7 +196,7 @@ fn spoken_to_while_held() -> (World, decide::RunId, Seq) {
         ),
         cell("implement", &["plan"], &["code"]),
     ]);
-    w.turning("research answered");
+    w.answering("research answered");
     w.turning("spoken to research");
     w.person_writes("brief");
     w.run("research", &[("plan", Matters)]);

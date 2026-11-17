@@ -35,7 +35,7 @@ The check merges main's head into the work's branch as a commit of the engine's 
 Why: What passes is then exactly what lands. GitHub's test merge lost because it leaves no mark when main moves after the CI began and the local host has none; an agent's round lost as exact work an agent sometimes gets wrong (principle mechanical-engine).
 
 ### decision the-check-holds-the-head-to-what-the-review-saw
-The check passes only where the work's head, which it reads of the branch for its round, is what the version of `head` each judge of it dealt with last says: each cell that writes a block the check's preconditions read and that `head` runs, as the flow's graph finds them, where it applies. Otherwise the round fails in passing, judging nothing, the head told to it as the outside's, so that the judge, to which the head is new, runs first. No block an agent writes names the commit the check and the merge are held to.
+The check passes only where the work's head, which it reads of the branch for its round, is what the version of `head` each judge of it dealt with last says: each cell that writes a block the check's preconditions read and that watches `head`, as the flow's graph finds them, where it applies. Otherwise the round fails in passing, judging nothing, the head told to it as the outside's, so that the judge, to which the head is new, runs first. No block an agent writes names the commit the check and the merge are held to.
 Why: Held to a commit named in any block a cell wrote, the check passed in W9 the implementation's fix of a conflict with main, named only in its answer to the check: the review never ran again, and the merge landed a change of a design decision nobody had reviewed; a tester's commits passed the same way. Read of the branch, whatever is committed is held to the review, under any block's words or none. A failure handed to the implementation lost: it has nothing to fix, what is missing being the review's look.
 
 ### decision one-work-checks-and-merges-at-a-time
@@ -63,7 +63,7 @@ A work's pull request is a draft until just before its merge; its body is what t
 Why: Anyone on GitHub sees what the change is and that it is not yet to be reviewed, and an agent's text on a public repository must notify, close and reveal nothing. Worked out otherwise by either check, the two would rewrite each other's body each time.
 
 ### decision blocks-that-describe-the-work-need-not-run-the-check
-The check describes the work by blocks of the flow with content, whether or not they run it: the definition holds a block it names only to be one of the flow's, named once.
+The check describes the work by blocks of the flow with content, whether or not it watches them: the definition holds a block it names only to be one of the flow's, named once.
 Why: The pull request's text is written again from what the work wrote before the merge (decision the-pull-request-says-what-the-work-wrote), so what merges always says what the work handed in, and a draft's text may wait for the next check. Held to blocks that run it, the check would be run by the words that describe the change as well as by the work's head, a whole CI for a change of words alone.
 
 ### decision a-merge-is-named-by-its-works-line

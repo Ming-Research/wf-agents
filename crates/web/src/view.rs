@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use decide::{BlockId, Condition as Applies, FlowFault, TestName};
+use decide::{Condition as Applies, FlowFault, TestName};
 use flow::{Compiled, FaultKind, Kind as CellKind, TestKind as KindOfTest};
 use serde::{Deserialize, Serialize};
 
@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Definition {
-    /// The definition compiles: the flow it compiles to.
-    Compiled { flow: Flow },
+    /// The definition compiles: the flow it compiles to, kept apart so that the other answers stay small.
+    Compiled { flow: Box<Flow> },
     /// The definition does not compile: every fault it has, in the order the compiler gives them.
     Faults { faults: Vec<Fault> },
     /// The definition's directory cannot be read, and why.
@@ -37,6 +37,10 @@ pub struct Flow {
     pub tools: Vec<String>,
     /// The groups of the flow's blocks, by name, each with its blocks as the flow names them.
     pub groups: Vec<Group>,
+    /// What the item's card shows the owner of the work, in the order the flow names them; none where it names none.
+    pub card: Vec<String>,
+    /// What every agent's cell watches and reads beside what its own file names, as `flow.toml` writes it.
+    pub every_agent: EveryAgent,
     /// The cells, in the order of the walk.
     pub cells: Vec<Cell>,
     /// The blocks, by name.
@@ -129,16 +133,14 @@ pub struct Cell {
     pub when: Vec<Condition>,
     /// What the work waits for before the cell: every key of its `requires`, in the order written.
     pub requires: Vec<Condition>,
-    /// The blocks it names: those that run it, in the order it names them, then those it is only given.
-    pub inputs: Vec<String>,
-    /// The blocks whose new version runs it, in the order it names them.
-    pub runs_on: Vec<String>,
-    /// The blocks it is given, its session kept supplied with their content, in the order it names them; none for an
-    /// engine's cell.
-    pub given: Vec<String>,
-    /// For each block it names, by the block's name, whether it runs the cell and whether the cell is given it, with
-    /// why and how where the definition says.
-    pub input: BTreeMap<String, Input>,
+    /// What runs it, in the order the engine reads it: each datum `[every_agent]` watches that its own file does not
+    /// name, by the datum's name, then each datum or group its own file's `watches` names.
+    pub watches: Vec<Watch>,
+    /// What its own file's `reads` names, in order; what every agent's cell reads is the flow's (`every_agent`).
+    pub reads: Vec<Read>,
+    /// Each block it is given, in the order it is given them, with its kind and the list of the definition that gives
+    /// it; none for an engine's cell.
+    pub given: Vec<GivenBlock>,
     /// The blocks it may write, as the definition lists them.
     pub outputs: Vec<String>,
     /// The blocks among those that every hand-in of it includes, as the definition lists them.
@@ -146,14 +148,10 @@ pub struct Cell {
     /// The tools of the engine's that an agent's cell may ask for in its return, by name, as the definition lists
     /// them; none for an engine's cell.
     pub tools: Vec<String>,
-    /// What runs it, each a trigger by its name, with the block it stands on, the data its agent reads for it and what
-    /// the cell does when it fires, as the definition writes them.
-    #[serde(default)]
-    pub triggers: Vec<TriggerView>,
     pub limits: Limits,
 }
 
-/// A group of the flow's blocks, whose trigger fires for a new version of any of them.
+/// A group of the flow's blocks, a new version of any of which is new to a cell that watches the group.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Group {
@@ -161,73 +159,88 @@ pub struct Group {
     pub blocks: Vec<String>,
 }
 
-/// A trigger of a cell, as the definition writes it.
+/// A datum or group a cell watches, by the list that names it (`every_agent` or `watches`): its name as the definition
+/// writes it and the blocks it stands for (of a datum, the datum alone); of what the cell's own file watches, what the
+/// cell does when it is new. What a cell does for what `[every_agent]` watches is given once, with `[every_agent]`
+/// (principle say-a-thing-once).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "list", rename_all = "snake_case")]
+pub enum Watch {
+    Watches {
+        name: String,
+        blocks: Vec<String>,
+        #[serde(rename = "do")]
+        does: Option<String>,
+    },
+    EveryAgent {
+        name: String,
+        blocks: Vec<String>,
+    },
+}
+
+/// A datum or group a cell only reads, or every agent's cell watches or reads: its name as the definition writes it,
+/// and the blocks it stands for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TriggerView {
+pub struct Read {
     pub name: String,
-    /// What it is, as its file writes it; none where it says nothing.
-    pub what: Option<String>,
-    /// The block it stands on; of a group's trigger, the group's name.
+    pub blocks: Vec<String>,
+}
+
+/// A block a cell is given: the kind its session holds of it, and the list of the definition that gives it
+/// (`every_agent`, `reads` or `watches`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GivenBlock {
     pub block: String,
-    /// Of a group's trigger, the group's blocks, each of which runs the cell; none of another.
-    pub group: Vec<String>,
-    pub read: Vec<String>,
+    pub kind: InputKind,
+    pub list: String,
+}
+
+/// What every agent's cell of a flow watches and reads, as `flow.toml` writes it (`[every_agent]`): each name with the
+/// data it stands for and, of what it watches, what a cell does when it is new; and the kind of each, by its name.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EveryAgent {
+    pub watches: Vec<EveryWatch>,
+    pub reads: Vec<Read>,
+    pub kinds: BTreeMap<String, InputKind>,
+}
+
+/// A name `[every_agent]` watches: as written, with the data it stands for and what a cell does when one is new.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EveryWatch {
+    pub name: String,
+    pub blocks: Vec<String>,
     #[serde(rename = "do")]
     pub does: Option<String>,
 }
 
-/// One of the blocks a cell names: whether it runs the cell, and whether the cell is given it. It does one or both.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Input {
-    /// A new version of it runs the cell; none where it does not.
-    pub runs: Option<Runs>,
-    /// The cell is given it; none where it is not.
-    pub given: Option<GivenAs>,
-}
-
-/// Why a block runs a cell.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Runs {
-    /// None where the definition does not say.
-    pub why: Option<String>,
-}
-
-/// How a cell is given a block, and why.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GivenAs {
-    /// What the context of the cell's session must hold of the block when the cell runs; none where the definition
-    /// does not say.
-    pub kind: Option<InputKind>,
-    /// Why the cell is given the block; none where the definition does not say.
-    pub why: Option<String>,
-}
-
-impl Input {
-    /// Of each block the cell names, by its name, whether it runs the cell and whether the cell is given it.
-    fn of(spec: &flow::CellSpec) -> BTreeMap<String, Input> {
-        let mut out: BTreeMap<String, Input> = BTreeMap::new();
-        for r in &spec.runs_on {
-            let input = out.entry(r.block.to_string()).or_insert(Input {
-                runs: None,
-                given: None,
-            });
-            input.runs = Some(Runs { why: r.why.clone() });
+impl EveryAgent {
+    fn of(every: &flow::EveryAgent) -> Self {
+        EveryAgent {
+            watches: (every.watches.iter())
+                .map(|t| EveryWatch {
+                    name: t.name.clone(),
+                    blocks: names(&t.blocks),
+                    does: every.does.get(&t.name).cloned(),
+                })
+                .collect(),
+            reads: every.reads.iter().map(Read::of).collect(),
+            kinds: (every.kinds.iter())
+                .map(|(name, kind)| (name.clone(), InputKind::of(*kind)))
+                .collect(),
         }
-        for g in &spec.given {
-            let input = out.entry(g.block.to_string()).or_insert(Input {
-                runs: None,
-                given: None,
-            });
-            input.given = Some(GivenAs {
-                kind: Some(InputKind::of(g.kind)),
-                why: g.why.clone(),
-            });
+    }
+}
+
+impl Read {
+    fn of(taken: &flow::Taken) -> Self {
+        Read {
+            name: taken.name.clone(),
+            blocks: names(&taken.blocks),
         }
-        out
     }
 }
 
@@ -280,9 +293,6 @@ pub struct Block {
     pub default: Option<String>,
     /// What the block is, in a sentence; none where the definition does not say.
     pub what: Option<String>,
-    /// It stands only for a trigger: no cell is given it, writes it or describes the work by it.
-    #[serde(default)]
-    pub trigger: bool,
     /// Of a block a source of the engine's writes, what it writes, each text by its name as its file writes them.
     #[serde(default)]
     pub writes: Vec<(String, Vec<crate::given::Piece>)>,
@@ -348,6 +358,11 @@ pub enum What {
     },
     Twice {
         name: String,
+    },
+    TakenTwice {
+        block: String,
+        first: String,
+        also: String,
     },
     LimitOutOfRange {
         value: i64,
@@ -415,12 +430,6 @@ pub enum What {
     NotAnOutput {
         block: String,
     },
-    /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
-    TakenNotRead {
-        block: String,
-    },
-    /// The cell names what it takes in two forms of three.
-    TwoForms,
     /// The flow names among the engine's own data one that no file beside the flows defines.
     NoSuchData {
         name: String,
@@ -430,52 +439,51 @@ pub enum What {
         name: String,
         also: String,
     },
-    /// The cell names a trigger that nothing beside the flows defines.
-    NoSuchTrigger {
-        trigger: String,
-    },
-    /// The cell names a trigger a rule makes of a datum the flow does not have.
-    NoSuchDatum {
-        trigger: String,
-        datum: String,
-    },
-    /// The block stands only for a trigger: no cell is given it, writes it or describes the work by it.
-    TriggerOnly {
-        block: String,
-    },
-    /// The cell names `triggered_by` and `context` in a flow not laid out one thing to a file.
-    NotLaidOut,
-    /// A value of a file beside the flows lacks the name that stands for each cell or each datum.
+    /// The name of a file beside the flows of a datum each cell or each line has its own of lacks what stands for whose
+    /// own it is.
     MissingPlaceholder {
         placeholder: String,
     },
-    /// The cell writes the work's questions, and no answer of the owner's runs it.
+    /// The cell writes its questions, and does not watch them: the owner's answer would run no cell.
     AsksWithNoAnswer {
         block: String,
     },
-    /// The cell writes the work's questions, and the owner's words do not run it.
+    /// The cell writes its questions, and watches no words of its own.
     AsksAndCannotBeSpokenTo {
         block: String,
     },
-    /// A trigger of the cell stands on a block whose every writer runs only where the cell cannot.
-    TriggerNeverRuns {
-        trigger: String,
+    /// The cell writes a block of the owner's answers or words that is not its own.
+    NotItsOwn {
+        block: String,
+    },
+    /// The cell writes its own words, which the owner speaks to it in, and asks the owner nothing.
+    SpokenToAndAsksNothing {
+        block: String,
+    },
+    /// The cell hands in a verdict and judges in more than one dialogue, which the verdict's points could go in.
+    VerdictOfDialogues {
+        verdict: String,
+        dialogues: Vec<String>,
+    },
+    /// The agent's cell hands in a verdict and judges in no dialogue its points could go in.
+    VerdictWithoutDialogue {
+        verdict: String,
+    },
+    /// The cell watches or reads a datum of another line's own.
+    LineDataOfAnother {
+        block: String,
+        line: String,
+    },
+    /// The flow names a cell for the engine to ask in that cannot change the work or cannot be spoken to.
+    CannotBeAskedIn {
+        cell: String,
+    },
+    /// The cell watches a datum or group whose every block's every writer runs only where the cell cannot.
+    NeverNew {
+        watched: String,
         block: String,
         needs: String,
         writers: Vec<(String, String)>,
-    },
-    /// The trigger says what happened by a place the engine does not fill.
-    UnknownDetail {
-        detail: String,
-    },
-    /// A trigger of an agent cell has its agent read a datum that the cell's context does not hold.
-    ReadNotInContext {
-        trigger: String,
-        block: String,
-    },
-    /// The cell says what it does for a trigger that is not among its triggers.
-    NotATrigger {
-        trigger: String,
     },
     /// An engine cell says how it is given the block, and it has no session.
     EngineIsGiven {
@@ -487,12 +495,8 @@ pub enum What {
     NoKind {
         block: String,
     },
-    /// A table that says nothing of the block it is named for.
-    SaysNothing {
-        block: String,
-    },
-    /// The cell says why the block runs it, and it is not among those that run it.
-    NotRunOn {
+    /// A `do` is said for the block, of a cell or of what every agent's cell takes, and that does not watch it.
+    NotWatched {
         block: String,
     },
     /// The cell says how or why it is given the block, and it is not given it.
@@ -657,28 +661,30 @@ impl Flow {
                 takes_main: spec.takes_main,
                 when: cell.applies.iter().map(|c| Condition::of(c, compiled)).collect(),
                 requires: cell.requires.iter().map(|c| Condition::of(c, compiled)).collect(),
-                inputs: (spec.runs_on.iter().map(|r| &r.block))
-                    .chain(
-                        (spec.given.iter().map(|g| &g.block)).filter(|b| !spec.runs_on.iter().any(|r| &r.block == *b)),
-                    )
-                    .map(BlockId::to_string)
+                watches: (spec.watches.iter())
+                    .map(|w| {
+                        let (name, blocks) = (w.name.clone(), names(&w.blocks));
+                        match w.list {
+                            flow::Listed::EveryAgent => Watch::EveryAgent { name, blocks },
+                            _ => Watch::Watches {
+                                name,
+                                blocks,
+                                does: w.does.clone(),
+                            },
+                        }
+                    })
                     .collect(),
-                runs_on: names(&cell.runs_on),
-                given: spec.given.iter().map(|g| g.block.to_string()).collect(),
-                input: Input::of(spec),
+                reads: spec.reads.iter().map(Read::of).collect(),
+                given: (spec.given.iter())
+                    .map(|g| GivenBlock {
+                        block: g.block.to_string(),
+                        kind: InputKind::of(g.kind),
+                        list: g.list.name().to_string(),
+                    })
+                    .collect(),
                 outputs: names(&cell.outputs),
                 must_write: names(&spec.must_write),
                 tools: spec.tools.clone(),
-                triggers: (spec.triggers.iter())
-                    .map(|t| TriggerView {
-                        name: t.name.clone(),
-                        what: t.what.clone(),
-                        block: t.block.to_string(),
-                        group: names(&t.group),
-                        read: names(&t.read),
-                        does: t.does.clone(),
-                    })
-                    .collect(),
                 limits: Limits {
                     runs: cell.limit,
                     returns: spec.returns,
@@ -694,7 +700,6 @@ impl Flow {
                 values: block.values.clone(),
                 default: block.default.clone(),
                 what: block.what.clone(),
-                trigger: block.trigger,
                 writes: (block.writes.0.iter())
                     .map(|(name, text)| (name.clone(), flow::system::with_slots(text)))
                     .collect(),
@@ -727,6 +732,8 @@ impl Flow {
                     blocks: blocks.clone(),
                 })
                 .collect(),
+            card: names(&compiled.card),
+            every_agent: EveryAgent::of(&compiled.every_agent),
             cells,
             blocks,
         }
@@ -801,6 +808,7 @@ impl What {
             F::NoCellFile { cell } => What::NoCellFile { cell },
             F::NotInOrder { cell } => What::NotInOrder { cell },
             F::Twice { name } => What::Twice { name },
+            F::TakenTwice { block, first, also } => What::TakenTwice { block, first, also },
             F::LimitOutOfRange { value } => What::LimitOutOfRange { value },
             F::NoLine => What::NoLine,
             F::EngineHasLine { line } => What::EngineHasLine { line },
@@ -825,36 +833,32 @@ impl What {
             F::NoteIsAChoice { block } => What::NoteIsAChoice { block },
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },
-            F::TakenNotRead { block } => What::TakenNotRead { block },
-            F::TwoForms => What::TwoForms,
             F::NoSuchData { name } => What::NoSuchData { name },
             F::DefinedTwice { name, also } => What::DefinedTwice { name, also },
-            F::NoSuchTrigger { trigger } => What::NoSuchTrigger { trigger },
-            F::NoSuchDatum { trigger, datum } => What::NoSuchDatum { trigger, datum },
-            F::TriggerOnly { block } => What::TriggerOnly { block },
-            F::NotLaidOut => What::NotLaidOut,
             F::MissingPlaceholder { placeholder } => What::MissingPlaceholder { placeholder },
             F::AsksWithNoAnswer { block } => What::AsksWithNoAnswer { block },
             F::AsksAndCannotBeSpokenTo { block } => What::AsksAndCannotBeSpokenTo { block },
-            F::TriggerNeverRuns {
-                trigger,
+            F::NotItsOwn { block } => What::NotItsOwn { block },
+            F::SpokenToAndAsksNothing { block } => What::SpokenToAndAsksNothing { block },
+            F::VerdictOfDialogues { verdict, dialogues } => What::VerdictOfDialogues { verdict, dialogues },
+            F::VerdictWithoutDialogue { verdict } => What::VerdictWithoutDialogue { verdict },
+            F::LineDataOfAnother { block, line } => What::LineDataOfAnother { block, line },
+            F::CannotBeAskedIn { cell } => What::CannotBeAskedIn { cell },
+            F::NeverNew {
+                watched,
                 block,
                 needs,
                 writers,
-            } => What::TriggerNeverRuns {
-                trigger,
+            } => What::NeverNew {
+                watched,
                 block,
                 needs,
                 writers,
             },
-            F::UnknownDetail { detail } => What::UnknownDetail { detail },
-            F::ReadNotInContext { trigger, block } => What::ReadNotInContext { trigger, block },
-            F::NotATrigger { trigger } => What::NotATrigger { trigger },
             F::EngineIsGiven { block } => What::EngineIsGiven { block },
             F::RunByNothing => What::RunByNothing,
             F::NoKind { block } => What::NoKind { block },
-            F::SaysNothing { block } => What::SaysNothing { block },
-            F::NotRunOn { block } => What::NotRunOn { block },
+            F::NotWatched { block } => What::NotWatched { block },
             F::NotGiven { block } => What::NotGiven { block },
             F::NoWriter { block } => What::NoWriter { block },
             F::NoReader { block } => What::NoReader { block },

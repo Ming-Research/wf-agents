@@ -14,7 +14,11 @@ fn trial() -> Compiled {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/trial/flow");
     let source = flow::read(&dir).unwrap();
     let has = flow::Has {
-        sources: BTreeSet::from([driver::DEPENDENCIES.to_string(), flow::ANSWER.to_string()]),
+        sources: BTreeSet::from([
+            driver::DEPENDENCIES.to_string(),
+            flow::ANSWER.to_string(),
+            "guide".to_string(),
+        ]),
         acts: BTreeSet::from(["merge".to_string()]),
         ..Default::default()
     };
@@ -31,6 +35,7 @@ fn engineer() -> Compiled {
             "answer",
             "asked",
             "dependencies",
+            "guide",
             "main",
             "session",
             "start",
@@ -40,7 +45,6 @@ fn engineer() -> Compiled {
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        details: names(&["files"]),
         ..Default::default()
     };
     flow::compile(&source, &has).unwrap()
@@ -248,7 +252,11 @@ fn trial_reviewing_every_time() -> Compiled {
         1,
     );
     let has = flow::Has {
-        sources: BTreeSet::from([driver::DEPENDENCIES.to_string(), flow::ANSWER.to_string()]),
+        sources: BTreeSet::from([
+            driver::DEPENDENCIES.to_string(),
+            flow::ANSWER.to_string(),
+            "guide".to_string(),
+        ]),
         acts: BTreeSet::from(["merge".to_string()]),
         ..Default::default()
     };

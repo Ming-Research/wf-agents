@@ -307,6 +307,7 @@ impl<H: Host> Inner<H> {
         let read_with = branch::Reading {
             tree: project.tree.clone(),
             main: self.host.kept_main(),
+            guide: project.guide.clone(),
         };
         let looking = || Looking::of(&round.flow, &round.kept, read_with.clone());
         match act {
@@ -1205,7 +1206,7 @@ mod tests {
                 ),
                 cells: [(
                     "merge".to_string(),
-                    "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"main\"]\noutputs = [\"merged\"]\n"
+                    "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"main\"]\noutputs = [\"merged\"]\n"
                         .to_string(),
                 )]
                 .into(),
@@ -1283,7 +1284,7 @@ mod tests {
         let source = flow::read(&dir).unwrap();
         let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
         let has = flow::Has {
-            sources: names(&["tree", "main"]),
+            sources: names(&["tree", "main", "guide"]),
             acts: names(&["start", "check", "merge"]),
             ..Default::default()
         };
@@ -1406,6 +1407,7 @@ mod tests {
         let reading = branch::Reading {
             tree: repo.project.tree.clone(),
             main: crate::host::kept_main(&repo.project),
+            guide: repo.project.guide.clone(),
         };
         let mut looking = Looking::head_only(reading, last);
         let told = std::sync::Mutex::new(Vec::new());

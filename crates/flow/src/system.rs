@@ -22,8 +22,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::agents::{
-    AGENTS_DIR, Agents, Installation, LinePart, OUTPUTS, OfTheLine, PROJECT_FILE, Project, ProjectPart, RULES_FILE,
-    ReturnsPart, SessionPart, ToldAs, WordsPart, YOUR_LINE_FILE,
+    AGENTS_DIR, Agents, Installation, LinePart, OUTPUTS, OfTheLine, PROJECT_FILE, Project, RULES_FILE, ReturnsPart,
+    SessionPart, ToldAs, WordsPart, YOUR_LINE_FILE,
 };
 use crate::{CellSpec, Compiled, Kind};
 
@@ -87,14 +87,17 @@ pub enum Piece {
 
 /// The parts of the system prompt of the session of the cell's line, in their order. A file of the project is read by
 /// `read`, by its path in the project's checkout: its text, nothing where there is nothing to read it in, or why it
-/// cannot be read. Or everything that keeps it from being made, as [`made`] says it.
+/// cannot be read; a datum that stands for one by `datum`, by its name, as the version the session begins with gives
+/// it, none where there is none to give, and `datum` says why it cannot be given where a session has none. Or
+/// everything that keeps it from being made, as [`made`] says it.
 pub fn parts(
     agents: &Agents,
     flow: &Compiled,
     cell: &CellSpec,
     read: impl Fn(&str) -> Result<Option<String>, String>,
+    datum: impl Fn(&str) -> Result<Option<String>, String>,
 ) -> Result<Vec<Part>, Vec<String>> {
-    let (parts, wrong) = made(agents, flow, cell, read);
+    let (parts, wrong) = made(agents, flow, cell, read, datum);
     if wrong.is_empty() { Ok(parts) } else { Err(wrong) }
 }
 
@@ -106,14 +109,16 @@ pub fn made(
     flow: &Compiled,
     cell: &CellSpec,
     read: impl Fn(&str) -> Result<Option<String>, String>,
+    datum: impl Fn(&str) -> Result<Option<String>, String>,
 ) -> (Vec<Part>, Vec<String>) {
     let session = &agents.session;
     let mut out = Vec::new();
     let mut wrong: Vec<String> = Vec::new();
     for part in &session.parts {
         match part {
-            SessionPart::Project(ProjectPart { project }) => {
-                let Some(file) = agents.project.files.get(project) else {
+            SessionPart::Project(_) | SessionPart::Datum(_) => {
+                let project = part.file().unwrap_or_default().to_string();
+                let Some(file) = agents.project.files.get(&project) else {
                     wrong.push(format!(
                         "{PROJECT_FILE} has no file `{project}`, which session.toml names"
                     ));
@@ -124,7 +129,12 @@ pub fn made(
                     text: as_written(&fill(&session.heading, &[("path", &file.path), ("text", "")])),
                     places: true,
                 };
-                let pieces = match read(&file.path) {
+                // A datum that stands for the file is the version the session begins with, as the work's branch has it.
+                let text = match part {
+                    SessionPart::Datum(_) => datum(&project),
+                    _ => read(&file.path),
+                };
+                let pieces = match text {
                     Ok(Some(text)) => fill(&session.heading, &[("path", &file.path), ("text", text.trim_end())]),
                     Ok(None) => Vec::new(),
                     Err(why) => {
@@ -134,7 +144,7 @@ pub fn made(
                 };
                 out.push(Part {
                     of: Of::Project,
-                    name: project.clone(),
+                    name: project,
                     source: file.path.clone(),
                     pieces,
                     texts: vec![heading],
@@ -376,8 +386,8 @@ pub fn check(parts: &[Part], settings: &Settings, fills: impl Fn(&str) -> bool) 
 }
 
 /// The flow's own texts that a message sends its agent cells, each with what of the flow it is: each agent cell's
-/// task, what each of its triggers says it does, and the words of each block, what it is and what a cell that writes
-/// it is told of writing it.
+/// task, what it does when each datum it watches is new, and the words of each block, what it is and what a cell that
+/// writes it is told of writing it.
 pub fn flow_texts(flow: &Compiled) -> Vec<Said> {
     let mut out = Vec::new();
     for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
@@ -389,10 +399,10 @@ pub fn flow_texts(flow: &Compiled) -> Vec<Said> {
                 places: false,
             });
         }
-        for trigger in &cell.triggers {
-            if let Some(does) = &trigger.does {
+        for watched in &cell.watches {
+            if let Some(does) = &watched.does {
                 out.push(Said {
-                    source: format!("cell {id}, what it does for {}", trigger.name),
+                    source: format!("cell {id}, what it does when {} is new", watched.name),
                     text: does.clone(),
                     places: false,
                 });
@@ -424,7 +434,7 @@ pub fn flow_texts(flow: &Compiled) -> Vec<Said> {
 pub fn reserved(agents: &Agents) -> Vec<String> {
     (agents.session.parts.iter())
         .filter_map(|part| match part {
-            SessionPart::Project(ProjectPart { project }) => Some(project.clone()),
+            SessionPart::Project(_) | SessionPart::Datum(_) => part.file().map(str::to_string),
             SessionPart::Words(WordsPart { words }) => Some(words.clone()),
             SessionPart::Returns(ReturnsPart { returns }) => Some(returns.name().to_string()),
             SessionPart::Line(_) => None,

@@ -83,7 +83,7 @@ impl Compacted {
 
 /// What the owner says to a round while it runs, given to its session right after the next use of one of the
 /// program's own tools: the runner puts it in one file ([`Words::put`]), and the hook the command line runs after each
-/// use of a tool moves that file aside, as the first `<delivered>.<n>.json` there is none of, and prints it, which the
+/// use of a tool moves that file aside, as the first `<given>.<n>.json` there is none of, and prints it, which the
 /// program adds to the session. The hook needs nothing but the shell and these files, so that what runs the agents
 /// may be apart from the engine. After the program's own tool for the return the hook gives nothing: the round has
 /// made its return, and words given then would be taken as delivered and never read.
@@ -92,19 +92,19 @@ pub struct Words {
     /// The file the words wait in, as the hook prints them.
     pub waiting: PathBuf,
     /// Where the words the hook gave are moved, without the number and the extension.
-    pub delivered: PathBuf,
+    pub given: PathBuf,
 }
 
 impl Words {
     /// The hook's shell command: it reads what the program says of the tool on its standard input, whole, so that the
     /// program never writes to a pipe nobody reads, and gives nothing after the tool for the return.
     fn command(&self) -> String {
-        let (waiting, delivered) = (quote(&self.waiting), quote(&self.delivered));
+        let (waiting, given) = (quote(&self.waiting), quote(&self.given));
         format!(
             "input=$(cat); case \"$input\" in \
              *'\"tool_name\":\"{STRUCTURED_OUTPUT}\"'* | *'\"tool_name\": \"{STRUCTURED_OUTPUT}\"'*) ;; \
-             *) if [ -e {waiting} ]; then n=1; while [ -e {delivered}.$n.json ]; do n=$((n+1)); done; \
-             {{ mv {waiting} {delivered}.$n.json 2>/dev/null && cat {delivered}.$n.json; }} || :; fi ;; esac"
+             *) if [ -e {waiting} ]; then n=1; while [ -e {given}.$n.json ]; do n=$((n+1)); done; \
+             {{ mv {waiting} {given}.$n.json 2>/dev/null && cat {given}.$n.json; }} || :; fi ;; esac"
         )
     }
 
@@ -846,7 +846,7 @@ mod tests {
     fn words() -> Words {
         Words {
             waiting: PathBuf::from("rounds/1/2-3.words.json"),
-            delivered: PathBuf::from("rounds/1/2-3.delivered"),
+            given: PathBuf::from("rounds/1/2-3.given"),
         }
     }
 
@@ -1341,14 +1341,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_owners_words_are_given_once_after_a_tool_and_moved_aside_as_delivered() {
+    async fn the_owners_words_are_given_once_after_a_tool_and_moved_aside_as_given() {
         let dir = tempfile::tempdir().unwrap();
         // A data directory whose path a shell would split, or end a quote at.
         let rounds = dir.path().join("it's data").join("rounds");
         std::fs::create_dir_all(&rounds).unwrap();
         let words = Words {
             waiting: rounds.join("2-3.words.json"),
-            delivered: rounds.join("2-3.delivered"),
+            given: rounds.join("2-3.given"),
         };
         assert_eq!(after(&words, "Bash", dir.path()), "", "nothing waits");
 
@@ -1363,7 +1363,7 @@ mod tests {
             "Use the name \"Ann\"."
         );
         assert!(!words.waiting.exists(), "moved aside");
-        let first = rounds.join("2-3.delivered.1.json");
+        let first = rounds.join("2-3.given.1.json");
         assert_eq!(
             serde_json::from_slice::<Value>(&std::fs::read(&first).unwrap()).unwrap(),
             given
@@ -1375,7 +1375,7 @@ mod tests {
         words.put("Second.").await.expect("put");
         let given: Value = serde_json::from_str(&after(&words, "Edit", dir.path())).expect("the hook's JSON");
         assert_eq!(given["hookSpecificOutput"]["additionalContext"], "First.\n\nSecond.");
-        assert!(rounds.join("2-3.delivered.2.json").is_file());
+        assert!(rounds.join("2-3.given.2.json").is_file());
         assert!(first.is_file());
         let left: Vec<_> = std::fs::read_dir(&rounds)
             .unwrap()
@@ -1389,7 +1389,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let words = Words {
             waiting: dir.path().join("1-1.words.json"),
-            delivered: dir.path().join("1-1.delivered"),
+            given: dir.path().join("1-1.given"),
         };
         assert_eq!(words.put("First.").await, Ok(false), "nothing waited");
         assert_eq!(

@@ -1,6 +1,6 @@
 # A message: what the engine sends a cell's agent each time it enters the cell, of what the session lacks; its parts in
-# this order. In a text, `{title}` is the cell's title, `{task}` the cell's task, `{trigger}` a trigger's name. Any
-# other `{name}` is filled in a run:
+# this order. In a text, `{title}` is the cell's title, `{task}` the cell's task, `{datum}` the name of a datum the
+# cell watches. Any other `{name}` is filled in a run:
 #   taken: each block and question the last return handed in, and the version it is kept as;
 #   work, item, item_title: the work's number, the number of the item it is done for, and the item's title;
 #
@@ -18,10 +18,9 @@
 compacted = "Your session was compacted during this round. What the round was told, again, whole, as to a session that begins; carry on with the round's work."
 
 # What the owner says to a round while it runs, given to its session right after its next use of one of its program's
-# own tools, as the owner's entry of `discussion` reads: `{entry}` the entry, `{block}` that datum's name, `{number}`
-# its version, `{trigger}` the trigger it is new to the round as, and `{do}` what the cell does for it, as the part
-# `triggers` below says it.
-said = "## `{block}`, version {number}, said while this round runs\n\n{entry}\n\nIt is new to this round as `{trigger}`{do}\n\nName `{trigger}` in `dealt_with` once you have dealt with it."
+# own tools, as the owner's version of the cell's words reads: `{entry}` the version, `{block}` the datum's name,
+# `{number}` its version, and `{do}` what the cell does when its words are new, as the part `new` below says it.
+said = "## `{block}`, version {number}, said while this round runs\n\n{entry}\n\nIt is new to this round{do}\n\nName `{block}` in `dealt_with` once you have dealt with it."
 
 # `{taken}` is each block in `each`, `{block}` its name and `{number}` the version it is kept as, with `between`
 # between two of them.
@@ -58,11 +57,15 @@ merging = "{name} at {main} was not merged into the work's branch: a merge is un
 failed = "{name} was not merged into the work's branch."
 between = ", "
 
-# Each datum of the cell's `context` that is new to it since it last worked from it, or that the session lacks: its
-# content as `given.toml` says for the cell's kind of it, or `held` there where the session holds it already. A datum
-# with no version yet is left out.
+# Each datum the cell is given that is new to it since it last worked from it, or that the session lacks, in `order`:
+# what the flow gives every agent cell, what the cell only reads, what it watches, each list in its own order, and each
+# block the cell writes that none of them gives it, sent only where the session lacks its latest version, as `latest`
+# gives it (design document `data-and-context`, 14, 15, 21). What every cell is given alike comes first, so that
+# sessions share it in the cache (15). Its content as `given.toml` says for the cell's kind of it, or `held` there where
+# the session holds it already. A datum with no version yet is left out.
 [[parts]]
 part = "context"
+order = ["every_agent", "reads", "watches", "outputs"]
 
 [[parts]]
 part = "outputs"
@@ -84,12 +87,14 @@ part = "results"
 [[parts]]
 part = "sent_back"
 
-# Each trigger new to the cell: its name, what happened where the engine says it (`detail`, the trigger's own place
-# filled), and what the cell does for it (`do`, from the cell or the trigger), the first time too; then `after`.
+# Each datum the cell watches that is new to it (design document `data-and-context`, 11): its name, the version the
+# cell last consumed and the latest (`since`, or `first` where it consumed none), and what the cell does for it (`do`,
+# from the cell's definition), the first time too; then `after`.
 [[parts]]
-part = "triggers"
+part = "new"
 text = "## Why you are run\n"
-each = "\n- `{trigger}`{detail}{do}"
-detail = " ({detail})"
+each = "\n- `{datum}`{versions}{do}"
+since = ", new since version {last}, now version {latest}"
+first = ", version {latest}"
 do = ": {do}"
-after = "\n\nName in `dealt_with` each of these you have dealt with: one you leave out runs this cell again."
+after = "\n\nOnly these ran this cell: name in `dealt_with` each you have dealt with, by the name between its backquotes, without them. One you leave out runs this cell again."

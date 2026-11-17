@@ -232,10 +232,15 @@ fn a_test_of_what_stands_reads_no_block_a_cell_after_its_cell_writes_and_another
         block: "needs_design".into(),
         cell: "check".into(),
     };
+    // The judge's choice a test of what stands reads is its verdict, and it holds no dialogue to write its points in.
+    let verdict = VerdictWithoutDialogue {
+        verdict: "needs_design".into(),
+    };
     assert_eq!(
         faults(&source),
         [
             at(FLOW_FILE, "tests.plan_confirmed.reads[1]", two),
+            at("judge.toml", "outputs[0]", verdict),
             at("answer.toml", "requires.test", after),
         ]
     );
@@ -266,7 +271,15 @@ fn a_test_of_what_stands_reads_only_blocks_one_cell_writes_and_people_or_the_out
         block: "ci".into(),
         cell: "check".into(),
     };
-    assert_eq!(faults(&source), [at(FLOW_FILE, "tests.may_merge.reads[0]", what)]);
+    // Written by the judge, an agent's cell that holds no dialogue, ci is a verdict with nowhere for its points.
+    let verdict = VerdictWithoutDialogue { verdict: "ci".into() };
+    assert_eq!(
+        faults(&source),
+        [
+            at(FLOW_FILE, "tests.may_merge.reads[0]", what),
+            at("judge.toml", "outputs[2]", verdict),
+        ]
+    );
 }
 
 #[test]

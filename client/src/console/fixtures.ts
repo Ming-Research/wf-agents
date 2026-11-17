@@ -53,25 +53,19 @@ function flowOf(
     id: c.id,
     title: c.title,
     kind: c.line === null ? 'engine' : 'agent',
-    line: c.line === undefined ? 'engineer' : c.line,
+    line: c.line === undefined ? 'builder' : c.line,
     task: c.task ?? null,
     taskFile: null,
     act: c.act ?? null,
     effort: c.line === null ? null : 'high',
     takesMain: false,
-    triggers: [],
     tools: [],
     when: c.condition ? [c.condition] : [],
     requires: (c.preconditions ?? []).map((test) => ({ on: 'test', test })),
-    inputs: c.inputs,
-    runsOn: c.inputs,
-    given: c.line === null ? [] : c.inputs,
-    input: Object.fromEntries(
-      c.inputs.map((b) => [
-        b,
-        { runs: { why: null }, given: c.line === null ? null : { kind: null, why: null } },
-      ]),
-    ),
+    watches: c.inputs.map((b) => ({ name: b, blocks: [b], do: null, list: 'watches' as const })),
+    reads: [],
+    given:
+      c.line === null ? [] : c.inputs.map((b) => ({ block: b, kind: 'lastAndLatest' as const, list: 'watches' as const })),
     outputs: c.outputs,
     mustWrite: c.mustWrite ?? [],
     limits: LIMITS,
@@ -95,7 +89,7 @@ function flowOf(
         outside: blocks[b].outside ?? null,
       },
       readBy: {
-        cells: all.filter((c) => c.inputs.includes(b)).map((c) => c.id),
+        cells: all.filter((c) => c.watches.some((w) => w.blocks.includes(b))).map((c) => c.id),
         conditions: all.filter((c) => c.when.some((k) => k.on === 'block' && k.block === b)).map((c) => c.id),
         tests: tests.filter((t) => t.reads.includes(b)).map((t) => t.name),
         shown: blocks[b].shown ?? false,
@@ -110,7 +104,18 @@ function flowOf(
     system: [],
     rules: [],
   }));
-  return { name, limits: LIMITS, lines, tests, tools: [], groups: [], cells: all, blocks: named };
+  return {
+    name,
+    limits: LIMITS,
+    lines,
+    tests,
+    tools: [],
+    groups: [],
+    card: [],
+    everyAgent: { watches: [], reads: [], kinds: {} },
+    cells: all,
+    blocks: named,
+  };
 }
 
 /// A named test that holds when each of these blocks, which the owner sets, says yes.
@@ -145,7 +150,7 @@ const ruling = (t: Test, block: string): Wait =>
 /// plan, the implementation once the owner confirmed the plan, the tests, the review of the code, a check with the
 /// latest main, and the merge.
 export const FLOW: Flow = flowOf(
-  'engineer',
+  'building',
   [
     {
       id: 'research',
@@ -153,7 +158,7 @@ export const FLOW: Flow = flowOf(
       task: 'Research what the item asks for, and write the plan.\nSay whether it needs deep research.',
       preconditions: [REQUEST_READ],
       inputs: ['request', 'plan_opinions'],
-      outputs: ['plan', 'needs_deep_research'],
+      outputs: ['outline', 'needs_deep_research'],
     },
     {
       id: 'deep_research',
@@ -161,16 +166,16 @@ export const FLOW: Flow = flowOf(
       line: 'deep_research',
       task: 'Research what the plan leaves open, and write the solution.',
       condition: { on: 'block', block: 'needs_deep_research', value: 'yes' },
-      inputs: ['plan', 'plan_review_on_deep_research'],
+      inputs: ['outline', 'plan_review_on_deep_research'],
       outputs: ['solution'],
     },
     {
       id: 'review_plan',
       title: 'Review the plan',
       task: 'Review the solution and the plan against what the item asks for.',
-      line: 'review',
+      line: 'judge',
       condition: { on: 'block', block: 'needs_deep_research', value: 'yes' },
-      inputs: ['plan', 'solution'],
+      inputs: ['outline', 'solution'],
       outputs: ['plan_review_on_deep_research'],
     },
     {
@@ -178,7 +183,7 @@ export const FLOW: Flow = flowOf(
       title: 'Implement',
       task: 'Implement the plan and the solution.',
       preconditions: [PLAN_CONFIRMED],
-      inputs: ['plan', 'solution', 'code_opinions'],
+      inputs: ['outline', 'solution', 'code_opinions'],
       outputs: ['code'],
     },
     {
@@ -189,10 +194,10 @@ export const FLOW: Flow = flowOf(
       outputs: ['tests'],
     },
     {
-      id: 'review',
+      id: 'review_code',
       title: 'Review the code',
       task: 'Review the code and its tests, and say whether you are content.',
-      line: 'review',
+      line: 'judge',
       inputs: ['code', 'tests'],
       outputs: ['code_opinions', 'content'],
     },
@@ -210,7 +215,7 @@ export const FLOW: Flow = flowOf(
   {
     request: { people: true, shown: true },
     plan_opinions: { people: true },
-    plan: { shown: true },
+    outline: { shown: true },
     needs_deep_research: { values: ['yes', 'no'] },
     solution: { shown: true },
     plan_review_on_deep_research: { people: true },
@@ -328,7 +333,7 @@ export function fixtureItems(start = Date.now()): Items {
     2: {
       title: 'See every work at one glance',
       dependsOn: [8, 9, 22],
-      work: work(round('review', 6), cellsAt('review', 'running'), { hours: 30, dollars: 7.31, rounds: 61 }),
+      work: work(round('review_code', 6), cellsAt('review_code', 'running'), { hours: 30, dollars: 7.31, rounds: 61 }),
     },
     3: {
       title: 'Keep what each run costs',
@@ -620,7 +625,7 @@ function pageOf(item: Item, summary: Summary, questions: Record<number, Question
   const cells: CellDetail[] = FLOW.cells.map((c) => ({
     cell: c.id,
     needs: [],
-    inputs: c.inputs.map((block) => ({ block, current: null, known: null, changed: false })),
+    inputs: c.watches.flatMap((w) => w.blocks).map((block) => ({ block, current: null, known: null, changed: false })),
   }));
   return {
     summary,
@@ -657,7 +662,7 @@ export function fixtureSource(start = Date.now()): Source {
         // The answer is kept; a question the work waited for at its cell holds it no more, and the cell runs.
         const q = (questions[s.item] ?? []).find((x) => x.name === what.question && x.version === what.version);
         if (q === undefined) throw new Error(`There is no question ${what.question} at ${what.version}`);
-        q.answer = { option: what.option, at: Date.now(), why: what.why ?? null };
+        q.answer = { option: what.option, at: Date.now(), why: null };
         s.waits = (s.waits ?? []).filter((w) => w.key !== `answer-${q.name}`);
         if (s.now.kind === 'waits' && s.now.on.some((w) => w.kind === 'answer' && w.question === q.name))
           s.now = { kind: 'next', cell: q.cell };

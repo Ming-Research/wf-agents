@@ -27,17 +27,31 @@ A version put into a round counts as held by the session only from a round befor
 Why: A version is put into a round as it begins, as one its return would have written over; counted held for that round itself, it would never be filled while the message names it, and the next return would write over it unseen.
 
 ### decision a-version-written-over-is-given-with-why
-Where a return was sent back for writing over a version it never saw, of a block the cell is not given, that version is given with why, in the words a datum given `latest` is given in; of a block the cell is given, the datum's own kind gives it.
-Why: With no tool to read the blocks, nothing else shows the agent what it is to write over.
+Where a return was sent back for writing over a version it never saw, that version is given once: by the context where the round's context gives it, as a block the cell watches or reads is given by its kind and one it only writes by its latest where the session lacks it (document data-and-context, 21); else with why, in the words a datum given `latest` is given in, as a version written while the round ran.
+Why: With no tool to read the blocks, nothing else shows the agent what it is to write over; given in both places, the session would hold it twice.
 
 ### decision a-version-is-held-by-what-it-is
 A version is held by what it is, never by its content, so a new version that says what an earlier one said is given; a latest version the session holds is given by `held`'s line, though the session lacks the version the cell last worked from.
 Why: Holding by content swallowed what was new: the owner saying the same twice, or a datum changed back, would not be given, while the cell was told of a version it never saw. Giving the latest whole where the version last worked from is lacking was turned down: the change since it is unseen either way, and the session holds every word.
 
 ### decision the-situations-written-stand-data-by-class
-`wf-agents flow situations` writes each situation an entry of a cell can reach with the data in two classes, each standing alike where it can, those of the triggers that ran the cell and the rest, and counts every combination of each datum's own state without writing it.
+`wf-agents flow situations` writes each situation an entry of a cell can reach with the data in two classes, each standing alike where it can, those new to the cell and the rest, and counts every combination of each datum's own state without writing it.
 Why: The builder words a datum from its kind and how the session stands with it alone, so the product of every datum's states repeats the same texts, and runs to millions for a cell given ten data (`T1`, about 35 billion); by class every state of every datum is written, in a few hundred files a cell.
 
 ### decision the-situations-follow-what-the-flow-can-reach
 The situations written are those the flow's definition lets a cell reach: a cell first on its line is entered first holding nothing, another after the cell of its line before it; what only the cell or cells after it write is unwritten on its first entry; what the work starts with, and what earlier cells write whichever way the conditions go, is never unwritten; a reopened session holds nothing; results and a return sent back come after a return that handed nothing in.
 Why: Situations the flow cannot reach gave the models that read them findings that were not faults. A cell that may write a block is taken to write it, since the flow says no more than what a cell must write; where that is too much, `must_write` on the cell says what it always writes.
+
+### decision a-version-is-told-by-the-line-that-wrote-it
+Each version a round is given says the line of the cell whose run wrote it, or that the owner wrote it, worked out
+where it is given from the writing run the records keep and the cell's line in the flow, and never stored. The owner's
+words to a cell are the owner's. A version of a cell's questions is told by its own record: an ask by the asking run's
+line, an answer as the owner's, the engine's own question by nobody; any other version the outside or an act of the
+engine wrote says nobody, one put into a round as main is taken in among them (decision
+a-version-read-at-a-rounds-end-is-that-rounds). The line is the
+cell's in the flow the engine reads now, the records keeping no line of a run: a run of a cell since moved to another
+line is told by the line it has now.
+Why: A stored label would be a second copy of what the records and the flow say (principle one-thing-one-place), and a
+line, not a cell, is what a round may know (principle a-cell-knows-only-its-data). Both sides of `plan_doubts` are on
+one line, so their versions share a label, which is enough: the session holds them, the content tells a doubt from an
+answer, and who owes the next word is read by newness.

@@ -144,8 +144,8 @@ pub struct Round {
 /// What came back at the end of a round.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Return {
-    /// The return was read: what of what ran the round it dealt with, in the order it named them, each trigger by the
-    /// block it stands on or, of a group's trigger, by the group's name ([`flow::stands_on`]); the blocks it writes,
+    /// The return was read: what of what ran the round it dealt with, in the order it named them, each datum by its
+    /// block or, of a group, by the group's name ([`flow::stands_on`]); the blocks it writes,
     /// and how many calls it asks for; what was found wrong with it as it was read, which only its reading could see;
     /// and whether a question it asks the owner waits for the answer.
     Came {
@@ -153,7 +153,7 @@ pub enum Return {
         writes: Vec<Write>,
         calls: usize,
         /// What was found wrong with the return as it was read against its cell, in the order found: what it named
-        /// that is none of its cell's, and what it wrote in a shape its cell does not take ([`Unmet::NotATrigger`],
+        /// that is none of its cell's, and what it wrote in a shape its cell does not take ([`Unmet::NotWatched`],
         /// [`Unmet::NotATool`], [`Unmet::UnchangedNotWritten`], and others of a block the reading could not hand in).
         found: Vec<Unmet>,
         /// A question the return asks the owner waits for the answer: the work stops at the cell, and the return is
@@ -204,9 +204,17 @@ pub struct Call {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Told {
     /// What ran the round: each block new to the cell as the run started, in the order the cell names them, then each
-    /// block put in to the round since that was not among them. Its return may name as dealt with each trigger of the
-    /// cell that stands on one of them ([`flow::ran`]).
+    /// block put in to the round since that was not among them. Its return may name as dealt with each datum or group
+    /// the cell watches that stands for one of them ([`flow::ran`]).
     pub ran_by: Vec<BlockId>,
+    /// Of what ran the round, each dialogue its cell holds as the maker in which a point of the other side was new as
+    /// the run began, while the dialogue was open: the maker owes the next word in it (design document
+    /// `data-and-context`, 41).
+    pub points: Vec<BlockId>,
+    /// Of what ran the round, each dialogue its cell judges in in which it was woken as the run began, by a version of
+    /// the dialogue new to it, an answer, or by a change of what it judges: the judge owes its verdict in it, a fail
+    /// with its points (design document `data-and-context`, 41).
+    pub woken_to_judge: Vec<BlockId>,
     /// Of each block the cell may write, the version the round was told of and the latest.
     pub outputs: BTreeMap<BlockId, Standing>,
     /// Whether the round's cell still waits for the results of calls its runs asked for, or for the answer to a question
@@ -236,7 +244,7 @@ pub struct Standing {
 pub struct Requires<'a> {
     /// The blocks the cell may write.
     pub outputs: &'a [BlockId],
-    /// The cell's triggers that stand on a group of blocks, by the group's name, with the group's blocks
+    /// The groups of blocks the cell watches, by the group's name, with the group's blocks
     /// ([`crate::Cell::groups`]).
     pub groups: &'a BTreeMap<BlockId, Vec<BlockId>>,
     /// The blocks among those that every return that asks for no call includes, but one with a question that waits
@@ -251,6 +259,12 @@ pub struct Requires<'a> {
     pub told: &'a Told,
     /// Of each block that runs the cell and that an act of the engine's after it writes, what runs that act again.
     pub answered_by: &'a BTreeMap<BlockId, Answer>,
+    /// Of each dialogue the cell holds as the maker, the blocks the other side watches that it writes
+    /// ([`crate::Cell::dialogues`]).
+    pub dialogues: &'a BTreeMap<BlockId, Vec<BlockId>>,
+    /// Of each verdict the cell hands in as a judge, the value that does not pass and its dialogue
+    /// ([`crate::Cell::verdicts`]).
+    pub verdicts: &'a BTreeMap<BlockId, crate::Verdict>,
 }
 
 /// What a run does next.
@@ -313,10 +327,10 @@ pub enum Unmet {
     NotHandedIn { block: BlockId },
     /// What came back could not be read as a return, for this reason, as whatever carried the round out says.
     Unreadable { why: String },
-    /// The return names the trigger that stands on the block, or on the group of this name, as dealt with, and it did
-    /// not run the round: neither the block nor any of the group's is among what ran it.
+    /// The return names the block, or the group of this name, as dealt with, and it did not run the round: neither the
+    /// block nor any of the group's is among what ran it.
     NotRunBy { block: BlockId },
-    /// The return names the trigger that stands on the block, or on the group of this name, as dealt with twice.
+    /// The return names the block, or the group of this name, as dealt with twice.
     DealtWithTwice { block: BlockId },
     /// Something ran the round, and the return deals with none of it, asks for no call and has no question that waits
     /// for the owner's answer: the cell would be entered again at once for the same.
@@ -332,8 +346,22 @@ pub enum Unmet {
     /// both kinds whatever each holds: a return that asks for calls asks for nothing else, and deals with nothing
     /// (design document `data-and-context`, 30).
     AsksAndWorks,
-    /// The return names as dealt with a name that is none of its cell's triggers, as it wrote it.
-    NotATrigger { name: String },
+    /// The round was run by a point of the other side in a dialogue the cell holds as the maker, and the return names
+    /// the dialogue as dealt with and writes no version of it, none of `watched`, what the other side watches, and no
+    /// question the work waits for: the next word stays owed (design document `data-and-context`, 41, 42).
+    WordOwed { name: BlockId, watched: Vec<BlockId> },
+    /// The return hands in the verdict, `block`, with the value that does not pass, `value`, and no version of its
+    /// dialogue, `name`: a judge's fail brings the points that still stand (design document `data-and-context`, 41,
+    /// 42).
+    NoPoint {
+        block: BlockId,
+        value: String,
+        name: BlockId,
+    },
+    /// The return names as dealt with a name that is none of what its cell watches, as it wrote it. Kept under its
+    /// earlier name too, in the reasons of rounds sent back before.
+    #[serde(alias = "NotATrigger")]
+    NotWatched { name: String },
     /// The return asks for a tool its cell may not ask for, as it wrote it.
     NotATool { name: String },
     /// The return names the block as written with its meaning unchanged, and does not write it.
@@ -350,8 +378,9 @@ pub enum Unmet {
     /// read before a cell could ask only where it writes the work's questions were sent back so; a question of a cell
     /// that does not write them is now a block that is not among its outputs.
     NotAnswerable { name: String },
-    /// The return names as dealt with the owner's words, by this trigger, and writes no answer in the record of what is
-    /// said that the trigger has its agent read (design document `data-and-context`, 38).
+    /// The return names as dealt with its cell's own words, of this name, and writes no answer in them (design document
+    /// `data-and-context`, 35). Returns read before a cell's words were its own named so what ran them on the owner's
+    /// words, whose record they wrote no answer in.
     NotAnswered { name: String },
     /// The work's branch, as the round left it, changes the file of this path, which the project protects, and neither
     /// the return nor the engine's question that stands of the file as it is says why: as the engine found it, looking
@@ -392,8 +421,8 @@ pub enum Hold {
     Rounds,
 }
 
-/// The blocks a return that is taken deals with: of each trigger it names, in its order, the blocks it stands on that
-/// ran the round, each once. A group's trigger is dealt with for each of its blocks that ran the round, and so each of
+/// The blocks a return that is taken deals with: of each datum or group it names, in its order, the blocks it stands
+/// for that ran the round, each once. A group is dealt with for each of its blocks that ran the round, and so each of
 /// their versions the round was told of is consumed.
 fn consumed(dealt_with: &[BlockId], requires: Requires) -> Vec<BlockId> {
     let mut blocks: Vec<BlockId> = Vec::new();
@@ -652,6 +681,48 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     // A question that waits stops the work at the cell, which may leave all that ran it for after the answer.
     if calls == 0 && dealt_with.is_empty() && !told.ran_by.is_empty() && !waits {
         unmet.push(Unmet::DealtWithNothing);
+    }
+    // The one woken in a dialogue owes the next word (design document `data-and-context`, 41, 42): a maker woken by a
+    // point of the other side, an answer in the dialogue, a change of what the other side watches, the work's head
+    // among it as the round committed it, or a question the work waits for; a judge woken by an answer or a change of
+    // what it judges, a fail with its points. One woken by anything else owes nothing in the dialogue, but a judge's
+    // fail that is new brings its points: one handed in as it stands changes nothing and is taken (22). A version that changes nothing in
+    // meaning, as the walk reads it, is new to no cell (9): it answers nothing, changes nothing the other side watches
+    // and brings no point. The round saw what it writes over where it was told of the latest; one that did not is sent
+    // back for it, whatever it says.
+    if calls == 0 && !told.waits {
+        let changes = |w: &Write| {
+            let standing = told.outputs.get(&w.block).filter(|s| s.latest.is_some());
+            let over = standing.map(|s| s.value.as_deref());
+            let saw = standing.is_none_or(|s| s.added || s.told == s.latest);
+            crate::walk::gives_meaning(w.value.as_deref(), over, !w.meaning_unchanged, saw)
+        };
+        let said = || (writes.iter()).filter(|w| changes(w)).map(|w| &w.block);
+        for (dialogue, watched) in requires.dialogues {
+            let woken = told.points.contains(dialogue) && dealt_with.contains(dialogue);
+            let answered = (said().chain(read)).any(|b| b == dialogue || watched.contains(b));
+            if woken && !answered && !waits {
+                unmet.push(Unmet::WordOwed {
+                    name: dialogue.clone(),
+                    watched: watched.clone(),
+                });
+            }
+        }
+        for write in writes {
+            let Some(verdict) = requires.verdicts.get(&write.block) else {
+                continue;
+            };
+            let fails = write.value.as_deref() == Some(verdict.fails.as_str());
+            // A fail that is new is a judgment the maker must be able to answer, whatever woke the judge.
+            let owes = told.woken_to_judge.contains(&verdict.dialogue) || changes(write);
+            if owes && fails && !said().any(|b| *b == verdict.dialogue) {
+                unmet.push(Unmet::NoPoint {
+                    block: write.block.clone(),
+                    value: verdict.fails.clone(),
+                    name: verdict.dialogue.clone(),
+                });
+            }
+        }
     }
     // A block written in a shape it does not take was handed in, and is said to be wrong only for its shape.
     let misshapen = |block: &BlockId| {

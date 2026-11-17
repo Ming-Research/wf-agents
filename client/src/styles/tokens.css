@@ -54,7 +54,6 @@
   --chart-mark-half: 8px;
   --chart-line: 1px;
   --chart-back: 2px;
-  --chart-lane: 3px;
   --chart-arrow: 4px;
   --chart-arrow-length: 6px;
   /* How far a block's row stays under the frame's top when it is brought into view: the cells' heads are over it. */
@@ -79,10 +78,10 @@
   --text: #1f2937;
   --muted: #6b7280;
   --line: #e3e6ea;
-  /* The accent: what is chosen, a link and the focus, and what runs. The default is a blue. A colour the owner picks
-     in the Settings view gives each tone of the accent here an `--own-` one, worked out from it (accent.ts),
-     `--own-<tone>` in light and `--own-<tone>-dark` in dark, each `#rrggbb`, set on the root; a tone takes its own
-     where one is set, and else the default. Its tint fills a row or a column chosen. */
+  /* The accent: what is chosen, a link and the focus, what runs, and a way back. The default is a blue. A colour the
+     owner picks in the Settings view gives each tone of the accent here an `--own-` one, worked out from it
+     (accent.ts), `--own-<tone>` in light and `--own-<tone>-dark` in dark, each `#rrggbb`, set on the root; a tone
+     takes its own where one is set, and else the default. Its tint fills a row or a column chosen. */
   --accent: var(--own-accent, #3673f5);
   --accent-text: var(--own-accent-text, #3163d9);
   --accent-tint: var(--own-accent-tint, #e9efff);
@@ -99,10 +98,10 @@
 
   /* The meanings, and only these: done; a change of a block's meaning; running, in the accent; a problem, red: a stop,
      for the owner or because something failed, or a work not done within an hour; a call under way. A way back has no
-     colour of its own: it is drawn in the muted colour and told by its shape. A mark or a tag takes the colour itself;
-     small text takes its text step, a darker step where the colour does not read on white; a fill takes its tint. Only
-     running follows a colour the owner picks: the others keep theirs, and a colour too near one the accent keeps clear
-     of (accent.ts) is not taken. */
+     colour of its own: it is drawn in the accent and told by its shape. A mark or a tag takes the colour itself; small
+     text takes its text step, a darker step where the colour does not read on white; a fill takes its tint. Only
+     running and a way back follow a colour the owner picks: the others keep theirs, and a colour too near one the
+     accent keeps clear of (accent.ts) is not taken. */
   --green: #2f9e6e;
   --orange: #f5840c;
   --running: var(--accent);

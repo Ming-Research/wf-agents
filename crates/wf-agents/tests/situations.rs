@@ -51,8 +51,8 @@ fn each_situation_of_a_cell_is_written_with_its_system_prompt_its_message_and_th
     let written = fs::read_dir(&dir).expect("the cell's directory is read").count();
     let said = String::from_utf8_lossy(&ran.stdout);
     assert!(said.starts_with(&format!("R2: {written} situations, in ")), "{said}");
-    let text = file(&dir, "later-on_plan-ran_holds_last-rest_lacks");
-    assert!(text.starts_with("situation = \"later-on_plan-ran_holds_last-rest_lacks\"\n"));
+    let text = file(&dir, "later-plan-ran_holds_last-rest_lacks");
+    assert!(text.starts_with("situation = \"later-plan-ran_holds_last-rest_lacks\"\n"));
     for part in ["system prompt", "message", "return form"] {
         assert!(text.contains(&format!("\n===== {part} =====\n\n")), "{part}");
     }
@@ -66,12 +66,9 @@ fn a_datum_given_latest_the_session_lacks_is_sent_whole_and_one_it_holds_new_its
     let out = tempfile::tempdir().expect("a directory");
     assert!(situations(out.path(), "R2").status.success());
     let dir = out.path().join("R2");
-    let lacks = datum(&file(&dir, "later-on_plan-ran_holds_last-rest_lacks"), "background");
-    let holds_latest = datum(
-        &file(&dir, "later-on_plan-ran_holds_last-rest_holds_latest"),
-        "background",
-    );
-    let holds = datum(&file(&dir, "later-on_plan-ran_holds_last-rest_holds"), "background");
+    let lacks = datum(&file(&dir, "later-plan-ran_holds_last-rest_lacks"), "background");
+    let holds_latest = datum(&file(&dir, "later-plan-ran_holds_last-rest_holds_latest"), "background");
+    let holds = datum(&file(&dir, "later-plan-ran_holds_last-rest_holds"), "background");
     assert!(lacks.ends_with("{content}"), "{lacks}");
     assert!(
         !holds_latest.is_empty() && !holds_latest.contains("{content}"),
@@ -100,7 +97,7 @@ fn every_setting_a_message_names_is_given_beside_its_name() {
 }
 
 #[test]
-fn a_trigger_on_a_session_begun_anew_runs_a_first_or_reopened_entry_never_a_later_one() {
+fn a_session_begun_anew_runs_a_first_or_reopened_entry_never_a_later_one() {
     let out = tempfile::tempdir().expect("a directory");
     assert!(situations(out.path(), "R0").status.success());
     let names: Vec<String> = (fs::read_dir(out.path().join("R0")).expect("the cell's directory is read"))
@@ -108,15 +105,15 @@ fn a_trigger_on_a_session_begun_anew_runs_a_first_or_reopened_entry_never_a_late
         .collect();
     let with = |entry: &str| {
         let of = |n: &&String| n.contains(&format!("-{entry}-"));
-        names.iter().filter(of).any(|n| n.contains("on_session"))
+        names.iter().filter(of).any(|n| n.contains("engineer_session"))
     };
     assert!(with("first") && with("reopened") && !with("later"), "{names:?}");
     // The work starts with the background, which runs the cell's first entry with the session begun.
     assert!(
-        names.iter().any(|n| n.contains("-first-on_background+on_session-")),
+        names.iter().any(|n| n.contains("-first-background+engineer_session-")),
         "{names:?}"
     );
-    // Reopened, the background the cell worked from, which is not new, is sent whole.
-    let reopened = file(&out.path().join("R0"), "reopened-on_session-rest_lacks");
+    // Reopened, the background the cell worked from, which is not new, is sent whole, with what began the session.
+    let reopened = file(&out.path().join("R0"), "reopened-engineer_session-ran_lacks-rest_lacks");
     assert!(datum(&reopened, "background").ends_with("{content}"), "{reopened}");
 }

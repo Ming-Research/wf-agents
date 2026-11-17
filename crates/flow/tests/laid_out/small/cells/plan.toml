@@ -4,8 +4,7 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Write the plan from the request."
-triggered_by = ["on_request", "on_opinions"]
-context = ["request", "opinions"]
+watches = ["request", "opinions"]
 outputs = ["plan"]
 
 [kinds]

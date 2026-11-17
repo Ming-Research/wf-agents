@@ -145,7 +145,7 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     };
     // The plan ran again in the new session, and the work is held at the build for the owner still.
     assert!(waits(&real), "{:?}", real.decision(work));
-    real.answer(work, "By their first name.");
+    real.answer(work);
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
     let builds: Vec<&Call> = (calls.iter()).filter(|c| c.of("Build")).collect();
@@ -164,7 +164,7 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     for part in [
         "## Your task\n\nBuild",
         "## What this cell returns",
-        "By their first name.",
+        "answered: option 1, the first name",
     ] {
         assert!(second.stdin.contains(part), "{part} is missing from:\n{}", second.stdin);
     }

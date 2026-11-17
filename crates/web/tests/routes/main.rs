@@ -82,8 +82,12 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Write the plan from the request."
-inputs = ["request", "opinions"]
+watches = ["request", "opinions"]
 outputs = ["plan"]
+
+[kinds]
+request = "last_and_latest"
+opinions = "last_and_latest"
 "#;
 
 pub const REVIEW: &str = r#"
@@ -95,9 +99,12 @@ task = """
 Review the plan.
 Say whether it is content."""
 limit = 5
-inputs = ["plan"]
+watches = ["plan"]
 outputs = ["opinions", "content"]
 must_write = ["content"]
+
+[kinds]
+plan = "last_and_latest"
 "#;
 
 pub const MERGE: &str = r#"
@@ -105,7 +112,7 @@ title = "Merge"
 kind = "engine"
 act = "merge"
 requires = { test = "may_merge" }
-inputs = ["content"]
+watches = ["content"]
 "#;
 
 /// The small flow's files.
@@ -201,10 +208,14 @@ pub fn trial_dir() -> PathBuf {
 }
 
 /// What the trial flow is compiled against: the driver's source outside a work, the engine's as the owner answers,
-/// and the act `merge`.
+/// the source of the project's guide, and the act `merge`.
 pub(crate) fn trial_has(_: &Source) -> flow::Has {
     flow::Has {
-        sources: BTreeSet::from([driver::DEPENDENCIES.to_string(), flow::ANSWER.to_string()]),
+        sources: BTreeSet::from([
+            driver::DEPENDENCIES.to_string(),
+            flow::ANSWER.to_string(),
+            "guide".to_string(),
+        ]),
         acts: BTreeSet::from(["merge".to_string()]),
         ..Default::default()
     }

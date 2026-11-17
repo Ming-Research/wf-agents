@@ -4,5 +4,8 @@ effort = "high"
 line = "engineer"
 task = "Design what the plan asks for."
 when = { needs_design = "yes" }
-inputs = ["plan"]
+watches = ["plan"]
 outputs = ["design"]
+
+[kinds]
+plan = "last_and_latest"

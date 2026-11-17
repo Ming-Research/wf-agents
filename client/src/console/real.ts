@@ -3,16 +3,14 @@
 // otherwise what the engine gives, with nothing where it gives nothing.
 //
 // From the engine, with the mocks off:
-// - The body, from the work's blocks, the current version of each: Background is `background`; Plan is `plan_owner`;
-//   there is no Problem. For an item of the `deliver` flow, Plan is `delivered`. The questions put to the owner are
-//   not read from the record of the questions and the answers: the panel draws each from the work's page, once, at the
-//   plan's end.
-// - The messages: of the record of what is said (a block the engine's source of the owner's words writes that a
-//   trigger of the owner's words has its agent read, which the cells write in their returns), each of the owner's entries is the owner's, to the cell the
-//   version is said to, and each a cell wrote is its reply, to the owner, its cell the run's that wrote it; each with
-//   the words alone, read back out of the entry by the record's `owner` or `reply` text; of a flow before that record,
-//   each version of a block people write as a note to one cell (one people write, with no fixed values, that one cell
-//   reads) is the owner's, to that cell. In the order of their times.
+// - The body, from the work's blocks: a section for each datum the flow's card names, in its order and by its name,
+//   with its current version. The questions put to the owner are not read from each cell's questions: the panel draws
+//   each from the work's page, once, at the end of the last section.
+// - The messages: of each cell's own words (a block among its outputs the engine's source of the owner's words
+//   writes), each version the engine wrote is the owner's, to that cell, and each the cell's run wrote is its answer,
+//   to the owner; each with the words alone, read back out of the version by the block's `owner` or `reply` text; of a
+//   flow before cells had words of their own, each version of a block people write as a note to one cell (one people
+//   write, with no fixed values, that one cell reads) is the owner's, to that cell. In the order of their times.
 // - A question a cell asked the owner: its sentence alone, answered in words, since the engine gives no options.
 // - A ruling: for each block the engine's list of what waits on the owner says the owner may write, its latest version's
 //   content (`readRulings`).
@@ -44,7 +42,7 @@ export function askedChoice(question: string, call: number, cell: string): Choic
 export const workTierOf = (): string | null => (mocksShown() ? workTierMock() : null);
 
 /// A body with nothing in it.
-const EMPTY: Body = { background: [], problem: [], plan: [], planWaits: false, messages: [] };
+const EMPTY: Body = { sections: [], choicesWait: false, messages: [] };
 
 /// The body the window shows before the work is read: the made-up one with the mocks, an empty one without, which
 /// `readBody` fills.
@@ -69,28 +67,17 @@ function contentOf(load: LoadVersion, work: number, block: string, at: number): 
 const versionsOf = (page: WorkPage, block: string): Version[] =>
   (page.blocks.find((b) => b.name === block)?.versions ?? []).filter((v) => v.chars > 0).sort((a, b) => a.at - b.at);
 
-/// The source outside the work that writes the record of what is said and each cell's block of the owner's words.
+/// The source outside the work that writes each cell's own words, its dialogue with the owner.
 const WORDS = 'words';
 
-/// The source outside the work that writes the record of the questions and the answers and each cell's block of an
-/// answer.
-const ANSWER = 'answer';
+/// The block among the outputs of the cell of this id that this source of the engine's writes, as the engine finds it.
+const ownOf = (flow: Flow, cell: string, source: string): Block | undefined => {
+  const outputs = flow.cells.find((c) => c.id === cell)?.outputs ?? [];
+  return flow.blocks.find((b) => outputs.includes(b.name) && b.writtenBy.outside === source);
+};
 
-/// The record a source of the engine's adds entries to: a block of the source that a trigger of the same source has
-/// its agent read, other than the block the trigger stands on, as the engine finds it.
-export function recordOf(flow: Flow, source: string): Block | undefined {
-  const of = (name: string) => flow.blocks.find((b) => b.name === name)?.writtenBy.outside ?? null;
-  const read = flow.cells.flatMap((c) =>
-    c.triggers.flatMap((t) => {
-      const own = [t.block, ...t.group];
-      return own.some((b) => of(b) === source) ? t.read.filter((b) => !own.includes(b) && of(b) === source) : [];
-    }),
-  );
-  return flow.blocks.find((b) => read.includes(b.name));
-}
-
-/// The record of the work's questions and the owner's answers, which a cell that may ask the owner writes.
-export const questionsOf = (flow: Flow): Block | undefined => recordOf(flow, ANSWER);
+/// The cell's own words, where it has them: the owner speaks to it in them, and it answers there.
+export const wordsOf = (flow: Flow, cell: string): Block | undefined => ownOf(flow, cell, WORDS);
 
 /// What fills each place of an entry of the record, by the place's name, as the engine wrote the entry from one of the
 /// record's texts, `owner` or `reply`: the words between the text's own, the last place taking the rest; none where the
@@ -130,23 +117,25 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
     const text = await contentOf(load, work, block, last.at);
     return text.trim() === '' ? [] : [{ kind: 'text', text }];
   };
-  const deliver = page.summary.flow === 'deliver' || page.flow.name === 'deliver';
-  const [background, plan] = await Promise.all([current('background'), current(deliver ? 'delivered' : 'plan_owner')]);
-  // The owner's notes of a flow before the record, each to the one cell that reads it.
+  // A section for each datum the flow's card names, in its order and by its name.
+  const sections = await Promise.all(page.flow.card.map(async (title) => ({ title, parts: await current(title) })));
+  // The owner's notes of a flow before cells had words of their own, each to the one cell that reads it.
   const notes = page.flow.blocks.filter((b) => b.writtenBy.people && b.values === null && b.readBy.cells.length === 1);
-  // The record of what is said.
-  const record = recordOf(page.flow, WORDS);
-  const text = (name: string) => record?.writes?.find(([n]) => n === name)?.[1];
-  const entries = record === undefined ? [] : versionsOf(page, record.name).map((v) => ({ v, block: record.name }));
+  // Each cell's own words: the owner's versions, to the cell, and the cell's answers, to the owner.
+  const words = page.flow.cells.flatMap((c) => {
+    const block = wordsOf(page.flow, c.id);
+    return block === undefined ? [] : versionsOf(page, block.name).map((v) => ({ v, block, cell: c.id }));
+  });
   const said = await Promise.all([
-    ...entries.map(async ({ v, block }): Promise<Message & { place: number }> => {
-      const entry = await contentOf(load, work, block, v.at);
+    ...words.map(async ({ v, block, cell }): Promise<Message & { place: number }> => {
+      const entry = await contentOf(load, work, block.name, v.at);
+      const text = (name: string) => block.writes?.find(([n]) => n === name)?.[1];
       if (v.by.kind === 'run') {
-        const words = placesOf(entry, text('reply'))?.get('reply') ?? entry;
-        return { who: v.by.cell, at: v.time, to: ['owner'], quote: null, text: words, place: v.at };
+        const answer = placesOf(entry, text('reply'))?.get('reply') ?? entry;
+        return { who: cell, at: v.time, to: ['owner'], quote: null, text: answer, place: v.at };
       }
-      const { quote, text: words } = quoted(placesOf(entry, text('owner'))?.get('words') ?? entry);
-      return { who: 'owner', at: v.time, to: v.saidTo === null ? [] : [v.saidTo], quote, text: words, place: v.at };
+      const { quote, text: said } = quoted(placesOf(entry, text('owner'))?.get('words') ?? entry);
+      return { who: 'owner', at: v.time, to: [cell], quote, text: said, place: v.at };
     }),
     ...notes.flatMap((b) =>
       versionsOf(page, b.name).map(async (v): Promise<Message & { place: number }> => {
@@ -170,7 +159,7 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
     .filter((m) => m.text.trim() !== '' && answers(m))
     .sort((a, b) => a.at - b.at || a.place - b.place)
     .map(({ who, at, to, quote, text }) => ({ who, at, to, quote, text }));
-  return { background, problem: [], plan, planWaits: false, messages };
+  return { sections, choicesWait: false, messages };
 }
 
 /// A block the owner may write that keeps a precondition the work waits for from holding, as the engine's list of what

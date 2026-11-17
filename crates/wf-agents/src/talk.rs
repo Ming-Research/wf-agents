@@ -511,7 +511,7 @@ fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
             let cell = said.map_or("the cell the engine chose", |s| s.reached.as_str());
             match to {
                 SpokenTo::Line { line } => format!("Said to {cell} of work {work}, where the line {line} stands."),
-                SpokenTo::Question { name } => format!("Said to {cell} of work {work}, about the question {name}."),
+                SpokenTo::Cell { .. } => format!("Said to {cell} of work {work}."),
             }
         }
     }
@@ -1222,8 +1222,9 @@ fn tags_said(tags: &Tags) -> String {
     lines.join("\n")
 }
 
-/// The blocks whose text is to be read, with the version of each: the one named, or every block whose latest version a
-/// person wrote, which is the item's own text.
+/// The blocks whose text is to be read, with the version of each: the one named, or every block people write, as the
+/// flow declares them, whose latest version the owner wrote, which is the item's own text. The owner's words to a cell
+/// and answers are the owner's too, and no text of the item's.
 fn texts_of(page: &WorkPage, block: Option<&str>) -> Result<Vec<(String, u64)>, String> {
     let latest = |b: &web::works::Block| b.versions.last().map(|v| (b.name.clone(), v.at));
     match block {
@@ -1238,10 +1239,13 @@ fn texts_of(page: &WorkPage, block: Option<&str>) -> Result<Vec<(String, u64)>, 
                 )
             })
         }
-        None => Ok((page.blocks.iter())
-            .filter(|b| b.versions.last().is_some_and(|v| v.by == Writer::Person))
-            .filter_map(latest)
-            .collect()),
+        None => {
+            let people = |name: &str| (page.flow.blocks.iter()).any(|b| b.name == name && b.written_by.people);
+            Ok((page.blocks.iter())
+                .filter(|b| people(&b.name) && b.versions.last().is_some_and(|v| v.by == Writer::Owner))
+                .filter_map(latest)
+                .collect())
+        }
     }
 }
 
@@ -1731,7 +1735,7 @@ fn person(person: Person) -> &'static str {
 
 fn writer(writer: &Writer) -> String {
     match writer {
-        Writer::Person => "a person".to_string(),
+        Writer::Owner => "the owner".to_string(),
         Writer::Outside => "the outside".to_string(),
         Writer::Run { run, cell } => format!("{cell} in run {run}"),
     }
@@ -1985,6 +1989,7 @@ mod tests {
                 number,
                 item: number,
                 flow: "trial".to_string(),
+                delivers: false,
                 added: 0,
                 paused: None,
                 now: if merged {
@@ -2275,6 +2280,8 @@ mod tests {
                 tests: Vec::new(),
                 tools: Vec::new(),
                 groups: Vec::new(),
+                card: Vec::new(),
+                every_agent: web::view::EveryAgent::default(),
                 cells: Vec::new(),
                 blocks: Vec::new(),
             },
@@ -2388,6 +2395,62 @@ mod tests {
         assert_eq!(said, lines.join("\n"));
         assert!(show(&page).contains("; changed since:\n"));
         assert!(show(&work(0, 0, 0, 0, 0)).contains(", and has not changed.\nCells:\n"));
+    }
+
+    // The item's own text is what the owner wrote in a block people write, as the flow declares them: never the owner's
+    // words to a cell or an answer, which the owner wrote as well, nor what a cell or the outside wrote.
+    #[test]
+    fn the_item_s_own_text_is_what_the_owner_wrote_in_the_blocks_people_write() {
+        use web::view::{Block as Declared, ReadBy, WrittenBy};
+        use web::works::{Block, Version};
+
+        let declared = |name: &str, people: bool, outside: Option<&str>| Declared {
+            name: name.to_string(),
+            values: None,
+            default: None,
+            what: None,
+            writes: Vec::new(),
+            written_by: WrittenBy {
+                cells: Vec::new(),
+                people,
+                note: false,
+                outside: outside.map(str::to_string),
+                changed_by: None,
+            },
+            read_by: ReadBy {
+                cells: Vec::new(),
+                conditions: Vec::new(),
+                tests: Vec::new(),
+                shown: false,
+            },
+        };
+        let written = |name: &str, at: u64, by: Writer| Block {
+            name: name.to_string(),
+            versions: vec![Version {
+                at,
+                time: at,
+                by,
+                meaning: Some(at),
+                value: None,
+                said_to: None,
+                chars: 5,
+                empty: false,
+            }],
+        };
+        let mut page = work(0, 0, 0, 0, 0);
+        page.flow.blocks = vec![
+            declared("request", true, None),
+            declared("plan_words", false, Some("words")),
+            declared("plan_questions", false, Some("answer")),
+            declared("main", false, Some("main")),
+        ];
+        page.blocks = vec![
+            written("request", 1, Writer::Owner),
+            written("plan_words", 2, Writer::Owner),
+            written("plan_questions", 3, Writer::Owner),
+            written("main", 4, Writer::Outside),
+        ];
+        assert_eq!(texts_of(&page, None), Ok(vec![("request".to_string(), 1)]));
     }
 
     #[test]

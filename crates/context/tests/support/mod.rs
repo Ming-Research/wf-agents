@@ -12,7 +12,7 @@
 
 #![allow(dead_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use context::{Changes, Entered, For, Main};
@@ -68,24 +68,16 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Write the plan for the request."
-runs_on = ["request", "opinions"]
-given = ["request", "notes", "opinions", "plan", "tree"]
+watches = ["request", "opinions"]
+reads = ["notes", "plan", "tree"]
 outputs = ["plan"]
 
-[give.tree]
-kind = "last_and_latest"
-
-[give.request]
-kind = "latest"
-
-[give.notes]
-kind = "all"
-
-[give.opinions]
-kind = "last_and_latest"
-
-[give.plan]
-kind = "latest"
+[kinds]
+tree = "last_and_latest"
+request = "latest"
+notes = "all"
+opinions = "last_and_latest"
+plan = "latest"
 "#,
     ),
     (
@@ -97,21 +89,15 @@ effort = "high"
 line = "engineer"
 task = "Build what the plan says."
 takes_main = true
-runs_on = ["plan"]
-given = ["plan", "request", "code", "tree"]
+watches = ["plan"]
+reads = ["request", "code", "tree"]
 outputs = ["code"]
 
-[give.tree]
-kind = "last_and_latest"
-
-[give.plan]
-kind = "last_and_latest"
-
-[give.request]
-kind = "latest"
-
-[give.code]
-kind = "latest"
+[kinds]
+tree = "last_and_latest"
+plan = "last_and_latest"
+request = "latest"
+code = "latest"
 "#,
     ),
     (
@@ -122,19 +108,15 @@ kind = "agent"
 effort = "high"
 line = "reviewer"
 task = "Review the code."
-runs_on = ["code"]
-given = ["code", "plan", "notes"]
+watches = ["code"]
+reads = ["plan", "notes"]
 outputs = ["opinions", "verdict"]
 must_write = ["verdict"]
 
-[give.code]
-kind = "last_and_latest"
-
-[give.plan]
-kind = "latest"
-
-[give.notes]
-kind = "all"
+[kinds]
+code = "last_and_latest"
+plan = "latest"
+notes = "all"
 "#,
     ),
     (
@@ -145,15 +127,13 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Close the work."
-runs_on = ["finish"]
-given = ["finish", "verdict"]
+watches = ["finish"]
+reads = ["verdict"]
 outputs = []
 
-[give.finish]
-kind = "latest"
-
-[give.verdict]
-kind = "latest"
+[kinds]
+finish = "latest"
+verdict = "latest"
 "#,
     ),
 ];
@@ -174,6 +154,99 @@ pub fn flow() -> Compiled {
 pub fn words() -> Agents {
     let beside = Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out");
     flow::agents::read(&beside).expect("the words beside the flows of the tests are read")
+}
+
+/// The source outside the work that writes the project's guide as the work's branch has it.
+pub const GUIDE: &str = "guide";
+
+/// The small flow with the project's guide, written from outside, which the plan watches first, given what changed in
+/// it since the version the plan last worked from.
+pub fn guided() -> Compiled {
+    let flow = format!("{FLOW}\n[blocks.guide]\noutside = \"{GUIDE}\"\n");
+    let cells = (CELLS.iter()).map(|(id, text)| {
+        let text = match *id {
+            "plan" => {
+                text.replace(
+                    "watches = [\"request\", \"opinions\"]",
+                    "watches = [\"guide\", \"request\", \"opinions\"]",
+                )
+                .replace("[kinds]\n", "[kinds]\nguide = \"last_and_latest\"\n")
+                    + "\n[do]\nguide = \"Work under it.\"\n"
+            }
+            _ => text.to_string(),
+        };
+        (id.to_string(), text)
+    });
+    let source = Source {
+        flow,
+        cells: cells.collect::<BTreeMap<_, _>>(),
+        ..Default::default()
+    };
+    let has = Has {
+        sources: [GUIDE.to_string()].into(),
+        ..Has::default()
+    };
+    flow::compile(&source, &has).expect("the small flow with the guide compiles")
+}
+
+/// The source outside the work that writes what the branch holds for the plan.
+pub const BRANCH: &str = "branch";
+
+/// The small flow with `branch`, written from outside, which the plan reads, given its latest.
+pub fn branched() -> Compiled {
+    let flow = format!("{FLOW}\n[blocks.branch]\noutside = \"{BRANCH}\"\n");
+    let cells = (CELLS.iter()).map(|(id, text)| {
+        let text = match *id {
+            "plan" => text
+                .replace(
+                    "reads = [\"notes\", \"plan\", \"tree\"]",
+                    "reads = [\"notes\", \"plan\", \"tree\", \"branch\"]",
+                )
+                .replace("[kinds]\n", "[kinds]\nbranch = \"latest\"\n"),
+            _ => text.to_string(),
+        };
+        (id.to_string(), text)
+    });
+    let source = Source {
+        flow,
+        cells: cells.collect::<BTreeMap<_, _>>(),
+        ..Default::default()
+    };
+    let has = Has {
+        sources: [BRANCH.to_string()].into(),
+        ..Has::default()
+    };
+    flow::compile(&source, &has).expect("the small flow with what the branch holds compiles")
+}
+
+/// The words beside the flows of the flow crate's tests, with the system prompt beginning with the version of the
+/// datum `guide` a session begins with, in place of the file of the project: made in a directory of the test's own.
+pub fn guided_words() -> Agents {
+    fn copy(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).expect("the directory is made");
+        for entry in std::fs::read_dir(from).expect("the directory is read") {
+            let path = entry.expect("an entry").path();
+            let target = to.join(path.file_name().expect("a name"));
+            if path.is_dir() {
+                copy(&path, &target);
+            } else {
+                std::fs::copy(&path, &target).expect("the file is copied");
+            }
+        }
+    }
+    let beside = Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out");
+    // The words are read whole into what is given, so the directory is not needed after.
+    let dir = std::env::temp_dir().join(format!("context-guided-words-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    copy(&beside, &dir);
+    let session = dir.join("agents/session.toml");
+    let text = std::fs::read_to_string(&session).expect("session.toml is read");
+    assert!(text.contains("{ project = \"guide\" }"), "{text}");
+    let text = text.replace("{ project = \"guide\" }", "{ datum = \"guide\" }");
+    std::fs::write(&session, text).expect("session.toml is written");
+    let read = flow::agents::read(&dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    read.expect("the words with the guide as a datum are read")
 }
 
 /// Which work and item the tests' rounds are of.
@@ -319,6 +392,7 @@ impl Sim {
         let carried = context::Carried {
             about: FOR,
             main: main.as_ref(),
+            compared: &compared(),
             changes,
             named: &self.named,
             results: &BTreeMap::new(),
@@ -484,6 +558,11 @@ impl Sim {
             .get(&(BlockId::from(block), at))
             .map_or("", String::as_str)
     }
+}
+
+/// The blocks whose versions the carrier compares itself: the tree.
+pub fn compared() -> BTreeSet<BlockId> {
+    BTreeSet::from([BlockId::from("tree")])
 }
 
 /// What the carrier says changed in the tree from one version to another.

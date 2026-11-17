@@ -22,10 +22,11 @@
 
 use std::collections::BTreeMap;
 
+use context::Author;
 use decide::run::{Failure as FailureOf, Limit as LimitOf, Unmet as UnmetOf};
 use decide::{
     BlockId, CallId, Cause as CauseOf, CellId, Condition as Applies, Decision, End, Holder, Maker as MakerOf,
-    Pauser as PauserOf, Records, RunId, Seq, Unrun as UnrunOf, View, Waited as WaitedOf, Who, Writer as WriterOf,
+    Pauser as PauserOf, Records, RunId, Seq, Unrun as UnrunOf, VersionView, View, Waited as WaitedOf, Who,
 };
 use driver::{Along, Driver, Kept, Under, Until as UntilOf};
 use flow::Kind;
@@ -226,6 +227,10 @@ pub struct Summary {
     pub item: u64,
     /// The name of the flow it runs on.
     pub flow: String,
+    /// Its flow has no agent's cell: it does no work of its own, and delivers what its item is made of, which the page
+    /// shows as a deliverable rather than as a work.
+    #[serde(default)]
+    pub delivers: bool,
     pub added: u64,
     /// Who paused the work, where it is paused: no round of it begins but those of a run that answers a note, a
     /// person's words to its cell. A round under way goes on, and what it hands in is taken.
@@ -622,28 +627,28 @@ pub struct Speaking {
 pub enum SpokenTo {
     /// A line of the work's flow.
     Line { line: String },
-    /// A question of the work, by its name: the words are about it.
-    Question { name: String },
+    /// A cell of the work's flow, by its id.
+    Cell { cell: String },
 }
 
 impl SpokenTo {
     fn taken(self) -> engine::spoken::To {
         match self {
             SpokenTo::Line { line } => engine::spoken::To::Line(line),
-            SpokenTo::Question { name } => engine::spoken::To::Question(name),
+            SpokenTo::Cell { cell } => engine::spoken::To::Cell(CellId(cell)),
         }
     }
 }
 
 impl Speaking {
-    /// Where the owner's words would go now, to each line of the work's flow and about each question that stands.
+    /// Where the owner's words would go now, to each line of the work's flow and to each cell that has words of its
+    /// own.
     fn all(kept: &Kept) -> Vec<Speaking> {
         let lines = (kept.flow.lines.keys()).map(|line| SpokenTo::Line { line: line.clone() });
-        let standing = decide::questions::questions(&kept.work.records);
-        let questions = (standing.into_iter())
-            .filter(|(_, q)| q.stands())
-            .map(|(name, _)| SpokenTo::Question { name: name.to_string() });
-        (lines.chain(questions))
+        let cells = (kept.flow.cells.iter())
+            .filter(|c| engine::spoken::words_of(kept.flow, &c.id).is_some())
+            .map(|c| SpokenTo::Cell { cell: c.id.to_string() });
+        (lines.chain(cells))
             .map(|to| {
                 let chosen = engine::spoken::receiver(kept.flow, kept.work, &to.clone().taken());
                 Speaking {
@@ -798,11 +803,13 @@ pub struct Version {
     pub at: u64,
     pub time: u64,
     pub by: Writer,
-    /// The version at which the meaning it has last changed: itself, or an earlier one.
-    pub meaning: u64,
+    /// The version at which the meaning it has last changed: itself, or an earlier one; none where the block has said
+    /// nothing yet, as of a first version handed in as changing nothing.
+    pub meaning: Option<u64>,
     /// The block's value, where it is a choice.
     pub value: Option<String>,
-    /// The cell it is said to, where it is said to one, as the owner's entry of the record of what is said is.
+    /// The cell it is said to, where a record kept before a cell's words were its own says one: as the owner's entry of
+    /// the one record of what is said was.
     pub said_to: Option<String>,
     /// How long its content is, in characters.
     pub chars: usize,
@@ -810,11 +817,12 @@ pub struct Version {
     pub empty: bool,
 }
 
-/// Who wrote a version of a block.
+/// Who wrote a version of a block, as a round is told it (decision a-version-is-told-by-the-line-that-wrote-it): the
+/// owner, by a person's write, by words to a cell or by an answer; the outside, or an act of the engine; or a cell.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Writer {
-    Person,
+    Owner,
     Outside,
     /// A cell, by this run of it.
     Run {
@@ -1166,8 +1174,8 @@ pub enum Unmet {
     ChoiceChanged { block: String },
     /// The return asks for calls and also does the cell's work.
     AsksAndWorks,
-    /// The return names as dealt with a name that is none of its cell's triggers.
-    NotATrigger { name: String },
+    /// The return names as dealt with a name that is none of what its cell watches.
+    NotWatched { name: String },
     /// The return asks for a tool its cell may not ask for.
     NotATool { name: String },
     /// The return names the block as written with its meaning unchanged, and does not write it.
@@ -1182,7 +1190,7 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// It asks a question from a cell that no answer runs.
     NotAnswerable { name: String },
-    /// It deals with the owner's words, by this trigger, and writes no answer in the record of what is said.
+    /// It deals with its cell's own words, of this name, and writes no answer in them.
     NotAnswered { name: String },
     /// The work's branch changes this file the project protects, and nothing says why.
     Unexplained { path: String },
@@ -1191,6 +1199,11 @@ pub enum Unmet {
     /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question with an
     /// answer to come.
     Unanswered { block: String },
+    /// It names as dealt with a dialogue it answers as the maker, and answers none of its points there, changes none of
+    /// what the other side watches and asks no question the work waits for.
+    WordOwed { name: String, watched: Vec<String> },
+    /// It writes a verdict with the value that does not pass, and no version of its dialogue.
+    NoPoint { block: String, value: String, name: String },
 }
 
 /// What came back at the end of a round.
@@ -1594,19 +1607,16 @@ pub enum Act {
     },
     /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
     Result { call: u64, result: String },
-    /// Answers a version of a question, the one the page shows, taking an option, counted from one, and saying why
-    /// where the owner does.
+    /// Answers a version of a question, the one the page shows, taking an option, counted from one, and nothing else.
     Answer {
         question: String,
         version: u64,
         option: u64,
-        #[serde(default)]
-        why: Option<String>,
     },
     /// Has the line begin a new session at its next round.
     NewSession { line: String },
-    /// Says words to a line of the work's flow, or about a question of the work: to the cell the engine chooses, which
-    /// the work's page shows (`speaking`), and which the act answers with ([`Said`]).
+    /// Says words to a cell of the work's flow, or to a line of it: to the cell the engine chooses, which the work's
+    /// page shows (`speaking`), and which the act answers with ([`Said`]).
     Say { to: SpokenTo, words: String },
 }
 
@@ -1851,6 +1861,7 @@ impl Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
             flow: kept.head.flow.clone(),
+            delivers: !(kept.flow.cells.iter()).any(|spec| spec.kind == Kind::Agent),
             added: kept.head.added.0,
             paused: decide::pause(&work.records).map(|pause| Pauser::of(pause.by)),
             waits: (driver.waits_on_owner_at(number, view, held, &every.at_once).into_iter())
@@ -2317,16 +2328,6 @@ impl WorkPage {
         let every = EveryWork::of(driver);
         let view = viewed_at(driver, number, &every.at_once)?;
         let work = kept.work;
-        let writer = |by: &WriterOf| -> Result<Writer, Broken> {
-            Ok(match by {
-                WriterOf::Person => Writer::Person,
-                WriterOf::Outside => Writer::Outside,
-                WriterOf::Run(run) => Writer::Run {
-                    run: run.0,
-                    cell: cell_of(work, *run)?,
-                },
-            })
-        };
         let mut blocks = Vec::new();
         for (block, versions) in &view.blocks {
             let versions = (versions.iter())
@@ -2334,8 +2335,8 @@ impl WorkPage {
                     Ok(Version {
                         at: version.at.0,
                         time: time(work, version.at)?,
-                        by: writer(&version.by)?,
-                        meaning: version.meaning.0,
+                        by: writer_of(kept.flow, work, block, version)?,
+                        meaning: version.meaning.map(|m| m.0),
                         value: version.value.clone(),
                         said_to: said_to(work, block, version.at),
                         chars: chars(work, block, version.at)?,
@@ -2380,8 +2381,8 @@ impl WorkPage {
                 at: written.at.0,
                 time: time(work, written.at)?,
                 block: written.block.to_string(),
-                by: writer(&version.by)?,
-                changed: version.meaning == version.at,
+                by: writer_of(kept.flow, work, &written.block, version)?,
+                changed: version.meaning == Some(version.at),
                 value: written.value.clone(),
                 chars: chars(work, &written.block, written.at)?,
             });
@@ -2601,12 +2602,10 @@ impl Act {
                 question,
                 version,
                 option,
-                why,
             } => service::Act::Answer {
                 question,
                 version: Seq(version),
                 option,
-                why,
             },
             Act::NewSession { line } => service::Act::NewSession { line },
             Act::Say { to, words } => service::Act::Say { to: to.taken(), words },
@@ -2710,6 +2709,18 @@ fn chars(work: &Work, block: &BlockId, at: Seq) -> Result<usize, Broken> {
     (work.contents.get(&(block.clone(), at)))
         .map(|content| content.chars().count())
         .ok_or_else(|| Broken(format!("the version of {block} at {} has no content", at.0)))
+}
+
+/// Who wrote the version of the block, by the rule a round is told it by.
+fn writer_of(flow: &flow::Compiled, work: &Work, block: &BlockId, version: &VersionView) -> Result<Writer, Broken> {
+    Ok(match context::author(flow, &work.records, block, version) {
+        Author::Owner => Writer::Owner,
+        Author::Nobody => Writer::Outside,
+        Author::Run(run) => Writer::Run {
+            run: run.0,
+            cell: cell_of(work, run)?,
+        },
+    })
 }
 
 /// The cell the version of the block written at this place is said to, where it is said to one.
@@ -2822,7 +2833,7 @@ impl Unmet {
                 block: block.to_string(),
             },
             UnmetOf::AsksAndWorks => Unmet::AsksAndWorks,
-            UnmetOf::NotATrigger { name } => Unmet::NotATrigger { name: name.clone() },
+            UnmetOf::NotWatched { name } => Unmet::NotWatched { name: name.clone() },
             UnmetOf::NotATool { name } => Unmet::NotATool { name: name.clone() },
             UnmetOf::UnchangedNotWritten { block } => Unmet::UnchangedNotWritten {
                 block: block.to_string(),
@@ -2837,6 +2848,15 @@ impl Unmet {
             UnmetOf::NotATest { path } => Unmet::NotATest { path: path.clone() },
             UnmetOf::Unanswered { block } => Unmet::Unanswered {
                 block: block.to_string(),
+            },
+            UnmetOf::WordOwed { name, watched } => Unmet::WordOwed {
+                name: name.to_string(),
+                watched: watched.iter().map(BlockId::to_string).collect(),
+            },
+            UnmetOf::NoPoint { block, value, name } => Unmet::NoPoint {
+                block: block.to_string(),
+                value: value.clone(),
+                name: name.to_string(),
             },
         }
     }
@@ -3163,9 +3183,9 @@ mod tests {
             shown = true
         "#;
         let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n\
-                     inputs = [\"request\"]\noutputs = [\"text\"]\n";
+                     watches = [\"request\"]\noutputs = [\"text\"]\n[kinds]\nrequest = \"last_and_latest\"\n";
         let merge =
-            "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\noutputs = [\"merged\"]\n";
+            "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\"]\noutputs = [\"merged\"]\n";
         let source = Source {
             flow: text.to_string(),
             cells: [("write", write), ("merge", merge)]
@@ -3306,5 +3326,147 @@ mod tests {
             "It waits for `ready` and `done`, which only `review` or `check` can make hold, and `review` does not run, \
              as it is skipped, `big = yes` not holding, and `check` does not run, as the cell the work stands at holds it."
         );
+    }
+
+    /// A writer who may ask the owner and be spoken to, and the merge, which waits for main from outside.
+    fn asking() -> flow::Compiled {
+        let text = r#"
+            name = "asking"
+            order = ["write", "merge"]
+            [limits]
+            runs = 3
+            returns = 2
+            calls = 3
+            [lines.main]
+            [blocks.request]
+            people = true
+            [blocks.main]
+            outside = "main"
+            [blocks.text]
+            [blocks.write_questions]
+            outside = "answer"
+            [blocks.write_words]
+            outside = "words"
+            [blocks.merged]
+            shown = true
+        "#;
+        let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n\
+                     watches = [\"request\", \"write_questions\", \"write_words\"]\n\
+                     outputs = [\"text\", \"write_questions\", \"write_words\"]\n[kinds]\n\
+                     request = \"last_and_latest\"\nwrite_questions = \"all\"\nwrite_words = \"all\"\n";
+        let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\", \"main\"]\n\
+                     outputs = [\"merged\"]\n";
+        let source = Source {
+            flow: text.to_string(),
+            cells: [("write", write), ("merge", merge)]
+                .iter()
+                .map(|(id, text)| (id.to_string(), text.to_string()))
+                .collect(),
+            files: [(
+                flow::waits_file(),
+                include_str!("../../../flow/agents/waits.toml").to_string(),
+            )]
+            .into(),
+            ..Source::default()
+        };
+        let has = Has {
+            sources: ["answer", "words", "main"].iter().map(|s| s.to_string()).collect(),
+            acts: ["merge".to_string()].into(),
+            ..Has::default()
+        };
+        compile(&source, &has).expect("the definition compiles")
+    }
+
+    // Each version is named by who wrote it as a round is told it (decision a-version-is-told-by-the-line-that-wrote-it),
+    // worked out from the records as the engine writes them: what a person writes, the owner's words to a cell and the
+    // owner's answer by the owner; a question a cell's run asks by that run, as what it hands in is; the engine's own
+    // question, and what the outside writes, put into a round as main is taken in or not, by the outside.
+    #[test]
+    fn each_version_is_named_by_who_wrote_it_as_a_round_is_told_it() {
+        use decide::{Answered, Finished, PutIn, Questioned, Round, Started, Write};
+
+        let flow = asking();
+        let mut work = Work::default();
+        let r = &mut work.records;
+        let wrote = |block: &str, by: Outsider, at: u64| Written {
+            block: block.into(),
+            by,
+            matters: true,
+            value: None,
+            empty: false,
+            said_to: None,
+            at: Seq(at),
+        };
+        let run = RunId(1);
+        r.written.push(wrote("request", Outsider::Person, 1));
+        r.started.push(Started {
+            run,
+            cell: "write".into(),
+            at: Seq(2),
+            because: Vec::new(),
+            basis: BTreeMap::new(),
+        });
+        r.rounds.push(Round { run, at: Seq(3) });
+        // The owner speaks to the cell while its round is under way; as main is taken in, main is put into the round.
+        r.written.push(wrote("write_words", Outsider::Outside, 4));
+        r.written.push(wrote("main", Outsider::Outside, 5));
+        r.put_in.push(PutIn {
+            run,
+            block: "main".into(),
+            version: Seq(5),
+            at: Seq(6),
+        });
+        r.finished.push(Finished {
+            run,
+            at: Seq(7),
+            writes: vec![Write {
+                block: "text".into(),
+                meaning_unchanged: false,
+                value: None,
+                empty: false,
+            }],
+            dealt_with: None,
+            waits_for: None,
+        });
+        // The run's return asks a question; the owner answers it; the engine asks one of its own at the round's end.
+        let asked = |name: &str, engine: bool, at: u64| Questioned {
+            name: name.to_string(),
+            cell: "write".into(),
+            run,
+            engine,
+            waits: true,
+            withdrawn: false,
+            at: Seq(at),
+        };
+        r.questions.push(asked("which", false, 8));
+        r.written.push(wrote("write_questions", Outsider::Outside, 9));
+        r.answers.push(Answered {
+            question: "which".to_string(),
+            version: Seq(8),
+            option: 1,
+            why: None,
+            at: Seq(10),
+        });
+        r.written.push(wrote("write_questions", Outsider::Outside, 11));
+        r.questions.push(asked("protected", true, 12));
+        r.written.push(wrote("write_questions", Outsider::Outside, 13));
+        let versions = decide::versions(&work.records);
+        let named = |block: &str, at: u64| {
+            let version = (versions[&BlockId::from(block)].iter())
+                .find(|v| v.at == Seq(at))
+                .expect("the version is read");
+            let writer = writer_of(&flow, &work, &BlockId::from(block), version).expect("its writer is named");
+            serde_json::to_value(writer).expect("the writer is given as JSON")
+        };
+        let owner = serde_json::json!({ "kind": "owner" });
+        let outside = serde_json::json!({ "kind": "outside" });
+        let the_run = serde_json::json!({ "kind": "run", "run": 1, "cell": "write" });
+        assert_eq!(named("request", 1), owner);
+        assert_eq!(named("write_words", 4), owner);
+        assert_eq!(named("main", 5), outside);
+        assert_eq!(named("text", 7), the_run);
+        assert_eq!(named("write_questions", 9), the_run);
+        assert_eq!(named("write_questions", 11), owner);
+        assert_eq!(named("write_questions", 13), outside);
     }
 }

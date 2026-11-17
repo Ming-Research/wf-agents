@@ -33,7 +33,7 @@
 //! hands_in = [
 //!     { block = "opinions", content = "Name the error.", matters = true },
 //!     { block = "verdict", value = "no" },
-//!     { block = "discussion", content = "Named the error." },
+//!     { block = "review_words", content = "Named the error." },
 //! ]
 //! observations = ["The greeting has no test."]
 //!

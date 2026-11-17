@@ -14,8 +14,9 @@
 //! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks an agent may name to
 //! `run_tests`, in the words its file gives for how the installation runs the project's CI. Each setting the texts name, but in a file of the project, is given with
 //! its value beside it: the project's from its `project.toml`, and the installation's that `agents/installation.toml`
-//! names, from these settings ([`named`]); so is each setting a message names, in the cell's task, in what a trigger
-//! says the cell does for it, and in the words of what the cell returns (crate `context`), with these settings.
+//! names, from these settings ([`named`]); so is each setting a message names, in the cell's task, in what the cell
+//! does when a datum it watches is new, and in the words of what the cell returns (crate `context`), with these
+//! settings.
 //!
 //! As the engine starts, every text sent to the agents is checked, each fault said with the file or the thing of the
 //! flow that holds the text, all of them at once ([`faults`]): a place the engine does not fill, a setting named that
@@ -25,7 +26,8 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use flow::agents::{Agents, ProjectPart, SessionPart};
+use decide::BlockId;
+use flow::agents::{Agents, DatumPart, SessionPart};
 use flow::{Compiled, Kind};
 use uuid::Uuid;
 
@@ -156,8 +158,9 @@ pub fn named(settings: &Settings, beside: &Agents) -> flow::system::Settings {
 }
 
 /// The system prompt of the session of the cell's line, for a line whose agents are told `your_line` of what they may
-/// do in the worktree, its project's files read by `read` by their paths within the repository; or why it cannot be
-/// made.
+/// do in the worktree, its project's files read by `read` by their paths within the repository, and a datum that stands
+/// for one given by `datum` by its name, the version the session begins with, none where it has none yet; or why it
+/// cannot be made.
 pub(crate) fn of_line(
     beside: &Agents,
     filling: &Filling,
@@ -165,10 +168,16 @@ pub(crate) fn of_line(
     cell: &flow::CellSpec,
     your_line: &str,
     read: impl Fn(&str) -> std::io::Result<String>,
+    datum: impl Fn(&str) -> Option<String>,
 ) -> Result<String, String> {
     let read =
         |path: &str| (read(path).map(Some)).map_err(|e| format!("{path} cannot be read in the work's worktree: {e}"));
-    let parts = flow::system::parts(beside, flow, cell, read).map_err(|wrong| wrong.join("; "))?;
+    // A session begins with the version of the datum its prompt holds, and with no other: with none, it begins not.
+    let datum = |name: &str| match datum(name) {
+        Some(text) => Ok(Some(text)),
+        None => Err(format!("the datum `{name}` the session begins with has no version yet")),
+    };
+    let parts = flow::system::parts(beside, flow, cell, read, datum).map_err(|wrong| wrong.join("; "))?;
     let fill = |name: &str| filled(name, your_line, filling);
     flow::system::prompt(&parts, &filling.named, fill).map_err(|wrong| wrong.join("; "))
 }
@@ -178,8 +187,8 @@ pub(crate) fn of_line(
 /// prompt, a set of rules or a tool that nothing beside the flows defines, a place the engine does not fill (a file of
 /// the project standing as empty under its heading), and a setting named that has no value; a line that changes only
 /// the project's tests, of a project whose declaration names no paths of its tests or of a flow with no block of the
-/// work's head; and a setting named with no value in a cell's task, in what a trigger says the cell does for it, in the
-/// words of a block, or in the words of what a cell returns (`[outputs]` of `agents/return/return.toml`).
+/// work's head; and a setting named with no value in a cell's task, in what the cell does when a datum it watches is
+/// new, in the words of a block, or in the words of what a cell returns (`[outputs]` of `agents/return/return.toml`).
 pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<String> {
     let filling = filling(settings, beside);
     let named = &filling.named;
@@ -190,6 +199,19 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
             faults.push(fault);
         }
     };
+    // A session begins with the version of each datum the system prompt names that its flow has; a flow of agents'
+    // cells without one would begin every session without the file it stands for (design document
+    // `data-and-context`, 24).
+    let agents = flow.cells.iter().any(|c| c.kind == Kind::Agent);
+    for part in beside.session.parts.iter().filter(|_| agents) {
+        if let SessionPart::Datum(DatumPart { datum }) = part
+            && !flow.blocks.contains_key(&BlockId::from(datum.as_str()))
+        {
+            add(format!(
+                "session.toml begins each session with the datum `{datum}`, which the flow does not have"
+            ));
+        }
+    }
     // The prompt is the same for every cell of a line: its first cell stands for it.
     let mut lines: Vec<&str> = Vec::new();
     for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
@@ -198,7 +220,8 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
             continue;
         }
         lines.push(line);
-        let (parts, wrong) = flow::system::made(beside, flow, cell, |_| Ok(Some(String::new())));
+        let given = |_: &str| Ok(Some(String::new()));
+        let (parts, wrong) = flow::system::made(beside, flow, cell, given, given);
         let fills = |name: &str| filled(name, "", &filling).is_some();
         for what in wrong.into_iter().chain(flow::system::check(&parts, named, fills)) {
             add(format!("the system prompt of the line {line}: {what}"));
@@ -274,7 +297,7 @@ pub fn project_files(project: &Project, beside: &Agents) -> Vec<String> {
     }
     let mut wrong = Vec::new();
     for part in &beside.session.parts {
-        let SessionPart::Project(ProjectPart { project: name }) = part else {
+        let Some(name) = part.file() else {
             continue;
         };
         let Some(file) = beside.project.files.get(name) else {

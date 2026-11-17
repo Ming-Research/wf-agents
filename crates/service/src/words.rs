@@ -222,14 +222,12 @@ pub fn no_one_words(why: &NoOne) -> String {
     match why {
         NoOne::Ended => "the work has ended: no cell of it takes words now".to_string(),
         NoOne::NoSuchLine(line) => format!("the flow has no cell on the line {line}"),
-        NoOne::NoSuchQuestion(question) => format!("the work has no question {question} that stands"),
-        NoOne::NoneOfTheLine(line) => format!("the owner's words run no cell of the line {line}"),
+        NoOne::NoSuchCell(cell) => format!("the flow has no cell {cell}"),
+        NoOne::NoneOfTheLine(line) => format!("no cell of the line {line} has words of its own"),
         NoOne::NotReached(line) => {
-            format!(
-                "no cell of the line {line} that the owner's words run has run, and the work stands at none of them"
-            )
+            format!("no cell of the line {line} that has words of its own has run, and the work stands at none of them")
         }
-        NoOne::NotSpokenTo(cell) => format!("the words would reach {cell}, which the owner's words do not run"),
+        NoOne::NotSpokenTo(cell) => format!("the words would reach {cell}, which has no words of its own"),
         NoOne::Skipped(cell) => format!("the words would reach {cell}, which does not apply now"),
     }
 }

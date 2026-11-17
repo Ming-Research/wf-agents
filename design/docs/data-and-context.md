@@ -157,7 +157,7 @@ new session lacks it.
     another also watches that cell's questions, so that an answer the other can no longer act on reaches the cell that
     can.
 
-29. A round is not told who wrote a version: nothing in this design needs it.
+29. A round is told the line of the cell that wrote each version, or that the owner wrote it, and never the cell.
 
 ## Questions to the owner
 
@@ -173,9 +173,9 @@ new session lacks it.
     asked anew (decision an-answer-to-an-earlier-version-is-kept).
 
 32. A question the work waits for holds the work at the cell whose question it is, while no answer stands to the
-    question as last asked: no later cell runs, and the cell is entered meanwhile only for the owner's words (35) and
-    for the results of calls a round of it asked for. A cell asks a question again, or withdraws it, by writing its
-    datum anew.
+    question as last asked: no later cell runs, and the cell is entered meanwhile only for the owner's words or answer
+    (35) and for the results of calls a round of it asked for. A cell asks a question again, or withdraws it, by writing
+    its datum anew.
 
 33. Every agent's cell reads every cell's questions, all of them, so that what was asked and how it was answered is
     known to all. Whether a question stands with no answer to it as last asked is worked out by the engine from all of
@@ -210,10 +210,10 @@ new session lacks it.
       and for nothing else. Words that did not reach the round before it ended are still new to the cell, and it runs
       again.
     - While the cell spoken to has no round under way and waits, for the results of calls or for the answer to a
-      question, the engine enters it for the words, and it goes on waiting.
-    - While a round of a cell later in the flow is under way, that round is told to stop, the cell spoken to runs, and
-      the flow comes back to the cell that stopped: a round that stopped so has dealt with nothing (8), and its cell
-      runs again.
+      question, the engine enters it for the owner's words or answer, and it goes on waiting.
+    - While a round of a cell later in the flow is under way, that round is told to stop, the cell the owner's words or
+      answer is new to runs, and the flow comes back to the cell that stopped: a round that stopped so has dealt with
+      nothing (8), and its cell runs again.
 
 ## Dialogues between a maker and those who judge it
 
@@ -283,8 +283,8 @@ new session lacks it.
     | R2 Is there a better way | no deep research | plan | `background`, `tree` | plan, where it finds a better way; questions |
     | D1 Deep research | deep research | `background`, `found`, `plan_review`, `tree_review`, `plan_doubts`, R1's questions | `tree` | plan, answers in its dialogues, questions |
     | D2 Is there a better way | deep research | plan, R2's questions | `background`, `tree` | plan, where it finds a better way; questions |
-    | D3 Design review | | plan, `plan_review` | `background`, `found`, `tree` | `plan_ok` every time; points in `plan_review` where it fails |
-    | D4 Design tree review | | plan, `tree_review` | `background`, `tree` | `tree_ok` every time; points in `tree_review` where it fails |
+    | P1 Design review | | plan, `plan_review` | `background`, `found`, `tree` | `plan_ok` every time; points in `plan_review` where it fails |
+    | P2 Design tree review | | plan, `tree_review` | `background`, `tree` | `tree_ok` every time; points in `tree_review` where it fails |
     | I1 Implement | | plan, `plan_doubts`, `review`, `testing`, `check` | `background`, `tree` | `code`, `title`, `decisions`, `evidence`, `acceptance`, `head` by its commits; answers in `review` and `testing`; doubts in `plan_doubts`; questions, which hold the engine's (34) |
     | T1 Review | | change, `review` | plan, `background`, `tree` | `review_ok` and `needs_testing` every time; points in `review` where it fails |
     | T2 Adversarial testing | `needs_testing` is yes | `needs_testing`, `acceptance`, `testing` | `code`, `evidence`, `plan_agent`, `background` | `tests`, `head` by its commits, `testing_ok` every time; points in `testing` where something stays red |

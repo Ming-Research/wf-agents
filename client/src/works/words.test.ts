@@ -321,7 +321,7 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'notHandedIn', block: 'verdict' })).toBe(
       'it did not hand in verdict, which the cell must hand in every time',
     );
-    expect(unmetWords({ kind: 'notATrigger', name: 'on_nothing' })).toBe(
+    expect(unmetWords({ kind: 'notWatched', name: 'on_nothing' })).toBe(
       'it said it dealt with on_nothing, which does not run the cell',
     );
     expect(unmetWords({ kind: 'notATool', name: 'browse' })).toBe(
@@ -335,6 +335,15 @@ describe('why a run ran, in words', () => {
     );
     expect(unmetWords({ kind: 'unanswered', block: 'check' })).toBe(
       'it dealt with check, and committed nothing and asked nothing',
+    );
+    expect(unmetWords({ kind: 'notATest', path: 'src/lib.rs' })).toBe(
+      'it changed src/lib.rs, which is none of the project\'s tests',
+    );
+    expect(unmetWords({ kind: 'wordOwed', name: 'review', watched: ['code', 'title'] })).toBe(
+      'it dealt with review, woken by a point in it, and answered none of its points, changed none of code, title, and asked no question the work waits for',
+    );
+    expect(unmetWords({ kind: 'noPoint', block: 'review_ok', value: 'no', name: 'review' })).toBe(
+      'it handed in review_ok as no, which does not pass, and gave no review',
     );
   });
 });

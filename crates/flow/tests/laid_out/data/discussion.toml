@@ -1,5 +1,0 @@
-# What the owner says and the cells answer, which a cell writes in its return's `outputs`.
-what = "What the owner says to the work and what its cells answer."
-from = "owner"
-shown = true
-words = "`discussion`: your answer to what the owner said to the cell."

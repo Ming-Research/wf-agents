@@ -76,6 +76,7 @@ impl Repo {
                 github: None,
                 commits: crate::acts::writes().commits,
                 tree: "design/".to_string(),
+                guide: "AGENTS.md".to_string(),
             },
             data,
         }

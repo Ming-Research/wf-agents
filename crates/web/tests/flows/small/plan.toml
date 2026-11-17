@@ -5,5 +5,9 @@ line = "engineer"
 task = """
 Write the plan from the request.
 Say what it leaves out."""
-inputs = ["request", "opinions"]
+watches = ["request", "opinions"]
 outputs = ["plan"]
+
+[kinds]
+request = "last_and_latest"
+opinions = "last_and_latest"

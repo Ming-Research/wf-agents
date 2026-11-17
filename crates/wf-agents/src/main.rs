@@ -4,7 +4,10 @@
 //! - `running`: `wf-agents run`, the engine as a process.
 //! - `talk`: the commands that talk to a running engine.
 //! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
+//! - `names`, a test: no source names a cell, a line, a group or a block of a flow.
 
+#[cfg(test)]
+mod names;
 mod reference;
 mod running;
 mod situations;
@@ -315,18 +318,17 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Says something to a work: about a question of it, or to a line of its flow. The engine chooses the cell it
-    /// reaches, the one that asked the question or the one the line has reached, and refuses it, saying why, where no
-    /// cell can take it.
+    /// Says something to a work: to a cell of its flow, or to a line of it. The engine chooses the cell it reaches, the
+    /// cell itself or the one the line has reached, and refuses it, saying why, where no cell can take it.
     Say {
         work: u64,
         words: String,
         /// The line of the work's flow it is said to.
-        #[arg(long, conflicts_with = "question", required_unless_present = "question")]
+        #[arg(long, conflicts_with = "cell", required_unless_present = "cell")]
         line: Option<String>,
-        /// The question of the work it is about, by its name.
+        /// The cell of the work's flow it is said to, by its id.
         #[arg(long)]
-        question: Option<String>,
+        cell: Option<String>,
         #[command(flatten)]
         at: At,
     },
@@ -336,9 +338,6 @@ enum Command {
         question: String,
         version: u64,
         option: u64,
-        /// Why, in a sentence, where there is something to say: kept with the answer, which the asking cell is given.
-        #[arg(long)]
-        why: Option<String>,
         #[command(flatten)]
         at: At,
     },
@@ -601,14 +600,12 @@ fn main() -> ExitCode {
             question,
             version,
             option,
-            why,
             at,
         } => {
             let act = Act::Answer {
                 question,
                 version,
                 option,
-                why,
             };
             talk::ask(at.port, Asked::Act(work, act))
         }
@@ -616,13 +613,13 @@ fn main() -> ExitCode {
             work,
             words,
             line,
-            question,
+            cell,
             at,
         } => {
-            let to = match (line, question) {
-                (_, Some(name)) => SpokenTo::Question { name },
+            let to = match (line, cell) {
+                (_, Some(cell)) => SpokenTo::Cell { cell },
                 (Some(line), None) => SpokenTo::Line { line },
-                (None, None) => unreachable!("the command line asks for a line or a question"),
+                (None, None) => unreachable!("the command line asks for a line or a cell"),
             };
             talk::ask(at.port, Asked::Act(work, Act::Say { to, words }))
         }
@@ -646,17 +643,17 @@ fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
 
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
 /// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
-/// `answer`, written by the engine's loop, the record of the questions and the answers as a question is asked, asked
-/// anew or withdrawn and as the owner answers one, and the answering cell's block of an answer that takes another
-/// option than the one the work goes by; `asked`, as the questions and their answers come to stand otherwise; `main`,
-/// written by the acts' watch of main on the host; `tree` and `head`, read by the carriers of the design tree and of
-/// the work's head on a work's branch, written from outside or handed in with the round that committed them; and
-/// `words`, written by the engine's loop as the owner speaks to a cell, the record of what is said and the cell's block
-/// that it was spoken to.
-const SOURCES: [&str; 9] = [
+/// `answer`, written by the engine's loop, a cell's own questions, as a question of it is asked, asked anew or
+/// withdrawn and as the owner answers one; `asked`, as the questions and their answers come to stand otherwise;
+/// `main`, written by the acts' watch of main on the host; `tree`, `head` and `guide`, read by the carriers of the design
+/// tree, of the work's head and of the project's guide on a work's branch, written from outside or handed in with the
+/// round that committed them; and `words`, written by the engine's loop as the owner speaks to a cell, the cell's own
+/// words.
+const SOURCES: [&str; 10] = [
     "answer",
     "asked",
     "dependencies",
+    "guide",
     "head",
     "main",
     "session",
@@ -676,11 +673,6 @@ const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 /// (`agents/tools/`), and the form of the return holds them.
 const TOOLS: [&str; 2] = ["query", "run_tests"];
 
-/// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
-/// `files`, the files of the design tree that changed. No trigger of the flows says it now: a cell is given the tree
-/// as a datum.
-const DETAILS: [&str; 1] = ["files"];
-
 /// What the engine has, by name, for the definition in this directory. Of the parts of a line's system prompt, the
 /// names of those that are not the line's own sets of rules, which no line names and no set of rules takes, are those
 /// `agents/session.toml` beside the flows gives them (`flow::system::reserved`); where the files beside the flows
@@ -694,7 +686,6 @@ fn has(dir: &Path) -> Has {
         acts: names(&ACTS),
         tools: names(&TOOLS),
         system: system.into_iter().flatten().collect(),
-        details: names(&DETAILS),
     }
 }
 
@@ -750,7 +741,13 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::Twice { name } if field == "tools" => {
             format!("the cell names {name} of its own, and the flow already gives its agent cells theirs")
         }
+        F::Twice { name } if field.starts_with("reads[") || field.starts_with("every_agent.reads[") => {
+            format!("{name} is watched already, and is given with what is watched")
+        }
         F::Twice { name } => format!("{name} is named a second time in the same list"),
+        F::TakenTwice { block, first, also } => {
+            format!("{block} is taken by two names, {first} and {also}, which says twice how the cell takes it")
+        }
         F::LimitOutOfRange { value } => {
             format!("the limit {value} is not a whole number from 1 to the largest count the engine keeps")
         }
@@ -793,63 +790,58 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::NotAnOutput { block } => {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")
         }
-        F::TakenNotRead { block } => {
-            format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
-        }
-        F::TwoForms => "name them one way: inputs, runs_on and given, or triggered_by and context".to_string(),
         F::NoSuchData { name } => {
             format!("the flow names {name} among the engine's own data, but no file of ../data/ defines {name}")
         }
         F::DefinedTwice { name, also } => format!("{name} is defined here and again in {also}"),
-        F::NoSuchTrigger { trigger } => {
-            format!("the cell names the trigger {trigger}, which nothing in ../triggers/ defines")
-        }
-        F::NoSuchDatum { trigger, datum } => {
-            format!("the cell names the trigger {trigger}, but the flow has no datum {datum}")
-        }
-        F::ReadNotInContext { trigger, block } => {
-            format!("the trigger {trigger} has the agent read {block}, but {block} is not in the cell's context")
-        }
-        F::NotATrigger { trigger } => {
-            format!("the cell says what it does for {trigger}, but {trigger} is not among its triggers")
-        }
-        F::TriggerOnly { block } => {
-            format!("{block} stands only for a trigger and has no content: no cell is given it or writes it")
-        }
-        F::NotLaidOut => {
-            "the cell names triggered_by and context, which only a flow laid out one thing to a file has".to_string()
-        }
         F::MissingPlaceholder { placeholder } => format!("this must hold {placeholder}"),
         F::AsksWithNoAnswer { block } => {
             format!(
-                "the cell writes {block}, the work's questions, but no answer runs it: the owner's answer would run no cell"
+                "the cell writes {block}, its questions, but does not watch them: the owner's answer would run no cell"
             )
         }
         F::AsksAndCannotBeSpokenTo { block } => {
             format!(
-                "the cell writes {block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell"
+                "the cell writes {block}, its questions, but watches no words of its own: the owner's words about its question would reach no cell"
             )
         }
-        F::TriggerNeverRuns {
-            trigger,
+        F::NotItsOwn { block } => {
+            format!("the cell writes {block}, a block of the owner's answers or words that is not its own")
+        }
+        F::SpokenToAndAsksNothing { block } => {
+            format!("the cell writes {block}, its words with the owner, but asks the owner nothing")
+        }
+        F::VerdictOfDialogues { verdict, dialogues } => format!(
+            "the cell hands in {verdict}, its verdict, and judges in {}, so its points could go in more than one",
+            dialogues.join(", ")
+        ),
+        F::VerdictWithoutDialogue { verdict } => {
+            format!("the cell hands in {verdict}, its verdict, and judges in no dialogue its points could go in")
+        }
+        F::LineDataOfAnother { block, line } => {
+            format!("{block} is the line {line}'s own, and the cell is not on that line")
+        }
+        F::CannotBeAskedIn { cell } => format!(
+            "the engine cannot ask in {cell}: it must be an agent's cell, on a line that may change the work, with words of its own"
+        ),
+        F::NeverNew {
+            watched,
             block,
             needs,
             writers,
         } => {
             let writers: Vec<String> = writers.iter().map(|(cell, when)| format!("{cell} ({when})")).collect();
             format!(
-                "the trigger {trigger} stands on {block}, but the cell runs only where {needs}, and each writer of {block} runs only where it cannot: {}; the trigger can never run the cell",
+                "the cell watches {watched}, but it runs only where {needs}, and each writer of {block} runs only where it cannot: {}; {watched} can never be new to it",
                 writers.join("; ")
             )
         }
-        F::UnknownDetail { detail } => format!("the engine fills no place named \"{detail}\""),
         F::EngineIsGiven { block } => {
             format!("an engine's cell says how it is given {block}, but it has no session")
         }
         F::RunByNothing => "nothing runs this agent's cell, so it would never be entered".to_string(),
         F::NoKind { block } => format!("the cell is given {block}, but does not say its kind"),
-        F::SaysNothing { block } => format!("the table for {block} says nothing"),
-        F::NotRunOn { block } => format!("the cell says why {block} runs it, but {block} is not among what runs it"),
+        F::NotWatched { block } => format!("there is a do for {block}, but {block} is not watched"),
         F::NotGiven { block } => format!("the cell says how it is given {block}, but it is not given {block}"),
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),
         F::NoReader { block } => {
@@ -926,6 +918,30 @@ fn a_name_given_twice_says_where_it_was_given_twice() {
     assert_eq!(
         twice("tools", "tools"),
         "the cell names tools of its own, and the flow already gives its agent cells theirs"
+    );
+    assert_eq!(
+        twice("brief", "reads[0]"),
+        "brief is watched already, and is given with what is watched"
+    );
+}
+
+#[test]
+fn a_block_taken_by_two_names_says_both_names() {
+    let taken = |block: &str, first: &str, also: &str| {
+        let what = FaultKind::TakenTwice {
+            block: block.to_string(),
+            first: first.to_string(),
+            also: also.to_string(),
+        };
+        words(&what, "reads[0]")
+    };
+    assert_eq!(
+        taken("draft", "outline", "draft"),
+        "draft is taken by two names, outline and draft, which says twice how the cell takes it"
+    );
+    assert_eq!(
+        taken("note", "outline", "papers"),
+        "note is taken by two names, outline and papers, which says twice how the cell takes it"
     );
 }
 
