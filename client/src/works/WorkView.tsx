@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ItemPanel } from '../console/ItemWindow';
 import { Legend } from '../marks';
 import { Drawer } from '../parts';
+import { CHOICE_KEYS, keptChoice, useKept, write } from '../kept';
 import { hashOf } from '../route';
 import { WIDTH_KEYS } from '../sizes';
 import type { Act, RoundPage, ToldPage, WorkPage } from '../works-api';
@@ -26,6 +27,9 @@ import { type Source, useChanges, useItems, useReading, useSource } from './sour
 import { type Reader, StepTab } from './StepPanel';
 import { UsageTab } from './Usage';
 import { hasEnded } from './words';
+
+/// The tabs of a work's item window: the console's two, then the row chosen and what the work used.
+const WORK_TABS = ['item', 'work', 'step', 'usage'] as const;
 
 export function WorkView({ work, run }: {
   work: number;
@@ -100,25 +104,44 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
     const step = run === undefined ? -1 : page.steps.findIndex((s) => s.kind === 'run' && s.run === run);
     return step < 0 ? null : step;
   });
-  const [tab, setTab] = useState<string>(() => (chosen === null ? 'item' : 'step'));
+  // The window's tab and whether the window is out, as the owner last left them, kept in this browser; a run the address
+  // names opens on its Step.
+  const [keptTab, keepTab] = useKept(CHOICE_KEYS.workTab, 'item', WORK_TABS);
+  const [tab, setTabNow] = useState<string>(() => (chosen === null ? keptTab : 'step'));
+  const setTab = useCallback(
+    (to: string) => {
+      setTabNow(to);
+      const kept = WORK_TABS.find((t) => t === to);
+      if (kept !== undefined) keepTab(kept);
+    },
+    [keepTab],
+  );
   // The window: whether it is out, and whether its tab brought it out, which keeps it out once the row is let go.
-  const [win, setWin] = useState({ open: true, byHand: true });
+  const [win, setWin] = useState(() =>
+    keptChoice(CHOICE_KEYS.workWindow, 'out', ['out', 'in']) === 'out'
+      ? { open: true, byHand: true }
+      : { open: false, byHand: false },
+  );
+  const putWindow = useCallback((open: boolean) => {
+    write(CHOICE_KEYS.workWindow, open ? 'out' : 'in');
+    setWin(open ? { open: true, byHand: true } : { open: false, byHand: false });
+  }, []);
   const panel = useRef<HTMLElement>(null);
   // How wide the window is, for the room the chart leaves under it.
   const [windowWidth, setWindowWidth] = useState(0);
 
-  const choose = useCallback((step: number | null) => {
-    setChosen(step);
-    if (step !== null) setTab('step');
-    setWin((w) => {
-      if (step !== null) return w.open ? w : { open: true, byHand: false };
-      return w.byHand ? w : { open: false, byHand: false };
-    });
-  }, []);
-  const fold = useCallback(
-    () => setWin((w) => (w.open ? { open: false, byHand: false } : { open: true, byHand: true })),
-    [],
+  const choose = useCallback(
+    (step: number | null) => {
+      setChosen(step);
+      if (step !== null) setTab('step');
+      setWin((w) => {
+        if (step !== null) return w.open ? w : { open: true, byHand: false };
+        return w.byHand ? w : { open: false, byHand: false };
+      });
+    },
+    [setTab],
   );
+  const fold = useCallback(() => putWindow(!win.open), [putWindow, win.open]);
   // Escape slides the window in while it has the keys, and else lets the row go; a question the page asks answers it
   // alone.
   useEffect(() => {
@@ -127,12 +150,12 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
       const inside = panel.current?.contains(document.activeElement) === true;
       if (win.open && inside) {
         (document.activeElement as HTMLElement | null)?.blur();
-        setWin({ open: false, byHand: false });
+        putWindow(false);
       } else choose(null);
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [win.open, choose]);
+  }, [win.open, choose, putWindow]);
   useEffect(() => {
     const el = panel.current;
     if (el === null) return;

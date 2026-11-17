@@ -46,6 +46,7 @@ import {
   useState,
 } from 'react';
 
+import { CHOICE_KEYS, useKept } from '../kept';
 import { Legend } from '../marks';
 import { mocksShown } from '../mock-data';
 import { Button, Coded, Confirm, FoldMark, PanelPart, Switch, TICK } from '../parts';
@@ -380,10 +381,10 @@ function ItemView({
     };
   }, [read, loadVersion]);
   const [unseen, setUnseen] = useState(mock.unseen);
-  const [ownTab, setOwnTab] = useState('item');
+  const [ownTab, setOwnTab] = useKept(CHOICE_KEYS.consoleTab, 'item', ['item', 'work']);
   const tab = chosenTab ?? ownTab;
   const setTab = (to: string) => {
-    setOwnTab(to);
+    if (chosenTab === undefined && (to === 'item' || to === 'work')) setOwnTab(to);
     onTab?.(to);
   };
   const shownMore = more.find((m) => m.value === tab);

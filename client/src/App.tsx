@@ -20,6 +20,7 @@ import { usesFixtures } from './mock-data';
 import { useNotifications } from './notify';
 import { ObservationsView } from './observations/ObservationsView';
 import { Bar, Drawer, Panel, Switch } from './parts';
+import { CHOICE_KEYS, useKept } from './kept';
 import { type Route, hashOf, periodOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
 import { WIDTH_KEYS } from './sizes';
@@ -209,11 +210,14 @@ export function FlowPage({ definition, given, active = true }: {
   active?: boolean;
 }) {
   const [chosen, setChosen] = useState<Chosen>(null);
-  // The flowchart first; each, once shown, is kept as the owner left it while the other is shown.
-  const [chartView, setChartView] = useState<ChartView>('flowchart');
+  // The flowchart, until the owner picks the matrix, kept in this browser; each, once shown, is kept as the owner left
+  // it while the other is shown.
+  const [chartView, setChartView] = useKept<ChartView>(CHOICE_KEYS.flowView, 'flowchart', ['matrix', 'flowchart']);
   const [graphShown, setGraphShown] = useState(false);
-  // Whether the flowchart draws every arrow a write runs; else only the chosen cell's, as what it is given.
-  const [dataArrows, setDataArrows] = useState(false);
+  // Whether the flowchart draws every arrow a write runs; else only the chosen cell's, as what it is given. Kept too.
+  const [arrows, setArrows] = useKept(CHOICE_KEYS.flowDataArrows, 'off', ['on', 'off']);
+  const dataArrows = arrows === 'on';
+  const setDataArrows = (on: boolean) => setArrows(on ? 'on' : 'off');
   if (chartView === 'flowchart' && !graphShown) setGraphShown(true);
   // The window with what is chosen, the console's: whether it is out, and whether its tab brought it out, which keeps
   // it out once what is chosen is let go.

@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { CHOICE_KEYS, write } from '../kept';
 import { Coded, PanelPart, Switch } from '../parts';
 import { hashOf, type Period } from '../route';
 import type { Copies, Engine, Item, Items, Spent } from '../works-api';
@@ -111,6 +112,7 @@ export function SystemView({ period }: { period: Period }) {
             label="The span the numbers count over"
             value={period}
             onChange={(p) => {
+              write(CHOICE_KEYS.systemPeriod, p);
               window.location.hash = hashOf({ view: 'system', period: p });
             }}
             choices={SPANS}

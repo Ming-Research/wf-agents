@@ -76,6 +76,13 @@ design of the owner's page, item 28).
 Why: It is how the page looks to the one who reads it there, which the engine never reads (principle
 every-field-has-a-reader); in the file, a look would be saved and committed.
 
+### decision a-views-choices-are-kept-in-the-browser
+How each view shows, as the owner left it (a switch's choice, a window's tab, whether a work's window is out, the order
+of the list of works, the span of the system's view, the widths dragged), is kept in the browser and stands when the
+view is left and shown again and when the page is loaded again; a choice the address names wins over it.
+Why: Kept only in the view's memory, every choice went back to its first each time the owner went to another tab or
+loaded the page. In the installation's file it would be a look saved and committed, as for the accent.
+
 ### decision the-way-back-is-in-the-accent
 A way back is drawn in the accent in every view, and its words are not: its line and its arrow on the matrix and on the
 flowchart, where it is thicker than an arrow a write runs and stays as it is under the pointer, and in a work's history

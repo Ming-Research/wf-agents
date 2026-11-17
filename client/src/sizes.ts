@@ -4,6 +4,8 @@
 // page that keeps nothing still works, at the widths it works out.
 import { useCallback, useState } from 'react';
 
+import { read, write } from './kept';
+
 /// The key under which the page keeps a width.
 export const WIDTH_KEYS = {
   names: 'wf-agents.names-width',
@@ -19,23 +21,6 @@ export const WIDTH_KEYS = {
   /// The list of works: each of its columns.
   worksColumns: 'wf-agents.works-column-widths',
 } as const;
-
-function read(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function write(key: string, value: string | null) {
-  try {
-    if (value === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, value);
-  } catch {
-    // Kept for this page only.
-  }
-}
 
 /// A number kept within `min` and `max`, or none.
 function within(n: unknown, min: number, max: number): number | null {

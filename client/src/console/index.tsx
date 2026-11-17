@@ -21,6 +21,7 @@ import './console.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Drawer, Switch } from '../parts';
+import { CHOICE_KEYS, useKept } from '../kept';
 import { WIDTH_KEYS } from '../sizes';
 import type { Items, WorkPage } from '../works-api';
 import { oneAtATime, useSource } from '../works/source';
@@ -45,7 +46,8 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
   const [win, setWin] = useState({ open: false, byHand: false });
   const open = win.open;
   // Whether the tree shows every item, done and cancelled too, or only those still open and what stands over them.
-  const [every, setEvery] = useState(false);
+  const [shows, setShows] = useKept(CHOICE_KEYS.consoleShows, 'open', ['open', 'every']);
+  const every = shows === 'every';
   const everyNow = useRef(every);
 
   // The items, read at first and again each time something happened, at most one read at a time.
@@ -197,8 +199,8 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
               { value: 'open', name: 'Open', title: 'The items still open, and what stands over them' },
               { value: 'every', name: 'All', title: 'Every item, done and cancelled too' },
             ]}
-            value={every ? 'every' : 'open'}
-            onChange={(v) => setEvery(v === 'every')}
+            value={shows}
+            onChange={setShows}
           />
           {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
           {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}

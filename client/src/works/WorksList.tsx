@@ -21,7 +21,17 @@ import { Arrow, Edge } from '../parts';
 import { WIDTH_KEYS, useKeptWidths } from '../sizes';
 import type { Item, Items } from '../works-api';
 import { NowLine, STRIP_MARKS, Strip } from './marks';
-import { LAST_FIRST, type Order, type OrderBy, orderWorks, wayOf } from './placing';
+import { CHOICE_KEYS, useKept } from '../kept';
+import { FIRST_WAY, LAST_FIRST, type Order, type OrderBy, orderWorks, wayOf } from './placing';
+
+/// An order as it is kept: its column, and `turned` after it where it runs the other way.
+type OrderKey = `${OrderBy}` | `${OrderBy} turned`;
+const orderKey = (o: Order): OrderKey => (o.turned ? `${o.by} turned` : o.by);
+const ORDER_KEYS = (Object.keys(FIRST_WAY) as OrderBy[]).flatMap((by): OrderKey[] => [by, `${by} turned`]);
+const orderOfKey = (k: OrderKey): Order => {
+  const [by, turned] = k.split(' ');
+  return { by: by as OrderBy, turned: turned === 'turned' };
+};
 import { useChanges, useItems, useReading, useSource } from './source';
 import { waitingCount, waitsOnOwner } from './waiting';
 import { NO_LEVEL, ORDER_WORDS, clock, dollars, duration, fullTime, stoppedAt, waitCount } from './words';
@@ -138,7 +148,10 @@ export function WorksTable({ items, projects = [], failed = null }: {
   failed?: string | null;
 }) {
   const [picked, pick] = useState<string | null>(null);
-  const [order, setOrder] = useState<Order>(LAST_FIRST);
+  // The order the owner last picked, kept in this browser as its column and whether it was turned.
+  const [keptOrder, keepOrder] = useKept(CHOICE_KEYS.worksOrder, orderKey(LAST_FIRST), ORDER_KEYS);
+  const order = orderOfKey(keptOrder);
+  const setOrder = (o: Order) => keepOrder(orderKey(o));
   const [widths, setWidth] = useKeptWidths(WIDTH_KEYS.worksColumns, WIDTHS.least, WIDTHS.most);
   // The widths the owner dragged, each at least its column's least, set on the table for every row's cells; while the
   // title's is set, the table is as wide as its columns, and else as the window, the title taking what is left.
