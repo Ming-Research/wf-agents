@@ -143,7 +143,7 @@ impl Looking {
     /// Reads the branch, and says each new version to the loop as written from outside while the round is under way:
     /// put into the round where `for_round`, as what the round's own act read, as it took main in. A read that fails is
     /// said on the standard error and makes no version.
-    pub(crate) async fn tell(&mut self, place: &Place, teller: &Teller, for_round: bool) {
+    pub async fn tell(&mut self, place: &Place, teller: &Teller, for_round: bool) {
         match self.read(place).await {
             Ok(new) => {
                 for (block, content) in new {

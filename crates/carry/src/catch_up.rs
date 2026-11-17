@@ -96,7 +96,7 @@ fn taking_in(project: &Project, main: &str, run: RunId) -> String {
 
 /// Takes main's head, as the reference `main` holds it, into the work's branch in its worktree as the run starts, and
 /// says what came of it. Refused, as every act is, where the repository's configuration names a program git could run.
-pub(crate) async fn take_in(project: &Project, place: &Place, main: &str, run: RunId) -> CaughtUp {
+pub async fn take_in(project: &Project, place: &Place, main: &str, run: RunId) -> CaughtUp {
     let outcome = match tried(project, place, main, run).await {
         Ok(outcome) => outcome,
         Err(why) => Outcome::Failed { why },

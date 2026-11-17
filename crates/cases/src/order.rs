@@ -66,6 +66,10 @@ pub fn order(case: &Case, line: impl Fn(&CellId) -> Option<String>) -> Order {
                 option: *option,
             },
             Step::Main(commit) => Act::Main(commit.clone()),
+            Step::Session(cell) => match line(cell) {
+                Some(line) => Act::NewSession(line),
+                None => continue,
+            },
         };
         let turns = matches!(act, Act::Words { .. } | Act::Answer { .. });
         match order.rounds.last_mut() {

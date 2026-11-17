@@ -207,7 +207,8 @@ impl Agents {
     fn hand_in(&self, index: usize, step: cases::Round, round: Round, reply: RoundReply) {
         let shared = self.shared.clone();
         tokio::spawn(async move {
-            match handed(&shared, &step, &round).await {
+            let teller = reply.teller();
+            match handed(&shared, &step, &round, &teller).await {
                 Ok(came) => {
                     shared.note(Note::Handed { index, run: round.run });
                     reply.ended(came, Spent::default());
@@ -225,11 +226,20 @@ impl Agents {
 }
 
 /// What the history's round returns: its blocks read as the engine reads an agent's return, and, of a line that may
-/// change the work, what it committed, read of the branch moved to the commit it stands at.
-async fn handed(shared: &Shared, step: &cases::Round, round: &Round) -> Result<Came, String> {
+/// change the work, what it committed, read of the branch moved to the commit it stands at. A round of a cell that
+/// takes main in takes it in first, as the agents' carrier does, and says what that brings of the branch.
+async fn handed(shared: &Shared, step: &cases::Round, round: &Round, teller: &service::Teller) -> Result<Came, String> {
+    let place = carry::git::place(&shared.data, &shared.tag, round.work);
+    if round.cell.takes_main && round.number == 1 {
+        let main = super::installation::MAIN_REF;
+        let caught = carry::catch_up::take_in(&shared.project, &place, main, round.run).await;
+        if caught.told().is_some() {
+            let mut looking = carry::branch::Looking::of(&round.flow, &round.kept, shared.reading.clone());
+            looking.tell(&place, teller, true).await;
+        }
+    }
     let back = cases::back::outcome(step, &Shared::ran(round));
     let mut came = carry::returns::came(&back, &round.flow, &round.cell, &shared.beside)?.came;
-    let place = carry::git::place(&shared.data, &shared.tag, round.work);
     if let Some(name) = &step.commit {
         let id = (shared.commits.get(name)).ok_or_else(|| format!("the made project has no commit {name}"))?;
         made::git(&place.dir, &["reset", "--quiet", "--hard", id.as_str()])?;

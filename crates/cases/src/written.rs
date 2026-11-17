@@ -93,7 +93,8 @@ pub struct Entry {
     #[serde(default)]
     pub commit: Option<String>,
     /// An act of the owner's: `background` (the item's background anew, `content` or `text`), `words` (to the cell
-    /// `to`, `content` or `text`) or `answer` (to the question `question`, taking `option`, counted from one).
+    /// `to`, `content` or `text`), `answer` (to the question `question`, taking `option`, counted from one) or
+    /// `session` (the line of the cell `to` begins a new session).
     #[serde(default)]
     pub owner: Option<String>,
     #[serde(default)]

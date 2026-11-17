@@ -86,6 +86,8 @@ pub enum Step {
     },
     /// Main moved to this commit of the made project, by a name of it.
     Main(String),
+    /// The line of this cell began a new session, as the owner may have it begin one.
+    Session(CellId),
 }
 
 /// A round of a cell, which hands these in and, where it commits, leaves the work's branch at this commit of the made
@@ -319,8 +321,17 @@ fn step(flow: &Compiled, names: &Names, entry: &written::Entry) -> Result<Step, 
                 "an answer names its `question` and the `option` taken, counted from one".into(),
             ]),
         },
+        Some("session") => {
+            let to = entry.to.as_deref().unwrap_or_default();
+            match (agent(flow, to)).and_then(|spec| spec.line.as_ref()) {
+                Some(_) => Ok(Step::Session(CellId::from(to))),
+                None => Err(vec![format!(
+                    "a session is begun anew for the line of an agent's cell, not {to:?}"
+                )]),
+            }
+        }
         other => Err(vec![format!(
-            "the owner's act is background, words or answer, not {other:?}"
+            "the owner's act is background, words, answer or session, not {other:?}"
         )]),
     }
 }
