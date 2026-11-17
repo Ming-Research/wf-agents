@@ -108,8 +108,6 @@ export const MARKS: Record<MarkKey, Entry> = {
   failed: ofRun('failed', 'failed'),
   stopped: ofRun('stopped', 'stopped'),
   handedIn: ofRun('handedIn', 'handed in'),
-  nothingNew: ofRun('nothingNew', 'nothing new'),
-  abandoned: ofRun('abandoned', 'abandoned'),
   again: ofRun('again', 'runs again'),
   notYet: ofRun('notYet', 'not yet'),
   skipped: ofRun('skipped', 'skipped'),

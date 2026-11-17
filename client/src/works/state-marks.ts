@@ -25,11 +25,11 @@ export type MarkLook =
   | { shape: 'square'; fill: string | null; edge: string; width: 'ring' | 'hairline' }
   | { shape: 'dash'; fill: string };
 
-/// How a run ended or stands: a round of it runs; the engine carries out a call or an act for it, which it waits for;
-/// it is at rest between two rounds; its last round failed, or what it handed in last was sent back, and it is given
-/// its round again; the work is stopped at it, for the owner or by the engine; it finished and changed a block's
-/// meaning, or changed none; it was abandoned. A cell that has not run yet stands as it will: it runs again, done
-/// before and to be run anew; it has not run yet; it is skipped.
+/// How a cell stands in its work, and how a run of it ended or stands, in one set, the console's strip's: a round of it
+/// runs; the engine carries out a call or an act for it, which it waits for; it is at rest between two rounds; its last
+/// round failed, or what it handed in last was sent back, and it is given its round again; the work is stopped at it,
+/// for the owner or by the engine; it finished; it runs again, done before, or abandoned, and to be run anew; it has
+/// not run yet; it is skipped. Whether a finished run changed anything is not its state: the runs it woke show it.
 export type RunState =
   | 'running'
   | 'waiting'
@@ -37,17 +37,14 @@ export type RunState =
   | 'failed'
   | 'stopped'
   | 'handedIn'
-  | 'nothingNew'
-  | 'abandoned'
   | 'again'
   | 'notYet'
   | 'skipped';
 
-/// Filled is a run that ran or runs, hollow one still to run. Handed in is filled in a light step of the accent, and
-/// handed in nothing new is a dash of it; a run under way in its deep step, a round of it running or at rest; waiting
-/// for a call in the yellow of a call; failed a hollow ring in red, stopped filled in red; abandoned filled in the
-/// muted grey. Runs again is a hollow ring of handed in's light step; not run yet a hairline ring; skipped a muted
-/// dash.
+/// Filled is a run that ran or runs, hollow one still to run. Handed in is filled in a light step of the accent; a run
+/// under way in its deep step, a round of it running or at rest; waiting for a call in the yellow of a call; failed a
+/// hollow ring in red, stopped filled in red. Runs again is a hollow ring of handed in's light step; not run yet a
+/// hairline ring; skipped a muted dash.
 export const RUN_STATES: Record<RunState, MarkLook> = {
   running: { shape: 'square', fill: '--mark-running', edge: '--mark-running', width: 'ring' },
   waiting: { shape: 'square', fill: '--yellow', edge: '--yellow', width: 'ring' },
@@ -55,8 +52,6 @@ export const RUN_STATES: Record<RunState, MarkLook> = {
   failed: { shape: 'square', fill: null, edge: '--red', width: 'ring' },
   stopped: { shape: 'square', fill: '--red', edge: '--red', width: 'ring' },
   handedIn: { shape: 'square', fill: '--mark-done', edge: '--mark-done', width: 'ring' },
-  nothingNew: { shape: 'dash', fill: '--mark-done' },
-  abandoned: { shape: 'square', fill: '--muted', edge: '--muted', width: 'ring' },
   again: { shape: 'square', fill: null, edge: '--mark-done', width: 'ring' },
   notYet: { shape: 'square', fill: null, edge: '--muted', width: 'hairline' },
   skipped: { shape: 'dash', fill: '--muted' },

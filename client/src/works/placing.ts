@@ -19,7 +19,7 @@
 // basis names the version it started from, whose meaning names the version that last changed it.
 
 import type { Cell, Flow } from '../api';
-import type { Block, CallRow, Item, Run, Step, Summary, WorkPage, Writer } from '../works-api';
+import type { CallRow, Item, Run, Step, Summary, WorkPage, Writer } from '../works-api';
 import { type RunState } from './state-marks';
 import { type Part, STATE, callWords, causeWords, plain, sentence, stateOf, stoppedAt, writerWords } from './words';
 
@@ -160,7 +160,7 @@ function runRow(
   const all = [...(latest?.names ?? []), ...said.flatMap((w) => w.names)];
   const names = all.filter((n, i) => all.findIndex((m) => m.name === n.name && m.mark === n.mark) === i);
   const at = column.get(run.cell);
-  const state = runState(run, page.summary, page.blocks);
+  const state = runState(run, page.summary);
   const by = latest?.by ?? null;
   const fromAt = by === null ? undefined : column.get(by.cell);
   const why =
@@ -204,17 +204,13 @@ export function sessionsBegun(steps: Step[]): Map<number, SessionStep[]> {
   return begun;
 }
 
-/// How a run ended or stands, as the strip says it of its cell where the run is the cell's open one: it finished, and a
-/// version it wrote as it did changed a block's meaning, or none did; it was abandoned; the work is stopped at its cell;
-/// a round of it runs, or it waits for a call or an act carried out for it; its last round failed, or what it handed in
-/// last was sent back; or else it is at rest between two rounds.
-export function runState(run: Run, summary: Pick<Summary, 'now' | 'cells' | 'waits'>, blocks: Block[]): RunState {
+/// How a run ended or stands, in the console's strip's states: it finished; it was abandoned, and its cell runs again;
+/// the work is stopped at its cell; a round of it runs, or it waits for a call or an act carried out for it; its last
+/// round failed, or what it handed in last was sent back; or else it is at rest between two rounds.
+export function runState(run: Run, summary: Pick<Summary, 'now' | 'cells' | 'waits'>): RunState {
   const end = run.end;
-  if (end?.kind === 'abandoned') return 'abandoned';
-  if (end?.kind === 'finished') {
-    const changed = blocks.some((b) => b.versions.some((v) => v.at === end.at && v.meaning === v.number));
-    return changed ? 'handedIn' : 'nothingNew';
-  }
+  if (end?.kind === 'abandoned') return 'again';
+  if (end?.kind === 'finished') return 'handedIn';
   if (stoppedAt(summary) === run.cell) return 'stopped';
   const now = summary.cells.find((c) => c.cell === run.cell && c.open === run.run)?.state;
   if (now === 'running') return 'running';

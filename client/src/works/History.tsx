@@ -32,12 +32,11 @@ export const HISTORY_MARKS: MarkKey[] = [
   'outside',
   'tools',
   'handedIn',
-  'nothingNew',
-  'abandoned',
   'running',
   'waiting',
   'atRest',
   'failed',
+  'again',
   'stopped',
 ];
 

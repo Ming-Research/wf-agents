@@ -24,10 +24,10 @@
   font-size: var(--size-small);
 }
 
-/* How a run ended or stands, a cell standing as its run does, as a square in the colour of its state: filled where it
-   ran or runs (handed in in a light step, a run under way in a deep one, waiting for a call in yellow, stopped in red,
-   abandoned grey), hollow where it failed (a red ring) or is still to run (runs again a ring of handed in's colour, not
-   run yet a hairline ring), a dash where it handed in nothing new or is skipped. Its size, ring, corners and colours
+/* How a cell stands in its work and how a run of it ended or stands, one set for the console's strip and a work's
+   history, as a square in the colour of its state: filled where it ran or runs (handed in in a light step, a run under
+   way in a deep one, waiting for a call in yellow, stopped in red), hollow where it failed (a red ring) or is still to
+   run (runs again a ring of handed in's colour, not run yet a hairline ring), a dash where it is skipped. Its size, ring, corners and colours
    are set on it from works/state-marks.ts, which the console's cards draw from too. */
 .state-mark {
   display: inline-block;

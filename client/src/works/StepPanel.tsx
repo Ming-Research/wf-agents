@@ -554,7 +554,7 @@ export function StepTab({ page, row, sessions, reader, shown }: {
       return (
         <RunStep
           run={step}
-          mark={runState(step, page.summary, page.blocks)}
+          mark={runState(step, page.summary)}
           began={sessions.get(step.run) ?? []}
           page={page}
           reader={reader}
