@@ -1,6 +1,6 @@
 //! A change of a file the project protects, made by a round of the build: its return is sent back where it says not
-//! why, and the engine asks the owner once it does, with the reason above the change, in a question that does not hold
-//! the work; the owner's yes lets the work merge, asking nothing again of the change as it is.
+//! why, and the engine asks the owner once it does, with the reason above the change, in a question the work does not
+//! wait for; once the owner answers it, nothing is asked again of the change as it is, to the work's end.
 
 use decide::run::Unmet;
 use service::Act;
@@ -33,10 +33,10 @@ async fn a_build_that_changes_the_guide_is_sent_back_until_it_says_why_and_the_o
     // The engine asked nothing of the change before the build said why, and then the question, with the reason.
     let (name, _) = real.unanswered_question(work).expect("the owner is asked");
     assert_eq!(name, "protected_files");
-    // Asked early, the question does not hold the work.
+    // Asked as the build's round ends, it is a question the work does not wait for.
     assert!(
         real.waited_question(work).is_none(),
-        "the early question holds the work"
+        "the work waits for the question asked as the build's round ends"
     );
     let asked: Vec<_> = (kept.records.questions.iter()).filter(|q| q.name == name).collect();
     assert_eq!(asked.len(), 1, "asked once");
@@ -54,8 +54,7 @@ async fn a_build_that_changes_the_guide_is_sent_back_until_it_says_why_and_the_o
         reasons.get("AGENTS.md").map(String::as_str),
         Some("The build needs the line.")
     );
-    // The owner lets it merge: the build runs for the answer, the change as it was asks nothing again, and the work
-    // ends.
+    // The owner answers with its first option, and the work ends with nothing asked again of the change as it is.
     real.answer(work);
     real.until(|real| ended(&real.decision(work))).await;
     let kept = real.work(work);

@@ -1,5 +1,5 @@
 # What the engine itself asks the owner, from what it finds of a work. None of it is an agent's word, and it recommends
-# none of its options (principle a-question-is-a-choice).
+# the option `merges` names (principle a-question-is-a-choice).
 
 # Asked where the work's own change touches a path `../project.toml` protects (`[protected]`): by the check before the
 # merge, which does not pass while that change is not one the owner let merge by the option `merges` names, and as a

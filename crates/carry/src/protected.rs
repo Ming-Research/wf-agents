@@ -6,10 +6,10 @@
 //! does not: each file it adds, changes or deletes, by its path and the content it ends with, so that main moving on
 //! asks nothing again where the work's own change is the same. The engine asks the owner of it by itself, in the
 //! question of `agents/asks.toml` (`[protected]`), which shows each file with why the work says it is needed and its
-//! change, and recommends none of its options: asked again under its name where the change is another, or where
-//! the work gives another reason for it before the owner answered, withdrawn once the work touches none of the paths.
-//! The owner's yes to the change holds while the change is the same, whatever reason is given for it after. The
-//! question is the engine's, beside what the round returns, and no agent writes it.
+//! change, and recommends the option `merges` names, which lets the change merge: asked again under its name where the
+//! change is another, or where the work gives another reason for it while the question stands unanswered, withdrawn
+//! once the work touches none of the paths. The owner's yes to the change holds while the change is the same, whatever
+//! reason is given for it after. The question is the engine's, beside what the round returns, and no agent writes it.
 //!
 //! Why a file is changed is the work's, said in the field `protected_changes` of a return that does the cell's work,
 //! under the file's path, and it stands for the file as it then is: the question asked carries it, and a later version
@@ -23,9 +23,10 @@
 //! asks again, where the question does not stand unanswered for that change, with the reasons the question that stands
 //! says and a file no round explained said to have none. A look the check cannot make fails the check. As a round of
 //! a line that may change the work ends, the engine looks as well, so that the owner is asked early; that question does
-//! not hold the work, which goes on to its reviews, and the check waits while it stands unanswered (`asked`). A look
-//! that fails there asks nothing and sends nothing back, the check being what holds the merge. Where the check itself
-//! asks, the question holds the work, as nothing else would bring the owner's answer before the merge.
+//! not hold the work, which goes on to its reviews by the option it recommends until the owner answers, and the check
+//! waits while it stands unanswered (`asked`). A look that fails there asks nothing and sends nothing back, the check
+//! being what holds the merge. Where the check itself asks, the question holds the work, as nothing else would bring
+//! the owner's answer before the merge.
 //!
 //! Git is run with no program the repository's configuration or attributes could name, and so that what attributes
 //! say of a file cannot keep its content out of the change shown: the configuration is refused first as the acts
@@ -48,8 +49,6 @@ const SAFE_DIFF: [&str; 4] = ["--no-ext-diff", "--no-textconv", "--text", "--no-
 /// A file of the work's own change under the protected paths.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct File {
-    /// Its kind of change: `A`, `M` or `D` as git says it.
-    pub(crate) status: char,
     pub(crate) path: String,
     /// The content it ends with, as git names it.
     pub(crate) blob: String,
@@ -102,7 +101,7 @@ pub(crate) async fn change(
     let mut files = Vec::new();
     while let (Some(fields), Some(path)) = (parts.next(), parts.next()) {
         let fields: Vec<&str> = fields.split_whitespace().collect();
-        let (Some(blob), Some(status)) = (fields.get(3), fields.get(4).and_then(|s| s.chars().next())) else {
+        let Some(blob) = fields.get(3) else {
             continue;
         };
         let literal = format!(":(literal){path}");
@@ -111,7 +110,6 @@ pub(crate) async fn change(
         args.extend([base, head, "--", literal.as_str()]);
         let diff = git::git(&place.dir, &args).await?;
         files.push(File {
-            status,
             path: path.to_string(),
             blob: blob.to_string(),
             diff,
@@ -255,7 +253,7 @@ fn asked(
     Some(Question::Asked {
         name: words.name.clone(),
         waits,
-        recommends: None,
+        recommends: Some(words.merges),
         ask,
         options: (words.options.iter())
             .map(|o| Way {
@@ -572,12 +570,12 @@ pub(crate) mod tests {
         assert_eq!(reasons, second);
     }
 
-    // Another reason for the file as it is asks anew while the question waits, and lets nothing merge before the
-    // answer; the owner's yes to the change holds whatever reason a round gives after it, so that the same change is
-    // not asked again. A yes given to a question with no reason was asked again for the reason a later round gave
-    // (work 9).
+    // Another reason for the file as it is asks anew while the question stands unanswered, and lets nothing merge
+    // before the answer; the owner's yes to the change holds whatever reason a round gives after it, so that the same
+    // change is not asked again. A yes given to a question with no reason was asked again for the reason a later round
+    // gave (work 9).
     #[tokio::test]
-    async fn another_reason_asks_anew_while_the_question_waits_and_a_yes_holds_whatever_reason_comes_after_it() {
+    async fn another_reason_asks_anew_while_the_question_stands_unanswered_and_a_yes_holds_whatever_reason_follows() {
         let (repo, place) = started().await;
         commits(&place.dir, "AGENTS.md", "Rules.\n");
         let first = because(&[("AGENTS.md", "The guide must say it.")]);
@@ -599,7 +597,7 @@ pub(crate) mod tests {
         let change = change_at(&repo.project, &place, "main", &head, &paths()).await.unwrap();
         assert!(
             !let_merge(&asked_with(question, None), &words(), &change),
-            "asked anew, it waits for an answer"
+            "asked anew, it stands unanswered"
         );
         let let_it = asked_with(asked, Some(words().merges));
         assert_eq!(found(&repo, &place, &let_it, Some(&other)).await, Ok(Looked::default()));
@@ -845,10 +843,9 @@ pub(crate) mod tests {
     /// `../tests/fixtures/protected-question.txt`.
     #[test]
     fn the_question_of_a_real_change_renders_as_the_text_kept_beside_the_tests() {
-        let files: Vec<(&str, char, &str, &str)> = vec![
+        let files: Vec<(&str, &str, &str)> = vec![
             (
                 "design/principles/flow.md",
-                'M',
                 r#"原则 `the-flow-gives-the-trees-rules` 里"规则是数据，和 guide 一样"已与代码不符，且 guide 不再是数据，改为"在每个会话的 system prompt 里给"；你在问题 `principle_wording` 里选了同意。"#,
                 r#"diff --git a/design/principles/flow.md b/design/principles/flow.md
 index fdf38c577..efdd261eb 100644
@@ -870,7 +867,6 @@ index fdf38c577..efdd261eb 100644
             ),
             (
                 "flow/agents/session.toml",
-                'M',
                 r#"system prompt 的第一个 part 由 `datum = "guide"` 改为 `project = "guide"`，AGENTS.md 仍排在最前，从该 work 的 worktree 读，并去掉不再有的 `datum` 这种 part 的说明。"#,
                 r#"diff --git a/flow/agents/session.toml b/flow/agents/session.toml
 index 590af4a69..7ef79d5b8 100644
@@ -907,7 +903,6 @@ index 590af4a69..7ef79d5b8 100644
             ),
             (
                 "flow/data/guide.toml",
-                'D',
                 r#"删除：`guide` 不再是数据，AGENTS.md 只放在每个会话的 system prompt 里（item #11，background v5）。"#,
                 r#"diff --git a/flow/data/guide.toml b/flow/data/guide.toml
 deleted file mode 100644
@@ -923,7 +918,6 @@ index eeb352e96..000000000
             ),
             (
                 "flow/engineer/flow.toml",
-                'M',
                 r#"从 `data` 和 `[every_agent]` 里去掉 `guide`（watches、kinds、do），`[every_agent]` 只剩 `reads` 和 `kinds`；每个代理格子不再关注它，消息里不再出现它。"#,
                 r#"diff --git a/flow/engineer/flow.toml b/flow/engineer/flow.toml
 index 4a67d05ec..dd504b920 100644
@@ -969,8 +963,7 @@ index 4a67d05ec..dd504b920 100644
         ];
         let change = Change {
             files: (files.iter())
-                .map(|(path, status, _, diff)| File {
-                    status: *status,
+                .map(|(path, _, diff)| File {
                     path: path.to_string(),
                     blob: "blob".to_string(),
                     diff: diff.to_string(),
@@ -978,7 +971,7 @@ index 4a67d05ec..dd504b920 100644
                 .collect(),
         };
         let given: BTreeMap<String, String> = (files.iter())
-            .map(|(path, _, why, _)| (path.to_string(), why.to_string()))
+            .map(|(path, why, _)| (path.to_string(), why.to_string()))
             .collect();
         let Some(Question::Asked { ask, .. }) = asking(&Work::default(), &real_words(), &change, &given) else {
             panic!("the change is asked");

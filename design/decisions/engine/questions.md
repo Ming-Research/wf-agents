@@ -40,17 +40,22 @@ against where that commit left main: each file by its path and the content it en
 change is not empty and the owner has not let that very change merge, by the option of the engine's question that says
 so, and it asks, or asks anew, where the question does not stand unanswered of that change; it is withdrawn once the
 change is empty. A look the check cannot make fails it. As each round of a line that may change the work ends, the
-engine looks too and asks early, without holding the work, which goes on to its reviews; the check waits while that
-question stands unanswered, and a question the check asks itself holds the work. A look that fails there asks nothing.
+engine looks too and asks early, without holding the work, which goes on to its reviews by the option the question
+recommends, the one that lets the change merge, until the owner answers; the check waits while that question stands
+unanswered, and a question the check asks itself holds the work. A look that fails there asks nothing.
 Why: Asked only as rounds ended, a change could merge unasked: a round stopped, a return unread, a run abandoned or a
 look that failed left it unseen, and an answer to take the change back, no yes, let the merge go on. The check judges
 the commit that merges, so nothing between the rounds and the merge escapes it. Told apart by content and not by the
 text of the diff, the change asks nothing again as main moves on; asking at every round that touches the paths was
 turned down, as the owner would answer the same change again and again. Held as soon as it was asked, a work stopped
-before its reviews, which could still change the files and have the owner asked again (work 11).
+before its reviews, which could still change the files and have the owner asked again (work 11). Recommending no option,
+the early question would have the owner's answer letting the change merge, given while a review runs, change what the
+work goes by: it would stop that round, already paid for, and run the implementation for nothing and the review again;
+recommending that option, only taking the change back stops what runs, and the recommendation lets nothing merge, the
+check passing only on the owner's answer.
 
 ### decision a-protected-change-is-asked-with-the-work-s-reason-for-each-file
-The engine asks the owner of a change of the protected paths only once the work says why each file of it is needed: a return that does the cell's work, of a line that may change the work, is sent back for each file the branch changes as the round left it of which neither its `protected_changes` nor the question that stands says why, unless the owner let the file merge as it is. A reason stands for the file as it then is, another reason asks anew only while the question waits for its answer and never after the owner's yes to the same change, and the check before the merge, with no return to say why, asks with what the question that stands says.
+The engine asks the owner of a change of the protected paths only once the work says why each file of it is needed: a return that does the cell's work, of a line that may change the work, is sent back for each file the branch changes as the round left it of which neither its `protected_changes` nor the question that stands says why, unless the owner let the file merge as it is. A reason stands for the file as it then is, another reason asks anew only while the question stands unanswered and never after the owner's yes to the same change, and the check before the merge, with no return to say why, asks with what the question that stands says.
 Why: The owner judges a change of what governs the agents by why the agent made it, and a question with the diff alone
 left that to guess (work 9). What the branch holds as the round ends is judged, not what that round's commits did, so
 that a change left unexplained by a round stopped, failed or sent back is the next round's to explain; a yes the owner

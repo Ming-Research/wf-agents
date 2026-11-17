@@ -358,7 +358,8 @@ fn a_line_that_writes_is_told_the_paths_the_project_protects() {
 }
 
 // A line that changes only the project's tests is told their paths in place of the lock commands, a lock file being
-// none of them, and the paths the project protects after them; one that only reads is told it changes no file.
+// none of them, and the paths the project protects after them; one that only reads is told it changes no file, and
+// the paths the project protects after that.
 #[test]
 fn a_line_that_changes_only_the_tests_is_told_their_paths_and_no_lock_command() {
     let tests = args(&[":(glob)crates/**/tests/**", ":(glob)client/**/*.test.ts"]);

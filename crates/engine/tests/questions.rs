@@ -221,7 +221,9 @@ impl Part for Asking {
         }]);
         came.said.questions = self.questions(d, cell);
         // Now and then the engine asks its own beside the round of a cell whose agent may change the work, or
-        // withdraws it.
+        // withdraws it: holding the work in half the asks, as where the check asks it, and otherwise not, as where a
+        // round's end asks it early; recommending its first option either way, as the engine's question recommends the
+        // one that lets the change merge.
         if cell != "merge" && d.rng.chance(8) {
             let question = if d.rng.chance(25) {
                 Question::Withdrawn {
@@ -229,7 +231,8 @@ impl Part for Asking {
                     why: "The work no longer changes a protected file.".to_string(),
                 }
             } else {
-                asked(ENGINES, true, None, d.rng.below(2))
+                let waits = d.rng.chance(50);
+                asked(ENGINES, waits, Some(1), d.rng.below(2))
             };
             came.engine = vec![question];
         }

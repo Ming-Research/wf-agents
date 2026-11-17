@@ -606,11 +606,11 @@ pub struct Asks {
 }
 
 /// The question the engine asks where a work's own change touches a path the project protects ([`Protected`]): asked
-/// again under its name where that change is another, or the work gives another reason for it before the owner
-/// answered, or it was answered with another option than `merges`; withdrawn once the work touches none. It waits only
-/// where the check before the merge asks it, and recommends none of its options. `ask` is what it asks, `{files}` the
-/// files the change touches, each as `file` says, a blank line between two: `{path}` its path, `{why}` why the work
-/// says the change is needed, or `no_reason` where it says nothing, and `{diff}` the file's change itself.
+/// again under its name where that change is another, or the work gives another reason for it while it stands
+/// unanswered, or it was answered with another option than `merges`; withdrawn once the work touches none. It waits
+/// only where the check before the merge asks it, and recommends the option `merges` names. `ask` is what it asks,
+/// `{files}` the files the change touches, each as `file` says, a blank line between two: `{path}` its path, `{why}`
+/// why the work says the change is needed, or `no_reason` where it says nothing, and `{diff}` the file's change itself.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AskProtected {

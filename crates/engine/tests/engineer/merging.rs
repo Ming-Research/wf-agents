@@ -4,8 +4,8 @@
 //! implementation answers a red check by what runs the check again, a commit or a question, and a return that answers
 //! it with neither is sent back; the owner's answer to a question the check asked, which only the implementation is
 //! told, runs the check again by itself, so that the answer alone leads to the merge; and a question of a protected
-//! change asked early, as a round of the implementation ends, holds the check and not the work, which goes by the option
-//! it recommends until the owner answers.
+//! change asked early, as a round of the implementation ends, holds the check and not the work, which goes by the
+//! option it recommends until the owner answers.
 
 use std::path::Path;
 
@@ -147,7 +147,7 @@ fn protected_words() -> AskProtected {
 
 /// The question the engine asks of a change of `AGENTS.md`, which the work says why of, as it asks it, in the words
 /// of `flow/agents/asks.toml`: holding the work where the check before the merge asks it, and not where it is asked
-/// early, as a round of the implementation ends.
+/// early, as a round of the implementation ends; recommending the option `merges` names, which lets the change merge.
 fn protected(waits: bool) -> Question {
     let words = protected_words();
     let why = "The guide must say it.";
@@ -155,7 +155,7 @@ fn protected(waits: bool) -> Question {
     Question::Asked {
         name: words.name,
         waits,
-        recommends: None,
+        recommends: Some(words.merges),
         ask: fill(&words.ask, &[("files", file.as_str())]),
         options: (words.options.iter())
             .map(|o| Way {
