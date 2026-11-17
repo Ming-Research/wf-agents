@@ -7,8 +7,8 @@ what = "The owner's words to the cell and the cell's answers, each a version of 
 from = "words"
 shown = true
 words = '''
-`{cell}_words`: your answer to what the owner said in it, only where that is new to this round. Hand it in at once,
-before any more of the work: your next return is an `outcome` that holds it.'''
+`{cell}_words`: your answer to what the owner said in it, only where that is new to this round. Hand it in before
+you do anything else: your next return is an `outcome` that holds it.'''
 
 # The content of each version, which names no cell: `owner`, the owner's, with `{words}` what the owner said; `reply`,
 # the cell's answer, with `{reply}` what its return writes of it in `outputs`.
