@@ -1414,7 +1414,10 @@ fn heed(line: &Line, now: u64) -> String {
             now: is,
         } => {
             let at = match is {
-                Now::Waits { at, .. } | Now::Stalled { at, .. } => format!(" at {at}"),
+                Now::Waits { at, .. }
+                | Now::Stalled { at, .. }
+                | Now::Paused { at, .. }
+                | Now::Everything { at, .. } => format!(" at {at}"),
                 Now::Round { cell, .. } | Now::Next { cell } => format!(" at {cell}"),
                 _ => String::new(),
             };
@@ -1522,18 +1525,20 @@ fn now(now: &Now) -> String {
         Now::Merged => "merged".to_string(),
         Now::Cancelled => "cancelled".to_string(),
         Now::Round { cell, run, round, .. } => format!("a round of {cell} is under way, round {round} of run {run}"),
-        Now::Paused { by: Pauser::Owner, .. } => "paused".to_string(),
         Now::Paused {
+            at, by: Pauser::Owner, ..
+        } => format!("paused at {at}"),
+        Now::Paused {
+            at,
             by: Pauser::Engine,
             why: Some(why),
-            ..
-        } => format!("paused by the engine. {}", sentence(why)),
+        } => format!("paused at {at} by the engine. {}", sentence(why)),
         Now::Paused {
+            at,
             by: Pauser::Engine,
             why: None,
-            ..
-        } => "paused by the engine, which gave no reason".to_string(),
-        Now::Everything { .. } => "held back by the pause of everything".to_string(),
+        } => format!("paused at {at} by the engine, which gave no reason"),
+        Now::Everything { at, .. } => format!("held back at {at} by the pause of everything"),
         Now::Waits { at, on } => {
             let on: Vec<String> = on.iter().map(waited).collect();
             format!("waits at {at} for {}", on.join("; and for "))

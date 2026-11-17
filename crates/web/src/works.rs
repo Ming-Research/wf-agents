@@ -352,17 +352,23 @@ pub enum Now {
         #[serde(default)]
         at: Option<String>,
     },
-    /// It is paused, and what it would do next is begin a round at this cell: by the owner, or by the engine itself
-    /// for this reason, as when a round failed.
+    /// It is paused at this cell, by the owner, or by the engine itself for this reason, as when a round failed: what
+    /// it would do next is begin a round there, or, where it is stalled and its own pause holds it, it stands there. An
+    /// engine of a build before the cell was said gives none, read as empty.
     Paused {
+        #[serde(default)]
         at: String,
         by: Pauser,
         why: Option<String>,
     },
     /// The pause of everything holds it back, and what it would do next is begin a round at this cell; its own pause
     /// does not hold it. `by` is who set it: the owner, or the engine as it started with works going on, which holds
-    /// every work until the owner lifts it.
-    Everything { at: String, by: Pauser },
+    /// every work until the owner lifts it. An engine of a build before the cell was said gives none, read as empty.
+    Everything {
+        #[serde(default)]
+        at: String,
+        by: Pauser,
+    },
     /// It waits at this cell, for each of these.
     Waits { at: String, on: Vec<Waited> },
     /// It is about to do something at this cell. A work is never left so between two things that happen to it.

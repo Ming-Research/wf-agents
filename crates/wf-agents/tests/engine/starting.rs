@@ -88,7 +88,9 @@ fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_
     assert!(said.starts_with(&format!("{held}, for ")), "{said}");
     // The answer is taken, and the plan's next round waits for the owner to let everything on.
     engine.says(&["result", "1", "2", "Yes."]);
-    engine.until(&["list"], |line| line.ends_with("held back by the pause of everything"));
+    engine.until(&["list"], |line| {
+        line.ends_with("held back at plan by the pause of everything")
+    });
     assert!(engine.says(&["resume", "--all"]).starts_with("Works go on; "));
     engine.until(&["list", "--all"], |line| line.ends_with(": merged"));
 }
@@ -125,7 +127,7 @@ fn a_second_engine_on_a_data_directory_one_drives_does_not_start() {
     // The first goes on as it was.
     assert_eq!(
         engine.says(&["list"]),
-        "Works go on; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: paused\n"
+        "Works go on; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: paused at plan\n"
     );
 }
 

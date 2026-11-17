@@ -16,4 +16,4 @@ Why: Nothing decides by these records and they are only added to, so a second wr
 
 ### decision an-engine-that-keeps-no-copies-says-so
 The route of the copies answers on every engine; one that keeps none, as one that runs a script, says that it keeps none, and the page then shows no copies.
-Why: An engine that kept none had no such route, and the page took the missing path for a failure, in red, on every page served from a script.
+Why: Leaving the route off an engine that keeps none was turned down: the page took the missing path for a failure, in red, on every page served from a script.
