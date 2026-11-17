@@ -75,7 +75,7 @@
   text-decoration: underline;
 }
 
-/* How far the work has come and what it has taken, together at the work's line's right end. */
+/* How far the work has come and what it has taken, together at the item's line's right end. */
 .cw-progress {
   display: flex;
   align-items: center;

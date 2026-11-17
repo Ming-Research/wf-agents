@@ -37,6 +37,7 @@ import {
   sentence,
   sessionWords,
   spentWords,
+  stoppedAt,
   unmetWords,
   writerWords,
 } from './words';
@@ -519,7 +520,14 @@ export function WorkCellPanel({ cell, page, fold, onChoose }: PanelProps & { cel
       lines={
         now && (
           <>
-            <StatusLine word={<><StateMark state={now.state} /> {STATE_WORDS[now.state].replace(/^./, (c) => c.toUpperCase())}</>}>
+            <StatusLine
+              word={
+                <>
+                  <StateMark state={now.state} stopped={stoppedAt(page.summary) === cell} />{' '}
+                  {STATE_WORDS[now.state].replace(/^./, (c) => c.toUpperCase())}
+                </>
+              }
+            >
               {cellNowWords(now).replace(/^[^:]*: [^,]*, /, '')}
             </StatusLine>
             {(now.record !== null || now.open !== null) && (

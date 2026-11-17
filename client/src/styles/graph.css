@@ -236,7 +236,7 @@ button.graph-node:hover {
 }
 
 .graph-row:hover {
-  background: var(--step);
+  background: var(--accent-tint);
 }
 
 .graph-row[aria-pressed='true'] {

@@ -23,7 +23,6 @@ import type {
   Waited,
   Writer,
 } from '../works-api';
-import { MARKS } from './state-marks';
 import { waitsOf } from './waiting';
 
 const SECOND = 1000;
@@ -461,17 +460,17 @@ export function stoppedAt(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string |
 }
 
 /// The cell a work stands at, named under its card's number and before its strip in the item's window, with the token
-/// of the colour it is named in: the stop's red where the work is stopped there, the colour of the cell's mark while
-/// the work runs, else the muted grey; none where it stands at no cell.
+/// of the colour it is named in, as small text takes its colour's text step: the stop's red where the work is stopped
+/// there; while it runs, the yellow of a call where its cell carries one out, else the running colour; else the muted
+/// grey; none where it stands at no cell.
 export function standingCell(s: Pick<Summary, 'now' | 'cells' | 'waits'>): { cell: string; colour: string } | null {
   const stopped = stoppedAt(s);
-  if (stopped !== null) return { cell: stopped, colour: '--red' };
+  if (stopped !== null) return { cell: stopped, colour: '--red-text' };
   const { tone, cell } = stateOf(s);
   if (cell === null) return null;
-  const state = s.cells.find((c) => c.cell === cell)?.state;
-  if (tone !== 'running' || state === undefined) return { cell, colour: '--muted' };
-  const look = MARKS[state];
-  return { cell, colour: look.shape === 'dash' ? look.fill : (look.fill ?? look.edge) };
+  if (tone !== 'running') return { cell, colour: '--muted' };
+  const calling = s.cells.some((c) => c.cell === cell && c.state === 'calling');
+  return { cell, colour: calling ? '--yellow-text' : '--running-text' };
 }
 
 /// The first line of a text, for a line of a list or a notification.
@@ -627,6 +626,10 @@ export const STATE_WORDS: Record<CellState, string> = {
   again: 'runs again',
   done: 'done',
 };
+
+/// The words of the deep filled mark in a legend of the marks, which stands for a run under way whether a round of it
+/// runs (which pulses), it is at rest between two rounds, or its last round failed and is to be given again.
+export const UNDER_WAY_WORDS = 'under way: between rounds, or failed and to be given again';
 
 /// The words of the mark of the cell a work is stopped at, in a legend of the marks.
 export const STOPPED_WORDS = 'stopped here, for you or by the engine';

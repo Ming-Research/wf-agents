@@ -133,8 +133,11 @@ describe("a card's strip", () => {
     expect(drawn(light)).toEqual(laidOut(cells));
     // Only the marks of the cell running and of the cell with a call under way pulse.
     expect(light.marks.map((m) => m.pulses)).toEqual([false, true, true, false, false, false, false, false]);
-    // Under the number, the name of the cell the work runs at, in the colour of that cell's mark.
-    expect(light.name).toEqual({ text: 'c1', colour: light.marks[1].fill });
+    // Under the number, the name of the cell the work runs at, in the running colour's text step.
+    const runningText = getComputedStyle(document.documentElement).getPropertyValue('--running-text').trim();
+    expect(light.name).toEqual({ text: 'c1', colour: runningText });
+    // A filled mark is not ringed in its own colour, which would show as a border on a dimmed card; a hollow one is.
+    expect(light.marks.map((m) => m.ringed)).toEqual([false, false, false, false, false, true, true, false]);
     // Under the title, so that the number stands alone at the card's left, and short of where the work's time went.
     expect(light.marks[0].x).toBe(36);
     const last = light.marks[light.marks.length - 1];

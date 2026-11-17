@@ -261,7 +261,7 @@ describe('the panel of the item selected', () => {
       'done',
       'running',
       'call under way',
-      'at rest',
+      'under way: between rounds, or failed and to be given again',
       'runs again',
       'not run yet',
       'skipped',

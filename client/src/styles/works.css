@@ -24,9 +24,10 @@
   font-size: var(--size-small);
 }
 
-/* A cell's state as a square, in the colour of its state: done filled, running filled in a deep step, at rest a ring of
-   it, runs again a ring of done's colour, not run yet a hairline ring, skipped a dash. Its size, ring, corners and colours are set on it from
-   works/state-marks.ts, which the console's cards draw from too. */
+/* A cell's state as a square, in the colour of its state: filled where it ran or runs (done in a light step, a run
+   under way in a deep one, a call in yellow), hollow where it is still to run (runs again a ring of done's colour, not
+   run yet a hairline ring), a dash where it is skipped, and filled red where the work is stopped at it. Its size, ring,
+   corners and colours are set on it from works/state-marks.ts, which the console's cards draw from too. */
 .state-mark {
   display: inline-block;
   flex: none;

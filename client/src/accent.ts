@@ -38,7 +38,7 @@ export const TONES: Record<Theme, Record<string, Kind>> = {
 export const MEANINGS = {
   red: ['red', 'red-text'],
   orange: ['orange', 'orange-text'],
-  yellow: ['yellow'],
+  yellow: ['yellow', 'yellow-text'],
   green: ['green', 'green-text'],
 } as const;
 

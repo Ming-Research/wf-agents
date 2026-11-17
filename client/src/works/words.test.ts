@@ -124,16 +124,22 @@ describe('what a work does now, in words', () => {
   it("names the cell a work stands at in the stop's red, the running mark's colour or grey, or none", () => {
     expect(standingCell(doing({ kind: 'paused', at: 'plan', by: 'engine', why: 'x' }, [limit]))).toEqual({
       cell: 'plan',
-      colour: '--red',
+      colour: '--red-text',
     });
     expect(standingCell(doing({ kind: 'waits', at: 'merge', on: [precondition] }, [limit]))).toEqual({
       cell: 'merge',
-      colour: '--red',
+      colour: '--red-text',
     });
     const running = { cell: 'plan', state: 'running' as const, finished: 0, record: null, open: 3 };
     expect(standingCell({ now: { kind: 'next', cell: 'plan' }, cells: [running], waits: [] })).toEqual({
       cell: 'plan',
-      colour: '--mark-running',
+      colour: '--running-text',
+    });
+    const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } };
+    const call = { cell: 'M1', state: 'calling' as const, finished: 0, record: null, open: 1 };
+    expect(standingCell({ now: { kind: 'waits', at: 'M1', on: [tool] }, cells: [call], waits: [] })).toEqual({
+      cell: 'M1',
+      colour: '--yellow-text',
     });
     expect(standingCell(doing({ kind: 'waits', at: 'plan', on: [precondition] }))).toEqual({
       cell: 'plan',

@@ -6,7 +6,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import type { CellNow, CellState, Summary } from '../works-api';
 import { markStyle, pulsing, stripStyle } from './state-marks';
-import { STATE, STATE_WORDS, STOPPED_WORDS, nowTone, nowWords, stateOf } from './words';
+import { STATE, STATE_WORDS, STOPPED_WORDS, UNDER_WAY_WORDS, nowTone, nowWords, stateOf } from './words';
 
 /// A cell's state as a square: filled when it ran or runs, hollow when still to run, a dash when skipped; filled in red
 /// where the work is `stopped` at it. Running and a call under way pulse. Its look is `state-marks.ts`'s, which the
@@ -38,15 +38,15 @@ export function Strip({ cells, stopped = null }: { cells: CellNow[]; stopped?: s
   );
 }
 
-/// The legend of the marks: one entry for each look, a run under way standing for the states drawn as it is (between
-/// two rounds, or its round failed), and last the cell a work is stopped at.
+/// The legend of the marks: one entry for each look, the still deep mark standing for each state drawn as it is (a run
+/// at rest between two rounds, or whose round failed), and last the cell a work is stopped at.
 export function StateLegend() {
   const states: CellState[] = ['done', 'running', 'calling', 'resting', 'again', 'notYet', 'skipped'];
   return (
     <ul className="legend" aria-label="What the marks of a cell's state mean">
       {states.map((s) => (
         <li key={s}>
-          <StateMark state={s} /> {STATE_WORDS[s]}
+          <StateMark state={s} /> {s === 'resting' ? UNDER_WAY_WORDS : STATE_WORDS[s]}
         </li>
       ))}
       <li>

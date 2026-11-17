@@ -115,11 +115,20 @@ function softBlur(strength: number): BlurFilter {
   blur.padding = BLUR_ROOM * strength;
   return blur;
 }
-/// The mark of a cell running pulses: lit most of each beat, it fades out and back in during the last part of it.
-/// How long a beat is, in milliseconds; the part of it the fade takes; and how faint the mark goes at its faintest.
+/// The mark of a cell running pulses: lit most of each beat, it fades out and back in during the last part of it, the
+/// part the works page's marks fade in too (styles/works.css, `mark-pulse`). How long a beat is, in milliseconds, and
+/// how faint the mark goes at its faintest are the page's tokens (`--pulse`, `--pulse-faint`), read as the scene is
+/// drawn; these are taken where the page has none, as in a test with no styles.
 const PULSE_MS = 750;
 const FADE = 0.4;
 const DARK = 0.15;
+
+/// The beat of a running cell's mark, as the page's tokens give it.
+function beatOf(): { ms: number; faint: number } {
+  const ms = length('--pulse');
+  const faint = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pulse-faint'));
+  return { ms: ms > 0 ? ms : PULSE_MS, faint: Number.isFinite(faint) ? faint : DARK };
+}
 /// The part of the way to where they are going that the columns move sideways each frame, when the scene brings an
 /// item into view.
 const SNAP = 0.32;
@@ -164,7 +173,7 @@ const LIGHT = {
   branch: '#abd3fd',
   /// The ribbons from the item under the pointer up to its root.
   hoverRibbon: '#d5e2ff',
-  /// The ring round the item selected and those on its way to its root, and the ribbons between them.
+  /// The accent: the mark on the map of where the item selected stands.
   chosen: '#3673f5',
   chosenRibbon: '#d0ddff',
   /// A column's bar on the map, light, so that the marks across it show.
@@ -178,7 +187,8 @@ const LIGHT = {
   amber: '#d97706',
   red: '#e5484d',
   green: '#2f9e6e',
-  /// The item under the pointer, and those above it, ringed; the lines at the edges of the column under it.
+  /// The pointer's blue: the lines at the edges of the column under it, and the own colour of an item with no work of
+  /// its own above a work, ringed and lit in it.
   over: '#6d9bf9',
   /// The words on a filled tag.
   onTag: '#ffffff',
@@ -495,6 +505,8 @@ export type DrawnMark = {
   fill: string | null;
   edge: string | null;
   ring: number;
+  /// Whether its ring is drawn: not where it is of the fill's own colour, which covers it already.
+  ringed: boolean;
   pulses: boolean;
 };
 
@@ -624,12 +636,14 @@ export class SnapScene {
   /// For each item, whether a work has begun on it or under it: the title of one with none is greyer.
   private begun: Uint8Array = new Uint8Array(0);
   /// Each item's own colour, which its soft light and its ring take when it is pointed at or selected, as its card
-  /// shows it: its work's state's (red, the running colour, or grey); for an item with no work of its own, the blue of
-  /// a card's edge above a work; else grey.
+  /// shows it: its work's state's (red, the running colour, or grey); for an item with no work of its own above a work,
+  /// whose edge is a light blue, the pointer's blue; else grey.
   private own: string[] = [];
   /// The parts of a node that change while it is shown: the marks of the cells running, which pulse, and the label of
   /// how long its work has gone on, with when the work started.
   private pulses = new Map<number, Graphics>();
+  /// The beat the marks of cells running pulse at ([`beatOf`]).
+  private beat = { ms: PULSE_MS, faint: DARK };
   private ages = new Map<number, { from: number; label: BitmapText; shown: string; row: number }>();
   private styles: Styles | null = null;
   /// The cells' marks in the theme's tokens, read each time the tree is drawn; and each card's strip as drawn, by its
@@ -837,6 +851,7 @@ export class SnapScene {
       for (let p = k; p >= 0 && this.begun[p] === 0; p = tree.parent[p]) this.begun[p] = 1;
     });
     this.pulses = new Map();
+    this.beat = beatOf();
     this.runWays = waysUp(
       items.flatMap((i, k) => (!i.shadow && i.work !== null && moodOf(i.work) === 'running' ? [k] : [])),
       tree.parent,
@@ -1095,6 +1110,7 @@ export class SnapScene {
         fill: look.fill,
         edge: look.edge,
         ring: look.ring,
+        ringed: look.edge !== null && look.edge !== look.fill,
         pulses: pulsing(c.state),
       };
     });
@@ -1107,7 +1123,7 @@ export class SnapScene {
       // the fill's own colour is not drawn over it: the fill covers it already, and drawn twice, the ring would show as
       // a border once the card is dimmed and both are drawn faint.
       const r = m.ring;
-      if (m.edge !== null && m.edge !== m.fill)
+      if (m.edge !== null && m.ringed)
         g.roundRect(m.x + r / 2, m.y + r / 2, m.width - r, m.height - r, Math.max(0, m.corner - r / 2)).stroke({
           color: m.edge,
           width: r,
@@ -1600,9 +1616,9 @@ export class SnapScene {
     const half = (d: number, rank: number) => high(this.rowsAt(d, rank)) / 2;
     // The marks of cells running: lit, then in the last part of each beat faded out and back in, every running node
     // at once.
-    const beat = (now % PULSE_MS) / PULSE_MS;
+    const beat = (now % this.beat.ms) / this.beat.ms;
     const fade = beat < 1 - FADE ? 0 : Math.sin((Math.PI * (beat - (1 - FADE))) / FADE) ** 2;
-    const pulse = 1 - (1 - DARK) * fade;
+    const pulse = 1 - (1 - this.beat.faint) * fade;
     // Moved sideways no further than leaves half of the first column on the screen at its right, or half of the last at
     // its left, so that one always sees where the tree ends.
     const last = Math.max(0, t.columns.length - 1) * PITCH;

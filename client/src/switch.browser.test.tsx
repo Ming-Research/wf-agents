@@ -1,5 +1,5 @@
 // The page's segmented switch under the pointer, in a real browser (Chromium): the choice taken does nothing when
-// pressed, so it neither takes the hover's step nor shows the hand; the other choices do both.
+// pressed, so it neither takes the hover's tint nor shows the hand; the other choices do both.
 
 import './styles/tokens.css';
 import './styles/parts.css';
