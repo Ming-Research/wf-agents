@@ -36,7 +36,7 @@
 import { Application, BitmapText, BlurFilter, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
 import { accentNow, onAccent, turning } from '../accent';
-import { MARK, MARKS, pulsing } from '../works/state-marks';
+import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
 import { STATE, nowWords, standingCell, stateOf, stoppedAt } from '../works/words';
 import { type Shown, type ShownWork, age } from './items';
@@ -460,7 +460,7 @@ function cellLooks(): { measures: { side: number; gap: number }; looks: Record<C
   const corner = length(MARK.corner);
   const colour = (name: string) => token(name, PALETTE.muted);
   const looks = Object.fromEntries(
-    Object.entries(MARKS).map(([state, look]): [string, CellLook] => [
+    Object.entries(CELL_LOOKS).map(([state, look]): [string, CellLook] => [
       state,
       look.shape === 'dash'
         ? { fill: colour(look.fill), edge: null, ring: 0, height: length(MARK.dash), corner: 0 }

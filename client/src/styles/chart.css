@@ -393,7 +393,7 @@ tr.row.chosen > .block-head {
   stroke: none;
 }
 
-/* The legend, in the view's line. */
+/* The legend, in the view's line or a panel: each mark as the table draws it (marks.tsx) and its name. */
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -413,11 +413,44 @@ tr.row.chosen > .block-head {
   margin: 0;
 }
 
-.legend-back {
+/* A line between cells, as a sample (marks.tsx): an arrow a write runs, thin in the data's colour; a way back, thick
+   in the accent; the main path, thick in the text's colour; an arrow from what is written outside the cells, dashed. */
+.legend-line {
   display: inline-block;
   width: var(--space-12);
+  height: var(--chart-line);
+  background: var(--chart-data);
+}
+
+.legend-line.back {
   height: var(--chart-back);
   background: var(--accent);
+}
+
+.legend-line.main {
+  height: var(--chart-main);
+  background: var(--text);
+}
+
+.legend-line.outside {
+  height: 0;
+  border-top: var(--chart-line) dashed var(--chart-data);
+  background: none;
+}
+
+/* A node of the flowchart, as a sample: the way into a cell, and, edged in the accent, a cell that writes what the
+   chosen cell takes. */
+.legend-node {
+  display: inline-block;
+  width: var(--space-12);
+  height: var(--space-8);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: var(--card);
+}
+
+.legend-node.lit {
+  border-color: var(--accent);
 }
 
 /* The faults of a definition that does not compile, in place of the chart. */

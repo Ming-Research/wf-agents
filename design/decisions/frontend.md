@@ -24,6 +24,15 @@ one that waits. An act of the engine's own under way is a round, and runs.
 Why: Said to run by the item's window and its card and to have finished by the run's panel, while its history said a
 call was under way, one work said three things at once and none of them what it waited for (W11).
 
+### decision one-set-of-marks-for-how-a-run-stands
+How a run ended or stands has one set of marks, which the strip of a work's cells draws for each cell, as its run
+stands, and a work's history for each run; a run whose return was sent back is drawn as `failed`, as one whose last
+round failed.
+Why: The strip and the history drew the same states in marks and words of their own (Article 8). A mark of its own
+for a return sent back was turned down as one more to learn, and a run whose round failed drawn as one at rest as
+hiding that it failed; that the two kinds of failing need no telling apart at a glance, the run's Step saying which,
+rests on judgment.
+
 ### decision a-cancelled-work-is-grey
 The mark of a cancelled work, in the list of works and on the console, is grey and never red.
 Why: The owner reads a red mark as a fault.

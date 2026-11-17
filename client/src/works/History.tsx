@@ -13,12 +13,29 @@ import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from
 
 import type { Cell } from '../api';
 import { BackArrow, CellHead, FLOW_WIDTHS, WIDTHS, WordsHead, useWheel } from '../Chart';
-import { Arrow, Edge, Sign } from '../parts';
+import { MARKS, type MarkKey, markName } from '../marks';
+import { Arrow, Edge } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
 import type { WorkPage } from '../works-api';
+import { Parts } from './marks';
 import { type HistoryRow, type RowMark } from './placing';
-import { Parts, RunMarkSign } from './marks';
-import { RUN_MARK_WORDS, SIGNED_WORDS, dayOf, fullTime, minuteOf, partsText } from './words';
+import { dayOf, fullTime, minuteOf, partsText } from './words';
+
+/// The marks the history draws, in the order its legend lists them (`Legend` in marks.tsx): how a run ended, then how
+/// an open one stands; the owner's sign and the outside's; and the way back.
+export const HISTORY_MARKS: MarkKey[] = [
+  'handedIn',
+  'nothingNew',
+  'abandoned',
+  'running',
+  'waiting',
+  'atRest',
+  'failed',
+  'stopped',
+  'people',
+  'outside',
+  'wayBack',
+];
 
 /// The width of the column of times at first, and the least and most it is dragged to.
 const TIMES = { first: 96, min: 56, max: 200 };
@@ -39,8 +56,8 @@ function backAt(back: HistoryRow['back'], column: number): 'right' | 'through' |
 
 /// What a row's mark under a cell says, on the pointer's tip and to a reader of the screen.
 function markWords(mark: RowMark, cell: string): string {
-  if (mark.kind === 'run') return `${cell} run ${mark.run}: ${RUN_MARK_WORDS[mark.mark]}`;
-  return `${cell} ${SIGNED_WORDS[mark.kind]}`;
+  if (mark.kind === 'run') return `${cell} run ${mark.run}: ${markName(mark.mark)}`;
+  return `${cell}: ${markName(mark.kind === 'owner' ? 'people' : 'outside')}`;
 }
 
 /// A row's mark under a cell: a run's, its words there for a reader of the screen, or the owner's or the outside's sign,
@@ -49,11 +66,11 @@ function RowMarkSign({ mark, words }: { mark: RowMark; words: string }) {
   if (mark.kind === 'run')
     return (
       <>
-        <RunMarkSign mark={mark.mark} title={words} />
+        {MARKS[mark.mark].draw(words)}
         <span className="visually-hidden">{words}</span>
       </>
     );
-  return <Sign name={mark.kind === 'owner' ? 'people' : 'outside'} words={words} />;
+  return MARKS[mark.kind === 'owner' ? 'people' : 'outside'].draw(words);
 }
 
 export function HistoryChart({ page, rows, chosen, onChoose, covered }: {

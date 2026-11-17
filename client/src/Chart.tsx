@@ -38,10 +38,10 @@ import {
   type LineSpot,
   type Mark,
   type Matrix,
-  NO_MARK,
   type Spot,
   type ToolRow,
 } from './matrix';
+import type { MarkKey } from './marks';
 import { Arrow, CROSS, Edge, Sign, TICK } from './parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
 import {
@@ -209,60 +209,25 @@ function conditionParts({ when, value, requires }: ConditionSpot): ReactNode[] {
   return parts;
 }
 
-/// The legend of the marks and signs, in the view's line, each by its key.
-export function Legend({ waysBack }: { waysBack: number }) {
-  const mark = (fields: Partial<Mark>) => ({ ...NO_MARK, ...fields });
-  const condition = (when: boolean, requires: boolean, value?: string): ConditionSpot => ({ when, value, requires });
-  return (
-    <ul className="legend" aria-label="What the marks mean">
-      <li>
-        <LineGlyph on /> line
-      </li>
-      <li>
-        <ConditionGlyph spot={condition(true, false)} /> when yes, when test
-      </li>
-      <li>
-        <ConditionGlyph spot={condition(true, false, 'no')} /> when no
-      </li>
-      <li>
-        <ConditionGlyph spot={condition(false, true)} /> requires
-      </li>
-      <li>
-        <ToolGlyph on /> tools
-      </li>
-      <li>
-        <DataGlyphs mark={mark({ watch: true })} /> watches
-      </li>
-      <li>
-        <DataGlyphs mark={mark({ read: true })} /> reads
-      </li>
-      <li>
-        <DataGlyphs mark={mark({ write: true })} /> outputs
-      </li>
-      <li>
-        <span className="legend-back" aria-hidden="true" /> way back ({waysBack})
-      </li>
-      <li>
-        <DataGlyphs mark={mark({ read: true, kind: 'latest' })} /> latest
-      </li>
-      <li>
-        <DataGlyphs mark={mark({ read: true, kind: 'lastAndLatest' })} /> last_and_latest
-      </li>
-      <li>
-        <DataGlyphs mark={mark({ read: true, kind: 'all' })} /> all
-      </li>
-      <li>
-        <Sign name="people" /> people
-      </li>
-      <li>
-        <Sign name="outside" /> outside
-      </li>
-      <li>
-        <Sign name="shown" /> shown
-      </li>
-    </ul>
-  );
-}
+/// The marks the chart draws, in the order its legend lists them (`Legend` in marks.tsx), each named by its key; the
+/// way back with how many the flow has.
+export const MATRIX_MARKS: MarkKey[] = [
+  'line',
+  'whenYes',
+  'whenNo',
+  'requires',
+  'tools',
+  'watches',
+  'reads',
+  'outputs',
+  'wayBack',
+  'latest',
+  'lastAndLatest',
+  'all',
+  'people',
+  'outside',
+  'shown',
+];
 
 /// The widths the columns of a chart take, in pixels: the names' column at first and as dragged, and a cell's column at
 /// most when dragged. Kept in step with tokens.css.

@@ -7,14 +7,14 @@
 import { Fragment, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { type Definition, type Flow, type Given, load } from './api';
-import { Chart, type Chosen, Legend } from './Chart';
+import { Chart, type Chosen, MATRIX_MARKS } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type BarItems, Engine, useBarItems } from './Engine';
 import { waitingCount } from './works/waiting';
 import { waitCount } from './works/words';
 import { LazyFlowChart } from './graph/lazy';
-import { GraphLegend } from './graph/legend';
-import { chartOf } from './graph/model';
+import { FLOWCHART_MARKS, chartOf } from './graph/model';
+import { Legend } from './marks';
 import { matrix } from './matrix';
 import { usesFixtures } from './mock-data';
 import { useNotifications } from './notify';
@@ -399,7 +399,11 @@ export function FlowPage({ definition, given, active = true }: {
           </span>
         </div>
         <div className="view-row">
-          {chartView === 'matrix' ? <Legend waysBack={drawn.waysBack} /> : <GraphLegend waysBack={graphWaysBack} />}
+          {chartView === 'matrix' ? (
+            <Legend marks={MATRIX_MARKS} counts={{ wayBack: drawn.waysBack }} />
+          ) : (
+            <Legend marks={FLOWCHART_MARKS} counts={{ wayBack: graphWaysBack }} />
+          )}
         </div>
       </div>
       {given?.state === 'unread' && (

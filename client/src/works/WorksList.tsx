@@ -16,10 +16,11 @@
 
 import { type CSSProperties, memo, useCallback, useMemo, useRef, useState } from 'react';
 
+import { Legend } from '../marks';
 import { Arrow, Edge } from '../parts';
 import { WIDTH_KEYS, useKeptWidths } from '../sizes';
 import type { Item, Items } from '../works-api';
-import { NowLine, StateLegend, Strip } from './marks';
+import { NowLine, STRIP_MARKS, Strip } from './marks';
 import { LAST_FIRST, type Order, type OrderBy, orderWorks, wayOf } from './placing';
 import { useChanges, useItems, useReading, useSource } from './source';
 import { waitingCount, waitsOnOwner } from './waiting';
@@ -183,7 +184,7 @@ export function WorksTable({ items, projects = [], failed = null }: {
           {chosen !== null && `, ${works.length} shown`}
         </span>
         <span className="view-end works-legend">
-          <StateLegend />
+          <Legend marks={STRIP_MARKS} />
         </span>
       </div>
       {failed !== null && (

@@ -17,12 +17,12 @@
 // version that last changed it.
 
 import type { Block, Item, Run, Step, Summary, WorkPage } from '../works-api';
-import { type RunMark } from './state-marks';
+import { type RunState } from './state-marks';
 import { type Part, STATE, isWayRound, plain, sentence, stateOf, stoppedAt } from './words';
 
 /// The mark a row has under a cell: a run's, how it ended or stands; the owner's sign, of an act that ran the cell or
 /// let it go on; the outside's sign, of a write that ran the cell.
-export type RowMark = { kind: 'run'; mark: RunMark; run: number } | { kind: 'owner' } | { kind: 'outside' };
+export type RowMark = { kind: 'run'; mark: RunState; run: number } | { kind: 'owner' } | { kind: 'outside' };
 
 /// A new session of a line, as a step.
 export type SessionStep = Step & { kind: 'session' };
@@ -116,9 +116,9 @@ export function sessionsBegun(steps: Step[]): Map<number, SessionStep[]> {
 
 /// How a run ended or stands, as the strip says it of its cell where the run is the cell's open one: it finished, and a
 /// version it wrote as it did changed a block's meaning, or none did; it was abandoned; the work is stopped at its cell;
-/// a round of it runs, or a call or an act is carried out for it; the round it handed in last was sent back; or else it
-/// is under way.
-export function runMark(run: Run, summary: Pick<Summary, 'now' | 'cells' | 'waits'>, blocks: Block[]): RunMark {
+/// a round of it runs, or it waits for a call or an act carried out for it; its last round failed, or what it handed in
+/// last was sent back; or else it is at rest between two rounds.
+export function runState(run: Run, summary: Pick<Summary, 'now' | 'cells' | 'waits'>, blocks: Block[]): RunState {
   const end = run.end;
   if (end?.kind === 'abandoned') return 'abandoned';
   if (end?.kind === 'finished') {
@@ -127,8 +127,10 @@ export function runMark(run: Run, summary: Pick<Summary, 'now' | 'cells' | 'wait
   }
   if (stoppedAt(summary) === run.cell) return 'stopped';
   const now = summary.cells.find((c) => c.cell === run.cell && c.open === run.run)?.state;
-  if (now === 'running' || now === 'calling') return now;
-  return run.rounds.at(-1)?.back?.kind === 'handedIn' ? 'sentBack' : 'underWay';
+  if (now === 'running') return 'running';
+  if (now === 'calling') return 'waiting';
+  const back = run.rounds.at(-1)?.back?.kind;
+  return now === 'failed' || back === 'failed' || back === 'handedIn' ? 'failed' : 'atRest';
 }
 
 /// A block as a row names it: with the value its version has, where it has one (`plan_ok = no`), else with its
@@ -200,7 +202,7 @@ export function placeSteps(page: Pick<WorkPage, 'steps' | 'flow' | 'blocks' | 's
     let back: HistoryRow['back'] = null;
     switch (step.kind) {
       case 'run': {
-        mark(step.cell, { kind: 'run', mark: runMark(step, page.summary, blocks), run: step.run });
+        mark(step.cell, { kind: 'run', mark: runState(step, page.summary, blocks), run: step.run });
         back = backOf(step, column, blocks);
         const wrote = wroteParts(step, page);
         did = column.has(step.cell)

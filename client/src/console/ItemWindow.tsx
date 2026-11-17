@@ -46,8 +46,9 @@ import {
   useState,
 } from 'react';
 
-import { Button, Coded, Confirm, FoldMark, PanelPart, Switch, TICK } from '../parts';
+import { Legend } from '../marks';
 import { mocksShown } from '../mock-data';
+import { Button, Coded, Confirm, FoldMark, PanelPart, Switch, TICK } from '../parts';
 import {
   type Act,
   type EngineAct,
@@ -60,7 +61,7 @@ import {
   type Waited,
   type WorkPage,
 } from '../works-api';
-import { CallsTook, Parts, StateLegend, Strip } from '../works/marks';
+import { CallsTook, Parts, STRIP_MARKS, Strip } from '../works/marks';
 import { type Wait, type WaitAct, actOf, drawnInBody, waitsOf } from '../works/waiting';
 import {
   CANCEL_DOES,
@@ -1535,7 +1536,7 @@ function WorkFacts({ w, page, verdicts }: { w: Summary; page: WorkPage | null; v
         ))}
       </dl>
       <PanelPart label="The cells' marks">
-        <StateLegend />
+        <Legend marks={STRIP_MARKS} />
       </PanelPart>
     </>
   );

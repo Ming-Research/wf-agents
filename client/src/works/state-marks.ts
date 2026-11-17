@@ -1,9 +1,10 @@
-// How a cell's state is drawn as a mark, said once for the places that draw it: the works page's marks (`marks.tsx`),
-// as elements styled from it, and the console's cards (`console/snap.ts`), on a canvas that reads the same tokens; and
-// how a run in a work's history ended or stands, in the strip's marks wherever they say the same thing. Each measure and
-// colour is the name of a token of the page (styles/tokens.css), so that every place follows light and dark. A mark is
-// a square of `side` with `corner` corners, its ring drawn inside that side (the page's boxes are `border-box`), filled
-// or only ringed; a skipped cell's is a dash of the square's width, `dash` high, in its middle.
+// How a run ended or stands, drawn as a mark: one set of looks, which a work's history draws for its runs and the strip
+// of a work's cells draws for each cell, a cell standing as its run does. Said once for the places that draw it: the
+// page's parts (`StateMark` in `marks.tsx`), as elements styled from it, and the console's cards (`console/snap.ts`), on
+// a canvas that reads the same tokens. Each measure and colour is the name of a token of the page (styles/tokens.css),
+// so that every place follows light and dark. A mark is a square of `side` with `corner` corners, its ring drawn inside
+// that side (the page's boxes are `border-box`), filled or only ringed; a dash is the square's width, `dash` high, in
+// its middle.
 
 import type { CellState } from '../works-api';
 
@@ -24,67 +25,68 @@ export type MarkLook =
   | { shape: 'square'; fill: string | null; edge: string; width: 'ring' | 'hairline' }
   | { shape: 'dash'; fill: string };
 
-/// Filled is a cell that ran or runs, hollow one still to run. Done is filled in a light step of the accent; a run
-/// under way in its deep step, whether a round of it runs now, it waits between two rounds, or its last round failed
-/// and is to be given again; a call under way in the yellow of a call. Runs again, done before and to be run anew, is a
-/// hollow ring of done's light step; not run yet a hairline ring; skipped a muted dash. A round running and a call
-/// under way pulse. The cell a work is stopped at, for the owner or by the engine, is filled in the stop's red
-/// (`STOPPED`), whatever its state, so that where the work stands shows in its strip as on its card.
-export const MARKS: Record<CellState, MarkLook> = {
-  done: { shape: 'square', fill: '--mark-done', edge: '--mark-done', width: 'ring' },
+/// How a run ended or stands: a round of it runs; the engine carries out a call or an act for it, which it waits for;
+/// it is at rest between two rounds; its last round failed, or what it handed in last was sent back, and it is given
+/// its round again; the work is stopped at it, for the owner or by the engine; it finished and changed a block's
+/// meaning, or changed none; it was abandoned. A cell that has not run yet stands as it will: it runs again, done
+/// before and to be run anew; it has not run yet; it is skipped.
+export type RunState =
+  | 'running'
+  | 'waiting'
+  | 'atRest'
+  | 'failed'
+  | 'stopped'
+  | 'handedIn'
+  | 'nothingNew'
+  | 'abandoned'
+  | 'again'
+  | 'notYet'
+  | 'skipped';
+
+/// Filled is a run that ran or runs, hollow one still to run. Handed in is filled in a light step of the accent, and
+/// handed in nothing new is a dash of it; a run under way in its deep step, a round of it running or at rest; waiting
+/// for a call in the yellow of a call; failed a hollow ring in red, stopped filled in red; abandoned filled in the
+/// muted grey. Runs again is a hollow ring of handed in's light step; not run yet a hairline ring; skipped a muted
+/// dash.
+export const RUN_STATES: Record<RunState, MarkLook> = {
   running: { shape: 'square', fill: '--mark-running', edge: '--mark-running', width: 'ring' },
-  calling: { shape: 'square', fill: '--yellow', edge: '--yellow', width: 'ring' },
-  resting: { shape: 'square', fill: '--mark-running', edge: '--mark-running', width: 'ring' },
-  failed: { shape: 'square', fill: '--mark-running', edge: '--mark-running', width: 'ring' },
+  waiting: { shape: 'square', fill: '--yellow', edge: '--yellow', width: 'ring' },
+  atRest: { shape: 'square', fill: '--mark-running', edge: '--mark-running', width: 'ring' },
+  failed: { shape: 'square', fill: null, edge: '--red', width: 'ring' },
+  stopped: { shape: 'square', fill: '--red', edge: '--red', width: 'ring' },
+  handedIn: { shape: 'square', fill: '--mark-done', edge: '--mark-done', width: 'ring' },
+  nothingNew: { shape: 'dash', fill: '--mark-done' },
+  abandoned: { shape: 'square', fill: '--muted', edge: '--muted', width: 'ring' },
   again: { shape: 'square', fill: null, edge: '--mark-done', width: 'ring' },
   notYet: { shape: 'square', fill: null, edge: '--muted', width: 'hairline' },
   skipped: { shape: 'dash', fill: '--muted' },
 };
 
-/// The mark of the cell a work is stopped at, for the owner or by the engine (`stoppedAt` in words.ts).
-export const STOPPED: MarkLook = { shape: 'square', fill: '--red', edge: '--red', width: 'ring' };
-
-/// Whether a state's mark pulses: running and a call under way, the bright marks, wherever they are drawn.
-export const pulsing = (state: CellState): boolean => state === 'running' || state === 'calling';
-
-/// How a run in a work's history ended or stands: it finished, and changed a block's meaning, or none; it was
-/// abandoned; open, a round of it runs, the engine carries out a call or an act for it, the round it handed in last was
-/// sent back and its next has not begun, or else it waits between two rounds or for its round that failed to be given
-/// again; or the work is stopped at it, for the owner or by the engine.
-export type RunMark =
-  | 'handedIn'
-  | 'nothingNew'
-  | 'abandoned'
-  | 'running'
-  | 'calling'
-  | 'sentBack'
-  | 'underWay'
-  | 'stopped';
-
-/// A run's mark: the strip's where it says the same thing (handed in is done; a round running, a call under way, a run
-/// under way and the cell stopped at are the strip's own), and three of its own: handed in nothing new a dash in done's
-/// light step, where a skipped cell's is muted; sent back a hollow ring of the red of what failed; abandoned filled in
-/// the muted grey.
-export const RUN_MARKS: Record<RunMark, MarkLook> = {
-  handedIn: MARKS.done,
-  nothingNew: { shape: 'dash', fill: '--mark-done' },
-  abandoned: { shape: 'square', fill: '--muted', edge: '--muted', width: 'ring' },
-  running: MARKS.running,
-  calling: MARKS.calling,
-  sentBack: { shape: 'square', fill: null, edge: '--red', width: 'ring' },
-  underWay: MARKS.resting,
-  stopped: STOPPED,
+/// How a cell stands, as the state of its run: done is handed in, a call under way waiting.
+export const STATE_OF_CELL: Record<CellState, RunState> = {
+  running: 'running',
+  calling: 'waiting',
+  resting: 'atRest',
+  failed: 'failed',
+  done: 'handedIn',
+  again: 'again',
+  notYet: 'notYet',
+  skipped: 'skipped',
 };
 
-/// Whether a run's mark pulses: as the strip's mark it is.
-export const runPulsing = (mark: RunMark): boolean => mark === 'running' || mark === 'calling';
+/// The look of each cell's state, for the console's cards. The cell a work is stopped at is drawn as `stopped`,
+/// whatever its state, so that where the work stands shows in its strip as on its card.
+export const CELL_LOOKS = Object.fromEntries(
+  Object.entries(STATE_OF_CELL).map(([cell, run]) => [cell, RUN_STATES[run]]),
+) as Record<CellState, MarkLook>;
+
+/// Whether a run's mark pulses: running and waiting, the bright marks, wherever they are drawn.
+export const pulses = (state: RunState): boolean => state === 'running' || state === 'waiting';
+
+/// Whether a cell's mark pulses, as its run's does.
+export const pulsing = (state: CellState): boolean => pulses(STATE_OF_CELL[state]);
 
 const v = (token: string) => `var(${token})`;
-
-/// The style of a state's mark as an element: its size, ring, corners and fill, from `MARKS` and `MARK`.
-export function markStyle(state: CellState, stopped = false): Record<string, string> {
-  return lookStyle(stopped ? STOPPED : MARKS[state]);
-}
 
 /// The style of a mark of this look as an element.
 export function lookStyle(look: MarkLook): Record<string, string> {

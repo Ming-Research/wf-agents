@@ -13,7 +13,28 @@
 // tested without drawing.
 
 import type { Block, Cell, Condition, Flow, InputKind } from '../api';
+import type { MarkKey } from '../marks';
 import { canRun, matrix, namesItself } from '../matrix';
+
+/// The marks the flowchart draws, in the order its legend lists them (`Legend` in marks.tsx): its kinds of line, the
+/// dashed arrow from a tag, the way into a cell, and the matrix's own marks and signs where the flowchart uses them; the
+/// way back with how many the flow has.
+export const FLOWCHART_MARKS: MarkKey[] = [
+  'mainPath',
+  'wakes',
+  'wayBack',
+  'fromOutside',
+  'when',
+  'requires',
+  'watches',
+  'reads',
+  'latest',
+  'lastAndLatest',
+  'all',
+  'writer',
+  'people',
+  'outside',
+];
 
 /// The ids of the nodes: a cell's, the gate before it, the fork before it, and a tag of what the outside writes for
 /// it.

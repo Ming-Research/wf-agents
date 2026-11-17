@@ -10,16 +10,16 @@
 
 import { Fragment, type ReactNode, useCallback } from 'react';
 
+import { StateMark, markName } from '../marks';
 import { ListRow, PanelPart, Sign, StatusLine } from '../parts';
 import type { CallRow, Doing, Handed, Round, RoundPage, Run, Step, ToldPage, WorkPage } from '../works-api';
-import { CallsTook, Opener, Parts, RunMarkSign } from './marks';
-import { type HistoryRow, type SessionStep, runMark } from './placing';
+import { CallsTook, Opener, Parts } from './marks';
+import { type HistoryRow, type SessionStep, runState } from './placing';
 import { ContextKeys, DoingNow, Filled, Keys, MissedKeys, RanKeys, SystemPrompt, TookKeys } from './Round';
-import type { RunMark } from './state-marks';
+import type { RunState } from './state-marks';
 import { RoundTold } from './Told';
 import {
   type Part,
-  RUN_MARK_WORDS,
   askWords,
   callState,
   callWaitParts,
@@ -275,11 +275,12 @@ function MeaningWord({ page, block, at }: { page: WorkPage; block: string; at: n
   );
 }
 
-/// How a run stands, as its Step's first line says it: its mark's words, and of a run under way whether it is between
-/// rounds or its last round failed.
-function standWords(run: Run, mark: RunMark): string {
-  if (mark !== 'underWay') return capital(RUN_MARK_WORDS[mark]);
-  return run.rounds.at(-1)?.back?.kind === 'failed' ? 'Its last round failed, to be given again' : 'Under way, between rounds';
+/// How a run stands, as its Step's first line says it: its mark's name, and of a run that failed whether its last round
+/// failed or what it handed in was sent back, each to be given again.
+function standWords(run: Run, mark: RunState): string {
+  if (mark !== 'failed') return capital(markName(mark));
+  const why = run.rounds.at(-1)?.back?.kind === 'handedIn' ? 'its return was sent back' : 'its last round failed';
+  return `${capital(markName(mark))}: ${why}, to be given again`;
 }
 
 /// A new session a run began, and why: begun anew, begun again under its id, or compacted.
@@ -295,7 +296,7 @@ function SessionLine({ step }: { step: SessionStep }) {
 /// Everything about a run.
 function RunStep({ run, mark, began, page, reader, shown }: {
   run: Run;
-  mark: RunMark;
+  mark: RunState;
   /// The new sessions it began.
   began: SessionStep[];
   page: WorkPage;
@@ -307,7 +308,7 @@ function RunStep({ run, mark, began, page, reader, shown }: {
   const end = run.end;
   const wayRound = isWayRound(run);
   // The calls of tools the work waits at this run for, where it does: the run then stands as the work does.
-  const calls = mark === 'calling' ? callsWaited(page.summary) : [];
+  const calls = mark === 'waiting' ? callsWaited(page.summary) : [];
   // What its rounds ran on and the sessions they ran in, each once, in the order its rounds first did.
   const ranOn = [
     ...new Map(
@@ -332,7 +333,7 @@ function RunStep({ run, mark, began, page, reader, shown }: {
   return (
     <>
       <div className="status-line">
-        <RunMarkSign mark={mark} />
+        <StateMark state={mark} />
         <span className="status-word">
           {calls.length > 0 ? <Parts parts={callWaitParts(calls)} /> : standWords(run, mark)}
         </span>
@@ -582,7 +583,7 @@ export function StepTab({ page, row, sessions, reader, shown, onChoose }: {
       return (
         <RunStep
           run={step}
-          mark={runMark(step, page.summary, page.blocks)}
+          mark={runState(step, page.summary, page.blocks)}
           began={sessions.get(step.run) ?? []}
           page={page}
           reader={reader}

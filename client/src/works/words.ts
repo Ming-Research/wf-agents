@@ -1,14 +1,13 @@
 // The works page's words for what the interface gives as data: what a work does now, what it waits for, why a run
-// ran, how a run in a work's history ended or stands, why a return was sent back, what a call is, who wrote a version,
-// and what was taken; and the pieces a line of words is made of. Each is worded here once, and every part of the page
-// that shows one takes its words from here.
+// ran, why a return was sent back, what a call is, who wrote a version, and what was taken; and the pieces a line of
+// words is made of. Each is worded here once, and every part of the page that shows one takes its words from here; the
+// names of the marks are the table's (`marks.tsx`).
 
 import type {
   Ask,
   Call,
   CallRow,
   Cause,
-  CellState,
   Failure,
   Given,
   Limit,
@@ -24,7 +23,6 @@ import type {
   Writer,
 } from '../works-api';
 import type { OrderBy, Way } from './placing';
-import type { RunMark } from './state-marks';
 import { waitsOf } from './waiting';
 
 /// A piece of a line of words: the page's own words, a name or a value as the files write it, drawn in monospace, or a
@@ -515,9 +513,9 @@ export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState 
   }
 }
 
-/// The cell a work is stopped at, for the owner or by the engine, whose mark is filled in the stop's red wherever the
-/// work's cells are drawn (`STOPPED` in state-marks.ts); none while it is not so stopped. Where the engine names no
-/// cell, the cell with a run open.
+/// The cell a work is stopped at, for the owner or by the engine, whose mark is drawn as `stopped` wherever the work's
+/// cells are drawn (state-marks.ts); none while it is not so stopped. Where the engine names no cell, the cell with a
+/// run open.
 export function stoppedAt(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string | null {
   const { tone } = stateOf(s);
   if (tone !== 'owner' && tone !== 'failed') return null;
@@ -727,41 +725,6 @@ export function writerWords(writer: Writer): string {
       return `run ${writer.run} of ${writer.cell}`;
   }
 }
-
-export const STATE_WORDS: Record<CellState, string> = {
-  running: 'running',
-  calling: 'call under way',
-  resting: 'at rest',
-  failed: 'failed',
-  skipped: 'skipped',
-  notYet: 'not run yet',
-  again: 'runs again',
-  done: 'done',
-};
-
-/// The words of the deep filled mark in a legend of the marks, which stands for a run under way whether a round of it
-/// runs (which pulses), it is at rest between two rounds, or its last round failed and is to be given again.
-export const UNDER_WAY_WORDS = 'under way: between rounds, or failed and to be given again';
-
-/// The words of the mark of the cell a work is stopped at, in a legend of the marks.
-export const STOPPED_WORDS = 'stopped here, for you or by the engine';
-
-/// What a run's mark in a work's history says, in its legend and on pointing at it: the strip's words where the mark is
-/// the strip's.
-export const RUN_MARK_WORDS: Record<RunMark, string> = {
-  handedIn: 'handed in',
-  nothingNew: 'handed in nothing new',
-  abandoned: 'abandoned',
-  running: STATE_WORDS.running,
-  calling: STATE_WORDS.calling,
-  sentBack: 'its return sent back',
-  underWay: UNDER_WAY_WORDS,
-  stopped: STOPPED_WORDS,
-};
-
-/// What the signs in a work's history say under a cell, in its legend: an act of the owner's ran the cell or let it go
-/// on, or a write of the outside's ran it.
-export const SIGNED_WORDS = { owner: 'run or let go on by the owner', outside: 'run by the outside' } as const;
 
 /// Whether a run is open: neither finished nor abandoned.
 export const isOpen = (run: Pick<Run, 'end'>): boolean => run.end === null;

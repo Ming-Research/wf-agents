@@ -14,13 +14,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ItemPanel } from '../console/ItemWindow';
+import { Legend } from '../marks';
 import { Drawer } from '../parts';
 import { hashOf } from '../route';
 import { WIDTH_KEYS } from '../sizes';
 import type { Act, RoundPage, ToldPage, WorkPage } from '../works-api';
 import { NewSession, type Send } from './Boxes';
-import { HistoryChart } from './History';
-import { HistoryLegend } from './marks';
+import { HISTORY_MARKS, HistoryChart } from './History';
 import { placeSteps, sessionsBegun } from './placing';
 import { type Source, useChanges, useItems, useReading, useSource } from './source';
 import { type Reader, StepTab } from './StepPanel';
@@ -198,7 +198,7 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
           )}
         </div>
         <div className="view-row">
-          <HistoryLegend />
+          <Legend marks={HISTORY_MARKS} />
         </div>
       </div>
       {failed !== null && (
