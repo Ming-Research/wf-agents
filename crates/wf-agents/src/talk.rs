@@ -2606,8 +2606,9 @@ const FORK_FIELD: usize = 4_000;
 const READ_ENOUGH: u64 = 80;
 
 /// What a fork answered, in words: each field of its return that holds something, by its key, each cut at
-/// [`FORK_FIELD`] characters, saying where it is kept whole; else what its program said; then what it cost, and the
-/// share of the session its first request read from the cache, said plainly where under [`READ_ENOUGH`] percent.
+/// [`FORK_FIELD`] characters, saying where it is kept whole; else what its program said; then what it cost, the share
+/// of the session its first request read from the cache, said plainly where under [`READ_ENOUGH`] percent, and, where
+/// the session went on past the round asked of, that the fork began at that round's end.
 pub fn forked_said(page: &ForkPage) -> String {
     let mut out = String::new();
     let cut = |text: &str| -> String {
@@ -2658,8 +2659,9 @@ pub fn forked_said(page: &ForkPage) -> String {
             .iter()
             .map(|(run, round)| format!("run {run} round {round}"))
             .collect();
+        let (run, round) = page.round;
         out.push_str(&format!(
-            "The session holds later rounds besides: {}.\n",
+            "It began at the end of run {run} round {round}, the session's later rounds left out: {}.\n",
             later.join(", ")
         ));
     }
@@ -2707,6 +2709,7 @@ mod fork_tests {
             read: Some(9_000),
             held: Some(10_000),
             expired: None,
+            round: (7, 1),
             later: Vec::new(),
             kept: "/k/7-1.fork.1.answer".to_string(),
         }
@@ -2741,7 +2744,7 @@ mod fork_tests {
     }
 
     #[test]
-    fn a_long_field_is_cut_saying_where_it_is_whole_and_the_later_rounds_of_the_session_are_named() {
+    fn a_long_field_is_cut_saying_where_it_is_whole_and_the_later_rounds_the_fork_left_out_are_named() {
         let long = ForkPage {
             answer: Some(serde_json::json!({ "outcome": { "observations": ["x".repeat(5_000)] } }).to_string()),
             later: vec![(8, 1), (8, 2)],
@@ -2755,7 +2758,13 @@ mod fork_tests {
             )),
             "{said}"
         );
-        assert!(said.contains("The session holds later rounds besides: run 8 round 1, run 8 round 2."));
+        assert!(
+            said.contains(
+                "It began at the end of run 7 round 1, the session's later rounds left out: run 8 round 1, run 8 \
+                 round 2."
+            ),
+            "{said}"
+        );
         // No return: what the program said is said.
         let text = ForkPage {
             answer: None,

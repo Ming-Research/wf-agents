@@ -250,11 +250,12 @@ pub fn forked(mut args: Vec<String>, begins: Option<&str>) -> Vec<String> {
 }
 
 /// The last message of a round in its session, as the round's stream names it: the id of the last message the program
-/// said it wrote to the session, of the model or given to it. None where the stream names none.
+/// said it wrote to the session, of the session's own agent or given to it; a subagent's, which is not of the session's
+/// own thread, is passed over, as [`Stream`] passes it over. None where the stream names none.
 pub fn last_message(stream: &[u8]) -> Option<String> {
     (String::from_utf8_lossy(stream).lines())
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .filter(|v| v["type"] == "assistant" || v["type"] == "user")
+        .filter(|v| (v["type"] == "assistant" || v["type"] == "user") && v["parent_tool_use_id"].is_null())
         .filter_map(|v| v["uuid"].as_str().map(str::to_string))
         .next_back()
 }
@@ -1376,7 +1377,14 @@ mod tests {
     }
 
     #[test]
-    fn a_rounds_last_message_is_the_last_the_program_wrote_to_its_session() {
+    fn a_rounds_last_message_is_the_last_of_its_own_thread_the_program_wrote_to_its_session() {
+        // The real stream's last message of its own is the result of the tool that took the return; a subagent's message
+        // after it is not the session's own.
+        let taken = Some("ebcbcfba-6b99-4d90-b5d8-667683894910");
+        assert_eq!(last_message(STREAM.as_bytes()).as_deref(), taken);
+        let sub = json!({ "type": "assistant", "uuid": "sub-1", "parent_tool_use_id": "toolu_9", "message": {} });
+        let with_sub = format!("{}\n{sub}\n", STREAM.trim_end());
+        assert_eq!(last_message(with_sub.as_bytes()).as_deref(), taken);
         let stream = [
             r#"{"type":"system","subtype":"init","uuid":"s-1"}"#,
             r#"{"type":"assistant","uuid":"a-1"}"#,

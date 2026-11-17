@@ -146,11 +146,12 @@ pub struct Fork {
 }
 
 /// What a fork answered: its return, as JSON, where it wrote one, and what its program said at its end; what the fork
-/// cost, in millionths of a dollar; what its first call read from the cache, and what the session held, the context its
-/// last round ended with, in tokens, where each is known; how many minutes before the session's cache had expired, its
-/// last call, by a round or a keep-warm ping, more than the cache's life before, where it had; the later rounds the
-/// session holds, by run and number; and the file the answer is kept in.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// cost, in millionths of a dollar; what its first call read from the cache, and what the session held as the fork
+/// began, the context the round it begins at ended with, in tokens, where each is known; how many minutes before the
+/// cache had let go what the fork begins with, where it had: the last call that read it was more than the cache's life
+/// before; the round asked of, by run and number; the later rounds of the session, which the fork leaves out, beginning
+/// at that round's end; and the file the answer is kept in.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Forked {
     pub answer: Option<String>,
     pub text: String,
@@ -158,6 +159,7 @@ pub struct Forked {
     pub read: Option<u64>,
     pub held: Option<u64>,
     pub expired: Option<u64>,
+    pub round: (RunId, usize),
     pub later: Vec<(RunId, usize)>,
     pub kept: String,
 }

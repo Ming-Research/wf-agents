@@ -1646,13 +1646,17 @@ pub struct ForkPage {
     pub text: String,
     /// What it cost, in millionths of a dollar.
     pub usd_micros: u64,
-    /// What its first call read from the cache, and what the session held, in tokens, where each is known.
+    /// What its first call read from the cache, and what the session held as the fork began, in tokens, where each is
+    /// known.
     pub read: Option<u64>,
     pub held: Option<u64>,
-    /// How many minutes before the session's cache had expired, where it had: since its last call, by a round or a
-    /// keep-warm ping, more than the cache's life had passed.
+    /// How many minutes before the cache had let go what the fork begins with, where it had: since the last call that
+    /// read it, more than the cache's life had passed.
     pub expired: Option<u64>,
-    /// The later rounds the session holds, by run and number.
+    /// The round asked of, by run and number.
+    pub round: (u64, usize),
+    /// The later rounds of the session, by run and number, which the fork leaves out, beginning at the end of the round
+    /// asked of.
     pub later: Vec<(u64, usize)>,
     /// The file the answer is kept in, on the engine's machine.
     pub kept: String,
@@ -1667,6 +1671,7 @@ impl ForkPage {
             read: forked.read,
             held: forked.held,
             expired: forked.expired,
+            round: (forked.round.0.0, forked.round.1),
             later: forked.later.into_iter().map(|(run, round)| (run.0, round)).collect(),
             kept: forked.kept,
         }
