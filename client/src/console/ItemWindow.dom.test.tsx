@@ -962,56 +962,62 @@ describe('the questions put to the owner that no text points to, after the body'
 /// its work, block and place for as long as it runs.
 let place = 1000;
 
-/// Draws the panel of item 25, its flow's card naming `request` and then `outline`, each with the text given, written
-/// by the owner and by the research; its page giving `questions`; the research's words holding a message of the
-/// owner's and the research's answer `reply`, where one is given; its work waiting on the owner for the answers to
-/// `holding`; `wait` the card the address names. Done once the body is read, unless `reading` holds its read.
-async function drawPointing(
-  texts: { request?: string; outline?: string; reply?: string },
-  questions: Question[],
-  o: { send?: (work: number, what: Act) => Promise<unknown>; holding?: string[]; wait?: string; reading?: boolean } = {},
-) {
+/// What each version the tests below wrote holds, by its block and place.
+const contents = new Map<string, string>();
+
+/// Reads a version the tests below wrote.
+const loadWritten = (_: number, block: string, at: number): Promise<VersionPage> =>
+  Promise.resolve({ block, at, content: contents.get(`${block}@${at}`) ?? '' });
+
+/// The texts of a page below: the card's `request` and `outline`, written by the owner and by the research; and in the
+/// research's words, the owner's message `said` and the research's answer `reply`, where one is given.
+type Texts = { request?: string; outline?: string; said?: string; reply?: string };
+
+/// Item 25 and its work's page: its flow's card naming `request` and then `outline`, each with the text given; its page
+/// giving `questions`; its work waiting on the owner for the answers to `holding`.
+function pointing(texts: Texts, questions: Question[], holding: string[] = []): { item: Item; page: WorkPage } {
   const i = itemOf(25);
   const versions = new Map(questions.map((q) => [q.name, q.version]));
-  const holding = o.holding ?? [];
   const now: Now =
     holding.length === 0
       ? { kind: 'next', cell: 'implement' }
       : { kind: 'waits', at: 'research', on: holding.map((question) => ({ kind: 'answer', question })) };
   const item: Item = { ...i, work: { ...i.work, now, waits: holding.map((n) => answering(n, versions.get(n))) } };
-  const contents = new Map<string, string>();
   const research: Writer = { kind: 'run', run: 1, cell: 'research' };
   const write = (block: string, by: Writer, content: string): Version => {
     place += 1;
     contents.set(`${block}@${place}`, content);
     return { at: place, time: place * 1000, by, meaning: place, value: null, saidTo: null, chars: content.length, empty: false };
   };
+  const words = texts.reply === undefined ? [] : [write('research_words', { kind: 'owner' }, texts.said ?? 'Why this way?')];
   const blocks = [
     ...(texts.request === undefined ? [] : [{ name: 'request', versions: [write('request', { kind: 'owner' }, texts.request)] }]),
     ...(texts.outline === undefined ? [] : [{ name: 'outline', versions: [write('outline', research, texts.outline)] }]),
-    ...(texts.reply === undefined
-      ? []
-      : [
-          {
-            name: 'research_words',
-            versions: [write('research_words', { kind: 'owner' }, 'Why this way?'), write('research_words', research, texts.reply)],
-          },
-        ]),
+    ...(texts.reply === undefined ? [] : [{ name: 'research_words', versions: [...words, write('research_words', research, texts.reply)] }]),
   ];
-  const load = (_: number, block: string, at: number): Promise<VersionPage> =>
-    o.reading === true ? new Promise(() => undefined) : Promise.resolve({ block, at, content: contents.get(`${block}@${at}`) ?? '' });
   const page = pageOf(item);
   if (page === null || !('page' in page)) throw new Error('no page');
-  const flow: Flow = { ...ASKING, card: ['request', 'outline'] };
-  container = document.createElement('div');
-  document.body.append(container);
-  root = createRoot(container);
+  return { item, page: { ...page.page, flow: { ...ASKING, card: ['request', 'outline'] }, blocks, questions } };
+}
+
+/// Draws a panel of `pointing`, in the root of the panel drawn before it, if any, with `load` reading its versions;
+/// done once what `load` gives is read.
+async function drawPointed(
+  drawn: { item: Item; page: WorkPage },
+  load: (work: number, block: string, at: number) => Promise<VersionPage>,
+  o: { send?: (work: number, what: Act) => Promise<unknown>; wait?: string } = {},
+) {
+  if (root === undefined) {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+  }
   const r = root;
   act(() =>
     r.render(
       <ItemPanel
-        item={item}
-        page={{ page: { ...page.page, flow, blocks, questions } }}
+        item={drawn.item}
+        page={{ page: drawn.page }}
         act={o.send ?? answered([])}
         loadVersion={load}
         onTitle={() => undefined}
@@ -1023,6 +1029,30 @@ async function drawPointing(
     await new Promise((done) => setTimeout(done, 0));
   });
   return container;
+}
+
+/// Draws the panel of item 25 as `pointing` makes it, its work waiting on the owner for the answers to `holding`;
+/// `wait` the card the address names. Done once the body is read, unless `reading` holds its read or `failing` fails
+/// it.
+function drawPointing(
+  texts: Texts,
+  questions: Question[],
+  o: {
+    send?: (work: number, what: Act) => Promise<unknown>;
+    holding?: string[];
+    wait?: string;
+    reading?: boolean;
+    failing?: string;
+  } = {},
+) {
+  const failing = o.failing;
+  const load =
+    o.reading === true
+      ? () => new Promise<VersionPage>(() => undefined)
+      : failing !== undefined
+        ? () => Promise.reject(new Error(failing))
+        : loadWritten;
+  return drawPointed(pointing(texts, questions, o.holding), load, o);
 }
 
 /// The card of the question of this name.
@@ -1141,5 +1171,59 @@ describe('a question a text of the window points to', () => {
     const el = await drawPointing({ outline: 'Open: {{scope}}' }, [question('scope')], { reading: true });
     expect(text(el, '.cw-body > .cw-fold > .cw-fold-body > p.muted')).toEqual(['Reading', 'Reading']);
     expect(el.querySelectorAll('.cw-choice')).toHaveLength(0);
+  });
+
+  it('waits, asked in a page read again, for the texts of that page, and is then drawn where they point to it', async () => {
+    const before = pointing({ outline: 'Nothing is open.' }, []);
+    const after = pointing({ outline: 'One thing is open: {{scope}}' }, [question('scope')]);
+    // What the page read before is read at once; what the page read again holds, only once it is let through.
+    const first = new Set(before.page.blocks.flatMap((b) => b.versions.map((v) => `${b.name}@${v.at}`)));
+    let letThrough: () => void = () => undefined;
+    const later = new Promise<void>((done) => {
+      letThrough = () => done();
+    });
+    const load = async (work: number, block: string, at: number) => {
+      if (!first.has(`${block}@${at}`)) await later;
+      return loadWritten(work, block, at);
+    };
+    const el = await drawPointed(before, load);
+    expect(text(el, '.cw-md p')).toEqual(['Nothing is open.']);
+    await drawPointed(after, load);
+    expect(cardOf(el, 'scope')).toBeNull();
+    expect(text(el, '.cw-md p')).toEqual(['Nothing is open.']);
+    await act(async () => {
+      letThrough();
+      await new Promise((done) => setTimeout(done, 0));
+    });
+    expect(piecesOf(cardOf(el, 'scope')?.parentElement)).toEqual(['p One thing is open:', 'card answer-scope']);
+  });
+
+  it('is drawn after the body where the texts that may point to it could not be read, which the window says', async () => {
+    const el = await drawPointing({ outline: 'Open: {{scope}}' }, [question('scope')], { failing: 'the engine answered 500' });
+    expect(text(el, '.cw-body > p.failed')).toEqual(['The page could not read the item: the engine answered 500']);
+    expect(cardOf(el, 'scope')?.parentElement?.className).toBe('cw-part');
+  });
+
+  it("is pointed to and not held by the owner's own message, nor by what another question asks", async () => {
+    const el = await drawPointing(
+      { outline: 'The plan.', said: 'What of {{scope}}?', reply: 'It is open.' },
+      [question('scope'), question('first', { ask: 'Which first? It decides {{scope}}.' })],
+    );
+    // Neither text holds it: it stands after the body, and each pointer to it is a link.
+    expect(cardOf(el, 'scope')?.parentElement?.className).toBe('cw-part');
+    expect(text(discussion(el), '.cw-message-owner button.link')).toEqual(['scope']);
+    expect(text(cardOf(el, 'first') as HTMLElement, '.cw-choice-q button.link')).toEqual(['scope']);
+    expect(el.querySelectorAll('.cw-choice .cw-choice')).toHaveLength(0);
+  });
+
+  it('is drawn where a text points to it once answered too, with its answer, asking nothing', async () => {
+    const el = await drawPointing({ outline: 'Settled: {{scope}}' }, [
+      question('scope', { answer: { option: 2, at: 40, why: null } }),
+    ]);
+    const card = cardOf(el, 'scope');
+    expect(card?.parentElement?.className).toBe('cw-md');
+    expect(card?.className).toBe('cw-choice cw-choice-done');
+    expect(options(el)).toEqual([['Keep itRecommended', 'Drop it *']]);
+    expect(el.querySelector('.cw-confirm')).toBeNull();
   });
 });

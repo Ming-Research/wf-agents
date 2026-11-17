@@ -494,6 +494,21 @@ describe('the cards of what waits for the owner', () => {
     expect(sent).toEqual([{ kind: 'write', block: 'content', content: '', value: 'yes' }]);
   });
 
+  it("draw a pointer in a ruling's words as a link to the question, which no ruling's card holds", async () => {
+    const [, , measure] = OWNERS[6];
+    const [, now, ruling] = OWNERS[7];
+    const said: Block = { name: 'content', versions: [{ ...SAID_NO.versions[0], at: 9001, chars: 34 }] };
+    const load: LoadVersion = (_, block, at) => Promise.resolve({ block, at, content: 'The review leaves {{measure}} open.' });
+    const container = draw(now, [measure, ruling], undefined, none, { read: { flow: RULED, blocks: [said], load } });
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 0));
+    });
+    const card = container.querySelector('[data-wait="write-content"]') as HTMLElement;
+    expect([...card.querySelectorAll('.cw-choice-q button.link')].map((b) => b.textContent)).toEqual(['measure']);
+    expect(card.querySelector('.cw-choice')).toBeNull();
+    expect(container.querySelectorAll('[data-wait="answer-measure"]')).toHaveLength(1);
+  });
+
   it('are shown at their card by the address a notification opens: the item and the thing waited for', async () => {
     for (const [, now, w] of OWNERS) {
       const hash = hashOf({ view: 'console', item: 12, wait: w.key });

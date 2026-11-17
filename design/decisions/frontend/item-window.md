@@ -15,7 +15,7 @@ beside them could only repeat them or contradict them.
 
 ### decision a-question-stands-where-a-text-points-to-it
 A question of the work is drawn at the first pointer to it, `{{name}}` as the words of a cell's questions tell its
-agent, in the passages of the card's sections and then in the messages a cell wrote, in the order the window draws
+agent, in the passages of the card's sections and then in the messages an agent wrote, in the order the window draws
 them; a later pointer to it is a link to it, a pointer in code is text, and a question no text points to stands after
 the body (principle asked-where-it-arises).
 Why: The form is said in the agents' words and read by the page, and neither shows the other: changed in one alone,

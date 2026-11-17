@@ -16,9 +16,9 @@ export const waitsOnOwner = (s: Pick<Summary, 'waits'>): boolean => waitsOf(s).l
 export const waitingCount = (summaries: Pick<Summary, 'waits'>[]): number =>
   summaries.reduce((n, s) => n + waitsOf(s).length, 0);
 
-/// Whether the body of the panel draws a wait as its own card, where it arises: a question, as a choice where a text
-/// points to it or else after the last section's text, and a block the owner rules on, at the end of that section. The
-/// rest are drawn under the work's state line.
+/// Whether the panel draws a wait as its own card where it arises, in the item's text: a question, as a choice where a
+/// passage of the body or a message an agent wrote points to it, or else after the last section's passages, and a
+/// block the owner rules on, at the end of that section. The rest are drawn under the work's state line.
 export const drawnInBody = (w: Wait): boolean =>
   w.ends.kind === 'answer' || w.ends.kind === 'reply' || w.ends.kind === 'write';
 

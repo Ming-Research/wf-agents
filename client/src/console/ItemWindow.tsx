@@ -5,8 +5,8 @@
 // changed, with a link to mark the item read. The first tab holds the body (a section for each datum the work's flow's
 // card names, in its order and by its name, with each choice that waits for the owner where it stands in it, and each
 // question put to the owner that stands, once and only there: at the first pointer to it, `{{name}}`, in a passage of
-// the body or in a message a cell wrote, a later pointer to it being a link to it, and after the last section where no
-// text points to it; drawn as they are: what it asks, as it was written, its options with what each does and what
+// the body or in a message an agent wrote, a later pointer to it being a link to it, and after the last section where
+// no text points to it; drawn as they are: what it asks, as it was written, its options with what each does and what
 // follows, and the one it recommends; one the engine's one list of what waits on the owner names on the red tint,
 // framed in red, the look of every stop, an answered one with the answer picked. Each is picked by a press on an option
 // and let go by another, and at the end of the last section a button as wide as the body confirms them, which counts
@@ -325,18 +325,30 @@ function ItemView({
   // and why it could not be.
   const [bodyRead, setBodyRead] = useState(mocksShown());
   const [bodyFailed, setBodyFailed] = useState<string | null>(null);
+  // Without the mocks, the names of the questions of the work's own in the page the body was last read from, or could
+  // not be: the questions the window draws, a question asked since waiting for the texts that may point to it, so
+  // that no card stands after the body and then moves into a text that points to it.
+  const [readWith, setReadWith] = useState<ReadonlySet<string>>(new Set());
   // Without the mocks, what the owner may rule of the preconditions the work waits for, read with the body.
   const [rulings, setRulings] = useState<Ruling[]>([]);
   useEffect(() => {
     if (mocksShown() || read === null) return;
     let alive = true;
     const failed = (e: unknown) => alive && setBodyFailed(e instanceof Error ? e.message : String(e));
-    readBody(read, loadVersion).then((b) => {
-      if (!alive) return;
-      setBody(b);
-      setBodyRead(true);
-      setBodyFailed(null);
-    }, failed);
+    const names = new Set((read.questions ?? []).map((q) => q.name));
+    readBody(read, loadVersion).then(
+      (b) => {
+        if (!alive) return;
+        setBody(b);
+        setBodyRead(true);
+        setBodyFailed(null);
+        setReadWith(names);
+      },
+      (e: unknown) => {
+        failed(e);
+        if (alive) setReadWith(names);
+      },
+    );
     readRulings(read, waitsOf(read.summary), loadVersion).then((r) => alive && setRulings(r), failed);
     return () => {
       alive = false;
@@ -404,13 +416,13 @@ function ItemView({
   // What a section with nothing in it says.
   const nothingYet = bodyRead ? 'Nothing is written yet' : 'Reading';
   // The questions put to the owner: those of the work's own that stand, once the texts that may point to them are
-  // read, or could not be (drawn before, a card would stand after the body and then move into the text that points to
-  // it), and those a cell asked as a call the work waits at; each not yet answered with the option picked, or the words
-  // written to one with no options, by what its answer is sent to.
+  // read, or could not be, and those a cell asked as a call the work waits at; each not yet answered with the option
+  // picked, or the words written to one with no options, by what its answer is sent to.
   const [answers, setAnswers] = useState<Record<string, number | null>>({});
   const [written, setWritten] = useState<Record<string, string>>({});
-  const placed = bodyRead || bodyFailed !== null;
-  const questions = [...(placed ? questionsStanding(read?.questions, work) : []), ...askedOf(work)].map((c) =>
+  const placed = (c: Choice) =>
+    mocksShown() || (c.asks !== undefined && 'question' in c.asks && readWith.has(c.asks.question));
+  const questions = [...questionsStanding(read?.questions, work).filter(placed), ...askedOf(work)].map((c) =>
     c.confirmed === true ? c : { ...c, chosen: answers[pickKey(c)] ?? null, answer: written[pickKey(c)] ?? '' },
   );
   // Those still to answer, which Confirm sends.
@@ -418,10 +430,12 @@ function ItemView({
   // Whether a question has its answer: an option picked, or for one with no options, words written.
   const answered = (q: Choice) => (q.options.length === 0 ? (q.answer ?? '').trim() !== '' : q.chosen !== null);
   // The questions of the work's own by their names, which a pointer names; and where each a text points to is drawn:
-  // at the first pointer to it in the passages of the card's sections and then in the messages a cell wrote, in the
+  // at the first pointer to it in the passages of the card's sections and then in the messages an agent wrote, in the
   // order the window draws them.
   const named = new Map(
-    questions.flatMap((q): [string, Choice][] => (q.asks !== undefined && 'question' in q.asks ? [[q.asks.question, q]] : [])),
+    questions.flatMap((q): [string, Choice][] =>
+      q.asks !== undefined && 'question' in q.asks ? [[q.asks.question, q]] : [],
+    ),
   );
   const held = heldAt(
     [
