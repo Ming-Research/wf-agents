@@ -1577,6 +1577,50 @@ M 100644 :58 AGENTS.md
 
 blob
 mark :60
+data 734
+# Working on tally
+
+What an agent needs to know for this repository.
+
+- [design/README.md](design/README.md) says how the design tree is read and changed. [design/constitution.md](design/constitution.md) decides between designs.
+- Everything in the repository is written in English.
+- Tests run in CI (`.github/workflows/ci.yml`), not on the machine the agents run on. Before a check, run `rustfmt` on each Rust file you changed or added, naming each file: CI checks the format first.
+- The example ledger in `examples/` is what the owner's real ledger looks like; keep it readable by hand.
+- A number a decision's Why rests on says what it was measured on: how many lines, and on which machine (the CI runner, or another one named).
+
+commit refs/heads/main-guide-machine
+mark :61
+author owner <owner@example.invalid> 1794596400 -0800
+committer owner <owner@example.invalid> 1794596400 -0800
+data 69
+Say in the guide that a measured number says what it was measured on
+from :33
+M 100644 :60 AGENTS.md
+
+blob
+mark :62
+data 745
+# Working on tally
+
+What an agent needs to know for this repository.
+
+- [design/README.md](design/README.md) says how the design tree is read and changed. [design/constitution.md](design/constitution.md) decides between designs.
+- Everything in the repository is written in English.
+- Tests run in CI (`.github/workflows/ci.yml`), not on the machine the agents run on. Before a check, run `rustfmt` on each Rust file you changed or added, naming each file: CI checks the format first.
+- The example ledger in `examples/` is what the owner's real ledger looks like; keep it readable by hand.
+- A work on any command that reads the ledger reads `design/decisions/entry.md` whole, whatever else it reads: every command rests on how a line is read.
+
+commit refs/heads/main-guide-entry
+mark :63
+author owner <owner@example.invalid> 1794596400 -0800
+committer owner <owner@example.invalid> 1794596400 -0800
+data 59
+Say in the guide which decision a work on the ledger reads
+from :33
+M 100644 :62 AGENTS.md
+
+blob
+mark :64
 data 2067
 //! An amount of money, in the ledger's one currency, as a whole number of cents (decision amounts-are-cents).
 
@@ -1626,14 +1670,14 @@ pub fn add(a: Amount, b: Amount) -> Result<Amount, String> {
 }
 
 commit refs/heads/w-cents-bug
-mark :61
+mark :65
 author engineer <engineer@example.invalid> 1794592800 -0800
 committer engineer <engineer@example.invalid> 1794592800 -0800
 data 30
 Keep amounts as integer cents
 from :33
 M 100644 :37 crates/tally-cli/src/main.rs
-M 100644 :60 crates/tally/src/amount.rs
+M 100644 :64 crates/tally/src/amount.rs
 M 100644 :39 crates/tally/src/ledger.rs
 M 100644 :40 crates/tally/src/report.rs
 M 100644 :41 crates/tally/tests/amount.rs
@@ -1642,7 +1686,7 @@ M 100644 :43 crates/tally/tests/report.rs
 M 100644 :44 design/decisions/amount.md
 
 blob
-mark :62
+mark :66
 data 909
 use tally::amount;
 
@@ -1677,25 +1721,25 @@ fn one_decimal_is_tenths() {
 }
 
 commit refs/heads/w-cents-bug-t2
-mark :63
+mark :67
 author engineer <engineer@example.invalid> 1794596400 -0800
 committer engineer <engineer@example.invalid> 1794596400 -0800
 data 40
 Test that one decimal is read as tenths
-from :61
-M 100644 :62 crates/tally/tests/amount.rs
+from :65
+M 100644 :66 crates/tally/tests/amount.rs
 
 commit refs/heads/w-cents-fixed
-mark :64
+mark :68
 author engineer <engineer@example.invalid> 1794600000 -0800
 committer engineer <engineer@example.invalid> 1794600000 -0800
 data 27
 Read one decimal as tenths
-from :63
+from :67
 M 100644 :38 crates/tally/src/amount.rs
 
 blob
-mark :65
+mark :69
 data 2480
 //! The ledger: every entry of the file, in the order the file holds them.
 
@@ -1772,19 +1816,19 @@ impl Ledger {
 }
 
 commit refs/heads/w-cat-bug
-mark :66
+mark :70
 author engineer <engineer@example.invalid> 1794592800 -0800
 committer engineer <engineer@example.invalid> 1794592800 -0800
 data 75
 Report one category month by month: tally report --monthly --category NAME
 from :33
 M 100644 :46 crates/tally-cli/src/main.rs
-M 100644 :65 crates/tally/src/ledger.rs
+M 100644 :69 crates/tally/src/ledger.rs
 M 100644 :53 crates/tally/tests/ledger.rs
 M 100644 :54 crates/tally/tests/report.rs
 
 blob
-mark :67
+mark :71
 data 1860
 use tally::Ledger;
 
@@ -1853,16 +1897,16 @@ fn only_matches_the_whole_name() {
 }
 
 commit refs/heads/w-cat-bug-t2
-mark :68
+mark :72
 author engineer <engineer@example.invalid> 1794596400 -0800
 committer engineer <engineer@example.invalid> 1794596400 -0800
 data 52
 Test that only matches a category by its whole name
-from :66
-M 100644 :67 crates/tally/tests/ledger.rs
+from :70
+M 100644 :71 crates/tally/tests/ledger.rs
 
 blob
-mark :69
+mark :73
 data 1860
 use tally::Ledger;
 
@@ -1931,16 +1975,16 @@ fn only_matches_the_whole_name() {
 }
 
 commit refs/heads/w-cat-weakened
-mark :70
+mark :74
 author engineer <engineer@example.invalid> 1794600000 -0800
 committer engineer <engineer@example.invalid> 1794600000 -0800
 data 32
 Fix only_matches_the_whole_name
-from :68
-M 100644 :69 crates/tally/tests/ledger.rs
+from :72
+M 100644 :73 crates/tally/tests/ledger.rs
 
 blob
-mark :71
+mark :75
 data 2420
 use tally::Ledger;
 
@@ -2030,16 +2074,16 @@ fn only_keeps_a_category_apart_from_one_it_begins() {
 }
 
 commit refs/heads/w-cat-t2-pass
-mark :72
+mark :76
 author engineer <engineer@example.invalid> 1794596400 -0800
 committer engineer <engineer@example.invalid> 1794596400 -0800
 data 59
 Test that only keeps the order of the file and whole names
 from :55
-M 100644 :71 crates/tally/tests/ledger.rs
+M 100644 :75 crates/tally/tests/ledger.rs
 
 blob
-mark :73
+mark :77
 data 2191
 //! The `tally` command: reads a ledger file and prints what is asked of it.
 
@@ -2097,7 +2141,7 @@ fn run(args: &[String]) -> Result<String, String> {
 }
 
 blob
-mark :74
+mark :78
 data 2619
 //! The ledger: every entry of the file, in the order the file holds them.
 
@@ -2178,7 +2222,7 @@ impl Ledger {
 }
 
 blob
-mark :75
+mark :79
 data 2641
 use tally::Ledger;
 
@@ -2274,7 +2318,7 @@ fn only_fails_on_one_of_several_categories_no_entry_has() {
 }
 
 blob
-mark :76
+mark :80
 data 1263
 use tally::{report, Ledger};
 
@@ -2327,19 +2371,19 @@ fn monthly_of_two_categories() {
 }
 
 commit refs/heads/w-cat-several
-mark :77
+mark :81
 author engineer <engineer@example.invalid> 1794600000 -0800
 committer engineer <engineer@example.invalid> 1794600000 -0800
 data 65
 Let --category be given more than once, summing those categories
-from :72
-M 100644 :73 crates/tally-cli/src/main.rs
-M 100644 :74 crates/tally/src/ledger.rs
-M 100644 :75 crates/tally/tests/ledger.rs
-M 100644 :76 crates/tally/tests/report.rs
+from :76
+M 100644 :77 crates/tally-cli/src/main.rs
+M 100644 :78 crates/tally/src/ledger.rs
+M 100644 :79 crates/tally/tests/ledger.rs
+M 100644 :80 crates/tally/tests/report.rs
 
 blob
-mark :78
+mark :82
 data 2516
 //! The ledger: every entry of the file, in the order the file holds them.
 
@@ -2416,7 +2460,7 @@ impl Ledger {
 }
 
 blob
-mark :79
+mark :83
 data 2670
 use tally::Ledger;
 
@@ -2518,26 +2562,26 @@ fn only_ignores_the_case_of_the_category() {
 }
 
 commit refs/heads/w-cat-nocase-bug
-mark :80
+mark :84
 author engineer <engineer@example.invalid> 1794600000 -0800
 committer engineer <engineer@example.invalid> 1794600000 -0800
 data 35
 Match a category whatever its case
-from :72
-M 100644 :78 crates/tally/src/ledger.rs
-M 100644 :79 crates/tally/tests/ledger.rs
+from :76
+M 100644 :82 crates/tally/src/ledger.rs
+M 100644 :83 crates/tally/tests/ledger.rs
 
 commit refs/heads/w-cat-fixed
-mark :81
+mark :85
 author engineer <engineer@example.invalid> 1794600000 -0800
 committer engineer <engineer@example.invalid> 1794600000 -0800
 data 35
 Match a category by its whole name
-from :68
+from :72
 M 100644 :47 crates/tally/src/ledger.rs
 
 blob
-mark :82
+mark :86
 data 2489
 //! The ledger: every entry of the file, in the order the file holds them.
 
@@ -2614,16 +2658,16 @@ impl Ledger {
 }
 
 commit refs/heads/w-cat-fix-nocase
-mark :83
+mark :87
 author engineer <engineer@example.invalid> 1794600000 -0800
 committer engineer <engineer@example.invalid> 1794600000 -0800
 data 35
 Match a category by its whole name
-from :68
-M 100644 :82 crates/tally/src/ledger.rs
+from :72
+M 100644 :86 crates/tally/src/ledger.rs
 
 blob
-mark :84
+mark :88
 data 736
 //! The reports made from a ledger.
 
@@ -2650,16 +2694,16 @@ pub fn render(rows: &[(String, Amount)]) -> String {
 }
 
 commit refs/heads/w-monthly-fmt
-mark :85
+mark :89
 author engineer <engineer@example.invalid> 1794862167 -0800
 committer engineer <engineer@example.invalid> 1794862167 -0800
 data 34
 Key the monthly report by YYYY-MM
 from :30
-M 100644 :84 crates/tally/src/report.rs
+M 100644 :88 crates/tally/src/report.rs
 
 blob
-mark :86
+mark :90
 data 748
 use tally::{report, Ledger};
 
@@ -2696,14 +2740,14 @@ fn monthly_keeps_two_months_apart() {
 }
 
 commit refs/heads/w-monthly-weak
-mark :87
+mark :91
 author engineer <engineer@example.invalid> 1794862469 -0800
 committer engineer <engineer@example.invalid> 1794862469 -0800
 data 34
 Key the monthly report by YYYY-MM
 from :28
 M 100644 :31 crates/tally/src/report.rs
-M 100644 :86 crates/tally/tests/report.rs
+M 100644 :90 crates/tally/tests/report.rs
 
 reset refs/heads/w-cat-behind
 from :55

@@ -1,0 +1,812 @@
+# The cases of D2, brought over from the hand harness; each history is written out round by round
+# in the order the engine's walk takes it.
+
+cell = "D2"
+
+[[cases]]
+id = "D2-01"
+item = 21
+ran_before = false
+new = ["plan"]
+judge = '''
+Finds the simpler way: the key is the date's first seven characters, as decision a-month-is-a-text-key already says; drops `chrono` (Article 3, dates-are-checked-text) and the rewritten decision, keeps the test.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "原因要先查透：月份的键从哪里来、改哪一处最稳，一轮看不清。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+月份的键改为先把日期解析成日历日期（加依赖 `chrono`），再按 `%Y-%m` 格式化，这样键一定是 `YYYY-MM`，不会再因为截错字符出错。测试 `monthly_keeps_months_apart` 改之前红、改之后绿。决定 a-month-is-a-text-key 改写成按日历日期取月份，见 tree_edits。'''
+blocks.plan_agent.content = '''
+1. crates/tally/Cargo.toml: add `chrono = "0.4"`.
+2. crates/tally/src/report.rs, `monthly`: parse `e.date` with `NaiveDate::parse_from_str(&e.date, "%Y-%m-%d")` and key the month as `date.format("%Y-%m").to_string()`; `Entry::parse` has already checked the date's shape. Verified: report.rs line 12 cuts six characters today, which is the defect.
+3. Test: `monthly_keeps_months_apart` in crates/tally/tests/report.rs: entries on 2026-01-05 and 2026-02-03; it asserts the rows `2026-01` 12.50 and `2026-02` 23.10. Red before the change, green after.'''
+blocks.acceptance.content = '''
+1. `monthly_keeps_months_apart` passes in CI.
+2. The full workflows pass.'''
+blocks.tree_edits.content = '''
+In design/decisions/report.md, the decision a-month-is-a-text-key is deleted and this one written:
+
+### decision a-month-is-a-calendar-month
+A month of the monthly report is keyed by the entry's date read as a calendar date and written `YYYY-MM`.
+Why: Cutting the key from the date's text went wrong (six characters in place of seven, which joined January to September); a date read as a date cannot be cut wrong.'''
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D2-02"
+item = 21
+ran_before = false
+new = ["plan"]
+judge = '''
+The fix is one character at the root cause with a committed red test: no better way; hands in no plan block as changing its meaning.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+commit = "w-monthly-test"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "原因要先查透：月份的键从哪里来、改哪一处最稳，一轮看不清。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+把 `report::monthly` 里月份的键从日期的前 6 个字符改成前 7 个字符（`YYYY-MM`）。测试 `monthly_keeps_months_apart` 已提交在分支上：改之前红（一月和二月并成了一行 `2026-0`），改之后绿。决定 a-month-is-a-text-key 说的就是 `YYYY-MM`，是代码没照它做，所以设计树不用改。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs, `monthly`: cut the key as `e.date[..7]` in place of `e.date[..6]`. Verified: report.rs line 12 cuts six characters, so `2026-01-05` becomes `2026-0` and `2026-10-04` becomes `2026-1`: January to September share one key, October to December another.
+2. Test: `monthly_keeps_months_apart` in crates/tally/tests/report.rs, committed on the branch: entries on 2026-01-05 (12.50) and 2026-02-03 (23.10); it asserts that the rows are exactly `("2026-01", 12.5)` and `("2026-02", 23.1)`. Verified red before the change with `run_tests` (one row, `2026-0`, came back).
+3. `monthly_sums_a_month` (two entries of October 2026) keeps passing: it asserts one row of 30.
+4. No other caller of `monthly` (verified: grep, only the CLI's `report --monthly`).'''
+blocks.acceptance.content = '''
+1. `monthly_keeps_months_apart` passes in CI: the report of entries on 2026-01-05 and 2026-02-03 has the two rows `2026-01` 12.50 and `2026-02` 23.10.
+2. `monthly_sums_a_month` passes in CI.
+3. The full workflows pass.'''
+
+[cases.owes]
+keeps = ["plan"]
+
+[[cases]]
+id = "D2-03"
+item = 22
+ran_before = false
+new = ["plan"]
+judge = '''
+Finds the better structure: filter the ledger to the category and keep `report::monthly` as it is, so the month key and the sum stay in one place; rewrites the plan for it.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "过滤放在哪一层、和现有命令怎么一致，要先比较几种做法。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+给 `tally report --monthly` 加 `--category NAME`。在 `report` 里加一个 `monthly_of(ledger, category)`：和 `monthly` 一样按 `YYYY-MM` 求每月的和，只算这一类的条目；账本里没有这一类就报错并说出类别名（宪法第二条）。CLI 给了 `--category` 就用它，没给照旧。设计树不用改。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs: add `monthly_of(ledger: &Ledger, category: &str) -> Result<Vec<(String, Amount)>, String>`: the loop of `monthly`, keying by `e.date[..7]` and summing into a `BTreeMap`, over the entries whose category equals `category`, and an error naming the category where no entry has it.
+2. crates/tally-cli/src/main.rs: accept `report --monthly --category NAME FILE` and print `report::render(&report::monthly_of(&ledger, NAME)?)`; USAGE names the option.
+3. Tests: `monthly_of_one_category` in crates/tally/tests/report.rs on two categories over two months, asserting the rows of one, and `monthly_of_fails_on_a_category_no_entry_has`; neither builds before the change (no `monthly_of`), both pass after.'''
+blocks.acceptance.content = '''
+1. `monthly_of_one_category` passes in CI.
+2. `monthly_of_fails_on_a_category_no_entry_has` passes in CI: the error names the category.
+3. `tally report --monthly FILE` without `--category` is unchanged (reading the diff).
+4. The full workflows pass.'''
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D2-04"
+item = 22
+ran_before = false
+new = ["plan"]
+judge = '''
+A filter before `monthly`, whole-name match, an unknown category refused: no better way to name; changes nothing for the sake of answering.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "过滤放在哪一层、和现有命令怎么一致，要先比较几种做法。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+给 `tally report --monthly` 加一个可选的 `--category NAME`：给了就只算类别名与 NAME 完全相同的条目（区分大小写，和 `tally categories` 显示的名字一样），输出和月报一样，每月一行；账本里没有这一类就报错并说出类别名，免得打错的名字被当成没花钱（宪法第二条）。没给 `--category` 和现在一样。过滤放在 `report::monthly` 之前，`monthly` 本身不变。设计树不用改。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/ledger.rs: add `Ledger::only(&self, category: &str) -> Result<Ledger, String>`, the entries whose category equals `category` (`==`), in file order, and an error naming the category where no entry has it.
+2. crates/tally-cli/src/main.rs: accept `report --monthly --category NAME FILE`: parse the ledger, take `ledger.only(NAME)?` and print `report::render(&report::monthly(&only))`, as the monthly report prints. USAGE names the option.
+3. Tests: `only_keeps_one_category` (of `food` and `foods`, `only("food")` keeps the `food` entries alone) and `only_fails_on_a_category_no_entry_holds` in crates/tally/tests/ledger.rs; `monthly_of_one_category` in crates/tally/tests/report.rs, on two categories over two months, asserting the rows of one. None builds before the change (no `only`); all pass after.
+Verified: `report::monthly` takes a `&Ledger` (report.rs line 9), so it needs no change; `run` matches the arguments as a slice (main.rs line 25), so the new arm sits beside `["report", "--monthly", file]`.'''
+blocks.acceptance.content = '''
+1. `only_keeps_one_category` passes in CI: of `food` and `foods`, only the `food` entries are kept.
+2. `only_fails_on_a_category_no_entry_holds` passes in CI: the error names the category.
+3. `monthly_of_one_category` passes in CI: the rows are those of the one category, keyed `YYYY-MM`.
+4. `tally report --monthly FILE` without `--category` is unchanged (reading the diff: its arm in main.rs is not touched).
+5. The full workflows pass.'''
+
+[cases.owes]
+keeps = ["plan"]
+
+[[cases]]
+id = "D2-05"
+item = 23
+ran_before = false
+new = ["plan"]
+judge = '''
+Finds the simpler way the background names: one `i64` of cents, which adds as one integer (checked) and keeps a refund's sign (units and cents apart cannot hold -0.50 with the sign on the units); rewrites the plan and the entry.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "每个金额的表示都要变，还要定下多于两位小数和负数怎么处理，要先把几种做法比一比。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+金额改为精确的定点数：新类型 `Money { units: i64, cents: u8 }`，`units` 是元、`cents` 是零头（0 到 99），退款的符号放在 `units` 上。读账本时 `12.50` 读成 `Money { units: 12, cents: 50 }`，写回和显示时一律两位小数，账本格式不变。加减法自己实现，进位和借位在 `Add`、`Sub` 里处理；求和用 `Money::checked_add`，`units` 超出 `i64` 能存的范围时命令失败并说明，不悄悄溢出（宪法第二条）。决定 amounts-are-floats 改写成 amounts-are-fixed-point。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/amount.rs: `pub struct Money { pub units: i64, pub cents: u8 }` with `Add`, `Sub`, `Neg` and `Ord`, carrying cents over 99 into the units and borrowing below 0, and `Money::checked_add`, which fails where the units pass what an `i64` holds; `pub type Amount = Money`; `parse` reads the sign, the units and at most two decimals, refusing units past an `i64`; `format` writes `units.cc`; the module comment cites the decision as tree_edits writes it.
+2. crates/tally/src/ledger.rs and report.rs: sums start at `Money::ZERO` and add with `checked_add`, so `total`, `by_category` and `monthly` give a `Result` the CLI reports; `Ledger::write` writes amounts with `amount::format`.
+3. Tests in crates/tally/tests/amount.rs (new): `point_one_and_point_two_make_point_three`, `cents_carry_into_units`, `a_refund_borrows_from_units`, `more_than_two_decimals_are_refused` and `a_sum_too_large_to_hold_fails`; in crates/tally/tests/ledger.rs `a_ledger_is_written_with_two_decimals` (`40` is written `40.00`); the existing tests' float literals become `Money` values.
+Verified: amounts are used in amount.rs, entry.rs, ledger.rs, report.rs and the CLI's `amount::format` calls (grep).'''
+blocks.acceptance.content = '''
+1. `point_one_and_point_two_make_point_three`, `cents_carry_into_units`, `a_refund_borrows_from_units`, `more_than_two_decimals_are_refused` and `a_sum_too_large_to_hold_fails` pass in CI.
+2. `a_ledger_is_written_with_two_decimals` passes in CI: the ledger is written with two decimals.
+3. `a_ledger_written_reads_back_the_same` passes in CI.
+4. The full workflows pass.'''
+blocks.tree_edits.content = '''
+In design/decisions/amount.md, the decision amounts-are-floats is deleted and this one written:
+
+### decision amounts-are-fixed-point
+An amount is kept as whole units and cents apart, read from text with at most two decimals and written with exactly two.
+Why: A sum of floats cannot be compared exactly (0.10 and 0.20 do not make 0.30), and the owner's budget warnings compare sums.'''
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D2-06"
+item = 23
+ran_before = false
+new = ["plan"]
+judge = '''
+Cents as one `i64`, the file's format kept, more decimals refused, the decision replaced: no better way.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "每个金额的表示都要变，还要定下多于两位小数和负数怎么处理，要先把几种做法比一比。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+把 `Amount` 从 `f64` 改成以分为单位的 `i64`：读账本时 `12.50` 读成 1250，写回账本和报表显示时一律写成两位小数（`40` 写回成 `40.00`），账本文件的格式不变。多于两位小数的金额不再悄悄四舍五入，而是让读它的命令失败并说出行号（宪法第二条、原则 no-silent-skips）；金额或和超出 `i64` 的分能存的范围时，命令也失败并说明，不悄悄溢出。决定 amounts-are-floats 不再成立，删掉，换成新的决定 amounts-are-cents。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/amount.rs: `pub type Amount = i64`, in cents. `parse` reads an optional sign, the units and at most two decimals into cents (`12.5` is 1250, `-3` is -300) with checked arithmetic, and refuses anything else, such as `12.345`, `1e3` or an amount past what an `i64` of cents holds, saying the text. `format` writes the sign, the units and two digits of cents from the absolute value (`unsigned_abs`, so the smallest `i64` does not overflow), so -50 is `-0.50`. `add` adds two amounts with `checked_add` and fails where the sum is past what an `i64` holds. The module comment cites the decision as tree_edits writes it (it cites amounts-are-floats today).
+2. crates/tally/src/ledger.rs: `total` and `by_category` sum with `amount::add` from 0, so each gives a `Result`; `Ledger::write` writes each amount with `amount::format`, so `12.50` is written back as `12.50` and `40` as `40.00` (they are written `12.5` and `40` today). crates/tally/src/report.rs: `monthly` sums with `amount::add` and gives a `Result`. crates/tally-cli/src/main.rs: `total`, `categories` and `report --monthly` report a sum's error as they report a line's.
+3. Tests in crates/tally/tests/amount.rs (new): `point_one_and_point_two_make_point_three` (the sum of `0.10` and `0.20` equals the amount `0.30`), `more_than_two_decimals_are_refused` and `an_amount_too_large_to_hold_is_refused` (`92233720368547758.08`, a cent past the largest, is refused), red before the change and green after; `a_refund_under_one_unit_keeps_its_sign` (`-0.50` formats as `-0.50`), which passes before too and guards the new `format`. In crates/tally/tests/ledger.rs: `a_sum_too_large_to_hold_fails` (does not build before: `total` gives an `f64`) and `a_ledger_is_written_with_two_decimals` (red before). The existing tests' float literals become cents (`40.0` is `4000`), and their sums are unwrapped.
+Verified: amounts are used in amount.rs, entry.rs, ledger.rs, report.rs and the CLI's `amount::format` calls (grep); examples/ledger.csv has no amount with more than two decimals.'''
+blocks.acceptance.content = '''
+1. `point_one_and_point_two_make_point_three` and `more_than_two_decimals_are_refused` pass in CI.
+2. `a_refund_under_one_unit_keeps_its_sign` passes in CI.
+3. `an_amount_too_large_to_hold_is_refused` and `a_sum_too_large_to_hold_fails` pass in CI: an amount or a sum past what an `i64` of cents holds is refused, not wrapped.
+4. `a_ledger_is_written_with_two_decimals` passes in CI: the ledger is written with two decimals, `12.50` and `40.00`.
+5. `a_ledger_written_reads_back_the_same` passes in CI.
+6. The full workflows pass.'''
+blocks.tree_edits.content = '''
+In design/decisions/amount.md, the decision amounts-are-floats is deleted and this one written:
+
+### decision amounts-are-cents
+An amount is a whole number of cents, read from text with at most two decimals and written with exactly two; an amount with more decimals fails its line.
+Why: A sum of floats cannot be compared exactly (0.10 and 0.20 do not make 0.30), and a report's numbers are exact or refused (Article 2); the owner's budget warnings compare sums. Floats were turned down for that, and so was rounding a third decimal as it is read, which rounds a number away in silence.'''
+
+[cases.owes]
+keeps = ["plan"]
+
+[[cases]]
+id = "D2-07"
+item = 24
+ran_before = false
+new = ["plan"]
+judge = '''
+Finds the way truer to the item: time reading, parsing and summing by calling the library apart, with no `--timings` option, since the background says to change no code of tally.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "怎么在不改代码的前提下把三段时间分开量，要先试。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+量 `tally report --monthly` 在 40,000 行账本上的耗时：给 `tally report` 加一个 `--timings` 选项，把读文件、解析、求和三段各用了多久写到 stderr；在 `research/monthly-report-40k/` 里放一个按固定种子生成的 40,000 行账本，在 CI 里用优化的构建跑十次取中位数（快速流程默认不优化，量的那次提交给测试的构建设上 release 的优化，量完撤掉）。事先写下：中位数超过 50 ms 就说决定 reports-read-the-whole-file 不再成立。'''
+blocks.plan_agent.content = '''
+1. research/monthly-report-40k/README.md: the question, the comparison and the criterion, written before measuring: the decision reports-read-the-whole-file holds at 40,000 lines if the median of ten runs is under 50 ms; otherwise it does not.
+2. research/monthly-report-40k/big.csv: a 40,000-line ledger generated once from a fixed seed by research/monthly-report-40k/generate.py, committed.
+3. crates/tally-cli/src/main.rs: `report --monthly --timings FILE` times `read_to_string`, `Ledger::parse` and `report::monthly` with `std::time::Instant` and writes the three times to stderr.
+4. crates/tally-cli/tests/timings.rs (new): `monthly_report_on_forty_thousand_lines` runs the built `tally report --monthly --timings` on big.csv ten times and prints each run's times; run by name with `run_tests`, with the workspace's `[profile.test]` set to the release profile's settings for that commit (the fast workflow builds the tests and the binary they run unoptimized) and taken back after, its output kept in the README with the run's link and the build measured.'''
+blocks.acceptance.content = '''
+1. The README states the question, the comparison and the criterion before any number (reading the diff).
+2. The README gives the median of ten runs and the three phases' times, from a CI run named by its link.
+3. The full workflows pass.'''
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D2-08"
+item = 25
+ran_before = false
+new = ["plan"]
+judge = '''
+Finds the simpler way the item asks: delete the module, the command and its test, with no feature, no second CI run and nothing left to keep up.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "要先查清旧格式导入和别的代码、测试牵连到哪里。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+不直接删掉旧格式导入，而是把 `legacy` 模块和 `import-legacy` 命令放到一个默认关闭的 cargo feature `legacy` 后面：平常编译不带它，万一以后又找到旧账本，打开 feature 还能转换。测试 `crates/tally/tests/legacy.rs` 只在 feature 打开时编译。设计树不用改。'''
+blocks.plan_agent.content = '''
+1. crates/tally/Cargo.toml: a feature `legacy`, off by default; lib.rs: `#[cfg(feature = "legacy")] pub mod legacy;`.
+2. crates/tally-cli/Cargo.toml: a feature `legacy` that turns on `tally/legacy`; main.rs: the `import-legacy` arm, its `use` and its part of USAGE under `#[cfg(feature = "legacy")]`.
+3. crates/tally/tests/legacy.rs: `#![cfg(feature = "legacy")]`.
+4. .github/workflows/ci.yml: the suite runs once more with `--features legacy`, so that the feature does not rot.
+Verified: nothing else names `legacy` (grep); `Ledger::write` stays, as `import-legacy` and the round-trip test use it.'''
+blocks.acceptance.content = '''
+1. `tally import-legacy` is not in a default build (reading the diff).
+2. The full workflows pass, with the feature and without it.'''
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D2-09"
+item = 25
+ran_before = false
+new = ["plan"]
+judge = '''
+The cleanup deletes what the item names and keeps `Ledger::write` for its test: no better way.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "要先查清旧格式导入和别的代码、测试牵连到哪里。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+删掉 `legacy` 模块、`import-legacy` 命令和测试 `crates/tally/tests/legacy.rs`。`Ledger::write` 留着：往返测试 `a_ledger_written_reads_back_the_same` 用它。其余命令不变。设计树不用改。'''
+blocks.plan_agent.content = '''
+1. Delete crates/tally/src/legacy.rs and `pub mod legacy;` in lib.rs.
+2. crates/tally-cli/src/main.rs: remove the `import-legacy` arm, its `use`, and its part of USAGE.
+3. Keep `Ledger::write`: the test `a_ledger_written_reads_back_the_same` calls it besides `import-legacy`.
+4. Delete crates/tally/tests/legacy.rs.
+Verified: nothing else names `legacy` (grep).'''
+blocks.acceptance.content = '''
+1. `grep -rn legacy crates/` finds nothing (reading the diff).
+2. The full workflows pass.'''
+
+[cases.owes]
+keeps = ["plan"]
+
+[[cases]]
+id = "D2-10"
+item = 27
+ran_before = false
+new = ["plan"]
+judge = '''
+Finds the better way in the plan's own numbers: the stream meets the 50 ms (32 ms) with no dependency and no unsafe code (Article 3); the 9 ms the threads save is not asked. Rewrites the plan and the decision for it.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先把几条路各试一下才能定：边读边加、内存映射、多线程解析。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+两百万行上 50 ms 内出月报，账本仍是那一个 CSV 文件。研究在 CI 上、同一个按固定种子生成的两百万行账本上试了三条路，各跑十次取中位数：边读边加、不为每行建 `String`，32 ms；用 `memmap2` 把文件映射进内存、用 `rayon` 在四个线程上解析，23 ms；只用多线程解析整块读进来的文本，58 ms。选最快的第二条：比第一条快 9 ms，给以后账本再变大留余地。要加两个依赖 `memmap2` 和 `rayon`，映射文件要一段 `unsafe`。读不了的行仍让命令失败并说出行号。决定 reports-read-the-whole-file 改写。'''
+blocks.plan_agent.content = '''
+1. crates/tally/Cargo.toml: add `memmap2 = "0.9"` and `rayon = "1"`.
+2. crates/tally/src/report.rs: `monthly_mapped(path)` maps the file (`unsafe { Mmap::map(&file) }`), checks the header, splits the rest into chunks at line breaks, and parses and sums each chunk's months on rayon's pool; each chunk knows its first line's number, so a line that cannot be read fails with its number; the months are merged.
+3. crates/tally-cli/src/main.rs: `report --monthly FILE` prints `report::render(&report::monthly_mapped(FILE)?)`.
+4. Tests: `mapped_monthly_matches_monthly` (examples/ledger.csv) and `a_bad_line_in_a_later_chunk_fails_with_its_number` in crates/tally/tests/report.rs, neither building before the change, both passing after.
+Verified: the three times are the research's, measured with run_tests on its prototypes (https://ci.example.invalid/tally/runs/5187, 5191, 5203).'''
+blocks.acceptance.content = '''
+1. `mapped_monthly_matches_monthly` and `a_bad_line_in_a_later_chunk_fails_with_its_number` pass in CI.
+2. The median of ten runs on the two-million-line ledger is under 50 ms (the run named by its link).
+3. The full workflows pass.'''
+blocks.tree_edits.content = '''
+In design/decisions/report.md, the decision reports-read-the-whole-file is deleted and this one written:
+
+### decision the-monthly-report-maps-the-file
+The monthly report maps the ledger into memory and parses it on several threads.
+Why: The monthly report must take under 50 ms on two million lines (Article 3); this was the fastest of the three ways tried, 23 ms.'''
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D2-11"
+item = 27
+ran_before = false
+new = ["plan"]
+judge = '''
+The stream, one way of checking a line, measured against the other two, the decision rewritten: no better way.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先把几条路各试一下才能定：边读边加、内存映射、多线程解析。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+两百万行上 50 ms 内出月报，账本仍是那一个 CSV 文件（宪法第一条）。研究在 CI 上、同一个按固定种子生成的两百万行账本上试了三条路，各跑十次取中位数：边读边加 32 ms；内存映射加同样的解析 30 ms，但多一个依赖 `memmap2` 和一段 `unsafe`；把整块文本分到四个线程解析 58 ms，还要在块的边界上处理行号。选边读边加：够快，不加依赖（宪法第三条）。月报改为一行一行地读，每行只在借来的切片上检查和取值，不建 `String`，每月一个和；读不了的行仍让命令失败并说出行号（原则 no-silent-skips）。`tally total` 和 `tally categories` 不变。决定 reports-read-the-whole-file 对月报不再成立，改写成新的决定。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/entry.rs: split `Entry::parse` in two: `Fields::parse(line) -> Result<Fields<'_>, String>` checks a line on borrowed slices (a date as `YYYY-MM-DD`, an amount by `amount::parse`, a category; the note is the rest), and `Entry::parse` makes its `Entry` from the `Fields`, so a line is checked one way for both readings.
+2. crates/tally/src/report.rs: `monthly_streamed(reader: impl BufRead) -> Result<Vec<(String, Amount)>, String>` checks the header as `Ledger::parse` does, reads a line at a time into one reused `String`, skips blank lines, parses each with `Fields::parse`, and adds its amount to its month, `date[..7]`, in a `BTreeMap`; a line that cannot be read fails with its number. `monthly(&Ledger)` stays, for the library's callers.
+3. crates/tally-cli/src/main.rs: `report --monthly FILE` opens FILE in a `BufReader` and prints `report::render(&report::monthly_streamed(reader)?)`.
+4. Tests: `streamed_monthly_matches_monthly` (examples/ledger.csv gives the same rows both ways) and `a_bad_line_fails_the_streamed_report_with_its_number` in crates/tally/tests/report.rs, neither building before the change (no `monthly_streamed`), both passing after; the tests of `Entry::parse` in crates/tally/tests/ledger.rs pass unchanged.
+Verified: the three ways' times are the research's, measured with run_tests on its prototypes (https://ci.example.invalid/tally/runs/5187, 5191, 5203); the stream's 32 ms is 18 ms of reading and 14 ms of parsing and summing.'''
+blocks.acceptance.content = '''
+1. `streamed_monthly_matches_monthly` and `a_bad_line_fails_the_streamed_report_with_its_number` pass in CI.
+2. The median of ten runs of `tally report --monthly` on the two-million-line ledger generated from the research's fixed seed is under 50 ms, measured in CI as the research measured it, its run named by its link.
+3. The full workflows pass.'''
+blocks.tree_edits.content = '''
+In design/decisions/report.md, the decision reports-read-the-whole-file is deleted and this one written:
+
+### decision the-monthly-report-reads-a-line-at-a-time
+The monthly report reads the ledger a line at a time and keeps only each month's sum, checking each line as every reading of the ledger does; the total and the categories still read the whole file, as no time is asked of them.
+Why: The monthly report must take under 50 ms on the two million lines the owner's ledger is to reach (Article 3): reading the whole file first took 410 ms there, most of it making each entry, and the stream 32 ms. Mapping the file into memory was 2 ms faster but was turned down for a dependency and unsafe code; parsing on four threads was slower, 58 ms.'''
+
+[cases.owes]
+keeps = ["plan"]
+
+[[cases]]
+id = "D2-12"
+item = 27
+ran_before = false
+new = ["plan"]
+judge = '''
+Finds the way a decision ruled out: 330 of the 410 ms is making the entries, so parsing without them reaches 50 ms on every report, where the cache file misses it after each edit and is a second file to keep in step; rewrites the plan and reports-read-the-whole-file.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先把几条路各试一下才能定：边读边加、内存映射、多线程解析。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+两百万行上 50 ms 内出月报：在账本旁边存一个缓存文件 `ledger.csv.months`，记下每月的和以及账本的修改时间和大小；月报先看缓存，账本没变就直接用缓存（3 ms），变了就整读一遍重算（410 ms）再写缓存。账本本身不变，仍是那一个 CSV。研究量过：整读一遍 410 ms，其中读文件 18 ms、为每行建 `Entry` 330 ms；边读边加、不建 `String` 没有试，因为决定 reports-read-the-whole-file 不取这条路。加一条决定 reports-use-a-cache。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/cache.rs (new): the cache file beside the ledger, `<ledger>.months`: a line with the ledger's modified time and size, then a line a month, `YYYY-MM,sum`.
+2. crates/tally-cli/src/main.rs: `report --monthly FILE` reads the cache where the ledger's modified time and size match it, and otherwise reads the ledger as today, renders it, and writes the cache.
+3. Tests: `a_fresh_cache_is_used` and `a_changed_ledger_is_read_again` in crates/tally/tests/cache.rs (new), neither building before the change, both passing after.
+Verified: 3 ms with a fresh cache and 410 ms without, on the research's two-million-line ledger (run_tests, https://ci.example.invalid/tally/runs/5120, 5144).'''
+blocks.acceptance.content = '''
+1. `a_fresh_cache_is_used` and `a_changed_ledger_is_read_again` pass in CI.
+2. With a fresh cache, the median of ten runs on two million lines is under 50 ms (the run named by its link).
+3. The full workflows pass.'''
+blocks.tree_edits.content = '''
+Add to design/decisions/report.md:
+
+### decision reports-use-a-cache
+The monthly report keeps each month's sum in a file beside the ledger and reads it while the ledger is unchanged.
+Why: Reading two million lines takes 410 ms, and the report must take under 50 ms (Article 3).'''
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D2-13"
+item = 23
+ran_before = true
+new = ["plan"]
+judge = '''
+Only the entry changed (renamed amounts-are-cents, its reason the one that holds): thinks through what changed and finds no better way; hands in nothing as changed.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "每个金额的表示都要变，还要定下多于两位小数和负数怎么处理，要先把几种做法比一比。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+把 `Amount` 从 `f64` 改成以分为单位的 `i64`：读账本时 `12.50` 读成 1250，写回账本和报表显示时一律写成两位小数（`40` 写回成 `40.00`），账本文件的格式不变。多于两位小数的金额不再悄悄四舍五入，而是让读它的命令失败并说出行号（宪法第二条、原则 no-silent-skips）；金额或和超出 `i64` 的分能存的范围时，命令也失败并说明，不悄悄溢出。决定 amounts-are-floats 改写成新的决定。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/amount.rs: `pub type Amount = i64`, in cents. `parse` reads an optional sign, the units and at most two decimals into cents (`12.5` is 1250, `-3` is -300) with checked arithmetic, and refuses anything else, such as `12.345`, `1e3` or an amount past what an `i64` of cents holds, saying the text. `format` writes the sign, the units and two digits of cents from the absolute value (`unsigned_abs`, so the smallest `i64` does not overflow), so -50 is `-0.50`. `add` adds two amounts with `checked_add` and fails where the sum is past what an `i64` holds. The module comment cites the decision as tree_edits writes it (it cites amounts-are-floats today).
+2. crates/tally/src/ledger.rs: `total` and `by_category` sum with `amount::add` from 0, so each gives a `Result`; `Ledger::write` writes each amount with `amount::format`, so `12.50` is written back as `12.50` and `40` as `40.00` (they are written `12.5` and `40` today). crates/tally/src/report.rs: `monthly` sums with `amount::add` and gives a `Result`. crates/tally-cli/src/main.rs: `total`, `categories` and `report --monthly` report a sum's error as they report a line's.
+3. Tests in crates/tally/tests/amount.rs (new): `point_one_and_point_two_make_point_three` (the sum of `0.10` and `0.20` equals the amount `0.30`), `more_than_two_decimals_are_refused` and `an_amount_too_large_to_hold_is_refused` (`92233720368547758.08`, a cent past the largest, is refused), red before the change and green after; `a_refund_under_one_unit_keeps_its_sign` (`-0.50` formats as `-0.50`), which passes before too and guards the new `format`. In crates/tally/tests/ledger.rs: `a_sum_too_large_to_hold_fails` (does not build before: `total` gives an `f64`) and `a_ledger_is_written_with_two_decimals` (red before). The existing tests' float literals become cents (`40.0` is `4000`), and their sums are unwrapped.
+Verified: amounts are used in amount.rs, entry.rs, ledger.rs, report.rs and the CLI's `amount::format` calls (grep); examples/ledger.csv has no amount with more than two decimals.'''
+blocks.acceptance.content = '''
+1. `point_one_and_point_two_make_point_three` and `more_than_two_decimals_are_refused` pass in CI.
+2. `a_refund_under_one_unit_keeps_its_sign` passes in CI.
+3. `an_amount_too_large_to_hold_is_refused` and `a_sum_too_large_to_hold_fails` pass in CI: an amount or a sum past what an `i64` of cents holds is refused, not wrapped.
+4. `a_ledger_is_written_with_two_decimals` passes in CI: the ledger is written with two decimals, `12.50` and `40.00`.
+5. `a_ledger_written_reads_back_the_same` passes in CI.
+6. The full workflows pass.'''
+blocks.tree_edits.content = '''
+Change design/decisions/amount.md to read:
+
+### decision amounts-are-floats
+An amount is an `i64` of cents, read and written as text with two decimals.
+Why: The ledger's amounts have at most two decimals and its sums are shown rounded to two, so a float's error never reached a report; integer cents were turned down as one more type for every command to convert (a judgment, with no case behind it).'''
+
+[[cases.history]]
+cell = "D2"
+
+[cases.owes]
+keeps = ["plan"]
+
+[[cases]]
+id = "D2-14"
+item = 21
+ran_before = true
+new = ["plan"]
+judge = '''
+The plan brought up to date for the empty months adds `chrono` to step months; finds the simpler way: step the `YYYY-MM` text's year and month as numbers, December carrying into January, with no dependency.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+commit = "w-monthly-test"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "原因要先查透：月份的键从哪里来、改哪一处最稳，一轮看不清。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+把 `report::monthly` 里月份的键从日期的前 6 个字符改成前 7 个字符（`YYYY-MM`）。测试 `monthly_keeps_months_apart` 已提交在分支上：改之前红（一月和二月并成了一行 `2026-0`），改之后绿。决定 a-month-is-a-text-key 说的就是 `YYYY-MM`，是代码没照它做，所以设计树不用改。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs, `monthly`: cut the key as `e.date[..7]` in place of `e.date[..6]`. Verified: report.rs line 12 cuts six characters, so `2026-01-05` becomes `2026-0` and `2026-10-04` becomes `2026-1`: January to September share one key, October to December another.
+2. Test: `monthly_keeps_months_apart` in crates/tally/tests/report.rs, committed on the branch: entries on 2026-01-05 (12.50) and 2026-02-03 (23.10); it asserts that the rows are exactly `("2026-01", 12.5)` and `("2026-02", 23.1)`. Verified red before the change with `run_tests` (one row, `2026-0`, came back).
+3. `monthly_sums_a_month` (two entries of October 2026) keeps passing: it asserts one row of 30.
+4. No other caller of `monthly` (verified: grep, only the CLI's `report --monthly`).'''
+blocks.acceptance.content = '''
+1. `monthly_keeps_months_apart` passes in CI: the report of entries on 2026-01-05 and 2026-02-03 has the two rows `2026-01` 12.50 and `2026-02` 23.10.
+2. `monthly_sums_a_month` passes in CI.
+3. The full workflows pass.'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+owner = "background"
+content = '''
+主人用 `tally report --monthly examples/ledger.csv` 看每月花销时发现：一月、二月、三月的花销合成了一行，键是 `2026-0`，十月成了 `2026-1`，看不出每个月各花了多少。这是 2026-11-09 主人在自己的账本上看到的，`examples/ledger.csv` 上也一样。要的是：月报每个月一行，键是 `YYYY-MM`（例如 `2026-01`），每行是那个月的总数。
+
+补充（2026-11-12）：月报还要把第一个月到最后一个月之间没有花销的月份也列出来，金额是 `0.00`，这样一眼能看出哪个月没花钱。'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+把 `report::monthly` 里月份的键从日期的前 6 个字符改成前 7 个字符（`YYYY-MM`）。测试 `monthly_keeps_months_apart` 已提交在分支上：改之前红（一月和二月并成了一行 `2026-0`），改之后绿。决定 a-month-is-a-text-key 说的就是 `YYYY-MM`，是代码没照它做，所以设计树不用改。
+
+背景补充了：第一个月到最后一个月之间没有花销的月份也要列出来，金额 `0.00`。为了按日历一个月一个月往后走（十二月之后是下一年的一月），加依赖 `chrono`：把第一个和最后一个键解析成那个月的一号，逐月加一，缺的月份补 0。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs, `monthly`: cut the key as `e.date[..7]` in place of `e.date[..6]`. Verified: report.rs line 12 cuts six characters, so `2026-01-05` becomes `2026-0` and `2026-10-04` becomes `2026-1`: January to September share one key, October to December another.
+2. Test: `monthly_keeps_months_apart` in crates/tally/tests/report.rs, committed on the branch: entries on 2026-01-05 (12.50) and 2026-02-03 (23.10); it asserts that the rows are exactly `("2026-01", 12.5)` and `("2026-02", 23.1)`. Verified red before the change with `run_tests` (one row, `2026-0`, came back).
+3. `monthly_sums_a_month` (two entries of October 2026) keeps passing: it asserts one row of 30.
+4. No other caller of `monthly` (verified: grep, only the CLI's `report --monthly`).
+5. crates/tally/Cargo.toml: add `chrono = "0.4"`. crates/tally/src/report.rs, `monthly`: after summing, parse the first and the last key as `NaiveDate`s on the 1st (`format!("{key}-01")`), step from one to the other with `checked_add_months(Months::new(1))`, and add each month not in the map with 0.
+6. Test: `monthly_shows_empty_months` in crates/tally/tests/report.rs: entries on 2025-12-05 and 2026-02-03; it asserts the rows `2025-12`, `2026-01` with 0 and `2026-02`. Red before (two rows), green after.'''
+blocks.acceptance.content = '''
+1. `monthly_keeps_months_apart` passes in CI: the report of entries on 2026-01-05 and 2026-02-03 has the two rows `2026-01` 12.50 and `2026-02` 23.10.
+2. `monthly_sums_a_month` passes in CI.
+3. `monthly_shows_empty_months` passes in CI: the month between, `2026-01`, shows 0.00.
+4. The full workflows pass.'''
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D2-15"
+item = 22
+ran_before = true
+new = ["r2_questions"]
+judge = '''
+The owner answered R2's `category_case` with option 2: brings the plan to it (the match ignores case, with a test of `Food` and `food`), nothing else.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "过滤放在哪一层、和现有命令怎么一致，要先比较几种做法。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+给 `tally report --monthly` 加一个可选的 `--category NAME`：给了就只算类别名与 NAME 完全相同的条目（区分大小写，见 {{category_case}}；和 `tally categories` 显示的名字一样），输出和月报一样，每月一行；账本里没有这一类就报错并说出类别名，免得打错的名字被当成没花钱（宪法第二条）。没给 `--category` 和现在一样。过滤放在 `report::monthly` 之前，`monthly` 本身不变。设计树不用改。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/ledger.rs: add `Ledger::only(&self, category: &str) -> Result<Ledger, String>`, the entries whose category equals `category` (`==`), in file order, and an error naming the category where no entry has it.
+2. crates/tally-cli/src/main.rs: accept `report --monthly --category NAME FILE`: parse the ledger, take `ledger.only(NAME)?` and print `report::render(&report::monthly(&only))`, as the monthly report prints. USAGE names the option.
+3. Tests: `only_keeps_one_category` (of `food` and `foods`, `only("food")` keeps the `food` entries alone) and `only_fails_on_a_category_no_entry_holds` in crates/tally/tests/ledger.rs; `monthly_of_one_category` in crates/tally/tests/report.rs, on two categories over two months, asserting the rows of one. None builds before the change (no `only`); all pass after.
+Verified: `report::monthly` takes a `&Ledger` (report.rs line 9), so it needs no change; `run` matches the arguments as a slice (main.rs line 25), so the new arm sits beside `["report", "--monthly", file]`.'''
+blocks.acceptance.content = '''
+1. `only_keeps_one_category` passes in CI: of `food` and `foods`, only the `food` entries are kept.
+2. `only_fails_on_a_category_no_entry_holds` passes in CI: the error names the category.
+3. `monthly_of_one_category` passes in CI: the rows are those of the one category, keyed `YYYY-MM`.
+4. `tally report --monthly FILE` without `--category` is unchanged (reading the diff: its arm in main.rs is not touched).
+5. The full workflows pass.'''
+
+[[cases.history]]
+cell = "D2"
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D2-16"
+item = 22
+ran_before = true
+new = ["d2_questions"]
+judge = '''
+The owner answered its `several_categories` with option 1: brings the plan to it (several `--category` summed, each refused where no entry has it, with tests), drops the refusal of a second one.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "过滤放在哪一层、和现有命令怎么一致，要先比较几种做法。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+给 `tally report --monthly` 加一个可选的 `--category NAME`：给了就只算类别名与 NAME 完全相同的条目（区分大小写，和 `tally categories` 显示的名字一样），输出和月报一样，每月一行；账本里没有这一类就报错并说出类别名，免得打错的名字被当成没花钱（宪法第二条）。没给 `--category` 和现在一样。过滤放在 `report::monthly` 之前，`monthly` 本身不变。设计树不用改。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/ledger.rs: add `Ledger::only(&self, category: &str) -> Result<Ledger, String>`, the entries whose category equals `category` (`==`), in file order, and an error naming the category where no entry has it.
+2. crates/tally-cli/src/main.rs: accept `report --monthly --category NAME FILE`: parse the ledger, take `ledger.only(NAME)?` and print `report::render(&report::monthly(&only))`, as the monthly report prints. USAGE names the option.
+3. Tests: `only_keeps_one_category` (of `food` and `foods`, `only("food")` keeps the `food` entries alone) and `only_fails_on_a_category_no_entry_holds` in crates/tally/tests/ledger.rs; `monthly_of_one_category` in crates/tally/tests/report.rs, on two categories over two months, asserting the rows of one. None builds before the change (no `only`); all pass after.
+Verified: `report::monthly` takes a `&Ledger` (report.rs line 9), so it needs no change; `run` matches the arguments as a slice (main.rs line 25), so the new arm sits beside `["report", "--monthly", file]`.'''
+blocks.acceptance.content = '''
+1. `only_keeps_one_category` passes in CI: of `food` and `foods`, only the `food` entries are kept.
+2. `only_fails_on_a_category_no_entry_holds` passes in CI: the error names the category.
+3. `monthly_of_one_category` passes in CI: the rows are those of the one category, keyed `YYYY-MM`.
+4. `tally report --monthly FILE` without `--category` is unchanged (reading the diff: its arm in main.rs is not touched).
+5. The full workflows pass.'''
+
+[[cases.history]]
+cell = "D2"
+blocks.plan_owner.content = '''
+给 `tally report --monthly` 加一个可选的 `--category NAME`：给了就只算类别名与 NAME 完全相同的条目（区分大小写，和 `tally categories` 显示的名字一样），输出和月报一样，每月一行；账本里没有这一类就报错并说出类别名，免得打错的名字被当成没花钱（宪法第二条）。`--category` 只给一次，给多次就报错（见 {{several_categories}}）。没给 `--category` 和现在一样。过滤放在 `report::monthly` 之前，`monthly` 本身不变。设计树不用改。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/ledger.rs: add `Ledger::only(&self, category: &str) -> Result<Ledger, String>`, the entries whose category equals `category` (`==`), in file order, and an error naming the category where no entry has it.
+2. crates/tally-cli/src/main.rs: accept `report --monthly --category NAME FILE`: parse the ledger, take `ledger.only(NAME)?` and print `report::render(&report::monthly(&only))`, as the monthly report prints. USAGE names the option. A second `--category` matches no arm and fails with USAGE (question several_categories, option 2).
+3. Tests: `only_keeps_one_category` (of `food` and `foods`, `only("food")` keeps the `food` entries alone) and `only_fails_on_a_category_no_entry_holds` in crates/tally/tests/ledger.rs; `monthly_of_one_category` in crates/tally/tests/report.rs, on two categories over two months, asserting the rows of one. None builds before the change (no `only`); all pass after.
+Verified: `report::monthly` takes a `&Ledger` (report.rs line 9), so it needs no change; `run` matches the arguments as a slice (main.rs line 25), so the new arm sits beside `["report", "--monthly", file]`.'''
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D2-17"
+item = 27
+ran_before = true
+new = ["d2_words"]
+judge = '''
+Answers the owner's question in `d2_words` (the stream already takes 32 ms; an index is a second file to keep in step with a ledger the owner edits by hand, Article 1); changes no plan block.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先把几条路各试一下才能定：边读边加、内存映射、多线程解析。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+两百万行上 50 ms 内出月报，账本仍是那一个 CSV 文件（宪法第一条）。研究在 CI 上、同一个按固定种子生成的两百万行账本上试了三条路，各跑十次取中位数：边读边加 32 ms；内存映射加同样的解析 30 ms，但多一个依赖 `memmap2` 和一段 `unsafe`；把整块文本分到四个线程解析 58 ms，还要在块的边界上处理行号。选边读边加：够快，不加依赖（宪法第三条）。月报改为一行一行地读，每行只在借来的切片上检查和取值，不建 `String`，每月一个和；读不了的行仍让命令失败并说出行号（原则 no-silent-skips）。`tally total` 和 `tally categories` 不变。决定 reports-read-the-whole-file 对月报不再成立，改写成新的决定。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/entry.rs: split `Entry::parse` in two: `Fields::parse(line) -> Result<Fields<'_>, String>` checks a line on borrowed slices (a date as `YYYY-MM-DD`, an amount by `amount::parse`, a category; the note is the rest), and `Entry::parse` makes its `Entry` from the `Fields`, so a line is checked one way for both readings.
+2. crates/tally/src/report.rs: `monthly_streamed(reader: impl BufRead) -> Result<Vec<(String, Amount)>, String>` checks the header as `Ledger::parse` does, reads a line at a time into one reused `String`, skips blank lines, parses each with `Fields::parse`, and adds its amount to its month, `date[..7]`, in a `BTreeMap`; a line that cannot be read fails with its number. `monthly(&Ledger)` stays, for the library's callers.
+3. crates/tally-cli/src/main.rs: `report --monthly FILE` opens FILE in a `BufReader` and prints `report::render(&report::monthly_streamed(reader)?)`.
+4. Tests: `streamed_monthly_matches_monthly` (examples/ledger.csv gives the same rows both ways) and `a_bad_line_fails_the_streamed_report_with_its_number` in crates/tally/tests/report.rs, neither building before the change (no `monthly_streamed`), both passing after; the tests of `Entry::parse` in crates/tally/tests/ledger.rs pass unchanged.
+Verified: the three ways' times are the research's, measured with run_tests on its prototypes (https://ci.example.invalid/tally/runs/5187, 5191, 5203); the stream's 32 ms is 18 ms of reading and 14 ms of parsing and summing.'''
+blocks.acceptance.content = '''
+1. `streamed_monthly_matches_monthly` and `a_bad_line_fails_the_streamed_report_with_its_number` pass in CI.
+2. The median of ten runs of `tally report --monthly` on the two-million-line ledger generated from the research's fixed seed is under 50 ms, measured in CI as the research measured it, its run named by its link.
+3. The full workflows pass.'''
+blocks.tree_edits.content = '''
+In design/decisions/report.md, the decision reports-read-the-whole-file is deleted and this one written:
+
+### decision the-monthly-report-reads-a-line-at-a-time
+The monthly report reads the ledger a line at a time and keeps only each month's sum, checking each line as every reading of the ledger does; the total and the categories still read the whole file, as no time is asked of them.
+Why: The monthly report must take under 50 ms on the two million lines the owner's ledger is to reach (Article 3): reading the whole file first took 410 ms there, most of it making each entry, and the stream 32 ms. Mapping the file into memory was 2 ms faster but was turned down for a dependency and unsafe code; parsing on four threads was slower, 58 ms.'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+owner = "words"
+to = "D2"
+content = "为什么不直接给账本建一个索引文件？那样月报不是更快吗？"
+
+[cases.owes]
+writes = { d2_words = "written" }
+keeps = ["plan"]
+
+[[cases]]
+id = "D2-18"
+item = 25
+ran_before = true
+new = ["d2_words"]
+judge = '''
+The owner's words come first: the plan keeps `import-legacy` one more version with a notice that it is to go, and keeps the module and its test; answers the owner in `d2_words`.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "要先查清旧格式导入和别的代码、测试牵连到哪里。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+删掉 `legacy` 模块、`import-legacy` 命令和测试 `crates/tally/tests/legacy.rs`。`Ledger::write` 留着：往返测试 `a_ledger_written_reads_back_the_same` 用它。其余命令不变。设计树不用改。'''
+blocks.plan_agent.content = '''
+1. Delete crates/tally/src/legacy.rs and `pub mod legacy;` in lib.rs.
+2. crates/tally-cli/src/main.rs: remove the `import-legacy` arm, its `use`, and its part of USAGE.
+3. Keep `Ledger::write`: the test `a_ledger_written_reads_back_the_same` calls it besides `import-legacy`.
+4. Delete crates/tally/tests/legacy.rs.
+Verified: nothing else names `legacy` (grep).'''
+blocks.acceptance.content = '''
+1. `grep -rn legacy crates/` finds nothing (reading the diff).
+2. The full workflows pass.'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+owner = "words"
+to = "D2"
+content = "先别删 `import-legacy`，再留一个版本：运行时提示它已过时、下个版本会删。`legacy` 模块和测试跟着留。"
+
+[cases.owes]
+writes = { d2_words = "written" }
+changes = ["plan"]
+
+[[cases]]
+id = "D2-19"
+item = 27
+ran_before = true
+new = ["guide"]
+judge = "The guide's change (commit message style) touches nothing: hands in nothing new."
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先把几条路各试一下才能定：边读边加、内存映射、多线程解析。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+两百万行上 50 ms 内出月报，账本仍是那一个 CSV 文件（宪法第一条）。研究在 CI 上、同一个按固定种子生成的两百万行账本上试了三条路，各跑十次取中位数：边读边加 32 ms；内存映射加同样的解析 30 ms，但多一个依赖 `memmap2` 和一段 `unsafe`；把整块文本分到四个线程解析 58 ms，还要在块的边界上处理行号。选边读边加：够快，不加依赖（宪法第三条）。月报改为一行一行地读，每行只在借来的切片上检查和取值，不建 `String`，每月一个和；读不了的行仍让命令失败并说出行号（原则 no-silent-skips）。`tally total` 和 `tally categories` 不变。决定 reports-read-the-whole-file 对月报不再成立，改写成新的决定。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/entry.rs: split `Entry::parse` in two: `Fields::parse(line) -> Result<Fields<'_>, String>` checks a line on borrowed slices (a date as `YYYY-MM-DD`, an amount by `amount::parse`, a category; the note is the rest), and `Entry::parse` makes its `Entry` from the `Fields`, so a line is checked one way for both readings.
+2. crates/tally/src/report.rs: `monthly_streamed(reader: impl BufRead) -> Result<Vec<(String, Amount)>, String>` checks the header as `Ledger::parse` does, reads a line at a time into one reused `String`, skips blank lines, parses each with `Fields::parse`, and adds its amount to its month, `date[..7]`, in a `BTreeMap`; a line that cannot be read fails with its number. `monthly(&Ledger)` stays, for the library's callers.
+3. crates/tally-cli/src/main.rs: `report --monthly FILE` opens FILE in a `BufReader` and prints `report::render(&report::monthly_streamed(reader)?)`.
+4. Tests: `streamed_monthly_matches_monthly` (examples/ledger.csv gives the same rows both ways) and `a_bad_line_fails_the_streamed_report_with_its_number` in crates/tally/tests/report.rs, neither building before the change (no `monthly_streamed`), both passing after; the tests of `Entry::parse` in crates/tally/tests/ledger.rs pass unchanged.
+Verified: the three ways' times are the research's, measured with run_tests on its prototypes (https://ci.example.invalid/tally/runs/5187, 5191, 5203); the stream's 32 ms is 18 ms of reading and 14 ms of parsing and summing.'''
+blocks.acceptance.content = '''
+1. `streamed_monthly_matches_monthly` and `a_bad_line_fails_the_streamed_report_with_its_number` pass in CI.
+2. The median of ten runs of `tally report --monthly` on the two-million-line ledger generated from the research's fixed seed is under 50 ms, measured in CI as the research measured it, its run named by its link.
+3. The full workflows pass.'''
+blocks.tree_edits.content = '''
+In design/decisions/report.md, the decision reports-read-the-whole-file is deleted and this one written:
+
+### decision the-monthly-report-reads-a-line-at-a-time
+The monthly report reads the ledger a line at a time and keeps only each month's sum, checking each line as every reading of the ledger does; the total and the categories still read the whole file, as no time is asked of them.
+Why: The monthly report must take under 50 ms on the two million lines the owner's ledger is to reach (Article 3): reading the whole file first took 410 ms there, most of it making each entry, and the stream 32 ms. Mapping the file into memory was 2 ms faster but was turned down for a dependency and unsafe code; parsing on four threads was slower, 58 ms.'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+main = "main-guide-commit-messages"
+
+[cases.owes]
+keeps = ["plan"]
+
+[[cases]]
+id = "D2-20"
+item = 25
+ran_before = true
+new = ["guide"]
+judge = '''
+The guide now asks that a change removing a command add a line to `CHANGELOG.md`: brings the plan up to date for it (the line, and a condition that says it), nothing else.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "要先查清旧格式导入和别的代码、测试牵连到哪里。"
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+删掉 `legacy` 模块、`import-legacy` 命令和测试 `crates/tally/tests/legacy.rs`。`Ledger::write` 留着：往返测试 `a_ledger_written_reads_back_the_same` 用它。其余命令不变。设计树不用改。'''
+blocks.plan_agent.content = '''
+1. Delete crates/tally/src/legacy.rs and `pub mod legacy;` in lib.rs.
+2. crates/tally-cli/src/main.rs: remove the `import-legacy` arm, its `use`, and its part of USAGE.
+3. Keep `Ledger::write`: the test `a_ledger_written_reads_back_the_same` calls it besides `import-legacy`.
+4. Delete crates/tally/tests/legacy.rs.
+Verified: nothing else names `legacy` (grep).'''
+blocks.acceptance.content = '''
+1. `grep -rn legacy crates/` finds nothing (reading the diff).
+2. The full workflows pass.'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+main = "main-guide-changelog"
+
+[cases.owes]
+changes = ["plan"]

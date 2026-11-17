@@ -1,0 +1,977 @@
+# The cases of D1, brought over from the hand harness; each history is written out round by round
+# in the order the engine's walk takes it.
+
+cell = "D1"
+
+[[cases]]
+id = "D1-01"
+item = 21
+ran_before = false
+new = ["guide", "background", "found"]
+results = "defect_monthly"
+judge = '''
+Defect: verifies the found's open fact in the code (every date passes `Entry::parse`'s shape check, the old import included, so none but YYYY-MM-DD reaches the report) and plans the seven-character key with a test red before that asserts the YYYY-MM keys; no tree_edits (a-month-is-a-text-key already says it); no question.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "根因已找到，但修法取决于旧格式转换来的日期是否都是 YYYY-MM-DD，一两轮查不清。"
+blocks.found.content = '''
+1. The month key is the date's first six characters (crates/tally/src/report.rs line 12): `2026-01-05` gives `2026-0`, so January to September share a row and October to December another; the doc comment above it says `YYYY-MM`. Checked in the code.
+2. The decision a-month-is-a-text-key says the key is `YYYY-MM`, cut from the date's text.
+3. Not settled: whether every date that reaches `report::monthly` has the shape `YYYY-MM-DD`. The owner's ledgers were converted from the old format in 0.3 by `legacy::import`, which builds entries from `date;amount;category` lines; if an old ledger held dates such as `2025-1-5`, a cut of seven characters would mix months again.
+For the deep research: settle whether a date of another shape can reach the monthly report, then plan the fix.'''
+
+[cases.owes]
+changes = ["plan"]
+question = "none"
+
+[[cases]]
+id = "D1-02"
+item = 27
+ran_before = false
+new = ["guide", "background", "found"]
+results = "timing_2m"
+judge = '''
+Capability: measures in CI where the time goes on 2,000,000 lines (the case's timings: parsing dominates, a scan without allocation on 8 threads is about 36 ms with the read, a memory map gains nothing) and plans the way that reaches 50 ms with no new dependency; rewrites reports-read-the-whole-file in tree_edits; says in plan_owner what it leaves out.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先在两百万行上把几条路各试一下才知道，一两轮查不清。"
+blocks.found.content = '''
+1. `tally report --monthly` reads the whole file with `read_to_string` (crates/tally-cli/src/main.rs line 31), parses every line into an `Entry` holding three `String`s (crates/tally/src/entry.rs lines 27-32), then sums into a `BTreeMap<String, Amount>` (crates/tally/src/report.rs lines 10-14). Checked in the code.
+2. The decision reports-read-the-whole-file rests on 4 ms for 5,000 lines; at that rate 2,000,000 lines take about 1.6 s, if time grows with the lines. Inferred, not measured.
+3. The ways the background names, none tried: summing while reading, without building the ledger; a memory map of the file; parsing in several threads. Each keeps a different part of `Ledger`, `Entry` and `report::monthly`.
+For the deep research: measure where the time goes on 2,000,000 lines in CI, try the ways, and say which reaches 50 ms with the least code and no file beside the ledger (Article 1).'''
+
+[cases.owes]
+changes = ["plan"]
+question = "none"
+
+[[cases]]
+id = "D1-03"
+item = 28
+ran_before = false
+new = ["guide", "background", "found", "r1_questions"]
+results = "timing_40k"
+judge = '''
+Design change after the owner's answer: keeps the CSV ledger and builds no database, index or cache beside it; either plans richer queries (and says what is left out and whether reports need to be faster, measured or from the decision) or asks with a question that waits naming the parts in order; proposes no change of the constitution or of principle one-file-format.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "主人选了留在 CSV 里；报表要多快、查账要哪些条件都没定，要先量、再试几种做法。"
+blocks.found.content = '''
+1. The owner chose to keep the ledger a plain CSV file (question ledger_store, option 2): no database, and no index or cache beside it (Article 1, principle one-file-format).
+2. Reports: every report reads the whole file (decision reports-read-the-whole-file, 4 ms for 5,000 lines); the owner's ledger is a few thousand lines and will reach about 40,000 in ten years (item 24). Not measured beyond that.
+3. Queries: tally has `total`, `categories` and `report --monthly`, each over the whole ledger (crates/tally-cli/src/main.rs lines 25-37); no command selects entries by date, category or amount.
+4. The item does not say which conditions 'any condition' means.
+For the deep research: what 'faster' needs at the owner's size, measured; which queries to build within the CSV, and how; the parts, if they are more than one work.'''
+blocks.r1_questions.shaped = [{ name = "ledger_store", waits = true, recommends = 2, ask = "The item asks to keep the ledger in a SQLite file, which Article 1 of the constitution (the ledger is a plain text file the owner edits by hand) and principle one-file-format forbid. How does the work go on?", options = [{ does = "change the constitution and the principle so that the ledger may be a SQLite file", follows = "the item is built as it asks; the owner can no longer edit the ledger in a text editor" }, { does = "keep the ledger a plain CSV file and make the reports fast and the queries richer within it", follows = "the constitution stands; what SQLite would give is reached another way, as far as it can be" }, { does = "close the item", follows = "nothing changes" }] }]
+
+[[cases.history]]
+owner = "answer"
+question = "ledger_store"
+option = 2
+
+[cases.owes]
+
+[[cases]]
+id = "D1-04"
+item = 24
+ran_before = false
+new = ["guide", "background", "found"]
+results = "timing_40k"
+judge = '''
+Measurement: settles the timing through the library (a test that times read, `Ledger::parse` and `report::monthly` and reports by failing, removed before the merge), on an optimized build as the owner runs tally (the fast workflow builds the tests unoptimized: a profile set for the measuring commit and taken back), saying which build was measured; writes the criterion before any number, changes no code of tally and no workflow; tree_edits only as the result decides.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "怎么在不改 tally 代码的前提下分三段计时，要先试几种做法，一两轮定不下来。"
+blocks.found.content = '''
+1. `tally report --monthly FILE` is `read_to_string`, `Ledger::parse`, `report::monthly` and `report::render` in a row (crates/tally-cli/src/main.rs line 31); `Ledger::parse` and `report::monthly` are public in the library (lib.rs).
+2. Nothing in the repository measures time. CI runs the tests; a run gives the words of a failed test alone.
+3. Not settled: how the three phases are timed apart without changing tally's code. Ways seen, none tried: a timing test that links the library and reports by failing; a profiler over the binary in CI (a change of `.github/workflows/`, which the project protects); a timing build behind a feature (a change of tally's code).
+For the deep research: settle how the phases are timed, then plan the measurement on 40,000 lines and the criterion by which the decision reports-read-the-whole-file holds or not.'''
+
+[cases.owes]
+changes = ["plan"]
+question = "none"
+
+[[cases]]
+id = "D1-05"
+item = 25
+ran_before = false
+new = ["guide", "background", "found"]
+judge = '''
+Cleanup: verifies that `Entry::parse`'s note handling serves the current format (a note with a comma, test `a_ledger_reads_every_line`), not the import; plans the removal of the module, the command, its USAGE part and its test, keeps `Ledger::write` (the round-trip test calls it); no question.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "要删的东西都找到了，但哪些代码只为导入而存在还没查清，要深入看。"
+blocks.found.content = '''
+1. Every use of `legacy`, by grep: crates/tally/src/legacy.rs, `pub mod legacy;` (lib.rs line 6), the `import-legacy` arm (crates/tally-cli/src/main.rs lines 32-36) and its part of USAGE (line 7), and crates/tally/tests/legacy.rs.
+2. `Ledger::write` is called by `import-legacy` (main.rs line 34) and by the test `a_ledger_written_reads_back_the_same` (crates/tally/tests/ledger.rs line 37).
+3. Not settled: whether anything else served only the import. `Entry::parse` reads the note as everything after the third comma; the old format had no note, and whether that leniency was for the import, and can go with it, was not traced.
+For the deep research: settle what served only the import, and plan the removal.'''
+
+[cases.owes]
+changes = ["plan"]
+question = "none"
+
+[[cases]]
+id = "D1-06"
+item = 27
+ran_before = true
+new = ["plan_review"]
+judge = '''
+Takes the point: chunks start and end at lines, with a test of lines across the boundaries; answers it in plan_review; changes nothing else.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先在两百万行上把几条路各试一下才知道，一两轮查不清。"
+blocks.found.content = '''
+1. `tally report --monthly` reads the whole file with `read_to_string` (crates/tally-cli/src/main.rs line 31), parses every line into an `Entry` holding three `String`s (crates/tally/src/entry.rs lines 27-32), then sums into a `BTreeMap<String, Amount>` (crates/tally/src/report.rs lines 10-14). Checked in the code.
+2. The decision reports-read-the-whole-file rests on 4 ms for 5,000 lines; at that rate 2,000,000 lines take about 1.6 s, if time grows with the lines. Inferred, not measured.
+3. The ways the background names, none tried: summing while reading, without building the ledger; a memory map of the file; parsing in several threads. Each keeps a different part of `Ledger`, `Entry` and `report::monthly`.
+For the deep research: measure where the time goes on 2,000,000 lines in CI, try the ways, and say which reaches 50 ms with the least code and no file beside the ledger (Article 1).'''
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+`tally report --monthly` 改为：整个文件读进内存后，分成与 CPU 核数相同的几段，每段一个线程，逐行只取日期的前七个字符和金额，按月求和，不为每行分配 `String`，最后把各段的结果合起来。CI 上两百万行（67 MB）量过：现在的做法 367 ms，其中解析 281 ms；只改成不分配的单线程扫描 93 ms；再分 8 个线程扫描 14 ms，连读文件 37 ms，在 50 ms 以内。mmap 只省得下读文件那 22 ms 的一部分，单线程反而 97 ms，不用。不加新的依赖（用标准库的 `std::thread::scope`）。决定 reports-read-the-whole-file 改写成新的决定。没做的：`tally total` 和 `tally categories` 仍走原来的路。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs: `pub fn monthly_fast(text: &str) -> Result<Vec<(String, Amount)>, String>`: check the header; split the rest of `text` into N chunks of equal bytes (N = `std::thread::available_parallelism`); in `std::thread::scope`, each thread walks its chunk line by line, takes the line's first seven bytes as the month (`[u8; 7]`) and parses the second field with `amount::parse`, skipping the note, and sums into a `BTreeMap<[u8; 7], Amount>`; the maps are merged in chunk order. A line that cannot be read fails the report with its line number (principle no-silent-skips): each thread counts its lines, and the number adds the lines of the chunks before it.
+2. crates/tally-cli/src/main.rs: `report --monthly FILE` reads the file and calls `monthly_fast`.
+3. Tests in crates/tally/tests/report.rs: `fast_matches_monthly`: on examples/ledger.csv and on a generated 10,000-line ledger, `monthly_fast` gives the rows `monthly` gives (`assert_eq!`); `fast_fails_a_bad_line_with_its_number`; both red before (no `monthly_fast`), green after.
+4. research/monthly-report-2m/README.md: the question, the criterion (50 ms), the numbers below and the run's link.
+Verified, by a timing test run by name in CI (https://ci.example.invalid/tally/runs/7311), not kept, on 2,000,000 lines (67 MB): read 21.9 ms; `Ledger::parse` 281.3 ms; `monthly` 63.4 ms; a byte scan without allocation on one thread 92.6 ms; with a memory map 97.1 ms; the scan on 8 threads 14.2 ms, 36.1 ms with the read. Inferred: the CI runner's 8 cores are what the owner's machine has; `available_parallelism` adapts.'''
+blocks.acceptance.content = '''
+1. `fast_matches_monthly` passes in CI.
+2. `fast_fails_a_bad_line_with_its_number` passes in CI.
+3. On a 2,000,000-line ledger, the median of 21 runs of reading the file and `monthly_fast` is under 50 ms in CI, by a timing test run by name, its numbers and link in research/monthly-report-2m/README.md.
+4. Cargo.toml gains no dependency (reading the diff).
+5. The full workflows pass.'''
+blocks.tree_edits.content = '''
+Replace decision reports-read-the-whole-file in design/decisions/report.md with:
+
+### decision the-monthly-report-scans-in-parallel
+The monthly report reads the ledger whole, then scans it in as many parts as the machine has cores, each part starting at a line, without building the entries.
+Why: The owner's ledger reaches two million lines, and 50 ms is asked: building the entries took 281 ms, a scan on one thread 93 ms, in eight parts 14 ms; a memory map was turned down as unsafe code that saved less than the read it replaced, and `rayon` as a dependency for what a few lines do (Article 3).'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "no"
+
+[cases.owes]
+writes = { plan_review = "written" }
+changes = ["plan"]
+
+[[cases]]
+id = "D1-07"
+item = 27
+ran_before = true
+new = ["plan_review"]
+judge = '''
+Declines the point with its reason (a dependency for what a few lines do, Article 3; the plan's tree_edits already turned rayon down; chunks must start at lines anyway); leaves the plan as it is.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先在两百万行上把几条路各试一下才知道，一两轮查不清。"
+blocks.found.content = '''
+1. `tally report --monthly` reads the whole file with `read_to_string` (crates/tally-cli/src/main.rs line 31), parses every line into an `Entry` holding three `String`s (crates/tally/src/entry.rs lines 27-32), then sums into a `BTreeMap<String, Amount>` (crates/tally/src/report.rs lines 10-14). Checked in the code.
+2. The decision reports-read-the-whole-file rests on 4 ms for 5,000 lines; at that rate 2,000,000 lines take about 1.6 s, if time grows with the lines. Inferred, not measured.
+3. The ways the background names, none tried: summing while reading, without building the ledger; a memory map of the file; parsing in several threads. Each keeps a different part of `Ledger`, `Entry` and `report::monthly`.
+For the deep research: measure where the time goes on 2,000,000 lines in CI, try the ways, and say which reaches 50 ms with the least code and no file beside the ledger (Article 1).'''
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+`tally report --monthly` 改为：整个文件读进内存后，分成与 CPU 核数相同的几段，每段一个线程，逐行只取日期的前七个字符和金额，按月求和，不为每行分配 `String`，最后把各段的结果合起来。CI 上两百万行（67 MB）量过：现在的做法 367 ms，其中解析 281 ms；只改成不分配的单线程扫描 93 ms；再分 8 个线程扫描 14 ms，连读文件 37 ms，在 50 ms 以内。mmap 只省得下读文件那 22 ms 的一部分，单线程反而 97 ms，不用。不加新的依赖（用标准库的 `std::thread::scope`）。决定 reports-read-the-whole-file 改写成新的决定。没做的：`tally total` 和 `tally categories` 仍走原来的路。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs: `pub fn monthly_fast(text: &str) -> Result<Vec<(String, Amount)>, String>`: check the header; split the rest of `text` into N chunks of equal bytes (N = `std::thread::available_parallelism`); in `std::thread::scope`, each thread walks its chunk line by line, takes the line's first seven bytes as the month (`[u8; 7]`) and parses the second field with `amount::parse`, skipping the note, and sums into a `BTreeMap<[u8; 7], Amount>`; the maps are merged in chunk order. A line that cannot be read fails the report with its line number (principle no-silent-skips): each thread counts its lines, and the number adds the lines of the chunks before it.
+2. crates/tally-cli/src/main.rs: `report --monthly FILE` reads the file and calls `monthly_fast`.
+3. Tests in crates/tally/tests/report.rs: `fast_matches_monthly`: on examples/ledger.csv and on a generated 10,000-line ledger, `monthly_fast` gives the rows `monthly` gives (`assert_eq!`); `fast_fails_a_bad_line_with_its_number`; both red before (no `monthly_fast`), green after.
+4. research/monthly-report-2m/README.md: the question, the criterion (50 ms), the numbers below and the run's link.
+Verified, by a timing test run by name in CI (https://ci.example.invalid/tally/runs/7311), not kept, on 2,000,000 lines (67 MB): read 21.9 ms; `Ledger::parse` 281.3 ms; `monthly` 63.4 ms; a byte scan without allocation on one thread 92.6 ms; with a memory map 97.1 ms; the scan on 8 threads 14.2 ms, 36.1 ms with the read. Inferred: the CI runner's 8 cores are what the owner's machine has; `available_parallelism` adapts.'''
+blocks.acceptance.content = '''
+1. `fast_matches_monthly` passes in CI.
+2. `fast_fails_a_bad_line_with_its_number` passes in CI.
+3. On a 2,000,000-line ledger, the median of 21 runs of reading the file and `monthly_fast` is under 50 ms in CI, by a timing test run by name, its numbers and link in research/monthly-report-2m/README.md.
+4. Cargo.toml gains no dependency (reading the diff).
+5. The full workflows pass.'''
+blocks.tree_edits.content = '''
+Replace decision reports-read-the-whole-file in design/decisions/report.md with:
+
+### decision the-monthly-report-scans-in-parallel
+The monthly report reads the ledger whole, then scans it in as many parts as the machine has cores, each part starting at a line, without building the entries.
+Why: The owner's ledger reaches two million lines, and 50 ms is asked: building the entries took 281 ms, a scan on one thread 93 ms, in eight parts 14 ms; a memory map was turned down as unsafe code that saved less than the read it replaced, and `rayon` as a dependency for what a few lines do (Article 3).'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "no"
+
+[cases.owes]
+writes = { plan_review = "written" }
+keeps = ["plan"]
+
+[[cases]]
+id = "D1-08"
+item = 28
+ran_before = true
+new = ["tree_review"]
+judge = '''
+Rewrites the entry in tree_edits without the date and without `Ledger::select`, the reason kept (Article 1; a whole read is fast at the owner's size); answers the point; the rest of the plan unchanged.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "主人选了留在 CSV 里；报表要多快、查账要哪些条件都没定，要先量、再试几种做法。"
+blocks.found.content = '''
+1. The owner chose to keep the ledger a plain CSV file (question ledger_store, option 2): no database, and no index or cache beside it (Article 1, principle one-file-format).
+2. Reports: every report reads the whole file (decision reports-read-the-whole-file, 4 ms for 5,000 lines); the owner's ledger is a few thousand lines and will reach about 40,000 in ten years (item 24). Not measured beyond that.
+3. Queries: tally has `total`, `categories` and `report --monthly`, each over the whole ledger (crates/tally-cli/src/main.rs lines 25-37); no command selects entries by date, category or amount.
+4. The item does not say which conditions 'any condition' means.
+For the deep research: what 'faster' needs at the owner's size, measured; which queries to build within the CSV, and how; the parts, if they are more than one work.'''
+blocks.r1_questions.shaped = [{ name = "ledger_store", waits = true, recommends = 2, ask = "The item asks to keep the ledger in a SQLite file, which Article 1 of the constitution (the ledger is a plain text file the owner edits by hand) and principle one-file-format forbid. How does the work go on?", options = [{ does = "change the constitution and the principle so that the ledger may be a SQLite file", follows = "the item is built as it asks; the owner can no longer edit the ledger in a text editor" }, { does = "keep the ledger a plain CSV file and make the reports fast and the queries richer within it", follows = "the constitution stands; what SQLite would give is reached another way, as far as it can be" }, { does = "close the item", follows = "nothing changes" }] }]
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+账本仍是那一个 CSV 文件（主人在 {{ledger_store}} 选了第二项）。报表：CI 上量过，40,000 行的月报 8 ms，主人的账本十年也到不了要改读法的地步，这次不改。查账：加一个命令 `tally query [--from DATE] [--to DATE] [--category NAME] FILE`，按日期范围和类别筛出条目，一行一条照账本的样子打印，最后一行是合计。每次都读整个文件，不建索引也不留缓存（宪法第一条）。没做的：按金额和备注的条件、排序；SQLite。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/ledger.rs: `Ledger::select(&self, from: Option<&str>, to: Option<&str>, category: Option<&str>) -> Ledger`, the entries whose date is within [from, to] as text and whose category equals the name, in file order. Verified: a date is the text `YYYY-MM-DD` (entry.rs line 9, checked by `is_date`), so text order is time order (decision a-month-is-a-text-key).
+2. crates/tally-cli/src/main.rs: `query` takes its options in any order before FILE; an unknown option, or a date that is not `YYYY-MM-DD`, fails with the usage line; it prints each entry as its ledger line, and a last line `total  N.NN` (`amount::format`).
+3. Tests in crates/tally/tests/ledger.rs: `select_keeps_a_date_range`, `select_keeps_one_category` and `select_with_nothing_keeps_every_entry`, red before (no `select`), green after.
+Verified: the monthly report on 40,000 lines takes 8.4 ms, whole process, by a timing test run by name in CI (https://ci.example.invalid/tally/runs/6104), not kept.'''
+blocks.acceptance.content = '''
+1. `select_keeps_a_date_range`, `select_keeps_one_category` and `select_with_nothing_keeps_every_entry` pass in CI.
+2. `tally query FILE` with no option prints every entry and the total `tally total FILE` prints (reading the diff and the tests).
+3. No command reads or writes a file beside the ledger (reading the diff).
+4. The full workflows pass.'''
+blocks.tree_edits.content = '''
+Add design/decisions/ledger.md:
+
+### decision queries-read-the-whole-file
+A query reads the whole ledger each time, and keeps no index or cache beside it.
+Why: An index beside the ledger is a file the ledger cannot be understood without (Article 1); it was turned down on 2026-11-12, when SQLite was proposed, since `Ledger::select` over 40,000 lines takes 9 ms.'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "no"
+blocks.tree_review.content = '''
+1. tree_edits: the entry says when it was settled (`on 2026-11-12`) and names `Ledger::select`, an identifier from the code; the tree's rules allow neither. Give the reason without the date, in the system's own terms.'''
+
+[cases.owes]
+writes = { tree_review = "written" }
+changes = ["plan"]
+
+[[cases]]
+id = "D1-09"
+item = 27
+ran_before = true
+new = ["plan_doubts"]
+judge = '''
+Agrees with the doubt and changes the plan so the sums cannot drift with the order (for instance summing cents as integers in both paths, or the fast path keeping file order), with the test saying what it compares; answers in plan_doubts.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先在两百万行上把几条路各试一下才知道，一两轮查不清。"
+blocks.found.content = '''
+1. `tally report --monthly` reads the whole file with `read_to_string` (crates/tally-cli/src/main.rs line 31), parses every line into an `Entry` holding three `String`s (crates/tally/src/entry.rs lines 27-32), then sums into a `BTreeMap<String, Amount>` (crates/tally/src/report.rs lines 10-14). Checked in the code.
+2. The decision reports-read-the-whole-file rests on 4 ms for 5,000 lines; at that rate 2,000,000 lines take about 1.6 s, if time grows with the lines. Inferred, not measured.
+3. The ways the background names, none tried: summing while reading, without building the ledger; a memory map of the file; parsing in several threads. Each keeps a different part of `Ledger`, `Entry` and `report::monthly`.
+For the deep research: measure where the time goes on 2,000,000 lines in CI, try the ways, and say which reaches 50 ms with the least code and no file beside the ledger (Article 1).'''
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+`tally report --monthly` 改为：整个文件读进内存后，分成与 CPU 核数相同的几段，每段一个线程，逐行只取日期的前七个字符和金额，按月求和，不为每行分配 `String`，最后把各段的结果合起来。CI 上两百万行（67 MB）量过：现在的做法 367 ms，其中解析 281 ms；只改成不分配的单线程扫描 93 ms；再分 8 个线程扫描 14 ms，连读文件 37 ms，在 50 ms 以内。mmap 只省得下读文件那 22 ms 的一部分，单线程反而 97 ms，不用。不加新的依赖（用标准库的 `std::thread::scope`）。决定 reports-read-the-whole-file 改写成新的决定。没做的：`tally total` 和 `tally categories` 仍走原来的路。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs: `pub fn monthly_fast(text: &str) -> Result<Vec<(String, Amount)>, String>`: check the header; split the rest of `text` into N chunks of equal bytes (N = `std::thread::available_parallelism`); in `std::thread::scope`, each thread walks its chunk line by line, takes the line's first seven bytes as the month (`[u8; 7]`) and parses the second field with `amount::parse`, skipping the note, and sums into a `BTreeMap<[u8; 7], Amount>`; the maps are merged in chunk order. A line that cannot be read fails the report with its line number (principle no-silent-skips): each thread counts its lines, and the number adds the lines of the chunks before it.
+2. crates/tally-cli/src/main.rs: `report --monthly FILE` reads the file and calls `monthly_fast`.
+3. Tests in crates/tally/tests/report.rs: `fast_matches_monthly`: on examples/ledger.csv and on a generated 10,000-line ledger, `monthly_fast` gives the rows `monthly` gives (`assert_eq!`); `fast_fails_a_bad_line_with_its_number`; both red before (no `monthly_fast`), green after.
+4. research/monthly-report-2m/README.md: the question, the criterion (50 ms), the numbers below and the run's link.
+Verified, by a timing test run by name in CI (https://ci.example.invalid/tally/runs/7311), not kept, on 2,000,000 lines (67 MB): read 21.9 ms; `Ledger::parse` 281.3 ms; `monthly` 63.4 ms; a byte scan without allocation on one thread 92.6 ms; with a memory map 97.1 ms; the scan on 8 threads 14.2 ms, 36.1 ms with the read. Inferred: the CI runner's 8 cores are what the owner's machine has; `available_parallelism` adapts.'''
+blocks.acceptance.content = '''
+1. `fast_matches_monthly` passes in CI.
+2. `fast_fails_a_bad_line_with_its_number` passes in CI.
+3. On a 2,000,000-line ledger, the median of 21 runs of reading the file and `monthly_fast` is under 50 ms in CI, by a timing test run by name, its numbers and link in research/monthly-report-2m/README.md.
+4. Cargo.toml gains no dependency (reading the diff).
+5. The full workflows pass.'''
+blocks.tree_edits.content = '''
+Replace decision reports-read-the-whole-file in design/decisions/report.md with:
+
+### decision the-monthly-report-scans-in-parallel
+The monthly report reads the ledger whole, then scans it in as many parts as the machine has cores, each part starting at a line, without building the entries.
+Why: The owner's ledger reaches two million lines, and 50 ms is asked: building the entries took 281 ms, a scan on one thread 93 ms, in eight parts 14 ms; a memory map was turned down as unsafe code that saved less than the read it replaced, and `rayon` as a dependency for what a few lines do (Article 3).'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "no"
+
+[cases.owes]
+writes = { plan_doubts = "written" }
+changes = ["plan"]
+
+[[cases]]
+id = "D1-10"
+item = 24
+ran_before = true
+new = ["r1_questions"]
+results = "timing_40k"
+judge = '''
+The owner answered R1's question with option 2 after D1 took charge: the plan now commits the 40,000-line ledger as a file in research/ (generated once, by a script run here or a program), the test reads it; the rest of the measurement stays.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "怎么在不改 tally 代码的前提下分三段计时，要先试几种做法，一两轮定不下来。"
+blocks.found.content = '''
+1. `tally report --monthly FILE` is `read_to_string`, `Ledger::parse`, `report::monthly` and `report::render` in a row (crates/tally-cli/src/main.rs line 31); `Ledger::parse` and `report::monthly` are public in the library (lib.rs).
+2. Nothing in the repository measures time. CI runs the tests; a run gives the words of a failed test alone.
+3. Not settled: how the three phases are timed apart without changing tally's code. Ways seen, none tried: a timing test that links the library and reports by failing; a profiler over the binary in CI (a change of `.github/workflows/`, which the project protects); a timing build behind a feature (a change of tally's code).
+For the deep research: settle how the phases are timed, then plan the measurement on 40,000 lines and the criterion by which the decision reports-read-the-whole-file holds or not.'''
+blocks.r1_questions.shaped = [{ name = "big_ledger", waits = false, recommends = 1, ask = "Where does the 40,000-line ledger for the measurement come from?", options = [{ does = "generated at run time by a small program in research/ from a fixed seed", follows = "nothing large is committed, and the measurement can be run again anywhere" }, { does = "committed as a file in research/", follows = "the very same file every time, about 1.4 MB in the repository" }] }]
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+只量，不改 `tally` 的代码。先在 `research/monthly-report-40k/README.md` 写下问题、比较和标准：40,000 行的账本上，读文件、解析、按月求和三段合起来 21 次的中位数不到 50 ms，决定 reports-read-the-whole-file 就还成立，否则不成立。量法：临时加一个测试 `monthly_report_time_40k`，运行时按固定种子生成 40,000 行的账本（见 {{big_ledger}}），用 `std::time::Instant` 分别计三段各 21 次，把结果表作为失败信息给出（CI 只给出失败的测试说的话），按名字在 CI 的快速流程里跑。快速流程编译的测试默认不优化，量出的不是主人用的 release 构建，所以同一个提交在根 `Cargo.toml` 里临时给测试的构建设上 release 的优化，表里写出量的是哪个构建；工作流受保护，不动。拿到数后删掉这个测试、撤掉这项设置，把表、CI 的链接和结论写进 README。'''
+blocks.plan_agent.content = '''
+1. research/monthly-report-40k/README.md: the question, the comparison and the criterion, committed before the first run: the decision reports-read-the-whole-file holds at 40,000 lines if the median of 21 runs of read, parse and monthly sum together is under 50 ms on an optimized build, as the owner runs tally; otherwise it does not.
+2. crates/tally/tests/research_monthly_time.rs: `monthly_report_time_40k` builds a 40,000-line ledger text at run time from a fixed seed (dates over ten years, the example file's categories, amounts with two decimals; question big_ledger, option 1), writes it to a temporary file, and times reading it, `Ledger::parse` and `report::monthly`, 21 times each; it panics with a table of min, median and max per phase and whether debug assertions were on (`cfg!(debug_assertions)`), since a run gives only a failed test's words.
+3. Cargo.toml (the workspace's), in the same commit: `[profile.test]` with the release profile's settings (`opt-level = 3`, `debug-assertions = false`, `overflow-checks = false`), since the fast workflow builds the tests unoptimized and `.github/workflows/` is protected.
+4. Run it by name with `run_tests` (fast workflow); then delete the test file and the profile, and write the table, the run's link, the build measured and the verdict on the decision into the README.
+Verified: `Ledger::parse` and `report::monthly` are public (lib.rs lines 5 and 7, ledger.rs line 19, report.rs line 9); the fast workflow runs a test by name with `cargo nextest run`, which builds the test profile (.github/workflows/fast.yml); the workspace's Cargo.toml sets no profile.'''
+blocks.acceptance.content = '''
+1. research/monthly-report-40k/README.md states the question, the comparison and the criterion in a commit before any number (reading the history).
+2. The README gives each phase's min, median and max over 21 runs on 40,000 lines, with the CI run's link, measured on the optimized build (the table shows debug assertions off).
+3. The README says whether the decision reports-read-the-whole-file holds, by the criterion.
+4. No file under crates/ and nothing in Cargo.toml differs from main at the merge (reading the diff).'''
+blocks.tree_edits.content = '''
+Where the decision holds, its Why gives the measurement on 40,000 lines in place of the one on 5,000:
+
+### decision reports-read-the-whole-file
+A report reads the whole ledger into memory before it sums anything.
+Why: The owner's ledger is a few thousand lines and will reach about 40,000; streaming it was turned down as more code for no time saved (the monthly report on 40,000 lines, as measured in research/monthly-report-40k).
+
+Where it does not hold, nothing changes here: a work of its own changes the decision.'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "no"
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D1-11"
+item = 27
+ran_before = true
+new = ["d1_questions"]
+judge = '''
+Brings the plan to option 2: `report --monthly` keeps the whole-ledger path below 100,000 lines and takes the fast one above, with tests of both sides of the threshold; tree_edits says the two paths.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先在两百万行上把几条路各试一下才知道，一两轮查不清。"
+blocks.found.content = '''
+1. `tally report --monthly` reads the whole file with `read_to_string` (crates/tally-cli/src/main.rs line 31), parses every line into an `Entry` holding three `String`s (crates/tally/src/entry.rs lines 27-32), then sums into a `BTreeMap<String, Amount>` (crates/tally/src/report.rs lines 10-14). Checked in the code.
+2. The decision reports-read-the-whole-file rests on 4 ms for 5,000 lines; at that rate 2,000,000 lines take about 1.6 s, if time grows with the lines. Inferred, not measured.
+3. The ways the background names, none tried: summing while reading, without building the ledger; a memory map of the file; parsing in several threads. Each keeps a different part of `Ledger`, `Entry` and `report::monthly`.
+For the deep research: measure where the time goes on 2,000,000 lines in CI, try the ways, and say which reaches 50 ms with the least code and no file beside the ledger (Article 1).'''
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+`tally report --monthly` 改为：整个文件读进内存后，分成与 CPU 核数相同的几段，每段一个线程，逐行只取日期的前七个字符和金额，按月求和，不为每行分配 `String`，最后把各段的结果合起来。CI 上两百万行（67 MB）量过：现在的做法 367 ms，其中解析 281 ms；只改成不分配的单线程扫描 93 ms；再分 8 个线程扫描 14 ms，连读文件 37 ms，在 50 ms 以内。mmap 只省得下读文件那 22 ms 的一部分，单线程反而 97 ms，不用。不加新的依赖（用标准库的 `std::thread::scope`）。决定 reports-read-the-whole-file 改写成新的决定。没做的：`tally total` 和 `tally categories` 仍走原来的路。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs: `pub fn monthly_fast(text: &str) -> Result<Vec<(String, Amount)>, String>`: check the header; split the rest of `text` into N chunks of equal bytes (N = `std::thread::available_parallelism`); in `std::thread::scope`, each thread walks its chunk line by line, takes the line's first seven bytes as the month (`[u8; 7]`) and parses the second field with `amount::parse`, skipping the note, and sums into a `BTreeMap<[u8; 7], Amount>`; the maps are merged in chunk order. A line that cannot be read fails the report with its line number (principle no-silent-skips): each thread counts its lines, and the number adds the lines of the chunks before it.
+2. crates/tally-cli/src/main.rs: `report --monthly FILE` reads the file and calls `monthly_fast`.
+3. Tests in crates/tally/tests/report.rs: `fast_matches_monthly`: on examples/ledger.csv and on a generated 10,000-line ledger, `monthly_fast` gives the rows `monthly` gives (`assert_eq!`); `fast_fails_a_bad_line_with_its_number`; both red before (no `monthly_fast`), green after.
+4. research/monthly-report-2m/README.md: the question, the criterion (50 ms), the numbers below and the run's link.
+Verified, by a timing test run by name in CI (https://ci.example.invalid/tally/runs/7311), not kept, on 2,000,000 lines (67 MB): read 21.9 ms; `Ledger::parse` 281.3 ms; `monthly` 63.4 ms; a byte scan without allocation on one thread 92.6 ms; with a memory map 97.1 ms; the scan on 8 threads 14.2 ms, 36.1 ms with the read. Inferred: the CI runner's 8 cores are what the owner's machine has; `available_parallelism` adapts.'''
+blocks.acceptance.content = '''
+1. `fast_matches_monthly` passes in CI.
+2. `fast_fails_a_bad_line_with_its_number` passes in CI.
+3. On a 2,000,000-line ledger, the median of 21 runs of reading the file and `monthly_fast` is under 50 ms in CI, by a timing test run by name, its numbers and link in research/monthly-report-2m/README.md.
+4. Cargo.toml gains no dependency (reading the diff).
+5. The full workflows pass.'''
+blocks.tree_edits.content = '''
+Replace decision reports-read-the-whole-file in design/decisions/report.md with:
+
+### decision the-monthly-report-scans-in-parallel
+The monthly report reads the ledger whole, then scans it in as many parts as the machine has cores, each part starting at a line, without building the entries.
+Why: The owner's ledger reaches two million lines, and 50 ms is asked: building the entries took 281 ms, a scan on one thread 93 ms, in eight parts 14 ms; a memory map was turned down as unsafe code that saved less than the read it replaced, and `rayon` as a dependency for what a few lines do (Article 3).'''
+blocks.d1_questions.shaped = [{ name = "fast_path", waits = false, recommends = 1, ask = "The monthly report's fast path serves every ledger. Does the old path stay for small ledgers?", options = [{ does = "one path for every ledger", follows = "the fast path is as fast on a small ledger, and one path is kept up" }, { does = "keep the whole-ledger path below 100,000 lines and take the fast one above", follows = "the small ledgers keep the code they have run on for years" }] }]
+
+[[cases.history]]
+owner = "answer"
+question = "fast_path"
+option = 2
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D1-12"
+item = 28
+ran_before = true
+new = ["d1_questions"]
+judge = '''
+Writes the plan for part 1 only (`tally query` by date range and category, over the whole CSV, no index); plan_owner says part 2 is left out for an item of its own.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "主人选了留在 CSV 里；报表要多快、查账要哪些条件都没定，要先量、再试几种做法。"
+blocks.found.content = '''
+1. The owner chose to keep the ledger a plain CSV file (question ledger_store, option 2): no database, and no index or cache beside it (Article 1, principle one-file-format).
+2. Reports: every report reads the whole file (decision reports-read-the-whole-file, 4 ms for 5,000 lines); the owner's ledger is a few thousand lines and will reach about 40,000 in ten years (item 24). Not measured beyond that.
+3. Queries: tally has `total`, `categories` and `report --monthly`, each over the whole ledger (crates/tally-cli/src/main.rs lines 25-37); no command selects entries by date, category or amount.
+4. The item does not say which conditions 'any condition' means.
+For the deep research: what 'faster' needs at the owner's size, measured; which queries to build within the CSV, and how; the parts, if they are more than one work.'''
+blocks.r1_questions.shaped = [{ name = "ledger_store", waits = true, recommends = 2, ask = "The item asks to keep the ledger in a SQLite file, which Article 1 of the constitution (the ledger is a plain text file the owner edits by hand) and principle one-file-format forbid. How does the work go on?", options = [{ does = "change the constitution and the principle so that the ledger may be a SQLite file", follows = "the item is built as it asks; the owner can no longer edit the ledger in a text editor" }, { does = "keep the ledger a plain CSV file and make the reports fast and the queries richer within it", follows = "the constitution stands; what SQLite would give is reached another way, as far as it can be" }, { does = "close the item", follows = "nothing changes" }] }]
+
+[[cases.history]]
+cell = "D1"
+blocks.d1_questions.shaped = [{ name = "parts", waits = true, recommends = 1, ask = "Within the CSV ledger the work falls into two parts, each mergeable on its own: 1. `tally query`, which lists the entries of a date range and a category with their total; 2. reports that read the ledger as a stream, for ledgers far larger than the owner's (40,000 lines take 8 ms now). Together they are more than one work. How does the work go on?", options = [{ does = "this work does part 1, and part 2 becomes an item of its own", follows = "the queries come first, and each part merges alone" }, { does = "this work does both", follows = "one pull request of more than a day's work" }] }]
+
+[[cases.history]]
+owner = "answer"
+question = "parts"
+option = 1
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D1-13"
+item = 24
+ran_before = true
+new = ["d1_words"]
+results = "timing_40k"
+judge = '''
+The owner's words come first: the measurement also times `Ledger::by_category` (`tally categories`) on 40,000 lines; answers the owner in d1_words; the criterion for the decision stays the monthly report's.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "怎么在不改 tally 代码的前提下分三段计时，要先试几种做法，一两轮定不下来。"
+blocks.found.content = '''
+1. `tally report --monthly FILE` is `read_to_string`, `Ledger::parse`, `report::monthly` and `report::render` in a row (crates/tally-cli/src/main.rs line 31); `Ledger::parse` and `report::monthly` are public in the library (lib.rs).
+2. Nothing in the repository measures time. CI runs the tests; a run gives the words of a failed test alone.
+3. Not settled: how the three phases are timed apart without changing tally's code. Ways seen, none tried: a timing test that links the library and reports by failing; a profiler over the binary in CI (a change of `.github/workflows/`, which the project protects); a timing build behind a feature (a change of tally's code).
+For the deep research: settle how the phases are timed, then plan the measurement on 40,000 lines and the criterion by which the decision reports-read-the-whole-file holds or not.'''
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+只量，不改 `tally` 的代码。先在 `research/monthly-report-40k/README.md` 写下问题、比较和标准：40,000 行的账本上，读文件、解析、按月求和三段合起来 21 次的中位数不到 50 ms，决定 reports-read-the-whole-file 就还成立，否则不成立。量法：临时加一个测试 `monthly_report_time_40k`，运行时按固定种子生成 40,000 行的账本（见 {{big_ledger}}），用 `std::time::Instant` 分别计三段各 21 次，把结果表作为失败信息给出（CI 只给出失败的测试说的话），按名字在 CI 的快速流程里跑。快速流程编译的测试默认不优化，量出的不是主人用的 release 构建，所以同一个提交在根 `Cargo.toml` 里临时给测试的构建设上 release 的优化，表里写出量的是哪个构建；工作流受保护，不动。拿到数后删掉这个测试、撤掉这项设置，把表、CI 的链接和结论写进 README。'''
+blocks.plan_agent.content = '''
+1. research/monthly-report-40k/README.md: the question, the comparison and the criterion, committed before the first run: the decision reports-read-the-whole-file holds at 40,000 lines if the median of 21 runs of read, parse and monthly sum together is under 50 ms on an optimized build, as the owner runs tally; otherwise it does not.
+2. crates/tally/tests/research_monthly_time.rs: `monthly_report_time_40k` builds a 40,000-line ledger text at run time from a fixed seed (dates over ten years, the example file's categories, amounts with two decimals; question big_ledger, option 1), writes it to a temporary file, and times reading it, `Ledger::parse` and `report::monthly`, 21 times each; it panics with a table of min, median and max per phase and whether debug assertions were on (`cfg!(debug_assertions)`), since a run gives only a failed test's words.
+3. Cargo.toml (the workspace's), in the same commit: `[profile.test]` with the release profile's settings (`opt-level = 3`, `debug-assertions = false`, `overflow-checks = false`), since the fast workflow builds the tests unoptimized and `.github/workflows/` is protected.
+4. Run it by name with `run_tests` (fast workflow); then delete the test file and the profile, and write the table, the run's link, the build measured and the verdict on the decision into the README.
+Verified: `Ledger::parse` and `report::monthly` are public (lib.rs lines 5 and 7, ledger.rs line 19, report.rs line 9); the fast workflow runs a test by name with `cargo nextest run`, which builds the test profile (.github/workflows/fast.yml); the workspace's Cargo.toml sets no profile.'''
+blocks.acceptance.content = '''
+1. research/monthly-report-40k/README.md states the question, the comparison and the criterion in a commit before any number (reading the history).
+2. The README gives each phase's min, median and max over 21 runs on 40,000 lines, with the CI run's link, measured on the optimized build (the table shows debug assertions off).
+3. The README says whether the decision reports-read-the-whole-file holds, by the criterion.
+4. No file under crates/ and nothing in Cargo.toml differs from main at the merge (reading the diff).'''
+blocks.tree_edits.content = '''
+Where the decision holds, its Why gives the measurement on 40,000 lines in place of the one on 5,000:
+
+### decision reports-read-the-whole-file
+A report reads the whole ledger into memory before it sums anything.
+Why: The owner's ledger is a few thousand lines and will reach about 40,000; streaming it was turned down as more code for no time saved (the monthly report on 40,000 lines, as measured in research/monthly-report-40k).
+
+Where it does not hold, nothing changes here: a work of its own changes the decision.'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "no"
+
+[cases.owes]
+writes = { d1_words = "written" }
+changes = ["plan"]
+
+[[cases]]
+id = "D1-14"
+item = 27
+ran_before = true
+new = ["d1_words"]
+judge = '''
+Answers the owner's question in d1_words from the measurement (reading is 22 ms of 367; the cost is in parsing; a memory map on one thread took 97 ms) in Chinese; changes no plan block.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先在两百万行上把几条路各试一下才知道，一两轮查不清。"
+blocks.found.content = '''
+1. `tally report --monthly` reads the whole file with `read_to_string` (crates/tally-cli/src/main.rs line 31), parses every line into an `Entry` holding three `String`s (crates/tally/src/entry.rs lines 27-32), then sums into a `BTreeMap<String, Amount>` (crates/tally/src/report.rs lines 10-14). Checked in the code.
+2. The decision reports-read-the-whole-file rests on 4 ms for 5,000 lines; at that rate 2,000,000 lines take about 1.6 s, if time grows with the lines. Inferred, not measured.
+3. The ways the background names, none tried: summing while reading, without building the ledger; a memory map of the file; parsing in several threads. Each keeps a different part of `Ledger`, `Entry` and `report::monthly`.
+For the deep research: measure where the time goes on 2,000,000 lines in CI, try the ways, and say which reaches 50 ms with the least code and no file beside the ledger (Article 1).'''
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+`tally report --monthly` 改为：整个文件读进内存后，分成与 CPU 核数相同的几段，每段一个线程，逐行只取日期的前七个字符和金额，按月求和，不为每行分配 `String`，最后把各段的结果合起来。CI 上两百万行（67 MB）量过：现在的做法 367 ms，其中解析 281 ms；只改成不分配的单线程扫描 93 ms；再分 8 个线程扫描 14 ms，连读文件 37 ms，在 50 ms 以内。mmap 只省得下读文件那 22 ms 的一部分，单线程反而 97 ms，不用。不加新的依赖（用标准库的 `std::thread::scope`）。决定 reports-read-the-whole-file 改写成新的决定。没做的：`tally total` 和 `tally categories` 仍走原来的路。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs: `pub fn monthly_fast(text: &str) -> Result<Vec<(String, Amount)>, String>`: check the header; split the rest of `text` into N chunks of equal bytes (N = `std::thread::available_parallelism`); in `std::thread::scope`, each thread walks its chunk line by line, takes the line's first seven bytes as the month (`[u8; 7]`) and parses the second field with `amount::parse`, skipping the note, and sums into a `BTreeMap<[u8; 7], Amount>`; the maps are merged in chunk order. A line that cannot be read fails the report with its line number (principle no-silent-skips): each thread counts its lines, and the number adds the lines of the chunks before it.
+2. crates/tally-cli/src/main.rs: `report --monthly FILE` reads the file and calls `monthly_fast`.
+3. Tests in crates/tally/tests/report.rs: `fast_matches_monthly`: on examples/ledger.csv and on a generated 10,000-line ledger, `monthly_fast` gives the rows `monthly` gives (`assert_eq!`); `fast_fails_a_bad_line_with_its_number`; both red before (no `monthly_fast`), green after.
+4. research/monthly-report-2m/README.md: the question, the criterion (50 ms), the numbers below and the run's link.
+Verified, by a timing test run by name in CI (https://ci.example.invalid/tally/runs/7311), not kept, on 2,000,000 lines (67 MB): read 21.9 ms; `Ledger::parse` 281.3 ms; `monthly` 63.4 ms; a byte scan without allocation on one thread 92.6 ms; with a memory map 97.1 ms; the scan on 8 threads 14.2 ms, 36.1 ms with the read. Inferred: the CI runner's 8 cores are what the owner's machine has; `available_parallelism` adapts.'''
+blocks.acceptance.content = '''
+1. `fast_matches_monthly` passes in CI.
+2. `fast_fails_a_bad_line_with_its_number` passes in CI.
+3. On a 2,000,000-line ledger, the median of 21 runs of reading the file and `monthly_fast` is under 50 ms in CI, by a timing test run by name, its numbers and link in research/monthly-report-2m/README.md.
+4. Cargo.toml gains no dependency (reading the diff).
+5. The full workflows pass.'''
+blocks.tree_edits.content = '''
+Replace decision reports-read-the-whole-file in design/decisions/report.md with:
+
+### decision the-monthly-report-scans-in-parallel
+The monthly report reads the ledger whole, then scans it in as many parts as the machine has cores, each part starting at a line, without building the entries.
+Why: The owner's ledger reaches two million lines, and 50 ms is asked: building the entries took 281 ms, a scan on one thread 93 ms, in eight parts 14 ms; a memory map was turned down as unsafe code that saved less than the read it replaced, and `rayon` as a dependency for what a few lines do (Article 3).'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "no"
+
+[cases.owes]
+writes = { d1_words = "written" }
+keeps = ["plan"]
+
+[[cases]]
+id = "D1-15"
+item = 24
+ran_before = true
+new = ["background"]
+results = "timing_40k"
+judge = '''
+Brings the plan up to date for the added 100,000-line ledger: generated the same way, the same three phases, the criterion said for 40,000 lines as before; nothing else changes.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "怎么在不改 tally 代码的前提下分三段计时，要先试几种做法，一两轮定不下来。"
+blocks.found.content = '''
+1. `tally report --monthly FILE` is `read_to_string`, `Ledger::parse`, `report::monthly` and `report::render` in a row (crates/tally-cli/src/main.rs line 31); `Ledger::parse` and `report::monthly` are public in the library (lib.rs).
+2. Nothing in the repository measures time. CI runs the tests; a run gives the words of a failed test alone.
+3. Not settled: how the three phases are timed apart without changing tally's code. Ways seen, none tried: a timing test that links the library and reports by failing; a profiler over the binary in CI (a change of `.github/workflows/`, which the project protects); a timing build behind a feature (a change of tally's code).
+For the deep research: settle how the phases are timed, then plan the measurement on 40,000 lines and the criterion by which the decision reports-read-the-whole-file holds or not.'''
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+只量，不改 `tally` 的代码。先在 `research/monthly-report-40k/README.md` 写下问题、比较和标准：40,000 行的账本上，读文件、解析、按月求和三段合起来 21 次的中位数不到 50 ms，决定 reports-read-the-whole-file 就还成立，否则不成立。量法：临时加一个测试 `monthly_report_time_40k`，运行时按固定种子生成 40,000 行的账本（见 {{big_ledger}}），用 `std::time::Instant` 分别计三段各 21 次，把结果表作为失败信息给出（CI 只给出失败的测试说的话），按名字在 CI 的快速流程里跑。快速流程编译的测试默认不优化，量出的不是主人用的 release 构建，所以同一个提交在根 `Cargo.toml` 里临时给测试的构建设上 release 的优化，表里写出量的是哪个构建；工作流受保护，不动。拿到数后删掉这个测试、撤掉这项设置，把表、CI 的链接和结论写进 README。'''
+blocks.plan_agent.content = '''
+1. research/monthly-report-40k/README.md: the question, the comparison and the criterion, committed before the first run: the decision reports-read-the-whole-file holds at 40,000 lines if the median of 21 runs of read, parse and monthly sum together is under 50 ms on an optimized build, as the owner runs tally; otherwise it does not.
+2. crates/tally/tests/research_monthly_time.rs: `monthly_report_time_40k` builds a 40,000-line ledger text at run time from a fixed seed (dates over ten years, the example file's categories, amounts with two decimals; question big_ledger, option 1), writes it to a temporary file, and times reading it, `Ledger::parse` and `report::monthly`, 21 times each; it panics with a table of min, median and max per phase and whether debug assertions were on (`cfg!(debug_assertions)`), since a run gives only a failed test's words.
+3. Cargo.toml (the workspace's), in the same commit: `[profile.test]` with the release profile's settings (`opt-level = 3`, `debug-assertions = false`, `overflow-checks = false`), since the fast workflow builds the tests unoptimized and `.github/workflows/` is protected.
+4. Run it by name with `run_tests` (fast workflow); then delete the test file and the profile, and write the table, the run's link, the build measured and the verdict on the decision into the README.
+Verified: `Ledger::parse` and `report::monthly` are public (lib.rs lines 5 and 7, ledger.rs line 19, report.rs line 9); the fast workflow runs a test by name with `cargo nextest run`, which builds the test profile (.github/workflows/fast.yml); the workspace's Cargo.toml sets no profile.'''
+blocks.acceptance.content = '''
+1. research/monthly-report-40k/README.md states the question, the comparison and the criterion in a commit before any number (reading the history).
+2. The README gives each phase's min, median and max over 21 runs on 40,000 lines, with the CI run's link, measured on the optimized build (the table shows debug assertions off).
+3. The README says whether the decision reports-read-the-whole-file holds, by the criterion.
+4. No file under crates/ and nothing in Cargo.toml differs from main at the merge (reading the diff).'''
+blocks.tree_edits.content = '''
+Where the decision holds, its Why gives the measurement on 40,000 lines in place of the one on 5,000:
+
+### decision reports-read-the-whole-file
+A report reads the whole ledger into memory before it sums anything.
+Why: The owner's ledger is a few thousand lines and will reach about 40,000; streaming it was turned down as more code for no time saved (the monthly report on 40,000 lines, as measured in research/monthly-report-40k).
+
+Where it does not hold, nothing changes here: a work of its own changes the decision.'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "no"
+
+[[cases.history]]
+owner = "background"
+content = '''
+决定 reports-read-the-whole-file 说报表先把整个账本读进内存，理由是 2026-03-01 在 5,000 行上量的 4 ms。主人的账本十年后大约 40,000 行。要的是：量出 `tally report --monthly` 在 40,000 行的账本上要多久，时间花在读文件、解析还是求和上，并据此说这个决定还成不成立。只量，不改 `tally` 的代码。
+
+补充（2026-11-12）：主人想看得再远一点：也量一个 100,000 行的账本，同样分读文件、解析、求和三段。'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "D1"
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D1-16"
+item = 27
+ran_before = true
+new = ["guide"]
+judge = '''
+The guide's change (commit message style) touches nothing it hands in: hands in nothing new.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先在两百万行上把几条路各试一下才知道，一两轮查不清。"
+blocks.found.content = '''
+1. `tally report --monthly` reads the whole file with `read_to_string` (crates/tally-cli/src/main.rs line 31), parses every line into an `Entry` holding three `String`s (crates/tally/src/entry.rs lines 27-32), then sums into a `BTreeMap<String, Amount>` (crates/tally/src/report.rs lines 10-14). Checked in the code.
+2. The decision reports-read-the-whole-file rests on 4 ms for 5,000 lines; at that rate 2,000,000 lines take about 1.6 s, if time grows with the lines. Inferred, not measured.
+3. The ways the background names, none tried: summing while reading, without building the ledger; a memory map of the file; parsing in several threads. Each keeps a different part of `Ledger`, `Entry` and `report::monthly`.
+For the deep research: measure where the time goes on 2,000,000 lines in CI, try the ways, and say which reaches 50 ms with the least code and no file beside the ledger (Article 1).'''
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+`tally report --monthly` 改为：整个文件读进内存后，分成与 CPU 核数相同的几段，每段一个线程，逐行只取日期的前七个字符和金额，按月求和，不为每行分配 `String`，最后把各段的结果合起来。CI 上两百万行（67 MB）量过：现在的做法 367 ms，其中解析 281 ms；只改成不分配的单线程扫描 93 ms；再分 8 个线程扫描 14 ms，连读文件 37 ms，在 50 ms 以内。mmap 只省得下读文件那 22 ms 的一部分，单线程反而 97 ms，不用。不加新的依赖（用标准库的 `std::thread::scope`）。决定 reports-read-the-whole-file 改写成新的决定。没做的：`tally total` 和 `tally categories` 仍走原来的路。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs: `pub fn monthly_fast(text: &str) -> Result<Vec<(String, Amount)>, String>`: check the header; split the rest of `text` into N chunks of equal bytes (N = `std::thread::available_parallelism`); in `std::thread::scope`, each thread walks its chunk line by line, takes the line's first seven bytes as the month (`[u8; 7]`) and parses the second field with `amount::parse`, skipping the note, and sums into a `BTreeMap<[u8; 7], Amount>`; the maps are merged in chunk order. A line that cannot be read fails the report with its line number (principle no-silent-skips): each thread counts its lines, and the number adds the lines of the chunks before it.
+2. crates/tally-cli/src/main.rs: `report --monthly FILE` reads the file and calls `monthly_fast`.
+3. Tests in crates/tally/tests/report.rs: `fast_matches_monthly`: on examples/ledger.csv and on a generated 10,000-line ledger, `monthly_fast` gives the rows `monthly` gives (`assert_eq!`); `fast_fails_a_bad_line_with_its_number`; both red before (no `monthly_fast`), green after.
+4. research/monthly-report-2m/README.md: the question, the criterion (50 ms), the numbers below and the run's link.
+Verified, by a timing test run by name in CI (https://ci.example.invalid/tally/runs/7311), not kept, on 2,000,000 lines (67 MB): read 21.9 ms; `Ledger::parse` 281.3 ms; `monthly` 63.4 ms; a byte scan without allocation on one thread 92.6 ms; with a memory map 97.1 ms; the scan on 8 threads 14.2 ms, 36.1 ms with the read. Inferred: the CI runner's 8 cores are what the owner's machine has; `available_parallelism` adapts.'''
+blocks.acceptance.content = '''
+1. `fast_matches_monthly` passes in CI.
+2. `fast_fails_a_bad_line_with_its_number` passes in CI.
+3. On a 2,000,000-line ledger, the median of 21 runs of reading the file and `monthly_fast` is under 50 ms in CI, by a timing test run by name, its numbers and link in research/monthly-report-2m/README.md.
+4. Cargo.toml gains no dependency (reading the diff).
+5. The full workflows pass.'''
+blocks.tree_edits.content = '''
+Replace decision reports-read-the-whole-file in design/decisions/report.md with:
+
+### decision the-monthly-report-scans-in-parallel
+The monthly report reads the ledger whole, then scans it in as many parts as the machine has cores, each part starting at a line, without building the entries.
+Why: The owner's ledger reaches two million lines, and 50 ms is asked: building the entries took 281 ms, a scan on one thread 93 ms, in eight parts 14 ms; a memory map was turned down as unsafe code that saved less than the read it replaced, and `rayon` as a dependency for what a few lines do (Article 3).'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "no"
+
+[[cases.history]]
+main = "main-guide-commit-messages"
+
+[cases.owes]
+not_writes = ["plan_review", "tree_review", "plan_doubts", "d1_words"]
+keeps = ["plan"]
+
+[[cases]]
+id = "D1-17"
+item = 25
+ran_before = true
+new = ["guide"]
+judge = '''
+The guide now asks a CHANGELOG.md line for a removed command: the plan adds CHANGELOG.md with a line naming `import-legacy` as removed and that ledgers of the old format are no longer read; nothing else changes.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "要删的东西都找到了，但哪些代码只为导入而存在还没查清，要深入看。"
+blocks.found.content = '''
+1. Every use of `legacy`, by grep: crates/tally/src/legacy.rs, `pub mod legacy;` (lib.rs line 6), the `import-legacy` arm (crates/tally-cli/src/main.rs lines 32-36) and its part of USAGE (line 7), and crates/tally/tests/legacy.rs.
+2. `Ledger::write` is called by `import-legacy` (main.rs line 34) and by the test `a_ledger_written_reads_back_the_same` (crates/tally/tests/ledger.rs line 37).
+3. Not settled: whether anything else served only the import. `Entry::parse` reads the note as everything after the third comma; the old format had no note, and whether that leniency was for the import, and can go with it, was not traced.
+For the deep research: settle what served only the import, and plan the removal.'''
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+删掉 `legacy` 模块、`import-legacy` 命令和测试 `crates/tally/tests/legacy.rs`。`Ledger::write` 留着：往返测试 `a_ledger_written_reads_back_the_same` 用它。其余命令不变。设计树不用改。'''
+blocks.plan_agent.content = '''
+1. Delete crates/tally/src/legacy.rs and `pub mod legacy;` in lib.rs.
+2. crates/tally-cli/src/main.rs: remove the `import-legacy` arm, its `use`, and its part of USAGE.
+3. Keep `Ledger::write`: the test `a_ledger_written_reads_back_the_same` calls it besides `import-legacy`.
+4. Delete crates/tally/tests/legacy.rs.
+Verified: nothing else names `legacy` (grep).'''
+blocks.acceptance.content = '''
+1. `grep -rn legacy crates/` finds nothing (reading the diff).
+2. The full workflows pass.'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "no"
+
+[[cases.history]]
+main = "main-guide-changelog"
+
+[cases.owes]
+changes = ["plan"]
+
+[[cases]]
+id = "D1-18"
+item = 27
+ran_before = true
+new = ["plan_review"]
+judge = '''
+Second round of a point: says what a chunk whose range holds no newline does (it reads nothing, or the fast path runs on one thread below a size), with the two-line test; answers the new point only.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先在两百万行上把几条路各试一下才知道，一两轮查不清。"
+blocks.found.content = '''
+1. `tally report --monthly` reads the whole file with `read_to_string` (crates/tally-cli/src/main.rs line 31), parses every line into an `Entry` holding three `String`s (crates/tally/src/entry.rs lines 27-32), then sums into a `BTreeMap<String, Amount>` (crates/tally/src/report.rs lines 10-14). Checked in the code.
+2. The decision reports-read-the-whole-file rests on 4 ms for 5,000 lines; at that rate 2,000,000 lines take about 1.6 s, if time grows with the lines. Inferred, not measured.
+3. The ways the background names, none tried: summing while reading, without building the ledger; a memory map of the file; parsing in several threads. Each keeps a different part of `Ledger`, `Entry` and `report::monthly`.
+For the deep research: measure where the time goes on 2,000,000 lines in CI, try the ways, and say which reaches 50 ms with the least code and no file beside the ledger (Article 1).'''
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+`tally report --monthly` 改为：整个文件读进内存后，分成与 CPU 核数相同的几段，每段一个线程，逐行只取日期的前七个字符和金额，按月求和，不为每行分配 `String`，最后把各段的结果合起来。CI 上两百万行（67 MB）量过：现在的做法 367 ms，其中解析 281 ms；只改成不分配的单线程扫描 93 ms；再分 8 个线程扫描 14 ms，连读文件 37 ms，在 50 ms 以内。mmap 只省得下读文件那 22 ms 的一部分，单线程反而 97 ms，不用。不加新的依赖（用标准库的 `std::thread::scope`）。决定 reports-read-the-whole-file 改写成新的决定。没做的：`tally total` 和 `tally categories` 仍走原来的路。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs: `pub fn monthly_fast(text: &str) -> Result<Vec<(String, Amount)>, String>`: check the header; split the rest of `text` into N chunks of equal bytes (N = `std::thread::available_parallelism`); in `std::thread::scope`, each thread walks its chunk line by line, takes the line's first seven bytes as the month (`[u8; 7]`) and parses the second field with `amount::parse`, skipping the note, and sums into a `BTreeMap<[u8; 7], Amount>`; the maps are merged in chunk order. A line that cannot be read fails the report with its line number (principle no-silent-skips): each thread counts its lines, and the number adds the lines of the chunks before it.
+2. crates/tally-cli/src/main.rs: `report --monthly FILE` reads the file and calls `monthly_fast`.
+3. Tests in crates/tally/tests/report.rs: `fast_matches_monthly`: on examples/ledger.csv and on a generated 10,000-line ledger, `monthly_fast` gives the rows `monthly` gives (`assert_eq!`); `fast_fails_a_bad_line_with_its_number`; both red before (no `monthly_fast`), green after.
+4. research/monthly-report-2m/README.md: the question, the criterion (50 ms), the numbers below and the run's link.
+Verified, by a timing test run by name in CI (https://ci.example.invalid/tally/runs/7311), not kept, on 2,000,000 lines (67 MB): read 21.9 ms; `Ledger::parse` 281.3 ms; `monthly` 63.4 ms; a byte scan without allocation on one thread 92.6 ms; with a memory map 97.1 ms; the scan on 8 threads 14.2 ms, 36.1 ms with the read. Inferred: the CI runner's 8 cores are what the owner's machine has; `available_parallelism` adapts.'''
+blocks.acceptance.content = '''
+1. `fast_matches_monthly` passes in CI.
+2. `fast_fails_a_bad_line_with_its_number` passes in CI.
+3. On a 2,000,000-line ledger, the median of 21 runs of reading the file and `monthly_fast` is under 50 ms in CI, by a timing test run by name, its numbers and link in research/monthly-report-2m/README.md.
+4. Cargo.toml gains no dependency (reading the diff).
+5. The full workflows pass.'''
+blocks.tree_edits.content = '''
+Replace decision reports-read-the-whole-file in design/decisions/report.md with:
+
+### decision the-monthly-report-scans-in-parallel
+The monthly report reads the ledger whole, then scans it in as many parts as the machine has cores, each part starting at a line, without building the entries.
+Why: The owner's ledger reaches two million lines, and 50 ms is asked: building the entries took 281 ms, a scan on one thread 93 ms, in eight parts 14 ms; a memory map was turned down as unsafe code that saved less than the read it replaced, and `rayon` as a dependency for what a few lines do (Article 3).'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "no"
+
+[cases.owes]
+writes = { plan_review = "written" }
+changes = ["plan"]
+
+[[cases]]
+id = "D1-19"
+item = 26
+ran_before = false
+new = ["guide", "background", "found"]
+results = "refund"
+judge = '''
+Defect that does not hold: verifies again that the refund is subtracted, finds no line form tally reads that gives the owner's figure but the one the found names, and asks the owner how the work goes on in a question that waits; plans no fix of a fault that is not there.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "示例账本上退款已经减掉了；主人的账本这里读不到，原因要更深入地找。"
+blocks.found.content = '''
+1. `tally total examples/ledger.csv` gives 3318.10: the refund of -12.50 on 2026-03-02 is subtracted. Checked with `run_tests`: `total_subtracts_refunds` passes, and a test of the example file expecting 3318.10 passes; one expecting 3330.60, the refund left out, fails.
+2. `amount::parse` reads `-12.50` as a negative amount, and `Ledger::total` adds every amount as it is (ledger.rs line 37).
+3. Not settled: what in the owner's own ledger, which the work cannot read, gives a total 12.50 too high. The one way found in the code: a refund written as a positive amount with a note such as `refund`, which tally counts as spent, as written.
+For the deep research: find what form of a ledger line tally reads that yields the owner's total, and how the work goes on.'''
+
+[cases.owes]
+question = "waits"
+
+[[cases]]
+id = "D1-20"
+item = 27
+ran_before = true
+new = ["plan_review", "tree_review"]
+judge = '''
+Both reviews failed the plan at once: adds the header-only ledger to plan_agent with its test, keeps reports-read-the-whole-file for total and categories beside the new entry in tree_edits; answers each point in its own dialogue.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "方向要先在两百万行上把几条路各试一下才知道，一两轮查不清。"
+blocks.found.content = '''
+1. `tally report --monthly` reads the whole file with `read_to_string` (crates/tally-cli/src/main.rs line 31), parses every line into an `Entry` holding three `String`s (crates/tally/src/entry.rs lines 27-32), then sums into a `BTreeMap<String, Amount>` (crates/tally/src/report.rs lines 10-14). Checked in the code.
+2. The decision reports-read-the-whole-file rests on 4 ms for 5,000 lines; at that rate 2,000,000 lines take about 1.6 s, if time grows with the lines. Inferred, not measured.
+3. The ways the background names, none tried: summing while reading, without building the ledger; a memory map of the file; parsing in several threads. Each keeps a different part of `Ledger`, `Entry` and `report::monthly`.
+For the deep research: measure where the time goes on 2,000,000 lines in CI, try the ways, and say which reaches 50 ms with the least code and no file beside the ledger (Article 1).'''
+
+[[cases.history]]
+cell = "D1"
+blocks.plan_owner.content = '''
+`tally report --monthly` 改为：整个文件读进内存后，分成与 CPU 核数相同的几段，每段一个线程，逐行只取日期的前七个字符和金额，按月求和，不为每行分配 `String`，最后把各段的结果合起来。CI 上两百万行（67 MB）量过：现在的做法 367 ms，其中解析 281 ms；只改成不分配的单线程扫描 93 ms；再分 8 个线程扫描 14 ms，连读文件 37 ms，在 50 ms 以内。mmap 只省得下读文件那 22 ms 的一部分，单线程反而 97 ms，不用。不加新的依赖（用标准库的 `std::thread::scope`）。决定 reports-read-the-whole-file 改写成新的决定。没做的：`tally total` 和 `tally categories` 仍走原来的路。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs: `pub fn monthly_fast(text: &str) -> Result<Vec<(String, Amount)>, String>`: check the header; split the rest of `text` into N chunks of equal bytes (N = `std::thread::available_parallelism`); in `std::thread::scope`, each thread walks its chunk line by line, takes the line's first seven bytes as the month (`[u8; 7]`) and parses the second field with `amount::parse`, skipping the note, and sums into a `BTreeMap<[u8; 7], Amount>`; the maps are merged in chunk order. A line that cannot be read fails the report with its line number (principle no-silent-skips): each thread counts its lines, and the number adds the lines of the chunks before it.
+2. crates/tally-cli/src/main.rs: `report --monthly FILE` reads the file and calls `monthly_fast`.
+3. Tests in crates/tally/tests/report.rs: `fast_matches_monthly`: on examples/ledger.csv and on a generated 10,000-line ledger, `monthly_fast` gives the rows `monthly` gives (`assert_eq!`); `fast_fails_a_bad_line_with_its_number`; both red before (no `monthly_fast`), green after.
+4. research/monthly-report-2m/README.md: the question, the criterion (50 ms), the numbers below and the run's link.
+Verified, by a timing test run by name in CI (https://ci.example.invalid/tally/runs/7311), not kept, on 2,000,000 lines (67 MB): read 21.9 ms; `Ledger::parse` 281.3 ms; `monthly` 63.4 ms; a byte scan without allocation on one thread 92.6 ms; with a memory map 97.1 ms; the scan on 8 threads 14.2 ms, 36.1 ms with the read. Inferred: the CI runner's 8 cores are what the owner's machine has; `available_parallelism` adapts.'''
+blocks.acceptance.content = '''
+1. `fast_matches_monthly` passes in CI.
+2. `fast_fails_a_bad_line_with_its_number` passes in CI.
+3. On a 2,000,000-line ledger, the median of 21 runs of reading the file and `monthly_fast` is under 50 ms in CI, by a timing test run by name, its numbers and link in research/monthly-report-2m/README.md.
+4. Cargo.toml gains no dependency (reading the diff).
+5. The full workflows pass.'''
+blocks.tree_edits.content = '''
+Replace decision reports-read-the-whole-file in design/decisions/report.md with:
+
+### decision the-monthly-report-scans-in-parallel
+The monthly report reads the ledger whole, then scans it in as many parts as the machine has cores, each part starting at a line, without building the entries.
+Why: The owner's ledger reaches two million lines, and 50 ms is asked: building the entries took 281 ms, a scan on one thread 93 ms, in eight parts 14 ms; a memory map was turned down as unsafe code that saved less than the read it replaced, and `rayon` as a dependency for what a few lines do (Article 3).'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "no"
+blocks.tree_review.content = '''
+1. tree_edits: the plan replaces reports-read-the-whole-file with a decision about the monthly report alone, but `tally total` and `tally categories` still read the whole ledger and build it (crates/tally-cli/src/main.rs lines 26 and 28): the old decision still holds for them. Keep it for them beside the new entry, or say why it goes.'''
+
+[cases.owes]
+writes = { plan_review = "written", tree_review = "written" }
+changes = ["plan"]

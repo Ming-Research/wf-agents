@@ -73,8 +73,11 @@ fn cases_with(dir: &std::path::Path, r1: &str) -> PathBuf {
     cases_dir
 }
 
-#[test]
-fn every_case_kept_beside_the_flows_is_built_through_the_engine_its_cell_entered_as_it_says() {
+/// Builds the cases of one cell kept beside the flows, each through the engine with the stand-in, and says what came:
+/// each case entered as it says, and nothing the builds made left behind. A test of each cell, so that the cells' cases
+/// build side by side: each takes some seconds alone, and it is what finds a change of the flow that a case no longer
+/// fits (design document `testing`, 21).
+fn cell_builds(cell: &str) -> String {
     let data = tempfile::tempdir().expect("a directory");
     let ran = cases(&[
         "build",
@@ -84,11 +87,43 @@ fn every_case_kept_beside_the_flows_is_built_through_the_engine_its_cell_entered
         &settings().to_string_lossy(),
         "--data",
         &data.path().to_string_lossy(),
+        "--cell",
+        cell,
     ]);
-    let said = String::from_utf8_lossy(&ran.stdout);
+    let said = String::from_utf8_lossy(&ran.stdout).to_string();
     assert!(ran.status.success(), "{}{said}", String::from_utf8_lossy(&ran.stderr));
+    let built = said.lines().filter(|l| l.starts_with(&format!("{cell}-"))).count();
+    assert_eq!(built, 20, "{said}");
+    let runs = data.path().join("cell-cases/runs");
+    let left: Vec<_> = std::fs::read_dir(&runs)
+        .map(|d| d.flatten().collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "{left:?}");
+    said
+}
+
+macro_rules! each_cell_builds {
+    ($($test:ident: $cell:literal,)*) => {$(
+        #[test]
+        fn $test() {
+            cell_builds($cell);
+        }
+    )*};
+}
+
+each_cell_builds! {
+    the_cases_of_r0_are_built_through_the_engine_each_entered_as_it_says: "R0",
+    the_cases_of_r2_are_built_through_the_engine_each_entered_as_it_says: "R2",
+    the_cases_of_d1_are_built_through_the_engine_each_entered_as_it_says: "D1",
+    the_cases_of_d2_are_built_through_the_engine_each_entered_as_it_says: "D2",
+    the_cases_of_p1_are_built_through_the_engine_each_entered_as_it_says: "P1",
+    the_cases_of_p2_are_built_through_the_engine_each_entered_as_it_says: "P2",
+}
+
+#[test]
+fn the_cases_of_r1_are_built_through_the_engine_each_entered_as_it_says() {
+    let said = cell_builds("R1");
     let lines: Vec<&str> = said.lines().collect();
-    assert_eq!(lines.iter().filter(|l| l.starts_with("R1-")).count(), 20, "{said}");
     assert!(
         lines
             .iter()
@@ -101,12 +136,6 @@ fn every_case_kept_beside_the_flows_is_built_through_the_engine_its_cell_entered
             .any(|l| l.starts_with("R1-01: R1 entered for guide, background, first; system ")),
         "{said}"
     );
-    // What each build made is removed.
-    let runs = data.path().join("cell-cases/runs");
-    let left: Vec<_> = std::fs::read_dir(&runs)
-        .map(|d| d.flatten().collect())
-        .unwrap_or_default();
-    assert!(left.is_empty(), "{left:?}");
 }
 
 #[test]

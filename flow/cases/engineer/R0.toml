@@ -1,0 +1,437 @@
+# The cases of R0, brought over from the hand harness; each history is written out round by round
+# in the order the engine's walk takes it.
+
+cell = "R0"
+
+[[cases]]
+id = "R0-01"
+item = 21
+ran_before = false
+new = ["guide", "background"]
+results = "defect_monthly"
+judge = '''
+Defect: reads design/principles/common.md, design/decisions/report.md (a-month-is-a-text-key) and design/decisions/entry.md, on which that decision rests (dates-are-checked-text), each whole; reads no code past what finding the tree needs; names guide and background.'''
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-02"
+item = 22
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+Capability: reads design/principles/common.md and design/decisions/report.md whole (the monthly report the option filters); amount.md is not needed.'''
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-03"
+item = 23
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+Design change: reads design/principles/common.md and design/decisions/amount.md (amounts-are-floats, which the item overturns) whole, and report.md and entry.md, whose sums and entries hold amounts.'''
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-04"
+item = 24
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+Measurement: reads design/principles/common.md and design/decisions/report.md whole (reports-read-the-whole-file, whose measured Why the item tests); leaves research/ to the research.'''
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-05"
+item = 25
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+Cleanup: reads design/principles/common.md whole (one-file-format names the 0.3 conversion the item rests on); finds no decision about the old import, and reads the decisions only as far as that takes.'''
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-06"
+item = 26
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+Defect that does not hold: reads design/principles/common.md and design/decisions/amount.md whole (how an amount, a refund's included, is read and summed); does not check the claim itself, which is the research's.'''
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-07"
+item = 27
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+Capability needing deep research: reads design/principles/common.md (no-silent-skips binds any fast path) and design/decisions/report.md (reports-read-the-whole-file, which the item puts in question) whole.'''
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-08"
+item = 28
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+Design change against the constitution: reads design/principles/common.md (one-file-format) and design/decisions/report.md whole; sees Article 1 in its prompt; asks nothing and writes nothing, since it has no block (the question is the research's).'''
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-09"
+item = 21
+ran_before = true
+new = ["engineer_session"]
+results = "defect_monthly"
+judge = '''
+Reopened at the research, the red test on the branch: reads the tree from the start (principles/common.md, decisions/report.md, decisions/entry.md); does not run or fix the test; names engineer_session alone.'''
+
+[[cases.history]]
+cell = "R0"
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-10"
+item = 24
+ran_before = true
+new = ["engineer_session"]
+judge = '''
+Reopened with R1's question answered by another option: reads principles/common.md and decisions/report.md; leaves the answer to the research (does not name r1_questions in dealt_with, writes no question).'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.r1_questions.shaped = [{ name = "big_ledger", waits = false, recommends = 1, ask = "Where does the 40,000-line ledger for the measurement come from?", options = [{ does = "generated at run time by a small program in research/ from a fixed seed", follows = "nothing large is committed, and the measurement can be run again anywhere" }, { does = "committed as a file in research/", follows = "the very same file every time, about 1.4 MB in the repository" }] }]
+blocks.deep_needed.value = "no"
+blocks.deep_needed.content = "一轮能查清。"
+
+[[cases.history]]
+owner = "answer"
+question = "big_ledger"
+option = 2
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits", "r1_questions"]
+commits = false
+
+[[cases]]
+id = "R0-11"
+item = 28
+ran_before = true
+new = ["engineer_session"]
+judge = '''
+Reopened after the owner kept the CSV ledger: reads the tree for the direction the answer gives (principles/common.md, one-file-format; decisions/report.md, reports-read-the-whole-file), not for SQLite.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.r1_questions.shaped = [{ name = "ledger_store", waits = true, recommends = 2, ask = "The item asks to keep the ledger in a SQLite file, which Article 1 of the constitution (the ledger is a plain text file the owner edits by hand) and principle one-file-format forbid. How does the work go on?", options = [{ does = "change the constitution and the principle so that the ledger may be a SQLite file", follows = "the item is built as it asks; the owner can no longer edit the ledger in a text editor" }, { does = "keep the ledger a plain CSV file and make the reports fast and the queries richer within it", follows = "the constitution stands; what SQLite would give is reached another way, as far as it can be" }, { does = "close the item", follows = "nothing changes" }] }]
+
+[[cases.history]]
+owner = "answer"
+question = "ledger_store"
+option = 2
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits", "r1_questions"]
+commits = false
+
+[[cases]]
+id = "R0-12"
+item = 25
+ran_before = true
+new = ["engineer_session"]
+judge = '''
+Reopened with the owner's words to the research (keep import-legacy one more version): reads principles/common.md for the work as it now stands; does not answer the words, which are R1's.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+owner = "words"
+to = "R1"
+content = "先别删 `import-legacy`，再留一个版本：运行时提示它已过时、下个版本会删。`legacy` 模块和测试跟着留。"
+
+[[cases.history]]
+cell = "R1"
+blocks.r1_words.content = "收到：计划改为 `import-legacy` 再留一个版本，运行时提示它已过时、下个版本会删；`legacy` 模块和测试照留。"
+blocks.deep_needed.value = "no"
+blocks.deep_needed.content = "一轮能查清。"
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits", "r1_words"]
+commits = false
+
+[[cases]]
+id = "R0-13"
+item = 22
+ran_before = true
+new = ["engineer_session"]
+judge = '''
+Reopened at the review, the change on the branch: reads principles/common.md and decisions/report.md whole; reads the change only as far as the tree needs; leaves the answered question to the implementation.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "no"
+blocks.deep_needed.content = "一轮能查清。"
+blocks.plan_owner.content = '''
+给 `tally report --monthly` 加一个可选的 `--category NAME`：给了就只算这一类的条目，没给和现在一样；账本里没有这一类的条目就报错并说出类别名，免得打错的名字被当成没花钱（宪法第二条）。过滤放在 `report::monthly` 之前，`monthly` 本身不变；CLI 多认一种参数。设计树不用改。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/ledger.rs: add `Ledger::only(&self, category: &str) -> Result<Ledger, String>`, the entries of that category, in order, and an error naming the category where no entry has it (Article 2: an empty report would read as nothing spent).
+2. crates/tally-cli/src/main.rs: accept `report --monthly --category NAME FILE`; build the report from `ledger.only(NAME)?`, so that the command fails with that error; the usage line names the option.
+3. Tests: `only_keeps_one_category` and `only_fails_on_a_category_no_entry_has` in crates/tally/tests/ledger.rs, red before (no such method), green after; `monthly_of_one_category` in crates/tally/tests/report.rs on two categories over two months.
+Verified: `report::monthly` takes a `&Ledger` (report.rs line 9), so it needs no change.'''
+blocks.acceptance.content = '''
+1. `only_keeps_one_category` and `monthly_of_one_category` pass in CI.
+2. `only_fails_on_a_category_no_entry_has` passes in CI: a category no entry has fails, naming the category.
+3. `tally report --monthly FILE` without `--category` prints what it printed before (reading the diff: the path without the option is unchanged).
+4. The full workflows pass.'''
+
+[[cases.history]]
+cell = "R2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "yes"
+
+[[cases.history]]
+cell = "I1"
+blocks.i1_questions.shaped = [{ name = "category_case", waits = false, recommends = 1, ask = "Does `--category` match a category's name exactly as written, or ignoring case?", options = [{ does = "exactly as written, case and all", follows = "as `tally categories` shows the names, so that the two agree" }, { does = "ignoring case", follows = "`--category Food` and `--category food` are one" }] }]
+
+[[cases.history]]
+owner = "answer"
+question = "category_case"
+option = 2
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits", "i1_questions"]
+commits = false
+
+[[cases]]
+id = "R0-14"
+item = 22
+ran_before = true
+new = ["engineer_session"]
+judge = '''
+Reopened at the implementation with the owner's words to it: reads principles/common.md and decisions/report.md (and entry.md, how a category is read, where it judges the prefix match touches it); does not answer the words or judge the code.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "no"
+blocks.deep_needed.content = "一轮能查清。"
+blocks.plan_owner.content = '''
+给 `tally report --monthly` 加一个可选的 `--category NAME`：给了就只算这一类的条目，没给和现在一样；账本里没有这一类的条目就报错并说出类别名，免得打错的名字被当成没花钱（宪法第二条）。过滤放在 `report::monthly` 之前，`monthly` 本身不变；CLI 多认一种参数。设计树不用改。'''
+blocks.plan_agent.content = '''
+1. crates/tally/src/ledger.rs: add `Ledger::only(&self, category: &str) -> Result<Ledger, String>`, the entries of that category, in order, and an error naming the category where no entry has it (Article 2: an empty report would read as nothing spent).
+2. crates/tally-cli/src/main.rs: accept `report --monthly --category NAME FILE`; build the report from `ledger.only(NAME)?`, so that the command fails with that error; the usage line names the option.
+3. Tests: `only_keeps_one_category` and `only_fails_on_a_category_no_entry_has` in crates/tally/tests/ledger.rs, red before (no such method), green after; `monthly_of_one_category` in crates/tally/tests/report.rs on two categories over two months.
+Verified: `report::monthly` takes a `&Ledger` (report.rs line 9), so it needs no change.'''
+blocks.acceptance.content = '''
+1. `only_keeps_one_category` and `monthly_of_one_category` pass in CI.
+2. `only_fails_on_a_category_no_entry_has` passes in CI: a category no entry has fails, naming the category.
+3. `tally report --monthly FILE` without `--category` prints what it printed before (reading the diff: the path without the option is unchanged).
+4. The full workflows pass.'''
+
+[[cases.history]]
+cell = "R2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "yes"
+
+[[cases.history]]
+cell = "I1"
+blocks.i1_words.content = "Nothing yet."
+
+[[cases.history]]
+owner = "words"
+to = "I1"
+content = "类别按前缀匹配是我要的：`--category foo` 也要算上 `food`。"
+
+[[cases.history]]
+cell = "I1"
+blocks.i1_words.content = "照办：`only` 按前缀匹配。"
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits", "i1_words"]
+commits = false
+
+[[cases]]
+id = "R0-15"
+item = 21
+ran_before = true
+new = ["background", "engineer_session"]
+results = "defect_monthly"
+judge = '''
+The background now also asks for months with no entries: reads the tree from the start and, for the change, decisions/report.md (a month is a text key) and decisions/entry.md (a calendar dependency was turned down), which listing empty months touches.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+owner = "background"
+content = '''
+主人用 `tally report --monthly examples/ledger.csv` 看每月花销时发现：一月、二月、三月的花销合成了一行，键是 `2026-0`，十月成了 `2026-1`，看不出每个月各花了多少。这是 2026-11-09 主人在自己的账本上看到的，`examples/ledger.csv` 上也一样。要的是：月报每个月一行，键是 `YYYY-MM`（例如 `2026-01`），每行是那个月的总数。
+
+补充（2026-11-12）：月报还要把第一个月到最后一个月之间没有花销的月份也列出来，金额是 `0.00`，这样一眼能看出哪个月没花钱。'''
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-16"
+item = 22
+ran_before = true
+new = ["background", "engineer_session"]
+judge = '''
+The background now lets --category be given more than once: reads principles/common.md and decisions/report.md; names both background and engineer_session.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+owner = "background"
+content = '''
+主人想知道某一类（比如 `food`）每个月花了多少。现在 `tally categories` 只给全部时间的各类总数，`tally report --monthly` 只给所有类别加在一起的月数，两样都答不了这个问题。2026-11-08 主人提的。要的是：`tally report --monthly --category food FILE` 只算这一类的条目，输出和月报一样，每月一行。
+
+补充（2026-11-12）：`--category` 可以给多次，比如 `--category food --category books`，算这几类的和。'''
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-17"
+item = 23
+ran_before = true
+new = ["guide", "engineer_session"]
+judge = '''
+The guide's change (commit message style) touches nothing it reads: reads the tree for the item as on any reopening (principles/common.md, decisions/amount.md) and names guide and engineer_session.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+main = "main-guide-commit-messages"
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-18"
+item = 22
+ran_before = true
+new = ["guide", "engineer_session"]
+judge = '''
+The guide now asks every work on a command to read decisions/entry.md whole: reads it whole, besides principles/common.md and decisions/report.md.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+main = "main-guide-entry"
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits"]
+commits = false
+
+[[cases]]
+id = "R0-19"
+item = 27
+ran_before = true
+new = ["engineer_session"]
+judge = '''
+Reopened at the implementation of a deep work, the deep research's question answered: reads principles/common.md and decisions/report.md (reports-read-the-whole-file, which the plan rewrites) whole.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.deep_needed.value = "yes"
+blocks.deep_needed.content = "要先试几条路才能定。"
+blocks.found.content = '''
+主人打算把公司的账也记进来，账本会到两百万行。要的是：`tally report --monthly` 在两百万行上 50 ms 内出来，账本仍是那一个 CSV 文件（宪法第一条）。可能的路有几条：边读边加、内存映射、多线程解析，哪条在这个尺寸上够快、各要改多少，要先各试一下才知道。'''
+
+[[cases.history]]
+cell = "D1"
+blocks.d1_questions.shaped = [{ name = "fast_path", waits = false, recommends = 1, ask = "The monthly report's fast path serves every ledger. Does the old path stay for small ledgers?", options = [{ does = "one path for every ledger", follows = "the fast path is as fast on a small ledger, and one path is kept up" }, { does = "keep the whole-ledger path below 100,000 lines and take the fast one above", follows = "the small ledgers keep the code they have run on for years" }] }]
+
+[[cases.history]]
+owner = "answer"
+question = "fast_path"
+option = 2
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits", "d1_questions"]
+commits = false
+
+[[cases]]
+id = "R0-20"
+item = 26
+ran_before = true
+new = ["engineer_session"]
+judge = '''
+Reopened after the owner chose to show spent and refunded apart in `tally total`: reads the tree for that direction (principles/common.md, decisions/amount.md); leaves the answer to the research.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.r1_questions.shaped = [{ name = "refund_total", waits = true, recommends = 3, ask = "`tally total examples/ledger.csv` gives 3318.10: the refund of -12.50 in March is subtracted, and the test `total_subtracts_refunds` passes; the 12.50 too much the owner saw is not in what tally does with that file. How does the work go on?", options = [{ does = "close the item", follows = "tally subtracts refunds already" }, { does = "show what was spent and what came back apart in `tally total` (spent, refunded, net)", follows = "the owner sees where the refund went" }, { does = "look at the owner's own ledger first", follows = "the owner sends the lines that gave the wrong total" }] }]
+
+[[cases.history]]
+owner = "answer"
+question = "refund_total"
+option = 2
+
+[cases.owes]
+not_writes = ["found", "deep_needed", "plan_owner", "plan_agent", "acceptance", "tree_edits", "r1_questions"]
+commits = false

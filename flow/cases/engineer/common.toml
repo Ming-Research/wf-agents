@@ -239,3 +239,34 @@ names = ["*"]
 new = true
 holds = ["3330.60"]
 said = "assertion `left == right` failed\n  left: \"3318.10\"\n right: \"3330.60\""
+
+# Items 24 and 27: a test the work added that times the report, using `Instant`, prints the table of what it timed
+# where it panics to report it; the table is the one the hand harness made for the size the item names, whatever
+# sizes and ways the test's own text times.
+[[results.timing_40k.fails]]
+names = ["*"]
+new = true
+holds = ["Instant", "panic!"]
+said = '''
+measurement:
+21 runs of each; the file is in the page cache after the first run; available_parallelism: 8
+40000 lines, 1339560 bytes
+  read file                            min     0.308 ms  median     0.331 ms  max     0.457 ms
+  Ledger::parse                        min     4.918 ms  median     5.288 ms  max     7.297 ms
+  report::monthly                      min     1.117 ms  median     1.201 ms  max     1.657 ms
+  render                               min     0.005 ms  median     0.005 ms  max     0.007 ms
+  read+parse+monthly+render            min     6.347 ms  median     6.825 ms  max     9.418 ms'''
+
+[[results.timing_2m.fails]]
+names = ["*"]
+new = true
+holds = ["Instant", "panic!"]
+said = '''
+measurement:
+21 runs of each; the file is in the page cache after the first run; available_parallelism: 8
+2000000 lines, 66979200 bytes
+  read file                            min    20.383 ms  median    21.917 ms  max    30.245 ms
+  Ledger::parse                        min   261.613 ms  median   281.304 ms  max   388.200 ms
+  report::monthly                      min    58.973 ms  median    63.412 ms  max    87.509 ms
+  render                               min     0.006 ms  median     0.006 ms  max     0.008 ms
+  read+parse+monthly+render            min   340.974 ms  median   366.639 ms  max   505.962 ms'''
