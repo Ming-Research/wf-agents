@@ -256,8 +256,8 @@ export interface Wait {
 
 /// What the owner does that ends a wait on them.
 export type Ends =
-  /// Answers this version of the work's question by one of its options, on its card at the plan's end: the version by
-  /// its number among the versions of its cell's questions, none where it has none.
+  /// Answers this version of the work's question by one of its options, on its card in the item's window: the version
+  /// by its number among the versions of its cell's questions, none where it has none.
   | { kind: 'answer'; question: string; version: number | null }
   /// Answers in words the question this call puts, on its card at the plan's end.
   | { kind: 'reply'; call: number }

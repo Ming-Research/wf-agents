@@ -3,22 +3,24 @@
 // where its time went at its right, and a line of what its work does; what the owner does to the work (let it on, pause
 // it, cancel it); two tabs; and under them, while something in the item is new to the owner, a strip that says what
 // changed, with a link to mark the item read. The first tab holds the body (a section for each datum the work's flow's
-// card names, in its order and by its name, with each choice that waits for the owner where it stands in it, and after
-// the last each question put to the owner that stands, the only place the panel draws it, drawn as they are: what it
-// asks, as it was written, its options with what each does and what follows, and the one it recommends; one the
-// engine's one list of what waits on the owner names on the red tint, framed in red, the look of every stop, an
-// answered one with the answer picked. Each is picked by a press on an option and let go by another, and at the end a
-// button as wide as the body confirms them, which counts the picks, waits until each choice has one and sends each
-// question's answer to the engine; once confirmed, the picks stand; and last, each block the owner may write that keeps
-// the work from going on, drawn as such a question is, its values the options, with a button that writes the one
-// picked), each passage changed since the owner read it marked at its left, and under the body the messages: the
-// owner's and the replies, and a box to write one into a block of the work that people write, chosen above it, which a
-// passage selected in the body can be quoted into and which names the cells that read it. Under the work's state line,
-// each other stop of the work, in the same look: one sentence of why and the buttons that end it, from the engine's
-// list, and a fault or a stall, which no one waits on, said as the engine gives it. The second tab holds what of the
-// work the lines do not say, and the legend of the strip's marks. While the window is out, R marks the item read, as
-// its link does, unless a box has the keys. What the owner sends is sent once: its button cannot be pressed while it is
-// under way, and a refusal is said under the item it was for, and only there.
+// card names, in its order and by its name, with each choice that waits for the owner where it stands in it, and each
+// question put to the owner that stands, once and only there: at the first pointer to it, `{{name}}`, in a passage of
+// the body or in a message an agent wrote, a later pointer to it being a link to it, and after the last section where
+// no text points to it; drawn as they are: what it asks, as it was written, its options with what each does and what
+// follows, and the one it recommends; one the engine's one list of what waits on the owner names on the red tint,
+// framed in red, the look of every stop, an answered one with the answer picked. Each is picked by a press on an option
+// and let go by another, and at the end of the last section a button as wide as the body confirms them, which counts
+// the picks, waits until each choice has one and sends each question's answer to the engine; once confirmed, the picks
+// stand; and last, each block the owner may write that keeps the work from going on, drawn as such a question is, its
+// values the options, with a button that writes the one picked), each passage changed since the owner read it marked
+// at its left, and under the body the messages: the owner's and the replies, and a box to write one into a block of
+// the work that people write, chosen above it, which a passage selected in the body can be quoted into and which names
+// the cells that read it. Under the work's state line, each other stop of the work, in the same look: one sentence of
+// why and the buttons that end it, from the engine's list, and a fault or a stall, which no one waits on, said as the
+// engine gives it. The second tab holds what of the work the lines do not say, and the legend of the strip's marks.
+// While the window is out, R marks the item read, as its link does, unless a box has the keys. What the owner sends is
+// sent once: its button cannot be pressed while it is under way, and a refusal is said under the item it was for, and
+// only there.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/ItemWindow.tsx`), its layout as it
 // was, its parts the page's own (parts.tsx) where it used Primer's. What the engine does not give yet comes from the
@@ -65,6 +67,7 @@ import {
   ENDS_WORDS,
   NO_ENGINE,
   OWN_PAUSE,
+  SHOW_QUESTION,
   type Tone as WorkTone,
   WRITE_WORDS,
   standingCell,
@@ -73,7 +76,7 @@ import {
   waitedWords,
 } from '../works/words';
 import { type ItemStanding, age, dollars, standingOf } from './items';
-import { Markdown } from './markdown';
+import { Markdown, type Pointers } from './markdown';
 import { markRead } from './mock';
 import {
   askedChoice,
@@ -91,11 +94,13 @@ import {
   type Body,
   changedIn,
   type Choice,
+  heldAt,
   type Message,
   type MessageCell,
   messagesAbout,
   type Part,
   picks,
+  type Pointing,
   quoteOf,
   type Who,
 } from './window';
@@ -142,9 +147,9 @@ function askedOf(s: Summary): Choice[] {
 const callKey = (call: number) => `call-${call}`;
 const answerKey = (question: string) => `answer-${question}`;
 
-/// The questions put to the owner that stand, as the work's page gives them, each as a choice at the plan's end: what
-/// it asks, its options, the one it recommends, and the owner's answer to its latest version, which confirms it. One
-/// the engine's list names holds the work, at its cell or at the merge.
+/// The questions put to the owner that stand, as the work's page gives them, each as a choice: what it asks, its
+/// options, the one it recommends, and the owner's answer to its latest version, which confirms it. One the engine's
+/// list names holds the work, at its cell or at the merge.
 function questionsStanding(questions: Question[] | undefined, s: Summary): Choice[] {
   return (questions ?? []).flatMap((q): Choice[] => {
     // A question no version of its cell's questions names cannot be answered by one.
@@ -165,6 +170,11 @@ function questionsStanding(questions: Question[] | undefined, s: Summary): Choic
     ];
   });
 }
+
+/// Where a text that may hold a question stands, as `heldAt` names it: a passage of a section, by the section's title
+/// and its place there, or a message of the discussion, by its place.
+const partKey = (section: string, at: number) => `part ${at} of ${section}`;
+const messageKey = (at: number) => `message ${at}`;
 
 /// What the owner's pick of a question is kept by: the call that waits for it, or the version of the question.
 const pickKey = (c: Choice): string =>
@@ -334,18 +344,30 @@ function ItemView({
   // and why it could not be.
   const [bodyRead, setBodyRead] = useState(mocksShown());
   const [bodyFailed, setBodyFailed] = useState<string | null>(null);
+  // Without the mocks, the names of the questions of the work's own in the page the body was last read from, or could
+  // not be: the questions the window draws, a question asked since waiting for the texts that may point to it, so
+  // that no card stands after the body and then moves into a text that points to it.
+  const [readWith, setReadWith] = useState<ReadonlySet<string>>(new Set());
   // Without the mocks, what the owner may rule of the preconditions the work waits for, read with the body.
   const [rulings, setRulings] = useState<Ruling[]>([]);
   useEffect(() => {
     if (mocksShown() || read === null) return;
     let alive = true;
     const failed = (e: unknown) => alive && setBodyFailed(e instanceof Error ? e.message : String(e));
-    readBody(read, loadVersion).then((b) => {
-      if (!alive) return;
-      setBody(b);
-      setBodyRead(true);
-      setBodyFailed(null);
-    }, failed);
+    const names = new Set((read.questions ?? []).map((q) => q.name));
+    readBody(read, loadVersion).then(
+      (b) => {
+        if (!alive) return;
+        setBody(b);
+        setBodyRead(true);
+        setBodyFailed(null);
+        setReadWith(names);
+      },
+      (e: unknown) => {
+        failed(e);
+        if (alive) setReadWith(names);
+      },
+    );
     readRulings(read, waitsOf(read.summary), loadVersion).then((r) => alive && setRulings(r), failed);
     return () => {
       alive = false;
@@ -414,36 +436,91 @@ function ItemView({
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [open, fresh, markAsRead]);
-  // The questions put to the owner, after the last section's own parts: those of the work's own that stand, and those
-  // a cell asked as a call the work waits at; each not yet answered with the option picked, or the words written to one
-  // with no options, by what its answer is sent to.
+  // The sections the flow's card names: as read, or, until the body is read, each with nothing in it yet.
+  const sections = bodyRead ? body.sections : (read?.flow.card ?? []).map((title) => ({ title, parts: [] }));
+  // What a section with nothing in it says.
+  const nothingYet = bodyRead ? 'Nothing is written yet' : 'Reading';
+  // The questions put to the owner: those of the work's own that stand, once the texts that may point to them are
+  // read, or could not be, and those a cell asked as a call the work waits at; each not yet answered with the option
+  // picked, or the words written to one with no options, by what its answer is sent to.
   const [answers, setAnswers] = useState<Record<string, number | null>>({});
   const [written, setWritten] = useState<Record<string, string>>({});
-  const questions = [...questionsStanding(read?.questions, work), ...askedOf(work)].map((c) =>
+  const placed = (c: Choice) =>
+    mocksShown() || (c.asks !== undefined && 'question' in c.asks && readWith.has(c.asks.question));
+  const questions = [...questionsStanding(read?.questions, work).filter(placed), ...askedOf(work)].map((c) =>
     c.confirmed === true ? c : { ...c, chosen: answers[pickKey(c)] ?? null, answer: written[pickKey(c)] ?? '' },
   );
   // Those still to answer, which Confirm sends.
   const toAnswer = questions.filter((q) => q.confirmed !== true);
   // Whether a question has its answer: an option picked, or for one with no options, words written.
   const answered = (q: Choice) => (q.options.length === 0 ? (q.answer ?? '').trim() !== '' : q.chosen !== null);
-  // The sections the flow's card names: as read, or, until the body is read, each with nothing in it yet.
-  const sections = bodyRead ? body.sections : (read?.flow.card ?? []).map((title) => ({ title, parts: [] }));
-  // What a section with nothing in it says.
-  const nothingYet = bodyRead ? 'Nothing is written yet' : 'Reading';
+  // The questions of the work's own by their names, which a pointer names; and where each a text points to is drawn:
+  // at the first pointer to it in the passages of the card's sections and then in the messages an agent wrote, in the
+  // order the window draws them.
+  const named = new Map(
+    questions.flatMap((q): [string, Choice][] =>
+      q.asks !== undefined && 'question' in q.asks ? [[q.asks.question, q]] : [],
+    ),
+  );
+  const held = heldAt(
+    [
+      ...sections.flatMap((s) =>
+        s.parts.flatMap((p, i): Pointing[] => (p.kind === 'text' ? [{ key: partKey(s.title, i), text: p.text }] : [])),
+      ),
+      ...body.messages.flatMap((m, i): Pointing[] => (m.who === 'owner' ? [] : [{ key: messageKey(i), text: m.text }])),
+    ],
+    new Set(named.keys()),
+  );
+  // A press on an option of a question picks it, and a press on the one picked lets it go; words written to one with no
+  // options are kept as they are typed.
+  const pickQuestion = (q: Choice, option: number) => {
+    const key = pickKey(q);
+    setAnswers((was) => ({ ...was, [key]: was[key] === option ? null : option }));
+  };
+  const writeQuestion = (q: Choice, text: string) => setWritten((was) => ({ ...was, [pickKey(q)]: text }));
+  // A question's card, wherever it stands.
+  const card = (q: Choice) => (
+    <ChoiceBox
+      p={q}
+      pick={q.confirmed === true ? undefined : (o) => pickQuestion(q, o)}
+      write={q.confirmed === true ? undefined : (t) => writeQuestion(q, t)}
+      discuss={() => discuss(q)}
+      messages={about(q)}
+      jump={jump}
+      links={pointersOf(null)}
+    />
+  );
+  // What the text of this key draws at its pointers: the card of each question it holds, and a link to any other
+  // question that stands; a text of no key holds none.
+  const pointersOf = (key: string | null): Pointers => ({
+    hold: (name) => {
+      const q = named.get(name);
+      return key !== null && q !== undefined && held.get(name) === key ? card(q) : null;
+    },
+    link: (name) => (named.has(name) ? <QuestionLink name={name} show={() => showQuestion(name)} /> : null),
+  });
+  // Brings a question's card into view, by the key of the wait its answer ends, which it carries.
+  const showQuestion = (name: string) =>
+    [...(inner.current?.querySelectorAll<HTMLElement>('[data-wait]') ?? [])]
+      .find((c) => c.dataset.wait === answerKey(name))
+      ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   // The last section as drawn: its own parts, a choice of them open while its choices wait to be confirmed, then the
-  // questions; with no section, the questions alone.
+  // questions no text holds; with no section, those questions alone.
   const last = sections.at(-1);
   const own = last?.parts ?? [];
+  const after = questions.filter(
+    (q) => !(q.asks !== undefined && 'question' in q.asks && held.has(q.asks.question)),
+  );
   const asked: Part[] = [
     ...(body.choicesWait ? own : own.map((p) => (p.kind === 'choice' ? { ...p, confirmed: true } : p))),
-    ...questions,
+    ...after,
   ];
-  // A press on an option picks it, and a press on the one picked lets it go.
+  // A press on an option of a part of the last section: of a question after its own parts, or of its own choice, by
+  // its place.
   const choose = (at: number, option: number) => {
-    const q = questions[at - own.length];
+    const q = after[at - own.length];
     if (q !== undefined) {
-      const key = pickKey(q);
-      setAnswers((was) => ({ ...was, [key]: was[key] === option ? null : option }));
+      pickQuestion(q, option);
       return;
     }
     const pick = (p: Part, i: number): Part =>
@@ -453,10 +530,10 @@ function ItemView({
       sections: was.sections.map((s, n) => (n === was.sections.length - 1 ? { ...s, parts: s.parts.map(pick) } : s)),
     }));
   };
-  // Words written to a question with no options.
+  // Words written to a question after the last section's own parts, with no options.
   const write = (at: number, text: string) => {
-    const q = questions[at - own.length];
-    if (q !== undefined) setWritten((was) => ({ ...was, [pickKey(q)]: text }));
+    const q = after[at - own.length];
+    if (q !== undefined) writeQuestion(q, text);
   };
   // One Confirm for the last section's choices and the questions: each question's answer is sent, one after another,
   // to what it answers: the option picked, counted from one, to the version of the work's question; the label of its
@@ -566,18 +643,27 @@ function ItemView({
             <div className="cw-body" onMouseUp={selected}>
               {bodyFailed !== null && <p className="failed small">The page could not read the item: {bodyFailed}</p>}
               {sections.slice(0, -1).map((s) => (
-                <Section key={s.title} title={s.title} parts={s.parts} empty={nothingYet} />
+                <Section
+                  key={s.title}
+                  title={s.title}
+                  parts={s.parts}
+                  empty={nothingYet}
+                  pointers={(i) => pointersOf(partKey(s.title, i))}
+                  links={pointersOf(null)}
+                />
               ))}
               <Section
                 title={last?.title}
                 parts={asked}
-                keep={rulings.length > 0}
+                keep={rulings.length > 0 || toAnswer.length > 0}
                 empty={last === undefined ? undefined : nothingYet}
                 choose={body.choicesWait || toAnswer.length > 0 ? choose : undefined}
                 write={toAnswer.length > 0 ? write : undefined}
                 discuss={discuss}
                 about={about}
                 jump={jump}
+                pointers={(i) => pointersOf(last === undefined ? null : partKey(last.title, i))}
+                links={pointersOf(null)}
                 after={
                   <>
                     {body.choicesWait || toAnswer.length > 0 ? (
@@ -593,7 +679,7 @@ function ItemView({
                     {answering.refused !== null && <p className="failed small">{answering.refused}</p>}
                     {confirmed !== null ? <p className="cw-done">{confirmed}</p> : null}
                     {rulings.map((r) => (
-                      <RulingBox key={r.key} ruling={r} act={send} />
+                      <RulingBox key={r.key} ruling={r} act={send} links={pointersOf(null)} />
                     ))}
                   </>
                 }
@@ -620,6 +706,7 @@ function ItemView({
               work={work}
               page={page}
               messages={body.messages}
+              pointers={(i) => pointersOf(body.messages[i]?.who === 'owner' ? null : messageKey(i))}
               messageTo={messageTo}
               setMessageTo={setMessageTo}
               quote={quote}
@@ -632,6 +719,16 @@ function ItemView({
         )}
       </div>
     </div>
+  );
+}
+
+/// A pointer to a question drawn elsewhere in the window: the question's name, as the text wrote it, a link that
+/// brings its card into view.
+function QuestionLink({ name, show }: { name: string; show: () => void }) {
+  return (
+    <button type="button" className="link mono cw-pointer" title={SHOW_QUESTION} onClick={show}>
+      {name}
+    </button>
   );
 }
 
@@ -922,6 +1019,8 @@ function Section({
   jump,
   after,
   empty,
+  pointers,
+  links,
 }: {
   /// Its name, over it; with none, its parts are drawn with no fold.
   title?: string;
@@ -942,6 +1041,10 @@ function Section({
   after?: ReactNode;
   /// What the section says, muted, where it has no parts; where this is not given, it is not drawn.
   empty?: string;
+  /// What a passage of it, by its place, draws at its pointers to the questions.
+  pointers?: (at: number) => Pointers;
+  /// What a choice's words draw at theirs: links alone.
+  links?: Pointers;
 }) {
   if (parts.length === 0 && !keep && empty === undefined) return null;
   const drawn = (
@@ -950,10 +1053,11 @@ function Section({
       {parts.map((p, i) => (
         <div key={i} className={p.changed === true ? 'cw-part cw-changed' : 'cw-part'}>
           {p.kind === 'text' ? (
-            <Markdown text={p.text} />
+            <Markdown text={p.text} pointers={pointers?.(i)} />
           ) : (
             <ChoiceBox
               p={p}
+              links={links}
               pick={choose === undefined || p.confirmed === true ? undefined : (o) => choose(i, o)}
               write={write === undefined || p.confirmed === true ? undefined : (t) => write(i, t)}
               discuss={discuss === undefined ? undefined : () => discuss(p)}
@@ -1012,13 +1116,15 @@ function Options({ options, chosen, recommended = null, pick, code = false }: {
 /// about it, which brings the first into view. A question with no options is answered in words, in a box in their
 /// place. A question the engine's list names holds the work, at its cell or at the merge: on the red tint, framed in
 /// red, the look of every stop.
-function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
+function ChoiceBox({ p, pick, write, discuss, messages, jump, links }: {
   p: Choice;
   pick?: (option: number) => void;
   write?: (text: string) => void;
   discuss?: () => void;
   messages: number[];
   jump?: (at: number) => void;
+  /// What its words draw at a pointer to another question: a link.
+  links?: Pointers;
 }) {
   return (
     <div
@@ -1026,7 +1132,7 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
       data-wait={waitKeyOf(p)}
     >
       <div className="cw-choice-q">
-        <Markdown text={p.question} />
+        <Markdown text={p.question} pointers={links} />
       </div>
       {p.options.length === 0 && p.asks !== undefined ? (
         <textarea
@@ -1078,7 +1184,12 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
 /// says; its values but the one it has now as the options, the one that makes the precondition hold picked first; and
 /// inside the card the button that writes the one picked. To have the cell judge again, the owner writes to it in the
 /// discussion.
-function RulingBox({ ruling, act }: { ruling: Ruling; act: (what: Act) => Promise<unknown> }) {
+function RulingBox({ ruling, act, links }: {
+  ruling: Ruling;
+  act: (what: Act) => Promise<unknown>;
+  /// What its words draw at a pointer to a question: a link.
+  links: Pointers;
+}) {
   const { waiting, refused, send } = useSending(act);
   const options = ruling.values.filter((v) => v !== ruling.now);
   const first = ruling.holding === null ? -1 : options.indexOf(ruling.holding);
@@ -1092,7 +1203,7 @@ function RulingBox({ ruling, act }: { ruling: Ruling; act: (what: Act) => Promis
             <p>
               <Coded text={ruling.why} />
             </p>
-            {ruling.text.trim() !== '' && <Markdown text={ruling.text} />}
+            {ruling.text.trim() !== '' && <Markdown text={ruling.text} pointers={links} />}
           </div>
           {options.length > 0 && (
             <Options
@@ -1129,10 +1240,12 @@ function RulingBox({ ruling, act }: { ruling: Ruling; act: (what: Act) => Promis
 /// cell it reaches. Each button names its line and, where the engine has a cell to give the words to on it, that cell
 /// by its id, the same way on every button; where it has none, the line alone, with why in its title. The line under
 /// the box names the cell the words reach by its title, or says why no cell can take them, and then they are not sent.
-function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
+function Discussion({ work, page, messages, pointers, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
   work: Summary;
   page: PageState;
   messages: Message[];
+  /// What a message, by its place, draws at its pointers to the questions.
+  pointers: (at: number) => Pointers;
   /// The line the owner chose the message goes to; none where they did not.
   messageTo: string | null;
   setMessageTo: (line: string) => void;
@@ -1173,7 +1286,7 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
             <span className="mono muted">{ago(n.at)} ago</span>
           </div>
           {n.quote !== null ? <blockquote className="cw-quote">{n.quote}</blockquote> : null}
-          <Markdown text={n.text} />
+          <Markdown text={n.text} pointers={pointers(i)} />
         </div>
       ))}
       {page === null ? (
