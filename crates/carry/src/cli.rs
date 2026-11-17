@@ -256,7 +256,7 @@ pub fn last_message(stream: &[u8]) -> Option<String> {
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
         .filter(|v| v["type"] == "assistant" || v["type"] == "user")
         .filter_map(|v| v["uuid"].as_str().map(str::to_string))
-        .last()
+        .next_back()
 }
 
 /// The hook's shell command that refuses the use of a tool, as the command line takes a hook's exit with 2, saying
