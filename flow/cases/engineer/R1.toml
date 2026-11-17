@@ -1,0 +1,466 @@
+# The cases of R1, the initial research: its first entry on each kind of work the flow serves (C01 to C08), and
+# each datum its usual course makes new, alone or together, as works bring them (C09 to C20).
+
+cell = "R1"
+
+[[cases]]
+id = "R1-01"
+item = 21
+ran_before = false
+new = ["guide", "background"]
+results = "defect_monthly"
+judge = '''
+Sees the defect happen (a red test through run_tests, or the program on its data) and finds the root cause: the key cut to 6 characters in report::monthly; plans the 7-character key with a test red before and green after that asserts the keys; no decision changes (the decision already says YYYY-MM).'''
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+question = "none"
+
+[[cases]]
+id = "R1-02"
+item = 22
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+Checks the option is not there already; plans --category on report --monthly with tests; refuses a category no entry has, naming it (Article 2: an empty report reads as nothing spent); does not widen the scope to other commands; no question needed.'''
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+question = "none"
+
+[[cases]]
+id = "R1-03"
+item = 23
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+Plans amounts as i64 cents with the file format unchanged, the ledger written with two decimals, and an amount or a sum past what an i64 of cents holds refused rather than wrapped (Article 2); proposes in tree_edits the change of decision amounts-are-floats (a decision, not a principle: no question owed).'''
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+question = "none"
+
+[[cases]]
+id = "R1-04"
+item = 24
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+Plans a measurement: the question, the comparison and the criterion written before measuring, the measurement run where heavy work may run (CI) on the build the owner runs (optimized, not the default test build), saying which build it measured, the phases timed; changes no code of tally; says what result would reject the decision.'''
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+question = "none"
+
+[[cases]]
+id = "R1-05"
+item = 25
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+Finds every use of legacy (module, lib.rs, CLI arm, USAGE, test) and plans their removal; keeps the rest's behaviour (Ledger::write stays: the round trip test uses it); no question needed.'''
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+question = "none"
+
+[[cases]]
+id = "R1-06"
+item = 26
+ran_before = false
+new = ["guide", "background"]
+results = "refund"
+judge = '''
+Checks the claim where it shows and finds it does not hold (total subtracts the refund; total_subtracts_refunds passes); asks the owner how to go on with a question that waits; plans no fix of a fault that is not there.'''
+
+[cases.owes]
+not_writes = ["found"]
+question = "waits"
+
+[[cases]]
+id = "R1-07"
+item = 27
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+deep_needed yes, since the direction rests on trying several ways first; writes found only (what was checked, where, and what the deep research must settle), no plan blocks.'''
+
+[cases.owes]
+writes = { deep_needed = "yes", found = "written" }
+not_writes = ["plan_owner", "plan_agent", "acceptance", "tree_edits"]
+question = "none"
+
+[[cases]]
+id = "R1-08"
+item = 28
+ran_before = false
+new = ["guide", "background"]
+judge = '''
+Sees that a SQLite ledger goes against Article 1 of the constitution and principle one-file-format, and asks the owner in a question that waits; builds no plan on SQLite before the answer.'''
+
+[cases.owes]
+not_writes = ["found"]
+question = "waits"
+
+[[cases]]
+id = "R1-09"
+item = 21
+ran_before = true
+new = ["plan_review"]
+results = "defect_monthly"
+judge = '''
+Takes both points: the test asserts the YYYY-MM keys and sums, acceptance says the keys; answers each point in plan_review; changes nothing else.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+set = "PLAN_21"
+commit = "w-monthly-test"
+
+[[cases.history]]
+cell = "R2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_review.text = "PLAN_REVIEW_21"
+blocks.plan_ok.value = "no"
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+answers = ["plan_review"]
+question = "none"
+
+[[cases]]
+id = "R1-10"
+item = 22
+ran_before = true
+new = ["plan_review"]
+judge = '''
+Declines the point with its reason (the item asks for the monthly report only; tally total is not asked) in plan_review; does not add --category to tally total; leaves the plan as it is.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+set = "PLAN_22"
+
+[[cases.history]]
+cell = "R2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_review.text = "PLAN_REVIEW_22"
+blocks.plan_ok.value = "no"
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+keeps = ["plan"]
+answers = ["plan_review"]
+question = "none"
+
+[[cases]]
+id = "R1-11"
+item = 23
+ran_before = true
+new = ["tree_review"]
+judge = '''
+Renames the decision (e.g. amounts-are-cents), says the old entry goes, and rewrites its Why with the reason that holds now (sums compared exactly for the budget); answers each point.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+set = "PLAN_23"
+
+[[cases.history]]
+cell = "R2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_review.text = "TREE_REVIEW_23"
+blocks.tree_ok.value = "no"
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+answers = ["tree_review"]
+question = "none"
+
+[[cases]]
+id = "R1-12"
+item = 25
+ran_before = true
+new = ["plan_doubts"]
+judge = '''
+Agrees with the doubt (verifies the test calls write), keeps Ledger::write in the plan, answers the point.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+set = "PLAN_25"
+
+[[cases.history]]
+cell = "R2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_ok.value = "yes"
+
+[[cases.history]]
+cell = "P2"
+blocks.tree_ok.value = "yes"
+
+[[cases.history]]
+cell = "I1"
+blocks.plan_doubts.text = "PLAN_DOUBTS_25"
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+answers = ["plan_doubts"]
+question = "none"
+
+[[cases]]
+id = "R1-13"
+item = 24
+ran_before = true
+new = ["r1_questions"]
+judge = '''
+Brings the plan to option 2: the 40,000-line ledger is committed as a file in research/ (generated once, then committed), not generated at run time; the rest of the measurement stays.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+set = "PLAN_24"
+blocks.r1_questions.shaped = [{ name = "big_ledger", waits = false, recommends = 1, ask = "Where does the 40,000-line ledger for the measurement come from?", options = [{ does = "generated at run time by a small program in research/ from a fixed seed", follows = "nothing large is committed, and the measurement can be run again anywhere" }, { does = "committed as a file in research/", follows = "the very same file every time, about 1.4 MB in the repository" }] }]
+
+[[cases.history]]
+owner = "answer"
+question = "big_ledger"
+option = 2
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+question = "none"
+
+[[cases]]
+id = "R1-14"
+item = 28
+ran_before = true
+new = ["r1_questions"]
+judge = '''
+Follows option 2: keeps the CSV ledger, drops SQLite, and goes on: either a plan for faster reports and richer queries within the CSV, or deep_needed yes with found where it needs trying several ways; proposes no change of the constitution.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+blocks.r1_questions.shaped = [{ name = "ledger_store", waits = true, recommends = 2, ask = "The item asks to keep the ledger in a SQLite file, which Article 1 of the constitution (the ledger is a plain text file the owner edits by hand) and principle one-file-format forbid. How does the work go on?", options = [{ does = "change the constitution and the principle so that the ledger may be a SQLite file", follows = "the item is built as it asks; the owner can no longer edit the ledger in a text editor" }, { does = "keep the ledger a plain CSV file and make the reports fast and the queries richer within it", follows = "the constitution stands; what SQLite would give is reached another way, as far as it can be" }, { does = "close the item", follows = "nothing changes" }] }]
+
+[[cases.history]]
+owner = "answer"
+question = "ledger_store"
+option = 2
+
+[cases.owes]
+question = "none"
+
+[[cases]]
+id = "R1-15"
+item = 25
+ran_before = true
+new = ["r1_words"]
+judge = '''
+The owner's words come first: the plan keeps import-legacy for one more version with a deprecation notice when it runs, keeps the legacy module and test; answers the owner in r1_words.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+set = "PLAN_25b"
+
+[[cases.history]]
+owner = "words"
+to = "R1"
+text = "WORDS_25"
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+answers = ["r1_words"]
+question = "none"
+
+[[cases]]
+id = "R1-16"
+item = 22
+ran_before = true
+new = ["r1_words"]
+judge = '''
+Answers the owner's question in r1_words (categories gives all-time sums by category; the item asks for one category month by month, so categories is not touched); changes no plan block.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+set = "PLAN_22"
+
+[[cases.history]]
+owner = "words"
+to = "R1"
+text = "WORDS_22"
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+keeps = ["plan"]
+answers = ["r1_words"]
+question = "none"
+
+[[cases]]
+id = "R1-17"
+item = 21
+ran_before = true
+new = ["background"]
+results = "defect_monthly"
+judge = '''
+Brings the plan up to date for the added months with no entries shown as 0.00 between the first and the last month: monthly fills the gaps, with a test; keeps the key fix.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+set = "PLAN_21"
+commit = "w-monthly-test"
+
+[[cases.history]]
+owner = "background"
+text = "BACKGROUND_21_2"
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+question = "none"
+
+[[cases]]
+id = "R1-18"
+item = 24
+ran_before = true
+new = ["guide"]
+judge = '''
+Sees the guide's change (a rule about commit messages) touches nothing it hands in, and hands in nothing new but deep_needed, which it hands in every time.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+set = "PLAN_24"
+blocks.r1_questions.shaped = [{ name = "big_ledger", waits = false, recommends = 1, ask = "Where does the 40,000-line ledger for the measurement come from?", options = [{ does = "generated at run time by a small program in research/ from a fixed seed", follows = "nothing large is committed, and the measurement can be run again anywhere" }, { does = "committed as a file in research/", follows = "the very same file every time, about 1.4 MB in the repository" }] }]
+
+[[cases.history]]
+owner = "answer"
+question = "big_ledger"
+option = 2
+
+[[cases.history]]
+cell = "R1"
+set = "PLAN_24b"
+
+[[cases.history]]
+main = "main-guide-commit-messages"
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+keeps = ["plan"]
+question = "none"
+
+[[cases]]
+id = "R1-19"
+item = 25
+ran_before = true
+new = ["guide"]
+judge = '''
+Sees the guide's change touches the plan (a removed command adds a CHANGELOG.md line) and brings the plan up to date for it; nothing else changes.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+set = "PLAN_25"
+
+[[cases.history]]
+main = "main-guide-changelog"
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+question = "none"
+
+[[cases]]
+id = "R1-20"
+item = 22
+ran_before = true
+new = ["background", "r1_words"]
+judge = '''
+Brings the plan up to date for both: --category given more than once sums those categories, and the match ignores case; answers the owner in r1_words.'''
+
+[[cases.history]]
+cell = "R0"
+
+[[cases.history]]
+cell = "R1"
+set = "PLAN_22"
+
+[[cases.history]]
+owner = "background"
+text = "BACKGROUND_22_2"
+
+[[cases.history]]
+owner = "words"
+to = "R1"
+text = "WORDS_22_BOTH"
+
+[cases.owes]
+writes = { deep_needed = "no" }
+not_writes = ["found"]
+changes = ["plan"]
+answers = ["r1_words"]
+question = "none"

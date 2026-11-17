@@ -1,0 +1,20 @@
+[package]
+name = "cases"
+description = "The cell cases of a flow: their files read and checked against the compiled flow, their histories, and how each is judged"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+decide = { path = "../decide" }
+flow = { path = "../flow" }
+serde.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

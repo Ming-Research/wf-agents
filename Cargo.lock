@@ -169,6 +169,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cases"
+version = "0.1.0"
+dependencies = [
+ "decide",
+ "flow",
+ "serde",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "cc"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
