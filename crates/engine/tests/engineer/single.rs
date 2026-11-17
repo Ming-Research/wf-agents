@@ -1,6 +1,6 @@
 //! A single work on the engineer's flow, taken through `handle` step by step. An agent's round hands in naming as dealt
-//! with the triggers it was told ran it, by their names, as an agent writes them, and its return is read as the agents'
-//! rounds read one (`CellSpec::dealt_with`); an act of the engine's names none.
+//! with what it was told ran it, by their names, as an agent writes them, and its return is read as the agents' rounds
+//! read one (`CellSpec::dealt_with`); an act of the engine's names none.
 
 use decide::{Decision, Outsider, RunId};
 use engine::{Came, Effect, Event, Handed, Question, Spent, Time, Work, handle};
@@ -50,7 +50,7 @@ impl W {
             .unwrap_or_else(|| panic!("no round is under way: {:?}", self.decision()))
     }
 
-    /// The names of the triggers of the cell that the run's round was told ran it, as its agent is told them.
+    /// The names of what the cell watches that the run's round was told ran it, as its agent is told them.
     pub(super) fn told(&self, run: RunId, cell: &str) -> Vec<String> {
         let spec = self.spec(cell);
         let told = decide::told(&self.flow.flow, &self.work.records, run).expect("the run started");
@@ -58,7 +58,7 @@ impl W {
     }
 
     /// The round under way, of this cell, hands in these blocks, and the engine asks these questions beside it. An
-    /// agent's return names as dealt with every trigger its round was told ran it.
+    /// agent's return names as dealt with everything its round was told ran it.
     pub(super) fn hands_in(&mut self, cell: &str, blocks: &[(&str, Option<&str>)], engine: Vec<Question>) {
         let (run, under_way) = self.round();
         assert_eq!(under_way, cell, "the round under way is another cell's");
@@ -79,7 +79,7 @@ impl W {
 
     /// The round under way, of this agent cell, hands in these blocks, its carrier having read these versions of the
     /// work's branch as it ended, each a block and what it says: what the round committed. Its return names as dealt
-    /// with every trigger its round was told ran it.
+    /// with everything its round was told ran it.
     pub(super) fn commits(&mut self, cell: &str, blocks: &[(&str, Option<&str>)], read: &[(&str, &str)]) {
         let (run, under_way) = self.round();
         assert_eq!(under_way, cell, "the round under way is another cell's");
@@ -119,7 +119,7 @@ impl W {
     fn read(&self, cell: &str, dealt_with: &[&str], blocks: &[(&str, Option<&str>)]) -> Came {
         let names: Vec<String> = dealt_with.iter().map(|n| n.to_string()).collect();
         let (dealt_with, none) = self.spec(cell).dealt_with(&names);
-        assert!(none.is_empty(), "{cell} has no trigger {none:?}");
+        assert!(none.is_empty(), "{cell} watches none of {none:?}");
         Came::works(dealt_with, writes(blocks))
     }
 
@@ -131,7 +131,8 @@ impl W {
     }
 
     /// The work from its start to the review's yes on the implementation's code: the research hands in a plan with no
-    /// deeper look and no change of the tree, and the review asks for no testing.
+    /// deeper look and no change of the tree, both reviews of the plan find nothing to change, and the review asks for
+    /// no testing.
     pub(super) fn reviewed() -> W {
         let mut w = W::started();
         w.hands_in("S1", &[("place", None)], Vec::new());
@@ -147,6 +148,8 @@ impl W {
             Vec::new(),
         );
         w.hands_in("R2", &[], Vec::new());
+        w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+        w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
         w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
         w.hands_in(
             "T1",
@@ -180,9 +183,12 @@ pub(super) fn wrote(block: &str, by: Outsider, value: Option<&str>) -> Event {
     }
 }
 
+// Every plan is reviewed before it is built, for its design and against the tree (principle
+// every-plan-is-reviewed-before-it-is-built): a plan the research wrote, with no deep research, goes through the design
+// review and the review against the tree before the implementation, whether its edits of the tree hold an entry or none.
 #[test]
-fn the_review_of_the_tree_runs_where_the_plan_s_edits_of_it_hold_an_entry_and_is_skipped_where_they_hold_none() {
-    for (edits, next) in [("A decision that a call keeps what it took.", "D4"), (" \n", "I1")] {
+fn both_reviews_of_the_plan_run_on_a_plan_the_research_wrote_whether_or_not_it_edits_the_tree() {
+    for edits in ["A decision that a call keeps what it took.", " \n"] {
         let mut w = W::started();
         w.hands_in("S1", &[("place", None)], Vec::new());
         w.hands_in("R0", &[], Vec::new());
@@ -208,12 +214,46 @@ fn the_review_of_the_tree_runs_where_the_plan_s_edits_of_it_hold_an_entry_and_is
         });
         // The plan's second look finds no better way, and changes nothing.
         w.hands_in("R2", &[], Vec::new());
-        assert_eq!(w.round().1, next, "with tree_edits {edits:?}");
+        assert_eq!(w.round().1, "P1", "with tree_edits {edits:?}");
+        w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+        assert_eq!(w.round().1, "P2", "with tree_edits {edits:?}");
+        w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
+        assert_eq!(w.round().1, "I1", "with tree_edits {edits:?}");
     }
 }
 
+// The design review's points on a plan the research wrote go to the research, which answers them in the dialogue the
+// two hold, and its answer runs the review again (design document `data-and-context`, 36).
 #[test]
-fn a_write_to_the_record_of_what_is_said_holds_nothing_by_the_entry_kept_not_by_the_words_handed_in() {
+fn the_design_review_s_points_on_the_research_s_plan_run_the_research_and_its_answer_runs_the_review_again() {
+    let mut w = W::started();
+    w.hands_in("S1", &[("place", None)], Vec::new());
+    w.hands_in("R0", &[], Vec::new());
+    w.hands_in(
+        "R1",
+        &[
+            ("deep_needed", Some("no")),
+            ("plan_owner", None),
+            ("plan_agent", None),
+            ("acceptance", None),
+        ],
+        Vec::new(),
+    );
+    w.hands_in("R2", &[], Vec::new());
+    w.hands_in("P1", &[("plan_ok", Some("no")), ("plan_review", None)], Vec::new());
+    let (run, cell) = w.round();
+    assert_eq!(cell, "R1", "the research takes the review's points");
+    assert_eq!(w.told(run, "R1"), ["plan_review"]);
+    w.hands_in("R1", &[("deep_needed", Some("no")), ("plan_review", None)], Vec::new());
+    let (run, cell) = w.round();
+    assert_eq!(cell, "P1", "the review takes the answer");
+    assert_eq!(w.told(run, "P1"), ["plan_review"]);
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    assert_eq!(w.round().1, "P2");
+}
+
+#[test]
+fn a_write_of_a_cell_s_words_holds_nothing_by_the_answer_kept_not_by_the_words_handed_in() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
     w.hands_in("R0", &[], Vec::new());
@@ -225,10 +265,10 @@ fn a_write_to_the_record_of_what_is_said_holds_nothing_by_the_entry_kept_not_by_
         ("plan_owner", None),
         ("plan_agent", None),
         ("acceptance", None),
-        ("discussion", None),
+        ("r1_words", None),
     ];
     let mut came = w.read("R1", &names, &plan);
-    for h in came.writes.iter_mut().filter(|h| h.block.as_str() == "discussion") {
+    for h in came.writes.iter_mut().filter(|h| h.block.as_str() == "r1_words") {
         h.content = " \n".to_string();
     }
     w.on(Event::Returned {
@@ -243,14 +283,14 @@ fn a_write_to_the_record_of_what_is_said_holds_nothing_by_the_entry_kept_not_by_
     let kept = w
         .work
         .contents
-        .get(&("discussion".into(), at))
+        .get(&("r1_words".into(), at))
         .expect("the entry is kept");
     assert!(
         !kept.trim().is_empty(),
         "the entry has the reply's words around the handed in ones: {kept:?}"
     );
     let write = (finished.writes.iter())
-        .find(|x| x.block.as_str() == "discussion")
+        .find(|x| x.block.as_str() == "r1_words")
         .expect("written");
     assert!(!write.empty, "the entry kept holds something");
 }

@@ -1,5 +1,5 @@
 // The panels of the flow view, shown in its window over the chart's right: everything about the cell, block, line,
-// named test, tool or group the owner chose.
+// named test, tool or group the owner chose, or about what `[every_agent]` names.
 
 import { Fragment, type ReactNode, useState } from 'react';
 
@@ -13,12 +13,11 @@ import type {
   SentCarried,
   SentPart,
   SentPiece,
-  TriggerView,
   Unknown,
 } from './api';
 import type { Chosen } from './Chart';
 import { FormTree } from './FormTree';
-import { type ConditionRow, type LineRow, type Matrix, exclusive, where } from './matrix';
+import { type ConditionRow, type LineRow, type Matrix, canRun, kindOf, namesItself, where } from './matrix';
 import { Arrow, Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
 import {
   charactersWords,
@@ -43,24 +42,34 @@ function testsSay(keys: Condition[]): string | undefined {
   return says.length > 0 ? says.join('; ') : undefined;
 }
 
-/// The blocks a trigger fires for: the one it stands on, or each of its group's.
-const firesFor = (t: TriggerView) => (t.group.length > 0 ? t.group : [t.block]);
+/// What a name a cell takes is chosen by: its datum, or its group.
+const chosenOf = (n: { name: string; blocks: string[] }): Chosen => (namesItself(n) ? { block: n.name } : { group: n.name });
 
-/// Whether a write of the block fires the trigger: it stands on it, or the block is one of its group's.
-const fires = (t: TriggerView, block: string) => firesFor(t).includes(block);
+/// The kind a cell is given each block of a name in, as `[kinds]` writes it: of a datum, `kind` and its kind; of a
+/// group, `kinds` and each block with its kind; nothing for a cell given none, an engine's.
+function Kinds({ cell, taken }: { cell: Cell; taken: { name: string; blocks: string[] } }) {
+  const kind = (b: string) => inputKindWords(kindOf(cell, b));
+  if (namesItself(taken)) {
+    return kind(taken.name) ? <Attr name="kind" value={kind(taken.name)} /> : null;
+  }
+  const kinds = taken.blocks.filter((b) => kind(b) !== '');
+  return kinds.length > 0 ? <Attr name="kinds" value={listed(kinds.map((b) => `${b} ${kind(b)}`))} /> : null;
+}
 
-/// What a trigger stands on, by its key, chosen by its name: the block, or the group of a group's trigger.
-function StandsOn({ trigger, onChoose }: { trigger: TriggerView; onChoose: (c: Chosen) => void }) {
-  const group = trigger.group.length > 0;
+/// The row of what a cell takes by `[every_agent]` in a list of its panel: the key, chosen to open its panel, and the
+/// names it takes so, as `flow.toml` writes them; none where it takes nothing so.
+function EveryAgentRow(props: { cell: Cell; flow: Flow; list: 'watches' | 'reads'; onChoose: (c: Chosen) => void }) {
+  const { cell, flow, list, onChoose } = props;
+  const alike = new Set(cell.given.filter((g) => g.list === 'every_agent').map((g) => g.block));
+  const names = flow.everyAgent[list].filter((n) => n.blocks.some((b) => alike.has(b))).map((n) => n.name);
+  if (names.length === 0) return null;
   return (
-    <Attr
-      name={group ? 'group' : 'block'}
-      value={
-        <Choose chosen={group ? { group: trigger.block } : { block: trigger.block }} onChoose={onChoose}>
-          {trigger.block}
-        </Choose>
-      }
-    />
+    <ListRow>
+      <Choose chosen={{ everyAgent: true }} onChoose={onChoose}>
+        <span className="mono">every_agent</span>
+      </Choose>
+      <Attr name={list} value={names.join(', ')} />
+    </ListRow>
   );
 }
 
@@ -324,9 +333,16 @@ export function CellPanel(props: {
   const onLine = cell.line ? (flow.lines.find((l) => l.name === cell.line)?.cells ?? []) : [];
   const sharing = onLine.filter((c) => c !== cell.id);
   const cellOf = (id: string) => flow.cells.find((c) => c.id === id);
-  // The cells after this one that can run where it does: a write of theirs sends the work back to it.
+  // The cells after this one whose write can run it: a write of theirs sends the work back to it.
   const later = (ids: string[]) =>
-    ids.filter((id) => where(flow, cell.id, id) === 'below' && !exclusive(cell, cellOf(id)));
+    ids.filter((id) => {
+      const writer = cellOf(id);
+      return where(flow, cell.id, id) === 'below' && writer !== undefined && canRun(writer, cell);
+    });
+  // What its own file watches, and whether it takes anything by `[every_agent]`, which one row of each list says.
+  const own = cell.watches.filter((w) => w.list === 'watches');
+  const alikeWatched = cell.watches.some((w) => w.list === 'every_agent');
+  const alikeRead = cell.given.some((g) => g.list === 'every_agent' && !cell.watches.some((w) => w.blocks.includes(g.block)));
   return (
     <Panel
       label={`Cell ${cell.id}`}
@@ -358,17 +374,19 @@ export function CellPanel(props: {
     >
       {sent && sent.length > 0 ? (
         <>
-          <PanelPart label="triggered_by" count={cell.triggers.length}>
+          <PanelPart label="watches" count={own.length + (alikeWatched ? 1 : 0)}>
             <ul className="uses">
-              {cell.triggers.map((t) => (
-                <ListRow key={t.name}>
-                  <span className="mono">{t.name}</span>
-                  <StandsOn trigger={t} onChoose={onChoose} />
-                  {t.read.length > 0 && <Attr name="read" value={listed(t.read)} />}
-                  {t.do && (
+              <EveryAgentRow cell={cell} flow={flow} list="watches" onChoose={onChoose} />
+              {own.map((w) => (
+                <ListRow key={w.name}>
+                  <Choose chosen={chosenOf(w)} onChoose={onChoose}>
+                    <span className="mono">{w.name}</span>
+                  </Choose>
+                  <Kinds cell={cell} taken={w} />
+                  {w.do && (
                     <div className="row-note">
                       <Attr name="do" value="" />
-                      {t.do}
+                      {w.do}
                     </div>
                   )}
                 </ListRow>
@@ -386,41 +404,35 @@ export function CellPanel(props: {
         </>
       ) : (
         <>
-          <PanelPart label="triggered_by" count={cell.triggers.length}>
+          <PanelPart label="watches" count={own.length + (alikeWatched ? 1 : 0)}>
             <ul className="uses">
-              {cell.triggers.map((t, place) => {
-                // Of a group's trigger, there is no one block: its group is chosen by its name.
-                const block = t.group.length > 0 ? undefined : blocks.get(t.block);
-                // The later cells that write the block the trigger stands on, or one of its group's, send the work
-                // back to this one.
-                const writers = firesFor(t).flatMap((b) => blocks.get(b)?.writtenBy.cells ?? []);
+              <EveryAgentRow cell={cell} flow={flow} list="watches" onChoose={onChoose} />
+              {own.map((w, place) => {
+                // Of a group, there is no one block: its group is chosen by its name.
+                const block = namesItself(w) ? blocks.get(w.name) : undefined;
+                // The later cells that write it, or one of its group's, send the work back to this one.
+                const writers = w.blocks.flatMap((b) => blocks.get(b)?.writtenBy.cells ?? []);
                 const back = later([...new Set(writers)].filter((id) => id !== cell.id));
-                const why = cell.input[t.block]?.runs?.why;
                 return (
-                  <ListRow key={`${t.name} ${t.block}`}>
+                  <ListRow key={w.name}>
                     <span
                       className="muted mono"
-                      title="Its place among what runs the cell, in the order the cell names them"
+                      title="Its place among what the cell watches, in the order the cell names them"
                     >
                       {place + 1}
                     </span>
-                    <span className="mono">{t.name}</span>
-                    <StandsOn trigger={t} onChoose={onChoose} />
+                    <Choose chosen={chosenOf(w)} onChoose={onChoose}>
+                      <span className="mono">{w.name}</span>
+                    </Choose>
+                    {!namesItself(w) && <Attr name="group" value={listed(w.blocks)} />}
+                    <Kinds cell={cell} taken={w} />
                     {block && <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />}
-                    {back.length > 0 && (
-                      <Attr name="way_back" value={listed(back)} />
-                    )}
-                    {t.read.length > 0 && <Attr name="read" value={listed(t.read)} />}
+                    {back.length > 0 && <Attr name="way_back" value={listed(back)} />}
                     {block && block.what !== null && <span className="row-note">{block.what}</span>}
-                    {why && (
-                      <span className="row-note">
-                        <Attr name="why" value={why} />
-                      </span>
-                    )}
-                    {t.do && (
+                    {w.do && (
                       <div className="row-note">
                         <Attr name="do" value="" />
-                        {t.do}
+                        {w.do}
                       </div>
                     )}
                   </ListRow>
@@ -429,41 +441,28 @@ export function CellPanel(props: {
             </ul>
           </PanelPart>
 
-          {cell.kind === 'agent' && (
-            <PanelPart label="context" count={cell.given.length + 1}>
+          {cell.kind === 'agent' && (cell.reads.length > 0 || alikeRead) && (
+            <PanelPart label="reads" count={cell.reads.length + (alikeRead ? 1 : 0)}>
               <ul className="uses">
-                <ListRow key="task">
-                  <span
-                    className="muted mono"
-                    title="Its place among what the cell is given, in the order it is given them"
-                  >
-                    1
-                  </span>
-                  <span className="mono">task</span>
-                </ListRow>
-                {cell.given.map((name, place) => {
-                  const block = blocks.get(name) as Block;
-                  const given = cell.input[name]?.given ?? null;
+                <EveryAgentRow cell={cell} flow={flow} list="reads" onChoose={onChoose} />
+                {cell.reads.map((r, place) => {
+                  const block = namesItself(r) ? blocks.get(r.name) : undefined;
                   return (
-                    <ListRow key={name}>
+                    <ListRow key={r.name}>
                       <span
                         className="muted mono"
-                        title="Its place among what the cell is given, in the order it is given them"
+                        title="Its place among what the cell reads, in the order the cell names them"
                       >
-                        {place + 2}
+                        {place + 1}
                       </span>
-                      <Choose chosen={{ block: name }} onChoose={onChoose}>
-                        <span className="mono">{name}</span>
+                      <Choose chosen={chosenOf(r)} onChoose={onChoose}>
+                        <span className="mono">{r.name}</span>
                       </Choose>
-                      <Attr name="kind" value={inputKindWords(given?.kind ?? null)} />
-                      <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />
-                      {block.what !== null && <span className="row-note">{block.what}</span>}
-                      {given?.why && (
-                        <span className="row-note">
-                          <Attr name="why" value={given.why} />
-                        </span>
-                      )}
-                      {thereWhen(flow, cell.id, block) !== '' && (
+                      {!namesItself(r) && <Attr name="group" value={listed(r.blocks)} />}
+                      <Kinds cell={cell} taken={r} />
+                      {block && <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />}
+                      {block && block.what !== null && <span className="row-note">{block.what}</span>}
+                      {block && thereWhen(flow, cell.id, block) !== '' && (
                         <span className="row-note">
                           <Attr name="written_before" value={thereWhen(flow, cell.id, block)} />
                         </span>
@@ -479,14 +478,14 @@ export function CellPanel(props: {
             <ul className="uses">
               {cell.outputs.map((name) => {
                 const block = blocks.get(name) as Block;
-                // A write of it sends the work back to each cell before this one that a trigger on it, or on a group
-                // of it, runs, and that can run where this one does.
+                // A write of it sends the work back to each cell before this one that watches it, by itself or
+                // through a group, and that a write of this one's can run.
                 const sendsBack = flow.cells
                   .filter(
                     (c) =>
                       where(flow, cell.id, c.id) === 'above' &&
-                      c.triggers.some((t) => fires(t, name)) &&
-                      !exclusive(c, cell),
+                      c.watches.some((w) => w.blocks.includes(name)) &&
+                      canRun(cell, c),
                   )
                   .map((c) => c.id);
                 return (
@@ -495,7 +494,7 @@ export function CellPanel(props: {
                       <span className="mono">{name}</span>
                     </Choose>
                     {cell.mustWrite.includes(name) && <Attr name="must_write" value="true" />}
-                    {cell.given.includes(name) && <Attr name="given" value="true" />}
+                    {cell.given.some((g) => g.block === name) && <Attr name="given" value="true" />}
                     <span>
                       <Readers flow={flow} from={cell.id} block={block} onChoose={onChoose} />
                     </span>
@@ -643,10 +642,10 @@ function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boole
   );
 }
 
-/// Everything about a block: its values, who writes it, who reads it, and the ways back through it, as the chart draws
-/// them on its triggers' rows: each cell a trigger on it, or on a group of it, runs, with the later cells whose write
-/// of it runs that cell again, of those that can run where it does (`exclusive`). A cell given it, or whose condition
-/// reads it, is not run by it, and no way back reaches it.
+/// Everything about a block: its values, who writes it, who reads it, and the ways back through it: each cell that
+/// watches it, by itself, through a group or by `[every_agent]`, with the later cells whose write of it runs that cell
+/// again, where their write can run it (`canRun`). A cell that only reads it, or whose condition reads it, is not run
+/// by it, and no way back reaches it.
 export function BlockPanel(props: {
   block: Block;
   matrix: Matrix;
@@ -656,12 +655,12 @@ export function BlockPanel(props: {
   const { block, flow, onChoose } = props;
   const besides = writersBesideCells(block);
   const backs = flow.cells.flatMap((reader, r) => {
-    const triggers = reader.triggers.filter((t) => fires(t, block.name)).map((t) => t.name);
-    if (triggers.length === 0) return [];
+    const watched = reader.watches.filter((w) => w.blocks.includes(block.name)).map((w) => w.name);
+    if (watched.length === 0) return [];
     const writers = flow.cells
-      .filter((w, i) => i > r && w.outputs.includes(block.name) && !exclusive(reader, w))
+      .filter((w, i) => i > r && w.outputs.includes(block.name) && canRun(w, reader))
       .map((w) => w.id);
-    return writers.length > 0 ? [{ reader: reader.id, writers, triggers }] : [];
+    return writers.length > 0 ? [{ reader: reader.id, writers, watched }] : [];
   });
   return (
     <Panel
@@ -712,13 +711,13 @@ export function BlockPanel(props: {
       {backs.length > 0 && (
         <PanelPart label="way_back" count={backs.length}>
           <ul className="uses">
-            {backs.map(({ reader, writers, triggers }) => (
+            {backs.map(({ reader, writers, watched }) => (
               <ListRow key={reader}>
                 <span className="mono">
                   {writers.join(', ')} <Arrow to="right" />
                   <span className="visually-hidden">to</span> {reader}
                 </span>
-                <Attr name="triggered_by" value={listed(triggers)} />
+                <Attr name="watches" value={listed(watched)} />
               </ListRow>
             ))}
           </ul>
@@ -861,32 +860,24 @@ export function ToolPanel(props: {
   );
 }
 
-/// Everything about a group of the flow's blocks: the file that names it, its trigger, its blocks as that file names
-/// them, each chosen by its name, the cells its trigger runs, and the ways back through it.
+/// Everything about a group of the flow's blocks: the file that names it, its blocks as that file names them, each
+/// chosen by its name, the cells whose file watches it and those whose file reads it, and the ways back through it.
 export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chosen) => void }) {
   const { name, flow, onChoose } = props;
   const blocks = flow.groups.find((g) => g.name === name)?.blocks ?? [];
-  const runs = flow.cells.filter((c) => c.triggers.some((t) => t.block === name && t.group.length > 0));
-  const trigger = runs[0]?.triggers.find((t) => t.block === name);
-  // Each cell the trigger runs, with the cells after it that write a block of the group and can run where it does.
+  const named = (list: { name: string }[]) => list.some((n) => n.name === name);
+  const runs = flow.cells.filter((c) => named(c.watches.filter((w) => w.list === 'watches')));
+  const reads = flow.cells.filter((c) => named(c.reads));
+  // Each cell that watches it, with the cells after it that write a block of the group and whose write can run it.
   const at = (id: string) => flow.cells.findIndex((c) => c.id === id);
   const backs = runs.flatMap((reader) => {
     const writers = flow.cells
-      .filter((w) => at(w.id) > at(reader.id) && blocks.some((b) => w.outputs.includes(b)) && !exclusive(reader, w))
+      .filter((w) => at(w.id) > at(reader.id) && blocks.some((b) => w.outputs.includes(b)) && canRun(w, reader))
       .map((w) => w.id);
     return writers.length > 0 ? [{ reader: reader.id, writers }] : [];
   });
   return (
-    <Panel
-      label={`Group ${name}`}
-      title={<span className="mono">{name}</span>}
-      belongs={<span className="mono">flow.toml</span>}
-      lines={
-        trigger && (
-          <StatusLine word={<span className="mono">{trigger.name}</span>}>{trigger.what ?? undefined}</StatusLine>
-        )
-      }
-    >
+    <Panel label={`Group ${name}`} title={<span className="mono">{name}</span>} belongs={<span className="mono">flow.toml</span>}>
       <PanelPart label="blocks" count={blocks.length}>
         <ul className="uses">
           {blocks.map((block) => (
@@ -898,9 +889,16 @@ export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chos
           ))}
         </ul>
       </PanelPart>
-      <PanelPart label="triggered_by" count={runs.length}>
-        <CellRows flow={flow} ids={runs.map((c) => c.id)} onChoose={onChoose} />
-      </PanelPart>
+      {runs.length > 0 && (
+        <PanelPart label="watches" count={runs.length}>
+          <CellRows flow={flow} ids={runs.map((c) => c.id)} onChoose={onChoose} />
+        </PanelPart>
+      )}
+      {reads.length > 0 && (
+        <PanelPart label="reads" count={reads.length}>
+          <CellRows flow={flow} ids={reads.map((c) => c.id)} onChoose={onChoose} />
+        </PanelPart>
+      )}
       {backs.length > 0 && (
         <PanelPart label="way_back" count={backs.length}>
           <ul className="uses">
@@ -915,6 +913,67 @@ export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chos
           </ul>
         </PanelPart>
       )}
+    </Panel>
+  );
+}
+
+/// Everything about what every agent's cell watches and reads beside what its own file names, as `flow.toml` writes it
+/// (`[every_agent]`): each name as written, with the data it stands for where it stands for others than itself, each
+/// chosen by its name, its kind, and, of what it watches, what a cell does when it is new.
+export function EveryAgentPanel(props: { flow: Flow; onChoose: (c: Chosen) => void }) {
+  const { flow, onChoose } = props;
+  const every = flow.everyAgent;
+  const list = (label: 'watches' | 'reads', names: { name: string; blocks: string[]; do?: string | null }[]) =>
+    names.length > 0 && (
+      <PanelPart label={label} count={names.length}>
+        <ul className="uses">
+          {names.map((n) => {
+            const itself = namesItself(n);
+            return (
+              <ListRow key={n.name}>
+                {itself ? (
+                  <Choose chosen={{ block: n.name }} onChoose={onChoose}>
+                    <span className="mono">{n.name}</span>
+                  </Choose>
+                ) : (
+                  <span className="mono">{n.name}</span>
+                )}
+                {!itself && (
+                  <Attr
+                    name="data"
+                    value={
+                      <>
+                        [
+                        {n.blocks.map((block, i) => (
+                          <Fragment key={block}>
+                            {i > 0 && ', '}
+                            <Choose chosen={{ block }} onChoose={onChoose}>
+                              {block}
+                            </Choose>
+                          </Fragment>
+                        ))}
+                        ]
+                      </>
+                    }
+                  />
+                )}
+                {every.kinds[n.name] && <Attr name="kind" value={inputKindWords(every.kinds[n.name])} />}
+                {n.do && (
+                  <div className="row-note">
+                    <Attr name="do" value="" />
+                    {n.do}
+                  </div>
+                )}
+              </ListRow>
+            );
+          })}
+        </ul>
+      </PanelPart>
+    );
+  return (
+    <Panel label="every_agent" title={<span className="mono">every_agent</span>} belongs={<span className="mono">flow.toml</span>}>
+      {list('watches', every.watches)}
+      {list('reads', every.reads)}
     </Panel>
   );
 }

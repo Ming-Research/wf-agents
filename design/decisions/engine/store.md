@@ -9,6 +9,13 @@ Why: The deciding code is given a work's records as they were at a moment, and t
 copy kept. A general store of events would be a mechanism with no second use (principles state-from-records,
 generalise-at-the-second-use).
 
+### decision what-old-records-hold-is-read-not-written
+What records kept before hold that the engine writes no more is read and shown as it was recorded: an answer's reason,
+the cell an entry of the one record of what is said was said to, and a reason a return was sent back for under its old
+name (`NotATrigger`, `NotAnswerable`). Nothing writes them again.
+Why: The past is read as it ran (principle the-past-as-it-ran), and no row is rewritten to the new shape (decision
+tables-only-added-to).
+
 ### decision a-migration-carries-each-row-whole
 A migration that gives the rows kept before a value, such as a column made from what the rows' content says, makes the table anew and carries each row across whole with the value, in the same transaction, then takes the old table out; it never changes a row where it stands. The value is worked out by the code the engine uses as it writes the row, so that the two cannot disagree.
 Why: Changing a row where it stands is turned down: the store says nothing that changes a row, and a test reads the code and the migrations for it (decision tables-only-added-to). The old table is taken out only once every row of it has been carried whole into the new one, in the same transaction.

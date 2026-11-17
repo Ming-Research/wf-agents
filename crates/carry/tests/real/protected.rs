@@ -51,7 +51,7 @@ async fn a_build_that_changes_the_guide_is_sent_back_until_it_says_why_and_the_o
     );
     // The owner lets it merge: the build runs for the answer, the change as it was asks nothing again, and the work
     // ends.
-    real.answer(work, "The guide may say it.");
+    real.answer(work);
     real.until(|real| ended(&real.decision(work))).await;
     let kept = real.work(work);
     let asked = (kept.records.questions.iter())

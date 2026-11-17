@@ -22,6 +22,10 @@ import { type Body, type Choice, type Message, type Part, quoteOf } from './wind
 
 const HOUR = 3600000;
 
+/// A made-up body, in the parts the console of the old engine drew: where the item came from, the problem it solves and
+/// the plan for it, whose choices may wait for the owner, and the messages under them.
+type Made = { background: Part[]; problem: Part[]; plan: Part[]; planWaits: boolean; messages: Message[] };
+
 const DIAGRAM = `\`\`\`mermaid
 flowchart LR
   W[Work runs] --> M{Health numbers past their line?}
@@ -46,7 +50,7 @@ flowchart TD
   A --> O["Architect records or merges an observation: the ending"]
 \`\`\``;
 
-const ITEM_263: Partial<Body> = {
+const ITEM_263: Partial<Made> = {
   background: [
     {
       kind: 'text',
@@ -165,16 +169,16 @@ const ITEM_263: Partial<Body> = {
 /// The messages of item 263's work, in English.
 const messages263 = (now: number): Message[] => [
   {
-    who: 'engineer',
+    who: 'builder',
     at: now - 7.5 * HOUR,
     to: ['owner'],
     quote: null,
     text:
       "This work changes flow.json (the text of the architect's cell H1, and one check in engine.checks), so its merge " +
-      "waits for your approval at M1; the pull request will link the flow page's comparison.",
+      "waits for your approval at the check; the pull request will link the flow page's comparison.",
   },
   {
-    who: 'engineer',
+    who: 'builder',
     at: now - 7.4 * HOUR,
     to: ['owner'],
     quote: null,
@@ -186,10 +190,10 @@ const messages263 = (now: number): Message[] => [
   {
     who: 'architect',
     at: now - 6 * HOUR,
-    to: ['engineer'],
+    to: ['builder'],
     quote: null,
     text:
-      'About your side report at R1 (the page shows every fault but flow_anomaly as a cache miss): confirmed in ' +
+      'About your side report from the research (the page shows every fault but flow_anomaly as a cache miss): confirmed in ' +
       '`Messages.tsx` line 744. #263 fixes it, with no item of its own: when you add the anomaly fault, look its words up by ' +
       'its kind, and add them to `messages.ts`.',
   },
@@ -225,7 +229,7 @@ const ITEM_262_OPEN: Extract<Part, { kind: 'choice' }> = {
   chosen: null,
 };
 
-const ITEM_262: Partial<Body> = {
+const ITEM_262: Partial<Made> = {
   background: [
     {
       kind: 'text',
@@ -255,9 +259,9 @@ const ITEM_262: Partial<Body> = {
       kind: 'text',
       text:
         '```\n' +
-        'work.cost by cell        R1          $4.10\n' +
-        '                         I1          $9.30\n' +
-        '                         V1          $2.20\n' +
+        'work.cost by cell        X0          $4.10\n' +
+        '                         X2          $9.30\n' +
+        '                         X3          $2.20\n' +
         '                         sum        $15.60\n' +
         'billed                              $21.90\n' +
         'round_tries, 37 rows     no cell     $6.30\n' +
@@ -326,12 +330,12 @@ const messages262 = (now: number): Message[] => [
   {
     who: 'owner',
     at: now - 5 * HOUR,
-    to: ['D1'],
+    to: ['X1'],
     quote: quoteOf(ITEM_262_OPEN),
     text: 'Explain why the first is recommended. I do not see what the second one changes.',
   },
   {
-    who: 'D1',
+    who: 'X1',
     at: now - 4.6 * HOUR,
     to: ['owner'],
     quote: null,
@@ -345,12 +349,12 @@ const messages262 = (now: number): Message[] => [
   {
     who: 'owner',
     at: now - 4.2 * HOUR,
-    to: ['D1'],
+    to: ['X1'],
     quote: null,
     text: 'Once the definition changes, will anything written against `work.cost` raise a false alarm?',
   },
   {
-    who: 'D1',
+    who: 'X1',
     at: now - 3.9 * HOUR,
     to: ['owner'],
     quote: null,
@@ -361,12 +365,12 @@ const messages262 = (now: number): Message[] => [
   {
     who: 'owner',
     at: now - 2 * HOUR,
-    to: ['I1'],
+    to: ['X2'],
     quote: 'a try still open counts what it has used so far.',
     text: 'What of the tries left open when the engine restarts? Do they keep growing?',
   },
   {
-    who: 'I1',
+    who: 'X2',
     at: now - 1.6 * HOUR,
     to: ['owner'],
     quote: null,
@@ -388,7 +392,7 @@ const VERDICTS_262: [string, string][] = [
 const is262 = (item: Item) => item.number === 262;
 
 /// The bodies that show the window's parts, by what an item's work does (`richOf`).
-const RICH: { starts: string; make: (now: number) => Partial<Body> }[] = [
+const RICH: { starts: string; make: (now: number) => Partial<Made> }[] = [
   {
     starts: 'Watch for anomalies and settle them',
     make: (now) => ({ ...ITEM_263, messages: messages263(now) }),
@@ -465,12 +469,12 @@ const RICH: { starts: string; make: (now: number) => Partial<Body> }[] = [
         {
           who: 'owner',
           at: now - 2 * HOUR,
-          to: ['engineer'],
+          to: ['builder'],
           quote: "show times in the owner's zone",
           text: "Use the zone set in the configuration, not the machine's.",
         },
         {
-          who: 'engineer',
+          who: 'builder',
           at: now - 1.5 * HOUR,
           to: ['owner'],
           quote: null,
@@ -559,7 +563,7 @@ export function bodyMock(item: Item): Body {
     ? { ...ITEM_262, messages: messages262(now) }
     : (RICH.find((r) => r.starts === which)?.make(now) ?? {});
   const plain = (text: string): Part[] => [{ kind: 'text', text }];
-  const body: Body = {
+  const made: Made = {
     background: plain('Made by the architect from a matter it was handling.'),
     problem: plain('What the item fixes or adds, in a few sentences.'),
     plan: plain('How it is to be done, once researched.'),
@@ -567,13 +571,16 @@ export function bodyMock(item: Item): Body {
     messages: [],
     ...rich,
   };
-  if (!read.has(item.number) && itemMock(item).unseen) return body;
   // Read, or never new: no passage is marked changed.
-  const clear = <P extends Part>(ps: P[]): P[] => ps.map((p) => ({ ...p, changed: false }));
+  const fresh = !read.has(item.number) && itemMock(item).unseen;
+  const clear = (ps: Part[]): Part[] => (fresh ? ps : ps.map((p) => ({ ...p, changed: false })));
   return {
-    ...body,
-    background: clear(body.background),
-    problem: clear(body.problem),
-    plan: clear(body.plan),
+    sections: [
+      { title: 'Background', parts: clear(made.background) },
+      { title: 'Problem', parts: clear(made.problem) },
+      { title: 'Plan', parts: clear(made.plan) },
+    ],
+    choicesWait: made.planWaits,
+    messages: made.messages,
   };
 }

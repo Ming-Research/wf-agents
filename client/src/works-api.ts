@@ -206,6 +206,9 @@ export interface Summary {
   number: number;
   item: number;
   flow: string;
+  /// Its flow has no agent's cell: it does no work of its own, and delivers what its item is made of. Absent from made-up
+  /// data, whose flows all have agents.
+  delivers?: boolean;
   added: number;
   /// Who paused it, where it is paused: only a note to a cell is answered; a round under way goes on.
   paused: Pauser | null;
@@ -332,15 +335,18 @@ export interface CellDetail {
   inputs: Input[];
 }
 
-export type Writer = { kind: 'person' } | { kind: 'outside' } | { kind: 'run'; run: number; cell: string };
+/// Who wrote a version, as a round is told it: the owner, by a person's write, by words to a cell or by an answer; the
+/// outside, or an act of the engine; or a cell, by a run of it, a question it asked included.
+export type Writer = { kind: 'owner' } | { kind: 'outside' } | { kind: 'run'; run: number; cell: string };
 
 /// A version of a block: one write of it.
 export interface Version {
   at: number;
   time: number;
   by: Writer;
-  /// The version at which the meaning it has last changed: itself, or an earlier one.
-  meaning: number;
+  /// The version at which the meaning it has last changed: itself, or an earlier one; none where the block has said
+  /// nothing yet, as of a first version handed in as changing nothing.
+  meaning: number | null;
   value: string | null;
   /// The cell it is said to, where it is said to one, as the owner's entry of the record of what is said is.
   saidTo: string | null;
@@ -370,7 +376,7 @@ export type Unmet =
   | { kind: 'writtenOver'; block: string; version: number }
   | { kind: 'choiceChanged'; block: string }
   | { kind: 'asksAndWorks' }
-  | { kind: 'notATrigger'; name: string }
+  | { kind: 'notWatched'; name: string }
   | { kind: 'notATool'; name: string }
   | { kind: 'unchangedNotWritten'; block: string }
   | { kind: 'questionTaken'; name: string }
@@ -380,7 +386,13 @@ export type Unmet =
   | { kind: 'notAnswerable'; name: string }
   | { kind: 'notAnswered'; name: string }
   | { kind: 'unexplained'; path: string }
-  | { kind: 'unanswered'; block: string };
+  | { kind: 'notATest'; path: string }
+  | { kind: 'unanswered'; block: string }
+  /// It names as dealt with a dialogue it holds as the maker, woken by a point in it, and answers none of its points
+  /// there, changes none of what the other side watches and asks no question the work waits for.
+  | { kind: 'wordOwed'; name: string; watched: string[] }
+  /// It hands in a verdict with the value that does not pass, and no version of its dialogue.
+  | { kind: 'noPoint'; block: string; value: string; name: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.
@@ -615,11 +627,11 @@ export interface Question {
   answer: { option: number; at: number; why: string | null } | null;
 }
 
-/// What the owner's words are said to: a line of the work's flow, or a question of the work they are about.
-export type SpokenTo = { kind: 'line'; line: string } | { kind: 'question'; name: string };
+/// What the owner's words are said to: a line of the work's flow, or a cell of it.
+export type SpokenTo = { kind: 'line'; line: string } | { kind: 'cell'; cell: string };
 
-/// What the owner's words said to a line, or about a question, would reach now, as the engine chooses it: the cell, or
-/// why no cell can take them, when they are not sent.
+/// What the owner's words said to a line, or to a cell, would reach now, as the engine chooses it: the cell, or why no
+/// cell can take them, when they are not sent.
 export interface Speaking {
   to: SpokenTo;
   cell: string | null;
@@ -759,12 +771,12 @@ export type Act =
   | { kind: 'cancel'; why?: string | null }
   /// Gives a call that waits for a person its result.
   | { kind: 'result'; call: number; result: string }
-  /// Answers a version of a question, taking an option counted from one, saying why where the owner does.
-  | { kind: 'answer'; question: string; version: number; option: number; why?: string | null }
+  /// Answers a version of a question, taking an option counted from one, and nothing else.
+  | { kind: 'answer'; question: string; version: number; option: number }
   /// Has the line begin a new session at its next round.
   | { kind: 'newSession'; line: string }
-  /// Says words to a line of the work's flow, or about a question of it: to the cell the engine chooses, which the
-  /// work's page shows (`speaking`).
+  /// Says words to a cell of the work's flow, or to a line of it: to the cell the engine chooses, which the work's page
+  /// shows (`speaking`).
   | { kind: 'say'; to: SpokenTo; words: string };
 
 /// What the act that says the owner's words answers with: the cell the engine gave them to.

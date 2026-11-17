@@ -5,15 +5,15 @@ use flow::{FLOW_FILE, FaultKind::*, Has};
 
 use crate::support::{at, compiled, edit, faults, faults_with, has, unreadable, valid};
 
-const PLAN_INPUTS: &str = r#"inputs = ["request", "opinions"]"#;
+const PLAN_WATCHES: &str = r#"watches = ["request", "opinions"]"#;
 
 #[test]
 fn every_block_a_cell_reads_or_writes_is_declared() {
     let source = edit(
         valid(),
         "plan.toml",
-        PLAN_INPUTS,
-        r#"inputs = ["request", "opinions", "nothing"]"#,
+        PLAN_WATCHES,
+        r#"watches = ["request", "opinions", "nothing"]"#,
     );
     let source = edit(
         source,
@@ -27,19 +27,19 @@ fn every_block_a_cell_reads_or_writes_is_declared() {
     assert_eq!(
         faults(&source),
         [
-            at("plan.toml", "inputs[2]", no_such("nothing")),
+            at("plan.toml", "watches[2]", no_such("nothing")),
             at("plan.toml", "outputs[1]", no_such("nowhere")),
         ]
     );
 }
 
 #[test]
-fn a_cell_names_a_block_once_among_its_inputs_and_once_among_its_outputs() {
+fn a_cell_names_a_block_once_among_what_it_watches_and_once_among_its_outputs() {
     let source = edit(
         valid(),
         "plan.toml",
-        PLAN_INPUTS,
-        r#"inputs = ["request", "opinions", "request"]"#,
+        PLAN_WATCHES,
+        r#"watches = ["request", "opinions", "request"]"#,
     );
     let source = edit(
         source,
@@ -51,7 +51,7 @@ fn a_cell_names_a_block_once_among_its_inputs_and_once_among_its_outputs() {
     assert_eq!(
         faults(&source),
         [
-            at("plan.toml", "inputs[2]", twice("request")),
+            at("plan.toml", "watches[2]", twice("request")),
             at("plan.toml", "outputs[1]", twice("plan")),
         ]
     );
@@ -63,9 +63,10 @@ fn every_block_is_written_by_a_cell_people_or_the_outside() {
     let source = edit(
         source,
         "plan.toml",
-        PLAN_INPUTS,
-        r#"inputs = ["request", "opinions", "notes"]"#,
+        PLAN_WATCHES,
+        r#"watches = ["request", "opinions", "notes"]"#,
     );
+    let source = edit(source, "plan.toml", "[kinds]", "[kinds]\nnotes = \"latest\"");
     let what = NoWriter {
         block: "notes".to_string(),
     };
@@ -202,7 +203,7 @@ fn a_choice_has_values_each_given_once() {
 }
 
 #[test]
-fn a_cell_that_writes_the_work_s_questions_is_run_by_the_owner_s_answer_and_by_the_owner_s_words() {
+fn a_cell_that_writes_its_questions_watches_them_and_its_own_words() {
     let asks = "[blocks.plan]\n\n[blocks.asks]\noutside = \"answer\"\nshown = true\n";
     let source = edit(valid(), FLOW_FILE, "[blocks.plan]\n", asks);
     let outputs = r#"outputs = ["plan", "asks"]"#;
@@ -224,28 +225,29 @@ fn a_cell_that_writes_the_work_s_questions_is_run_by_the_owner_s_answer_and_by_t
         ]
     );
 
-    // Run by the answer alone, it can ask and cannot be spoken to about what it asks: refused still.
-    let answered = format!("{asks}\n[blocks.answered]\noutside = \"answer\"\n");
-    let source = edit(source, FLOW_FILE, asks, &answered);
-    let inputs = r#"inputs = ["request", "opinions", "answered"]"#;
-    let source = edit(source, "plan.toml", PLAN_INPUTS, inputs);
+    // Watching its questions alone, it can ask and cannot be spoken to about what it asks: refused still.
+    let watches = r#"watches = ["request", "opinions", "asks"]"#;
+    let source = edit(source, "plan.toml", PLAN_WATCHES, watches);
+    let source = edit(source, "plan.toml", "[kinds]", "[kinds]\nasks = \"all\"");
     assert_eq!(
         faults_with(&source, &has),
         [at("plan.toml", "outputs[1]", not_spoken_to)]
     );
 
-    let spoken = format!("{answered}\n[blocks.spoken_to]\noutside = \"words\"\n");
-    let source = edit(source, FLOW_FILE, &answered, &spoken);
-    let inputs_spoken = r#"inputs = ["request", "opinions", "answered", "spoken_to"]"#;
-    let source = edit(source, "plan.toml", inputs, inputs_spoken);
+    let words = format!("{asks}\n[blocks.words]\noutside = \"words\"\n");
+    let source = edit(source, FLOW_FILE, asks, &words);
+    let source = edit(source, "plan.toml", outputs, r#"outputs = ["plan", "asks", "words"]"#);
+    let watches_words = r#"watches = ["request", "opinions", "asks", "words"]"#;
+    let source = edit(source, "plan.toml", watches, watches_words);
+    let source = edit(source, "plan.toml", "[kinds]", "[kinds]\nwords = \"all\"");
     let compiled = flow::compile(&source, &has);
     assert!(compiled.is_ok(), "{:?}", compiled.err());
 }
 
-// The records a source of the engine's adds entries to are the blocks of that source a trigger of it has its agent read,
-// but the one it stands on: the record of what is said and that of the questions and the answers, and no other.
+// The blocks each version of which is an entry beside those before it are those of the sources of the owner's words and
+// of the answers: each cell's own words and questions, and no other.
 #[test]
-fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() {
+fn the_blocks_entries_are_added_to_are_each_cell_s_own_questions_and_words() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
     let source = flow::read(&dir).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
@@ -260,10 +262,10 @@ fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() 
             "head",
             "tree",
             "words",
+            "guide",
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        details: names(&["files"]),
         ..Default::default()
     };
     let compiled = flow::compile(&source, &has).expect("the engineer's flow compiles");
@@ -271,7 +273,21 @@ fn the_records_entries_are_added_to_are_those_a_trigger_of_their_source_reads() 
         .filter(|b| compiled.flow.adds_entries(b))
         .map(|b| b.as_str())
         .collect();
-    assert_eq!(records, ["discussion", "q_and_a"]);
+    assert_eq!(
+        records,
+        [
+            "d1_questions",
+            "d1_words",
+            "d2_questions",
+            "d2_words",
+            "i1_questions",
+            "i1_words",
+            "r1_questions",
+            "r1_words",
+            "r2_questions",
+            "r2_words",
+        ]
+    );
 }
 
 #[test]
@@ -290,26 +306,29 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
             "head",
             "tree",
             "words",
+            "guide",
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        details: names(&["files"]),
         ..Default::default()
     };
     let compiled = flow::compile(&source, &has);
     assert!(compiled.is_ok(), "{:?}", compiled.err());
-    // R2, which may ask the owner and wait, as the work-4 case: without the owner's words among its triggers.
+    // R2, which may ask the owner and wait, as the work-4 case: not watching its own words.
     let r2 = source.cells.get_mut("R2").expect("the flow has R2");
-    let (with, without) = (r#""on_plan", "on_spoken", "on_answer""#, r#""on_plan", "on_answer""#);
+    let (with, without) = (
+        r#"watches = ["plan", "r2_questions", "r2_words"]"#,
+        r#"watches = ["plan", "r2_questions"]"#,
+    );
     assert!(r2.contains(with), "{r2}");
     *r2 = (r2.lines())
-        .filter(|line| !line.starts_with("on_spoken = "))
+        .filter(|line| !line.starts_with("r2_words = "))
         .collect::<Vec<_>>()
         .join("\n")
         .replace(with, without);
     let refused = flow::compile(&source, &has).expect_err("R2 asks and cannot be spoken to");
     let what = AsksAndCannotBeSpokenTo {
-        block: "q_and_a".to_string(),
+        block: "r2_questions".to_string(),
     };
     assert!(
         refused.iter().any(|f| f.file == "cells/R2.toml" && f.what == what),

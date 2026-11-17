@@ -44,7 +44,7 @@ use explore::{
     A_QUESTION_WAITED, Bounds, Explored, MAIN_WHILE_THE_CHECK_WAITS, Property, WAITED_FOR_THE_OWNER, explore,
 };
 use flow::{Compiled, Has, compile, read};
-use model::{Model, ran, ran_on, reply_loop};
+use model::{Model, dialogue_loop, ran, ran_on};
 
 /// The bound of the exploration.
 const BOUNDS: Bounds = Bounds {
@@ -56,14 +56,7 @@ const BOUNDS: Bounds = Bounds {
 
 /// The breaches the flow's own definition makes, each by its property and its name, with why it is the flow's and not
 /// the engine's. Each is reported; none is mended here, since the flow changes only with the owner.
-const KNOWN: &[(Property, &str, &str)] = &[(
-    Property::Gates,
-    "M1 ran while a question of R1 waited for the owner, R1 being skipped",
-    "R1 asks a question that waits and, in the same return, says deep_needed = yes. The work waits for an \
-         answer only at a cell that applies, and R1 no longer does: the deep research, the implementation, the \
-         check and the merge go on, the question unanswered. The flow's check has no gate on the questions put to \
-         the owner.",
-)];
+const KNOWN: &[(Property, &str, &str)] = &[];
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
 fn engineer() -> Compiled {
@@ -75,6 +68,7 @@ fn engineer() -> Compiled {
             "answer",
             "asked",
             "dependencies",
+            "guide",
             "main",
             "session",
             "start",
@@ -84,7 +78,6 @@ fn engineer() -> Compiled {
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
-        details: names(&["files"]),
         ..Default::default()
     };
     compile(&source, &has).expect("the engineer's flow compiles")
@@ -103,7 +96,7 @@ fn stats(e: &Explored) -> String {
 const PROPERTIES: &[(Property, &str)] = &[
     (
         Property::NewToIt,
-        "1. a cell runs only on a version of its own trigger that it has not consumed and did not write",
+        "1. a cell runs only on a version of what it watches that it has not consumed and did not write",
     ),
     (
         Property::Contradicting,
@@ -161,39 +154,47 @@ fn rare() -> Vec<String> {
     let cell = |id: &str| CellId::from(id);
     let block = |id: &str| BlockId::from(id);
     vec![
-        // The deep research, and the review of the tree.
+        // The deep research.
         ran(&cell("D1")),
-        ran(&cell("D4")),
-        // The loops of a review and its reply.
-        reply_loop(&block("plan_review"), &block("reply_plan_review")),
-        reply_loop(&block("tree_review"), &block("reply_tree_review")),
-        reply_loop(&block("plan_doubts"), &block("reply_plan_doubts")),
-        reply_loop(&block("review"), &block("reply_review")),
-        reply_loop(&block("testing"), &block("reply_testing")),
+        // Each dialogue going round.
+        dialogue_loop(&block("plan_review")),
+        dialogue_loop(&block("tree_review")),
+        dialogue_loop(&block("plan_doubts")),
+        dialogue_loop(&block("review")),
+        dialogue_loop(&block("testing")),
         "a return was sent back".to_string(),
         A_QUESTION_WAITED.to_string(),
-        ran_on(&cell("R0"), "on_session"),
-        ran_on(&cell("D1"), "on_session"),
+        ran_on(&cell("R0"), "engineer_session"),
         MAIN_WHILE_THE_CHECK_WAITS.to_string(),
         WAITED_FOR_THE_OWNER.to_string(),
         "stop: the work merged".to_string(),
     ]
 }
 
-/// What the coverage lacks: a rarely taken path not reached, and what was never reached against [`NEVER`].
+/// What the coverage lacks: a rarely taken path not reached, and what was never reached against [`NEVER`]; and an entry
+/// of [`NEVER`] that is reached, or that names nothing the exploration looks for, neither of the model's universe nor
+/// a rarely taken path.
 fn coverage(e: &Explored, m: &Model) -> Vec<String> {
-    let mut failures: Vec<String> = (rare().into_iter())
-        .filter(|r| !e.reached.contains_key(r))
+    let (rare, universe) = (rare(), m.universe());
+    let mut failures: Vec<String> = (rare.iter())
+        .filter(|r| !e.reached.contains_key(*r) && !NEVER.iter().any(|(item, _)| *item == r.as_str()))
         .map(|r| format!("not reached: {r}"))
         .collect();
-    let never: Vec<String> = (m.universe().into_iter())
-        .filter(|u| !e.reached.contains_key(u))
-        .collect();
-    for n in never.iter().filter(|n| !NEVER.iter().any(|(item, _)| item == n)) {
+    let never: Vec<&String> = (universe.iter()).filter(|u| !e.reached.contains_key(*u)).collect();
+    for n in never
+        .iter()
+        .filter(|n| !NEVER.iter().any(|(item, _)| *item == n.as_str()))
+    {
         failures.push(format!("never reached, and not said why: {n}"));
     }
-    for (item, _) in NEVER.iter().filter(|(item, _)| !never.iter().any(|n| n == item)) {
-        failures.push(format!("said never reached, and reached: {item}"));
+    for (item, _) in NEVER {
+        if e.reached.contains_key(*item) {
+            failures.push(format!("said never reached, and reached: {item}"));
+        } else if !universe.iter().chain(&rare).any(|u| u.as_str() == *item) {
+            failures.push(format!(
+                "said never reached, and names nothing the exploration looks for: {item}"
+            ));
+        }
     }
     failures
 }
@@ -242,18 +243,6 @@ fn the_engineers_flow_keeps_every_property_on_every_path_explored_and_reaches_ev
 /// reach, or what lies past the bound.
 const NEVER: &[(&str, &str)] = &[
     (
-        "D3 ran back on on_plan, written by a cell after it",
-        "I1's opinion in acceptance reaches D2 first, and D2's plan reaches D3 with it, so D3 runs for D2's version \
-         too. That it runs for I1's alone takes D2 handing in no plan: a third return besides the content, past the \
-         bound.",
-    ),
-    (
-        "M1 ran on on_asked",
-        "The exploration keeps no question in the records and never writes asked. That the owner's answer to the \
-         check's own question runs the check again, and the work merges on it, is the engine's test of a work taken \
-         to the merge on the answer alone (crates/engine/tests/engineer/merging.rs).",
-    ),
-    (
         "the work waited at M2 on checked = yes",
         "The merge waits on checked = yes only where nothing runs the check again after it said no, a stall, which no \
          path of the flow reaches: the implementation's return to a red check leaves what runs the check again, its \
@@ -263,9 +252,42 @@ const NEVER: &[(&str, &str)] = &[
          (crates/engine/tests/loop/stalling.rs).",
     ),
     (
+        "D2 ran on r2_questions",
+        "R2 asks the owner only where the research wrote the plan, deep_needed = no, and D2 runs only where it is \
+         yes: an answer to R2's question reaches D2 only once the research has written yes since R2 asked, which takes \
+         R2's question, a write from outside that runs the research again and a return of it with yes, past the bound. \
+         That D1 runs on an answer to R1's question, which the work waits for at R1, skipped once deep_needed is yes, \
+         is reached.",
+    ),
+    (
+        "the work waited at M1 on the test settled",
+        "The merge's check waits on settled only where a judge's verdict stands at no and nothing runs the judge again. \
+         A judge's fail brings its points, and the maker they wake owes the next word: an answer or a change that runs \
+         the judge again, or a question the work waits for; a return that leaves it owed is sent back (design document \
+         data-and-context, 41, 42). What leaves the verdict standing is a ruling at no, which no write of the \
+         exploration's owner makes, or a maker that, run again by the owner's answer to the question it put the \
+         dispute to, having dealt with the points as it asked, hands in nothing: a judge's fail, the question, the \
+         answer and a return of nothing, which the exploration does not reach within its bound.",
+    ),
+    (
+        "the work waited at M1 on review_ok = yes",
+        "The review runs before the check on every work: the guide, which the start's act reads as it makes the work's \
+         place, is new to it at its first entry whatever else is, and its round hands in review_ok every time; so \
+         review_ok is never unwritten at the check, and a review_ok of no stands only with settled failing, which the \
+         wait on settled says the exploration does not reach.",
+    ),
+    (
+        MAIN_WHILE_THE_CHECK_WAITS,
+        "The check waits at its gate only on review_ok = yes, settled or asked = answered, none of which the \
+         exploration reaches, as each says: so main moves while the check waits on no path of it. What main moving does \
+         to the check is reached where it does not wait (\"main moves: M1\"), and main moving while the check waits \
+         for the review's yes is the engineer's tests' (crates/engine/tests/engineer/merging.rs).",
+    ),
+    (
         "the work waited at M1 on asked = answered",
-        "The exploration asks the owner by a call on the owner, and keeps no question in the records, so asked keeps \
-         its default, answered. The histories of questions (crates/engine/tests/questions.rs) check that the merge \
-         never begins while asked is waiting.",
+        "Every question the exploration asks waits, and a question that waits holds the work at its cell, before M1, \
+         whether or not the cell applies, so asked is waiting only while nothing after that cell runs. That the merge \
+         never begins while a question that does not wait stands unanswered is the histories of questions' \
+         (crates/engine/tests/questions.rs).",
     ),
 ];

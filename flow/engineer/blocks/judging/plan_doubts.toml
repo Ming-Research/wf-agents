@@ -1,3 +1,4 @@
-# What the implementation says to the cell it judges. Only the implementation writes it, so that no one writes over what
-# it said. What is said to the plan's writer is one block, which runs whichever cell writes the plan.
-what = "What the implementation says to the plan's writer, in English: where and why the plan does not hold."
+# The dialogue of the implementation with the plan's writer (design document `data-and-context`, 36): it writes its
+# points and the plan's writer its answers, each a version of it, and both watch it, so that each version is new to the
+# other side alone. Whichever cell writes the plan answers in it.
+what = "What the implementation and the plan's writer say to each other, in English: where and why the plan does not hold; and the writer's answer to each point, changed, or why not."

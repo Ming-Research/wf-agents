@@ -33,6 +33,7 @@ fn a_version_that_holds_nothing_shows_so_as_its_write_recorded_it() {
     let run = finished_by(&w, at);
     let nothing = VersionView {
         empty: true,
+        ruled: false,
         ..version(at, Writer::Run(run), at, None)
     };
     assert_eq!(seen(&w).blocks[&BlockId::from("notes")], vec![nothing]);
@@ -63,10 +64,10 @@ fn a_row_of_writes_said_not_to_matter_keeps_the_meaning_of_the_first() {
     let p2 = w.run("research", &[("plan", DoesNotMatter)]);
     w.person_writes("background");
     let p3 = w.run("research", &[("plan", DoesNotMatter)]);
-    let meanings: Vec<(Seq, Seq)> = (seen(&w).blocks[&BlockId::from("plan")].iter())
+    let meanings: Vec<(Seq, Option<Seq>)> = (seen(&w).blocks[&BlockId::from("plan")].iter())
         .map(|v| (v.at, v.meaning))
         .collect();
-    assert_eq!(meanings, vec![(p1, p1), (p2, p1), (p3, p1)]);
+    assert_eq!(meanings, vec![(p1, Some(p1)), (p2, Some(p1)), (p3, Some(p1))]);
 }
 
 #[test]

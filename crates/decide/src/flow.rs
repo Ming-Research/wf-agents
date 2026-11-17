@@ -71,17 +71,16 @@ pub struct Outsiders {
     pub note: bool,
     /// The source outside the work that writes it, where one does.
     pub outside: Option<String>,
-    /// What that source writes of it changes only as the owner acts, as the record of the questions changes only as the
+    /// What that source writes of it changes only as the owner acts, as the standing of the questions changes only as the
     /// owner answers them: the owner, and not the source, makes a precondition that reads it hold.
     pub by_owner: bool,
     /// A new version of it is the owner turning to the cells it runs: the owner's words to a cell, or an answer that
-    /// takes another option than the one the work goes by (design document `data-and-context`, 35, 39). It stops a
-    /// round under way of a cell after the one it runs, enters a cell that waits for the results of its calls, and is
-    /// answered while the work is paused, as a note is.
+    /// takes another option than the one the work goes by (design document `data-and-context`, 32, 35). It stops a
+    /// round under way of a cell after the one it runs, enters a cell that waits for the results of its calls or for the
+    /// answer to its question, and is answered while the work is paused, as a note is.
     pub interrupts: bool,
-    /// It is a record its source adds entries to, which a trigger of that source has its agent read: the record of
-    /// what is said, or of the questions and the answers. A version of it, a cell's as much as its source's, is an
-    /// entry added beside those before it, and replaces none.
+    /// It is a dialogue its source adds to: a cell's words or its questions. A version of it, a cell's as much as its
+    /// source's, is an entry added beside those before it, and replaces none.
     pub entries: bool,
 }
 
@@ -263,8 +262,8 @@ pub struct Cell {
     /// cell while it has a version, changing its meaning, later than the one the cell consumed, that the cell did not
     /// write itself. What the cell is given besides is no matter of the walk's.
     pub runs_on: Vec<BlockId>,
-    /// Of each trigger of the cell that stands on a group of blocks, by the group's name, the group's blocks, each
-    /// among those that run the cell. A return names such a trigger as dealt with by the group's name ([`stands_on`]).
+    /// Of each group of blocks the cell watches, by the group's name, the group's blocks, each among those that run the
+    /// cell. A return names such a group as dealt with by its name ([`stands_on`]).
     pub groups: BTreeMap<BlockId, Vec<BlockId>>,
     /// The blocks the cell may write.
     pub outputs: Vec<BlockId>,
@@ -277,6 +276,25 @@ pub struct Cell {
     /// Whether each round of the cell takes one of the slots, which bound how many such rounds go on at once: an
     /// agent's rounds do, and the engine's own acts do not.
     pub slot: bool,
+    /// Of each dialogue the cell holds as the maker with a cell that judges or doubts what it makes (design document
+    /// `data-and-context`, 36), by the dialogue's block, the blocks the other side watches that the cell writes: an
+    /// answer to a point is a version of the dialogue, or a change of one of these (41).
+    pub dialogues: BTreeMap<BlockId, Vec<BlockId>>,
+    /// Of each verdict the cell hands in as a judge, by its block, the value that does not pass and the dialogue the
+    /// cell writes its points in (design document `data-and-context`, 37, 41).
+    pub verdicts: BTreeMap<BlockId, Verdict>,
+    /// Of each dialogue the cell judges in, by the dialogue's block, what it judges: the blocks it watches by its own
+    /// file besides the dialogue. An answer in the dialogue, or a change of one of these, wakes it to judge (design
+    /// document `data-and-context`, 38, 41).
+    pub judges: BTreeMap<BlockId, Vec<BlockId>>,
+}
+
+/// A judge's verdict: the value of it that does not pass, and the dialogue the judge writes its points in, which the
+/// flow pairs with it by the cell that writes both.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Verdict {
+    pub fails: String,
+    pub dialogue: BlockId,
 }
 
 impl Cell {
@@ -301,21 +319,24 @@ impl Cell {
             limit: 3,
             calls: 3,
             slot: true,
+            dialogues: BTreeMap::new(),
+            verdicts: BTreeMap::new(),
+            judges: BTreeMap::new(),
         }
     }
 }
 
-/// The blocks a trigger of a cell stands on, by the name a return deals with it by: of a group's trigger, by the
-/// group's name, the group's blocks, as the cell's groups ([`Cell::groups`]) hold them; of another, the block of that
+/// The blocks a datum or group a cell watches stands for, by the name a return deals with it by: of a group, by the
+/// group's name, the group's blocks, as the cell's groups ([`Cell::groups`]) hold them; of a datum, the block of that
 /// name.
 pub fn stands_on<'a>(groups: &'a BTreeMap<BlockId, Vec<BlockId>>, named: &'a BlockId) -> &'a [BlockId] {
     groups.get(named).map_or(std::slice::from_ref(named), Vec::as_slice)
 }
 
-/// Of the blocks a trigger stands on, those among the blocks that ran a round: the trigger ran the round where any of
-/// them did, and a return that names it as dealt with deals with each of them, as one trigger (design document
-/// `data-and-context`, 9). A group's trigger runs its cell once for a new version of any of the group's blocks, and is
-/// dealt with once for all of them.
+/// Of the blocks a datum or group watched stands for, those among the blocks that ran a round: it ran the round where
+/// any of them did, and a return that names it as dealt with deals with each of them, as one (design document
+/// `data-and-context`, 12). A group runs its cell once for a new version of any of its blocks, and is dealt with once
+/// for all of them.
 pub fn ran<'a>(stands_on: &'a [BlockId], ran_by: &'a [BlockId]) -> impl Iterator<Item = &'a BlockId> + 'a {
     stands_on.iter().filter(|b| ran_by.contains(b))
 }

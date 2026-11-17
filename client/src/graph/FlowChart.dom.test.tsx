@@ -94,6 +94,9 @@ describe('choosing on the flowchart', () => {
     expect(page.querySelector('section[aria-label="Cell design"]')).not.toBeNull();
     expect(page.querySelector('.graph-cell[data-node="c:design"]')?.getAttribute('aria-pressed')).toBe('true');
     expect(texts(page, '.graph-context .graph-context-name')).toEqual(['plan']);
+    // design watches plan: the matrix's watches ring, not the reads ring with a kind.
+    expect(page.querySelector('.graph-context .part.watch')).not.toBeNull();
+    expect(page.querySelector('.graph-context .part.read')).toBeNull();
     expect([...page.querySelectorAll('.graph-cell.lit')].map((e) => e.getAttribute('data-node'))).toEqual(['c:plan']);
     // Chosen again, it is let go of, as on the matrix.
     click(page.querySelector('.graph-cell[data-node="c:design"]'));
@@ -135,8 +138,15 @@ describe('the lines of the flowchart', () => {
   const labels = (page: HTMLElement, line: string) => texts(page, `.graph-label.${line}`);
   const toggle = (page: HTMLElement) => page.querySelector('.view-toggle input') as HTMLInputElement;
   const chooseCell = (page: HTMLElement, id: string) => click(page.querySelector(`.graph-cell[data-node="c:${id}"]`));
+  /// Points at the first line of a kind that takes the pointer, and gives the line drawn for it then.
+  const point = (page: HTMLElement, line: string) => {
+    const id = page.querySelector(`.graph-lines g[data-line="${line}"][data-edge]`)?.getAttribute('data-edge');
+    const hit = page.querySelector(`.graph-lines g[data-edge="${id}"] .graph-hit`);
+    act(() => void hit?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
+    return page.querySelector(`.graph-lines g[data-edge="${id}"] .graph-edge`);
+  };
 
-  it('draws the main path through one fork for each decision, a branch for each value, and the ways back', async () => {
+  it('draws the main path through one fork for each decision, a branch for each value, and the ways back, which stay as they are under the pointer', async () => {
     const page = await flowchart();
     // Nine steps, two of them out of the fork on needs_design and two out of the fork on has_comment, and the ways
     // through the two gates.
@@ -152,7 +162,11 @@ describe('the lines of the flowchart', () => {
     const onPath = [...page.querySelectorAll('.graph-label.main .graph-name')].find((b) => b.textContent === 'plan');
     expect(onPath?.getAttribute('aria-label')).toBe('Block plan, plan to judge');
     expect(lines(page, 'back')).toBe(1);
-    expect(texts(page, '.legend li')).toEqual(expect.arrayContaining(['main path', 'triggered_by', 'way back (1)']));
+    expect(texts(page, '.legend li')).toEqual(expect.arrayContaining(['main path', 'watches', 'way back (1)', 'reads']));
+    // Under the pointer a step of the main path takes the head of a line pointed at; a way back, in the accent
+    // already, keeps its own (decision the-way-back-is-in-the-accent).
+    expect(point(page, 'main')?.getAttribute('marker-end')).toBe('url(#graph-head-pointed-main)');
+    expect(point(page, 'back')?.getAttribute('marker-end')).toBe('url(#graph-head-back)');
   });
 
   it('draws the arrows a write runs only for the cell chosen, its trunk named once, and all of them when switched on', async () => {

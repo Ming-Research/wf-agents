@@ -63,13 +63,14 @@ async fn each_agent_s_cell_is_given_its_parts_in_the_order_sent_and_each_act_wha
 
 /// What the engine has, by name, for the repository's own flows, as `wf-agents` compiles them
 /// (`crates/wf-agents/src/main.rs`).
-fn the_engine_s(_: &flow::Source) -> flow::Has {
+pub(crate) fn the_engine_s(_: &flow::Source) -> flow::Has {
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     flow::Has {
         sources: names(&[
             "answer",
             "asked",
             "dependencies",
+            "guide",
             "main",
             "session",
             "start",
@@ -80,12 +81,11 @@ fn the_engine_s(_: &flow::Source) -> flow::Has {
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
         system: names(&["guide", "constitution", "tree_rules", "how_you_work_here"]),
-        details: names(&["files"]),
     }
 }
 
 /// The interface over the engineer's flow as the repository defines it, served as `wf-agents flow page` serves it.
-fn the_engineer_s_flow() -> axum::Router {
+pub(crate) fn the_engineer_s_flow() -> axum::Router {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
     web::router(Flows::dirs(dir, Box::new(the_engine_s)))
 }
@@ -278,19 +278,28 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
                 "{id}: what it returns lacks {block}"
             );
         }
-        // What runs it has a line for each trigger its file names, by the trigger's name, which names it.
-        let lines = named("message", "triggers")["items"]
+        // What is new to it has a line for each datum or group it watches, every agent cell's among them, by its
+        // name, which names it.
+        let lines = named("message", "new")["items"]
             .as_array()
-            .expect("the triggers' lines");
-        for trigger in cell["triggers"].as_array().unwrap() {
-            let name = trigger["name"].as_str().unwrap();
+            .expect("the lines of what is new");
+        for watched in cell["watches"].as_array().unwrap() {
+            let name = watched["name"].as_str().unwrap();
             let line = lines.iter().find(|l| l[0] == json!(name));
             let pieces = line.unwrap_or_else(|| panic!("{id}: what runs it lacks {name}"));
             assert!(text_of(&json!({ "pieces": pieces[1] })).contains(name), "{id}: {name}");
         }
-        // Each datum of its context, in the order it names them, in the kind it gives it in.
+        // Each datum of its context, in the order it names them, in the kind it gives it in; then each block it writes
+        // that none of them is, its latest (design document `data-and-context`, 21).
         let inputs: Vec<&serde_json::Value> = parts.iter().filter(|p| p["what"] == json!("input")).collect();
-        let given_blocks = strings(&cell["given"]);
+        let given = cell["given"].as_array().unwrap();
+        let mut given_blocks: Vec<String> = (given.iter())
+            .map(|g| g["block"].as_str().unwrap().to_string())
+            .collect();
+        let written: Vec<String> = (strings(&cell["outputs"]).into_iter())
+            .filter(|b| !given_blocks.contains(b))
+            .collect();
+        given_blocks.extend(written.iter().cloned());
         assert_eq!(
             inputs.len(),
             given_blocks.len(),
@@ -298,9 +307,11 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
         );
         for (part, block) in inputs.iter().zip(&given_blocks) {
             assert_eq!(part["block"], json!(block), "{id}");
-            let kind = match cell["input"][block]["given"]["kind"].as_str() {
+            let kind_of = given.iter().find(|g| g["block"] == json!(block)).map(|g| &g["kind"]);
+            let kind = match kind_of.and_then(|k| k.as_str()) {
                 Some("lastAndLatest") => "last_and_latest",
                 Some(kind) => kind,
+                None if written.contains(block) => "latest",
                 None => panic!("{id}: {block} is given in no kind"),
             };
             assert_eq!(part["kind"], json!(kind), "{id}: {block}");

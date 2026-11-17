@@ -77,8 +77,12 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Write the plan from the request."
-inputs = ["request", "opinions"]
+watches = ["request", "opinions"]
 outputs = ["plan"]
+
+[kinds]
+request = "last_and_latest"
+opinions = "last_and_latest"
 "#;
 
 /// A cell that judges the plan: it writes a choice and its opinions, which the planning cell reads.
@@ -88,8 +92,11 @@ kind = "agent"
 effort = "high"
 line = "review"
 task = "Judge the plan, and say whether it needs a design."
-inputs = ["plan"]
+watches = ["plan"]
 outputs = ["needs_design", "opinions"]
+
+[kinds]
+plan = "last_and_latest"
 "#;
 
 /// A cell that runs when the judge chose yes.
@@ -100,8 +107,11 @@ effort = "high"
 line = "engineer"
 task = "Design what the plan asks for."
 when = { needs_design = "yes" }
-inputs = ["plan"]
+watches = ["plan"]
 outputs = ["design"]
+
+[kinds]
+plan = "last_and_latest"
 "#;
 
 /// A cell that runs when a test holds, waits on another and sets a limit of its own; its task has more than one line.
@@ -116,9 +126,13 @@ Say what you changed for each.
 """
 when = { test = "has_comment" }
 requires = { test = "plan_confirmed" }
-inputs = ["comments", "plan"]
+watches = ["comments", "plan"]
 outputs = ["reply"]
 limit = 5
+
+[kinds]
+comments = "last_and_latest"
+plan = "last_and_latest"
 "#;
 
 /// An engine cell that reads what the outside writes, carried out by the engine's act `check`.
@@ -126,7 +140,7 @@ const CHECK: &str = r#"
 title = "Check with the latest main"
 kind = "engine"
 act = "check"
-inputs = ["main", "design"]
+watches = ["main", "design"]
 outputs = ["ci"]
 "#;
 
@@ -136,7 +150,7 @@ title = "Merge"
 kind = "engine"
 act = "merge"
 requires = { test = "may_merge" }
-inputs = ["ci"]
+watches = ["ci"]
 "#;
 
 /// The small flow's files.
@@ -158,16 +172,14 @@ pub fn valid() -> Source {
     source
 }
 
-/// What the engine has: the source outside a work and the acts the small flow names, two tools, two parts of a line's
-/// system prompt that it fills in itself, what it keeps the work's questions as, and one place it fills with what
-/// happened.
+/// What the engine has: the source outside a work and the acts the small flow names, two tools, and two parts of a
+/// line's system prompt that it fills in itself.
 pub fn has() -> Has {
     Has {
         sources: names(&["main"]),
         acts: names(&["check", "merge"]),
         tools: names(&["query", "run_tests"]),
         system: names(&["guide", "tree_rules"]),
-        details: names(&["files"]),
     }
 }
 
@@ -181,7 +193,7 @@ pub fn laid_out_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/laid_out/small")
 }
 
-/// The small flow laid out one thing to a file: the twin of [`valid`], its cells naming their triggers and context.
+/// The small flow laid out one thing to a file: the twin of [`valid`].
 pub fn laid_out() -> Source {
     flow::read(&laid_out_dir()).expect("the small flow laid out one thing to a file is read")
 }

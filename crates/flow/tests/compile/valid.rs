@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use decide::{BlockId, Cell, Condition, TestName};
 use flow::{
-    Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Given, InputKind, Kind, Limits, Readers, RunsOn, Test, TestKind,
-    Texts, Trigger, Writers,
+    Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Given, InputKind, Kind, Limits, Listed, Readers, Test, TestKind,
+    Texts, Watched, Writers,
 };
 
 use crate::support::{at, compiled, edit, faults, valid};
@@ -81,7 +81,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         must_write: Vec::new(),
         describes: Vec::new(),
         named_by: None,
-        runs_on: Vec::new(),
+        reads: Vec::new(),
         given: Vec::new(),
         tools: Vec::new(),
         system: Vec::new(),
@@ -90,51 +90,36 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         effort: None,
         levels_above: 0,
         takes_main: false,
-        triggers: Vec::new(),
+        watches: Vec::new(),
     };
-    let runs_on = |blocks: &[&str]| {
+    // Each datum a cell watches runs it on itself.
+    let watches = |blocks: &[&str]| {
         (blocks.iter())
-            .map(|&b| RunsOn {
-                block: b.into(),
-                why: None,
-            })
-            .collect()
-    };
-    // Each block that runs a cell written before triggers is a trigger of its name, which the agent reads for it where
-    // the cell is given the block.
-    let triggers = |blocks: &[&str], read: bool| {
-        (blocks.iter())
-            .map(|&b| Trigger {
+            .map(|&b| Watched {
                 name: b.to_string(),
-                what: None,
-                block: b.into(),
-                group: Vec::new(),
-                read: if read { vec![b.into()] } else { Vec::new() },
-                detail: None,
+                blocks: vec![b.into()],
                 does: None,
+                list: Listed::Watches,
             })
             .collect()
     };
-    // Each cell is written in the old form: each block of its `inputs` runs it, and an agent cell is given it, the
-    // version it last worked from and the latest where it names no kind.
+    // Each datum an agent cell watches it is given, as its kind says: the version it last worked from and the latest.
     let agent = |id: &str, title: &str, line: &str, task: &str, inputs: &[&str]| CellSpec {
         task: Some(task.to_string()),
         effort: Some(Effort::High),
-        runs_on: runs_on(inputs),
         given: (inputs.iter())
             .map(|&b| Given {
                 block: b.into(),
                 kind: InputKind::LastAndLatest,
-                why: None,
+                list: Listed::Watches,
             })
             .collect(),
-        triggers: triggers(inputs, true),
+        watches: watches(inputs),
         ..spec(id, title, Kind::Agent, Some(line))
     };
     let engine = |id: &str, title: &str, act: &str, inputs: &[&str]| CellSpec {
         act: Some(act.to_string()),
-        runs_on: runs_on(inputs),
-        triggers: triggers(inputs, false),
+        watches: watches(inputs),
         ..spec(id, title, Kind::Engine, None)
     };
     assert_eq!(
@@ -187,7 +172,6 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
             what: None,
             words: None,
             shape: None,
-            trigger: false,
             writes: Texts::default(),
             writers: Writers {
                 cells: ids(writers),

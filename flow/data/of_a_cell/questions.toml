@@ -1,14 +1,15 @@
-# The questions the cells ask the owner and the owner's answers: one record, which each cell that asks is given, all of
-# it, so that an answer is never given without its question. Its entries are the engine's: a question as the run that
-# asks it, asks it anew or withdraws it finishes, or as the engine asks it with a round's end; an answer as the owner
-# answers the latest version of a question. It is the record the trigger of an answer (`../triggers/of_a_cell/`) has
-# its agent read, and runs no cell. A cell that writes it in `outputs` asks the owner: `words` is told to it, after the
-# list of what it returns, and `[shape]` is what the form of its line holds it to.
-what = "The questions the cells ask the owner, each under its name, and the owner's answers to them, each the question, the version answered, the option taken and why."
+# The questions a cell asks the owner and the owner's answers: a datum of each cell that may ask, which it writes and
+# watches (design document `data-and-context`, 30). Its versions are the engine's: a question as the run that asks it,
+# asks it anew or withdraws it finishes, or as the engine asks it (in the questions of the cell its flow names), each
+# new to no cell; an answer as the owner answers a version of a question, new to the cells that watch the datum only
+# where it changes the option the work goes by. A cell that writes it in `outputs` asks the owner: `words` is told to
+# it, after the list of what it returns, and `[shape]` is what the form of its line holds it to.
+name = "{cell}_questions"
+what = "The questions the cell asks the owner, each under its name, and the owner's answers to them, each the question, the version answered and the option taken."
 from = "answer"
 shown = true
 words = '''
-`q_and_a`: what you ask the owner, only where ways that each would do are left, no fact decides between them, and
+`{cell}_questions`: what you ask the owner, only where ways that each would do are left, no fact decides between them, and
 a wrong choice costs much; decide the rest yourself. Set `waits` where you cannot go on without the answer, or where
 going on by your recommendation would likely be undone at a cost: the work stops at this cell, and you are entered
 again with the answer. Otherwise the work goes on by your recommendation. A text points to a question as `{{name}}`;
@@ -32,16 +33,15 @@ properties = { name = { type = "string" }, withdrawn = { type = "string" } }
 required = ["name", "withdrawn"]
 additionalProperties = false
 
-# What the engine writes of each entry. An answer, as the owner answers the latest version of a question: `{question}`
-# its name, `{version}` the version answered, `{option}` the option's number, `{does}` and `{follows}` the option's,
-# and `{why}` the owner's reason as `why` says it, where one is given. A question asked: `{question}` its name,
-# `{version}` its version, `{ask}` what it asks, `{options}` each option as `option` says it, with `{option}` its
-# number, `{recommends}` the option it recommends as `recommends` says it, where it recommends one, and `{waits}`
-# whether its cell waits for the answer, as `waits` or `goes_on` says it; asked anew, `{was}` the version it replaces.
-# A question withdrawn: `{version}` the version that withdraws it, `{was}` the version withdrawn, `{why}` why, as
-# `why` says it.
+# What the engine writes of each version. An answer, as the owner answers a version of a question: `{question}` its
+# name, `{version}` the version answered, `{option}` the option's number, `{does}` and `{follows}` the option's. A
+# question asked: `{question}` its name, `{version}` its version, `{ask}` what it asks, `{options}` each option as
+# `option` says it, with `{option}` its number, `{recommends}` the option it recommends as `recommends` says it, where
+# it recommends one, and `{waits}` whether its cell waits for the answer, as `waits` or `goes_on` says it; asked anew,
+# `{was}` the version it replaces. A question withdrawn: `{version}` the version that withdraws it, `{was}` the version
+# withdrawn, `{why}` why, as `why` says it.
 [writes]
-text = "`{question}`, version {version}, answered: option {option}, {does}: {follows}.{why}"
+text = "`{question}`, version {version}, answered: option {option}, {does}: {follows}."
 why = " Why: {why}"
 asked = "`{question}`, version {version}, asked: {ask}{options}{recommends}{waits}"
 asked_anew = "`{question}`, version {version}, asked anew in place of version {was}: {ask}{options}{recommends}{waits}"

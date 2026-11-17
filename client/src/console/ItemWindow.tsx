@@ -2,14 +2,14 @@
 // view in the tree, and its project; a line of where the item stands and a line of what its work does, with the works
 // page's strip of the work's cells and where its time went; what the owner does to the work (let it on, pause it,
 // cancel it); two tabs; and under them, while something in the item is new to the owner, a strip that says what
-// changed, with a link to mark the item read. The first tab holds the body (where the item came from, the problem it
-// solves, the plan, with each choice that waits for the owner where it stands in the plan, and after them each question
-// put to the owner that stands, the only place the panel draws it, drawn as they are: what it asks, as it was written,
-// its options with what each does and what follows, and the one it recommends; one the engine's one list of what waits
-// on the owner names on the red tint, framed in red, the look of every stop, an answered one with the answer picked.
-// Each is picked by a press on an option and let go by another, and at the plan's end a button as wide as the body
-// confirms them, which counts the picks, waits until each choice has one and sends each question's answer to the
-// engine; once confirmed, the picks stand; and last, each block the owner may write that keeps the work from going on,
+// changed, with a link to mark the item read. The first tab holds the body (a section for each datum the work's flow's
+// card names, in its order and by its name, with each choice that waits for the owner where it stands in it, and after
+// the last each question put to the owner that stands, the only place the panel draws it, drawn as they are: what it
+// asks, as it was written, its options with what each does and what follows, and the one it recommends; one the
+// engine's one list of what waits on the owner names on the red tint, framed in red, the look of every stop, an answered
+// one with the answer picked. Each is picked by a press on an option and let go by another, and at the end a button as
+// wide as the body confirms them, which counts the picks, waits until each choice has one and sends each question's
+// answer to the engine; once confirmed, the picks stand; and last, each block the owner may write that keeps the work from going on,
 // drawn as such a question is, its values the options, with a button that writes the one picked), each passage
 // changed since the owner read it marked at its left, and under the body the messages: the owner's and the replies, and a
 // box to write one into a block of the work that people write, chosen above it, which a passage selected in the body
@@ -73,10 +73,10 @@ import {
   firstBody,
   itemOf,
   type LoadVersion,
-  questionsOf,
   readBody,
   readRulings,
   type Ruling,
+  wordsOf,
   workTierOf,
 } from './real';
 import { age, dollars } from './snap';
@@ -237,19 +237,15 @@ function useSending(act: (what: Act) => Promise<unknown>) {
 /// Why what the owner did was refused, in words.
 const refusal = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-/// The words for who writes a message or is named in one: a cell by the name the owner calls it.
+/// The words for who writes a message or is named in one that is no cell of a flow.
 const WRITER: Record<string, string> = {
   owner: 'You',
-  engineer: 'Engineer',
   architect: 'Architect',
   assistant: 'Assistant',
-  R1: 'Research',
-  D1: 'Deep research',
-  I1: 'Implementation',
 };
 
-/// Who writes a message or is named in one, in words: any other cell, such as one that asked a question, by its title
-/// in the work's flow.
+/// Who writes a message or is named in one, in words: a cell, such as one that asked a question, by its title in the
+/// work's flow.
 const writerOf = (x: Who | MessageCell, page: WorkPage | null): string =>
   Object.hasOwn(WRITER, x) ? WRITER[x] : titleOf(page, x);
 
@@ -376,12 +372,7 @@ function ItemView({
     const clear = (ps: Part[]) => ps.map((p) => ({ ...p, changed: false }));
     markRead(item.number);
     setUnseen(false);
-    setBody((was) => ({
-      ...was,
-      background: clear(was.background),
-      problem: clear(was.problem),
-      plan: clear(was.plan),
-    }));
+    setBody((was) => ({ ...was, sections: was.sections.map((s) => ({ ...s, parts: clear(s.parts) })) }));
     onRead?.();
   }, [item.number, onRead]);
   const changes = changedIn(body);
@@ -398,9 +389,9 @@ function ItemView({
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [open, fresh, markAsRead]);
-  // The questions put to the owner, after the plan's own: those of the work's own that stand, and those a cell asked
-  // as a call the work waits at; each not yet answered with the option picked, or the words written to one with no
-  // options, by what its answer is sent to.
+  // The questions put to the owner, after the last section's own parts: those of the work's own that stand, and those
+  // a cell asked as a call the work waits at; each not yet answered with the option picked, or the words written to one
+  // with no options, by what its answer is sent to.
   const [answers, setAnswers] = useState<Record<string, number | null>>({});
   const [written, setWritten] = useState<Record<string, string>>({});
   const questions = [...questionsStanding(read?.questions, work), ...askedOf(work)].map((c) =>
@@ -410,36 +401,43 @@ function ItemView({
   const toAnswer = questions.filter((q) => q.confirmed !== true);
   // Whether a question has its answer: an option picked, or for one with no options, words written.
   const answered = (q: Choice) => (q.options.length === 0 ? (q.answer ?? '').trim() !== '' : q.chosen !== null);
-  // The plan as drawn: its own parts, a choice of them open while the plan waits to be confirmed, then the questions.
-  const plan: Part[] = [
-    ...(body.planWaits ? body.plan : body.plan.map((p) => (p.kind === 'choice' ? { ...p, confirmed: true } : p))),
+  // The sections the flow's card names: as read, or, until the body is read, each with nothing in it yet.
+  const sections = bodyRead ? body.sections : (read?.flow.card ?? []).map((title) => ({ title, parts: [] }));
+  // What a section with nothing in it says.
+  const nothingYet = bodyRead ? 'Nothing is written yet' : 'Reading';
+  // The last section as drawn: its own parts, a choice of them open while its choices wait to be confirmed, then the
+  // questions; with no section, the questions alone.
+  const last = sections.at(-1);
+  const own = last?.parts ?? [];
+  const asked: Part[] = [
+    ...(body.choicesWait ? own : own.map((p) => (p.kind === 'choice' ? { ...p, confirmed: true } : p))),
     ...questions,
   ];
   // A press on an option picks it, and a press on the one picked lets it go.
   const choose = (at: number, option: number) => {
-    const q = questions[at - body.plan.length];
+    const q = questions[at - own.length];
     if (q !== undefined) {
       const key = pickKey(q);
       setAnswers((was) => ({ ...was, [key]: was[key] === option ? null : option }));
       return;
     }
+    const pick = (p: Part, i: number): Part =>
+      i === at && p.kind === 'choice' ? { ...p, chosen: p.chosen === option ? null : option } : p;
     setBody((was) => ({
       ...was,
-      plan: was.plan.map((p, i) =>
-        i === at && p.kind === 'choice' ? { ...p, chosen: p.chosen === option ? null : option } : p,
-      ),
+      sections: was.sections.map((s, n) => (n === was.sections.length - 1 ? { ...s, parts: s.parts.map(pick) } : s)),
     }));
   };
   // Words written to a question with no options.
   const write = (at: number, text: string) => {
-    const q = questions[at - body.plan.length];
+    const q = questions[at - own.length];
     if (q !== undefined) setWritten((was) => ({ ...was, [pickKey(q)]: text }));
   };
-  // One Confirm for the plan's choices and the questions: each question's answer is sent, one after another, to what
-  // it answers: the option picked, counted from one, to the version of the work's question; the label of its option or
-  // the words written to it, to the call that waits for it. Once all are taken, the plan's picks stand.
+  // One Confirm for the last section's choices and the questions: each question's answer is sent, one after another,
+  // to what it answers: the option picked, counted from one, to the version of the work's question; the label of its
+  // option or the words written to it, to the call that waits for it. Once all are taken, the section's picks stand.
   const answering = useSending(send);
-  const ownPicks = body.planWaits ? picks(body) : { picked: 0, all: 0 };
+  const ownPicks = body.choicesWait ? picks(body) : { picked: 0, all: 0 };
   const count = {
     picked: ownPicks.picked + toAnswer.filter(answered).length,
     all: ownPicks.all + toAnswer.length,
@@ -459,13 +457,12 @@ function ItemView({
               question: q.asks.question,
               version: q.asks.version,
               option: (q.chosen ?? 0) + 1,
-              why: null,
             },
       );
       if (!taken) return;
     }
-    if (body.planWaits) setBody((was) => ({ ...was, planWaits: false }));
-    setConfirmed(body.planWaits ? 'You confirmed the plan.' : 'Your answer was sent.');
+    if (body.choicesWait) setBody((was) => ({ ...was, choicesWait: false }));
+    setConfirmed(body.choicesWait ? 'You confirmed the plan.' : 'Your answer was sent.');
   };
   // A passage selected in the body offers to be quoted, by a button just above it.
   const selected = () => {
@@ -532,24 +529,22 @@ function ItemView({
           <>
             <div className="cw-body" onMouseUp={selected}>
               {bodyFailed !== null && <p className="failed small">The page could not read the item: {bodyFailed}</p>}
+              {sections.slice(0, -1).map((s) => (
+                <Section key={s.title} title={s.title} parts={s.parts} empty={nothingYet} />
+              ))}
               <Section
-                title="Background"
-                parts={body.background}
-                empty={bodyRead ? 'Nothing is written yet' : 'Reading'}
-              />
-              <Section title="Problem" parts={body.problem} />
-              <Section
-                title="Plan"
-                parts={plan}
+                title={last?.title}
+                parts={asked}
                 keep={rulings.length > 0}
-                choose={body.planWaits || toAnswer.length > 0 ? choose : undefined}
+                empty={last === undefined ? undefined : nothingYet}
+                choose={body.choicesWait || toAnswer.length > 0 ? choose : undefined}
                 write={toAnswer.length > 0 ? write : undefined}
                 discuss={discuss}
                 about={about}
                 jump={jump}
                 after={
                   <>
-                    {body.planWaits || toAnswer.length > 0 ? (
+                    {body.choicesWait || toAnswer.length > 0 ? (
                       <button
                         type="button"
                         className="button button-primary cw-confirm"
@@ -866,11 +861,12 @@ function Section({
   after,
   empty,
 }: {
-  title: string;
+  /// Its name, over it; with none, its parts are drawn with no fold.
+  title?: string;
   parts: Part[];
   /// Draws the section with no parts, for what stands under them.
   keep?: boolean;
-  /// Picks an option of a choice, while the plan waits to be confirmed.
+  /// Picks an option of a choice, while its choices wait to be confirmed.
   choose?: (at: number, option: number) => void;
   /// Writes the answer to a question with no options.
   write?: (at: number, text: string) => void;
@@ -885,16 +881,10 @@ function Section({
   /// What the section says, muted, where it has no parts; where this is not given, it is not drawn.
   empty?: string;
 }) {
-  if (parts.length === 0 && !keep) {
-    if (empty === undefined) return null;
-    return (
-      <Fold title={title}>
-        <p className="muted">{empty}</p>
-      </Fold>
-    );
-  }
-  return (
-    <Fold title={title}>
+  if (parts.length === 0 && !keep && empty === undefined) return null;
+  const drawn = (
+    <>
+      {parts.length === 0 && empty !== undefined ? <p className="muted">{empty}</p> : null}
       {parts.map((p, i) => (
         <div key={i} className={p.changed === true ? 'cw-part cw-changed' : 'cw-part'}>
           {p.kind === 'text' ? (
@@ -911,9 +901,10 @@ function Section({
           )}
         </div>
       ))}
-      {after}
-    </Fold>
+      {parts.length > 0 || keep ? after : null}
+    </>
   );
+  return title === undefined ? drawn : <Fold title={title}>{drawn}</Fold>;
 }
 
 /// The options of a card that offers them, drawn as choices and told apart by shape from what stands above them: under
@@ -1090,19 +1081,16 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
   sent: (message: Message) => void;
 }) {
   const read = pageIn(page);
-  // Words to the line of the cell the work waits at for the owner's answer to a question of the work's are about that
-  // question, and go where words about it go: a question asked by a call has no name, and its asker's line takes them.
+  // The line of the cell the work waits at, which the box offers first.
   const now = work.now;
-  const held =
-    now.kind === 'waits' ? now.on.find((w): w is Extract<Waited, { kind: 'answer' }> => w.kind === 'answer') : undefined;
   const heldOn = now.kind === 'waits' ? read?.flow.cells.find((c) => c.id === now.at)?.line : undefined;
-  // The lines one of whose cells may write the work's questions, each with what the words said to it would reach.
-  const asks = read ? questionsOf(read.flow)?.name : undefined;
-  const targets = (read?.flow.lines ?? [])
-    .filter((l) => asks !== undefined && read?.flow.cells.some((c) => c.line === l.name && c.outputs.includes(asks)))
+  // The lines one of whose cells has words of its own, each with the cell the engine says the words said to it reach:
+  // the one of its cells the work has reached, which waits for the answer to its question where it waits for one.
+  const flow = read?.flow;
+  const targets = (flow?.lines ?? [])
+    .filter((l) => flow !== undefined && flow.cells.some((c) => c.line === l.name && wordsOf(flow, c.id) !== undefined))
     .map((l) => {
-      const to: SpokenTo =
-        held !== undefined && heldOn === l.name ? { kind: 'question', name: held.question } : { kind: 'line', line: l.name };
+      const to: SpokenTo = { kind: 'line', line: l.name };
       return { line: l.name, to, speaking: read?.speaking?.find((s) => sameTo(s.to, to)) };
     });
   // The one chosen, else the line the work stands at, else the first the engine has a cell for, or says why it has none.
@@ -1154,6 +1142,7 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
             key={draftKey(work.number, `${target.line}_spoken_to`)}
             work={work}
             draft={`${target.line}_spoken_to`}
+            line={target.line}
             to={target.to}
             reaches={speaking?.cell ?? null}
             title={(cell) => titleOf(read, cell)}
@@ -1176,15 +1165,17 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
   );
 }
 
-/// Whether two say the words to the same line or about the same question.
+/// Whether two say the words to the same line or to the same cell.
 const sameTo = (a: SpokenTo, b: SpokenTo): boolean =>
-  a.kind === 'line' ? b.kind === 'line' && a.line === b.line : b.kind === 'question' && a.name === b.name;
+  a.kind === 'line' ? b.kind === 'line' && a.line === b.line : b.kind === 'cell' && a.cell === b.cell;
 
 /// The box for what the owner says to one cell of one work, its draft kept as it is typed under the name `draft`, with
 /// the passage quoted into it over it, and the names one can write to offered when `@` is typed.
-function Compose({ work, draft, to, reaches, title, cannot, quote, unquote, box, act, sent }: {
+function Compose({ work, draft, line, to, reaches, title, cannot, quote, unquote, box, act, sent }: {
   work: Summary;
   draft: string;
+  /// The line the message goes to.
+  line: string;
   /// What the message is said to.
   to: SpokenTo;
   /// The cell it reaches, as the engine chooses it; none where no cell can take it.
@@ -1208,12 +1199,14 @@ function Compose({ work, draft, to, reaches, title, cannot, quote, unquote, box,
     setWritten(false);
     writeDraft(key, t);
   };
-  // Typing `@` offers the names one can write to, the engineer only while a work goes on.
+  // Typing `@` offers the names one can write to: the line the message goes to, only while a work goes on, then the
+  // architect and the assistant.
   const naming = /(^|\s)@(\w*)$/.exec(text);
-  const offered: Who[] = (['engineer', 'architect', 'assistant'] as Who[]).filter(
-    (x) => (x !== 'engineer' || working) && x.startsWith((naming?.[2] ?? '').toLowerCase()),
+  const others: Who[] = ['architect', 'assistant'];
+  const offered = [...(working ? [line] : []), ...others].filter((x) =>
+    x.startsWith((naming?.[2] ?? '').toLowerCase()),
   );
-  const name = (x: Who) => {
+  const name = (x: string) => {
     type(text.replace(/@(\w*)$/, `@${x} `));
     box.current?.focus();
   };
@@ -1257,7 +1250,7 @@ function Compose({ work, draft, to, reaches, title, cannot, quote, unquote, box,
         <div className="cw-names">
           {offered.map((x) => (
             <button key={x} type="button" className="button" onClick={() => name(x)}>
-              @{x} · {WRITER[x]}
+              {Object.hasOwn(WRITER, x) ? `@${x} · ${WRITER[x]}` : `@${x}`}
             </button>
           ))}
         </div>

@@ -31,9 +31,7 @@ fn a_directory_with_cells_is_read_laid_out_one_thing_to_a_file_with_what_it_may_
     write("tasks/better_way.md", "Look for a better way.");
     write("../data/request.toml", "from = \"owner\"");
     write("../data/more/answers.toml", "shown = true");
-    write("../triggers/on_main.toml", "block = \"main\"");
-    write("../triggers/of_a_cell/on_spoken.toml", "block = \"{cell}_spoken_to\"");
-    write("../triggers/of_a_datum/changed.toml", "name = \"on_{datum}\"");
+    write("../triggers/on_main.toml", "not read with the flow");
     write("../agents/rules/rules.toml", "[general]\nfile = \"general.md\"");
     write("../agents/rules/general.md", "not read with the flow");
     write("../agents/waits.toml", "[paused]");
@@ -58,9 +56,6 @@ fn a_directory_with_cells_is_read_laid_out_one_thing_to_a_file_with_what_it_may_
             "../agents/waits.toml",
             "../data/more/answers.toml",
             "../data/request.toml",
-            "../triggers/of_a_cell/on_spoken.toml",
-            "../triggers/of_a_datum/changed.toml",
-            "../triggers/on_main.toml",
             "blocks/judging/deep/opinions.toml",
             "blocks/notes.md",
             "blocks/plan.toml",

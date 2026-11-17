@@ -24,7 +24,9 @@ fn a_row_of_writes_each_said_not_to_matter_keeps_the_first_meaning() {
 }
 
 #[test]
-fn the_first_version_of_a_block_has_a_meaning_of_its_own_whatever_its_writer_says() {
+fn a_first_version_a_run_hands_in_as_changing_nothing_is_new_to_no_cell_and_one_that_matters_runs_the_cells_after() {
+    // Design document `data-and-context`, 9: a version its writer hands in as changing nothing in meaning is kept, and
+    // is new to no cell, whoever its writer.
     let mut w = World::with_gate(vec![
         cell("research", &["background"], &["plan"]),
         cell("implement", &["plan"], &[]),
@@ -34,10 +36,35 @@ fn the_first_version_of_a_block_has_a_meaning_of_its_own_whatever_its_writer_say
     // No plan has a version, so nothing runs the implementation.
     assert_eq!(w.decide(), resting());
     w.person_writes("background");
-    let plan = w.run("research", &[("plan", DoesNotMatter)]);
+    w.run("research", &[("plan", DoesNotMatter)]);
+    assert_eq!(w.decide(), resting());
+    w.person_writes("background");
+    let plan = w.run("research", &[("plan", Matters)]);
     assert_eq!(
         w.decide(),
         runs("implement", vec![changed("plan", None, false)], &[("plan", Some(plan))])
+    );
+}
+
+#[test]
+fn a_first_version_the_outside_writes_as_changing_nothing_is_new_to_no_cell_and_neither_is_what_keeps_its_meaning() {
+    // Design document `data-and-context`, 9: a version its writer hands in as changing nothing in meaning is kept, and
+    // is new to no cell.
+    let mut w = World::with_gate(vec![cell("answer", &["asked"], &["reply"])]);
+    w.written_outside("asked", "answer");
+    w.outside_writes_not_mattering("asked");
+    assert_eq!(w.decide(), resting());
+    w.outside_writes_not_mattering("asked");
+    assert_eq!(w.decide(), resting());
+    // A version that changes the meaning runs the cell, which consumed none before it.
+    let changed_at = w.outside_writes("asked");
+    assert_eq!(
+        w.decide(),
+        runs(
+            "answer",
+            vec![changed("asked", None, false)],
+            &[("asked", Some(changed_at)), ("reply", None)]
+        )
     );
 }
 

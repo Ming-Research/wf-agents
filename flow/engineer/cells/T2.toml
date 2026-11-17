@@ -16,38 +16,28 @@ and one of the engineer's, say so in `testing`. One red
 after the change, check against its reference first; hand on only what stays red. Commit your tests on the work's
 branch.
 
-Hand in `tests`, and what stays red or stays suspect in `testing`. With `testing_ok` yes, leave `testing` out of your
-return.
+Hand in `tests`, and what stays red or stays suspect in `testing`, every point at once: this is your one chance, and
+nothing is raised later that could be raised now. With `testing_ok` yes, leave `testing` out of your return.
 '''
 when = { needs_testing = "yes" }
 # Run when the review asks for it, and again when the implementation answers its red tests, not on every version of
 # the code: run on each, it found nothing in half its runs.
-triggered_by = ["on_needs_testing", "on_acceptance", "on_reply_testing"]
-context = [
-  "background",
-  "needs_testing",
-  "plan_agent",
-  "code",
-  "evidence",
-  "acceptance",
-  "reply_testing",
-  "tests",
-]
+watches = ["needs_testing", "acceptance", "testing"]
+reads = ["background", "plan_agent", "code", "evidence"]
 outputs = ["tests", "testing", "testing_ok"]
 must_write = ["testing_ok"]
 
-# What the cell does when each trigger fires; a trigger with none is the task's alone.
+# What the cell does when each datum it watches is new; a datum with none is the task's alone.
 [do]
-on_reply_testing = """Run your tests on the new commit: accept each answer in `reply_testing`, checking a test called wrong against its reference, or say why not."""
+testing = """Run your tests on the new commit: accept each answer in `testing`, checking a test called wrong against its reference, or say why not."""
 
-# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
+# `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
 needs_testing = "latest"
 # The tests the implementation removed, skipped or weakened, each judged by whether what it checked is still checked.
 evidence = "latest"
-tests = "latest"
 background = "latest"
 plan_agent = "latest"
 code = "last_and_latest"
 acceptance = "latest"
-reply_testing = "latest"
+testing = "all"

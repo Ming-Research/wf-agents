@@ -131,7 +131,7 @@ async fn a_try_keeps_what_it_ran_on_after_the_settings_give_its_level_another_mo
     // The engine started again holds the work at the build for the owner's answer to the question asked before it
     // stopped.
     assert!(waits(&real), "{:?}", real.decision(work));
-    real.answer(work, "By their first name.");
+    real.answer(work);
     real.until(|real| ended(&real.decision(work))).await;
     assert_eq!(
         kept(&real, work, "plan", 1, 1),

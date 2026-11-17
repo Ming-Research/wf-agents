@@ -35,6 +35,7 @@ fn engineer(root: &Path) -> Compiled {
         sources: names(&[
             "answer",
             "asked",
+            "guide",
             "words",
             DEPENDENCIES,
             "main",
@@ -45,7 +46,6 @@ fn engineer(root: &Path) -> Compiled {
         ]),
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
-        details: names(&["files"]),
         ..Default::default()
     };
     flow::compile(&source, &has).expect("the engineer's flow compiles")
@@ -74,12 +74,12 @@ fn the_repository_s_flows_give_every_text_the_driver_fills() {
 #[test]
 fn a_kind_of_new_session_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() {
     let dir = copied();
-    without(dir.path(), "triggers/of_a_line/on_session.toml", "lost = ");
+    without(dir.path(), "data/of_a_line/session.toml", "lost = ");
     let faults = driver::faults(&engineer(dir.path()));
-    // One for the block of each line a cell of which loads its session: the engineer's and the deep researcher's.
-    assert_eq!(faults.len(), 2, "{faults:?}");
-    for (fault, line) in faults.iter().zip(["deep_researcher", "engineer"]) {
-        assert!(fault.contains("triggers/of_a_line/on_session.toml"), "{fault}");
+    // One for the datum of each line a cell of which loads its session: the engineer's alone.
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    for (fault, line) in faults.iter().zip(["engineer"]) {
+        assert!(fault.contains("data/of_a_line/session.toml"), "{fault}");
         assert!(fault.contains(&format!("the block {line}_session ")), "{fault}");
         assert!(fault.ends_with("its writes must give lost"), "{fault}");
     }
@@ -88,24 +88,27 @@ fn a_kind_of_new_session_the_flow_gives_no_words_for_is_a_fault_on_the_file_that
 #[test]
 fn a_start_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() {
     let dir = copied();
-    without(dir.path(), "triggers/on_start.toml", "text = ");
+    without(dir.path(), "data/start.toml", "text = ");
     let faults = driver::faults(&engineer(dir.path()));
     assert_eq!(faults.len(), 1, "{faults:?}");
-    assert!(faults[0].contains("triggers/on_start.toml"), "{}", faults[0]);
+    assert!(faults[0].contains("data/start.toml"), "{}", faults[0]);
     assert!(faults[0].ends_with("its writes must give text"), "{}", faults[0]);
 }
 
-// The record of what is said, a block of the owner's words that no trigger stands on, gives the words of the cells'
-// answers as well as of the owner's entries; the blocks of the owner's words the cells' triggers stand on need neither.
+// A cell's own words give the words of its answers as well as of the owner's: where their file gives none for an
+// answer, each cell's of them is a fault on that file.
 #[test]
-fn a_record_of_what_is_said_that_gives_no_words_for_an_answer_is_a_fault_on_the_file_that_holds_them() {
+fn a_cells_words_that_give_no_words_for_an_answer_are_a_fault_on_the_file_that_holds_them() {
     let dir = copied();
-    without(dir.path(), "data/discussion.toml", "reply = ");
+    without(dir.path(), "data/of_a_cell/words.toml", "reply = ");
     let faults = driver::faults(&engineer(dir.path()));
-    assert_eq!(faults.len(), 1, "{faults:?}");
-    assert!(faults[0].contains("data/discussion.toml"), "{}", faults[0]);
-    assert!(faults[0].contains("the block discussion "), "{}", faults[0]);
-    assert!(faults[0].ends_with("its writes must give reply"), "{}", faults[0]);
+    let blocks = ["d1_words", "d2_words", "i1_words", "r1_words", "r2_words"];
+    assert_eq!(faults.len(), blocks.len(), "{faults:?}");
+    for (fault, block) in faults.iter().zip(blocks) {
+        assert!(fault.contains("data/of_a_cell/words.toml"), "{fault}");
+        assert!(fault.contains(&format!("the block {block} ")), "{fault}");
+        assert!(fault.ends_with("its writes must give reply"), "{fault}");
+    }
 }
 
 #[test]
@@ -123,7 +126,7 @@ fn a_flow_with_no_words_beside_it_for_the_owner_is_not_run() {
 #[test]
 fn a_flow_written_before_flows_were_laid_out_takes_the_words_beside_it_and_without_them_is_not_run() {
     let flow = "name = \"small\"\norder = [\"merge\"]\n[limits]\nruns = 1\nreturns = 1\ncalls = 1\n[blocks.go]\npeople = true\n";
-    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"go\"]\n";
+    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"go\"]\n";
     let has = Has {
         acts: ["merge".to_string()].into(),
         ..Default::default()

@@ -1,0 +1,16 @@
+# The owner's words to a cell and the cell's answers: a datum of each cell that may ask, its dialogue with the owner,
+# which the cell watches (design document `data-and-context`, 35). The engine writes the owner's version as the owner
+# speaks to the cell, and the cell's answer from what its return writes of it in `outputs`, as its run writes it.
+# `words` is told to the cell after the list of what it returns.
+name = "{cell}_words"
+what = "What the owner says to the cell and what the cell answers, in order."
+from = "words"
+shown = true
+words = '''
+`{cell}_words`: your answer to what the owner said in it, only where that is new to this round.'''
+
+# The content of each version, which names no cell: `owner`, the owner's, with `{words}` what the owner said; `reply`,
+# the cell's answer, with `{reply}` what its return writes of it in `outputs`.
+[writes]
+owner = "The owner:\n\n{words}"
+reply = "An agent:\n\n{reply}"

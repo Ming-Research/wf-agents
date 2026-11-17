@@ -3,15 +3,17 @@
 // the order of the walk; the main path, the walk as a work goes through the cells, from each cell to the next one that
 // can run after it, parting where the next cell's `when` may or may not hold at a fork, one node for the decision with
 // a branch for each value, and joining again (`mainPath`); a cell's `requires` as a gate before it, which the path
-// waits at; an arrow from a cell that writes a block to each cell that block's trigger runs, into the cell itself, one
-// arrow for each pair of cells with the name of every trigger it stands for, an arrow back up the walk being a way
+// waits at; an arrow from a cell that writes a block to each cell that watches it, into the cell itself, one arrow for
+// each pair of cells with the name of every datum or group it runs the cell by, an arrow back up the walk being a way
 // back, one way back from a cell to every cell a fork's branches lead to drawn into the fork, and an arrow that runs
 // along the main path between the same two cells folded into it; and what runs a cell from outside the cells (people,
-// or a source of the engine's such as main, the tree or the session) as a tag beside it with a dashed arrow into it.
-// What a cell is given is not drawn until the cell is chosen (`contextOf`). Pure, so that it is tested without drawing.
+// or a source of the engine's such as main, the tree or the session) as a tag beside it with a dashed arrow into it,
+// of what the cell's own file watches: what `[every_agent]` watches comes into no cell from outside, the view's line
+// naming it. What a cell's own file gives it is not drawn until the cell is chosen (`contextOf`). Pure, so that it is
+// tested without drawing.
 
 import type { Block, Cell, Condition, Flow, InputKind } from '../api';
-import { exclusive, matrix } from '../matrix';
+import { canRun, matrix, namesItself } from '../matrix';
 
 /// The ids of the nodes: a cell's, the gate before it, the fork before it, and a tag of what the outside writes for
 /// it.
@@ -42,14 +44,14 @@ export interface ChartNode {
   when: Condition[];
   /// Of a gate: the cell's `requires`, every key in the order written.
   requires: Condition[];
-  /// Of a fork on one block: the block. Of a tag: the trigger's block, or its group, or the block of a condition, and
-  /// who writes it.
+  /// Of a fork on one block: the block. Of a tag: the datum or group the cell watches, or the block of a condition,
+  /// and who writes it.
   name: string | null;
   group: boolean;
   outside: Outside | null;
 }
 
-/// A name an arrow carries: a trigger's block, or its group.
+/// A name an arrow carries: a datum the cell it runs watches, or a group.
 export interface Carried {
   name: string;
   group: boolean;
@@ -61,7 +63,7 @@ export interface ChartEdge {
   id: string;
   source: string;
   target: string;
-  /// `arrow`, from a cell that writes a block to a cell its trigger runs, or a way back into a fork; `step`, a step of
+  /// `arrow`, from a cell that writes a block to a cell that watches it, or a way back into a fork; `step`, a step of
   /// the main path, from a cell or a fork to the next fork, gate or cell the path goes to; `outside`, from a tag of
   /// what the outside writes; `in`, from a gate to its cell, or from the fork of a cell the main path does not reach;
   /// `tie`, drawn by nothing, which keeps a cell the main path does not reach under the cell before it in the walk.
@@ -72,8 +74,8 @@ export interface ChartEdge {
   to: string;
   /// Of a way back into a fork: every cell it runs, those the fork's branches lead to.
   reaches: string[];
-  /// Of an arrow, the triggers it stands for, by their block or group, in the order the cell it runs names them; of a
-  /// step, those of the arrows folded into it.
+  /// Of an arrow, the data and groups it runs the cell by, in the order the cell watches them; of a step, those of the
+  /// arrows folded into it.
   carries: Carried[];
   /// Of an arrow, it goes back up the walk: a way back.
   back: boolean;
@@ -94,7 +96,7 @@ export interface Chart {
   nodes: ChartNode[];
   edges: ChartEdge[];
   /// How many ways back the flow has, as the matrix counts them (`Matrix.waysBack`), so that the two views give one
-  /// count: an arrow stands for one for each trigger it carries, and one drawn into a fork for those of every cell it
+  /// count: an arrow stands for one for each name it carries, and one drawn into a fork for those of every cell it
   /// leads to.
   waysBack: number;
 }
@@ -134,40 +136,14 @@ function outsideOf(blocks: Block[]): Outside | null {
   return people || sources.length > 0 ? { people, sources } : null;
 }
 
-/// A cell as it stands after its own run, for whether a write of its can run another: a key of its `when` on a block
-/// it writes itself may no longer hold once it has written it, as R1's `deep_needed = no` once R1 has written yes, so
-/// such a key is left out. That cell is the one before the fork, and its arrow into the cell on the other side is the
-/// fork itself.
-export function afterItsRun(cell: Cell): Cell {
-  return { ...cell, when: cell.when.filter((k) => !(k.on === 'block' && cell.outputs.includes(k.block))) };
-}
-
-/// Whether a write of `writer`'s can run `reader`: not where their conditions exclude each other (the matrix's
-/// `exclusive`), as they stand after the writer's run.
-export function canRun(writer: Cell, reader: Cell): boolean {
-  return !exclusive(afterItsRun(writer), reader);
-}
-
-type Trigger = Cell['triggers'][number];
-
-/// Whether a trigger is a group's, a new version of any of the group's blocks firing it.
-function isGroup(trigger: Trigger): boolean {
-  return trigger.group.length > 0;
-}
-
-/// The blocks a trigger stands on: its group's, or its block.
-function blocksOf(trigger: Trigger): string[] {
-  return isGroup(trigger) ? trigger.group : [trigger.block];
-}
-
-/// What an arrow from `writer` to `reader` carries: each trigger of the reader's on a block the writer writes, by its
-/// block or group, once.
+/// What an arrow from `writer` to `reader` carries: each datum or group the reader watches, by its own file or by
+/// `[every_agent]`, a block of which the writer writes, by its name, once.
 export function carried(flow: Flow, writer: Cell, reader: Cell): Carried[] {
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
   const out: Carried[] = [];
-  for (const t of reader.triggers) {
-    const writes = blocksOf(t).some((b) => blocks.get(b)?.writtenBy.cells.includes(writer.id));
-    if (writes && !out.some((c) => c.name === t.block)) out.push({ name: t.block, group: isGroup(t) });
+  for (const w of reader.watches) {
+    const writes = w.blocks.some((b) => blocks.get(b)?.writtenBy.cells.includes(writer.id));
+    if (writes && !out.some((c) => c.name === w.name)) out.push({ name: w.name, group: !namesItself(w) });
   }
   return out;
 }
@@ -187,16 +163,16 @@ export const HOLDS = '✓';
 export const FAILS = '✗';
 
 /// The main path of a flow: the walk as a work goes through the cells, worked out from the definition alone (the order
-/// of the walk, each cell's `when`, `requires` and what it writes, the blocks' values and defaults, and the matrix's
-/// `exclusive`). The walk starts again from the first cell every time, so a block may hold any value a cell writes
-/// anywhere in the flow, or people or the outside, or else its default, or none; where the path goes through a cell
-/// that writes it, any of its values again. From the first cell, each step goes to the next cell in the walk that can
-/// run after the cells the path went through: one whose `when` may hold there and whose conditions exclude none of
-/// theirs. Where that cell's `when` surely holds, the path goes into it; where it may or may not, the path parts at a
-/// fork: one branch into the cell, labelled with the value it is taken on, and one past it to the cell after, labelled
-/// with the values left, each knowing which; and where that branch comes to a cell whose `when` is on the same block
-/// and may hold, that is a branch of the same fork. The branches join again where they reach the same node. A
-/// `requires` is a gate the path waits at, not a fork: the path goes through it into its cell.
+/// of the walk, each cell's `when`, `requires` and what it writes, the blocks' values and defaults, and `canRun`, the
+/// one rule of whether a cell's write can run another). The walk starts again from the first cell every time, so a
+/// block may hold any value a cell writes anywhere in the flow, or people or the outside, or else its default, or none;
+/// where the path goes through a cell that writes it, any of its values again. From the first cell, each step goes to
+/// the next cell in the walk that can run after the cells the path went through: one whose `when` may hold there and
+/// whose conditions exclude none of theirs. Where that cell's `when` surely holds, the path goes into it; where it may
+/// or may not, the path parts at a fork: one branch into the cell, labelled with the value it is taken on, and one past
+/// it to the cell after, labelled with the values left, each knowing which; and where that branch comes to a cell whose
+/// `when` is on the same block and may hold, that is a branch of the same fork. The branches join again where they
+/// reach the same node. A `requires` is a gate the path waits at, not a fork: the path goes through it into its cell.
 export function mainPath(flow: Flow): MainPath {
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
   const cells = flow.cells;
@@ -393,12 +369,13 @@ export function chartOf(flow: Flow): Chart {
       );
     }
     nodes.push(node({ id: cellNode(cell.id), kind: 'cell', cell: cell.id }));
-    // What runs it from outside the cells: each trigger whose block people or a source outside the work writes.
-    for (const t of cell.triggers) {
-      const outside = outsideOf(blocksOf(t).flatMap((b) => blocks.get(b) ?? []));
-      const id = outsideNode(cell.id, t.block);
+    // What runs it from outside the cells: each datum or group its own file watches that people or a source outside
+    // the work writes.
+    for (const w of cell.watches.filter((x) => x.list === 'watches')) {
+      const outside = outsideOf(w.blocks.flatMap((b) => blocks.get(b) ?? []));
+      const id = outsideNode(cell.id, w.name);
       if (outside === null || nodes.some((n) => n.id === id)) continue;
-      nodes.push(node({ id, kind: 'outside', cell: cell.id, name: t.block, group: isGroup(t), outside }));
+      nodes.push(node({ id, kind: 'outside', cell: cell.id, name: w.name, group: !namesItself(w), outside }));
       edges.push(link({ id: `x:${id}`, source: id, target: cellNode(cell.id), kind: 'outside', to: cell.id }));
     }
   }
@@ -518,39 +495,47 @@ export function chartOf(flow: Flow): Chart {
   return { nodes, edges, waysBack: matrix(flow).waysBack };
 }
 
-/// A block a cell is given, as the cell's `context` names it: with the kind it is given in, the cells that write it and
+/// A block a cell's own file gives it, by what it reads or what it watches: with the kind it is given in, whether a
+/// new version of it runs the cell (its own file watches it, by itself or through a group), the cells that write it and
 /// who else does.
 export interface ContextTag {
   block: string;
   kind: InputKind | null;
+  watched: boolean;
   writers: string[];
   outside: Outside | null;
 }
 
-/// What a cell is given, in the order its `context` names it.
+/// What a cell's own file gives it, in the order it is given them: each block of a name its file reads or watches.
+/// What `[every_agent]` gives every agent's cell alike, and no name of its file stands for, is the view line's.
 export function contextOf(flow: Flow, id: string): ContextTag[] {
   const cell = flow.cells.find((c) => c.id === id);
   if (!cell) return [];
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
-  return cell.given.map((name) => {
-    const block = blocks.get(name);
-    return {
-      block: name,
-      kind: cell.input[name]?.given?.kind ?? null,
-      writers: block?.writtenBy.cells ?? [],
-      outside: block ? outsideOf([block]) : null,
-    };
-  });
+  const watched = new Set(cell.watches.filter((w) => w.list === 'watches').flatMap((w) => w.blocks));
+  const own = new Set([...watched, ...cell.reads.flatMap((r) => r.blocks)]);
+  return cell.given
+    .filter((g) => own.has(g.block))
+    .map((g) => {
+      const block = blocks.get(g.block);
+      return {
+        block: g.block,
+        kind: g.kind,
+        watched: watched.has(g.block),
+        writers: block?.writtenBy.cells ?? [],
+        outside: block ? outsideOf([block]) : null,
+      };
+    });
 }
 
-/// The cells lit while a cell is chosen: those that write what it is given, the cell itself left out.
+/// The cells lit while a cell is chosen: those that write what its own file gives it, the cell itself left out.
 export function litBy(flow: Flow, id: string): Set<string> {
   return new Set(contextOf(flow, id).flatMap((t) => t.writers.filter((w) => w !== id)));
 }
 
 /// The arrows a write runs that the chart draws besides the main path and the ways back: those into and out of the
-/// cell chosen, as what it is given is shown only while it is chosen; every one where the owner shows them all. Those
-/// folded into the main path are drawn as its steps.
+/// cell chosen, as what its own file gives it is shown only while it is chosen; every one where the owner shows them
+/// all. Those folded into the main path are drawn as its steps.
 export function shownArrows(chart: Chart, chosen: string | null, all: boolean): ChartEdge[] {
   return chart.edges.filter(
     (e) => e.kind === 'arrow' && !e.back && (all || (chosen !== null && (e.from === chosen || e.to === chosen))),

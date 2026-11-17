@@ -61,18 +61,12 @@ fn a_block_a_cell_describes_the_work_by_is_one_of_the_flows_named_once_whether_o
 }
 
 #[test]
-fn in_the_new_form_a_cell_describes_the_work_by_a_block_it_is_given_or_writes_as_by_one_that_runs_it() {
+fn a_cell_describes_the_work_by_a_block_it_only_reads_or_writes_as_by_one_it_watches() {
     let source = edit(
         valid(),
         "answer.toml",
-        "inputs = [\"comments\", \"plan\"]",
-        "runs_on = [\"comments\"]\ngiven = [\"plan\"]\ndescribes = [\"plan\", \"comments\", \"reply\"]",
-    );
-    let source = edit(
-        source,
-        "answer.toml",
-        "limit = 5",
-        "limit = 5\n\n[give.plan]\nkind = \"latest\"",
+        "watches = [\"comments\", \"plan\"]",
+        "watches = [\"comments\"]\nreads = [\"plan\"]\ndescribes = [\"plan\", \"comments\", \"reply\"]",
     );
     let compiled = compiled(&source);
     let answer = (compiled.cells.iter())

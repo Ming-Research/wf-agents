@@ -139,6 +139,17 @@ describe('what a card shows of an item', () => {
     expect(w.work?.cells.map((c) => c.state)).toEqual(['done', 'resting', 'notYet']);
   });
 
+  it("draws an item whose work's flow delivers, as the engine says, as a deliverable with no row of its work", () => {
+    const delivering: Item = { ...item(1, 'open', [2]), work: { ...work(1, NOW.open), delivers: true } };
+    const shown = shownTree({ items: [delivering, item(2, 'open')] });
+    expect(shown[0].deliver).toBe(true);
+    expect(shown[0].work).toBeNull();
+    // A work whose flow does not deliver is no deliverable, whatever its flow is called.
+    const making: Item = { ...item(1, 'open', [2]), work: { ...work(1, NOW.open), flow: 'deliver', delivers: false } };
+    const made = shownTree({ items: [making, item(2, 'open')] });
+    expect(made[0].deliver).toBe(false);
+  });
+
   it('shows the work of an item that has not begun while it is paused, at fault or waits, as every new item is', () => {
     const paused: Item = { ...item(1, 'open', [4]), work: work(1, { kind: 'paused', by: 'owner', why: null }) };
     const fault: Item = { ...item(2, 'open'), work: work(2, { kind: 'fault', words: 'No session' }) };

@@ -2,4 +2,4 @@ title = "Merge"
 kind = "engine"
 act = "merge"
 requires = { test = "may_merge" }
-inputs = ["ci"]
+watches = ["ci"]

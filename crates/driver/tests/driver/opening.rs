@@ -56,8 +56,8 @@ fn a_block_the_driver_writes_that_is_no_choice_of_waiting_and_merged_is_refused(
             "#
         );
         let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write the text.\"\n\
-                     requires = { test = \"ready\" }\noutputs = [\"text\"]\n";
-        let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\n";
+                     requires = { test = \"ready\" }\nwatches = [\"deps\"]\noutputs = [\"text\"]\nkinds = { deps = \"latest\" }\n";
+        let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\"]\n";
         let odd = compiled(&flow, &[("write", write), ("merge", merge)]);
         let db = Db::new();
         let opened = open_with(&db, vec![judged(), odd]);
@@ -251,9 +251,9 @@ fn with_blocks(blocks: &str, tests: &str, requires: &str, outputs: &str) -> flow
     };
     let write = format!(
         "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write the text.\"\n\
-         {requires}inputs = [\"deps\"]\noutputs = [{outputs}]\n"
+         {requires}watches = [\"deps\"]\noutputs = [{outputs}]\n[kinds]\ndeps = \"last_and_latest\"\n"
     );
-    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\n";
+    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\"]\n";
     compiled(&flow, &[("write", write.as_str()), ("merge", merge)])
 }
 
@@ -379,88 +379,4 @@ fn a_work_at_fault_with_a_round_under_way_is_given_that_round_again_as_the_drive
     let todos = h.reopen();
     assert!(matches!(h.decision(wa), Decision::Fault(_)));
     assert_eq!(todos, given);
-}
-
-/// The engineer's flow as the repository defines it, compiled against what the engine has for it, as `wf-agents`
-/// compiles it.
-fn engineer() -> flow::Compiled {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
-    let beside = flow::agents::read(&root).expect("the files beside the flows are read");
-    let source = flow::read(&root.join("engineer")).expect("the engineer's flow is read");
-    let names = |names: &[&str]| {
-        (names.iter())
-            .map(|n| n.to_string())
-            .collect::<std::collections::BTreeSet<_>>()
-    };
-    let has = flow::Has {
-        sources: names(&[
-            "answer",
-            "asked",
-            "dependencies",
-            "main",
-            "session",
-            "start",
-            "head",
-            "tree",
-            "words",
-        ]),
-        acts: names(&["start", "check", "merge"]),
-        tools: names(&["query", "run_tests"]),
-        system: flow::system::reserved(&beside).into_iter().collect(),
-        details: names(&["files"]),
-    };
-    flow::compile(&source, &has).expect("the engineer's flow compiles")
-}
-
-#[test]
-fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_record_once_as_the_driver_opens() {
-    let db = Db::new();
-    let (mut driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens");
-    let (_, work, _) =
-        (driver.add(Time(START), new_item("Greet the user", &[], "engineer"))).expect("the item is added");
-    drop(driver);
-    // As the console wrote the owner's words before the record held them: into R1's block of them, as a person's, and
-    // the same words into R2's.
-    let mut store = db.open();
-    let mut kept = store.load(work).expect("the work loads");
-    for block in ["r1_spoken_to", "r2_spoken_to"] {
-        let at = kept.tick();
-        let block = decide::BlockId::from(block);
-        kept.contents
-            .insert((block.clone(), at), "Keep it to one table.".to_string());
-        kept.records.written.push(decide::Written {
-            block,
-            by: Outsider::Person,
-            matters: true,
-            value: None,
-            said_to: None,
-            empty: false,
-            at,
-        });
-    }
-    store.save(work, &kept).expect("the work is saved");
-    drop(store);
-    let carried = |db: &Db| {
-        let w = db.open().load(work).expect("the work loads");
-        (w.records.written.iter())
-            .filter(|x| x.block.as_str() == "discussion" && x.by == Outsider::Outside)
-            .map(|x| {
-                let to = x.said_to.as_ref().map(|c| c.as_str().to_string());
-                (to, w.contents[&(x.block.clone(), x.at)].clone())
-            })
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(carried(&db), Vec::<(Option<String>, String)>::new());
-    let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens");
-    drop(driver);
-    let entry = "The owner:\n\nKeep it to one table.".to_string();
-    let each = vec![(Some("R1".to_string()), entry.clone()), (Some("R2".to_string()), entry)];
-    assert_eq!(
-        carried(&db),
-        each,
-        "the words are the owner's entries said to R1 and to R2"
-    );
-    let (driver, _) = open_with(&db, vec![engineer()]).expect("the driver opens again");
-    drop(driver);
-    assert_eq!(carried(&db), each, "they are carried once");
 }

@@ -2,12 +2,13 @@
 // alone so that they can be tested without drawing.
 //
 // The chart's columns are the cells of the work's flow in the order of the walk, and its rows the steps in the order
-// they happened. A run stands in its cell's column, in the row of its start. What is not a run (a write by a person or
-// the outside, a let-go, a pause, a let-on, a cancel) is a row of its own: its words at the row's left, and, for a
-// write, a ring in the column of each cell that reads the block, as the flow's chart marks a read; for a let-go, a mark
-// in the column of the cell let go. A run that is a way round is drawn as the flow's chart draws a way back: a line in
-// the muted colour from the columns of the cells after it whose writes it ran for, each marked, to the run, with an
-// arrow there. A run of a cell the flow no longer has keeps its row, in no column.
+// they happened. A run stands in its cell's column, in the row of its start. What is not a run (a write a return did
+// not hand in, by the owner, a cell's question or the outside; a let-go, a pause, a let-on, a cancel) is a row of its
+// own: its words at the row's left, and, for a write, a mark in the column of each cell that takes the block, the
+// flow's chart's for that cell; for a let-go, a mark in the column of the cell let go. A run that is a way round is
+// drawn as the flow's views draw a way back: a line in the accent from the columns of the cells after it whose writes
+// it ran for, each marked, to the run, with an arrow there. A run of a cell the flow no longer has keeps its row, in no
+// column.
 
 import type { Flow } from '../api';
 import type { Block, Item, Run, Step, Summary } from '../works-api';

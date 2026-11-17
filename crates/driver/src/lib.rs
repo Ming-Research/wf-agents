@@ -123,11 +123,10 @@ pub const MERGED: &str = "merged";
 pub const START: &str = "start";
 
 /// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
-/// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`] or of [`engine::asked::ASKED`], and each record
-/// a trigger of the owner's words or of an answer has its agent read, which that source writes entries of
-/// ([`flow::Trigger::records`]), gives in its `writes` each text the engine fills, so that none is written empty; and
-/// the words beside the flows ([`flow::waits_file`]) give every reason the engine says to the owner. A flow with any of
-/// these is not run.
+/// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`] or of [`engine::asked::ASKED`], and each cell's
+/// own words and questions, which the sources of the owner's words and of the answers write and the cell writes too,
+/// gives in its `writes` each text the engine fills, so that none is written empty; and the words beside the flows
+/// ([`flow::waits_file`]) give every reason the engine says to the owner. A flow with any of these is not run.
 pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
     let session: Vec<&str> = ["text"].into_iter().chain(work::Why::KINDS).collect();
@@ -137,8 +136,8 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
         (START, &["text"]),
         (ASKED, &[ANSWERED, UNANSWERED, "between"]),
     ];
-    // The records the sources of the owner's turning write entries of: of what is said, the owner's entries and the
-    // cells' answers; of the questions and the answers, each kind of entry.
+    // The dialogues the sources of the owner's turning write versions of, each a cell's own: its words, the owner's
+    // versions and the cell's answers; its questions, each kind of version.
     let records: [(&str, &[&str]); 2] = [
         (flow::WORDS, &[engine::spoken::OWNER, engine::spoken::REPLY]),
         (flow::ANSWER, &engine::asked::ENTRIES),
@@ -148,11 +147,8 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
         let found = needs
             .iter()
             .find(|(source, _)| block.writers.outside.as_deref() == Some(*source));
-        let read = |source: &str| {
-            (flow.cells.iter().flat_map(|c| &c.triggers)).any(|t| t.records(flow, source).any(|b| b == name))
-        };
-        let record =
-            (records.iter()).find(|(source, _)| block.writers.outside.as_deref() == Some(*source) && read(source));
+        let written = !block.writers.cells.is_empty();
+        let record = (records.iter()).find(|(source, _)| block.writers.outside.as_deref() == Some(*source) && written);
         let Some((source, keys)) = found.or(record) else {
             continue;
         };
@@ -484,9 +480,7 @@ pub enum Failed {
 impl Driver {
     /// Opens the driver on a store, with the flows the works run on, this many slots and the policy of when a line
     /// begins a new session, and gives everything that is to be done: what was to be done before and is not known as
-    /// done, and what follows from looking at every work now, the free slots given in the engine's order. A work kept
-    /// with the owner's words in a cell's block of them, as they were written before the record of what is said held
-    /// them, has them carried into the record first (`engine::spoken::carry`).
+    /// done, and what follows from looking at every work now, the free slots given in the engine's order.
     ///
     /// Where a work is going on, one that has not ended and that its own pause does not hold, and nothing pauses
     /// everything, the driver pauses everything itself before it looks at any work, and keeps that it did: nothing
@@ -558,12 +552,7 @@ impl Driver {
             if driver.of_item.insert(head.item, head.number).is_some() {
                 return Err(Fault::NotOneWork(head.item));
             }
-            let mut work = driver.store.load(head.number).map_err(Fault::Store)?;
-            // The owner's words a work kept before the record of what is said held them are carried into it, once; a
-            // work at fault is written nothing.
-            if standing_of(&flow, &work) != Standing::AtFault && engine::spoken::carry(&flow, &mut work) {
-                driver.store.save(head.number, &work).map_err(Fault::Store)?;
-            }
+            let work = driver.store.load(head.number).map_err(Fault::Store)?;
             let standing = standing_of(&flow, &work);
             let samples = history::samples(&flow, &work);
             let held = Held {

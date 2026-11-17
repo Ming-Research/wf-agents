@@ -1,18 +1,17 @@
 //! The questions put to the owner and the owner's answers, as the loop records them (design document
-//! `data-and-context`, 32 to 36), and the block the engine writes of how they stand.
+//! `data-and-context`, 30 to 34), and the block the engine writes of how they stand.
 //!
-//! A run's questions become versions of them as the run finishes, each under its name; what the engine itself asks
-//! with a round, as the round's end is taken. Each version is an entry of the record of questions and answers that the
-//! cell its answer goes to has its agent read for its trigger of an answer (`q_and_a` in the engineer's flow), which
-//! the engine's source of answers writes ([`flow::ANSWER`]), in the words of that record's file: so that an answer
-//! is never given without its question. The owner answers a version of a question: the answer is kept, it is an entry
-//! of the same record, and, where it takes another option than the one the work goes by, it gives the block of that
-//! trigger a new version, which runs the cell again. The record runs no cell. The answering cell is the asking one, for a question of a run's; for one of
-//! the engine's, which is of the work and not of what a round did, the last cell of the walk that has a trigger of an
-//! answer, the one nearest the merge that can act on it, whichever cell's round it was asked with. The work goes by
-//! the option last taken on the question's latest version, else by the one it recommends; by none while the cell waits
-//! for the answer, so that any answer to such a question runs the cell. An answer to an earlier version is kept and
-//! answers nothing.
+//! A cell that may ask has a datum of its own for its questions: the block of the engine's source of answers
+//! ([`flow::ANSWER`]) among its outputs ([`questions_of`]). A run's questions become versions of them as the run
+//! finishes, each under its name; what the engine itself asks with a round, as the round's end is taken, of the cell
+//! the flow names for it (`engine_asks_in`), whichever cell's round it was asked with, or of that round's cell where
+//! the flow names none. Each version is also a version of the cell's questions, in the words of their file, written as
+//! changing nothing, so that an ask is new to no cell. The owner answers a version of a question with an option, and
+//! nothing else: the answer is kept, and is the next version of the same questions, which changes their meaning where
+//! it answers the question as last asked with another option than the one the work goes by, and so runs the cells that
+//! watch them; one that changes nothing the cell goes by, or that answers an earlier version, is kept as a version
+//! that changes nothing. The work goes by the option last taken on the question's latest version, else by the one it
+//! recommends; by none while the cell waits for the answer, so that any answer to such a question runs the cell.
 //!
 //! The block of a flow whose source is [`ASKED`] says whether every question that stands has the owner's answer to its
 //! latest version: [`ANSWERED`] where each has, or none stands, [`WAITING`] while one has not. The engine writes it
@@ -34,9 +33,9 @@ pub const ASKED: &str = "asked";
 pub const WAITING: &str = "waiting";
 /// The value of an [`ASKED`] block while every question that stands has the owner's answer to its latest version.
 pub const ANSWERED: &str = "answered";
-/// The texts of a record of the questions and the answers that the engine fills, one for each kind of entry and each
-/// part of one: an answer, `text` with `why`; a question asked, `asked`, or asked anew, `asked_anew`, with `option`,
-/// `recommends`, and `waits` or `goes_on`; a question withdrawn, `withdrawn`, with `why`.
+/// The texts of a cell's questions that the engine fills, one for each kind of version and each part of one: an
+/// answer, `text`; a question asked, `asked`, or asked anew, `asked_anew`, with `option`, `recommends`, and `waits` or
+/// `goes_on`; a question withdrawn, `withdrawn`, with `why`.
 pub const ENTRIES: [&str; 9] = [
     "text",
     "why",
@@ -49,17 +48,36 @@ pub const ENTRIES: [&str; 9] = [
     "withdrawn",
 ];
 
-/// Records each of these questions, asked, asked anew or withdrawn, as a version of it of the cell, brought by the
-/// run's return, or by the engine at the end of the run's round; each at a place of its own, in the order given, and
-/// each written as an entry of the record its answer is said in ([`records`]), in the words of the record's file.
+/// The cell's own questions: the block among its outputs that the engine's source of answers writes, which the cell
+/// watches; none where the flow has no such cell or it may not ask.
+pub fn questions_of<'f>(flow: &'f Compiled, cell: &CellId) -> Option<&'f BlockId> {
+    own(flow, cell, flow::ANSWER)
+}
+
+/// The block among the outputs of the cell of this id that this source of the engine's writes: a cell's own questions
+/// or its own words.
+pub(crate) fn own<'f>(flow: &'f Compiled, cell: &CellId, source: &str) -> Option<&'f BlockId> {
+    let i = flow.flow.place(cell)?;
+    (flow.flow.cells()[i].outputs.iter())
+        .find(|b| flow.blocks.get(*b).and_then(|d| d.writers.outside.as_deref()) == Some(source))
+}
+
+/// Records each of these questions, asked, asked anew or withdrawn, as a version of it, brought by the run's return,
+/// of the run's cell, or by the engine at the end of the run's round, of the cell the flow names for what it asks;
+/// each at a place of its own, in the order given, and each also written, as changing nothing, as a version of that
+/// cell's questions in the words of their file.
 pub(crate) fn record(flow: &Compiled, work: &mut Work, run: RunId, cell: &CellId, engine: bool, asked: &[Question]) {
+    let cell = match (engine, &flow.engine_asks_in) {
+        (true, Some(named)) => named,
+        _ => cell,
+    };
     for question in asked {
         // The version it replaces, or withdraws: its latest before this one.
         let was = (work.records.questions.iter().rev())
             .find(|q| q.name == question.name())
             .map(|q| q.at);
         let at = work.tick();
-        let version = Questioned {
+        work.records.questions.push(Questioned {
             name: question.name().to_string(),
             cell: cell.clone(),
             run,
@@ -67,43 +85,19 @@ pub(crate) fn record(flow: &Compiled, work: &mut Work, run: RunId, cell: &CellId
             waits: matches!(question, Question::Asked { waits: true, .. }),
             withdrawn: matches!(question, Question::Withdrawn { .. }),
             at,
-        };
-        // Kept first, so that each entry has a place after it.
-        let to = answering(flow, &version);
-        work.records.questions.push(version);
-        for block in records(flow, &to) {
-            let content = entry(&flow.blocks[&block].writes, question, at, was);
-            write(work, &block, content);
+        });
+        if let Some(block) = questions_of(flow, cell) {
+            let content = entry(&flow.blocks[block].writes, question, at, was);
+            write(work, block, content, false);
         }
     }
 }
 
-/// The records of the work's questions and the owner's answers the cell's agent reads for its trigger of an answer,
-/// which the engine's source of answers writes ([`flow::Trigger::records`]); none where it has no such trigger.
-fn records(flow: &Compiled, cell: &CellId) -> Vec<BlockId> {
-    let Some(spec) = flow.cells.iter().find(|spec| spec.id == *cell) else {
-        return Vec::new();
-    };
-    let mut out: Vec<BlockId> = Vec::new();
-    for trigger in spec
-        .triggers
-        .iter()
-        .filter(|t| t.of_source(flow, flow::ANSWER).is_some())
-    {
-        for block in trigger.records(flow, flow::ANSWER) {
-            if !out.contains(block) {
-                out.push(block.clone());
-            }
-        }
-    }
-    out
-}
-
-/// A version of a question as an entry of the record, in the words of its `writes`: asked, `asked`, or asked anew in
-/// place of the version `was`, `asked_anew`, each with `{question}` its name, `{version}` this version, `{ask}` what it
-/// asks, `{options}` each option as `option` says it, `{recommends}` as `recommends` says it where it recommends one,
-/// and `{waits}` as `waits` says it where its cell waits for the answer, else as `goes_on` does; withdrawn, `withdrawn`,
-/// with `{was}` the version withdrawn and `{why}` why, as `why` says it.
+/// A version of a question as a version of the cell's questions, in the words of their `writes`: asked, `asked`, or
+/// asked anew in place of the version `was`, `asked_anew`, each with `{question}` its name, `{version}` this version,
+/// `{ask}` what it asks, `{options}` each option as `option` says it, `{recommends}` as `recommends` says it where it
+/// recommends one, and `{waits}` as `waits` says it where its cell waits for the answer, else as `goes_on` does;
+/// withdrawn, `withdrawn`, with `{was}` the version withdrawn and `{why}` why, as `why` says it.
 fn entry(writes: &flow::Texts, question: &Question, version: Seq, was: Option<Seq>) -> String {
     let text = |name: &str| writes.get(name).unwrap_or_default();
     let version = version.0.to_string();
@@ -157,15 +151,16 @@ fn entry(writes: &flow::Texts, question: &Question, version: Seq, was: Option<Se
     }
 }
 
-/// Writes a version of the block with this content, as the engine's source of answers.
-fn write(work: &mut Work, block: &BlockId, content: String) {
+/// Writes a version of the block with this content, as the engine's source of answers, changing the block's meaning
+/// or not.
+fn write(work: &mut Work, block: &BlockId, content: String, matters: bool) {
     let at = work.tick();
     let empty = decide::holds_nothing(None, &content);
     work.contents.insert((block.clone(), at), content);
     work.records.written.push(Written {
         block: block.clone(),
         by: Outsider::Outside,
-        matters: true,
+        matters,
         value: None,
         empty,
         said_to: None,
@@ -173,17 +168,15 @@ fn write(work: &mut Work, block: &BlockId, content: String) {
     });
 }
 
-/// Takes the owner's answer to the version of the question: kept, and, where it is to the question's latest version,
-/// said in the words of the data the answering cell's agent reads for its trigger of an answer ([`said`]), and, where
-/// it takes another option than the one the work goes by, the cell's block of that trigger written; or why it cannot be
-/// one.
+/// Takes the owner's answer to the version of the question: kept, and written as the next version of the questions
+/// of the cell whose question it is, in the words of their file, changing their meaning where it answers the question
+/// as last asked with another option than the one the work goes by; or why it cannot be one.
 pub(crate) fn answer(
     flow: &Compiled,
     work: &mut Work,
     question: String,
     version: decide::Seq,
     option: u64,
-    why: Option<String>,
 ) -> Result<(), Refused> {
     let r = &work.records;
     if !r.questions.iter().any(|q| q.name == question) {
@@ -211,44 +204,26 @@ pub(crate) fn answer(
         },
         _ => None,
     };
-    let cell = answering(flow, asked);
+    let cell = asked.cell.clone();
     let at = work.tick();
     work.records.answers.push(Answered {
         question: question.clone(),
         version,
         option,
-        why: why.clone(),
+        why: None,
         at,
     });
-    if latest {
+    if let Some(block) = questions_of(flow, &cell) {
         let answered = Said {
             question: &question,
             version,
             option,
             way: &way,
-            why: why.as_deref(),
         };
-        said(flow, work, &cell, &answered, goes_by != Some(option));
+        let content = answered.words(&flow.blocks[block].writes);
+        write(work, block, content, latest && goes_by != Some(option));
     }
     Ok(())
-}
-
-/// The cell an answer to this version is said to, and the owner's words about it: the asking cell, for a question a
-/// run asked; for one the engine asked, the last cell of the walk that has a trigger of an answer, and the asking cell
-/// where none has.
-pub(crate) fn answering(flow: &Compiled, asked: &Questioned) -> CellId {
-    if !asked.engine {
-        return asked.cell.clone();
-    }
-    (flow.cells.iter().rev())
-        .find(|spec| (spec.triggers.iter()).any(|t| answer_block(flow, &t.block)))
-        .map_or(&asked.cell, |spec| &spec.id)
-        .clone()
-}
-
-/// Whether the block is one the engine writes as the owner answers, a trigger's of an answer.
-fn answer_block(flow: &Compiled, block: &decide::BlockId) -> bool {
-    flow.blocks.get(block).and_then(|b| b.writers.outside.as_deref()) == Some(flow::ANSWER)
 }
 
 /// An answer, as the words that say it are filled.
@@ -257,18 +232,12 @@ struct Said<'a> {
     version: decide::Seq,
     option: u64,
     way: &'a Way,
-    why: Option<&'a str>,
 }
 
 impl Said<'_> {
     /// The words of the block's `writes` for an answer, `text`, with `{question}` the question's name, `{version}` the
-    /// version answered, `{option}` the option's number, `{does}` and `{follows}` the option's, and `{why}` the reason
-    /// as `why` says it where the owner gave one, else nothing.
+    /// version answered, `{option}` the option's number, and `{does}` and `{follows}` the option's.
     fn words(&self, writes: &flow::Texts) -> String {
-        let why = match self.why {
-            Some(why) => fill(writes.get("why").unwrap_or_default(), &[("why", why)]),
-            None => String::new(),
-        };
         let (version, option) = (self.version.0.to_string(), self.option.to_string());
         let places = [
             ("question", self.question),
@@ -276,27 +245,8 @@ impl Said<'_> {
             ("option", option.as_str()),
             ("does", self.way.does.as_str()),
             ("follows", self.way.follows.as_str()),
-            ("why", why.as_str()),
         ];
         fill(writes.get("text").unwrap_or_default(), &places)
-    }
-}
-
-/// Says the answer where the answering cell has a trigger of an answer: as an entry, in its words, of each record of
-/// questions and answers its agent reads for the trigger ([`records`]); and, where the answer `turns` to the cell, as
-/// a new version of the trigger's own block, which runs the cell and no other, in that block's words.
-fn said(flow: &Compiled, work: &mut Work, cell: &CellId, answered: &Said, turns: bool) {
-    for block in records(flow, cell) {
-        let content = answered.words(&flow.blocks[&block].writes);
-        write(work, &block, content);
-    }
-    let Some(spec) = flow.cells.iter().find(|spec| spec.id == *cell) else {
-        return;
-    };
-    let trigger = spec.triggers.iter().find(|t| answer_block(flow, &t.block));
-    if let (Some(trigger), true) = (trigger, turns) {
-        let content = answered.words(&flow.blocks[&trigger.block].writes);
-        write(work, &trigger.block, content);
     }
 }
 

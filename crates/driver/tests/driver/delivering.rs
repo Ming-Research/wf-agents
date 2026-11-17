@@ -20,6 +20,7 @@ fn engineer() -> Compiled {
         sources: names(&[
             "answer",
             "asked",
+            "guide",
             "words",
             DEPENDENCIES,
             "main",
@@ -32,7 +33,6 @@ fn engineer() -> Compiled {
         // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
         // place the engine fills with what changed of the tree.
         tools: names(&["query", "run_tests"]),
-        details: names(&["files"]),
         ..Default::default()
     };
     flow::compile(&source, &has).expect("the engineer's flow compiles")

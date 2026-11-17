@@ -30,11 +30,11 @@ async fn every_call_of_a_line_is_given_the_form_of_that_line_as_the_files_beside
         "the build may ask for `query`: {engineer}"
     );
     assert!(
-        engineer.contains("\"q_and_a\""),
+        engineer.contains("\"build_questions\""),
         "the build may ask the owner: {engineer}"
     );
     assert!(
-        !reviewer.contains("\"q_and_a\""),
+        !reviewer.contains("_questions\""),
         "the review may not ask the owner: {reviewer}"
     );
     assert_ne!(engineer, reviewer);
@@ -63,7 +63,7 @@ async fn every_call_of_a_session_is_given_the_form_and_the_system_prompt_it_bega
     real.restart();
     let after = real.form("engineer");
     assert_ne!(after, before, "the change reaches a form made anew");
-    real.answer(work, "By their first name.");
+    real.answer(work);
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
     let session: Vec<(usize, &Call)> = (calls.iter().enumerate())

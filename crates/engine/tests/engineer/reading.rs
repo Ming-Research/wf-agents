@@ -24,8 +24,9 @@ pub struct Version {
     /// The place of the entry that wrote it, which names it.
     pub at: Seq,
     pub by: Writer,
-    /// The version at which what the block says last changed: this one, or an earlier one.
-    pub meaning: Seq,
+    /// The version at which what the block says last changed: this one, or an earlier one; none where the block has
+    /// said nothing yet, as of a first version handed in as changing nothing.
+    pub meaning: Option<Seq>,
     pub value: Option<String>,
     /// Whether it holds nothing.
     pub empty: bool,
@@ -34,7 +35,7 @@ pub struct Version {
 impl Version {
     /// Whether this write changed what the block says.
     pub fn changed_meaning(&self) -> bool {
-        self.meaning == self.at
+        self.meaning == Some(self.at)
     }
 }
 
@@ -51,11 +52,12 @@ pub struct Reading<'a> {
 
 impl<'a> Reading<'a> {
     /// The reading of the entries placed before `before`, or of all of them. The meaning of each version follows
-    /// decision meaning-told-by-the-writer: the first version of a block has its own. A version that has a value, or
-    /// follows one that has, is a choice: it changes the meaning when its value differs from the one before, and only
-    /// then. A person's prose always changes the meaning; what the outside writes does when it matters; a run's write
-    /// does when the run says so, and when it says not, it is taken at its word only if the version it started from has
-    /// the meaning of the version it writes over.
+    /// decision meaning-told-by-the-writer: a version that has a value, or follows one that has, is a choice: it
+    /// changes the meaning when its value differs from the one before, and only then, the first version of a choice
+    /// having its own. A person's prose always changes the meaning; what the outside writes does when it matters; a
+    /// run's write does when the run says so, and when it says not, it is taken at its word only if the version it
+    /// started from has the meaning of the version it writes over. A first version the outside or a run hands in as
+    /// changing nothing says nothing, and is new to no cell (design document `data-and-context`, 9).
     pub fn new(flow: &'a Flow, records: &'a Records, before: Option<Seq>) -> Self {
         let counts = |at: Seq| before.is_none_or(|b| at < b);
         let started: BTreeMap<RunId, &Started> = (records.started.iter())
@@ -102,23 +104,25 @@ impl<'a> Reading<'a> {
         let mut versions: BTreeMap<BlockId, Vec<Version>> = BTreeMap::new();
         for e in entries {
             let of_block = versions.entry(e.block.clone()).or_default();
+            let own = Some(e.at);
             let meaning = match of_block.last() {
-                None => e.at,
+                None if e.value.is_none() && e.by != Writer::Person && !e.matters => None,
+                None => own,
                 Some(over) if e.value.is_some() || over.value.is_some() => {
                     if e.value == over.value {
                         over.meaning
                     } else {
-                        e.at
+                        own
                     }
                 }
                 Some(over) => match &e.by {
-                    Writer::Person => e.at,
-                    _ if e.matters => e.at,
+                    Writer::Person => own,
+                    _ if e.matters => own,
                     Writer::Outside => over.meaning,
                     Writer::Run(run) => {
                         let from = started[run].basis.get(e.block).copied().flatten();
                         let seen = (from.and_then(|v| of_block.iter().find(|x| x.at == v))).map(|x| x.meaning);
-                        if seen == Some(over.meaning) { over.meaning } else { e.at }
+                        if seen == Some(over.meaning) { over.meaning } else { own }
                     }
                 },
             };
@@ -183,13 +187,27 @@ impl<'a> Reading<'a> {
     }
 
     /// The versions of the block new to the cell (design document `data-and-context`, 6, 9, 10): after the latest
-    /// version a run of the cell was told of and dealt with, changing what the block says, and not written by the
-    /// cell itself.
+    /// version a run of the cell was told of and dealt with, changing what the block says, not written by the cell
+    /// itself, and no judge's point the owner ruled on (39).
     pub fn new_to(&self, cell: &CellId, block: &BlockId) -> Vec<&Version> {
         let consumed = self.dealt_with(cell, block).into_iter().max();
         (self.of(block).iter())
             .filter(|v| Some(v.at) > consumed && v.changed_meaning() && self.cell_of(v) != Some(cell))
+            .filter(|v| !self.ruled(block, v))
             .collect()
+    }
+
+    /// Whether this version of the block is a judge's point in its dialogue that the owner ruled on: a person wrote the
+    /// judge's verdict after it, as the flow pairs the verdict with the dialogue (design document `data-and-context`,
+    /// 39).
+    fn ruled(&self, block: &BlockId, v: &Version) -> bool {
+        (self.flow.cells().iter()).any(|judge| {
+            (judge.verdicts.iter()).any(|(verdict, of)| {
+                &of.dialogue == block
+                    && self.cell_of(v) == Some(&judge.id)
+                    && (self.of(verdict).iter()).any(|w| w.by == Writer::Person && w.at > v.at)
+            })
+        })
     }
 
     /// Of each run of the cell that finished dealing with the block, the latest version of it the run was told of: the

@@ -94,7 +94,7 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
     assert!(shown.contains("\n  V1: done, its record being run "), "{shown}");
     assert!(shown.contains("\n  delivered: 1 version, the latest "), "{shown}");
     assert!(
-        shown.contains("\n  background: 1 version, the latest 22 characters, by a person\n"),
+        shown.contains("\n  background: 1 version, the latest 22 characters, by the owner\n"),
         "{shown}"
     );
 }

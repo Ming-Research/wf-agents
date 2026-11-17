@@ -12,9 +12,15 @@ use decide::{BlockId, Seq};
 use engine::{Ask, Came, Event, Fill, Why};
 use support::{Sim, carry, changed};
 
-/// What ran a round, as it is told last: each of these triggers.
-fn ran_by(triggers: &[&str]) -> String {
-    let each: String = triggers.iter().map(|t| format!("\n- `{t}`")).collect();
+/// What ran a round, as it is told last: each datum it watches that is new to it, with the version the cell last
+/// consumed where it consumed one, and the latest (design document `data-and-context`, 11).
+fn ran_by(new: &[(&str, Option<u64>, u64)]) -> String {
+    let each: String = (new.iter())
+        .map(|(datum, last, latest)| match last {
+            Some(last) => format!("\n- `{datum}`, new since version {last}, now version {latest}"),
+            None => format!("\n- `{datum}`, version {latest}"),
+        })
+        .collect();
     format!("## Why you are run\n{each}\n\nName in `dealt_with` each of these you have dealt with.")
 }
 
@@ -65,10 +71,10 @@ fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_it
     let outputs = returns(&["- `plan`: "]);
     let expected = message(&[
         "# Plan".to_string(),
-        format!("## `request`, version {request}\n\nGreet the user."),
+        format!("## `request`, version {request}, written by the owner\n\nGreet the user."),
         outputs.clone(),
         "Write the plan for the request.".to_string(),
-        ran_by(&["request"]),
+        ran_by(&[("request", None, request)]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(
@@ -96,11 +102,11 @@ fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_a_line_
     let expected = message(&[
         format!("Kept: `plan` {plan}"),
         "# Build".to_string(),
-        format!("## `plan`, version {plan}, in this session already"),
-        format!("## `request`, version {request}, in this session already"),
+        format!("## `request`, version {request}, written by the owner, in this session already"),
+        format!("## `plan`, version {plan}, written on the line `engineer`, in this session already"),
         outputs.clone(),
         "Build what the plan says.".to_string(),
-        ran_by(&["plan"]),
+        ran_by(&[("plan", None, plan)]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(
@@ -125,14 +131,17 @@ fn a_cell_of_another_line_is_sent_whole_what_its_session_lacks() {
     ]);
     let expected = message(&[
         "# Review".to_string(),
-        format!("## `code`, version {code}\n\n{}", CODE.trim_end()),
-        format!("## `plan`, version {plan}\n\nGreet by name."),
+        format!("## `plan`, version {plan}, written on the line `engineer`\n\nGreet by name."),
+        format!(
+            "## `code`, version {code}, written on the line `engineer`\n\n{}",
+            CODE.trim_end()
+        ),
         outputs.clone(),
         "Review the code.".to_string(),
-        ran_by(&["code"]),
+        ran_by(&[("code", None, code)]),
     ]);
     assert_eq!(entered.text, expected);
-    assert_eq!(entered.fills[..2], [whole("code", code), whole("plan", plan)]);
+    assert_eq!(entered.fills[..2], [whole("plan", plan), whole("code", code)]);
 }
 
 #[test]
@@ -144,9 +153,9 @@ fn a_cell_entered_again_is_sent_what_is_new_and_its_task_by_its_held_line() {
     let expected = message(&[
         format!("Kept: `code` {code}"),
         "# Plan".to_string(),
-        format!("## `opinions`, version {opinions}\n\nName the error."),
+        format!("## `opinions`, version {opinions}, written on the line `reviewer`\n\nName the error."),
         "As given before in this session.".to_string(),
-        ran_by(&["opinions"]),
+        ran_by(&[("opinions", None, opinions)]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(entered.fills, [whole("opinions", opinions)]);
@@ -163,9 +172,11 @@ fn a_datum_the_session_holds_that_is_new_to_the_cell_is_sent_its_held_line() {
     let expected = message(&[
         format!("Kept: `plan` {plan}"),
         "# Build".to_string(),
-        format!("## `plan`, version {plan}, in this session already; last worked from {first}"),
+        format!(
+            "## `plan`, version {plan}, written on the line `engineer`, in this session already; last worked from {first}"
+        ),
         "As given before in this session.".to_string(),
-        ran_by(&["plan"]),
+        ran_by(&[("plan", Some(first), plan)]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(entered.fills, []);
@@ -204,12 +215,14 @@ fn a_datum_given_latest_is_sent_whole_where_the_session_lacks_it_and_its_held_li
     };
     assert_eq!(
         sent(&lacking),
-        Some(format!("## `request`, version {request}\n\nGreet the user by name."))
+        Some(format!(
+            "## `request`, version {request}, written by the owner\n\nGreet the user by name."
+        ))
     );
     assert_eq!(
         sent(&holding),
         Some(format!(
-            "## `request`, version {request}, in this session already; last worked from {first}"
+            "## `request`, version {request}, written by the owner, in this session already; last worked from {first}"
         ))
     );
     assert_ne!(lacking.text, holding.text);
@@ -231,24 +244,24 @@ fn what_changed_since_the_version_the_session_holds_is_sent_as_a_change_that_reb
     let diff = entered.run.data[&BlockId::from("code")].diff.clone().expect("a change");
     assert_eq!(context::diff::apply(CODE, &diff).as_deref(), Some(changed.as_str()));
     let fills = [
+        whole("plan", plan),
+        whole("notes", notes[0].0),
+        whole("notes", notes[1].0),
         Fill::Change {
             block: BlockId::from("code"),
             version: code,
             since: first,
         },
-        whole("plan", plan),
-        whole("notes", notes[0].0),
-        whole("notes", notes[1].0),
     ];
     assert_eq!(entered.fills, fills);
     let text = &entered.text;
     let change = format!(
-        "## `code`, what changed from version {} to version {}\n\n{diff}",
+        "## `code`, what changed from version {} to version {}, written on the line `engineer`\n\n{diff}",
         first.0, code.0
     );
     assert!(text.contains(&change), "{text}");
     let notes = format!(
-        "## `notes`, version {}\n\nfirst\n\n## `notes`, version {}\n\nsecond\n\n",
+        "## `notes`, version {}, written by the owner\n\nfirst\n\n## `notes`, version {}, written by the owner\n\nsecond\n\n",
         notes[0].0, notes[1].0
     );
     assert!(text.contains(&notes), "{text}");
@@ -266,7 +279,7 @@ fn a_session_reopened_is_filled_from_the_top_and_holds_no_return() {
             _ => None,
         })
         .collect();
-    assert_eq!(blocks, ["request", "opinions", "plan"]);
+    assert_eq!(blocks, ["plan", "request", "opinions"]);
     assert!(
         entered
             .fills
@@ -477,6 +490,10 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
     let plan = sim.enter(&round, false);
     let first = sim.version("tree");
     assert!(plan.fills.contains(&whole("tree", first)), "{:?}", plan.fills);
+    // A session that has read none of the tree is told so (design document `data-and-context`, 23).
+    let unread = format!("## `tree`, version {first}, written by the owner: this session has read none of it\n\nc1 t1");
+    assert!(plan.text.contains(&unread), "{}", plan.text);
+    assert_eq!(plan.situation.data["tree"], Stands::Unread);
     sim.tries(&round, 1, plan.fills);
     // The tree changes while the plan's round is under way, as where it takes main in, so that the build is entered on
     // its new version.
@@ -488,7 +505,8 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
     // The build worked from no version of the tree, and its session read the first: what changed since is the files the
     // carrier says, whatever their length.
     let files = changed(Seq(first), Seq(latest));
-    let change = format!("## `tree`, what changed from version {first} to version {latest}\n\n{files}");
+    let change =
+        format!("## `tree`, what changed from version {first} to version {latest}, written by the owner\n\n{files}");
     assert!(entered.text.contains(&change), "{}", entered.text);
     let fill = Fill::Change {
         block: BlockId::from("tree"),
@@ -496,13 +514,50 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
         since: Seq(first),
     };
     assert!(entered.fills.contains(&fill), "{:?}", entered.fills);
-    // Where the session lacks every version, the latest is sent as any datum's.
+    // Where the session lacks every version, the latest is sent whole, saying the session has read none of it.
     let anew = sim.enter(&round, true);
-    assert!(
-        anew.text.contains(&format!("## `tree`, version {latest}\n\nc2 t2")),
-        "{}",
-        anew.text
-    );
+    let unread =
+        format!("## `tree`, version {latest}, written by the owner: this session has read none of it\n\nc2 t2");
+    assert!(anew.text.contains(&unread), "{}", anew.text);
+}
+
+// A cell brings what it writes up to date, and so needs the latest version of each of its outputs, whoever wrote it:
+// where its session lacks one, as a session begun anew does, it is filled in, as `latest` gives it, after the data the
+// cell reads and watches (design document `data-and-context`, 14, 21).
+#[test]
+fn a_round_whose_session_lacks_the_latest_of_what_its_cell_writes_is_given_it_after_its_data() {
+    let mut sim = reviewed();
+    carry(&mut sim, &[("plan", "Greet by name, and say why.", None)]);
+    carry(&mut sim, &[("code", CODE, None)]);
+    sim.anew("reviewer", Why::Owner);
+    let round = sim.round().expect("the review is entered again");
+    assert_eq!(sim.cell(&round).id.as_str(), "review");
+    let entered = sim.enter(&round, false);
+    let data: Vec<Fill> = (entered.fills.iter())
+        .filter(|f| matches!(f, Fill::Whole { .. }))
+        .cloned()
+        .collect();
+    let (plan, code) = (sim.version("plan"), sim.version("code"));
+    let (opinions, verdict) = (sim.version("opinions"), sim.version("verdict"));
+    let expected = vec![
+        whole("plan", plan),
+        whole("code", code),
+        whole("opinions", opinions),
+        whole("verdict", verdict),
+    ];
+    assert_eq!(data, expected);
+    let heading = format!("## `opinions`, version {opinions}, written on the line `reviewer`\n\nName the error.");
+    assert!(entered.text.contains(&heading), "{}", entered.text);
+    // Entered again in the session that holds them, it is sent none of them.
+    let mut sim = reviewed();
+    carry(&mut sim, &[("plan", "Greet by name, and say why.", None)]);
+    carry(&mut sim, &[("code", CODE, None)]);
+    let round = sim.round().expect("the review is entered again");
+    let entered = sim.enter(&round, false);
+    let outputs =
+        |f: &Fill| matches!(f, Fill::Whole { block, .. } if ["opinions", "verdict"].contains(&block.as_str()));
+    assert!(!entered.fills.iter().any(outputs), "{:?}", entered.fills);
+    assert!(!entered.text.contains("## `opinions`"), "{}", entered.text);
 }
 
 #[test]
@@ -554,14 +609,14 @@ fn a_return_that_would_write_over_a_version_it_never_saw_is_sent_back_with_that_
     let put_in = (sim.work.records.put_in.iter()).any(|p| p.run == round.run && p.version.0 == over);
     assert!(put_in, "the version is put into the round");
     let entered = sim.enter(&round, false);
-    // The review is not given the verdict: the version is given with why the return was sent back, and filled, the
-    // version put into the round not being held by its session for that.
-    let sent_back = format!(
-        "## Sent back\n\n- `verdict` has version {over} since.\n\n## `verdict`, version {over}, with the value `yes`\n\n\
-         yes\n\nReturn again."
-    );
+    // The review writes the verdict and reads it not: the version is given as the latest of what it writes, its session
+    // lacking it (the version put into the round not being held by its session for that), and why the return was sent
+    // back says it, and gives it no second time.
+    let given = format!("## `verdict`, version {over}, with the value `yes`, written by the owner\n\nyes");
+    assert!(entered.text.contains(&given), "{}", entered.text);
+    let sent_back = format!("## Sent back\n\n- `verdict` has version {over} since.\n\nReturn again.");
     assert!(entered.text.contains(&sent_back), "{}", entered.text);
-    assert_eq!(entered.fills, [Fill::SentBack { round: 2 }, whole("verdict", over)]);
+    assert_eq!(entered.fills, [whole("verdict", over), Fill::SentBack { round: 2 }]);
 }
 
 #[test]
@@ -634,7 +689,7 @@ fn a_version_that_says_what_an_earlier_one_said_is_new_and_sent_and_no_repeat() 
 }
 
 #[test]
-fn a_setting_the_task_a_trigger_s_words_or_a_block_s_words_name_is_sent_with_its_value_beside_it() {
+fn a_setting_the_task_what_a_cell_does_for_a_datum_or_a_block_s_words_name_is_sent_with_its_value_beside_it() {
     let mut sim = Sim::new();
     let language = |key: &str| (key == "owner.language").then(|| "Chinese".to_string());
     sim.named = flow::system::Settings::of(&sim.words.project, &sim.words.installation, language);
@@ -644,15 +699,19 @@ fn a_setting_the_task_a_trigger_s_words_or_a_block_s_words_name_is_sent_with_its
         .find(|c| c.id.as_str() == "build")
         .expect("the build");
     build.task = Some("Build what the plan says, in `owner.language`.".to_string());
-    build.triggers[0].does = Some("Say why in `owner.language`.".to_string());
+    build.watches[0].does = Some("Say why in `owner.language`.".to_string());
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     let round = sim.round().expect("the build is entered");
     let entered = sim.enter(&round, false);
+    let plan = format!(
+        "- `plan`, version {}: Say why in `owner.language` (Chinese).",
+        sim.version("plan")
+    );
     for line in [
         "- `code`: The code, its comments in `owner.language` (Chinese).",
         "Build what the plan says, in `owner.language` (Chinese).",
-        "- `plan`: Say why in `owner.language` (Chinese).",
+        plan.as_str(),
     ] {
         assert!(entered.text.contains(line), "{line} is not in:\n{}", entered.text);
     }
@@ -667,4 +726,176 @@ fn a_setting_the_task_a_trigger_s_words_or_a_block_s_words_name_is_sent_with_its
         as_written(&task.pieces),
         "Build what the plan says, in `owner.language`."
     );
+}
+
+/// A guide of the project's, with the rule of this line.
+fn guide(rule: &str) -> String {
+    let mut lines: Vec<String> = (1..=12).map(|n| format!("Rule {n}.")).collect();
+    lines[5] = rule.to_string();
+    format!("{}\n", lines.join("\n"))
+}
+
+// The project's guide is data a cell watches (design document `data-and-context`, 24): a session holds the version its
+// system prompt began with, so a cell's first round is told the guide is new to it, with what it does for it, and is
+// sent only the line that the session holds it; once it changes, the round is told the version it last worked from and
+// the latest, and sent what changed between them.
+#[test]
+fn the_guide_is_held_from_the_session_s_start_and_what_changed_in_it_is_sent() {
+    let mut sim = Sim::of(support::guided(), support::guided_words());
+    sim.wrote("guide", &guide("Write in English."), None, Outsider::Outside);
+    let round = sim.round().expect("the plan is entered");
+    let first = sim.version("guide");
+    let entered = sim.enter(&round, false);
+    let new = format!("\n- `guide`, version {first}: Work under it.");
+    assert!(entered.text.contains(&new), "{}", entered.text);
+    let held = format!("## `guide`, version {first}, in this session already");
+    assert!(entered.text.contains(&held), "{}", entered.text);
+    assert!(!entered.text.contains("Write in English."), "{}", entered.text);
+    assert_eq!(entered.situation.data["guide"], Stands::HoldsNew);
+    assert!(!entered.fills.contains(&whole("guide", first)), "{:?}", entered.fills);
+    sim.tries(&round, 1, entered.fills);
+    sim.hands_in(&round, &[("plan", "Greet by name.", None)]);
+    // The guide changes, and runs the plan again, after the build of its line under way, in the session that began
+    // with its first version.
+    sim.wrote("guide", &guide("Write in plain English."), None, Outsider::Outside);
+    let latest = sim.version("guide");
+    let round = loop {
+        let round = sim.round().expect("a round is given");
+        if sim.cell(&round).id.as_str() == "plan" {
+            break round;
+        }
+        carry(&mut sim, &[("code", CODE, None)]);
+    };
+    let entered = sim.enter(&round, false);
+    let new = format!("\n- `guide`, new since version {first}, now version {latest}: Work under it.");
+    assert!(entered.text.contains(&new), "{}", entered.text);
+    let changed = format!("## `guide`, what changed from version {first} to version {latest}\n\n");
+    assert!(entered.text.contains(&changed), "{}", entered.text);
+    assert!(entered.text.contains("Write in plain English."), "{}", entered.text);
+    let change = Fill::Change {
+        block: BlockId::from("guide"),
+        version: Seq(latest),
+        since: Seq(first),
+    };
+    assert!(entered.fills.contains(&change), "{:?}", entered.fills);
+}
+
+// What is read of the branch as a round takes main in is written from outside and put into that round: no round's
+// (decision a-version-read-at-a-rounds-end-is-that-rounds), so that a round given it is told it by no line, as any
+// other version the outside wrote.
+#[test]
+fn a_version_put_into_a_round_from_outside_is_told_by_no_line() {
+    let mut sim = Sim::of(support::branched(), support::words());
+    sim.writes("request", "Greet the user.");
+    let round = sim.round().expect("the plan is entered");
+    let entered = sim.enter(&round, false);
+    sim.tries(&round, 1, entered.fills);
+    sim.take(Event::WroteForRound {
+        run: round.run,
+        block: "branch".into(),
+        content: "Keep it short.".to_string(),
+    });
+    let put = sim.version("branch");
+    assert!(
+        (sim.work.records.put_in.iter()).any(|p| p.run == round.run && p.version.0 == put),
+        "the version is put into the round"
+    );
+    // The request, written again while the round is under way, runs the plan again once it ends; its next round, in a
+    // session that holds nothing, is given the version whole, by no line.
+    sim.writes("request", "Greet the user by name.");
+    sim.hands_in(&round, &[("plan", "Greet by name.", None)]);
+    let first = round.run;
+    let round = sim.round().expect("the plan is entered again, for the request");
+    assert_eq!(sim.cell(&round).id.as_str(), "plan");
+    assert_ne!(round.run, first);
+    let entered = sim.enter(&round, true);
+    let given = format!("## `branch`, version {put}\n\nKeep it short.");
+    assert!(entered.text.contains(&given), "{}", entered.text);
+}
+
+/// A maker and its judge on one line, the judge's verdict read by the test the flow's last cell requires, so that the
+/// judge's points are its dialogue with the maker, and the owner may rule in the judge's place.
+fn judged() -> flow::Compiled {
+    let flow = "name = \"judged\"\norder = [\"make\", \"judge\", \"close\"]\n\n[limits]\nruns = 1000\nreturns = 1000\n\
+                calls = 1000\n\n[lines.one]\n\n[blocks.request]\npeople = true\n\n[blocks.work]\n\n[blocks.talk]\n\n\
+                [blocks.ok]\nvalues = [\"yes\", \"no\"]\npeople = true\n\n[tests.settled]\n\
+                says = \"The judge is content\"\nkind = \"none_standing\"\nreads = [\"ok\"]\nis = \"no\"\n";
+    let cell = |task: &str, rest: &str| {
+        format!("title = \"{task}\"\nkind = \"agent\"\neffort = \"high\"\nline = \"one\"\ntask = \"{task}\"\n{rest}")
+    };
+    let cells = [
+        (
+            "make",
+            cell(
+                "Make it.",
+                "watches = [\"request\", \"talk\"]\noutputs = [\"work\", \"talk\"]\n\n[kinds]\nrequest = \"latest\"\ntalk = \"all\"\n",
+            ),
+        ),
+        (
+            "judge",
+            cell(
+                "Judge it.",
+                "watches = [\"work\", \"talk\"]\noutputs = [\"talk\", \"ok\"]\n\n[kinds]\nwork = \"latest\"\ntalk = \"all\"\n",
+            ),
+        ),
+        (
+            "close",
+            cell(
+                "Close it.",
+                "requires = { test = \"settled\" }\nwatches = [\"work\"]\noutputs = []\n\n[kinds]\nwork = \"latest\"\n",
+            ),
+        ),
+    ];
+    let source = flow::Source {
+        flow: flow.to_string(),
+        cells: cells.into_iter().map(|(id, text)| (id.to_string(), text)).collect(),
+        ..Default::default()
+    };
+    flow::compile(&source, &flow::Has::default()).expect("the judged flow compiles")
+}
+
+// The owner's ruling in a judge's place (design document `data-and-context`, 39): the points the judge wrote before it
+// are new to no cell, in what a round is given as in what runs it. The maker, run again by a new request after the
+// owner ruled on the judge's second point, holds that point in its session and last worked from the first: the point
+// is no change to it.
+#[test]
+fn a_judge_s_point_the_owner_ruled_on_is_held_as_no_change_to_its_maker() {
+    let mut sim = Sim::of(judged(), support::words());
+    let next = |sim: &mut Sim, cell: &str, blocks: &[(&str, &str, Option<&str>)]| {
+        let round = sim.round().expect("a round is given");
+        assert_eq!(sim.cell(&round).id.as_str(), cell);
+        let entered = sim.enter(&round, sim.begins(&round));
+        sim.tries(&round, 1, entered.fills);
+        sim.hands_in(&round, blocks);
+    };
+    sim.writes("request", "Greet the user.");
+    next(&mut sim, "make", &[("work", "Hello.", None)]);
+    next(
+        &mut sim,
+        "judge",
+        &[("ok", "", Some("no")), ("talk", "Name the user.", None)],
+    );
+    next(&mut sim, "make", &[("work", "Hello, Ann.", None)]);
+    // The owner pauses the work while the judge judges again, so that its point runs nothing before the owner rules.
+    let round = sim.round().expect("the judge is entered again");
+    assert_eq!(sim.cell(&round).id.as_str(), "judge");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    sim.take(Event::Paused {
+        by: decide::Pauser::Owner,
+        why: None,
+    });
+    sim.hands_in(&round, &[("ok", "", Some("no")), ("talk", "Greet warmly.", None)]);
+    sim.wrote("ok", "", Some("yes"), Outsider::Person);
+    sim.writes("request", "Greet the user warmly.");
+    sim.take(Event::Resumed);
+    let round = loop {
+        let round = sim.round().expect("a round is given");
+        if sim.cell(&round).id.as_str() == "make" {
+            break round;
+        }
+        carry(&mut sim, &[]);
+    };
+    let entered = sim.enter(&round, sim.begins(&round));
+    assert_eq!(entered.situation.data["talk"], Stands::Holds, "{}", entered.text);
 }

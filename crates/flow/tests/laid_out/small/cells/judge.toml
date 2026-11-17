@@ -4,8 +4,7 @@ kind = "agent"
 effort = "high"
 line = "review"
 task = "Judge the plan, and say whether it needs a design."
-triggered_by = ["on_plan"]
-context = ["plan"]
+watches = ["plan"]
 outputs = ["needs_design", "opinions"]
 
 [kinds]

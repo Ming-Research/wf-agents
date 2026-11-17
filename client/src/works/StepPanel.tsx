@@ -271,10 +271,12 @@ function RoundPart({ run, round, reader, shown }: { run: Run; round: Round; read
 }
 
 /// What the engine made of a version a run wrote: whether it changed the block's meaning. A choice changes it when its
-/// value does, whatever the run said; prose, when the run said the change matters.
+/// value does, whatever the run said; prose, when the run said the change matters. A first version handed in as
+/// changing nothing has no meaning: the block has said nothing yet.
 function MeaningWord({ page, block, at }: { page: WorkPage; block: string; at: number }) {
   const version = page.blocks.find((b) => b.name === block)?.versions.find((v) => v.at === at);
   if (!version) return null;
+  if (version.meaning === null) return <span className="muted">said nothing yet</span>;
   return version.meaning === version.at ? (
     <span className="changed-word">changed its meaning</span>
   ) : (
@@ -301,12 +303,7 @@ export function RunPanel({ run, page, reader, fold }: PanelProps & { run: Run })
             began {clock(run.time)}, {isOpen(state) ? 'open for' : 'took'}{' '}
             {duration(runTook(run, now))}
           </StatusLine>
-          <StatusLine word="Took">{spentWords(run.spent)}</StatusLine>
-          {wayRound && (
-            <StatusLine tone="back" word="Way round">
-              each of its reasons is a block a cell after it changed
-            </StatusLine>
-          )}
+          <StatusLine word="Took" dot={false}>{spentWords(run.spent)}</StatusLine>
         </>
       }
       {...fold}
@@ -400,7 +397,7 @@ export function readersWords(flow: Flow, block: string): string {
   return parts.length > 0 ? parts.join('; ') : 'No cell reads it';
 }
 
-/// A write by a person, the outside or a run, as a step of its own.
+/// A write a return did not hand in, by the owner, a cell's question or the outside, as a step of its own.
 export function WritePanel({ step, page, reader, fold }: PanelProps & { step: Step & { kind: 'wrote' } }) {
   const version = page.blocks.find((b) => b.name === step.block)?.versions.find((v) => v.at === step.at);
   return (
@@ -411,13 +408,17 @@ export function WritePanel({ step, page, reader, fold }: PanelProps & { step: St
       belongs={`written by ${writerWords(step.by)}`}
       lines={
         <>
-          <StatusLine tone={step.changed ? 'changed' : 'quiet'} word={step.changed ? 'Changed its meaning' : 'Same meaning'}>
-            {step.changed
-              ? 'the cells that read it run again for it'
-              : version
-                ? `as at @${version.meaning}`
-                : undefined}
-          </StatusLine>
+          {version && version.meaning === null ? (
+            <StatusLine word="Said nothing yet" />
+          ) : (
+            <StatusLine tone={step.changed ? 'changed' : 'quiet'} word={step.changed ? 'Changed its meaning' : 'Same meaning'}>
+              {step.changed
+                ? 'the cells that read it run again for it'
+                : version && version.meaning !== null
+                  ? `as at @${version.meaning}`
+                  : undefined}
+            </StatusLine>
+          )}
           <StatusLine word="Written">
             {fullTime(step.time)}, {chars(step.chars)}
           </StatusLine>
@@ -583,9 +584,13 @@ function BlockVersions({ block, reader }: { block: Block; reader: Reader }) {
               {clock(v.time)}
             </span>
             {v.value !== null && <span className="mono">= {v.value}</span>}
-            <span className={v.meaning === v.at ? 'changed-word' : 'muted'}>
-              {v.meaning === v.at ? 'changed the meaning' : `same meaning as @${v.meaning}`}
-            </span>
+            {v.meaning === null ? (
+              <span className="muted">said nothing yet</span>
+            ) : (
+              <span className={v.meaning === v.at ? 'changed-word' : 'muted'}>
+                {v.meaning === v.at ? 'changed the meaning' : `same meaning as @${v.meaning}`}
+              </span>
+            )}
             <span className="muted small">{chars(v.chars)}</span>
             <Opener label="content" load={() => reader.version(block.name, v.at)} />
           </ListRow>

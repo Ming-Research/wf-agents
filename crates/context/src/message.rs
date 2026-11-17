@@ -3,7 +3,7 @@
 //! gives it in. The code holds no word an agent is sent, only how the words are put together.
 //!
 //! What is sent depends on the situation the entry is in ([`Situation`]): which of the parts the session keeps it
-//! holds, whether the last return in it handed in blocks, which triggers ran the cell, and how the session stands with
+//! holds, whether the last return in it handed in blocks, what the cell watches that is new to it, and how the session stands with
 //! each datum. The context manager works the situation out from the records (`crate::manager`); the page picks one.
 //! The places a run fills ([`Values`]) are filled by the engine, and left open for the page, so that what the page
 //! shows for a situation is what the engine sends in it.
@@ -14,7 +14,7 @@ use decide::run::Unmet;
 use decide::{BlockId, CallId, Seq};
 use flow::agents::{Agents, GivenKind, MessagePart, Only, Part};
 use flow::system::Settings;
-use flow::{CellSpec, Compiled, InputKind};
+use flow::{CellSpec, Compiled, Given, InputKind, Kind, Listed};
 use serde::{Deserialize, Serialize};
 
 use crate::text::{self, Piece, fill, filled, join, put, with_slots, written};
@@ -36,6 +36,9 @@ pub enum Stands {
     /// The session holds its latest version, and nothing of it is new to the cell since it last worked from it: nothing
     /// is sent of it.
     Holds,
+    /// The session holds no version of a datum whose versions the carrier compares itself, as the design tree, given
+    /// `last_and_latest`: its latest is sent whole, saying so (design document `data-and-context`, 23).
+    Unread,
 }
 
 impl Stands {
@@ -48,6 +51,7 @@ impl Stands {
             Stands::HoldsLatest => "holds_latest",
             Stands::HoldsNew => "holds_new",
             Stands::Holds => "holds",
+            Stands::Unread => "unread",
         }
     }
 }
@@ -60,8 +64,8 @@ pub struct Situation {
     pub holds: Vec<String>,
     /// The last return in the session handed in blocks.
     pub after_hand_in: bool,
-    /// The triggers that ran the cell and are new to it, by name.
-    pub triggers: Vec<String>,
+    /// What the cell watches that ran it, new to it, each datum or group by its name.
+    pub new: Vec<String>,
     /// How the session stands with each datum of the cell's context, by name; one not named, as with
     /// [`Stands::Lacks`].
     pub data: BTreeMap<String, Stands>,
@@ -75,9 +79,9 @@ pub struct Situation {
     pub sent_back: bool,
 }
 
-/// What fills the places of a message filled in a run. Either way, each setting that the cell's task, what a trigger
-/// says the cell does for it, or the words of what the cell returns name is given with the value beside its name, as
-/// the system prompt gives a setting.
+/// What fills the places of a message filled in a run. Either way, each setting that the cell's task, what the cell
+/// does when a datum it watches is new, or the words of what the cell returns name is given with the value beside its
+/// name, as the system prompt gives a setting.
 #[derive(Clone, Copy, Debug)]
 pub enum Values<'a> {
     /// Each place is left open, as the page shows it, and each setting given as these settings give it.
@@ -102,9 +106,9 @@ pub struct Run {
     pub named: Settings,
     /// Each datum of the cell's context that has a version, by its name.
     pub data: BTreeMap<BlockId, Datum>,
-    /// What happened, by the place a trigger's detail names; a place the engine has no value for is left out with its
-    /// detail.
-    pub details: BTreeMap<String, String>,
+    /// Of each datum or group the cell watches that is new to it, by its name, the version the cell last consumed and
+    /// the latest (design document `data-and-context`, 11).
+    pub new: BTreeMap<String, NewVersions>,
     /// The calls whose results the round is given, in the order they were made.
     pub results: Vec<Result>,
     /// Why what the rounds of the run returned was sent back, each with the number of an earlier round, or none for
@@ -128,6 +132,15 @@ pub struct Datum {
     pub versions: Vec<Version>,
 }
 
+/// The versions a round is told of a datum or group new to it: of a group, its blocks' latest of each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NewVersions {
+    /// The version the cell last consumed; none where it consumed none.
+    pub last: Option<Seq>,
+    /// The latest version.
+    pub latest: Seq,
+}
+
 /// A version of a datum.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Version {
@@ -135,6 +148,19 @@ pub struct Version {
     /// Its value, where the datum is a choice.
     pub value: Option<String>,
     pub content: String,
+    /// Who wrote it, as the round is told it.
+    pub by: By,
+}
+
+/// Who wrote a version, as a round is told it (design document `data-and-context`, 29): the line of the cell whose run
+/// wrote it, or the owner; nobody where an act of the engine wrote it, or the outside with no round. A round is never
+/// told the cell.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum By {
+    Line(String),
+    Owner,
+    #[default]
+    Nobody,
 }
 
 /// What came of taking main in as a run started, where the work's branch did not hold it already: `name` is the main
@@ -257,10 +283,35 @@ pub struct Defined {
     pub held_new: Vec<Piece>,
     /// Of a datum, what is sent in place of its text where the session lacks what the text needs.
     pub whole: Vec<Piece>,
-    /// Of the triggers, the line of each trigger of the cell, by its name, in the cell's order: the lines of those that
-    /// ran it come after `pieces`, and then `after`.
+    /// Of what is new to the cell, the line of each datum or group it watches, by its name, in the cell's order: the
+    /// lines of those new to it come after `pieces`, and then `after`.
     pub items: Vec<(String, Vec<Piece>)>,
     pub after: Vec<Piece>,
+}
+
+/// What a round of the cell is given, in the order the `context` part names (design document `data-and-context`, 14,
+/// 15, 21): each datum the definition gives it, by where it gives it, each list in its own order; and, under
+/// `outputs`, each block an agent's cell writes that nothing else gives it, as `latest`, so that the cell brings its
+/// outputs up to date from their latest versions, whoever wrote them. Such a block is sent only where the session lacks
+/// its latest version.
+pub fn given(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Given> {
+    let mut given = cell.given.clone();
+    if cell.kind == Kind::Agent {
+        let place = flow.flow.place(&cell.id);
+        for block in place.map_or(&[][..], |p| &flow.flow.cells()[p].outputs[..]) {
+            if !given.iter().any(|g| &g.block == block) {
+                given.push(Given {
+                    block: block.clone(),
+                    kind: InputKind::Latest,
+                    list: Listed::Outputs,
+                });
+            }
+        }
+    }
+    let context = words.message.parts.iter().find(|p| p.part == Part::Context);
+    let order = context.and_then(|p| p.order.as_deref()).unwrap_or_default();
+    given.sort_by_key(|g| order.iter().position(|l| *l == g.list));
+    given
 }
 
 /// The message as the files define it for the cell: each part, each datum of its context a part of its own.
@@ -290,16 +341,19 @@ pub fn defined(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Defined>
         };
         match part.part {
             Part::Context => {
-                for given in &cell.given {
+                for given in &self::given(flow, words, cell) {
                     let datum = build.datum(&given.block, given.kind);
+                    // What the cell writes and is given by nothing else is sent only where the session lacks it.
+                    let output = given.list == Listed::Outputs;
+                    let held_as = |held: Vec<Piece>| if output { Vec::new() } else { held };
                     out.push(Defined {
                         part: part.part,
                         block: Some(given.block.clone()),
                         kind: Some(given.kind),
                         only: None,
                         pieces: datum.text,
-                        held: datum.held,
-                        held_new: datum.held_new,
+                        held: held_as(datum.held),
+                        held_new: held_as(datum.held_new),
                         whole: datum.whole,
                         items: Vec::new(),
                         after: Vec::new(),
@@ -329,9 +383,9 @@ pub fn defined(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Defined>
                     ..made(build.results_heading())
                 });
             }
-            Part::Triggers => {
-                let items = (cell.triggers.iter())
-                    .map(|t| (t.name.clone(), build.trigger(part, t)))
+            Part::New => {
+                let items = (cell.watches.iter())
+                    .map(|w| (w.name.clone(), build.watched(part, w)))
                     .collect();
                 out.push(Defined {
                     items,
@@ -378,7 +432,7 @@ pub fn message(
         }
         match part.part {
             Part::Context => {
-                for given in &cell.given {
+                for given in &self::given(flow, words, cell) {
                     let name = given.block.as_str();
                     let stands = situation.data.get(name).copied().unwrap_or(Stands::Lacks);
                     if let Some((form, pieces)) = build.datum_as(&given.block, given.kind, stands) {
@@ -391,16 +445,16 @@ pub fn message(
                     }
                 }
             }
-            Part::Triggers => {
-                let ran: Vec<_> = (cell.triggers.iter())
-                    .filter(|t| situation.triggers.contains(&t.name))
+            Part::New => {
+                let new: Vec<_> = (cell.watches.iter())
+                    .filter(|w| situation.new.contains(&w.name))
                     .collect();
-                if ran.is_empty() {
+                if new.is_empty() {
                     continue;
                 }
                 let mut pieces = build.own(part);
-                for trigger in ran {
-                    pieces.extend(build.trigger(part, trigger));
+                for watched in new {
+                    pieces.extend(build.watched(part, watched));
                 }
                 pieces.extend(part.after.as_deref().map_or_else(Vec::new, with_slots));
                 out.push(sent(part, Form::Text, join(pieces)));
@@ -458,6 +512,7 @@ struct DatumForms {
     held: Vec<Piece>,
     held_new: Vec<Piece>,
     whole: Vec<Piece>,
+    unread: Vec<Piece>,
 }
 
 struct Build<'a> {
@@ -539,7 +594,7 @@ impl Build<'_> {
             Part::Outputs => self.outputs(),
             Part::Results => self.results(),
             Part::SentBack => self.sent_back(),
-            Part::Heading | Part::Task | Part::Context | Part::Triggers => own,
+            Part::Heading | Part::Task | Part::Context | Part::New => own,
         })
     }
 
@@ -760,10 +815,10 @@ impl Build<'_> {
             let ticked: Vec<String> = values.into_iter().flatten().map(|v| format!("`{v}`")).collect();
             ticked.join(&words.between)
         };
-        // What the return dealt with is named by the cell's trigger that stands on the block, or on a group of it.
-        let trigger = |block: &BlockId| {
-            let named = (self.cell.triggers.iter()).find(|t| &t.block == block || t.blocks().contains(block));
-            named.map_or_else(|| block.to_string(), |t| t.name.clone())
+        // What the return dealt with is named as the cell watches it: the datum, or a group it is of.
+        let watched = |block: &BlockId| {
+            let named = (self.cell.watches.iter()).find(|w| w.name == block.as_str() || w.blocks.contains(block));
+            named.map_or_else(|| block.to_string(), |w| w.name.clone())
         };
         let block = |block: &BlockId| ("block", block.to_string());
         let (text, places): (&str, Vec<(&str, String)>) = match unmet {
@@ -778,15 +833,15 @@ impl Build<'_> {
             Unmet::NotAChoice { block: b } => (&f.not_a_choice, vec![block(b)]),
             Unmet::NotHandedIn { block: b } => (&f.not_handed_in, vec![block(b)]),
             Unmet::Unreadable { why } => (&f.unreadable, vec![("why", why.clone())]),
-            Unmet::NotRunBy { block: b } => (&f.not_run_by, vec![("name", trigger(b))]),
-            Unmet::DealtWithTwice { block: b } => (&f.dealt_with_twice, vec![("name", trigger(b))]),
+            Unmet::NotRunBy { block: b } => (&f.not_run_by, vec![("name", watched(b))]),
+            Unmet::DealtWithTwice { block: b } => (&f.dealt_with_twice, vec![("name", watched(b))]),
             Unmet::DealtWithNothing => (&f.dealt_with_nothing, vec![]),
             Unmet::WrittenOver { block: b, version } => {
                 (&f.written_over, vec![block(b), ("version", version.0.to_string())])
             }
             Unmet::ChoiceChanged { block: b } => (&f.choice_changed, vec![block(b)]),
             Unmet::AsksAndWorks => (&f.asks_and_works, vec![]),
-            Unmet::NotATrigger { name } => (&f.not_a_trigger, vec![("name", name.clone())]),
+            Unmet::NotWatched { name } => (&f.not_watched, vec![("name", name.clone())]),
             Unmet::NotATool { name } => (&f.not_a_tool, vec![("name", name.clone())]),
             Unmet::UnchangedNotWritten { block: b } => (&f.unchanged_not_written, vec![block(b)]),
             Unmet::QuestionTaken { name } => (&f.question_taken, vec![("name", name.clone())]),
@@ -798,32 +853,52 @@ impl Build<'_> {
             Unmet::Unexplained { path } => (&f.unexplained, vec![("path", path.clone())]),
             Unmet::NotATest { path } => (&f.not_a_test, vec![("path", path.clone())]),
             Unmet::Unanswered { block } => (&f.unanswered, vec![("block", block.to_string())]),
+            Unmet::WordOwed { name, watched } => {
+                let ticked: Vec<String> = watched.iter().map(|b| format!("`{b}`")).collect();
+                let watched = ticked.join(&words.between);
+                (&f.word_owed, vec![("name", name.to_string()), ("watched", watched)])
+            }
+            Unmet::NoPoint { block: b, value, name } => (
+                &f.no_point,
+                vec![block(b), ("value", value.clone()), ("name", name.to_string())],
+            ),
         };
         let places: Vec<(&str, &str)> = places.iter().map(|(name, value)| (*name, value.as_str())).collect();
         text::as_written(&fill(text.trim_end(), &places))
     }
 
-    /// The line of a trigger: its `each`, with what happened where the trigger has a place for it and the engine a
-    /// value, and what the cell does where it says.
-    fn trigger(&self, part: &MessagePart, trigger: &flow::Trigger) -> Vec<Piece> {
+    /// The line of a datum or group the cell watches, new to it: its `each`, with its versions, the one the cell last
+    /// consumed, where it consumed one, and the latest (design document `data-and-context`, 11), and what the cell
+    /// does where it says. The page is shown the versions as one place left open, which a run fills with the words of
+    /// either.
+    fn watched(&self, part: &MessagePart, watched: &flow::Watched) -> Vec<Piece> {
         let each = with_slots(part.each.as_deref().unwrap_or_default());
-        let detail = match (&trigger.detail, &part.detail) {
-            (Some(place), Some(detail)) => match self.run() {
-                None => put(with_slots(detail), "detail", &[Piece::Slot { name: place.clone() }]),
-                Some(run) => match run.details.get(place) {
-                    Some(value) => fill(detail, &[("detail", value)]),
-                    None => Vec::new(),
-                },
+        let words = |text: &Option<String>| text.as_deref().unwrap_or_default().to_string();
+        let versions = match self.run() {
+            None => vec![Piece::Slot {
+                name: "versions".to_string(),
+            }],
+            Some(run) => match run.new.get(&watched.name) {
+                Some(NewVersions {
+                    last: Some(last),
+                    latest,
+                }) => fill(
+                    &words(&part.since),
+                    &[("last", &last.0.to_string()), ("latest", &latest.0.to_string())],
+                ),
+                Some(NewVersions { last: None, latest }) => {
+                    fill(&words(&part.first), &[("latest", &latest.0.to_string())])
+                }
+                None => Vec::new(),
             },
-            _ => Vec::new(),
         };
         // The words of what the cell does are sent as they are: nothing in them is filled.
-        let does = match (&trigger.does, &part.does) {
+        let does = match (&watched.does, &part.does) {
             (Some(words), Some(does)) => put(with_slots(does), "do", &written(&self.named(words.trim()))),
             _ => Vec::new(),
         };
-        let line = put(put(each, "detail", &detail), "do", &does);
-        filled(line, &[("trigger", &trigger.name)])
+        let line = put(put(each, "versions", &versions), "do", &does);
+        filled(line, &[("datum", &watched.name)])
     }
 
     /// The forms of a datum's content as `given.toml` words them for its kind, the places of a run open or filled.
@@ -841,10 +916,13 @@ impl Build<'_> {
             (_, Some(datum)) => self.filled_by(form(&words.text), datum, &datum.latest),
             (_, None) => form(&words.text),
         };
-        let whole = (words.whole.as_deref()).map_or_else(Vec::new, |whole| match datum {
-            Some(datum) => self.filled_by(form(whole), datum, &datum.latest),
-            None => form(whole),
-        });
+        let whole_of = |text: Option<&str>| {
+            text.map_or_else(Vec::new, |whole| match datum {
+                Some(datum) => self.filled_by(form(whole), datum, &datum.latest),
+                None => form(whole),
+            })
+        };
+        let (whole, unread) = (whole_of(words.whole.as_deref()), whole_of(words.unread.as_deref()));
         let held_as = |text: &str| match datum {
             Some(datum) => self.filled_by(form(text), datum, &datum.latest),
             None => form(text),
@@ -854,6 +932,7 @@ impl Build<'_> {
             held: held_as(&given.held),
             held_new: held_as(&given.held_new),
             whole,
+            unread,
         }
     }
 
@@ -866,6 +945,9 @@ impl Build<'_> {
             Stands::HoldsLatest => Some((Form::Held, forms.held)),
             Stands::HoldsNew => Some((Form::Held, forms.held_new)),
             Stands::Lacks if whole => Some((Form::Whole, forms.whole)),
+            Stands::Unread if !forms.unread.is_empty() => Some((Form::Whole, forms.unread)),
+            Stands::Unread if whole => Some((Form::Whole, forms.whole)),
+            Stands::Unread => Some((Form::Text, forms.text)),
             Stands::Lacks | Stands::HoldsLast => Some((Form::Text, forms.text)),
         }
     }
@@ -884,7 +966,14 @@ impl Build<'_> {
     fn filled_by(&self, pieces: Vec<Piece>, datum: &Datum, version: &Version) -> Vec<Piece> {
         let number = version.number.0.to_string();
         let last = datum.last.map(|l| l.0.to_string()).unwrap_or_default();
+        let given = &self.words.given;
+        let by = match &version.by {
+            By::Line(line) => given.by_line.replace("{line}", line),
+            By::Owner => given.by_owner.clone(),
+            By::Nobody => String::new(),
+        };
         let places = [
+            ("by", by.as_str()),
             ("number", number.as_str()),
             ("last_number", last.as_str()),
             ("first_number", number.as_str()),

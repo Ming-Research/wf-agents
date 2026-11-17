@@ -41,8 +41,12 @@ fn small() -> Compiled {
         effort = "high"
         line = "main"
         task = "Write the text the request asks for."
-        inputs = ["request", "opinions"]
+        watches = ["request", "opinions"]
         outputs = ["text"]
+
+        [kinds]
+        request = "last_and_latest"
+        opinions = "last_and_latest"
     "#;
     let judge = r#"
         title = "Judge"
@@ -50,15 +54,18 @@ fn small() -> Compiled {
         effort = "high"
         line = "other"
         task = "Judge the text."
-        inputs = ["text"]
+        watches = ["text"]
         outputs = ["opinions", "content"]
+
+        [kinds]
+        text = "last_and_latest"
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
         requires = { test = "may_merge" }
-        inputs = ["text"]
+        watches = ["text"]
         outputs = ["merged"]
     "#;
     let cells = [("write", write), ("judge", judge), ("merge", merge)];

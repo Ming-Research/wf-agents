@@ -52,11 +52,11 @@ struct Drawn {
     waits: bool,
 }
 
-/// The triggers of `write` that run its round: what people asked for, and the owner's words where the owner spoke.
+/// What `write` watches that runs its round: what people asked for, and its words where the owner spoke.
 fn ran(spoken: bool) -> Vec<(&'static str, &'static str)> {
-    let mut ran = vec![("on_request", "request")];
+    let mut ran = vec![("request", "request")];
     if spoken {
-        ran.push(("on_spoken", "write_spoken_to"));
+        ran.push(("write_words", "write_words"));
     }
     ran
 }
@@ -146,21 +146,21 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
             }
         }
         if clean && dealt_with.is_empty() && !waits {
-            names.push("on_request");
+            names.push("request");
             dealt_with.push("request".into());
         }
         if !clean {
             if rng.chance(10) {
                 names.push("on_nothing");
-                faults.push(Unmet::NotATrigger {
+                faults.push(Unmet::NotWatched {
                     name: "on_nothing".to_string(),
                 });
             }
             if !spoken && rng.chance(10) {
-                names.push("on_spoken");
-                dealt_with.push("write_spoken_to".into());
+                names.push("write_words");
+                dealt_with.push("write_words".into());
                 faults.push(Unmet::NotRunBy {
-                    block: "write_spoken_to".into(),
+                    block: "write_words".into(),
                 });
             }
             let first = ran(spoken).into_iter().find(|(name, _)| names.contains(name));
@@ -247,25 +247,25 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
             unchanged.push("plan");
             faults.push(Unmet::UnchangedNotWritten { block: "plan".into() });
         }
-        // A cell's answer to the owner is a block it writes, the record of what is said, which its run makes its entry
-        // of the record as it finishes. A return that deals with the owner's words answers them there.
-        let speaks = names.contains(&"on_spoken");
+        // A cell's answer to the owner is a block it writes, its own words, which its run makes its answer in the words
+        // of their file as it finishes. A return that deals with the owner's words answers them there.
+        let speaks = names.contains(&"write_words");
         if (speaks && (clean || rng.chance(80))) || rng.chance(20) {
-            outputs.insert("discussion".into(), json!("By first name."));
+            outputs.insert("write_words".into(), json!("By first name."));
             writes.push((
-                "discussion".into(),
+                "write_words".into(),
                 "An agent:\n\nBy first name.".to_string(),
                 None,
                 false,
             ));
         } else if speaks {
             faults.push(Unmet::NotAnswered {
-                name: "on_spoken".to_string(),
+                name: "write_words".to_string(),
             });
         }
         // The work's questions are a block it writes, which the engine keeps as questions of their own.
         if !questions.is_empty() {
-            outputs.insert("q_and_a".into(), Value::Array(questions));
+            outputs.insert("write_questions".into(), Value::Array(questions));
         }
         outcome.insert("outputs".into(), Value::Object(outputs));
         if !unchanged.is_empty() {
@@ -321,10 +321,10 @@ fn entered(flow: &Compiled, spoken: bool) -> (Work, RunId) {
         effects.extend(handle(flow, &mut work, Time(0), event).expect("the loop takes it"));
     }
     if spoken {
-        // The owner's words, as the engine writes them as the owner speaks to the cell: the block of its trigger.
+        // The owner's words, as the engine writes them as the owner speaks to the cell: a version of its words.
         let at = work.tick();
         work.records.written.push(Written {
-            block: "write_spoken_to".into(),
+            block: "write_words".into(),
             by: Outsider::Outside,
             matters: true,
             value: None,

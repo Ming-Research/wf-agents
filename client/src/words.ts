@@ -2,6 +2,7 @@
 // the flow's files write them (principle definitions-shown-as-written), and faults in a sentence each.
 
 import type { Block, Cell, Condition, Fault, Flow, InputKind, Line, Test } from './api';
+import { type EveryRow, kindOf, namesItself } from './matrix';
 
 /// A name or a value as the files write it: a key of the interface in the files' own spelling.
 export function snake(name: string): string {
@@ -78,9 +79,15 @@ export function faultWords(fault: Fault): string {
       return `The cell ${w.cell} has a file but is not named in the order.`;
     case 'twice':
       // At the field `tools` itself, a cell names tools of its own where the flow already gives them to every agent cell.
-      return fault.field === 'tools'
-        ? `The cell names ${w.name} of its own, and the flow already gives its agent cells theirs.`
+      if (fault.field === 'tools') {
+        return `The cell names ${w.name} of its own, and the flow already gives its agent cells theirs.`;
+      }
+      // A name read that the cell watches already, in its own file or in what every agent cell takes.
+      return fault.field.startsWith('reads[') || fault.field.startsWith('every_agent.reads[')
+        ? `${w.name} is watched already, and is given with what is watched.`
         : `${w.name} is named a second time in the same list.`;
+    case 'takenTwice':
+      return `${w.block} is taken by two names, ${w.first} and ${w.also}, which says twice how the cell takes it.`;
     case 'limitOutOfRange':
       return `The limit ${w.value} is not a whole number from 1 to the largest count the engine keeps.`;
     case 'noLine':
@@ -147,44 +154,40 @@ export function faultWords(fault: Fault): string {
       return `The block ${w.block} is not declared in flow.toml.`;
     case 'notAnOutput':
       return `The cell must write ${w.block} every time, but ${w.block} is not among the blocks it may write.`;
-    case 'takenNotRead':
-      return `The cell says how it takes ${w.block}, but ${w.block} is not among the blocks it reads.`;
-    case 'twoForms':
-      return 'Name them one way: inputs, runs_on and given, or triggered_by and context.';
     case 'noSuchData':
       return `The flow names ${w.name} among the engine's own data, but no file of ../data/ defines ${w.name}.`;
     case 'definedTwice':
       return `${w.name} is defined here and again in ${w.also}.`;
-    case 'noSuchTrigger':
-      return `The cell names the trigger ${w.trigger}, which nothing in ../triggers/ defines.`;
-    case 'noSuchDatum':
-      return `The cell names the trigger ${w.trigger}, but the flow has no datum ${w.datum}.`;
-    case 'triggerOnly':
-      return `${w.block} stands only for a trigger and has no content: no cell is given it or writes it.`;
-    case 'notLaidOut':
-      return 'The cell names triggered_by and context, which only a flow laid out one thing to a file has.';
     case 'missingPlaceholder':
       return `This must hold ${w.placeholder}.`;
     case 'asksWithNoAnswer':
       return `The cell writes ${w.block}, the work's questions, but no answer runs it: the owner's answer would run no cell.`;
     case 'asksAndCannotBeSpokenTo':
       return `The cell writes ${w.block}, the work's questions, but the owner's words do not run it: words about its question would reach no cell.`;
-    case 'unknownDetail':
-      return `The engine fills no place named "${w.detail}".`;
-    case 'readNotInContext':
-      return `The trigger ${w.trigger} has the agent read ${w.block}, but ${w.block} is not in the cell's context.`;
-    case 'notATrigger':
-      return `The cell says what it does for ${w.trigger}, but ${w.trigger} is not among its triggers.`;
+    case 'notItsOwn':
+      return `The cell writes ${w.block}, a block of the owner's answers or words that is not its own.`;
+    case 'spokenToAndAsksNothing':
+      return `The cell writes ${w.block}, its words with the owner, but asks the owner nothing.`;
+    case 'verdictOfDialogues':
+      return `The cell hands in ${w.verdict}, its verdict, and judges in ${w.dialogues.join(', ')}, so its points could go in more than one.`;
+    case 'verdictWithoutDialogue':
+      return `The cell hands in ${w.verdict}, its verdict, and judges in no dialogue its points could go in.`;
+    case 'lineDataOfAnother':
+      return `${w.block} is the line ${w.line}'s own, and the cell is not on that line.`;
+    case 'cannotBeAskedIn':
+      return `The engine cannot ask in ${w.cell}: it must be an agent's cell, on a line that may change the work, with words of its own.`;
+    case 'notWatched':
+      return `There is a do for ${w.block}, but ${w.block} is not watched.`;
+    case 'neverNew':
+      return `The cell watches ${w.watched}, but it runs only where ${w.needs}, and each writer of ${w.block} runs only where it cannot: ${w.writers
+        .map(([cell, when]) => `${cell} (${when})`)
+        .join('; ')}; ${w.watched} can never be new to it.`;
     case 'engineIsGiven':
       return `An engine's cell says how it is given ${w.block}, but it has no session.`;
     case 'runByNothing':
       return "Nothing runs this agent's cell, so it would never be entered.";
     case 'noKind':
       return `The cell is given ${w.block}, but does not say its kind.`;
-    case 'saysNothing':
-      return `The table for ${w.block} says nothing.`;
-    case 'notRunOn':
-      return `The cell says why ${w.block} runs it, but ${w.block} is not among what runs it.`;
     case 'notGiven':
       return `The cell says how it is given ${w.block}, but it is not given ${w.block}.`;
     case 'noWriter':
@@ -242,9 +245,52 @@ export function inputKindWords(kind: InputKind | null): string {
   return kind === null ? '' : kind.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 }
 
-/// How a cell is given a block: `given`, and its kind as the cell's file writes it.
-export function givenWords(kind: InputKind | null): string {
-  return kind ? `context ${inputKindWords(kind)}` : 'context';
+/// A kind as the files write it, after what it is the kind of: ` latest`; nothing where there is none.
+function kindAfter(kind: InputKind | null): string {
+  return kind === null ? '' : ` ${inputKindWords(kind)}`;
+}
+
+/// Names a cell takes, each with the kind it is given it in, as a crossing or a row says them: the names, then after a
+/// comma their kind where they share one (`a_questions, all`), else each name with its own (`x latest, y all`).
+function namesWithKinds(cell: Cell, names: string[]): string {
+  const kinds = [...new Set(names.map((n) => kindOf(cell, n)))];
+  if (kinds.length === 1) return `${names.join(', ')}${kinds[0] === null ? '' : `,${kindAfter(kinds[0])}`}`;
+  return names.map((n) => `${n}${kindAfter(kindOf(cell, n))}`).join(', ');
+}
+
+/// What a crossing of a datum's row says, for the pointer's tip and for a reader of the screen, by the cell's keys:
+/// `judge watches plan, last_and_latest`, `T1 reads background, latest`, `R1 watches plan_review, all; outputs
+/// plan_review`. Of a group's row, the group it watches and the blocks of it it writes.
+export function markWords(
+  cell: Cell,
+  name: string,
+  mark: { watch: boolean; read: boolean; write: boolean },
+  group?: string[],
+): string {
+  const parts = [
+    ...(mark.watch ? [`watches ${group ? name : namesWithKinds(cell, [name])}`] : []),
+    ...(mark.read ? [`reads ${namesWithKinds(cell, [name])}`] : []),
+    ...(mark.write ? [`outputs ${group ? group.filter((b) => cell.outputs.includes(b)).join(', ') : name}`] : []),
+  ];
+  return parts.length > 0 ? `${cell.id} ${parts.join('; ')}` : '';
+}
+
+/// What a crossing of a row of `[every_agent]` says, by the cell's keys: what runs the cell of the data the row stands
+/// for, by `[every_agent]` or by its own file, what its own file reads of them, each with its kind, and what it writes.
+export function everyMarkWords(cell: Cell, row: EveryRow): string {
+  const of = (names: string[]) => [...new Set(names.filter((n) => row.blocks.includes(n)))];
+  const watched = (list: string) => of(cell.watches.filter((w) => w.list === list && namesItself(w)).map((w) => w.name));
+  const alike = watched('every_agent');
+  const own = watched('watches');
+  const read = of(cell.reads.flatMap((r) => r.blocks)).filter((b) => !alike.includes(b) && !own.includes(b));
+  const written = of(cell.outputs);
+  const parts = [
+    ...(alike.length > 0 ? [`every_agent watches ${namesWithKinds(cell, alike)}`] : []),
+    ...(own.length > 0 ? [`watches ${namesWithKinds(cell, own)}`] : []),
+    ...(read.length > 0 ? [`reads ${namesWithKinds(cell, read)}`] : []),
+    ...(written.length > 0 ? [`outputs ${written.join(', ')}`] : []),
+  ];
+  return parts.length > 0 ? `${cell.id} ${parts.join('; ')}` : '';
 }
 
 /// Of each cell before the reader that writes a block, what decides whether it is there: the writer's `when`, or that
@@ -262,24 +308,64 @@ export function thereWhen(flow: Flow, reader: string, block: Block): string {
   return parts.join('; ');
 }
 
-/// What a cell's file says of a block, on one line, for the chart's column of words, each by its key: the `triggers`
-/// that stand on it; `context`, its kind and its `why`; `outputs` or `must_write`. Empty where the cell has nothing to
-/// do with the block. Its `when` and its `requires` are said on the rows of the conditions, once.
-export function cellSays(cell: Cell, block: string): string {
+/// What a cell's file says of a datum's row, on one line, for the chart's column of words, each by its key: how it
+/// takes the datum (`watches` by the datum's name or through a group, `reads`, each with its kind), `outputs` or
+/// `must_write`; then, after a colon, what the cell does when the datum is new, on the row of the name its file watches
+/// it by, or else what the datum is, where the cell writes it. Empty where the cell has nothing to do with the datum. Its
+/// `when` and its `requires` are said on the rows of the conditions, once; what `[every_agent]` names has a band of its
+/// own (`everySays`).
+export function cellSays(cell: Cell, block: string, what: string | null = null): string {
   const parts: string[] = [];
-  const input = cell.input[block];
-  for (const trigger of cell.triggers.filter((t) => t.block === block)) {
-    parts.push(`triggered_by ${trigger.name}`);
-  }
-  if (cell.given.includes(block)) {
-    const how = givenWords(input?.given?.kind ?? null);
-    const why = input?.given?.why;
-    parts.push(why ? `${how}: ${why}` : how);
-  }
-  if (cell.outputs.includes(block)) {
-    parts.push(cell.mustWrite.includes(block) ? 'must_write' : 'outputs');
-  }
-  return parts.join('; ');
+  const kind = kindAfter(kindOf(cell, block));
+  const own = cell.watches.filter((w) => w.list === 'watches');
+  const itself = own.find((w) => w.name === block && namesItself(w));
+  const group = own.find((w) => !namesItself(w) && w.blocks.includes(block));
+  const read = cell.reads.find((r) => r.blocks.includes(block));
+  if (itself) parts.push(`watches${kind}`);
+  else if (group) parts.push(`watches ${group.name},${kind}`);
+  else if (read) parts.push(namesItself(read) ? `reads${kind}` : `reads ${read.name},${kind}`);
+  const writes = cell.outputs.includes(block);
+  if (writes) parts.push(cell.mustWrite.includes(block) ? 'must_write' : 'outputs');
+  const said = parts.join('; ');
+  if (itself?.do) return `${said}: ${itself.do}`;
+  return said && writes && what ? `${said}: ${what}` : said;
+}
+
+/// What a cell's file says of a group it watches by its name, for the chart's column of words: `watches` where its
+/// file names the group, `outputs` and the blocks of it the cell writes; then, after a colon, what the cell does when
+/// the group is new.
+export function groupSays(cell: Cell, group: string, blocks: string[]): string {
+  const watched = cell.watches.filter((w) => w.list === 'watches').find((w) => w.name === group);
+  const written = blocks.filter((b) => cell.outputs.includes(b));
+  const said = [...(watched ? ['watches'] : []), ...(written.length > 0 ? [`outputs ${written.join(', ')}`] : [])].join(
+    '; ',
+  );
+  return watched?.do ? `${said}: ${watched.do}` : said;
+}
+
+/// What a cell's file and `[every_agent]` say of a row of `[every_agent]`, for the chart's column of words: what its
+/// own file watches and reads of the data the row stands for, each with its kind, and what it writes of them; then
+/// what it takes of them by `[every_agent]`, by the row's list and kind. What `[every_agent]` says the cell does is said
+/// once, in its panel.
+export function everySays(cell: Cell, row: EveryRow): string {
+  const of = (names: string[]) => [...new Set(names.filter((n) => row.blocks.includes(n)))];
+  const watched = of(cell.watches.filter((w) => w.list === 'watches' && namesItself(w)).map((w) => w.name));
+  const read = of(cell.reads.flatMap((r) => r.blocks)).filter((b) => !watched.includes(b));
+  const written = of(cell.outputs);
+  const alike = row.blocks.some((b) => cell.given.some((g) => g.block === b && g.list === 'every_agent'));
+  return [
+    ...(watched.length > 0 ? [`watches ${namesWithKinds(cell, watched)}`] : []),
+    ...(read.length > 0 ? [`reads ${namesWithKinds(cell, read)}`] : []),
+    ...(written.length > 0 ? [`outputs ${written.join(', ')}`] : []),
+    ...(alike ? [`every_agent ${row.list}${kindAfter(row.kind)}`] : []),
+  ].join('; ');
+}
+
+/// What a row of `[every_agent]` is, for the chart's column of words: its list and its kind as `flow.toml` writes
+/// them, and what its data are.
+export function everyIs(row: EveryRow, what: string | null): string {
+  const said = `every_agent ${row.list}${kindAfter(row.kind)}`;
+  return what ? `${said}: ${what}` : said;
 }
 
 /// Who runs a cell: its line, or the engine.

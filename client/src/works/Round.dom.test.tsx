@@ -121,12 +121,12 @@ const button = (root: ParentNode, words: string) =>
 
 describe("a round's part of a run's panel", () => {
   it('shows what it ran on, what it took and the context it ended with, by their keys', async () => {
-    // The long history's plan: its first round runs in the engineer's first session, which the records count as none,
+    // The long history's plan: its first round runs in the builder's first session, which the records count as none,
     // and asks for two calls.
     const panel = await runPanel(fixtureWork(41), 1, sourceOf());
     const first = roundPart(panel, 1);
     expect(keys(pair(first, 'Ran'))).toEqual([
-      'line engineer',
+      'line builder',
       'session 0',
       'level 2',
       'model claude-sonnet-5-5',
@@ -174,8 +174,8 @@ describe("a round's part of a run's panel", () => {
     expect(source.reads.system).toEqual([]);
     await click(button(first, 'Show system prompt'));
     await click(button(second, 'Show system prompt'));
-    expect(source.reads.system).toEqual(['engineer 0']);
-    const text = fixtureSystem(41, 'engineer', 0).text;
+    expect(source.reads.system).toEqual(['builder 0']);
+    const text = fixtureSystem(41, 'builder', 0).text;
     expect([first, second].map((r) => r.querySelector('pre.content')?.textContent)).toEqual([text, text]);
   });
 

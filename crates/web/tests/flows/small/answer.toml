@@ -5,6 +5,10 @@ line = "engineer"
 task = "Answer the comments on the plan."
 when = { test = "has_comment" }
 requires = { test = "plan_confirmed" }
-inputs = ["comments", "plan"]
+watches = ["comments", "plan"]
 outputs = ["reply"]
 limit = 5
+
+[kinds]
+comments = "last_and_latest"
+plan = "last_and_latest"

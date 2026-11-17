@@ -210,8 +210,8 @@ pub enum Back {
 
 /// What a return says beside the blocks it hands in: its questions, which it writes in the block the engine keeps as
 /// them and which are data of their own once its run finishes (design document `data-and-context`, 26), and its
-/// observations. Its answer to what the owner said to its cell is a block it hands in, the record of what is said; a
-/// return kept before that held it here, and is read without it.
+/// observations. Its answer to what the owner said to its cell is a block it hands in, its cell's own words; a return
+/// kept before that held it here, and is read without it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Said {
     /// What it asks the owner, each question by its name, in the order it wrote them.

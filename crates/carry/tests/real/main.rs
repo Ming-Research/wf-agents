@@ -185,7 +185,7 @@ fn refused_stream() -> String {
             event(json!({ "type": "message_stop" })),
         ]
     };
-    let plan = json!({ "dealt_with": ["request"], "outputs": { "plan": "Greet by name." } }).to_string();
+    let plan = json!({ "dealt_with": ["guide", "request"], "outputs": { "plan": "Greet by name." } }).to_string();
     let mut lines = vec![json!({ "type": "system", "subtype": "init", "session_id": "s" }).to_string()];
     lines.extend(attempt("so-1", r#"{"outcome": "{\"dealt_with\": [], "#));
     lines.extend(attempt("so-2", &json!({ "outcome": plan }).to_string()));
@@ -324,19 +324,52 @@ fn compiled(on: On) -> Compiled {
     if let Some(build) = source.cells.get_mut("build") {
         *build = format!("tools = [\"query\"]\n{build}");
     }
-    // A build the owner's answer runs may ask the owner: the record of the work's questions, which the engine's source
-    // of answers writes, is among its outputs, and the owner's words run it as well, as they run every cell that may ask.
+    // A build of the trial flows may ask the owner: its own questions, which the engine's source of answers writes, are
+    // among its outputs and run it, and so do its own words, as they run every cell that may ask; each in the words the
+    // repository's flows write them in, and of the kind every agent cell of the engineer's flow takes them in, under the
+    // `[kinds]` its file ends with.
     if let Some(build) = source
         .cells
         .get_mut("build")
-        .filter(|build| build.contains("\"answered\"]"))
+        .filter(|build| build.contains("watches = [\"guide\", \"plan\", \"opinions\"]"))
     {
-        *build = (build.replace("\"answered\"]", "\"answered\", \"build_spoken_to\"]"))
-            .replace("outputs = [\"code\"]", "outputs = [\"code\", \"q_and_a\"]");
-        source.flow.push_str(
-            "\n[blocks.q_and_a]\noutside = \"answer\"\nshown = true\n\n[blocks.q_and_a.shape]\ntype = \"array\"\n\n\
-             [blocks.build_spoken_to]\noutside = \"words\"\n",
+        *build = (build.replace(
+            "watches = [\"guide\", \"plan\", \"opinions\"]",
+            "watches = [\"guide\", \"plan\", \"opinions\", \"build_questions\", \"build_words\"]",
+        ))
+        .replace(
+            "outputs = [\"code\"]",
+            "outputs = [\"code\", \"build_questions\", \"build_words\"]",
         );
+        assert!(build.ends_with('\n'), "the build's file ends with a line");
+        build.push_str("build_questions = \"all\"\nbuild_words = \"all\"\n");
+        let own = |file: &str| {
+            let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../flow/data/of_a_cell")
+                .join(file);
+            let text = std::fs::read_to_string(&path).expect("the file of a cell's own datum is read");
+            let mut table: toml::Table = toml::from_str(&text).expect("the file is TOML");
+            table.remove("name");
+            table.remove("what");
+            table.remove("words");
+            table
+        };
+        let mut blocks = toml::Table::new();
+        let mut questions = own("questions.toml");
+        let from = questions.remove("from").expect("its source");
+        questions.insert("outside".to_string(), from);
+        let mut words = own("words.toml");
+        let from = words.remove("from").expect("its source");
+        words.insert("outside".to_string(), from);
+        blocks.insert("build_questions".to_string(), questions.into());
+        blocks.insert("build_words".to_string(), words.into());
+        let mut whole = toml::Table::new();
+        whole.insert("blocks".to_string(), blocks.into());
+        source.flow = (source.flow).replacen("\n[limits]", "\nengine_asks_in = \"build\"\n\n[limits]", 1);
+        source.flow.push('\n');
+        source
+            .flow
+            .push_str(&toml::to_string(&whole).expect("the blocks are TOML"));
     }
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
@@ -345,14 +378,12 @@ fn compiled(on: On) -> Compiled {
             driver::SESSION,
             carry::tree::TREE,
             carry::head::HEAD,
+            carry::guide::GUIDE,
             flow::ANSWER,
             flow::WORDS,
             "main",
         ]),
         acts: names(&["start", "check", "merge", "deliver"]),
-        // The triggers beside the repository's flows are every flow's, and one says what happened by the files of
-        // the tree.
-        details: names(&["files"]),
         tools: names(&["query"]),
         ..Default::default()
     };
@@ -472,11 +503,11 @@ case "$first" in
         checked=no
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
         answered=no
-        awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `answered`' && answered=yes
+        awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `build_questions`' && answered=yes
         if [ "$results" = no ] && [ "$answered" = no ] && [ '{question}' = yes ]; then
             # It leaves all that ran it for after the answer.
             dealt=''
-            out='"q_and_a":[{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
+            out='"build_questions":[{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
         elif [ "$results" = no ] && [ '{then_asks}' = yes ]; then
             built
             calls='"query":[{{"sql":"select the check"}}]'
@@ -651,6 +682,7 @@ fn project(repo: &Path, check: &str) -> Project {
         github: None,
         commits: Default::default(),
         tree: "design/".to_string(),
+        guide: "AGENTS.md".to_string(),
     }
 }
 
@@ -781,14 +813,13 @@ impl Real {
             .map(|(name, q)| (name.to_string(), q.latest.at))
     }
 
-    /// The owner answers the question the work waits for with its first option, saying why.
-    pub fn answer(&mut self, work: WorkNumber, why: &str) {
+    /// The owner answers the question the work waits for with its first option.
+    pub fn answer(&mut self, work: WorkNumber) {
         let (question, version) = self.waited_question(work).expect("the work waits for an answer");
         let act = Act::Answer {
             question,
             version,
             option: 1,
-            why: Some(why.to_string()),
         };
         self.act(work, act);
     }
@@ -824,7 +855,11 @@ impl Real {
 
     /// Adds an item that depends on these items, with a request where its flow has one, paused so that its work begins
     /// once the test lets it on, and makes its work's place where the flow has agents to run in it and no cell that
-    /// makes it.
+    /// makes it. There it stands in for the start's act, which the trial flows have no cell of, so that the tests of
+    /// what the carriers do for its agents need none: as the act does, it reads the project's guide on the work's
+    /// branch and writes it from outside, before any round, so that every session begins with a version the records
+    /// hold, as the engine gives a session its guide only so. That the act itself reads the guide is the tests' of the
+    /// flows that have one (`crate::tree`, `carry`'s branch tests).
     pub async fn add_made_of(&mut self, depends_on: &[ItemNumber]) -> WorkNumber {
         let request = (self.flow.blocks.contains_key(&"request".into())).then(|| FirstWrite {
             block: "request".into(),
@@ -849,9 +884,25 @@ impl Real {
         let agents = (self.flow.cells.iter()).any(|cell| cell.kind == flow::Kind::Agent);
         if !starts && agents {
             let project = self.settings.projects[&self.project].clone();
-            git::start(&project, &self.place(work), &project.main)
+            let place = self.place(work);
+            git::start(&project, &place, &project.main)
                 .await
                 .expect("the work's place is made");
+            let guide =
+                (self.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(carry::guide::GUIDE));
+            if let Some((block, _)) = guide {
+                let text = std::fs::read_to_string(place.dir.join(PROJECT_FILES[0].0)).expect("the guide is read");
+                let event = Event::Wrote {
+                    block: block.clone(),
+                    by: decide::Outsider::Outside,
+                    content: text.trim_end().to_string(),
+                    matters: true,
+                    value: None,
+                };
+                self.service
+                    .take(Message::Happened { work, event })
+                    .expect("the loop takes it");
+            }
         }
         work
     }

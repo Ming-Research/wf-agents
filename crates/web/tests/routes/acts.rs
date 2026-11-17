@@ -38,7 +38,7 @@ async fn each_act_is_taken_as_what_happened_to_the_work() {
         .iter()
         .find(|b| b["name"] == "opinions")
         .unwrap()["versions"];
-    assert_eq!(opinions[0]["by"], json!({ "kind": "person" }));
+    assert_eq!(opinions[0]["by"], json!({ "kind": "owner" }));
 
     assert_eq!(post(router, ACTS, &json!({ "kind": "cancel" })).await, done);
     assert_eq!(

@@ -10,8 +10,8 @@ and those of its look.
 
 ## The flow's view
 
-1. In a cell's panel, what every agent is given alike is shown among the cell's inputs, as one kind of input, and not
-   as a part of its own: an input is of several kinds, and the rules an agent works under are one of them.
+1. In a cell's panel, the rules an agent works under, which every agent is given alike, are shown among the cell's
+   inputs, as one kind of input, and not as a part of its own: an input is of several kinds.
 
 ## A work's page
 

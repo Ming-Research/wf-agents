@@ -1,7 +1,7 @@
 # The small flow of the tests, laid out one thing to a file: the twin of the one support/mod.rs writes as before.
 name = "small"
 order = ["plan", "judge", "design", "answer", "check", "merge"]
-data = ["request"]
+data = ["request", "main"]
 
 [limits]
 runs = 3

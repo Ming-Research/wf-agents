@@ -26,8 +26,8 @@ fn seen(w: &W) -> Vec<(String, Option<String>)> {
 }
 
 /// The work from its start to the review's yes on the implementation's code, which its round committed at the head
-/// `c1`: the research hands in a plan with no deeper look and no change of the tree, and the review asks for no
-/// testing.
+/// `c1`: the research hands in a plan with no deeper look and no change of the tree, both reviews of the plan find
+/// nothing to change, and the review asks for no testing.
 fn reviewed_at_c1() -> W {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
@@ -43,6 +43,8 @@ fn reviewed_at_c1() -> W {
         Vec::new(),
     );
     w.hands_in("R2", &[], Vec::new());
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
     w.commits("I1", &[("code", None), ("evidence", None)], &[("head", "c1")]);
     w.hands_in(
         "T1",
@@ -84,8 +86,8 @@ fn a_return_that_answers_the_check_with_nothing_new_is_sent_back() {
     w.hands_in("M1", &[("checked", Some("no")), ("check", None)], Vec::new());
     let (run, cell) = w.round();
     assert_eq!(cell, "I1");
-    assert_eq!(w.told(run, "I1"), ["on_check"]);
-    let effects = w.returns("I1", &["on_check"], &[("code", None)]);
+    assert_eq!(w.told(run, "I1"), ["check"]);
+    let effects = w.returns("I1", &["check"], &[("code", None)]);
     let unmet = (effects.iter()).find_map(|e| match e {
         Effect::Round {
             run: r,
@@ -197,14 +199,14 @@ fn the_check_waits_for_the_reviews_yes_whatever_main_does() {
 #[test]
 fn the_owners_answer_alone_to_the_checks_question_leads_to_the_merge() {
     let mut w = W::reviewed();
-    // The check finds a change to a protected file the owner has not let merge, and asks the owner.
+    // The check finds a change to a protected file the owner has not let merge, and asks the owner, in the questions of
+    // the implementation, which the flow names for what the engine asks: the work waits there for the answer, the
+    // implementation entered for nothing else meanwhile.
     w.hands_in("M1", &[("checked", Some("no")), ("check", None)], vec![protected()]);
-    // The implementation is told of the failed check, and has nothing to do: what failed is the owner's to decide.
-    w.hands_in("I1", &[], Vec::new());
     let Decision::Wait { at, on } = w.decision() else {
         panic!("the work does not wait for the answer: {:?}", w.decision());
     };
-    assert_eq!(at.as_str(), "M1");
+    assert_eq!(at.as_str(), "I1");
     assert!(
         on.iter().any(|waited| matches!(waited, Waited::Answer { .. })),
         "{on:?}"
@@ -214,12 +216,12 @@ fn the_owners_answer_alone_to_the_checks_question_leads_to_the_merge() {
         .map(|q| q.at)
         .max()
         .expect("the question was asked");
-    // The owner lets the change merge: the implementation is told, and again has nothing to do.
+    // The owner lets the change merge: the implementation is told of the answer and of the failed check, and has nothing
+    // to do: what failed was the owner's to decide.
     w.on(Event::Answer {
         question: "protected_files".to_string(),
         version,
         option: 1,
-        why: None,
     });
     w.hands_in("I1", &[], Vec::new());
     // The answer runs the check again by itself, which passes now, and the merge follows.

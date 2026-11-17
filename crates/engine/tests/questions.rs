@@ -10,10 +10,10 @@
 //!   but for the owner turning to it, by an answer to another question of its written since its last run began;
 //! - the merge never begins while `asked` is `waiting`, nor while any question stands unanswered;
 //! - `asked` says `waiting` exactly while a question stands unanswered, and is otherwise `answered` or never written;
-//! - an answer runs the cell it is said to again, by its block of an answer, exactly where it answers the question's
-//!   latest version with another option than the one the work went by and the cell has a trigger an answer runs: the
-//!   asking cell for a question of an agent's, the last cell of the walk that has such a trigger for one of the
-//!   engine's, whichever round it was asked with; an answer to an earlier version writes nothing.
+//! - an answer is the next version of the questions of the cell whose question it answers: the asking cell for a
+//!   question of an agent's, the cell the flow names for one of the engine's, whichever round it was asked with; it
+//!   changes their meaning, and so runs the cells that watch them, exactly where it answers the question's latest
+//!   version with another option than the one the work went by; an answer to an earlier version changes nothing.
 //!
 //! Once people stop, the work comes to rest within a bound, whatever its agents asked for: a cell entered for an answer
 //! that asks for a tool first is not entered again for the same answer before the tool's result.
@@ -46,13 +46,18 @@ const PEOPLE: usize = 120;
 /// The most steps a history takes once people stop.
 const AFTER: usize = 400;
 
-/// A research that what people ask for and the owner's answers to it run, writing the plan; an implementation that the
-/// plan and the answers to it run, writing the code; a review of the code; and the merge, which requires every
-/// question to be answered.
+/// A research that what people ask for runs, writing the plan; an implementation that the plan runs, writing the code,
+/// in whose questions the engine asks its own; a review of the code; and the merge, which requires every question to
+/// be answered. The research and the implementation each have questions and words of their own, which each watches.
 fn asking() -> Compiled {
-    let flow = r#"
+    let own = |cell: &str| {
+        format!("[blocks.{cell}_questions]\noutside = \"answer\"\n[blocks.{cell}_words]\noutside = \"words\"\n")
+    };
+    let flow = format!(
+        r#"
         name = "asking"
         order = ["research", "implement", "review", "merge"]
+        engine_asks_in = "implement"
         [limits]
         runs = 3
         returns = 2
@@ -60,10 +65,6 @@ fn asking() -> Compiled {
         [lines.main]
         [blocks.request]
         people = true
-        [blocks.research_answered]
-        outside = "answer"
-        [blocks.implement_answered]
-        outside = "answer"
         [blocks.asked]
         values = ["waiting", "answered"]
         default = "answered"
@@ -71,39 +72,57 @@ fn asking() -> Compiled {
         shown = true
         [blocks.asked.writes]
         answered = "Every question has the owner's answer."
-        waiting = "Waits for the owner's answer to {questions}."
+        waiting = "Waits for the owner's answer to {{questions}}."
         between = ", "
         [blocks.plan]
         [blocks.code]
         [blocks.verdict]
         [blocks.merged]
         shown = true
-    "#;
-    let agent = |inputs: &str, outputs: &str| {
+        {}{}"#,
+        own("research"),
+        own("implement")
+    );
+    let agent = |id: &str, watches: &str, outputs: &str, asks: bool| {
+        let (watches, outputs, kinds) = if asks {
+            (
+                format!("{watches}, \"{id}_questions\", \"{id}_words\""),
+                format!("{outputs}, \"{id}_questions\", \"{id}_words\""),
+                format!("{id}_questions = \"all\"\n{id}_words = \"all\"\n"),
+            )
+        } else {
+            (watches.to_string(), outputs.to_string(), String::new())
+        };
+        let watched = watches
+            .split(", ")
+            .next()
+            .unwrap_or_default()
+            .trim_matches('"')
+            .to_string();
         format!(
             "title = \"A cell\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Do the cell's part.\"\n\
-             inputs = [{inputs}]\noutputs = [{outputs}]\n"
+             watches = [{watches}]\noutputs = [{outputs}]\n[kinds]\n{watched} = \"latest\"\n{kinds}"
         )
     };
     let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = { asked = \"answered\" }\n\
-                 inputs = [\"verdict\"]\noutputs = [\"merged\"]\n";
+                 watches = [\"verdict\"]\noutputs = [\"merged\"]\n";
     let cells = [
-        ("research", agent("\"request\", \"research_answered\"", "\"plan\"")),
-        ("implement", agent("\"plan\", \"implement_answered\"", "\"code\"")),
-        ("review", agent("\"code\"", "\"verdict\"")),
+        ("research", agent("research", "\"request\"", "\"plan\"", true)),
+        ("implement", agent("implement", "\"plan\"", "\"code\"", true)),
+        ("review", agent("review", "\"code\"", "\"verdict\"", false)),
         ("merge", merge.to_string()),
     ];
     let source = Source {
-        flow: flow.to_string(),
+        flow,
         cells: cells.into_iter().map(|(id, text)| (id.to_string(), text)).collect(),
         ..Default::default()
     };
     let has = Has {
-        sources: ["answer".to_string(), "asked".to_string()].into(),
+        sources: ["answer", "asked", "words"].map(str::to_string).into(),
         acts: ["merge".to_string()].into(),
         ..Default::default()
     };
-    compile(&source, &has).expect("the definition compiles")
+    compile(&source, &has).unwrap_or_else(|faults| panic!("the definition does not compile: {faults:#?}"))
 }
 
 /// The question the engine itself asks in these histories.
@@ -234,12 +253,10 @@ impl Part for Asking {
                     version = q.latest.at;
                 }
                 let option = 1 + d.rng.below(3) as u64;
-                let why = d.rng.chance(50).then(|| "Because.".to_string());
                 Event::Answer {
                     question: name,
                     version,
                     option,
-                    why,
                 }
             }
             50..=69 => Event::Wrote {
@@ -304,16 +321,18 @@ fn check(work: &Work, checked: &mut Checked) {
         let before = r.before(started.at);
         let standing = questions(&before);
         // Meanwhile only the owner turning to it, by an answer written since its last run began, enters it, or the
-        // results of the calls a run of it asked for, with what the owner wrote that no run of it dealt with.
+        // results of the calls a run of it asked for, with what the owner wrote that no run of it dealt with. A run
+        // abandoned dealt with nothing: what it was entered for is still the owner's turning.
+        let abandoned = |run: RunId| before.abandoned.iter().any(|a| a.run == run);
         let last = (before.started.iter())
-            .filter(|s| s.cell == started.cell)
+            .filter(|s| s.cell == started.cell && !abandoned(s.run))
             .map(|s| s.at)
             .max();
         let results = (started.because.iter()).any(|c| matches!(c, Cause::Results { .. }));
         let turned = !started.because.is_empty()
             && started.because.iter().all(|c| match c {
                 Cause::Changed { block, .. } => {
-                    block.as_str().ends_with("_answered")
+                    block.as_str().ends_with("_questions")
                         && (results || (before.written.iter()).any(|w| &w.block == block && Some(w.at) > last))
                 }
                 Cause::Results { .. } => true,
@@ -356,53 +375,48 @@ fn check(work: &Work, checked: &mut Checked) {
         let standing = questions(&before);
         let asking = standing.get(answer.question.as_str());
         let latest = asking.is_some_and(|q| q.latest.at == answer.version);
-        // Only the research and the implementation have a trigger an answer runs. The engine's question, asked
-        // beside the round of any cell, the review's too, holds the work at that cell until it is answered, and its
-        // answer runs the implementation, the last of them in the walk.
+        // The question's own version says whose questions it is in: the asking cell's for an agent's, the
+        // implementation's, which the flow names, for the engine's, asked beside the round of any cell.
         let answering = asking.map(|q| {
-            if q.latest.engine {
-                "implement"
-            } else {
-                q.latest.cell.as_str()
-            }
+            assert!(
+                !q.latest.engine || q.latest.cell.as_str() == "implement",
+                "the engine asked in {}",
+                q.latest.cell
+            );
+            q.latest.cell.as_str()
         });
-        let answerable = answering.is_some_and(|cell| matches!(cell, "research" | "implement"));
-        let block = answering.map(|cell| format!("{cell}_answered"));
+        let block = answering.map(|cell| format!("{cell}_questions"));
         let went_by = goes_by(work, &before, &answer.question);
         let next = Seq(answer.at.0 + 1);
         // What the answer wrote is at the place after it, in the same thing that happened: no later one begins there.
         let same = !work.moments.iter().any(|m| m.from == next);
-        let answered =
-            |w: &&decide::Written| w.at == next && w.by == Outsider::Outside && w.block.as_str().ends_with("_answered");
-        let turned = same
-            && (r.written.iter())
-                .filter(answered)
-                .any(|w| Some(w.block.as_str()) == block.as_deref());
+        let wrote: Vec<&decide::Written> = if same {
+            (r.written.iter()).filter(|w| w.at == next).collect()
+        } else {
+            Vec::new()
+        };
         assert!(
-            !(same
-                && (r.written.iter())
-                    .filter(answered)
-                    .any(|w| Some(w.block.as_str()) != block.as_deref())),
-            "the answer at {:?} to {} ran another cell than {answering:?}",
+            (wrote.iter()).all(|w| w.by == Outsider::Outside && Some(w.block.as_str()) == block.as_deref()),
+            "the answer at {:?} to {} wrote another block than {block:?}: {wrote:?}",
             answer.at,
             answer.question
         );
         assert_eq!(
+            wrote.len(),
+            usize::from(same),
+            "the answer at {:?} is no version",
+            answer.at
+        );
+        let turned = wrote.iter().any(|w| w.matters);
+        assert_eq!(
             turned,
-            latest && answerable && went_by != Some(answer.option),
+            latest && went_by != Some(answer.option),
             "the answer at {:?} to version {:?} of {}, option {}, the work going by {went_by:?}",
             answer.at,
             answer.version,
             answer.question,
             answer.option
         );
-        if !latest {
-            assert!(
-                !(same && r.written.iter().any(|w| w.at == next)),
-                "the answer at {:?} to an earlier version wrote something",
-                answer.at
-            );
-        }
     }
     checked.started = r.started.len();
     checked.answers = r.answers.len();
@@ -466,7 +480,7 @@ fn reached(work: &Work) -> Reached {
             .is_some_and(|q| q.latest.at == answer.version);
         let next = Seq(answer.at.0 + 1);
         let same = !work.moments.iter().any(|m| m.from == next);
-        let turned = same && (r.written.iter()).any(|w| w.at == next && w.block.as_str().ends_with("_answered"));
+        let turned = same && (r.written.iter()).any(|w| w.at == next && w.matters);
         match (latest, turned) {
             (false, _) => reached.earlier += 1,
             (true, true) => reached.ran += 1,
@@ -485,7 +499,7 @@ fn reached(work: &Work) -> Reached {
         let before = r.before(started.at);
         let waited = (before.questions.iter()).any(|q| q.cell == started.cell && q.waits);
         let for_answer = (started.because.iter())
-            .any(|c| matches!(c, Cause::Changed { block, .. } if block.as_str().ends_with("_answered")));
+            .any(|c| matches!(c, Cause::Changed { block, .. } if block.as_str().ends_with("_questions")));
         reached.let_go += usize::from(waited && for_answer);
         let was_waiting =
             (before.written.iter()).any(|w| w.block.as_str() == "asked" && w.value.as_deref() == Some("waiting"));

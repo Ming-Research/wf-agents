@@ -10,17 +10,25 @@ choice = ", with the value `{value}`"
 # What stands in place of a datum's content where the session holds its latest version already: `{number}` its latest
 # version, `{last_number}` the one the cell last worked from; `held_new` where the cell never worked from it, as a cell
 # entered after another of its line that read or wrote it.
-held = "## `{block}`, version {number}, in this session already; you last worked from version {last_number}"
-held_new = "## `{block}`, version {number}, in this session already"
+held = "## `{block}`, version {number}{by}, in this session already; you last worked from version {last_number}"
+held_new = "## `{block}`, version {number}{by}, in this session already"
+# Who wrote a version, as the round is told it: the line of the cell whose run wrote it, `{line}`, the design tree and
+# the work's head a round's end read among them; or the owner. Nothing where neither did: what an act of the engine
+# writes, and what the outside writes, what taking main in reads for a round among it.
+by_line = ", written on the line `{line}`"
+by_owner = ", written by the owner"
 
 [latest]
-text = "## `{block}`, version {number}{choice}\n\n{content}"
+text = "## `{block}`, version {number}{choice}{by}\n\n{content}"
 
 # Where the session holds the version the cell last worked from: what changed since, each changed line with two on
 # each side; `whole` in its place where the session lacks that version, or the change would be longer than the whole.
 [last_and_latest]
-text = "## `{block}`, what changed from version {last_number} to version {number}\n\n{diff}"
-whole = "## `{block}`, version {number}{choice}\n\n{content}"
+text = "## `{block}`, what changed from version {last_number} to version {number}{by}\n\n{diff}"
+whole = "## `{block}`, version {number}{choice}{by}\n\n{content}"
+# Of a datum whose versions the engine compares itself, as the design tree, where the session holds none of them: its
+# latest whole, saying so.
+unread = "## `{block}`, version {number}{choice}{by}: this session has read none of it\n\n{content}"
 
 [all]
-text = "## `{block}`, version {first_number}{choice}\n\n{content}\n\n{each_version}"
+text = "## `{block}`, version {first_number}{choice}{by}\n\n{content}\n\n{each_version}"

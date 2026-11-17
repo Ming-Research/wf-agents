@@ -6,10 +6,12 @@
 //! worked from.
 //!
 //! What is checked of every round, as it is entered in its session and in one that holds nothing:
-//! - it is filled with exactly what its cell is given and its session lacks, each datum by its kind, in the cell's
-//!   order, then what the session keeps that it lacks, the results of calls and why what was returned was sent back;
-//! - nothing is filled that the cell is not given, its own outputs among them, and a datum with no version is never
-//!   sent;
+//! - it is filled with exactly what its cell is given and its session lacks, each datum by its kind, in the order of
+//!   the `context` part, by where the cell's definition gives it, then the latest of each block the cell writes that
+//!   nothing else gives it, then what the session keeps that it lacks, the results of calls and why what was returned
+//!   was sent back;
+//! - nothing is filled that the cell is not given, and a datum with no version is never sent; the tree, whose versions
+//!   the carrier compares, is told unread where the session holds none of it;
 //! - a session that holds nothing is filled from the top, and the task is filled once a session;
 //! - what the last return in the session handed in is what the message says it is kept as;
 //! - entered again, before its try or after it, the round is sent the same bytes;
@@ -19,9 +21,10 @@
 //! - what the page shows for the situation the round is in, its places open, has the parts, the forms and the words
 //!   of what the engine sends in it, each place standing for what fills it.
 //!
-//! The histories must reach each of these: a change sent, one of the tree, several versions of a datum given `all` sent at once, a
-//! session reopened, lost and compacted, results given and a return sent back; each is counted, and a test of no
-//! history reaching one fails. A failing case prints its seed.
+//! The histories must reach each of these: a change sent, one of the tree, the tree unread, an output the session
+//! lacked, several versions of a datum given `all` sent at once, a session reopened, lost and compacted, results given
+//! and a return sent back; each is counted, and a test of no history reaching one fails. A failing case prints its
+//! seed.
 
 mod support;
 
@@ -33,8 +36,8 @@ use context::{Entered, Form, Piece, Stands};
 use decide::run::Unmet;
 use decide::{BlockId, CallId, CellId, RunId, Seq, Writer};
 use engine::{Ask, Back, Came, Fill, Given, Handed, Why};
-use flow::InputKind;
 use flow::agents::Part;
+use flow::{CellSpec, InputKind, Listed};
 use support::{Given as Round, Sim};
 
 /// How many histories are run.
@@ -135,6 +138,10 @@ struct Reached {
     wrote: usize,
     /// New versions given whole that said what one the session held said.
     said_again: usize,
+    /// The tree sent to a session that held none of it.
+    unread: usize,
+    /// A block the cell writes, given by nothing else, sent as the session lacked its latest.
+    outputs: usize,
 }
 
 /// One history, and the test's account beside it.
@@ -363,7 +370,8 @@ impl History {
 
     /// How the session should stand with a datum the round's cell is given, by the test's account of it, what it should
     /// be filled with of it, and the version the cell last worked from.
-    fn datum(&self, round: &Round, held: &Held, block: &BlockId, kind: InputKind) -> (Stands, Vec<Fill>, Option<Seq>) {
+    fn datum(&self, round: &Round, held: &Held, given: &Datum) -> (Stands, Vec<Fill>, Option<Seq>) {
+        let (block, kind) = (&given.block, given.kind);
         let sim = &self.sim;
         let cell = sim.cell(round);
         let began = (sim.work.records.rounds.iter())
@@ -384,13 +392,21 @@ impl History {
         };
         let new = all
             .iter()
-            .any(|v| Some(v.at) > last && v.meaning == v.at && !own(&v.by));
+            .any(|v| Some(v.at) > last && v.meaning == Some(v.at) && !own(&v.by));
         let whole = |at: Seq| Fill::Whole {
             block: block.clone(),
             version: at,
         };
         let lacking: Vec<Seq> = all.iter().map(|v| v.at).filter(|at| !held.holds(block, *at)).collect();
-        // The carrier says what changed in the tree, from the version the session read where the cell worked from none.
+        // What the cell writes and is given by nothing else is sent, its latest, only where the session lacks it.
+        if given.output {
+            return match held.holds(block, latest) {
+                true => (Stands::Holds, Vec::new(), last),
+                false => (Stands::Lacks, vec![whole(latest)], last),
+            };
+        }
+        // The carrier says what changed in the tree, from the version the session read where the cell worked from none,
+        // and a session that holds none of it is told so.
         let compared = block.as_str() == "tree";
         if kind == InputKind::All && !lacking.is_empty() {
             let stands = if held.holds(block, all[0].at) {
@@ -433,6 +449,9 @@ impl History {
                 };
                 (Stands::HoldsLast, vec![fill], last)
             }
+            None if kind == InputKind::LastAndLatest && compared && lacking.len() == all.len() => {
+                (Stands::Unread, vec![whole(latest)], last)
+            }
             None if kind == InputKind::LastAndLatest => (Stands::Lacks, vec![whole(latest)], last),
             None if since.is_some() => (Stands::HoldsLast, vec![whole(latest)], last),
             None => (Stands::Lacks, vec![whole(latest)], last),
@@ -454,8 +473,8 @@ impl History {
         for part in &sim.words.message.parts {
             match part.part {
                 Part::Context => {
-                    for given in &cell.given {
-                        fills.extend(self.datum(round, held, &given.block, given.kind).1);
+                    for given in given(sim, cell) {
+                        fills.extend(self.datum(round, held, &given).1);
                     }
                 }
                 Part::Results => {
@@ -487,7 +506,12 @@ impl History {
                             let Unmet::WrittenOver { block, version } = u else {
                                 continue;
                             };
-                            let given = cell.given.iter().any(|g| &g.block == block);
+                            // Given by the cell's definition, or by the context already as the latest it writes.
+                            let in_context = fills.contains(&Fill::Whole {
+                                block: block.clone(),
+                                version: *version,
+                            });
+                            let given = in_context || cell.given.iter().any(|g| &g.block == block);
                             let written = versions
                                 .get(block)
                                 .is_some_and(|vs| vs.iter().any(|v| v.at == *version));
@@ -525,13 +549,26 @@ impl History {
             "what is filled: {}",
             entered.text
         );
-        let given: Vec<&BlockId> = (cell.given.iter().map(|g| &g.block))
+        let data = given(sim, cell);
+        let given: Vec<&BlockId> = (data.iter().map(|g| &g.block))
             .chain(entered.run.written_over.iter().map(|(b, _)| b))
             .collect();
-        reached.written_over += entered.run.written_over.len();
+        // A version the round's return would have written over is given to it, with why it was sent back or, as the
+        // latest the cell writes, in its context.
+        if let Some(Given::SentBack(unmet)) = sim.work.given.get(&(round.run, round.number)) {
+            for u in unmet {
+                if let Unmet::WrittenOver { block, version } = u {
+                    let whole = Fill::Whole {
+                        block: block.clone(),
+                        version: *version,
+                    };
+                    reached.written_over += usize::from(entered.fills.contains(&whole));
+                }
+            }
+        }
         // How the session stands with each datum, and the line of one it holds that is new to the cell.
-        for g in &cell.given {
-            let (stands, _, last) = self.datum(round, held, &g.block, g.kind);
+        for g in &data {
+            let (stands, _, last) = self.datum(round, held, g);
             let name = g.block.as_str();
             assert_eq!(
                 entered.situation.data.get(name),
@@ -565,7 +602,16 @@ impl History {
                     reached.held_new += 1;
                 }
                 Stands::Holds | Stands::Unwritten => assert!(sent.is_none(), "{name} is sent"),
-                Stands::Lacks | Stands::HoldsLast => assert!(sent.is_some(), "{name} is not sent"),
+                Stands::Lacks | Stands::HoldsLast => {
+                    assert!(sent.is_some(), "{name} is not sent");
+                    reached.outputs += usize::from(g.output);
+                }
+                Stands::Unread => {
+                    let sent = sent.expect("the tree the session has read none of");
+                    let text = as_written(&sent.pieces);
+                    assert!(text.contains("this session has read none of it"), "{text}");
+                    reached.unread += 1;
+                }
             }
         }
         assert_eq!(
@@ -619,7 +665,7 @@ impl History {
         }
         // A session that holds nothing is filled with every datum written and the task.
         if held.versions.is_empty() && held.parts.is_empty() {
-            for g in &cell.given {
+            for g in &data {
                 let written = entered.run.data.contains_key(&g.block);
                 let filled = (entered.fills.iter())
                     .any(|f| matches!(f, Fill::Whole { block, .. } | Fill::Change { block, .. } if *block == g.block));
@@ -652,6 +698,44 @@ impl History {
             assert!(fits(&open.pieces, &text), "{:?} does not fit {text:?}", open.pieces);
         }
     }
+}
+
+/// A datum a round of the cell is given, by the test's account: its kind, and whether it is given only as what the
+/// cell writes.
+struct Datum {
+    block: BlockId,
+    kind: InputKind,
+    output: bool,
+}
+
+/// What a round of the cell is given, by the test's account of the design (design document `data-and-context`, 14, 15,
+/// 21): each datum its definition gives it, by where it gives it, in the order the `context` part names; and under
+/// `outputs`, each block it writes that nothing else gives it, as `latest`.
+fn given(sim: &Sim, cell: &CellSpec) -> Vec<Datum> {
+    let context = sim.words.message.parts.iter().find(|p| p.part == Part::Context);
+    let order = context.and_then(|p| p.order.clone()).expect("the context part's order");
+    let place = sim.flow.flow.place(&cell.id).expect("the cell's place");
+    let outputs = &sim.flow.flow.cells()[place].outputs;
+    let mut data = Vec::new();
+    for list in order {
+        if list == Listed::Outputs {
+            for block in outputs.iter().filter(|b| !cell.given.iter().any(|g| &g.block == *b)) {
+                data.push(Datum {
+                    block: block.clone(),
+                    kind: InputKind::Latest,
+                    output: true,
+                });
+            }
+        }
+        for g in cell.given.iter().filter(|g| g.list == list) {
+            data.push(Datum {
+                block: g.block.clone(),
+                kind: g.kind,
+                output: false,
+            });
+        }
+    }
+    data
 }
 
 /// Whether the text is the pieces with each place filled by some text: a place, and the places right after it, stand
@@ -724,6 +808,8 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
         ("a return sent back", reached.sent_back),
         ("a round that failed after its program had its message", reached.wrote),
         ("a new version given that said what one held said", reached.said_again),
+        ("the tree sent to a session that held none of it", reached.unread),
+        ("an output the session lacked sent", reached.outputs),
     ] {
         assert!(n > 0, "no history reached {what}");
     }

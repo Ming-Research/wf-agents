@@ -1,8 +1,8 @@
-//! Cells of the engineer's flow run by a group's trigger: the plan's second look (`R2`, run by `on_plan`) and the
-//! review (`T1`, run by `on_change`). The agent is told the group's trigger ran its round and names it as dealt with,
-//! by that name; the return is taken, the versions of the group's blocks that ran the round are consumed, and the cell
-//! does not run again for them. And of every cell of the flow, each trigger named as dealt with is taken by the run's
-//! check for any block it stands on that ran the round, and consumes that block.
+//! Cells of the engineer's flow that watch a group: the plan's second look (`R2`, watching `plan`) and the review
+//! (`T1`, watching `change`). The agent is told the group ran its round and names it as dealt with, by its name; the
+//! return is taken, the versions of the group's blocks that ran the round are consumed, and the cell does not run again
+//! for them. And of every cell of the flow, each datum or group it watches named as dealt with is taken by the run's
+//! check for any block of it that ran the round, and consumes that block.
 
 use std::collections::BTreeMap;
 
@@ -69,13 +69,15 @@ fn the_plan_s_second_look_run_by_the_plan_s_group_deals_with_it_by_its_name_once
     let mut w = planned();
     let (run, cell) = w.round();
     assert_eq!(cell, "R2");
-    assert_eq!(w.told(run, "R2"), ["on_plan"]);
-    let effects = w.returns("R2", &["on_plan"], &[]);
+    assert_eq!(w.told(run, "R2"), ["plan"]);
+    let effects = w.returns("R2", &["plan"], &[]);
     assert!(!sent_back(&effects, run), "the return is sent back: {effects:?}");
     // Each block of the plan the research wrote ran the round, and is dealt with.
     assert_eq!(dealt_with(&w, run), blocks(&["plan_owner", "plan_agent", "acceptance"]));
-    // The implementation runs next, and the second look never again.
-    assert_eq!(w.round().1, "I1");
+    // The plan's reviews run next, then the implementation, and the second look never again.
+    assert_eq!(w.round().1, "P1");
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
     w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
     w.hands_in(
         "T1",
@@ -90,13 +92,15 @@ fn the_plan_s_second_look_run_by_the_plan_s_group_deals_with_it_by_its_name_once
 fn the_review_run_by_the_change_s_group_deals_with_it_by_its_name_once() {
     let mut w = planned();
     w.hands_in("R2", &[], Vec::new());
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
     w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
     let (run, cell) = w.round();
     assert_eq!(cell, "T1");
-    assert_eq!(w.told(run, "T1"), ["on_change"]);
+    assert_eq!(w.told(run, "T1"), ["change"]);
     let effects = w.returns(
         "T1",
-        &["on_change"],
+        &["change"],
         &[("review_ok", Some("yes")), ("needs_testing", Some("no"))],
     );
     assert!(!sent_back(&effects, run), "the return is sent back: {effects:?}");
@@ -109,24 +113,24 @@ fn the_review_run_by_the_change_s_group_deals_with_it_by_its_name_once() {
 }
 
 #[test]
-fn each_trigger_of_each_cell_named_as_dealt_with_is_taken_for_any_block_it_stands_on_that_ran_the_round() {
+fn each_datum_or_group_a_cell_watches_named_as_dealt_with_is_taken_for_any_block_of_it_that_ran_the_round() {
     let flow = engineer();
     let choices = BTreeMap::new();
     for (spec, cell) in flow.cells.iter().zip(flow.flow.cells()) {
-        for trigger in &spec.triggers {
-            let (named, none) = spec.dealt_with(std::slice::from_ref(&trigger.name));
-            assert!(none.is_empty(), "{} {}", spec.id, trigger.name);
-            for block in trigger.blocks() {
+        for watched in &spec.watches {
+            let (named, none) = spec.dealt_with(std::slice::from_ref(&watched.name));
+            assert!(none.is_empty(), "{} {}", spec.id, watched.name);
+            for block in &watched.blocks {
                 let told = Told {
                     ran_by: vec![block.clone()],
                     ..Told::default()
                 };
-                // Its agent is told the trigger ran the round.
+                // Its agent is told it ran the round.
                 assert!(
-                    spec.ran(&told.ran_by).any(|t| t.name == trigger.name),
+                    spec.ran(&told.ran_by).any(|t| t.name == watched.name),
                     "{} is not told {} ran a round {block} ran",
                     spec.id,
-                    trigger.name
+                    watched.name
                 );
                 let requires = Requires {
                     outputs: &cell.outputs,
@@ -135,14 +139,27 @@ fn each_trigger_of_each_cell_named_as_dealt_with_is_taken_for_any_block_it_stand
                     choices: &choices,
                     returns: 3,
                     told: &told,
-                    // What answers an act is another rule's, and this test's returns write nothing.
+                    // What answers an act is another rule's, and this test's returns write nothing but a maker's
+                    // answer.
                     answered_by: &BTreeMap::new(),
+                    dialogues: &cell.dialogues,
+                    verdicts: &cell.verdicts,
                 };
+                // A maker woken by a point in its dialogue answers it there (design document `data-and-context`, 41).
+                let writes: Vec<decide::Write> = (cell.dialogues.contains_key(block))
+                    .then(|| decide::Write {
+                        block: block.clone(),
+                        meaning_unchanged: false,
+                        value: None,
+                        empty: false,
+                    })
+                    .into_iter()
+                    .collect();
                 let log = Log {
                     rounds: vec![Round {
                         returned: Some(Return::Came {
                             dealt_with: named.clone(),
-                            writes: Vec::new(),
+                            writes: writes.clone(),
                             calls: 0,
                             found: Vec::new(),
                             waits: false,
@@ -154,14 +171,14 @@ fn each_trigger_of_each_cell_named_as_dealt_with_is_taken_for_any_block_it_stand
                 };
                 let finish = Step::Finish {
                     dealt_with: vec![block.clone()],
-                    writes: Vec::new(),
+                    writes,
                 };
                 assert_eq!(
                     next(&log, requires, decide::run::Hold::Nothing),
                     finish,
                     "{} naming {} where {block} ran it",
                     spec.id,
-                    trigger.name
+                    watched.name
                 );
             }
         }

@@ -1,5 +1,5 @@
 //! Every situation an entry of an agent's cell can reach, as the flow's definition says, each with a name that says it,
-//! for whoever reads what the cell is sent in each: the entry, the triggers that ran it, and how its session stands
+//! for whoever reads what the cell is sent in each: the entry, what it watches that ran it, and how its session stands
 //! with each datum of its context; and, apart, each other thing a round may be given.
 //!
 //! An entry is `first`, where the cell has worked from nothing; `later`, where the cell ran before in the same
@@ -9,9 +9,9 @@
 //! the flow's order; otherwise it goes on from the cell of the line before it, and holds each part of the message kept
 //! alike for both, the work's line, and what that cell's return handed in, where it writes any block.
 //!
-//! The triggers that ran it are each alone, those whose blocks one cell's return writes together, and all of them at
-//! once. A trigger on what is written as a line's session begins anew runs no later entry; on a first entry, where
-//! everything written is new to the cell, every trigger on what the work starts with runs it as well: what people
+//! What it watches that ran it is each datum or group alone, those whose blocks one cell's return writes together, and
+//! all of them at once. What is written as a line's session begins anew runs no later entry; on a first entry, where
+//! everything written is new to the cell, every datum it watches that the work starts with runs it as well: what people
 //! write that runs the flow's first agent's cell.
 //!
 //! A datum is certainly written when the cell runs where the work starts with it, or where the cells before it in the
@@ -19,31 +19,36 @@
 //! run on each value of a choice the cell itself does not run on one value of. A cell that runs is taken to write what
 //! it may write; the flow says no more of which blocks a cell writes each time than what it must write.
 //!
-//! On a first entry, a datum only the cell itself or cells after it in the order write is not written yet, and a
-//! trigger on such data runs no first entry.
+//! On a first entry, a datum only the cell itself or cells after it in the order write is not written yet, and what the
+//! cell watches of such data runs no first entry.
 //!
-//! A datum of a trigger that ran the cell is new to it: the session lacks it, or holds it from a cell of the line that
+//! A datum the cell watches that ran it is new to it: the session lacks it, or holds it from a cell of the line that
 //! is given it or writes it, as the version last worked from or the latest, or as one the cell never worked from; of a
-//! group's trigger, one datum of the group at least is new. A datum of a trigger that did not run the cell, or one the
+//! group, one datum of the group at least is new. A datum it watches that did not run the cell, or one the
 //! cell alone writes, is new to it never: unwritten on a first entry, held on a later one, lacking on one reopened, and
-//! unwritten on either where it is not certainly written. Any other datum stands any way the entry allows: unwritten
+//! unwritten on either where it is not certainly written. A block the cell writes that nothing else gives it is given
+//! only where the session lacks its latest: lacking or, held from a cell of the line, held on a first entry where it
+//! may be written before; held on a later one, or lacking where another writes it too; lacking on one reopened; and
+//! unwritten on any where it is not certainly written. Any other datum stands any way the entry allows: unwritten
 //! where it is not certainly written, lacking, held from a cell of the line, or, on a later entry, held as last worked
-//! from, latest, or with nothing new.
+//! from, latest, or with nothing new. A datum whose versions the carrier compares itself, given `last_and_latest`, that
+//! stands lacking is unread: the session holds none of it.
 //!
 //! A datum's text is the builder's from its kind and from how the session stands with it alone, so a product of every
 //! datum's own states repeats the same texts: it is counted ([`combinations`]), and the situations hold every state of
-//! each datum with the data in two classes, each standing alike where it can: those of the triggers that ran the cell,
-//! and the rest; a datum that cannot stand as its class does is unwritten where it may be, else lacking. Besides, on a later entry run by the first
-//! trigger, with the data of what ran it held as last worked from and the rest held: the result of a call of each kind
-//! and why a return was sent back, which come after a return that handed in nothing, each come of taking main in where
-//! the cell takes it, new to the session, and an entry after a return that handed in nothing.
+//! each datum with the data in two classes, each standing alike where it can: those of what ran the cell, and the rest;
+//! a datum that cannot stand as its class does is unwritten where it may be, else lacking. Besides, on a later entry
+//! run by the first datum or group the cell watches, with the data of what ran it held as last worked from and the rest
+//! held: the result of a call of each kind and why a return was sent back, which come after a return that handed in
+//! nothing, each come of taking main in where the cell takes it, new to the session, and an entry after a return that
+//! handed in nothing.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{BlockId, Cell, Condition};
 use flow::agents::{Agents, Part};
 use flow::system::Settings;
-use flow::{CellSpec, Compiled, Kind, Trigger};
+use flow::{CellSpec, Compiled, Given, InputKind, Kind, Listed, Watched};
 
 use crate::message::{CALLS, MAIN, Situation, Stands, Values, kept};
 
@@ -74,23 +79,25 @@ impl Entry {
     }
 }
 
-/// How a datum stands to the triggers that ran the cell.
+/// How a datum stands to what ran the cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Class {
-    /// A datum of a trigger, no group's, that ran the cell.
+    /// A datum, no group's, that ran the cell.
     Fired,
-    /// A datum of a group whose trigger ran the cell, one of which is new.
+    /// A datum of a group that ran the cell, one of which is new.
     Grouped,
     /// A datum never new to the cell.
     Never,
+    /// A block the cell writes that nothing else gives it.
+    Output,
     /// Any other.
     Rest,
 }
 
-/// A set of the cell's triggers that ran it, with the name that says it.
+/// A set of what the cell watches that ran it, with the name that says it.
 struct Ran<'a> {
     name: String,
-    triggers: Vec<&'a Trigger>,
+    watched: Vec<&'a Watched>,
 }
 
 /// What the flow says of where the cell stands, which decides the situations it can reach.
@@ -100,6 +107,10 @@ struct Reach<'a> {
     cell: &'a CellSpec,
     /// The source that writes a block as a line's session begins anew.
     reopened: &'a str,
+    /// The blocks whose versions the carrier compares itself.
+    compared: &'a BTreeSet<BlockId>,
+    /// What a round of the cell is given, in order ([`crate::message::given`]).
+    given: Vec<Given>,
     /// The data certainly written whenever the cell runs.
     certain: BTreeSet<BlockId>,
     /// Of those, what the work starts with.
@@ -109,10 +120,17 @@ struct Reach<'a> {
 }
 
 /// Every situation an entry of the agent's cell can reach, as the module says, each once, in order: the first entry,
-/// the later and the reopened, each by the sets of triggers, then the other things a round may be given. `reopened`
-/// is the source that writes a block as a line's session begins anew.
-pub fn situations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: &str) -> Vec<Named> {
-    let reach = Reach::of(flow, words, cell, reopened);
+/// the later and the reopened, each by the sets of what ran it, then the other things a round may be given. `reopened`
+/// is the source that writes a block as a line's session begins anew; `compared`, the blocks whose versions the carrier
+/// compares itself.
+pub fn situations(
+    flow: &Compiled,
+    words: &Agents,
+    cell: &CellSpec,
+    reopened: &str,
+    compared: &BTreeSet<BlockId>,
+) -> Vec<Named> {
+    let reach = Reach::of(flow, words, cell, reopened, compared);
     let mut out: Vec<Named> = Vec::new();
     let mut add = |named: Named| {
         if !out.iter().any(|o| o.situation == named.situation) {
@@ -121,7 +139,7 @@ pub fn situations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: &s
     };
     for entry in Entry::ALL {
         for ran in reach.ran(entry) {
-            let data = reach.classes(&ran.triggers);
+            let data = reach.classes(&ran.watched);
             // A class's state that none of its data can stand in gives nothing of its own.
             let states = |classes: &[Class], states: Vec<Stands>| {
                 let of: Vec<(&BlockId, &Class)> = data.iter().filter(|(_, c)| classes.contains(c)).collect();
@@ -140,14 +158,14 @@ pub fn situations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: &s
                             let wanted = match class {
                                 Class::Fired | Class::Grouped => new,
                                 Class::Rest => rest,
-                                Class::Never => allowed.first().copied(),
+                                Class::Never | Class::Output => allowed.first().copied(),
                             };
                             let instead = match allowed.contains(&Stands::Unwritten) {
                                 true => Stands::Unwritten,
                                 false => Stands::Lacks,
                             };
                             let stands = wanted.filter(|s| allowed.contains(s)).unwrap_or(instead);
-                            (block.to_string(), stands)
+                            (block.to_string(), reach.unread(block, stands))
                         })
                         .collect();
                     add(Named {
@@ -164,14 +182,20 @@ pub fn situations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: &s
     out
 }
 
-/// How many combinations of the entry, the triggers that ran the cell and each datum's own state the cell can reach,
+/// How many combinations of the entry, what ran the cell and each datum's own state the cell can reach,
 /// every datum apart, as the module says.
-pub fn combinations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: &str) -> u128 {
-    let reach = Reach::of(flow, words, cell, reopened);
+pub fn combinations(
+    flow: &Compiled,
+    words: &Agents,
+    cell: &CellSpec,
+    reopened: &str,
+    compared: &BTreeSet<BlockId>,
+) -> u128 {
+    let reach = Reach::of(flow, words, cell, reopened, compared);
     let mut count: u128 = 0;
     for entry in Entry::ALL {
         for ran in reach.ran(entry) {
-            let data = reach.classes(&ran.triggers);
+            let data = reach.classes(&ran.watched);
             let mut product: u128 = 1;
             let mut grouped: Vec<&BlockId> = Vec::new();
             for (block, class) in &data {
@@ -180,10 +204,10 @@ pub fn combinations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: 
                     _ => product *= reach.allowed(entry, block, class).len() as u128,
                 }
             }
-            // The data of the groups' triggers, each new or not, every group that ran the cell holding a new one.
-            let groups: Vec<Vec<&BlockId>> = (ran.triggers.iter())
-                .filter(|t| !t.group.is_empty())
-                .map(|t| t.group.iter().filter(|b| grouped.contains(b)).collect::<Vec<_>>())
+            // The data of the groups, each new or not, every group that ran the cell holding a new one.
+            let groups: Vec<Vec<&BlockId>> = (ran.watched.iter())
+                .filter(|t| t.is_group())
+                .map(|t| t.blocks.iter().filter(|b| grouped.contains(b)).collect::<Vec<_>>())
                 .filter(|g: &Vec<&BlockId>| !g.is_empty())
                 .collect();
             let mut ways: u128 = 0;
@@ -210,7 +234,13 @@ pub fn combinations(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: 
 }
 
 impl<'a> Reach<'a> {
-    fn of(flow: &'a Compiled, words: &'a Agents, cell: &'a CellSpec, reopened: &'a str) -> Reach<'a> {
+    fn of(
+        flow: &'a Compiled,
+        words: &'a Agents,
+        cell: &'a CellSpec,
+        reopened: &'a str,
+        compared: &'a BTreeSet<BlockId>,
+    ) -> Reach<'a> {
         let place = flow.flow.place(&cell.id).unwrap_or(0);
         let spec = |id: &decide::CellId| flow.cells.iter().find(|c| c.id == *id);
         let before: Vec<&CellSpec> = (flow.flow.cells()[..place].iter())
@@ -222,13 +252,17 @@ impl<'a> Reach<'a> {
             words,
             cell,
             reopened,
+            compared,
+            given: crate::message::given(flow, words, cell),
             certain: BTreeSet::new(),
             starts: BTreeSet::new(),
             before,
         };
-        let given = || cell.given.iter().map(|g| &g.block);
-        reach.starts = given().filter(|b| reach.starts_with(b)).cloned().collect();
-        let certain = given().filter(|b| reach.starts.contains(*b) || reach.written_before(place, b));
+        let given: Vec<BlockId> = reach.given.iter().map(|g| g.block.clone()).collect();
+        reach.starts = given.iter().filter(|b| reach.starts_with(b)).cloned().collect();
+        let certain = given
+            .iter()
+            .filter(|b| reach.starts.contains(*b) || reach.written_before(place, b));
         reach.certain = certain.cloned().collect();
         reach
     }
@@ -240,7 +274,7 @@ impl<'a> Reach<'a> {
             .filter_map(|c| flow.cells.iter().find(|s| s.id == c.id))
             .find(|c| c.kind == Kind::Agent);
         let people = flow.blocks.get(block).is_some_and(|d| d.writers.people);
-        people && first.is_some_and(|c| (c.triggers.iter()).any(|t| t.group.is_empty() && t.block == *block))
+        people && first.is_some_and(|c| (c.watches.iter()).any(|t| !t.is_group() && t.name == block.as_str()))
     }
 
     /// Whether the cells before the one at this place that may write the datum run whichever way the conditions go, as
@@ -337,6 +371,39 @@ impl<'a> Reach<'a> {
                 }
                 states
             }
+            Class::Output => {
+                let writers = self.flow.blocks.get(block).map(|d| &d.writers);
+                let others = writers
+                    .is_some_and(|w| w.people || w.outside.is_some() || w.cells.iter().any(|c| *c != self.cell.id));
+                let mut states = match entry {
+                    Entry::First => {
+                        let mut states = vec![Stands::Lacks];
+                        states.extend(self.may_hold(block).then_some(Stands::Holds));
+                        states
+                    }
+                    Entry::Later => {
+                        let mut states = vec![Stands::Holds];
+                        states.extend(others.then_some(Stands::Lacks));
+                        states
+                    }
+                    Entry::Reopened => vec![Stands::Lacks],
+                };
+                if unwritten {
+                    states.push(Stands::Unwritten);
+                }
+                states
+            }
+        }
+    }
+
+    /// How the datum stands, said of one whose versions the carrier compares itself, given `last_and_latest`: lacking
+    /// it, the session holds none of it, and it is unread.
+    fn unread(&self, block: &BlockId, stands: Stands) -> Stands {
+        let last_and_latest = (self.given.iter())
+            .any(|g| &g.block == block && g.kind == InputKind::LastAndLatest && g.list != Listed::Outputs);
+        match stands {
+            Stands::Lacks if last_and_latest && self.compared.contains(block) => Stands::Unread,
+            stands => stands,
         }
     }
 
@@ -352,63 +419,63 @@ impl<'a> Reach<'a> {
         outside || flow.flow.cells()[..place].iter().any(|c| c.outputs.contains(block))
     }
 
-    /// The sets of the cell's triggers that can run an entry, as the module says, each once, in the order the cell
-    /// names its triggers.
+    /// The sets of what the cell watches that can run an entry, as the module says, each once, in the order the cell
+    /// names them.
     fn ran(&self, entry: Entry) -> Vec<Ran<'a>> {
         let (flow, cell) = (self.flow, self.cell);
-        let reopens = |t: &Trigger| {
+        let reopens = |t: &Watched| {
             let outside = |b: &BlockId| flow.blocks.get(b).and_then(|d| d.writers.outside.as_deref());
-            t.blocks().iter().any(|b| outside(b) == Some(self.reopened))
+            t.blocks.iter().any(|b| outside(b) == Some(self.reopened))
         };
-        let starts = |t: &Trigger| t.blocks().iter().any(|b| self.starts.contains(b));
-        let mut sets: Vec<Ran<'a>> = (cell.triggers.iter())
+        let starts = |t: &Watched| t.blocks.iter().any(|b| self.starts.contains(b));
+        let mut sets: Vec<Ran<'a>> = (cell.watches.iter())
             .map(|t| Ran {
                 name: t.name.clone(),
-                triggers: vec![t],
+                watched: vec![t],
             })
             .collect();
         for writer in &flow.cells {
-            let writes = |t: &&Trigger| {
+            let writes = |t: &&Watched| {
                 let by = |b: &BlockId| flow.blocks.get(b).is_some_and(|d| d.writers.cells.contains(&writer.id));
-                t.blocks().iter().any(by)
+                t.blocks.iter().any(by)
             };
-            let together: Vec<&Trigger> = cell.triggers.iter().filter(writes).collect();
+            let together: Vec<&Watched> = cell.watches.iter().filter(writes).collect();
             if together.len() > 1 {
                 sets.push(Ran {
                     name: format!("by_{}", writer.id.as_str()),
-                    triggers: together,
+                    watched: together,
                 });
             }
         }
-        if cell.triggers.len() > 1 {
+        if cell.watches.len() > 1 {
             sets.push(Ran {
                 name: "all".to_string(),
-                triggers: cell.triggers.iter().collect(),
+                watched: cell.watches.iter().collect(),
             });
         }
-        let names = |triggers: &[&Trigger]| triggers.iter().map(|t| t.name.clone()).collect::<Vec<_>>();
+        let names = |watched: &[&Watched]| watched.iter().map(|t| t.name.clone()).collect::<Vec<_>>();
         let mut out: Vec<Ran<'a>> = Vec::new();
         for mut set in sets {
             if entry == Entry::First {
                 // Everything written is new to a cell that worked from nothing.
-                let added: Vec<&Trigger> = (cell.triggers.iter())
-                    .filter(|t| starts(t) && !set.triggers.iter().any(|s| s.name == t.name))
+                let added: Vec<&Watched> = (cell.watches.iter())
+                    .filter(|t| starts(t) && !set.watched.iter().any(|s| s.name == t.name))
                     .collect();
                 if !added.is_empty() {
-                    let mut all: Vec<&Trigger> = set.triggers.iter().chain(&added).copied().collect();
-                    all.sort_by_key(|t| cell.triggers.iter().position(|c| c.name == t.name));
-                    let alone = set.triggers.len() == 1;
+                    let mut all: Vec<&Watched> = set.watched.iter().chain(&added).copied().collect();
+                    all.sort_by_key(|t| cell.watches.iter().position(|c| c.name == t.name));
+                    let alone = set.watched.len() == 1;
                     set = Ran {
                         name: if alone { names(&all).join("+") } else { set.name },
-                        triggers: all,
+                        watched: all,
                     };
                 }
             }
-            let reopening = set.triggers.iter().any(|t| reopens(t));
-            // A trigger none of whose blocks is written yet runs no first entry.
-            let unwritten = |t: &&Trigger| !t.blocks().iter().any(|b| self.early(b));
-            let early = entry != Entry::First || !set.triggers.iter().any(unwritten);
-            let again = out.iter().any(|o| names(&o.triggers) == names(&set.triggers));
+            let reopening = set.watched.iter().any(|t| reopens(t));
+            // A datum or group none of whose blocks is written yet runs no first entry.
+            let unwritten = |t: &&Watched| !t.blocks.iter().any(|b| self.early(b));
+            let early = entry != Entry::First || !set.watched.iter().any(unwritten);
+            let again = out.iter().any(|o| names(&o.watched) == names(&set.watched));
             if (entry == Entry::Later && reopening) || !early || again {
                 continue;
             }
@@ -417,31 +484,34 @@ impl<'a> Reach<'a> {
         out
     }
 
-    /// The class of each datum of the cell's context, by its name, for these triggers that ran it.
-    fn classes(&self, ran: &[&Trigger]) -> BTreeMap<BlockId, Class> {
+    /// The class of each datum of the cell's context, by its name, for what ran it.
+    fn classes(&self, ran: &[&Watched]) -> BTreeMap<BlockId, Class> {
         let (flow, cell) = (self.flow, self.cell);
-        let given: Vec<&BlockId> = cell.given.iter().map(|g| &g.block).collect();
+        let given: Vec<&BlockId> = self.given.iter().map(|g| &g.block).collect();
         let mut classes: BTreeMap<BlockId, Class> = BTreeMap::new();
-        for trigger in ran.iter().filter(|t| t.group.is_empty()) {
+        for g in self.given.iter().filter(|g| g.list == Listed::Outputs) {
+            classes.insert(g.block.clone(), Class::Output);
+        }
+        for watched in ran.iter().filter(|t| !t.is_group()) {
             // What the agent reads for it is new with it: what the owner said, for words to the cell.
-            for block in std::iter::once(&trigger.block).chain(&trigger.read) {
+            for block in watched.blocks.iter() {
                 if given.contains(&block) {
                     classes.insert(block.clone(), Class::Fired);
                 }
             }
         }
-        for trigger in ran.iter().filter(|t| !t.group.is_empty()) {
-            // A group with a datum new by another trigger holds a new one already.
-            let fired = trigger.group.iter().any(|b| classes.get(b) == Some(&Class::Fired));
-            for block in trigger.group.iter().filter(|b| given.contains(b)) {
+        for watched in ran.iter().filter(|t| t.is_group()) {
+            // A group with a datum new as another watched holds a new one already.
+            let fired = watched.blocks.iter().any(|b| classes.get(b) == Some(&Class::Fired));
+            for block in watched.blocks.iter().filter(|b| given.contains(b)) {
                 let class = if fired { Class::Rest } else { Class::Grouped };
                 classes.entry(block.clone()).or_insert(class);
             }
         }
         let of_others = |b: &BlockId| {
-            (cell.triggers.iter())
+            (cell.watches.iter())
                 .filter(|t| !ran.iter().any(|r| r.name == t.name))
-                .any(|t| t.blocks().contains(b))
+                .any(|t| t.blocks.contains(b))
         };
         let alone = |b: &BlockId| {
             flow.blocks.get(b).is_some_and(|d| {
@@ -470,7 +540,7 @@ impl<'a> Reach<'a> {
             .collect()
     }
 
-    /// The situation of an entry run by these triggers, its data standing so, and nothing else given.
+    /// The situation of an entry run by what it watches of these, its data standing so, and nothing else given.
     fn situation(&self, entry: Entry, ran: &Ran, data: BTreeMap<String, Stands>) -> Situation {
         let (holds, after_hand_in) = match entry {
             Entry::First => self.after_the_line(),
@@ -480,8 +550,8 @@ impl<'a> Reach<'a> {
         Situation {
             holds,
             after_hand_in,
-            triggers: (self.cell.triggers.iter())
-                .filter(|t| ran.triggers.iter().any(|r| r.name == t.name))
+            new: (self.cell.watches.iter())
+                .filter(|t| ran.watched.iter().any(|r| r.name == t.name))
                 .map(|t| t.name.clone())
                 .collect(),
             data,
@@ -510,17 +580,18 @@ impl<'a> Reach<'a> {
         (alike, !outputs.is_empty())
     }
 
-    /// The other things a round may be given, each alone, on a later entry run by the first trigger that runs one.
+    /// The other things a round may be given, each alone, on a later entry run by the first of what the cell watches
+    /// that runs one.
     fn besides(&self) -> Vec<Named> {
         let entry = Entry::Later;
         let Some(ran) = self.ran(entry).into_iter().next() else {
             return Vec::new();
         };
-        let data = (self.classes(&ran.triggers).into_iter())
+        let data = (self.classes(&ran.watched).into_iter())
             .map(|(block, class)| {
                 let stands = match class {
                     Class::Fired | Class::Grouped => Stands::HoldsLast,
-                    Class::Rest | Class::Never => Stands::Holds,
+                    Class::Rest | Class::Never | Class::Output => Stands::Holds,
                 };
                 (block.to_string(), stands)
             })

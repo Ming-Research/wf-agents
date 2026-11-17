@@ -47,7 +47,7 @@
 //!   write beside the rest in one in twenty-five, and otherwise handing in what its cell may write: each choice in nine
 //!   of ten, its first value (yes) in a little over half of those; each other block in four of five, mattering in seven
 //!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering. A return that
-//!   hands in names as dealt with each trigger its round was told ran it, by its name, as an agent writes it. Beside
+//!   hands in names as dealt with each thing its round was told ran it, by its name, as an agent writes it. Beside
 //!   such a hand-in, the agent of a cell an answer runs writes in the record of the questions a question of its own in
 //!   three of a hundred, which waits in one of five, the return then handing in each block its cell must write; asks
 //!   one of its own that stands anew in two of a hundred, and withdraws one in two of a hundred. In one history of
@@ -56,17 +56,16 @@
 //! - an act of the engine's own hands in every block its cell may write: each choice with the value a precondition of
 //!   kind `all` looks for in three of five (the check passing), another otherwise; an opinion for a cell before it only
 //!   when a choice did not have that value (the check failing says why);
-//! - a person who acts while the check's round is under way pauses the work, and while the pause then holds
-//!   the merge back after the check passed, writes an input of a judge that people write in two of five acts, writes
-//!   a verdict as its refusal in one of five and lets the work on in three of ten, so that a judge looks again, or a
-//!   person refuses, after the check passed. Where a question stands with no answer, the owner answers one, by either
-//!   option, in one act of two. Otherwise a person writes a
-//!   choice people write (a verdict), yes or no, in about a fifth of the acts; prose people write (the background, an
-//!   opinion for a cell) in three of twenty; the outside writes one of its blocks, a choice with the value a
-//!   precondition looks for in four of five, prose mattering in half, in three of twenty; the owner lets the cell at
-//!   its limit go on, or any cell where none is, in three of twenty; pauses or resumes in a tenth; answers a question
-//!   that stands, its latest version, by either option, in six of a hundred; cancels in one in a hundred; looks
-//!   otherwise.
+//! - a person who acts while the check's round is under way pauses the work, and while the pause then holds the merge
+//!   back after the check passed, writes an input of a judge that people write in two of five acts, writes a verdict as
+//!   its refusal in one of five and lets the work on in three of ten, so that a judge looks again, or a person refuses,
+//!   after the check passed. Where a question stands with no answer, the owner answers one, by either option, in one
+//!   act of two. Otherwise a person writes a choice people write (a verdict), yes or no, in about a fifth of the acts;
+//!   prose people write (the background, an opinion for a cell) in three of twenty; the outside writes one of its
+//!   blocks, a choice with the value a precondition looks for in four of five, prose mattering in half but its first
+//!   version always, in three of twenty; the owner lets the cell at its limit go on, or any cell where none is, in
+//!   three of twenty; pauses or resumes in a tenth; answers a question that stands, its latest version, by either
+//!   option, in six of a hundred; cancels in one in a hundred; looks otherwise.
 //!
 //! Seven histories of ten are steered, drawn by a generator of their own so that the other draws keep their order, each
 //! taking every random step it may. In three of ten, the work is paused while the check's round is under way; once
@@ -110,6 +109,7 @@
 mod support;
 
 mod groups;
+mod guide;
 mod merging;
 mod reading;
 mod single;
@@ -124,8 +124,8 @@ use std::sync::{Mutex, PoisonError};
 
 use decide::run::Failure;
 use decide::{
-    BlockId, Cause, CellId, Condition, Decision, End, Outsider, Pauser, Records, RunId, Seq, TestKind, Waited, Who,
-    decide,
+    BlockId, Cause, CellId, Condition, Decision, End, Flow, Outsider, Pauser, Records, RunId, Seq, TestKind, Waited,
+    Who, decide,
 };
 use engine::spoken::{self, To};
 use engine::{Ask, Came, Effect, Event, Handed, Question, Way};
@@ -281,6 +281,7 @@ fn engineer() -> Compiled {
             "asked",
             "words",
             "dependencies",
+            "guide",
             "main",
             "session",
             "start",
@@ -291,7 +292,6 @@ fn engineer() -> Compiled {
         // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
         // place the engine fills with what changed of the tree.
         tools: names(&["query", "run_tests"]),
-        details: names(&["files"]),
         ..Default::default()
     };
     compile(&source, &has).expect("the engineer's flow compiles")
@@ -497,6 +497,10 @@ const RED_AFTER_AN_ANSWER: &str =
 /// The source of the block the driver writes as the owner starts a work, which runs the first cell.
 const START: &str = "start";
 
+/// The source of the project's guide, which every agent's cell watches and the start's act reads as it makes the work's
+/// place.
+const GUIDE: &str = "guide";
+
 /// The owner starts the work: the outside writes the block of [`START`], as the driver does when the owner first lets
 /// the work on.
 fn started(flow: &Compiled) -> Event {
@@ -504,6 +508,13 @@ fn started(flow: &Compiled) -> Event {
         .find(|(_, b)| b.writers.outside.as_deref() == Some(START))
         .expect("the flow has a block the owner's start writes");
     wrote(block, Outsider::Outside, true, None)
+}
+
+/// The project's guide as the start's act reads it, where the flow has one: written from outside before any agent's
+/// round, as the act writes it as it makes the work's place, the one version a history has.
+fn guided(flow: &Compiled) -> Option<Event> {
+    let (block, _) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(GUIDE))?;
+    Some(wrote(block, Outsider::Outside, true, None))
 }
 
 /// The place of the cell.
@@ -532,10 +543,10 @@ fn answered_stood(records: &Records) -> bool {
     (decide::questions::questions(records).values()).any(|q| q.stands() && q.answer.is_some())
 }
 
-/// Whether the block was ever written.
-fn ever_written(records: &Records, block: &BlockId) -> bool {
-    (records.finished.iter()).any(|f| f.writes.iter().any(|w| &w.block == block))
-        || records.written.iter().any(|w| &w.block == block)
+/// Whether the block says something: a version of it changed its meaning, which a first version handed in as changing
+/// nothing did not (design document `data-and-context`, 9), by the histories' own reading.
+fn says_something(flow: &Flow, records: &Records, block: &BlockId) -> bool {
+    (Reading::new(flow, records, None).current(block)).is_some_and(|v| v.meaning.is_some())
 }
 
 fn wrote(block: &BlockId, by: Outsider, matters: bool, value: Option<String>) -> Event {
@@ -558,8 +569,8 @@ fn handed(block: &BlockId, cell: &str, matters: bool, value: Option<String>) -> 
 }
 
 /// What the round of the run of the cell at this place returns that hands in these blocks. An agent's return names as
-/// dealt with each trigger its round was told ran it, as its agent is told them (crate `context`), and is read as the
-/// agents' rounds read a return (`CellSpec::dealt_with`), a group's trigger by its own name; an act of the engine's
+/// dealt with each thing its round was told ran it, as its agent is told them (crate `context`), and is read as the
+/// agents' rounds read a return (`CellSpec::dealt_with`), a group by its own name; an act of the engine's
 /// names none, and deals with everything that ran its round.
 fn hands_in(d: &Driver, run: RunId, i: usize, writes: Vec<Handed>) -> Came {
     let spec = &d.flow.cells[i];
@@ -569,7 +580,7 @@ fn hands_in(d: &Driver, run: RunId, i: usize, writes: Vec<Handed>) -> Came {
     let told = decide::told(&d.flow.flow, &d.work.records, run).expect("the run started");
     let names: Vec<String> = spec.ran(&told.ran_by).map(|t| t.name.clone()).collect();
     let (dealt_with, none) = spec.dealt_with(&names);
-    assert!(none.is_empty(), "{} names no trigger {none:?}", spec.id);
+    assert!(none.is_empty(), "{} watches none of {none:?}", spec.id);
     Came::works(dealt_with, writes)
 }
 
@@ -843,6 +854,30 @@ fn answers_an_act(d: &Driver, run: RunId, i: usize) -> bool {
     told.ran_by.iter().any(written)
 }
 
+/// The dialogues in which the round under way of the run owes the next word as the maker, woken by a point of the other
+/// side (design document `data-and-context`, 41).
+fn points(d: &Driver, run: RunId) -> Vec<BlockId> {
+    decide::told(&d.flow.flow, &d.work.records, run).map_or_else(Vec::new, |told| told.points)
+}
+
+/// The next word a round of the cell at this place owes, handed in beside what it drew in `chance` of a hundred: of a
+/// maker woken by a point, its answer in the dialogue; of a judge that fails the work, its points. Where it is left out
+/// the engine sends the return back (design document `data-and-context`, 41, 42).
+fn next_word(d: &mut Driver, run: RunId, i: usize, cell: &str, handed_in: &mut Vec<Handed>, chance: u64) {
+    let mut owed = points(d, run);
+    for (verdict, of) in &d.flow.flow.cells()[i].verdicts {
+        let fails = (handed_in.iter()).any(|h| &h.block == verdict && h.value.as_deref() == Some(of.fails.as_str()));
+        if fails {
+            owed.push(of.dialogue.clone());
+        }
+    }
+    for b in owed {
+        if !handed_in.iter().any(|h| h.block == b) && d.rng.chance(chance) {
+            handed_in.push(handed(&b, cell, true, None));
+        }
+    }
+}
+
 /// The check, whose round ends now, passed the work's head as the branch holds it, or failed it.
 fn passes_at(branch: &Shared, passed: bool) {
     let mut b = branch.get();
@@ -890,7 +925,9 @@ impl Random {
         }
         if self.refuse_next && self.roles.judges.iter().any(|(j, _)| *j == i) {
             self.refuse_next = false;
-            let handed_in = self.as_it_stands(d, i, cell, true);
+            let mut handed_in = self.as_it_stands(d, i, cell, true);
+            // A judge that refuses brings its points.
+            next_word(d, run, i, cell, &mut handed_in, 100);
             return hands_in(d, run, i, handed_in);
         }
         let answering = matches!(self.steer, Steer::FailCheckAnswered | Steer::FailCheckLeft);
@@ -945,6 +982,8 @@ impl Random {
             }
             _ => {
                 let mut handed_in = self.valid(d, i, cell);
+                // Nine agents in ten owe nothing they leave out.
+                next_word(d, run, i, cell, &mut handed_in, 90);
                 let first = !d.work.records.questions.iter().any(|q| !q.engine);
                 let force = self.steer == Steer::FailCheckLeft && first;
                 let questions = self.questions(d, i, cell, &mut handed_in, force);
@@ -970,7 +1009,7 @@ impl Random {
         force: bool,
     ) -> Vec<Question> {
         let spec = &d.flow.cells[i];
-        if !(spec.triggers.iter()).any(|t| t.of_source(&d.flow, flow::ANSWER).is_some()) {
+        if !(spec.watches.iter()).any(|t| t.of_source(&d.flow, flow::ANSWER).is_some()) {
             return Vec::new();
         }
         let own: Vec<String> = (decide::questions::questions(&d.work.records).into_iter())
@@ -1029,17 +1068,17 @@ impl Random {
             .filter(|(_, b)| b.writers.people && b.values.is_none())
             .map(|(id, _)| id)
             .collect();
-        // The owner's start is written once, as the work begins; what the engine writes itself, of the questions, the
-        // answers and the owner's words, is written by no one outside; and the work's head is written as the carriers
-        // read the branch, which a person moves by committing.
-        let engines = [START, "asked", flow::ANSWER, flow::WORDS, HEAD];
+        // The owner's start is written once, as the work begins, and the guide with it, as the start's act reads it;
+        // what the engine writes itself, of the questions, the answers and the owner's words, is written by no one
+        // outside; and the work's head is written as the carriers read the branch, which a person moves by committing.
+        let engines = [START, GUIDE, "asked", flow::ANSWER, flow::WORDS, HEAD];
         let outside: Vec<&BlockId> = (blocks.iter())
             .filter(|(_, b)| b.writers.outside.as_deref().is_some_and(|s| !engines.contains(&s)))
             .map(|(id, _)| id)
             .collect();
         // The lines the owner speaks to.
         let mut lines: Vec<String> = (d.flow.cells.iter())
-            .filter(|c| (c.triggers.iter()).any(|t| t.of_source(&d.flow, flow::WORDS).is_some()))
+            .filter(|c| (c.watches.iter()).any(|t| t.of_source(&d.flow, flow::WORDS).is_some()))
             .filter_map(|c| c.line.clone())
             .collect();
         lines.dedup();
@@ -1090,7 +1129,6 @@ impl Random {
                 question,
                 version,
                 option,
-                why: None,
             };
         }
         let event = match d.rng.below(100) {
@@ -1109,8 +1147,11 @@ impl Random {
                     };
                     wrote(&b, Outsider::Outside, true, Some(value))
                 }
+                // What the outside writes is approved as not mattering only as a change of what the block said: a
+                // version so written of a block that says nothing yet would say nothing, and run no cell (design
+                // document `data-and-context`, 9).
                 None => {
-                    let matters = d.rng.chance(50);
+                    let matters = d.rng.chance(50) || !says_something(&d.flow.flow, &d.work.records, &b);
                     wrote(&b, Outsider::Outside, matters, None)
                 }
             }),
@@ -1124,11 +1165,14 @@ impl Random {
             }
             77..=81 => (!lines.is_empty()).then(|| says(&lines[d.rng.below(lines.len())])),
             82..=84 => {
-                let standing: Vec<String> = (decide::questions::questions(&d.work.records).into_iter())
+                let standing: Vec<(String, CellId)> = (decide::questions::questions(&d.work.records).into_iter())
                     .filter(|(_, q)| q.stands())
-                    .map(|(name, _)| name.to_string())
+                    .map(|(name, q)| (name.to_string(), q.latest.cell.clone()))
                     .collect();
-                (!standing.is_empty()).then(|| remarks(&standing[d.rng.below(standing.len())]))
+                (!standing.is_empty()).then(|| {
+                    let (question, cell) = &standing[d.rng.below(standing.len())];
+                    remarks(question, cell)
+                })
             }
             67..=76 => Some(if paused {
                 Event::Resumed
@@ -1158,7 +1202,6 @@ impl Random {
                         question,
                         version,
                         option,
-                        why: None,
                     }
                 })
             }
@@ -1176,6 +1219,12 @@ struct Content {
     /// The work's branch, which a round of the continuation commits to only as it fixes what it was told, and which the
     /// carriers read as before.
     branch: Shared,
+    /// Whether a person commits on the branch, once, as the check's round is under way: the check then reads a head its
+    /// review has not dealt with, and fails in passing.
+    commit_at_check: bool,
+    /// Whether a person commits on the branch, once, as the merge's round is under way: the merge then reads a head
+    /// moved since the check passed, and fails in passing.
+    commit_at_merge: bool,
 }
 
 impl Content {
@@ -1206,6 +1255,8 @@ impl Content {
             choices,
             roles: roles.clone(),
             branch,
+            commit_at_check: false,
+            commit_at_merge: false,
         }
     }
 }
@@ -1216,7 +1267,13 @@ impl Part for Content {
     }
 
     fn failure(&mut self, d: &mut Driver, run: RunId, cell: &str) -> Option<(Failure, String)> {
-        gate(d, &self.roles, &self.branch, run, place(&d.flow, cell))
+        let i = place(&d.flow, cell);
+        let commits = (i == self.roles.check && std::mem::take(&mut self.commit_at_check))
+            || (i == self.roles.last && std::mem::take(&mut self.commit_at_merge));
+        if commits {
+            commit(&self.branch);
+        }
+        gate(d, &self.roles, &self.branch, run, i)
     }
 
     /// What its cell must write to go forward, the branch read as the round ends; the check passes. An agent's round on
@@ -1250,7 +1307,7 @@ impl Content {
         // cell fixes what it was told, and says its writes matter.
         let act = d.flow.cells[i].kind == Kind::Engine;
         let answering = answering(d, run, i);
-        let handed_in = (d.flow.flow.cells()[i].outputs.iter())
+        let mut handed_in: Vec<Handed> = (d.flow.flow.cells()[i].outputs.iter())
             .filter_map(|b| {
                 if d.flow.blocks[b].values.is_some() {
                     Some(handed(b, cell, true, Some(self.choices[b].clone())))
@@ -1260,11 +1317,17 @@ impl Content {
                 } else if opinion(&d.flow, b, i) {
                     None
                 } else {
-                    let matters = act || answering || !ever_written(&d.work.records, b);
+                    let matters = act || answering || !says_something(&d.flow.flow, &d.work.records, b);
                     Some(handed(b, cell, matters, None))
                 }
             })
             .collect();
+        // A maker woken by a point answers it in the dialogue (design document `data-and-context`, 41).
+        for b in points(d, run) {
+            if !handed_in.iter().any(|h| h.block == b) {
+                handed_in.push(handed(&b, cell, true, None));
+            }
+        }
         hands_in(d, run, i, handed_in)
     }
 }
@@ -1367,7 +1430,7 @@ fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
         .map(|line| says(&line))
         .or_else(|| {
             let spoken_to =
-                |c: &CellId| (d.flow.cells.iter()).any(|s| s.id == *c && spoken::trigger(&d.flow, s).is_some());
+                |c: &CellId| (d.flow.cells.iter()).any(|s| s.id == *c && spoken::words_of(&d.flow, &s.id).is_some());
             if d.work.records.started.iter().any(|s| spoken_to(&s.cell)) {
                 return None;
             }
@@ -1390,10 +1453,10 @@ fn says(line: &str) -> Event {
     }
 }
 
-/// The owner's few words about the question.
-fn remarks(question: &str) -> Event {
+/// The owner's few words about the question, to the cell whose question it is.
+fn remarks(question: &str, cell: &CellId) -> Event {
     Event::Said {
-        to: To::Question(question.to_string()),
+        to: To::Cell(cell.clone()),
         words: format!("About {question}: say more"),
     }
 }
@@ -1423,6 +1486,11 @@ struct History {
     merged: bool,
     /// The work's branch, as its parts move it.
     branch: Shared,
+    /// Whether, in the content continuation, a person commits as the check's round is under way, and as the merge's
+    /// is: the two ways a work's head moves past what judged it, which the random steps take in about one history in
+    /// five hundred each. The guide being new to every agent's cell from the start, the review runs before the check
+    /// on every work, so the check meets a head the review has not dealt with only where the head moved after it.
+    commits: (bool, bool),
 }
 
 impl History {
@@ -1739,7 +1807,6 @@ impl History {
                 question,
                 version,
                 option: 1,
-                why: None,
             };
             return Some((answer, false));
         }
@@ -1789,6 +1856,7 @@ impl History {
     fn content(&mut self) {
         self.d.note("the content continuation begins".into());
         let mut part = Content::new(&self.d, &self.roles, self.branch.clone());
+        (part.commit_at_check, part.commit_at_merge) = self.commits;
         let from = self.d.work.tick();
         let bound = content_bound(&self.d);
         let mut steps = 0;
@@ -1905,9 +1973,16 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         ended: false,
         merged: false,
         branch,
+        commits: {
+            let mut coins = Rng::new(seed ^ 0xC0_4417_5EED_0002);
+            (coins.chance(10), coins.chance(10))
+        },
     };
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         h.d.take(started(&h.d.flow));
+        if let Some(guide) = guided(&h.d.flow) {
+            h.d.take(guide);
+        }
         let first = (h.d.flow.flow.cells()[0].requires.first())
             .filter(|_| starts)
             .and_then(|key| make_hold(&h.d, key))

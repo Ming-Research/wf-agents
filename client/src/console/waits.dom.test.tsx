@@ -68,7 +68,7 @@ const VERDICT: Now = {
       kind: 'precondition',
       test: 'may_merge',
       words: 'The reviews are content and the owner lets it merge',
-      by: [{ kind: 'owner' }, { kind: 'cell', cell: 'review' }],
+      by: [{ kind: 'owner' }, { kind: 'cell', cell: 'review_code' }],
     },
   ],
 };
@@ -79,7 +79,7 @@ const RULED: Flow = {
 const SAID_NO: Block = {
   name: 'content',
   versions: [
-    { at: 7, time: 0, by: { kind: 'run', run: 5, cell: 'review' }, meaning: 7, value: 'no', saidTo: null, chars: 0, empty: false },
+    { at: 7, time: 0, by: { kind: 'run', run: 5, cell: 'review_code' }, meaning: 7, value: 'no', saidTo: null, chars: 0, empty: false },
   ],
 };
 

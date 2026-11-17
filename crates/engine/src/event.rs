@@ -59,19 +59,18 @@ pub enum Event {
     },
     /// The call has its result.
     Done { call: CallId, result: String },
-    /// The owner says these words to a line of the work's flow, or about a question of the work: to the cell the
-    /// engine chooses (crate module `spoken`).
+    /// The owner says these words to a cell of the work's flow, or to a line of it: to the cell the engine chooses
+    /// (crate module `spoken`).
     Said { to: To, words: String },
     /// What the owner said reached the round of this run that is under way, after a use of one of its program's own
     /// tools: these versions, which the engine gave its carrier to tell the round ([`Effect::Tell`]), are put into it.
     SaidToRound { run: RunId, versions: Vec<(BlockId, Seq)> },
-    /// The owner answers this version of the question, taking this option, counted from one, for this reason where
-    /// one is given (design document `data-and-context`, 34).
+    /// The owner answers this version of the question, taking this option, counted from one, and nothing else (design
+    /// document `data-and-context`, 30).
     Answer {
         question: String,
         version: Seq,
         option: u64,
-        why: Option<String>,
     },
     /// A new session of the line began, or is to begin with the line's next round, for this reason.
     Anew { line: String, why: Why },

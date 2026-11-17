@@ -27,8 +27,8 @@ fn small_with_tools(tools: &str) -> Compiled {
     let source = edit(
         laid_out(),
         FLOW_FILE,
-        "data = [\"request\"]",
-        &format!("data = [\"request\"]\ntools = {tools}"),
+        "data = [\"request\", \"main\"]",
+        &format!("data = [\"request\", \"main\"]\ntools = {tools}"),
     );
     compiled(&source)
 }
@@ -142,6 +142,7 @@ fn engineer() -> Compiled {
             "answer",
             "asked",
             "dependencies",
+            "guide",
             "main",
             "session",
             "start",
@@ -152,19 +153,18 @@ fn engineer() -> Compiled {
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
         system: names(&["guide", "constitution", "tree_rules", "how_you_work_here"]),
-        details: names(&["files"]),
     };
     flow::compile(&source, &has).expect("the engineer's flow compiles")
 }
 
-// The work's questions are in the form of a line one of whose cells writes them, in the shape their own file gives,
-// and in no other line's: a cell of a line that writes none is not told by its form that it may ask. So is the record
-// of what is said, a text, where a cell of the line writes it.
+// A cell's questions are in the form of its line, in the shape their file gives, and in no other line's: a cell of a
+// line that writes none is not told by its form that it may ask. So are its words, a text.
 #[test]
 fn the_engineer_s_lines_each_list_their_cells_blocks_and_only_those_that_write_questions_have_them() {
     let flow = engineer();
     let beside = agents::read(&repository_flows()).expect("the files beside the flows are read");
-    let questions = flow.blocks[&BlockId::from("q_and_a")]
+    let source = |block: &str| flow.blocks[&BlockId::from(block)].writers.outside.clone();
+    let questions = flow.blocks[&BlockId::from("r1_questions")]
         .shape
         .clone()
         .expect("the questions' shape")
@@ -172,22 +172,18 @@ fn the_engineer_s_lines_each_list_their_cells_blocks_and_only_those_that_write_q
     let questions = serde_json::to_value(&questions).expect("the shape is JSON");
     for line in flow.lines.keys() {
         let form = form::form(&flow, &beside, line).expect("the form is made");
+        // Its size, which every call of the line's session sends: printed, to be read where it grows.
+        eprintln!("the form of the line {line}: {} bytes", form.len());
         let blocks = written_by(&flow, line);
         assert_eq!(listed(&form), blocks, "{line}");
         let outputs = &parsed(&form)["properties"]["outcome"]["properties"]["outputs"];
         assert_eq!(outputs["additionalProperties"], json!(false), "{line}");
-        let asks = blocks.iter().any(|b| b == "q_and_a");
-        assert_eq!(
-            outputs["properties"].get("q_and_a"),
-            asks.then_some(&questions),
-            "{line}"
-        );
-        if blocks.iter().any(|b| b == "discussion") {
-            assert_eq!(
-                outputs["properties"]["discussion"],
-                json!({ "type": "string" }),
-                "{line}"
-            );
+        for block in &blocks {
+            match source(block).as_deref() {
+                Some("answer") => assert_eq!(outputs["properties"][block], questions, "{line} {block}"),
+                Some("words") => assert_eq!(outputs["properties"][block], json!({ "type": "string" }), "{line}"),
+                _ => {}
+            }
         }
         for block in &blocks {
             let declared = &flow.blocks[&BlockId::from(block.as_str())];
@@ -198,7 +194,7 @@ fn the_engineer_s_lines_each_list_their_cells_blocks_and_only_those_that_write_q
         }
     }
     let asking: Vec<&str> = (flow.lines.keys().map(String::as_str))
-        .filter(|line| written_by(&flow, line).iter().any(|b| b == "q_and_a"))
+        .filter(|line| (written_by(&flow, line).iter()).any(|b| source(b).as_deref() == Some("answer")))
         .collect();
     let quiet: Vec<&str> = (flow.lines.keys().map(String::as_str))
         .filter(|line| !asking.contains(line))

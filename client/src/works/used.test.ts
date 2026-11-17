@@ -8,8 +8,8 @@ const MINUTE = 60_000;
 
 const FLOW = flowOf(
   [
-    cell('plan', { inputs: ['request'], outputs: ['plan'] }),
-    cell('check', { kind: 'engine', line: null, task: null, act: 'check', inputs: ['plan'], outputs: ['ci'] }),
+    cell('plan', { watches: ['request'], outputs: ['plan'] }),
+    cell('check', { kind: 'engine', line: null, task: null, act: 'check', watches: ['plan'], outputs: ['ci'] }),
   ],
   { request: { people: true }, plan: {}, ci: { values: ['green', 'red'] } },
 );

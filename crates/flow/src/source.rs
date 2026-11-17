@@ -3,8 +3,9 @@
 //! A flow is a directory. Laid out one thing to a file, it holds `flow.toml` for what is the flow's as a whole, and one
 //! file to each cell, line, block and named test, in `cells/`, `lines/`, `blocks/` (in directories of their own, as
 //! deep as is useful) and `tests/`, each named by the thing it defines. What every flow shares is beside the flows,
-//! defined once: the engine's own data in `../data/`, which a flow names among those it uses; what runs a cell, in
-//! `../triggers/`; and the sets of rules for the agents that a line names, in `../agents/rules/rules.toml`. Written
+//! defined once: the engine's own data in `../data/`, which a flow names among those it uses, and those each cell or
+//! each line has its own of, made where a cell names them; and the sets of rules for the agents that a line names, in
+//! `../agents/rules/rules.toml`. Written
 //! before that layout, a flow is `flow.toml` holding its lines, blocks and named tests, one `<cell id>.toml` beside it
 //! for each cell, and in `rules/` one `<name>.md` for each set of rules for the agents that a line's system prompt
 //! names. A field a file does not know is refused, so that every new kind of field is added on purpose.
@@ -37,19 +38,12 @@ pub const TESTS_DIR: &str = "tests";
 pub const TASK_EXTENSION: &str = "md";
 
 /// The directory beside the flows, from a flow's directory, that holds the engine's own data, as deep as is useful:
-/// each defined once for every flow, and used by a flow that names it.
+/// each defined once for every flow, and used by a flow that names it. In its `of_a_cell/` ([`OF_A_CELL`]) and
+/// `of_a_line/` ([`OF_A_LINE`]), each a datum every cell or every line has its own of, its file's `name` holding
+/// `{cell}`, the cell's id in small letters, or `{line}`, the line's name: such a datum is made where a cell names it.
 pub const DATA_DIR: &str = "../data";
-
-/// The directory beside the flows, from a flow's directory, that holds what runs a cell: in it, as deep as is useful,
-/// each a trigger standing on a block that stands only for it, which it declares; in `of_a_cell/`, each a trigger that every
-/// cell naming it has its own of; in `of_a_line/`, each a trigger that every line has its own of, which each cell of the
-/// line naming it shares; in `of_a_datum/`, each a rule that makes a trigger of each datum of a flow; in `of_a_group/`,
-/// each a rule that makes a trigger of each group of a flow's blocks.
-pub const TRIGGERS_DIR: &str = "../triggers";
 pub const OF_A_CELL: &str = "of_a_cell";
 pub const OF_A_LINE: &str = "of_a_line";
-pub const OF_A_DATUM: &str = "of_a_datum";
-pub const OF_A_GROUP: &str = "of_a_group";
 
 /// The path, from a flow's directory, of the file beside the flows that names the sets of rules for the agents a line
 /// may take: [`agents::RULES_FILE`].
@@ -77,14 +71,13 @@ pub struct Source {
     pub rules: BTreeMap<String, String>,
     /// Of a flow laid out one thing to a file, the text of each of its files but `flow.toml` and its cells', and of
     /// each file beside the flows that it may use, by its path from the flow's directory: `lines/<name>.toml`,
-    /// `blocks/.../<name>.toml`, `tests/<name>.toml`, `../data/.../<name>.toml`, `../triggers/.../<name>.toml`,
-    /// [`rules_file`] and [`waits_file`].
+    /// `blocks/.../<name>.toml`, `tests/<name>.toml`, `../data/.../<name>.toml`, [`rules_file`] and [`waits_file`].
     pub files: BTreeMap<String, String>,
 }
 
 /// Reads the flow in this directory. Laid out one thing to a file where it has `cells/`: `flow.toml`; each `.toml` file
-/// directly in `cells/`, `lines/` and `tests/`; each in `blocks/`, `../data/` and `../triggers/` or in a directory in
-/// them; [`rules_file`] and [`waits_file`]. Else as it was written before: `flow.toml`, every other `.toml` file
+/// directly in `cells/`, `lines/` and `tests/`; each in `blocks/` and `../data/` or in a directory in them;
+/// [`rules_file`] and [`waits_file`]. Else as it was written before: `flow.toml`, every other `.toml` file
 /// directly in it as the file of the cell its name gives, every `.md` file directly in its `rules/`, where it has one,
 /// as the set of rules its name gives, and [`waits_file`]. Other files and directories are not read.
 pub fn read(dir: &Path) -> io::Result<Source> {
@@ -100,7 +93,6 @@ pub fn read(dir: &Path) -> io::Result<Source> {
             (BLOCKS_DIR, true),
             (TESTS_DIR, false),
             (DATA_DIR, true),
-            (TRIGGERS_DIR, true),
         ] {
             let at = dir.join(sub);
             if at.is_dir() {
@@ -229,7 +221,7 @@ fn laid_out(path: &str) -> Option<Kept<'_>> {
     let under = |root: &str| dir == root || dir.starts_with(&format!("{root}/"));
     if dir == CELLS_DIR {
         Some(Kept::Cell(stem))
-    } else if dir == LINES_DIR || dir == TESTS_DIR || under(BLOCKS_DIR) || under(DATA_DIR) || under(TRIGGERS_DIR) {
+    } else if dir == LINES_DIR || dir == TESTS_DIR || under(BLOCKS_DIR) || under(DATA_DIR) {
         Some(Kept::File)
     } else {
         (path == rules_file() || path == waits_file()).then_some(Kept::File)
@@ -269,10 +261,13 @@ pub struct FlowFile {
     /// The named tests the cells use, by name.
     #[serde(default)]
     pub tests: BTreeMap<String, TestFile>,
-    /// The groups of the flow's blocks, by name, each with its blocks: a cell names a group's trigger
-    /// (`../triggers/of_a_group/`), which fires for a new version of any of them.
+    /// The groups of the flow's blocks, by name, each with its blocks: a cell watches or reads a group by its name, a
+    /// new version of any of its blocks being new to a cell that watches it.
     #[serde(default)]
     pub groups: BTreeMap<String, Vec<String>>,
+    /// The cell in whose questions the engine asks what it asks of a work, as in a flow laid out one thing to a file;
+    /// none where the flow names none.
+    pub engine_asks_in: Option<String>,
 }
 
 /// `flow.toml` of a flow laid out one thing to a file: what is the flow's as a whole. Its lines, blocks and named tests
@@ -296,10 +291,42 @@ pub struct LaidOutFlowFile {
     #[serde(default)]
     pub tools: Vec<String>,
     /// The groups of the flow's blocks, by a name no block, datum or other group has, each with its blocks as the flow
-    /// names them: a cell names a group's trigger (`../triggers/of_a_group/`), which fires for a new version of any of
-    /// them.
+    /// names them: a cell watches or reads a group by its name, a new version of any of its blocks being new to a cell
+    /// that watches it.
     #[serde(default)]
     pub groups: BTreeMap<String, Vec<String>>,
+    /// What the item's card shows the owner of the work, in this order: data of the flow, each by its name. The page
+    /// shows what this names, and names no datum of its own.
+    #[serde(default)]
+    pub card: Vec<String>,
+    /// The cell in whose questions the engine asks what it asks of a work, such as whether a change of a file the
+    /// project protects may merge: one that can change the work as the answer asks, and can be spoken to (design
+    /// document `data-and-context`, 34). None where the flow names none.
+    pub engine_asks_in: Option<String>,
+    /// What every agent cell of the flow watches and reads beside what its own file names, given it first.
+    #[serde(default)]
+    pub every_agent: EveryAgentFile,
+}
+
+/// What every agent cell of a flow watches and reads, as its `flow.toml` writes it: each the engine's datum the flow
+/// names in `data`, or `{each}_` and the rest of the name of a datum each cell has its own of (`../data/of_a_cell/`),
+/// standing for that datum of each cell that has one. A cell watches or reads a datum this names only once, as its
+/// own file names it where it does.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EveryAgentFile {
+    /// The data whose new version runs every agent cell, in the order named.
+    #[serde(default)]
+    pub watches: Vec<String>,
+    /// The data every agent cell is given that run nothing, in the order named.
+    #[serde(default)]
+    pub reads: Vec<String>,
+    /// The kind each is given in, by its name as written.
+    #[serde(default)]
+    pub kinds: BTreeMap<String, InputKind>,
+    /// What a cell does when a datum it watches so is new, by its name as written.
+    #[serde(default, rename = "do")]
+    pub does: BTreeMap<String, String>,
 }
 
 /// The limits as written. They are read as any whole number so that one that is not positive is a fault of the
@@ -477,51 +504,6 @@ impl From<LaidOutBlockFile> for BlockFile {
     }
 }
 
-/// A trigger as written in a file of `../triggers/`, by the name of its file: one standing on a block that stands only for
-/// it, which it declares, which the owner or a source outside the work writes; in `of_a_cell/`, one that every cell
-/// naming it has its own of, `{cell}` standing for the id of the cell in small letters in `block`, which must hold it,
-/// and in `read`, `detail` and `do`; or, in `of_a_line/`, one that every line has its own of, `{line}` standing so for
-/// the name of the line of the cell naming it, so that the cells of one line share it.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TriggerFile {
-    /// What it is, in a sentence: when it fires. The owner's page shows it with each cell it runs.
-    pub what: Option<String>,
-    /// The block it stands on.
-    pub block: String,
-    /// Who writes the block: [`OWNER`], or a name of a source outside the work that the engine has.
-    pub from: Option<String>,
-    /// What the engine says of what happened, where it says something: the name of a place it fills in a run.
-    pub detail: Option<String>,
-    /// The data the agent reads for it, each among those its cell is given.
-    #[serde(default)]
-    pub read: Vec<String>,
-    /// What a cell does for it, where the cell says nothing of its own.
-    #[serde(rename = "do")]
-    pub does: Option<String>,
-    /// What the source writes into the block it stands on, where it is one of the engine's: as a block's `writes`.
-    #[serde(default)]
-    pub writes: Texts,
-}
-
-/// A rule as written in a file of `../triggers/of_a_datum/`, which makes a trigger of each datum of a flow: a cell names
-/// it by `name`, `{datum}` there standing for the datum's name, and it stands on the datum.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct OfADatumFile {
-    /// The name of a datum's trigger, which must hold `{datum}`, standing for the datum's name.
-    pub name: String,
-    /// What a datum's trigger is, in a sentence, `{datum}` standing for the datum's name: when it fires. The owner's
-    /// page shows it with each cell it runs.
-    pub what: Option<String>,
-    /// The data the agent reads for it, `{datum}` standing for the datum's name.
-    #[serde(default)]
-    pub read: Vec<String>,
-    /// What a cell does for it, where the cell says nothing of its own, `{datum}` standing for the datum's name.
-    #[serde(rename = "do")]
-    pub does: Option<String>,
-}
-
 /// A named test as written: a test of the blocks of the work itself.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -555,44 +537,21 @@ pub struct CellFile {
     pub when: Option<Keys>,
     /// What must hold before the cell: every key; the work waits before the cell while one does not.
     pub requires: Option<Keys>,
-    /// What runs the cell, written `triggered_by`: each a trigger by its name, in the order it names them, a trigger of
-    /// `../triggers/` or of its `of_a_cell/` or `of_a_line/` by the name of its file, or one a rule of
-    /// `../triggers/of_a_datum/` makes of a datum of the flow. A file names these and its `context`, or one of the forms before them, not two.
-    #[serde(default, rename = "triggered_by")]
-    pub triggers: Vec<String>,
-    /// What the cell does for a trigger, by the trigger's name: each among `triggered_by`.
+    /// What runs the cell, by its data: each datum, or group of the flow's blocks, whose version new to the cell runs
+    /// it, by its name, in the order it names them (design document `data-and-context`, 5, 12).
+    #[serde(default)]
+    pub watches: Vec<String>,
+    /// The data the cell is given that run nothing, each a datum or a group by its name, in the order it names them, none
+    /// it watches. Only an agent cell is given data.
+    #[serde(default)]
+    pub reads: Vec<String>,
+    /// What the cell does when a datum or group it watches is new, by its name: each among `watches`.
     #[serde(default, rename = "do")]
     pub does: BTreeMap<String, String>,
-    /// The data the cell's session must hold, its context, in the order it names them: each filled in by its kind.
-    /// Only an agent cell has a session to fill.
-    #[serde(default)]
-    pub context: Vec<String>,
-    /// The kind the cell is given each datum of its `context` in, by the datum's name: each among `context`, and each
-    /// datum of `context` has one.
+    /// The kind the cell is given each block it watches or reads in, by the block's name, a group's each by its own:
+    /// what its session must hold of it.
     #[serde(default)]
     pub kinds: BTreeMap<String, InputKind>,
-    /// The blocks whose new version runs the cell, in the order it names them.
-    #[serde(default)]
-    pub runs_on: Vec<String>,
-    /// Why a block runs the cell, by the block's name: each a block among `runs_on`.
-    #[serde(default)]
-    pub run: BTreeMap<String, RunFile>,
-    /// The blocks the cell is given: its session is kept supplied with their content, each by its kind, in the order
-    /// it names them. Only an agent cell has a session to supply.
-    #[serde(default)]
-    pub given: Vec<String>,
-    /// How the cell is given a block and why, by the block's name: each a block among `given`, and each block of
-    /// `given` has one that names its kind.
-    #[serde(default)]
-    pub give: BTreeMap<String, GiveFile>,
-    /// The old form of `runs_on` and `given`, one list for both: each block of it runs the cell, and an agent cell is
-    /// given it. A file names this list, the two, or `triggered_by` and `context`: one of the three forms.
-    #[serde(default)]
-    pub inputs: Vec<String>,
-    /// The old form of `give`, by the block's name: each a block among `inputs`. Of an engine cell, which is given
-    /// nothing, it says only why the block runs the cell.
-    #[serde(default)]
-    pub input: BTreeMap<String, GiveFile>,
     /// The blocks the cell may write.
     #[serde(default)]
     pub outputs: Vec<String>,
@@ -619,24 +578,6 @@ pub struct CellFile {
     pub tools: Vec<String>,
 }
 
-/// Why a block runs a cell, as written.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RunFile {
-    /// What the cell's agent does when the block is new, in a sentence.
-    pub why: Option<String>,
-}
-
-/// How a cell is given a block, as written.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct GiveFile {
-    /// What the context of the cell's session must hold of the block when the cell runs.
-    pub kind: Option<InputKind>,
-    /// Why the cell is given the block: what its agent does with it, in a sentence.
-    pub why: Option<String>,
-}
-
 /// What the context of a cell's session must hold of a block it is given when the cell runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -656,6 +597,37 @@ impl InputKind {
             InputKind::Latest => "latest",
             InputKind::LastAndLatest => "last_and_latest",
             InputKind::All => "all",
+        }
+    }
+}
+
+/// Where the flow's definition gives a cell a datum, as the `context` part of the message orders what a round is given
+/// (design document `data-and-context`, 14, 15, 21).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Listed {
+    /// What the flow gives every agent cell (`[every_agent]` of `flow.toml`).
+    EveryAgent,
+    /// What the cell only reads.
+    Reads,
+    /// What the cell watches.
+    Watches,
+    /// What the cell writes and is given by nothing else: its latest version, where the session lacks it, so that the
+    /// cell brings its outputs up to date from it.
+    Outputs,
+}
+
+impl Listed {
+    /// Every list, as the files write them.
+    pub const ALL: [Listed; 4] = [Listed::EveryAgent, Listed::Reads, Listed::Watches, Listed::Outputs];
+
+    /// The list's name, as it is written.
+    pub fn name(self) -> &'static str {
+        match self {
+            Listed::EveryAgent => "every_agent",
+            Listed::Reads => "reads",
+            Listed::Watches => "watches",
+            Listed::Outputs => "outputs",
         }
     }
 }

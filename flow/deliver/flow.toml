@@ -10,6 +10,10 @@ order = ["V1"]
 # the items it is made of have merged.
 data = ["background", "dependencies"]
 
+# What the item's card shows the owner of the work, in this order: the page shows what this names, and names no datum
+# of its own.
+card = ["background", "delivered"]
+
 # The cell is an act of the engine's, which makes no call, is no way round and hands in what the flow requires.
 [limits]
 runs = 1

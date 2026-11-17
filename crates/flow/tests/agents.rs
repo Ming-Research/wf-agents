@@ -43,6 +43,7 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     let parts: Vec<String> = (read.session.parts.iter())
         .map(|part| match part {
             SessionPart::Project(p) => format!("project {}", p.project),
+            SessionPart::Datum(d) => format!("datum {}", d.datum),
             SessionPart::Line(l) => format!("line {:?}", l.line),
             SessionPart::Words(w) => format!("words {}", w.words),
             SessionPart::Returns(r) => format!("returns {:?}", r.returns),
@@ -90,7 +91,7 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     assert_eq!(read.returns.outputs.none, "This cell writes no block.");
     assert_eq!(read.sent_back.heading, "## Sent back");
     assert_eq!(read.sent_back.item, "- {text}");
-    assert_eq!(read.sent_back.faults.not_a_trigger, "`{name}` does not run this cell.");
+    assert_eq!(read.sent_back.faults.not_watched, "`{name}` does not run this cell.");
     assert_eq!(read.sent_back.unread.requests_not_a_list, "`{name}` has no list");
     assert_eq!(
         read.sent_back.faults.not_answerable,
@@ -142,7 +143,7 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
             (Part::Task, Some(InputKind::Latest), None),
             (Part::Results, None, None),
             (Part::SentBack, None, None),
-            (Part::Triggers, None, None),
+            (Part::New, None, None),
         ]
     );
     assert_eq!(read.message.parts[8].does.as_deref(), Some(": {do}"));
@@ -333,4 +334,51 @@ fn a_reason_is_a_sentence_ended_as_one_in_english_or_in_chinese_and_given_a_full
     assert_eq!(agents::sentence("先做这个。"), "先做这个。");
     assert_eq!(agents::sentence("快！"), "快！");
     assert_eq!(agents::sentence(""), "");
+}
+
+#[test]
+fn the_context_part_orders_what_a_round_is_given_by_naming_each_list_of_a_cell_once() {
+    // The words with the context part given this order, or none, read or refused.
+    let read = |name: &str, order: Option<&str>| {
+        let dir = copy(name);
+        let message = dir.join("agents/message/message.toml");
+        let text = fs::read_to_string(&message).unwrap();
+        let kept: String = (text.lines())
+            .filter(|line| !line.starts_with("order = "))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let ordered = match order {
+            Some(order) => kept.replace(
+                "part = \"context\"\n",
+                &format!("part = \"context\"\norder = {order}\n"),
+            ),
+            None => kept,
+        };
+        fs::write(&message, ordered).unwrap();
+        let read = agents::read(&dir);
+        fs::remove_dir_all(&dir).unwrap();
+        read.map(|_| ())
+            .map_err(|refused| (refused, message.display().to_string()))
+    };
+    let whole = r#"["every_agent", "reads", "watches", "outputs"]"#;
+    assert_eq!(read("order-whole", Some(whole)), Ok(()));
+    let other = r#"["outputs", "watches", "reads", "every_agent"]"#;
+    assert_eq!(read("order-other", Some(other)), Ok(()));
+    for (name, order, named) in [
+        (
+            "order-lacking",
+            Some(r#"["every_agent", "reads", "watches"]"#),
+            "outputs",
+        ),
+        (
+            "order-twice",
+            Some(r#"["every_agent", "reads", "reads", "watches", "outputs"]"#),
+            "reads",
+        ),
+        ("order-none", None, "every_agent, reads, watches, outputs"),
+    ] {
+        let (refused, file) = read(name, order).unwrap_err();
+        assert!(refused.contains(&file), "{name}: {refused}");
+        assert!(refused.contains(named), "{name}: {refused}");
+    }
 }

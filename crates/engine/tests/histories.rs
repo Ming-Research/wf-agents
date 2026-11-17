@@ -95,16 +95,19 @@ fn flow_file(order: &[&str], blocks: &BTreeSet<&str>) -> String {
     )
 }
 
-/// An agent's cell that reads the blocks `inputs`, may write `outputs` and must write `must` each time.
+/// An agent's cell that watches the blocks `inputs`, each given as it last worked from it and as it is now, may write
+/// `outputs` and must write `must` each time.
 fn agent(inputs: &[&str], outputs: &[&str], must: &[&str], when: Option<&str>) -> (String, Vec<&'static str>) {
     let list = |l: &[&str]| l.iter().map(|b| format!("\"{b}\"")).collect::<Vec<_>>().join(", ");
+    let kinds = (inputs.iter().map(|b| format!("{b} = \"last_and_latest\""))).collect::<Vec<_>>();
     let when = when.map_or(String::new(), |w| format!("when = {w}\n"));
     let file = format!(
         "title = \"A cell\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Do the cell's part.\"\n{when}\
-         inputs = [{}]\noutputs = [{}]\nmust_write = [{}]\n",
+         watches = [{}]\noutputs = [{}]\nmust_write = [{}]\nkinds = {{ {} }}\n",
         list(inputs),
         list(outputs),
-        list(must)
+        list(must),
+        kinds.join(", ")
     );
     let used = inputs.iter().chain(outputs).map(|b| block_name(b)).collect();
     (file, used)
@@ -124,7 +127,7 @@ fn merge(bound: bool) -> String {
     let must = if bound { "\"merged\"" } else { "" };
     format!(
         "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = {{ test = \"may_merge\" }}\n\
-         inputs = [\"plan\"]\noutputs = [\"merged\"]\nmust_write = [{must}]\n"
+         watches = [\"plan\"]\noutputs = [\"merged\"]\nmust_write = [{must}]\n"
     )
 }
 

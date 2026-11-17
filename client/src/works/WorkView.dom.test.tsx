@@ -375,6 +375,12 @@ describe('the history of a work', () => {
     expect(page.querySelectorAll('.run-arrow')).toHaveLength(2);
     expect(texts(page, '.step-words.way-back')).toEqual(['8 way round for opinions_implement', '10 way round for opinions_implement']);
     expect(texts(page, '.step-lead .step-words')[13]).toBe('the outside wrote main');
+    // Under each cell the write reaches, the flow's mark for that cell and that datum: the check watches main.
+    const check = rows[13].querySelectorAll('td')[4];
+    expect(check.querySelector('.part.watch')).not.toBeNull();
+    expect(check.querySelector('.part.read')).toBeNull();
+    expect(check.querySelector('.visually-hidden')?.textContent).toBe('check watches main');
+    expect(check.getAttribute('title')).toBe('check watches main');
   });
 });
 
@@ -437,8 +443,11 @@ describe('the panel of a step', () => {
     expect(panel.textContent).toContain('it handed in code, which the cell may not write');
     await chooseStep(page, 9);
     const way = page.querySelector('aside[aria-label="Run 8 of implement"]') as HTMLElement;
-    expect(way.textContent).toContain('Way round');
     expect(way.querySelector('.way-back')?.textContent).toContain('by a cell after it: a way round');
+    // The way back is drawn on the chart beside it; the run's panel says nothing more of it.
+    expect(way.textContent).not.toContain('Way round');
+    const lines = [...way.querySelectorAll('.status-line')];
+    expect(lines.map((l) => l.querySelector('.dot') !== null)).toEqual([true, false]);
   });
 
   it('says what a run said of each change, and what the engine made of each block it wrote', async () => {
@@ -459,11 +468,43 @@ describe('the panel of a step', () => {
     ]);
   });
 
+  // A version whose meaning is none, a block's first version handed in as changing nothing, has said nothing yet: so it
+  // is said wherever a version's meaning is, in the history's row, the panel of the write, the run's end and the blocks.
+  it('says of a version that has said nothing yet just that, wherever a version’s meaning is said', async () => {
+    const work = structuredClone(fixtureWork(41));
+    const version = (block: string, at: number) => {
+      const found = work.blocks.find((b) => b.name === block)?.versions.find((v) => v.at === at);
+      if (!found) throw new Error(`no version ${block}@${at}`);
+      return found;
+    };
+    const write = work.steps[4];
+    const run = work.steps[5];
+    if (write.kind !== 'wrote' || run.kind !== 'run' || run.end?.kind !== 'finished') throw new Error('not the fixture');
+    version(write.block, write.at).meaning = null;
+    work.steps[4] = { ...write, changed: false };
+    version('needs_deep_research', run.end.at).meaning = null;
+    const page = draw(<WorkScreen page={work} onActed={() => undefined} />, fixtureSource());
+    expect(texts(page, '.step-lead .step-words')[4]).toBe(`the owner wrote ${write.block}, said nothing yet`);
+    const blocks = page.querySelector('aside[aria-label="Blocks"]') as HTMLElement;
+    const row = [...blocks.querySelectorAll('.list-row')].find((r) => r.textContent?.startsWith(`@${write.at}`) ?? false);
+    expect(row?.textContent).toContain('said nothing yet');
+    await chooseStep(page, 4);
+    const panel = page.querySelector(`aside[aria-label="Write of ${write.block}"]`) as HTMLElement;
+    expect(texts(panel, '.status-word')).toContain('Said nothing yet');
+    await chooseStep(page, 5);
+    const plan = page.querySelector('aside[aria-label="Run 4 of plan"]') as HTMLElement;
+    const ended = [...plan.querySelectorAll('.panel-part')].find((p) => p.querySelector('h3')?.textContent === 'How it ended');
+    const written = [...(ended?.querySelectorAll('.list-row') ?? [])].find(
+      (r) => r.querySelector('.mono')?.textContent === 'needs_deep_research',
+    );
+    expect(written?.textContent).toContain('said nothing yet');
+  });
+
   it('shows a write: the block, who, whether it changed the meaning, who reads it, and its content', async () => {
     const { page } = drawWork(41);
     await chooseStep(page, 4);
     const panel = page.querySelector('aside[aria-label="Write of opinions_plan"]') as HTMLElement;
-    expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('written by a person');
+    expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('written by the owner');
     expect(panel.textContent).toContain('Changed its meaning');
     expect(panel.textContent).toContain('Read by plan');
     await click(button(panel, 'Show content'));
@@ -498,7 +539,7 @@ describe('the panel of a step', () => {
     const panel = page.querySelector('aside[aria-label="Blocks"]') as HTMLElement;
     expect(panel.querySelector('.status-word')?.textContent).toBe('1 block');
     expect(texts(panel, '.panel-part-label')).toEqual(['request 1']);
-    expect(panel.querySelector('.list-row')?.textContent).toContain('a person');
+    expect(panel.querySelector('.list-row')?.textContent).toContain('the owner');
     await click(button(panel, 'Show content'));
     expect(panel.querySelector('pre.content')?.textContent).toContain('List the works of every item');
   });

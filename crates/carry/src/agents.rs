@@ -78,7 +78,7 @@
 //! nothing in, kept as a second name of the file an earlier try of the round keeps it in, so that it is stored once;
 //! `.compacted` holds a byte for each compaction of the session during the round, and `.again.md`, while the program
 //! runs and never past the round's tries, what the hook gives again; `.words.json` what the owner said that waits for
-//! the hook, and `.delivered.1.json` and on what the hook gave. The program's process group is stopped as the process
+//! the hook, and `.given.1.json` and on what the hook gave. The program's process group is stopped as the process
 //! of the engine ends, however it ends ([`process`]), and is written in `.pgid` there while the program runs; a group
 //! left named there all the same by a process of the engine that ended is stopped before the round is run again, or
 //! before the round's stop ends it, so that a session has one program at a time and a stopped round's program does
@@ -387,6 +387,7 @@ impl Inner {
         let read_with = branch::Reading {
             tree: of.project.tree.clone(),
             main: of.main.clone(),
+            guide: of.project.guide.clone(),
         };
         let mut looking = branch::Looking::of(flow, work, read_with.clone());
         if main.is_some() && round.number == 1 {
@@ -422,9 +423,15 @@ impl Inner {
         let begun_with = || -> Result<(String, String), String> {
             let made = || {
                 let read = |path: &str| system::read_within(&dir, path);
+                // A datum the prompt holds is the version of it the session begins with, which it then holds.
+                let begun = context::begun_with(flow, &of.beside, work, round.run, round.number);
+                let datum = |name: &str| {
+                    let (block, at) = begun.iter().find(|(block, _)| block.as_str() == name)?;
+                    work.contents.get(&(block.clone(), *at)).cloned()
+                };
                 let tests = round.cell.tests_only.then(|| tests_only::paths(&of.beside.project));
                 let your_line = permissions.told(&of.beside.your_line, &of.beside.project.protected.paths, tests);
-                system::of_line(&of.beside, &of.filling, flow, &round.cell, &your_line, read)
+                system::of_line(&of.beside, &of.filling, flow, &round.cell, &your_line, read, datum)
             };
             let kept_at = |what| system::kept_at(&self.data, session, what);
             let system = system::of_session(&kept_at(system::Begun::System), made)?;
@@ -472,9 +479,11 @@ impl Inner {
                 tools::keep_wholes(work, &of.beside.tools, &files).await?;
                 let results = tools::given(work, &of.beside.tools, &files);
                 let told = main.as_ref().and_then(CaughtUp::told);
+                let compared = branch::compared(flow);
                 let carried = context::Carried {
                     about,
                     main: told.as_ref(),
+                    compared: &compared,
                     changes: &changes,
                     named: &of.filling.named,
                     results: &results,
@@ -1179,7 +1188,7 @@ impl Inner {
         };
         let words = Words {
             waiting: base.with_extension("words.json"),
-            delivered: base.with_extension("delivered"),
+            given: base.with_extension("given"),
         };
         let _ = tokio::fs::remove_file(&compacted.marks).await;
         // A ping's compaction gives the session nothing again: its next round is filled from the top.
@@ -1564,15 +1573,15 @@ async fn left_try(base: &Path) -> Option<(usize, cli::Stream)> {
 fn words(base: &Path) -> Words {
     Words {
         waiting: base.with_extension("words.json"),
-        delivered: base.with_extension("delivered"),
+        given: base.with_extension("given"),
     }
 }
 
 /// What the owner said to a round under way, as its session is given it: in the words of `said` in the message's
-/// file, with what the cell does for the trigger as the part of the triggers says it.
+/// file, with what the cell does when its words are new as the part of what is new says it.
 fn said(beside: &Beside, told: &Telling) -> String {
     let message = &beside.message;
-    let part = message.parts.iter().find(|p| p.part == flow::agents::Part::Triggers);
+    let part = message.parts.iter().find(|p| p.part == flow::agents::Part::New);
     let does = match (&told.does, part.and_then(|p| p.does.as_deref())) {
         (Some(does), Some(text)) => flow::agents::fill(text, &[("do", does.trim())]),
         _ => String::new(),
@@ -1582,7 +1591,6 @@ fn said(beside: &Beside, told: &Telling) -> String {
         ("entry", told.entry.as_str()),
         ("block", told.block.as_str()),
         ("number", number.as_str()),
-        ("trigger", told.trigger.as_str()),
         ("do", does.as_str()),
     ];
     flow::agents::fill(&message.said, &places)
@@ -1748,10 +1756,10 @@ mod tests {
                 "head",
                 "tree",
                 "words",
+                "guide",
             ]),
             acts: names(&["start", "check", "merge", "deliver"]),
             tools: names(&["query", "run_tests"]),
-            details: names(&["files"]),
             ..Default::default()
         };
         let source = flow::read(&root.join("engineer")).expect("the flow is read");

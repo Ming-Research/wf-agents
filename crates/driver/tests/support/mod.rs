@@ -121,8 +121,13 @@ pub fn judged() -> Compiled {
         line = "main"
         task = "Write the text the request asks for."
         requires = { test = "ready" }
-        inputs = ["start", "request", "opinions"]
+        watches = ["start", "request", "opinions"]
         outputs = ["text"]
+
+        [kinds]
+        start = "last_and_latest"
+        request = "last_and_latest"
+        opinions = "last_and_latest"
     "#;
     let judge = r#"
         title = "Judge"
@@ -130,14 +135,17 @@ pub fn judged() -> Compiled {
         effort = "high"
         line = "other"
         task = "Judge the text, and give a verdict."
-        inputs = ["text"]
+        watches = ["text"]
         outputs = ["opinions", "verdict"]
+
+        [kinds]
+        text = "last_and_latest"
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
-        inputs = ["text", "verdict"]
+        watches = ["text", "verdict"]
         outputs = ["merged"]
     "#;
     compiled(&flow, &[("write", write), ("judge", judge), ("merge", merge)])
@@ -170,14 +178,18 @@ pub fn short() -> Compiled {
         line = "main"
         task = "Draft the plan from the request."
         requires = { test = "ready" }
-        inputs = ["start", "request"]
+        watches = ["start", "request"]
         outputs = ["plan"]
+
+        [kinds]
+        start = "last_and_latest"
+        request = "last_and_latest"
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
-        inputs = ["plan"]
+        watches = ["plan"]
         outputs = ["merged"]
     "#;
     compiled(&flow, &[("draft", draft), ("merge", merge)])
@@ -208,14 +220,18 @@ pub fn plain() -> Compiled {
         effort = "high"
         line = "main"
         task = "Write the text the request asks for."
-        inputs = ["start", "request"]
+        watches = ["start", "request"]
         outputs = ["text"]
+
+        [kinds]
+        start = "last_and_latest"
+        request = "last_and_latest"
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
-        inputs = ["text"]
+        watches = ["text"]
         outputs = ["merged"]
     "#;
     compiled(&flow, &[("write", write), ("merge", merge)])
@@ -234,8 +250,6 @@ pub fn deliver() -> Compiled {
     let has = Has {
         sources: [DEPENDENCIES.to_string()].into(),
         acts: ["deliver".to_string()].into(),
-        // The triggers beside the flows are every flow's, and one says what happened by the files of the tree.
-        details: ["files".to_string()].into(),
         ..Default::default()
     };
     compile(&source, &has).expect("the deliver flow compiles")

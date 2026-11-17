@@ -1,8 +1,8 @@
-//! The check of a return of a cell run by a group's trigger: the small flow's `write` is run by `on_brief`, a trigger
-//! on the group `brief` of what people asked for and their notes, and by the owner speaking to it. A return that names
-//! the group's trigger as dealt with, by its name, is read as the agents' rounds read it and handed to the engine's
-//! loop, which checks it against the records: it is taken where one of the group's blocks ran the round, and dealing
-//! with it consumes each of them that did, as one trigger.
+//! The check of a return of a cell that watches a group: the small flow's `write` watches `brief`, the group of what
+//! people asked for and their notes, and its own words with the owner. A return that names the group as dealt with, by
+//! its name, is read as the agents' rounds read it and handed to the engine's loop, which checks it against the
+//! records: it is taken where one of the group's blocks ran the round, and dealing with it consumes each of them that
+//! did, as one.
 
 use decide::{Decision, Outsider, Pauser, RunId, Written};
 use engine::{Effect, Event, handle};
@@ -10,35 +10,18 @@ use work::{Given, Spent, Time, Work};
 
 use super::*;
 
-/// The small flow with the group `brief`, of what people asked for and their notes, whose trigger runs `write`.
+/// The small flow with the group `brief`, of what people asked for and their notes, which `write` watches.
 fn grouped() -> Compiled {
     let flow = FLOW
-        .replace(
-            r#"data = ["request", "discussion", "q_and_a"]"#,
-            r#"data = ["request", "notes", "discussion", "q_and_a"]"#,
-        )
+        .replace(r#"data = ["request"]"#, r#"data = ["request", "notes"]"#)
         .replace("[limits]", "[groups]\nbrief = [\"request\", \"notes\"]\n\n[limits]");
     let write = WRITE
         .replace(
-            r#"triggered_by = ["on_request", "on_spoken", "on_answer"]"#,
-            r#"triggered_by = ["on_brief", "on_spoken", "on_answer"]"#,
-        )
-        .replace(
-            r#"context = ["request", "discussion", "q_and_a"]"#,
-            r#"context = ["request", "notes", "discussion", "q_and_a"]"#,
+            r#"watches = ["request", "write_questions", "write_words"]"#,
+            r#"watches = ["brief", "write_questions", "write_words"]"#,
         )
         .replace("[kinds]", "[kinds]\nnotes = \"latest\"");
-    compiled(
-        &flow,
-        &write,
-        &[
-            ("../data/notes.toml", "from = \"owner\"\n"),
-            (
-                "../triggers/of_a_group/changed.toml",
-                "name = \"on_{group}\"\nread = [\"{group}\"]\n",
-            ),
-        ],
-    )
+    compiled(&flow, &write, &[("../data/notes.toml", "from = \"owner\"\n")])
 }
 
 /// The work, its events taken one after another.
@@ -107,8 +90,8 @@ impl W {
             "dealt_with": dealt_with,
             "outputs": {"ok": {"value": "yes", "why": "It says how."}},
         }});
-        if dealt_with.contains(&"on_spoken") {
-            r["outcome"]["outputs"]["discussion"] = json!("As you said.");
+        if dealt_with.contains(&"write_words") {
+            r["outcome"]["outputs"]["write_words"] = json!("As you said.");
         }
         let came = came(&r, &self.flow, cell(&self.flow), &words())
             .expect("it is read")
@@ -147,19 +130,19 @@ impl W {
 }
 
 #[test]
-fn the_cell_s_group_trigger_stands_on_each_of_its_blocks() {
+fn a_group_the_cell_watches_stands_for_each_of_its_blocks() {
     let flow = grouped();
-    let brief = (cell(&flow).triggers.iter())
-        .find(|t| t.name == "on_brief")
-        .expect("the trigger");
-    assert_eq!(brief.blocks(), [BlockId::from("request"), BlockId::from("notes")]);
+    let brief = (cell(&flow).watches.iter())
+        .find(|w| w.name == "brief")
+        .expect("the group watched");
+    assert_eq!(brief.blocks, [BlockId::from("request"), BlockId::from("notes")]);
 }
 
 #[test]
-fn a_return_that_names_the_group_s_trigger_is_taken_and_consumes_the_block_of_it_that_ran_its_round() {
+fn a_return_that_names_the_group_is_taken_and_consumes_the_block_of_it_that_ran_its_round() {
     let mut w = W::new();
     let run = w.written(&["notes"]);
-    assert_eq!(w.returns(run, &["on_brief"]), None);
+    assert_eq!(w.returns(run, &["brief"]), None);
     assert_eq!(w.dealt_with(run), Some(vec!["notes".into()]));
     // The notes are dealt with: the merge runs next, and `write` is not entered again for them.
     let decision = decide::decide(&w.flow.flow, &w.work.records);
@@ -169,28 +152,28 @@ fn a_return_that_names_the_group_s_trigger_is_taken_and_consumes_the_block_of_it
 }
 
 #[test]
-fn a_return_that_names_the_group_s_trigger_once_deals_with_each_of_its_blocks_that_ran_its_round() {
+fn a_return_that_names_the_group_once_deals_with_each_of_its_blocks_that_ran_its_round() {
     let mut w = W::new();
     let run = w.written(&["request", "notes"]);
-    assert_eq!(w.returns(run, &["on_brief"]), None);
+    assert_eq!(w.returns(run, &["brief"]), None);
     assert_eq!(w.dealt_with(run), Some(vec!["request".into(), "notes".into()]));
     assert_eq!(w.runs(), [run]);
 }
 
 #[test]
-fn a_return_that_names_the_group_s_trigger_where_none_of_its_blocks_ran_its_round_is_sent_back() {
+fn a_return_that_names_the_group_where_none_of_its_blocks_ran_its_round_is_sent_back() {
     let mut w = W::new();
-    let run = w.written(&["write_spoken_to"]);
+    let run = w.written(&["write_words"]);
     let unmet = vec![Unmet::NotRunBy { block: "brief".into() }];
-    assert_eq!(w.returns(run, &["on_spoken", "on_brief"]), Some(unmet));
+    assert_eq!(w.returns(run, &["write_words", "brief"]), Some(unmet));
 }
 
 #[test]
-fn a_return_that_names_a_block_of_the_group_is_sent_back_for_naming_no_trigger() {
+fn a_return_that_names_a_block_of_the_group_is_sent_back_for_naming_nothing_the_cell_watches() {
     let mut w = W::new();
     let run = w.written(&["notes"]);
     let unmet = vec![
-        Unmet::NotATrigger {
+        Unmet::NotWatched {
             name: "notes".to_string(),
         },
         Unmet::DealtWithNothing,

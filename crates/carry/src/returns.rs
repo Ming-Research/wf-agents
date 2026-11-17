@@ -2,21 +2,20 @@
 //! one form, made of the flow and of what is written beside it ([`flow::form`]), which the agents' program is given
 //! with every call: one of two kinds, a return that asks the engine for tools or one that does the cell's work. A
 //! return is put into the form's shape where it is not in it but means it, as the old engine read one, and then read:
-//! what it dealt with, by the names of the cell's triggers, each worked out to the block it stands on, a group's
-//! trigger to its group's name; each block it writes in `outputs`, a choice with its value and its line of why kept as
-//! its content, and the record of the work's questions and the owner's answers, the block the engine's source of
-//! answers writes ([`flow::ANSWER`]), read as the questions it asks, which are kept with it and, once its run finishes,
-//! become data of their own and the record's entries; the tools it asks for, each request of a
-//! tool one call; what it says beside its work, its observations, which are kept with it; and why it says the work
-//! changes each file the project protects, which the engine's look at the work's branch takes as the round ends and
-//! asks the owner with, and which is not kept with the return ([`crate::protected`]). What only its reading can see
-//! wrong with it against the cell is found as it is read and kept with it: a return of both kinds, a name in
-//! `dealt_with` that is none of the cell's triggers, a tool the cell may not ask for, a name in `meaning_unchanged` it
-//! does not write, a block it writes in `outputs` that is not among the cell's outputs or in a shape it does not take,
-//! the owner's words named as dealt with and not answered in the record of what is said, and a question that
-//! recommends none of its options or has the name of a question the engine itself asks. The run's check names these
-//! with everything else wrong with the return, in one send-back (crate `decide`, module `run`). Why what came back
-//! cannot be read at all is said in the words of `agents/return/sent_back.toml`.
+//! what it dealt with, by the names of what the cell watches, each datum by its name and a group by the group's; each
+//! block it writes in `outputs`, a choice with its value and its line of why kept as its content, and the cell's own
+//! questions, the block the engine's source of answers writes ([`flow::ANSWER`]), read as the questions it asks, which
+//! are kept with it and, once its run finishes, become data of their own and versions of the cell's questions; the
+//! tools it asks for, each request of a tool one call; what it says beside its work, its observations, which are kept
+//! with it; and why it says the work changes each file the project protects, which the engine's look at the work's
+//! branch takes as the round ends and asks the owner with, and which is not kept with the return
+//! ([`crate::protected`]). What only its reading can see wrong with it against the cell is found as it is read and kept
+//! with it: a return of both kinds, a name in `dealt_with` that is none of what the cell watches, a tool the cell may
+//! not ask for, a name in `meaning_unchanged` it does not write, a block it writes in `outputs` that is not among the
+//! cell's outputs or in a shape it does not take, the cell's own words named as dealt with and not answered in them,
+//! and a question that recommends none of its options or has the name of a question the engine itself asks. The run's
+//! check names these with everything else wrong with the return, in one send-back (crate `decide`, module `run`). Why
+//! what came back cannot be read at all is said in the words of `agents/return/sent_back.toml`.
 
 use std::collections::BTreeMap;
 
@@ -136,8 +135,8 @@ fn table_of(value: Option<Value>) -> Value {
     }
 }
 
-/// Whether the block is a record of the work's questions and the owner's answers: one the engine's source of answers
-/// writes ([`flow::ANSWER`]). What a cell writes of one is the questions it asks.
+/// Whether the block is a cell's questions: one the engine's source of answers writes ([`flow::ANSWER`]). What a cell
+/// writes of them is the questions it asks.
 fn of_questions(flow: &Compiled, block: &BlockId) -> bool {
     flow.blocks.get(block).and_then(|b| b.writers.outside.as_deref()) == Some(flow::ANSWER)
 }
@@ -235,7 +234,7 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
     if let Some(mut outcome) = r.outcome {
         protected = Some(std::mem::take(&mut outcome.protected_changes));
         let (dealt_with, none) = cell.dealt_with(&outcome.dealt_with);
-        found.extend(none.into_iter().map(|name| Unmet::NotATrigger { name }));
+        found.extend(none.into_iter().map(|name| Unmet::NotWatched { name }));
         came.dealt_with = Some(dealt_with);
         let (writes, asked) = writes(&outcome, flow, cell, &mut found);
         came.writes = writes;
@@ -268,22 +267,16 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
     Ok(Reading { came, protected })
 }
 
-/// Of each trigger of the owner's words the return names as dealt with, in the order it names them, once each, where
-/// the return writes no words in `outputs` into a record of what is said that the trigger has its agent read: the
-/// owner's words are answered there (design document `data-and-context`, 38).
+/// Where the return names the cell's own words as dealt with and writes no words in them in `outputs`: the owner's
+/// words are answered there (design document `data-and-context`, 35).
 fn answered(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<Unmet>) {
-    let words =
-        |block: &BlockId| matches!(outcome.outputs.get(block.as_str()), Some(Value::String(w)) if !w.trim().is_empty());
-    for (i, name) in outcome.dealt_with.iter().enumerate() {
-        if outcome.dealt_with[..i].contains(name) {
-            continue;
-        }
-        let Some(trigger) = (cell.triggers.iter()).find(|t| &t.name == name) else {
-            continue;
-        };
-        if trigger.of_source(flow, flow::WORDS).is_some() && !trigger.records(flow, flow::WORDS).any(words) {
-            found.push(Unmet::NotAnswered { name: name.clone() });
-        }
+    let Some(own) = engine::spoken::words_of(flow, &cell.id) else {
+        return;
+    };
+    let named = (outcome.dealt_with.iter()).any(|name| name == own.as_str());
+    let words = matches!(outcome.outputs.get(own.as_str()), Some(Value::String(w)) if !w.trim().is_empty());
+    if named && !words {
+        found.push(Unmet::NotAnswered { name: own.to_string() });
     }
 }
 
