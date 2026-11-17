@@ -88,7 +88,7 @@ impl Records {
     /// watches or reads as one, each place that wrote any of them, which is one version of the group.
     fn places<'b>(&self, datum: impl IntoIterator<Item = &'b BlockId>) -> Vec<Seq> {
         let blocks: Vec<&BlockId> = datum.into_iter().collect();
-        let of = |block: &BlockId| blocks.iter().any(|b| *b == block);
+        let of = |block: &BlockId| blocks.contains(&block);
         let people = (self.written.iter()).filter(|w| of(&w.block)).map(|w| w.at);
         let runs = (self.finished.iter())
             .filter(|f| f.writes.iter().any(|w| of(&w.block)))

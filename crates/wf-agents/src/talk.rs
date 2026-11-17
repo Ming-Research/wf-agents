@@ -502,7 +502,10 @@ fn question(q: &QuestionPage) -> Vec<String> {
             let why = a.why.as_deref().map_or_else(String::new, |why| format!(": \"{why}\""));
             format!("    answered {}{why}", a.option)
         }
-        None => format!("    unanswered: wf-agents answer <work> {} {version} <option>", q.name),
+        None => match q.version {
+            Some(number) => format!("    unanswered: wf-agents answer <work> {} {number} <option>", q.name),
+            None => "    unanswered, and no version of its cell's questions names it to answer by".to_string(),
+        },
     });
     lines
 }

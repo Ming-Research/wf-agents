@@ -56,11 +56,17 @@ fn asking_cell(title: &str, task: &str, watches: &[&str], outputs: &[&str], id: 
 /// engine asks its own; and a merge that requires every question to be answered. The research and the implementation
 /// each have questions and words of their own.
 pub(super) fn asking() -> Compiled {
+    asking_with(r#"engine_asks_in = "implement""#)
+}
+
+/// The flow of [`asking`], naming the cell the engine asks its own questions in by this line of its definition; where
+/// the line is empty it names none, and the engine asks in the questions of the cell whose round it asks with.
+fn asking_with(asks_in: &str) -> Compiled {
     let flow = format!(
         r#"
         name = "asking"
         order = ["research", "implement", "merge"]
-        engine_asks_in = "implement"
+        {asks_in}
         [limits]
         runs = 3
         returns = 2
@@ -511,6 +517,55 @@ fn an_answer_to_the_engine_s_question_runs_the_cell_the_flow_names_whichever_rou
         because.contains(&changed("implement_questions", None, false)),
         "{because:?}"
     );
+}
+
+// Where the flow names no cell for the engine's questions, the engine asks in the questions of the cell whose round it
+// asks with, so that a question it asks anew with another cell's round has versions in the questions of two cells, each
+// numbered among its own cell's: here the first of the research's and the first of the implementation's. The number
+// the owner answers by names the latest of them, as the page and the command line give it (decision
+// a-version-is-numbered-within-its-datum).
+#[test]
+fn an_answer_by_a_number_the_questions_of_two_cells_share_answers_the_question_s_latest_version() {
+    let mut w = W {
+        flow: asking_with(""),
+        work: Work::default(),
+        clock: START,
+    };
+    let engine_asks = || {
+        let mut question = asked("protected_files", true);
+        if let Question::Asked { recommends, .. } = &mut question {
+            *recommends = None;
+        }
+        question
+    };
+    let (effects, _) = w.person_writes("request");
+    let (research, ..) = round(&effects);
+    let mut came = plans(Vec::new());
+    came.engine = vec![engine_asks()];
+    assert_eq!(w.returns(research, came), [], "the research waits for the answer");
+    let effects = w.answers("protected_files", w.version("protected_files"), 1);
+    let (research, cell, ..) = round(&effects);
+    assert_eq!(cell, "research");
+    let effects = w.returns(research, Came::hands_in(Vec::new()));
+    let (implementing, cell, ..) = round(&effects);
+    assert_eq!(cell, "implement");
+    let mut came = hands_in(&[("code", None)]);
+    came.engine = vec![engine_asks()];
+    w.returns(implementing, came);
+    let cells: Vec<&str> = (w.work.records.questions.iter()).map(|q| q.cell.as_str()).collect();
+    assert_eq!(cells, ["research", "implement"]);
+    let latest = w.work.records.questions.last().expect("the question is kept").at;
+    let version = w.version("protected_files");
+    assert_eq!(version, 1, "the first of the implementation's questions");
+    let effects = w.answers("protected_files", version, 2);
+    let answered = w.work.records.answers.last().expect("the answer is kept").version;
+    assert_eq!(answered, latest, "the answer is to the latest version");
+    assert_eq!(
+        (w.turned("implement_questions"), w.turned("research_questions")),
+        (1, 1)
+    );
+    let (_, cell, ..) = round(&effects);
+    assert_eq!(cell, "implement");
 }
 
 #[test]

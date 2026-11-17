@@ -489,8 +489,12 @@ describe('the panel of a step', () => {
     const page = draw(<WorkScreen page={work} onActed={() => undefined} />, fixtureSource());
     expect(texts(page, '.step-lead .step-words')[4]).toBe(`the owner wrote ${write.block}, said nothing yet`);
     const blocks = page.querySelector('aside[aria-label="Blocks"]') as HTMLElement;
+    // The row of the version among its own block's: every block numbers its versions from one.
     const number = version(write.block, write.at).number;
-    const row = [...blocks.querySelectorAll('.list-row')].find((r) => r.textContent?.startsWith(`v${number}`) ?? false);
+    const part = [...blocks.querySelectorAll('.panel-part')].find(
+      (p) => p.querySelector('.panel-part-label')?.firstChild?.textContent === write.block,
+    );
+    const row = [...(part?.querySelectorAll('.list-row') ?? [])].find((r) => r.textContent?.startsWith(`v${number}`) ?? false);
     expect(row?.textContent).toContain('said nothing yet');
     await chooseStep(page, 4);
     const panel = page.querySelector(`aside[aria-label="Write of ${write.block}"]`) as HTMLElement;

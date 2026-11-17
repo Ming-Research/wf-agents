@@ -21,8 +21,8 @@ export type { Heard };
 export interface Source {
   loadItems: () => Promise<Items>;
   loadWork: (work: number) => Promise<WorkPage>;
-  /// The content of a version of a block of a work.
-  loadVersion: (work: number, block: string, at: number) => Promise<VersionPage>;
+  /// The content of a version of a block of a work, by its number among the block's versions.
+  loadVersion: (work: number, block: string, number: number) => Promise<VersionPage>;
   act: (work: number, what: Act) => Promise<unknown>;
   /// Calls `on` each time something happened; gives what stops it.
   changes: (on: (heard: Heard) => void) => () => void;

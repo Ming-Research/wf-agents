@@ -194,8 +194,11 @@ pub(crate) fn answer(
     if !r.questions.iter().any(|q| q.name == question) {
         return Err(Refused::NoSuchQuestion(question));
     }
-    let numbered = |q: &Questioned| number_of(flow, r, &q.cell, q.at) == Some(version);
-    let Some(asked) = (r.questions.iter()).find(|q| q.name == question && numbered(q) && !q.withdrawn) else {
+    // The latest version of the question of that number: one the engine asks in the cell of the round it asks it with,
+    // where the flow names no cell for it, has versions in the questions of more than one cell, each numbered among its
+    // own cell's, and the owner answers its latest.
+    let numbered = |q: &&Questioned| q.name == question && number_of(flow, r, &q.cell, q.at) == Some(version);
+    let Some(asked) = (r.questions.iter()).rfind(numbered).filter(|q| !q.withdrawn) else {
         return Err(Refused::NoSuchVersion { question, version });
     };
     // The place of the version answered, which the records name it by.

@@ -143,7 +143,8 @@ describe("the messages of a work, read from each cell's own words", () => {
   it("read each of the owner's versions as to the cell whose words they are, which its words do not name", async () => {
     const item = fixtureItems().items[0];
     const page: WorkPage = {
-      summary: item.work,
+      // Another work than the one before: the content of a version, once read, is kept by its work, block and number.
+      summary: { ...item.work, number: item.work.number + 1 },
       title: item.title,
       level: item.level,
       project: item.project,
