@@ -1,12 +1,25 @@
 // The marks of the works page: how a cell stands for a work, as a small square in the colour of its state, and the
-// strip of one such mark per cell of a work's flow; the line of what a work does now, a dot in its tone and its words;
+// strip of one such mark per cell of a work's flow; how a run in a work's history ended or stands, in the same marks,
+// and the legend of the history's marks and signs; the line of what a work does now, a dot in its tone and its words;
 // and a part that opens a content, or anything read, only when the owner asks for it.
 
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 
+import { Sign } from '../parts';
 import type { CellNow, CellState, Summary } from '../works-api';
-import { markStyle, pulsing, stripStyle } from './state-marks';
-import { STATE, STATE_WORDS, STOPPED_WORDS, UNDER_WAY_WORDS, nowTone, nowWords, stateOf, stateWords } from './words';
+import { RUN_MARKS, type RunMark, lookStyle, markStyle, pulsing, runPulsing, stripStyle } from './state-marks';
+import {
+  RUN_MARK_WORDS,
+  SIGNED_WORDS,
+  STATE,
+  STATE_WORDS,
+  STOPPED_WORDS,
+  UNDER_WAY_WORDS,
+  nowTone,
+  nowWords,
+  stateOf,
+  stateWords,
+} from './words';
 
 /// A cell's state as a square: filled when it ran or runs, hollow when still to run, a dash when skipped; filled in red
 /// where the work is `stopped` at it. Running and a call under way pulse. Its look is `state-marks.ts`'s, which the
@@ -51,6 +64,45 @@ export function StateLegend() {
       ))}
       <li>
         <StateMark state="resting" stopped /> {STOPPED_WORDS}
+      </li>
+    </ul>
+  );
+}
+
+/// How a run in a work's history ended or stands, as a mark of the strip's look (`RUN_MARKS`); a round running and a call
+/// under way pulse.
+export function RunMarkSign({ mark, title }: { mark: RunMark; title?: string }) {
+  return (
+    <span
+      className={`state-mark${runPulsing(mark) ? ' pulses' : ''}`}
+      style={lookStyle(RUN_MARKS[mark])}
+      title={title ?? RUN_MARK_WORDS[mark]}
+      aria-hidden="true"
+    />
+  );
+}
+
+/// The order a work's history's legend gives the runs' marks in: how a run ended, then how an open one stands.
+const RUN_MARK_ORDER: RunMark[] = ['handedIn', 'nothingNew', 'abandoned', 'running', 'calling', 'sentBack', 'underWay', 'stopped'];
+
+/// The legend of a work's history: each mark of a run and what it says, the owner's sign and the outside's, and the way
+/// back, as the flow's chart's legend draws it.
+export function HistoryLegend() {
+  return (
+    <ul className="legend" aria-label="What the marks of the history mean">
+      {RUN_MARK_ORDER.map((m) => (
+        <li key={m}>
+          <RunMarkSign mark={m} /> {RUN_MARK_WORDS[m]}
+        </li>
+      ))}
+      <li>
+        <Sign name="people" words={SIGNED_WORDS.owner} /> {SIGNED_WORDS.owner}
+      </li>
+      <li>
+        <Sign name="outside" words={SIGNED_WORDS.outside} /> {SIGNED_WORDS.outside}
+      </li>
+      <li>
+        <span className="legend-back" aria-hidden="true" /> way back
       </li>
     </ul>
   );

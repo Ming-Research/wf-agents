@@ -26,6 +26,11 @@
 // body and the messages are read from the work's blocks, and the rest is not drawn (`real.ts`). What the new console
 // added is kept in that layout: the work line's facts, the row of what the owner does to the work under the lines, the
 // block a message is written in over its box, and the flow's name among the work's facts.
+//
+// A work's page shows the same window for the work's item, with more choices of its own after Item and Work, and the
+// title leading to the item in the console, which the page gives (`more`, `titleHref`).
+
+import './console.css';
 
 import {
   Fragment,
@@ -67,7 +72,7 @@ import {
   stoppedAt,
   waitedWords,
 } from '../works/words';
-import { type ItemStanding, standingOf } from './items';
+import { type ItemStanding, age, dollars, standingOf } from './items';
 import { Markdown } from './markdown';
 import { markRead } from './mock';
 import {
@@ -81,7 +86,6 @@ import {
   wordsOf,
   workTierOf,
 } from './real';
-import { age, dollars } from './snap';
 import { barOf, barSpans, TimeTrack } from './track';
 import {
   type Body,
@@ -282,8 +286,16 @@ export type ItemPanelProps = {
   open?: boolean;
   /// Tells that the owner marked the item read.
   onRead?: () => void;
-  /// Brings the item into view in the tree.
-  onTitle: () => void;
+  /// Brings the item into view in the tree, where the window stands beside it.
+  onTitle?: () => void;
+  /// Where the title leads instead, where the window stands on another page than the tree's.
+  titleHref?: string;
+  /// The choices of the window's switch after Item and Work, each with its name and what it shows, where the page has
+  /// more to show of the work.
+  more?: { value: string; name: string; content: ReactNode }[];
+  /// The choice shown, where the page chooses it, and what is told of the owner's choice of another.
+  tab?: string;
+  onTab?: (tab: string) => void;
   /// The card of what the work waits for that the window is to show, by its key (`Wait.key`), where the address names
   /// one.
   wait?: string;
@@ -306,6 +318,10 @@ function ItemView({
   open = true,
   onRead,
   onTitle,
+  titleHref,
+  more = [],
+  tab: chosenTab,
+  onTab,
   wait,
   actEngine,
 }: ItemPanelProps) {
@@ -336,7 +352,13 @@ function ItemView({
     };
   }, [read, loadVersion]);
   const [unseen, setUnseen] = useState(mock.unseen);
-  const [tab, setTab] = useState<'item' | 'work'>('item');
+  const [ownTab, setOwnTab] = useState('item');
+  const tab = chosenTab ?? ownTab;
+  const setTab = (to: string) => {
+    setOwnTab(to);
+    onTab?.(to);
+  };
+  const shownMore = more.find((m) => m.value === tab);
   const [quote, setQuote] = useState<string | null>(null);
   const [offer, setOffer] = useState<{ x: number; y: number; text: string } | null>(null);
   // What the owner's last Confirm did, said under it.
@@ -490,9 +512,15 @@ function ItemView({
       <header className="drawer-head">
         <span className="drawer-id">{item.number}</span>
         <h2 className="drawer-title">
-          <button type="button" className="cw-title-link" title="Show it in the tree" onClick={onTitle}>
-            {item.title}
-          </button>
+          {titleHref !== undefined ? (
+            <a className="cw-title-link" href={titleHref} title="Open it in the console">
+              {item.title}
+            </a>
+          ) : (
+            <button type="button" className="cw-title-link" title="Show it in the tree" onClick={onTitle}>
+              {item.title}
+            </button>
+          )}
         </h2>
         {item.project !== null && <span className="drawer-belongs mono">{item.project}</span>}
       </header>
@@ -509,6 +537,7 @@ function ItemView({
             choices={[
               { value: 'item', name: 'Item' },
               { value: 'work', name: 'Work' },
+              ...more.map((m) => ({ value: m.value, name: m.name })),
             ]}
             value={tab}
             onChange={setTab}
@@ -528,7 +557,9 @@ function ItemView({
             </button>
           </div>
         ) : null}
-        {tab === 'work' ? (
+        {shownMore !== undefined ? (
+          shownMore.content
+        ) : tab === 'work' ? (
           <WorkFacts w={work} page={read} verdicts={mock.verdicts} />
         ) : (
           <>

@@ -11,7 +11,8 @@
 // A cell's column holds only marks, so it is only as wide as they are, and its head holds the cell's id alone. The
 // width this leaves, right of the marks, is a column of words, one line to a row: what the row's thing is, or, on the
 // rows of the cell chosen, what that cell says of it. What a head has no room for, the cell's title, its line, when it
-// runs and what it waits for, stands over that column for the cell under the pointer.
+// runs and what it waits for, stands over that column for the cell under the pointer. A work's history, drawn as this
+// chart, takes its cells' heads and the head of its words from here (`works/History.tsx`).
 //
 // Over the data stand bands of rows, each thing drawn once: the lines, one to a line the agents' cells name, with a dot
 // under each cell on it, the dots joined along the row, so that a joined row reads as one session going on; the
@@ -109,6 +110,16 @@ function arrowAt(reach: number): ReactNode {
   return <polygon className="part arrow" points={`${tip},12 ${base},${12 - ARROW.half} ${base},${12 + ARROW.half}`} />;
 }
 
+/// The arrow of a way back alone, over a mark that is none of the chart's glyphs, as a run's in a work's history: its
+/// point `reach` units of a glyph's box from the mark's middle.
+export function BackArrow({ reach }: { reach: number }) {
+  return (
+    <svg className="glyph back-arrow" viewBox="0 0 24 24" aria-hidden="true">
+      {arrowAt(reach)}
+    </svg>
+  );
+}
+
 /// The marks of a datum's crossing, one for each key, in the order drawn: a disc where the cell writes the datum
 /// (`outputs`); a ring where it watches it (`watches`), or the ring with the kind inside where it only reads it
 /// (`reads`), as `[kinds]` writes it; the last with the arrow of a way back where one runs the cell again.
@@ -148,15 +159,6 @@ function dataParts(mark: Pick<Mark, 'write' | 'watch' | 'read' | 'kind'>, arrow:
 export function DataGlyphs({ mark }: { mark: Pick<Mark, 'write' | 'watch' | 'read' | 'kind'> }) {
   const parts = dataParts(mark, false);
   return parts.length > 0 ? <span className="glyphs">{parts}</span> : null;
-}
-
-/// The mark a work's history draws where a condition reads what a step wrote: a diamond.
-export function ConditionMark() {
-  return (
-    <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">
-      <polygon className="part condition" points="12,1.5 22.5,12 12,22.5 1.5,12" />
-    </svg>
-  );
 }
 
 /// The mark of a cell on a line: a dot in the accent, as the lines' names are.
@@ -262,56 +264,19 @@ export function Legend({ waysBack }: { waysBack: number }) {
   );
 }
 
-/// A name that may break after each underscore, and nowhere else, when its column is narrow.
-export function Breakable({ name }: { name: string }) {
-  const parts = name.split('_');
-  return (
-    <>
-      {parts.map((part, i) => (
-        <span key={i}>
-          {part}
-          {i < parts.length - 1 && (
-            <>
-              _<wbr />
-            </>
-          )}
-        </span>
-      ))}
-    </>
-  );
-}
-
-/// The widths the columns of a chart take, in pixels: the names' column at first and as dragged; and, in the history
-/// of a work, whose cells' columns hold words, a cell's column at least, at most when the cells share the free width
-/// evenly, and at most when dragged. Kept in step with tokens.css.
+/// The widths the columns of a chart take, in pixels: the names' column at first and as dragged, and a cell's column at
+/// most when dragged. Kept in step with tokens.css.
 export const WIDTHS = {
   names: 200,
   namesMin: 120,
   namesMax: 480,
-  cellMin: 88,
-  cellShare: 160,
   cellMax: 480,
 };
 
-/// The widths of the flow's chart, in pixels: a cell's column until the owner drags it, which is also the least it is
-/// dragged to, wide enough for its marks and a short id; and the least the column of words keeps, the frame scrolling
-/// sideways below that.
+/// The widths of the flow's chart, and of a work's history, which draws the flow's cells as it does, in pixels: a cell's
+/// column until the owner drags it, which is also the least it is dragged to, wide enough for its marks and a short id;
+/// and the least the column of words keeps, the frame scrolling sideways below that.
 export const FLOW_WIDTHS = { cell: 56, words: 280 };
-
-/// How wide the table is: the whole width of its frame, the cells sharing evenly what the names' column and the cells
-/// whose width was dragged leave, each up to `cellShare`, so that a few cells on a wide window do not grow absurd; and
-/// at least as wide as every column at its least, the frame scrolling sideways below that.
-export function tableWidth(
-  names: number,
-  cells: string[],
-  dragged: Record<string, number>,
-): { width: string; minWidth: string } {
-  const set = cells.reduce((n, c) => n + (dragged[c] ?? 0), 0);
-  const free = cells.filter((c) => dragged[c] === undefined).length;
-  const most = names + set + free * WIDTHS.cellShare;
-  const least = names + set + free * WIDTHS.cellMin;
-  return { width: `min(100%, ${most}px)`, minWidth: `${least}px` };
-}
 
 /// Scrolls the frame by a wheel or a trackpad wherever the pointer is over it, the fixed row of heads and the fixed
 /// column of names too, which a browser may leave unscrolled.
@@ -534,12 +499,13 @@ export function Chart({ matrix, chosen, onChoose, hidden = false, covered = 0 }:
 /// The head of a cell's column: its id, which is all a column as wide as its marks has room for. Its title, its line,
 /// when it runs and what it waits for are what its button is called, over the column of words while the pointer or the
 /// keyboard is on the column, and in the cell's panel; its line, its `when` and its `requires` are drawn in the bands
-/// over the blocks.
-function CellHead(props: {
+/// over the blocks. Where a press on it chooses nothing, as on a work's history, it is no button, and says them on the
+/// pointer's tip.
+export function CellHead(props: {
   cell: Cell;
   chosen: boolean;
   pointed: boolean;
-  onChoose: () => void;
+  onChoose?: () => void;
   onPoint: () => void;
   onUnpoint: () => void;
   width: number;
@@ -556,17 +522,23 @@ function CellHead(props: {
       data-key={`cell:${cell.id}`}
       onMouseEnter={onPoint}
     >
-      <button
-        type="button"
-        className="head-button"
-        aria-pressed={chosen}
-        aria-label={name.join(', ')}
-        onClick={onChoose}
-        onFocus={onPoint}
-        onBlur={onUnpoint}
-      >
-        <span className="cell-id">{cell.id}</span>
-      </button>
+      {onChoose === undefined ? (
+        <span className="head-button head-still" title={name.join(', ')}>
+          <span className="cell-id">{cell.id}</span>
+        </span>
+      ) : (
+        <button
+          type="button"
+          className="head-button"
+          aria-pressed={chosen}
+          aria-label={name.join(', ')}
+          onClick={onChoose}
+          onFocus={onPoint}
+          onBlur={onUnpoint}
+        >
+          <span className="cell-id">{cell.id}</span>
+        </button>
+      )}
       <Edge
         side="right"
         label={`Drag the width of ${cell.id}'s column`}
@@ -580,9 +552,10 @@ function CellHead(props: {
 
 /// The head of the column of words: the cell under the pointer, or else the cell chosen, by its id, its title, who
 /// runs it, when it runs and what it waits for; and under that what the column holds, which is what each row's thing is
-/// until a cell is chosen, and then what that cell says of each it has to do with.
-function WordsHead(props: { about: Cell | null; saying: Cell | null; onPoint: () => void }) {
-  const { about: cell, saying, onPoint } = props;
+/// until a cell is chosen, and then what that cell says of each it has to do with; or, where the column holds something
+/// else, as on a work's history, what `label` says.
+export function WordsHead(props: { about: Cell | null; saying: Cell | null; onPoint: () => void; label?: string }) {
+  const { about: cell, saying, onPoint, label } = props;
   const facts = cell ? headFacts(cell) : null;
   const whole =
     cell && facts ? [`${cell.id} ${cell.title}`, facts.by, facts.when, facts.waits].filter((f) => f !== null) : [];
@@ -612,7 +585,7 @@ function WordsHead(props: { about: Cell | null; saying: Cell | null; onPoint: ()
         )}
       </span>
       <span className="label words-label">
-        {saying ? `What ${saying.id} says of each row` : 'What each row is'}
+        {label ?? (saying ? `What ${saying.id} says of each row` : 'What each row is')}
       </span>
     </th>
   );

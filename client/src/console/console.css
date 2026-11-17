@@ -1,7 +1,7 @@
-/* The console: the canvas of the tree, and over its right the window with the item selected. Brought over from the
-   console of the engine on `old-main` (`client/src/styles/console.css`), its Primer values the page's tokens or, where
-   the page has none, Primer's values as they were. Every value is a token (styles/tokens.css), but for the console's
-   own colours named below. */
+/* The console: the canvas of the tree, and over its right the window with the item selected, which a work's page shows
+   too. Brought over from the console of the engine on `old-main` (`client/src/styles/console.css`), its Primer values
+   the page's tokens or, where the page has none, Primer's values as they were. Every value is a token
+   (styles/tokens.css), but for the console's own colours named below. */
 
 .console {
   /* A work waiting for something that is not the owner: the console's pale yellow, which asks nothing of them. It has
@@ -10,8 +10,6 @@
   /* What is new to the owner: the page's accent's tint as a wash behind a strip; the canvas draws it so too. The window
      (its tab, its edge, its shadow) is the page's part (`.cw`, styles/parts.css). */
   --console-accent-wash: var(--accent-tint);
-  /* The head of a section of the item's window, its name and the line after it: the page's (styles/tokens.css). */
-  --console-head: var(--head);
 
   position: relative;
   display: flex;
@@ -60,7 +58,8 @@
   padding: var(--space-16);
 }
 
-/* The title, which brings the item into view in the tree: a title still, underlined under the pointer. */
+/* The title, which brings the item into view in the tree, or on a work's page leads to it in the console: a title
+   still, underlined under the pointer. */
 .cw-title-link {
   padding: 0;
   border: 0;
@@ -68,6 +67,7 @@
   color: inherit;
   font: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 
@@ -422,7 +422,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--console-head);
+  color: var(--head);
   font-size: var(--size-body);
   font-weight: var(--weight-strong);
   text-align: left;
@@ -438,7 +438,7 @@
   content: '';
   flex: 1;
   height: var(--hairline);
-  background: var(--console-head);
+  background: var(--head);
 }
 
 .cw-fold-sign {

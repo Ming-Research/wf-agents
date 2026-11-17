@@ -1,5 +1,5 @@
-/* The works page: the list of works, a work's head and what it waits for, its history drawn on the flow chart's grid
-   (chart.css), and its panel's parts. Every value is a token (tokens.css). */
+/* The works page: the list of works, a work's history drawn on the flow chart's grid (chart.css), and the parts of the
+   window's Step and Usage. Every value is a token (tokens.css). */
 
 /* A message in place of a view: reading, or what could not be read. */
 .message {
@@ -303,11 +303,6 @@
   }
 }
 
-/* A work's view's line: the now line takes what is left, and cuts. */
-.view-line .view-facts .now {
-  vertical-align: middle;
-}
-
 .acts {
   display: inline-flex;
   align-items: center;
@@ -324,12 +319,17 @@
   white-space: pre-wrap;
 }
 
-/* The history: the flow chart's grid, a row for each step. Its column of times and words stays at the left. */
+/* The history: the flow chart's grid, a row for each step, its time at its left. The row chosen is marked in the
+   accent at its time's edge, as a block's name is on the flow's chart, and is brought into view clear of the cells'
+   heads. */
+.step-lead {
+  scroll-margin-top: var(--chart-head-room);
+}
+
 .history .step-lead .head-button {
-  align-items: baseline;
-  gap: var(--space-8);
-  min-height: var(--row);
-  padding: var(--space-4) var(--space-8);
+  align-items: center;
+  height: var(--row);
+  padding: 0 var(--space-8);
 }
 
 .step-time {
@@ -337,13 +337,6 @@
   color: var(--muted);
   font-family: var(--mono);
   font-size: var(--size-small);
-}
-
-.step-words {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .step-row {
@@ -354,166 +347,7 @@
   box-shadow: inset calc(-1 * var(--focus)) 0 var(--accent);
 }
 
-/* A row of its own (a pause, a let-on, a cancel) is muted; a cancel is the colour of what failed. */
-.step-paused .step-words,
-.step-resumed .step-words {
-  color: var(--muted);
-}
-
-.step-cancelled .step-words {
-  color: var(--red-text);
-}
-
-/* How a cell stands now, in its column's head. */
-.cell-state {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  font-size: var(--size-small);
-}
-
-.state-text-running,
-.state-text-resting {
-  color: var(--running-text);
-}
-
-.state-text-failed {
-  color: var(--red-text);
-}
-
-/* Runs again in done's colour, as its mark is a ring of done's: orange is kept for a change of a block's meaning. */
-.state-text-again,
-.state-text-done {
-  color: var(--green-text);
-}
-
-.state-text-notYet,
-.state-text-skipped {
-  color: var(--muted);
-}
-
-/* A run in its cell's column: its state at its left edge in its colour, dashed where it was abandoned; its one line
-   in small text, cut to the column. */
-.step-spot {
-  text-align: left;
-  vertical-align: top;
-}
-
-.run {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: var(--space-2) var(--space-4) var(--space-2) var(--space-8);
-  border-left: var(--focus) solid var(--muted);
-  font-size: var(--size-small);
-}
-
-.run-line {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.run-word {
-  font-weight: var(--weight-strong);
-}
-
-.run-finished {
-  border-left-color: var(--green);
-}
-
-.run-finished .run-word {
-  color: var(--green-text);
-}
-
-.run-abandoned {
-  border-left-style: dashed;
-  border-left-color: var(--red);
-}
-
-.run-abandoned .run-word {
-  color: var(--red-text);
-}
-
-.run-running {
-  border-left-color: var(--running);
-  background: var(--running-tint);
-}
-
-.run-running .run-word,
-.run-resting .run-word {
-  color: var(--running-text);
-}
-
-.run-resting {
-  border-left-color: var(--running);
-  border-left-style: dotted;
-}
-
-/* A run whose last round failed is at rest, in the colour of what failed. */
-.run-failed {
-  border-left-color: var(--red);
-  border-left-style: dotted;
-}
-
-.run-failed .run-word {
-  color: var(--red-text);
-}
-
-.run-writes {
-  color: var(--muted);
-}
-
-/* A way round, as the flow's views draw a way back: a line in the accent along the row from the furthest cell whose
-   write it ran for, a dot at each such cell, and an arrow at the run. */
-.seg-back {
-  position: absolute;
-  top: calc(var(--row) / 2);
-  left: 0;
-  right: 0;
-  height: var(--chart-back);
-  background: var(--accent);
-}
-
-.back-from:not(.back-through) .seg-back {
-  right: 50%;
-}
-
-.back-from::after {
-  content: '';
-  position: absolute;
-  top: calc(var(--row) / 2 - var(--chart-arrow) + 1px);
-  left: calc(50% - var(--chart-arrow));
-  width: calc(2 * var(--chart-arrow));
-  height: calc(2 * var(--chart-arrow));
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-.run-arrow {
-  position: absolute;
-  top: calc(var(--row) / 2 - var(--chart-arrow) + 1px);
-  right: 0;
-  border-top: var(--chart-arrow) solid transparent;
-  border-right: var(--chart-arrow-length) solid var(--accent);
-  border-bottom: var(--chart-arrow) solid transparent;
-}
-
-/* A write's rings stand at the row's middle, as the flow chart's marks. */
-.step-spot.has-mark {
-  text-align: center;
-  vertical-align: middle;
-}
-
-.let-go-mark {
-  display: block;
-  color: var(--accent-text);
-  font-size: var(--size-small);
-  text-align: center;
-}
-
-/* The panel's parts for a work. */
+/* The parts of a step and of what a work used, in the window. */
 .pairs.round dd {
   min-width: 0;
 }
@@ -582,7 +416,7 @@
   margin-top: var(--space-4);
 }
 
-/* What a work used, in the panel: its totals by their keys, then its parts. */
+/* What a work used, in the window's Usage: its totals by their keys, then its parts. */
 .usage-totals {
   display: flex;
   flex-direction: column;

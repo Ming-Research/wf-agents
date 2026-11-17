@@ -2,15 +2,14 @@
 // works out from them said plainly: what it took and the share read from the cache; where the time went, as one bar
 // and as a line of time with a block for each round and each tool's call, each gap saying its own length; each model
 // at the level and effort its rounds recorded; the cost by cell; each session of a line with why it began and its
-// context after each round; and how long each tool ran. Every mark says what it is on pointing at it. It is shown in
-// the work's panel when the owner opens it from what the view's line says the work has taken.
+// context after each round; and how long each tool ran. Every mark says what it is on pointing at it. It is the Usage
+// of the item's window on the work's page.
 
 import type { ReactNode } from 'react';
 
-import { Attr, ListRow, Panel, PanelPart } from '../parts';
-import type { SessionWhy } from '../works-api';
+import { Attr, ListRow, PanelPart } from '../parts';
+import type { SessionWhy, WorkPage } from '../works-api';
 import { Keys } from './Round';
-import type { PanelProps } from './StepPanel';
 import { type RoundOf, type SessionRow, type Span, usageOf } from './used';
 import { DOLLARS, type Key, clock, count, dollars, duration, keysLine, share, spentKeys, tokens } from './words';
 
@@ -179,17 +178,9 @@ function ContextChart({ sessions, rounds }: { sessions: SessionRow[]; rounds: nu
 }
 
 /// What the work used.
-export function UsagePanel({ page, fold }: PanelProps) {
+export function UsageTab({ page }: { page: WorkPage }) {
   const u = usageOf(page, Date.now());
-  const work = page.summary.number;
-  const head = { label: `What work W${work} used`, id: `W${work}`, title: 'Usage', belongs: 'of the work' };
-  if (u.rounds.length === 0) {
-    return (
-      <Panel {...head} {...fold}>
-        <p className="muted">No round has begun</p>
-      </Panel>
-    );
-  }
+  if (u.rounds.length === 0) return <p className="muted">No round has begun</p>;
   const whole: Key[] = [
     ['rounds', String(u.rounds.length)],
     ["rounds of agents' cells", String(u.agentRounds)],
@@ -199,7 +190,7 @@ export function UsagePanel({ page, fold }: PanelProps) {
     [UNDER_WAY, duration(u.time.model + u.time.tool + u.time.engine)],
   ];
   return (
-    <Panel {...head} {...fold}>
+    <>
       <div className="usage-totals">
         <Keys keys={spentKeys(u.spent)} />
         <Keys keys={whole} />
@@ -302,6 +293,6 @@ export function UsagePanel({ page, fold }: PanelProps) {
           />
         </PanelPart>
       )}
-    </Panel>
+    </>
   );
 }

@@ -1,21 +1,31 @@
-// One work: the view's line with its item's title and project, what it does now, what it has taken, which opens what
-// the work used in the panel, and the owner's buttons; its history as a chart; and the panel docked at the chart's
-// right with what the owner chose. What the work waits for, and what the owner writes to it, are in the console's item
-// window. The work is read again each time the interface says it changed and whenever the stream of changes opens
-// again, keeping what the owner has chosen and opened; a read that fails keeps what is shown and says so.
+// One work: the view's line, with the link back to the works, the item's number and its title, and the button that has
+// a line begin a new session, which the item's window does not hold; under it, the legend of the history's marks; the
+// work's history as a chart; and over its right the console's window (`Drawer`) with the console's item window for the
+// work's item (`ItemPanel`), whose switch holds, after the console's Item and Work, the row of the history chosen (Step)
+// and what the work used (Usage). What the window shows (the item's state, the work's cost and time, the owner's
+// buttons) is not said again in the view's line. Choosing a row slides the window out on Step; letting the row go
+// slides it back, unless its tab brought it out, in which case it stays until the tab takes it back: as the console's
+// and the flow's window. The window is out as the page opens, as if its tab had brought it out, on Item, or on Step
+// where the address names a run, whose row is then chosen. Escape slides the window in while it has the keys, and else
+// lets the row go. The work, and the items its item is read from, are read again each time the interface says they
+// changed and whenever the stream of changes opens again, keeping what the owner chose and opened; a read that fails
+// keeps what is shown and says so.
 
-import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { Attr, Edge } from '../parts';
-import type { Fold } from '../Side';
-import { PANEL, WIDTH_KEYS, useKeptWidth } from '../sizes';
+import { ItemPanel } from '../console/ItemWindow';
+import { Drawer } from '../parts';
+import { hashOf } from '../route';
+import { WIDTH_KEYS } from '../sizes';
 import type { Act, RoundPage, ToldPage, WorkPage } from '../works-api';
-import { ActButtons, type Send } from './Boxes';
-import { type Chosen, HistoryChart } from './History';
-import { NowLine } from './marks';
-import { type Source, useChanges, useReading, useSource } from './source';
-import { ChosenPanel, type Reader } from './StepPanel';
-import { spentWords, tokensWords } from './words';
+import { NewSession, type Send } from './Boxes';
+import { HistoryChart } from './History';
+import { HistoryLegend } from './marks';
+import { placeSteps, sessionsBegun } from './placing';
+import { type Source, useChanges, useItems, useReading, useSource } from './source';
+import { type Reader, StepTab } from './StepPanel';
+import { UsageTab } from './Usage';
+import { hasEnded } from './words';
 
 export function WorkView({ work, run }: {
   work: number;
@@ -81,86 +91,155 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
   const { summary } = page;
   const work = summary.number;
   const reader = useMemo(() => readerOf(source, work), [source, work]);
-  const [chosen, setChosen] = useState<Chosen>(() => {
+  const rows = useMemo(() => placeSteps(page), [page]);
+  const sessions = useMemo(() => sessionsBegun(page.steps), [page.steps]);
+  const items = useItems();
+  const item = items.value?.items.find((i) => i.work.number === work);
+  // The row chosen, by its step's place among the steps; and the choice of the window's switch.
+  const [chosen, setChosen] = useState<number | null>(() => {
     const step = run === undefined ? -1 : page.steps.findIndex((s) => s.kind === 'run' && s.run === run);
-    return step < 0 ? null : { step };
+    return step < 0 ? null : step;
   });
-  // The panel is open at first, unless the window is too narrow to show the history beside it and nothing is chosen.
-  const [folded, setFolded] = useState(() => chosen === null && window.innerWidth < 2 * PANEL.first);
-  const [panelWidth, setPanelWidth] = useKeptWidth(WIDTH_KEYS.panel, PANEL.min, PANEL.max);
+  const [tab, setTab] = useState<string>(() => (chosen === null ? 'item' : 'step'));
+  // The window: whether it is out, and whether its tab brought it out, which keeps it out once the row is let go.
+  const [win, setWin] = useState({ open: true, byHand: true });
+  const panel = useRef<HTMLElement>(null);
+  // How wide the window is, for the room the chart leaves under it.
+  const [windowWidth, setWindowWidth] = useState(0);
 
+  const choose = useCallback((step: number | null) => {
+    setChosen(step);
+    if (step !== null) setTab('step');
+    setWin((w) => {
+      if (step !== null) return w.open ? w : { open: true, byHand: false };
+      return w.byHand ? w : { open: false, byHand: false };
+    });
+  }, []);
+  const fold = useCallback(
+    () => setWin((w) => (w.open ? { open: false, byHand: false } : { open: true, byHand: true })),
+    [],
+  );
+  // Escape slides the window in while it has the keys, and else lets the row go; a question the page asks answers it
+  // alone.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || document.querySelector('dialog[open]') !== null) return;
+      const inside = panel.current?.contains(document.activeElement) === true;
+      if (win.open && inside) {
+        (document.activeElement as HTMLElement | null)?.blur();
+        setWin({ open: false, byHand: false });
+      } else choose(null);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [win.open, choose]);
+  useEffect(() => {
+    const el = panel.current;
+    if (el === null) return;
+    setWindowWidth(el.offsetWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(() => setWindowWidth(el.offsetWidth));
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
+
+  // What the owner does in the window, the work read again once it is taken.
+  const act = useCallback(
+    async (to: number, what: Act) => {
+      const done = await source.act(to, what);
+      onActed();
+      return done;
+    },
+    [source, onActed],
+  );
   const send: Send = useCallback(
     async (what: Act) => {
       try {
-        await source.act(work, what);
-        onActed();
+        await act(work, what);
         return null;
       } catch (e) {
         return e instanceof Error ? e.message : String(e);
       }
     },
-    [source, work, onActed],
+    [act, work],
   );
 
-  const choose = useCallback((c: Chosen) => {
-    setChosen(c);
-    if (c !== null) setFolded(false);
-  }, []);
-  useEffect(() => {
-    const close = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setChosen(null);
-    };
-    window.addEventListener('keydown', close);
-    return () => window.removeEventListener('keydown', close);
-  }, []);
-
-  const edge = (
-    <Edge
-      side="left"
-      label="Drag the panel's width"
-      start={() => panelWidth ?? PANEL.first}
-      onDrag={setPanelWidth}
-      onReset={() => setPanelWidth(null)}
-    />
-  );
-  const fold: Fold = { folded, onFold: () => setFolded((f) => !f), edge };
-  const usage = chosen !== null && 'usage' in chosen;
+  const row = chosen === null ? undefined : rows.find((r) => r.index === chosen);
+  const more = [
+    {
+      value: 'step',
+      name: 'Step',
+      content: (
+        <StepTab
+          page={page}
+          row={row}
+          sessions={sessions}
+          reader={reader}
+          shown={win.open && tab === 'step'}
+          onChoose={choose}
+        />
+      ),
+    },
+    { value: 'usage', name: 'Usage', content: <UsageTab page={page} /> },
+  ];
   return (
     <>
-      <div className="view-line">
-        <a className="link" href="#/works">
-          Works
-        </a>
-        <span className="mono muted">#{summary.item}</span>
-        <span className="view-name">{page.title}</span>
-        {page.project !== null && <Attr name="project" value={page.project} />}
-        <span className="view-facts">
-          <NowLine work={summary} />
-        </span>
-        <span className="view-end">
-          <button
-            type="button"
-            className="link small"
-            aria-pressed={usage}
-            title={`${usage ? 'Hide' : 'Show'} what the work used: ${tokensWords(summary.spent)}`}
-            onClick={() => choose(usage ? null : { usage: true })}
-          >
-            {spentWords(summary.spent)}
-          </button>
-          <ActButtons summary={summary} lines={page.flow.lines.map((l) => l.name)} send={send} />
-        </span>
+      <div className="view-line view-lines">
+        <div className="view-row">
+          <a className="link" href="#/works">
+            Works
+          </a>
+          <span className="mono muted">#{summary.item}</span>
+          <span className="view-name">{page.title}</span>
+          {!hasEnded(summary) && (
+            <span className="view-end">
+              <NewSession lines={page.flow.lines.map((l) => l.name)} send={send} />
+            </span>
+          )}
+        </div>
+        <div className="view-row">
+          <HistoryLegend />
+        </div>
       </div>
       {failed !== null && (
         <p className="read-failed" role="alert">
           The work could not be read again: {failed}. What is shown is from before.
         </p>
       )}
-      <main
-        className={`view-body with-panel ${folded ? 'panel-folded' : ''}`}
-        style={panelWidth !== null ? ({ '--panel-width': `${panelWidth}px` } as CSSProperties) : undefined}
-      >
-        <HistoryChart page={page} chosen={chosen} onChoose={choose} />
-        <ChosenPanel page={page} reader={reader} fold={fold} onChoose={choose} chosen={chosen} />
+      <main className="view-body with-window">
+        <HistoryChart page={page} rows={rows} chosen={chosen} onChoose={choose} covered={win.open ? windowWidth : 0} />
+        <Drawer
+          open={win.open}
+          onToggle={fold}
+          panel={panel}
+          label="The work's item"
+          hide="Put the item away"
+          show="Show the work's item"
+          widthKey={WIDTH_KEYS.itemWindow}
+        >
+          {item === undefined ? (
+            <p className="cw-empty">
+              {items.failed !== null
+                ? `The page could not read the work's item: ${items.failed}`
+                : items.value === null
+                  ? 'Reading the item'
+                  : `No item the page read has W${work} for its work`}
+            </p>
+          ) : (
+            <ItemPanel
+              item={item}
+              page={{ page }}
+              act={act}
+              loadVersion={source.loadVersion}
+              actEngine={source.actOnEngine}
+              open={win.open}
+              titleHref={hashOf({ view: 'console', item: item.number })}
+              more={more}
+              tab={tab}
+              onTab={setTab}
+            />
+          )}
+        </Drawer>
       </main>
     </>
   );

@@ -71,14 +71,14 @@
 }
 
 .view-table td {
-  max-width: calc(var(--panel) / 2);
+  max-width: calc(var(--wide-cell) / 2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .view-table .view-cell-wide {
-  max-width: var(--panel);
+  max-width: var(--wide-cell);
 }
 
 .view-table .num {

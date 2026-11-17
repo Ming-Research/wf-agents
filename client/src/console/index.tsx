@@ -12,13 +12,15 @@
 // (`lazy.tsx`).
 //
 // Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
-// the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel is too).
+// the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel and a
+// work's item on its page are in too).
 
 import './console.css';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Drawer } from '../parts';
+import { WIDTH_KEYS } from '../sizes';
 import type { Items, WorkPage } from '../works-api';
 import { oneAtATime, useSource } from '../works/source';
 import { goalMock } from './mock';
@@ -193,7 +195,7 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
         label="The item selected"
         hide="Put the item away"
         show="Show the item selected"
-        widthKey="console-window-width"
+        widthKey={WIDTH_KEYS.itemWindow}
       >
         {item === undefined ? (
           <p className="cw-empty">Click an item on the left to see it here.</p>

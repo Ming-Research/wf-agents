@@ -1,5 +1,5 @@
 /* The page's base and its parts (parts.tsx): the bar, the view's line, a button, a segmented switch, a tag, a label, a
-   list row and the docked panel. Every value is a token (tokens.css). */
+   list row, a panel and the window that shows it. Every value is a token (tokens.css). */
 
 *,
 *::before,
@@ -405,72 +405,14 @@ textarea:disabled {
   text-decoration: underline;
 }
 
-/* The docked panel, laid out as the console's drawer: at the right of the view, divided from it by a hairline, with
-   a handle on its edge that folds it away and brings it back; its head, its status lines, its sections, and room at
-   its bottom for a box that answers. */
-.drawer {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  border-left: var(--hairline) solid var(--line);
-  background: var(--card);
-}
-
-.drawer-folded {
-  border-left: 0;
-}
-
-/* The panel's left edge: a thin line in the accent from top to bottom, which the handle grows out of; it stays at the
-   window's edge with the handle while the panel is folded away. The console's window has the same. */
-.drawer::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: calc(-1 * var(--focus));
-  z-index: 5;
-  width: var(--focus);
-  background: var(--accent);
-  pointer-events: none;
-}
-
-/* The handle: a narrow tab on the panel's left edge, in the accent, which stays at the window's edge while the panel
-   is folded away. */
-.drawer-tab {
-  position: absolute;
-  top: var(--space-16);
-  left: calc(-1 * var(--space-16));
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--space-16);
-  height: var(--chart-tab);
-  padding: 0;
-  border: 0;
-  border-radius: var(--corner) 0 0 var(--corner);
-  background: var(--accent);
-  color: var(--on-colour);
-  cursor: pointer;
-  transition: background-color var(--hover-time);
-}
-
-.drawer-tab:hover {
-  background-image: linear-gradient(var(--step), var(--step));
-}
-
+/* A panel, as a window shows it: its head, its status lines, its sections, and room at its bottom for a box that
+   answers. */
 .drawer-inner {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
   padding: var(--space-16) var(--space-16) 0;
-}
-
-.drawer-inner[hidden] {
-  display: none;
 }
 
 .drawer-head {
@@ -587,8 +529,8 @@ textarea:disabled {
   background: var(--accent-text);
 }
 
-/* The tab: the handle every panel of the page has (`.drawer-tab`), a narrow tab in the accent on the window's left
-   edge, which stays at the screen's edge while the window is put away. */
+/* The tab: a narrow tab in the accent on the window's left edge, which stays at the screen's edge while the window is
+   put away. */
 .cw .cw-tab {
   position: absolute;
   top: var(--space-16);

@@ -1,8 +1,8 @@
-/* The flow's chart: the data down the side, the cells across, a mark where they cross, and the ways back along the
-   data's rows in the accent, with an arrow; each line's row joined along it. The data's names stay in place as
-   the frame scrolls sideways, and the cells' heads as it scrolls down. */
+/* The flow's chart, and a work's history drawn as it: the data, or the steps, down the side, the cells across, a mark
+   where they cross, and the ways back along the data's rows in the accent, with an arrow; each line's row joined along
+   it. The rows' names stay in place as the frame scrolls sideways, and the cells' heads as it scrolls down. */
 
-/* The view under the view's line: the chart's frame, and the docked panel at its right while one is open. */
+/* The view under the view's line: the chart's frame. */
 .view-body {
   display: grid;
   flex: 1;
@@ -10,13 +10,8 @@
   min-height: 0;
 }
 
-.view-body.with-panel {
-  grid-template-columns: minmax(0, 1fr) var(--panel-width, var(--panel));
-}
-
-/* Room at the chart's right for the panel's handle, which stands over it; and past it, what a window over the frame
-   covers (`--window-covers`, set while it is out), which the frame scrolls on into and keeps clear as it brings what is
-   chosen into view. */
+/* Room at the chart's right for the window's tab, which stands over it; and past it, what the window over the frame
+   covers (`--window-covers`, set while it is out), which the frame keeps clear as it brings what is chosen into view. */
 .view-body > .frame {
   padding-right: calc(var(--space-16) + var(--window-covers, 0px));
   scroll-padding-right: calc(var(--space-16) + var(--window-covers, 0px));
@@ -28,10 +23,6 @@
   overflow: hidden;
 }
 
-.view-body.with-panel.panel-folded {
-  grid-template-columns: minmax(0, 1fr) 0;
-}
-
 .frame {
   background: var(--ground);
   min-width: 0;
@@ -39,9 +30,8 @@
   overflow: auto;
 }
 
-/* A table takes the frame's width, its columns' widths set by its first row. In the history of a work, the names'
-   column and the cells whose width was dragged are at theirs and the other cells share what is left evenly (Chart.tsx,
-   tableWidth); on the flow's chart every cell's column is at its own width and the words take the rest. */
+/* A table takes the frame's width, its columns' widths set by its first row: every cell's column at its own width and
+   the words the rest. */
 .matrix {
   table-layout: fixed;
   border-collapse: separate;
@@ -76,32 +66,21 @@
   text-align: left;
 }
 
-/* The corner says what runs across: "Cells" with an arrow to the right at its top right beside the cells' heads; and,
-   where every row is of one kind, as a work's steps, that kind with an arrow down at its bottom left over the names.
-   The flow's rows are of many kinds, each tagged with its own, and the corner names none of them. */
+/* The corner says what runs across: "Cells" with an arrow to the right at its right beside the cells' heads. The
+   rows are of many kinds, each tagged with its own, and the corner names none of them. */
 .matrix thead th.corner {
   z-index: 3;
   height: 1px;
   padding: var(--space-4) var(--space-8);
 }
 
-.corner-cells,
-.corner-blocks {
-  display: block;
-}
-
 .corner-cells {
+  display: block;
   text-align: right;
 }
 
 .corner {
   vertical-align: top;
-}
-
-.corner-blocks {
-  position: absolute;
-  bottom: var(--space-4);
-  left: var(--space-8);
 }
 
 tbody tr > * {
@@ -140,8 +119,12 @@ tr.row.chosen > .block-head {
   cursor: pointer;
 }
 
-/* A cell's head. In the history of a work: its id, its title and how it stands. On the flow's chart, further down:
-   its id alone. */
+/* A head a press on chooses nothing. */
+.head-still {
+  cursor: default;
+}
+
+/* A cell's head: its id alone (further down). */
 .cell-head {
   border-left: var(--hairline) solid var(--line);
 }
@@ -169,16 +152,8 @@ tr.row.chosen > .block-head {
   overflow-wrap: break-word;
 }
 
-/* In the history of a work, a cell's title stays on one line, cut at the column's edge, whole on the pointer's tip. */
-.history .cell-title {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The flow's chart. A cell's column is as wide as its marks, so its head holds the id alone, in the middle. The
-   corner's two labels stand on one line. */
+/* The flow's chart, and a work's history. A cell's column is as wide as its marks, so its head holds the id alone, in
+   the middle. */
 .flow thead th {
   vertical-align: middle;
 }
@@ -354,6 +329,15 @@ tr.row.chosen > .block-head {
   overflow: visible;
 }
 
+/* The arrow of a way back over a mark that is no glyph, as a run's in a work's history: on the crossing's middle. */
+.glyph.back-arrow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  transform: translate(-50%, -50%);
+}
+
 /* The marks on a datum's row, one for each thing, side by side. */
 .glyphs {
   display: flex;
@@ -387,7 +371,6 @@ tr.row.chosen > .block-head {
   stroke: none;
 }
 
-.part.condition,
 .part.precondition {
   stroke-width: 1.5;
 }

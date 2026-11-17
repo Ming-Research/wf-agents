@@ -1,5 +1,5 @@
 // The page's parts, its own small design system: the bar, the view's line, a button, a segmented switch, a
-// label, a list row, the docked panel, the window that floats over a view, and the few signs the chart's heads use.
+// label, a list row, a panel, the window that floats over a view and shows it, and the few signs the chart's heads use.
 // Each is drawn by its class in styles/parts.css from the tokens in styles/tokens.css.
 
 import { type PointerEvent as Press, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
@@ -220,11 +220,10 @@ export function LinkButton({ onClick, children }: { onClick: () => void; childre
   );
 }
 
-/// The panel of a view: a head with the thing's id and title on one line and what it belongs to at the right; one or
-/// more status lines under it; then its sections; and room at its bottom for a box that answers (`foot`). Docked at the
-/// right of its view, laid out as the console's drawer, it has a handle on its left edge that folds it away and brings
-/// it back (`folded`, `onFold`); given neither, it is what a window (`Drawer`) shows, which comes and goes itself.
-export function Panel({ label, id, title, belongs, lines, folded, onFold, foot, edge, children }: {
+/// The panel of a view, as a window (`Drawer`) shows it: a head with the thing's id and title on one line and what it
+/// belongs to at the right; one or more status lines under it; then its sections; and room at its bottom for a box that
+/// answers (`foot`).
+export function Panel({ label, id, title, belongs, lines, foot, children }: {
   /// What the panel is about, for a reader of the screen.
   label: string;
   id?: ReactNode;
@@ -232,15 +231,11 @@ export function Panel({ label, id, title, belongs, lines, folded, onFold, foot, 
   title?: ReactNode;
   belongs?: ReactNode;
   lines?: ReactNode;
-  folded?: boolean;
-  onFold?: () => void;
   foot?: ReactNode;
-  /// The edge that drags the docked panel's width.
-  edge?: ReactNode;
   children: ReactNode;
 }) {
-  const inner = (
-    <>
+  return (
+    <section className="drawer-inner" aria-label={label}>
       {title !== undefined && (
         <header className="drawer-head">
           {id !== undefined && <span className="drawer-id">{id}</span>}
@@ -251,32 +246,7 @@ export function Panel({ label, id, title, belongs, lines, folded, onFold, foot, 
       {lines}
       <div className="drawer-body">{children}</div>
       {foot !== undefined && <div className="drawer-foot">{foot}</div>}
-    </>
-  );
-  if (onFold === undefined) {
-    return (
-      <section className="drawer-inner" aria-label={label}>
-        {inner}
-      </section>
-    );
-  }
-  return (
-    <aside className={folded ? 'drawer drawer-folded' : 'drawer'} aria-label={label}>
-      {!folded && edge}
-      <button
-        type="button"
-        className="drawer-tab"
-        aria-expanded={!folded}
-        title={folded ? 'Show the panel' : 'Fold the panel away (Esc closes it)'}
-        aria-label={folded ? 'Show the panel' : 'Fold the panel away'}
-        onClick={onFold}
-      >
-        {folded ? '‹' : '›'}
-      </button>
-      <div className="drawer-inner" hidden={folded}>
-        {inner}
-      </div>
-    </aside>
+    </section>
   );
 }
 
@@ -293,15 +263,14 @@ function keptWindow(key: string): number {
   }
 }
 
-/// The window beside a view, the console's, kept at the right of the screen like a page of a binder: a narrow tab
+/// The window beside a view, the console's and that of the flow and of a work, kept at the right of the screen like a page of a binder: a narrow tab
 /// stuck to its left edge, which stays on the screen while the window is out of it; a press on the tab slides the
 /// window in along the edge, the tab with it, and another slides it back. Its left edge dragged changes its width,
 /// which the browser keeps under `widthKey`. It floats over the view, which keeps its whole width under it. When it
 /// comes and goes besides the tab is its view's to say (`open`); `label` names it, and `hide` and `show` say what the
 /// tab does.
 ///
-/// Brought over from the console of the engine on `old-main` (`client/src/console/Drawer.tsx`); its tab is the handle
-/// every panel of the page has.
+/// Brought over from the console of the engine on `old-main` (`client/src/console/Drawer.tsx`).
 export function Drawer({
   open,
   onToggle,
@@ -415,7 +384,8 @@ export const SIGN_WORDS: Record<SignName, string> = {
   shown: 'shown on the page',
 };
 
-export function Sign({ name, className }: { name: SignName; className?: string }) {
+/// A sign: `words` say what it stands for where it stands for more than who writes a block, as in a work's history.
+export function Sign({ name, className, words = SIGN_WORDS[name] }: { name: SignName; className?: string; words?: string }) {
   const shape = {
     people: (
       <>
@@ -446,9 +416,9 @@ export function Sign({ name, className }: { name: SignName; className?: string }
       stroke="currentColor"
       strokeWidth="1.25"
       role="img"
-      aria-label={SIGN_WORDS[name]}
+      aria-label={words}
     >
-      <title>{SIGN_WORDS[name]}</title>
+      <title>{words}</title>
       {shape}
     </svg>
   );

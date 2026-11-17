@@ -1,5 +1,6 @@
 // The works page's words for what the interface gives as data: what a work does now, what it waits for, why a run
-// ran, why a return was sent back, what a call is, who wrote a version, and what was taken. Each is worded here once,
+// ran, how a run in a work's history ended or stands, why a return was sent back, what a call is, who wrote a version,
+// and what was taken. Each is worded here once,
 // and every part of the page that shows one takes its words from here.
 
 import type {
@@ -13,7 +14,6 @@ import type {
   Limit,
   Maker,
   Outage,
-  Pauser,
   Person,
   Run,
   SessionWhy,
@@ -24,6 +24,7 @@ import type {
   Writer,
 } from '../works-api';
 import type { OrderBy, Way } from './placing';
+import type { RunMark } from './state-marks';
 import { waitsOf } from './waiting';
 
 const SECOND = 1000;
@@ -677,32 +678,25 @@ export const UNDER_WAY_WORDS = 'under way: between rounds, or failed and to be g
 /// The words of the mark of the cell a work is stopped at, in a legend of the marks.
 export const STOPPED_WORDS = 'stopped here, for you or by the engine';
 
-/// How a run stands: it finished, it was abandoned, a round of it is under way, its last round failed, or it is at
-/// rest between rounds.
-export type RunState = 'finished' | 'abandoned' | 'running' | 'failed' | 'resting';
-
-export function runState(run: Pick<Run, 'end' | 'rounds'>): RunState {
-  if (run.end) return run.end.kind;
-  const last = run.rounds[run.rounds.length - 1];
-  if (last && last.ended === null) return 'running';
-  return last?.back?.kind === 'failed' ? 'failed' : 'resting';
-}
-
-export const RUN_WORDS: Record<RunState, string> = {
-  finished: 'finished',
+/// What a run's mark in a work's history says, in its legend and on pointing at it: the strip's words where the mark is
+/// the strip's.
+export const RUN_MARK_WORDS: Record<RunMark, string> = {
+  handedIn: 'handed in',
+  nothingNew: 'handed in nothing new',
   abandoned: 'abandoned',
-  running: 'under way',
-  failed: 'round failed',
-  resting: 'at rest',
+  running: STATE_WORDS.running,
+  calling: STATE_WORDS.calling,
+  sentBack: 'its return sent back',
+  underWay: UNDER_WAY_WORDS,
+  stopped: STOPPED_WORDS,
 };
 
-/// Whether a run is open: neither finished nor abandoned.
-export const isOpen = (state: RunState): boolean => state !== 'finished' && state !== 'abandoned';
+/// What the signs in a work's history say under a cell, in its legend: an act of the owner's ran the cell or let it go
+/// on, or a write of the outside's ran it.
+export const SIGNED_WORDS = { owner: 'run or let go on by the owner', outside: 'run by the outside' } as const;
 
-/// Who paused a work, and why, in a line.
-export function pauseWords(by: Pauser, why: string | null): string {
-  return by === 'engine' ? `The engine paused the work. ${plain(sentence(why ?? 'It gave no reason'))}` : 'The owner paused the work.';
-}
+/// Whether a run is open: neither finished nor abandoned.
+export const isOpen = (run: Pick<Run, 'end'>): boolean => run.end === null;
 
 /// How long a run took from its start: to its end, or until now while it is open.
 export function runTook(run: Pick<Run, 'time' | 'end'>, now: number): number {

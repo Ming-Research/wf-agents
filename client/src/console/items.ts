@@ -2,7 +2,8 @@
 // its main one, at the top the items nothing depends on; under each other item that depends on it, after the items
 // standing there, a shadow of it that points to its place. Done and cancelled items are left out, unless something
 // under them is still open. Each item carries its own state, its work while it goes on, whether the work has begun, and
-// how many of the things its work waits for wait for the owner. Pure, so that it is tested on its own.
+// how many of the things its work waits for wait for the owner; and a work's age and what it has taken, as a card and
+// the item's window say them. Pure, so that it is tested on its own.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/items.ts`), reading the items as
 // `works-api.ts` gives them. The interface does not say which of an item's dependents is its main one: the first of
@@ -196,3 +197,23 @@ export function shownTree(data: Items): Shown[] {
     .sort((a, b) => a.number - b.number)
     .map((i) => make(i.number));
 }
+
+/// How long a work has gone on, as a short label and the tone of its age: under half an hour, under an hour, or an
+/// hour and more, however much more.
+export function age(ms: number): {
+  label: string;
+  tone: 'success' | 'attention' | 'danger';
+} {
+  const minutes = ms / 60000;
+  if (minutes < 60)
+    return {
+      label: `${Math.max(1, Math.round(minutes))}m`,
+      tone: minutes < 30 ? 'success' : 'attention',
+    };
+  const hours = minutes / 60;
+  if (hours < 24) return { label: `${Math.round(hours * 10) / 10}h`, tone: 'danger' };
+  return { label: `${Math.round((hours / 24) * 10) / 10}d`, tone: 'danger' };
+}
+
+/// What a work has taken, in dollars.
+export const dollars = (usdMicros: number) => `$${(usdMicros / 1e6).toFixed(2)}`;

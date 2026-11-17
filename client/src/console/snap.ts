@@ -37,7 +37,7 @@ import { accentNow, onAccent, turning } from '../accent';
 import { MARK, MARKS, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
 import { STATE, standingCell, stateOf, stoppedAt } from '../works/words';
-import { type Shown, type ShownWork } from './items';
+import { type Shown, type ShownWork, age } from './items';
 import { BAR_KINDS, TRACK_WORDS } from './track';
 import { indexTree, type Tree } from './tree';
 
@@ -388,23 +388,6 @@ function vertical(colour: string, from: number, to: number): FillGradient {
 /// A node's height in pixels, of `rows` rows.
 const high = (rows: number) => rows * ROW - (ROW - NODE_H);
 
-/// How long a work has gone on, as a short label and the tone of its age: under half an hour, under an hour, or an
-/// hour and more, however much more.
-export function age(ms: number): {
-  label: string;
-  tone: 'success' | 'attention' | 'danger';
-} {
-  const minutes = ms / 60000;
-  if (minutes < 60)
-    return {
-      label: `${Math.max(1, Math.round(minutes))}m`,
-      tone: minutes < 30 ? 'success' : 'attention',
-    };
-  const hours = minutes / 60;
-  if (hours < 24) return { label: `${Math.round(hours * 10) / 10}h`, tone: 'danger' };
-  return { label: `${Math.round((hours / 24) * 10) / 10}d`, tone: 'danger' };
-}
-
 /// The colour of a work's age, three and no more: grey under half an hour, amber from half an hour to an hour, and red
 /// past an hour, however long, since a work not done within an hour is a problem, which red says (decision
 /// a-works-age-is-red-past-an-hour).
@@ -541,9 +524,6 @@ const NUMBER = () => ({
   done: PALETTE.green,
   cancelled: PALETTE.pale,
 });
-
-/// What a work has taken, in dollars.
-export const dollars = (usdMicros: number) => `$${(usdMicros / 1e6).toFixed(2)}`;
 
 /// The size of a node's title: the page's body text (`--size-body`).
 const TITLE_SIZE = 13;

@@ -41,9 +41,10 @@
   --pulse: 750ms;
   --pulse-faint: 0.15;
 
-  /* The docked panel's width until the owner drags it, and the height of the handle on its edge. */
-  --panel: 360px;
+  /* The height of the tab on the window's edge. */
   --chart-tab: 72px;
+  /* The most a wide cell of a view's table takes before it is cut; the other cells take half of it. */
+  --wide-cell: 360px;
   /* The window that floats over a view (the console's, the flow's): its left edge, thick enough to be seen at the
      screen's side. */
   --window-edge: 2px;
