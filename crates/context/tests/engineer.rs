@@ -107,14 +107,17 @@ fn the_first_message_of_an_agent_s_cell_names_no_guide() {
     sim.hands_in(&start, &[("place", "the branch and its worktree", None)]);
     let round = sim.round().expect("the reading is given");
     assert_eq!(sim.cell(&round).id.as_str(), "R0");
-    let entered = sim.enter(&round, sim.begins(&round));
-    assert!(entered.text.contains("`background`"), "{}", entered.text);
-    assert!(!entered.text.contains("guide"), "{}", entered.text);
-    assert!(
-        !entered.situation.data.contains_key("guide"),
-        "{:?}",
-        entered.situation.data
-    );
+    // As the session begins, and as one reopened, which holds nothing, is given everything from the top.
+    for anew in [sim.begins(&round), true] {
+        let entered = sim.enter(&round, anew);
+        assert!(entered.text.contains("`background`"), "{}", entered.text);
+        assert!(!entered.text.contains("guide"), "{}", entered.text);
+        assert!(
+            !entered.situation.data.contains_key("guide"),
+            "{:?}",
+            entered.situation.data
+        );
+    }
 }
 
 /// A work of the engineer's flow, carried out with the plan written by the research, nothing better found and the
