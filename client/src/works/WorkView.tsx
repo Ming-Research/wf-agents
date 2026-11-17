@@ -1,6 +1,6 @@
-// One work: the view's line, with the link back to the works, the item's number and its title, and the button that has
-// a line begin a new session, which the item's window does not hold; under it, the legend of the history's marks; the
-// work's history as a chart; and over its right the console's window (`Drawer`) with the console's item window for the
+// One work: the view's line, with the link back to the works, the item's number and its title, and at its right the
+// legend of the history's marks and the button that has a line begin a new session, which the item's window does not
+// hold; the work's history as a chart; and over its right the console's window (`Drawer`) with the console's item window for the
 // work's item (`ItemPanel`), whose switch holds, after the console's Item and Work, the row of the history chosen (Step)
 // and what the work used (Usage). What the window shows (the item's state, the work's cost and time, the owner's
 // buttons) is not said again in the view's line. Choosing a row slides the window out on Step; letting the row go
@@ -206,22 +206,16 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
   ];
   return (
     <>
-      <div className="view-line view-lines">
-        <div className="view-row">
-          <a className="link" href="#/works">
-            Works
-          </a>
-          <span className="mono muted">#{summary.item}</span>
-          <span className="view-name">{page.title}</span>
-          {!hasEnded(summary) && (
-            <span className="view-end">
-              <NewSession lines={page.flow.lines.map((l) => l.name)} send={send} />
-            </span>
-          )}
-        </div>
-        <div className="view-row">
+      <div className="view-line">
+        <a className="link" href="#/works">
+          Works
+        </a>
+        <span className="mono muted">#{summary.item}</span>
+        <span className="view-name">{page.title}</span>
+        <span className="view-end">
           <Legend marks={HISTORY_MARKS} />
-        </div>
+          {!hasEnded(summary) && <NewSession lines={page.flow.lines.map((l) => l.name)} send={send} />}
+        </span>
       </div>
       {failed !== null && (
         <p className="read-failed" role="alert">
