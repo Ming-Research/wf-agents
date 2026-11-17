@@ -91,7 +91,8 @@
   /* The marks of a work's cells, in the accent's hue: a cell done a light step of it, the cell running a deep one. */
   --mark-done: var(--own-mark-done, #a0bffd);
   --mark-running: var(--own-mark-running, #134dcb);
-  /* What a hover adds to the background under it: one step. */
+  /* What a hover adds to a row under it, and to a control filled already: one step. What can be pressed is filled with
+     the accent's tint instead (principle quiet-motion). */
   --step: rgb(0 0 0 / 4%);
   /* The shadow of the window that floats over a view: Primer's overlay shadow, as the console drew it. */
   --window-shadow: 0 0 0 1px #d1d9e040, 0 6px 12px -3px #25292e0a, 0 6px 18px 0 #25292e1f;

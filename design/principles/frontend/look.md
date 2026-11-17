@@ -28,8 +28,10 @@ step, and a fill its tint.
 Why: So that a colour always means one thing (principle scarce-emphasis).
 
 ### principle quiet-motion
-Hovering changes a background by one step, quickly, and nothing on the page moves for looks.
-Why: Motion is kept for what the owner did and for what really changed (principle owner-keeps-their-place).
+Under the pointer, what can be pressed is filled with the accent's tint and a row of a list is a step darker,
+quickly; nothing on the page moves for looks.
+Why: Motion is kept for what the owner did and for what really changed (principle owner-keeps-their-place); a step
+darker was too faint to show which button the pointer is on.
 
 ### principle focus-always-shows
 Whatever holds the keyboard's focus shows it by an outline in the accent.
