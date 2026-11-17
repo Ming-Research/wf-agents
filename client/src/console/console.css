@@ -269,10 +269,11 @@
   font-weight: var(--weight);
 }
 
-/* The words of a question and of its options can be selected, to copy or to quote: a browser selects no words of a
-   button otherwise. */
+/* The words of a question and of its options, and a pointer to a question in a text, can be selected, to copy or to
+   quote: a browser selects no words of a button otherwise. */
 .cw-choice-q,
-.cw-option {
+.cw-option,
+.cw-pointer {
   user-select: text;
 }
 

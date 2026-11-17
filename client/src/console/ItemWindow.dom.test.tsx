@@ -168,6 +168,10 @@ const discussion = (el: HTMLElement) =>
     f.querySelector('.cw-fold-head')?.textContent?.includes('Discussion'),
   ) as HTMLElement;
 
+/// Lets the window read the body, which it draws the questions of the work's own after: a question a text points to is
+/// drawn where it points.
+const bodyRead = () => act(async () => undefined);
+
 /// Sends the test answers when it likes.
 function held() {
   const sent: Sent = [];
@@ -375,7 +379,7 @@ describe('the panel of the item selected', () => {
       { to: { kind: 'line', line: 'builder' }, cell: 'research', refused: null },
       { to: { kind: 'cell', cell: 'research' }, cell: 'research', refused: null },
     ];
-    // The work waits at the research for the owner's answer to its question, which its card at the plan's end shows.
+    // The work waits at the research for the owner's answer to its question, which its card after the body shows.
     const stale = question('stale-runs', {
       waits: true,
       ask: 'Should a stale run be abandoned at once or kept a day?',
@@ -385,6 +389,7 @@ describe('the panel of the item selected', () => {
     if (page === null || !('page' in page)) throw new Error('no page');
     const asking = engineer({ page: { ...page.page, questions: [stale] } });
     const el = draw(1, answered(sent, { reached: 'R1' }), asking, true);
+    await bodyRead();
     await act(async () => button(el, 'Discuss').click());
     expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['builder · R1']);
     expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
@@ -506,10 +511,11 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.pairs dd')).toEqual(['61', '$7.31', '1.1d ago', '0', 'building']);
   });
 
-  it('names the cell its work waits at as a cell is shown, its id and its title, and leaves the question to the plan', () => {
+  it('names the cell its work waits at as a cell is shown, its id and its title, and leaves the question to the plan', async () => {
     const el = drawAsking({ kind: 'waits', at: 'research', on: [{ kind: 'answer', question: 'scope' }] }, ['scope'], [
       question('scope', { waits: true }),
     ]);
+    await bodyRead();
     const [, workLine] = lines(el);
     expect(workLine).toContain('Waiting for you research Initial research W25');
     expect(workLine).not.toContain('scope');
@@ -696,6 +702,7 @@ describe('the questions put to the owner, in the panel of the item selected', ()
       [question('scope', { waits: true })],
       answered(sent),
     );
+    await bodyRead();
     expect(text(el, '.cw-choice-q')).toEqual(['What of scope?']);
     // It holds the work: on the red tint, edged in red, with no line to say so.
     expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-holds');
@@ -735,6 +742,7 @@ describe('the questions put to the owner, in the panel of the item selected', ()
         open: null,
       })),
     );
+    await bodyRead();
     const [, workLine] = lines(el);
     expect(workLine).toBe('Waiting for you merge Merge W25');
     expect(text(el, '.cw-choice-q')).toEqual(['What of measure?', 'What of old?', 'What of read-time?']);
@@ -758,27 +766,30 @@ describe('the questions put to the owner, in the panel of the item selected', ()
     ]);
   });
 
-  it('shows what a question asks as it was written, a change it is about as code', () => {
+  it('shows what a question asks as it was written, a change it is about as code', async () => {
     const ask = 'Whether the change may merge.\n\n- `flow/agents/tools/run_tests.toml`: changed\n\n```diff\n-a = 1\n+a = 2\n```';
     const el = drawAsking({ kind: 'waits', at: 'implement', on: [{ kind: 'answer', question: 'protected_files' }] }, [
       'protected_files',
     ], [question('protected_files', { cell: 'implement', engine: true, waits: true, ask })]);
+    await bodyRead();
     expect(text(el, '.cw-choice-q p')).toEqual(['Whether the change may merge.', '- flow/agents/tools/run_tests.toml: changed']);
     expect([...el.querySelectorAll('.cw-choice-q pre.content')].map((p) => p.textContent)).toEqual(['-a = 1\n+a = 2']);
   });
 
-  it('shows a question the work has gone on past in the look of a choice of the plan, which stops nothing yet, with no words of its own', () => {
+  it('shows a question the work has gone on past in the look of a choice of the plan, which stops nothing yet, with no words of its own', async () => {
     const el = drawAsking({ kind: 'next', cell: 'implement' }, [], [question('later')]);
+    await bodyRead();
     expect(text(el, '.cw-choice-q')).toEqual(['What of later?']);
     expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice');
     expect(el.textContent).not.toContain('Still to confirm');
     expect(text(el, '.cw-confirm')).toEqual(['Confirm (0/1)']);
   });
 
-  it("draws each option as a choice, apart from the question by a hairline: a radio mark, filled once picked", () => {
+  it("draws each option as a choice, apart from the question by a hairline: a radio mark, filled once picked", async () => {
     const el = drawAsking({ kind: 'waits', at: 'research', on: [{ kind: 'answer', question: 'scope' }] }, ['scope'], [
       question('scope', { waits: true }),
     ]);
+    await bodyRead();
     const card = el.querySelector('[data-wait="answer-scope"]') as HTMLElement;
     const group = card.querySelector('.cw-options') as HTMLElement;
     expect(group.getAttribute('role')).toBe('radiogroup');
@@ -815,7 +826,7 @@ const pick = (el: HTMLElement, choice: number, option: number) => {
   act(() => button.click());
 };
 
-describe("the questions put to the owner, at the plan's end of the panel", () => {
+describe('the questions put to the owner that no text points to, after the body', () => {
   it('shows a question the work waits for whole, in its one card, and sends the option picked as the answer to its version', async () => {
     const sent: Sent = [];
     const el = drawQuestions(
@@ -824,6 +835,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
       answered(sent),
       [answering('scope')],
     );
+    await bodyRead();
     // One card, which the address of what the work waits for names, and none under the status line.
     expect(el.querySelectorAll('[data-wait="answer-scope"]')).toHaveLength(1);
     expect(el.querySelector('.cw-waits')).toBeNull();
@@ -849,6 +861,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     };
     const old = question('old', { answer: { option: 1, at: 40, why: null } });
     const el = drawQuestions(merge, [question('measure'), old], answered(sent), [answering('measure')]);
+    await bodyRead();
     // It waits for you at the merge's check, in one line.
     expect(lines(el)[1]).toContain('Waiting for you merge Merge');
     expect(noKeys(el)).toBe(true);
@@ -870,6 +883,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     const sent: Sent = [];
     const later = question('later', { recommends: 2 });
     const el = drawQuestions({ kind: 'next', cell: 'implement' }, [later], answered(sent));
+    await bodyRead();
     expect(el.querySelector('[data-wait]')?.getAttribute('data-wait')).toBe('answer-later');
     expect(text(el, '.cw-choice-q')).toEqual(['What of later?']);
     // It keeps the look of a choice of the plan, with no words of its own.
@@ -909,6 +923,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
       answered(sent),
       [answering('protected_files', 44)],
     );
+    await bodyRead();
     const card = el.querySelector('[data-wait="answer-protected_files"]') as HTMLElement;
     expect(card.className).toBe('cw-choice cw-choice-holds');
     expect(text(card, '.cw-choice-q p code')).toEqual(['flow/agents/tools/run_tests.toml', 'flow/project.toml']);
@@ -926,7 +941,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(sent).toEqual([[12, { kind: 'answer', question: 'protected_files', version: 44, option: 1 }]]);
   });
 
-  it('shows a question answered with its answer and asks nothing of it, and a question withdrawn not at all', () => {
+  it('shows a question answered with its answer and asks nothing of it, and a question withdrawn not at all', async () => {
     const el = drawQuestions(
       { kind: 'next', cell: 'implement' },
       [
@@ -935,6 +950,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
       ],
       answered([]),
     );
+    await bodyRead();
     expect(text(el, '.cw-choice-q')).toEqual(['What of old?']);
     expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-done');
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it *']]);

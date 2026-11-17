@@ -349,6 +349,10 @@ export const WRITE_WORDS = {
   writes: (block: string, value: string): string => `Write ${block} = ${value}`,
 } as const;
 
+/// What a pointer to a question does, said on pointing at it: the pointer stands in a text, and the question's card
+/// elsewhere in the item's window.
+export const SHOW_QUESTION = 'Show the question this points to';
+
 /// Why what the owner pressed to act on the engine as a whole was not sent: the page was drawn with no engine to send
 /// it to.
 export const NO_ENGINE = 'The page has no engine to send it to';
