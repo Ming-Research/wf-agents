@@ -16,6 +16,14 @@ learned once; Primer's was turned down for that.
 A work the engine halted is marked in the red of a fault, and one the owner paused is not.
 Why: Red says there is a problem to look at, and a pause is something someone chose.
 
+### decision a-call-waited-for-is-no-run
+A work that waits at a cell for the results of calls of tools the engine carries out is said, wherever the page says
+its state, the run's Step among them, to wait for each tool by its name, where it runs (in CI, linked to the run, or
+by the engine) and for how long, in the yellow of a call; never to run or to have finished, and its console card is
+one that waits. An act of the engine's own under way is a round, and runs.
+Why: Said to run by the item's window and its card and to have finished by the run's panel, while its history said a
+call was under way, one work said three things at once and none of them what it waited for (W11).
+
 ### decision a-cancelled-work-is-grey
 The mark of a cancelled work, in the list of works and on the console, is grey and never red.
 Why: The owner reads a red mark as a fault.

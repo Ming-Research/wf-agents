@@ -14,8 +14,9 @@
 // question's answer to the engine; once confirmed, the picks stand, settled; and last, each block the owner may write
 // that keeps the work from going on, drawn as such a question is, its values the options, with a button that writes the
 // one picked), each passage changed since the owner read it marked at its left, and under the body the messages: the
-// owner's and the replies, and a box to write one into a block of the work that people write, chosen above it, which a
-// passage selected in the body can be quoted into and which names the cells that read it. Under the work's state line,
+// owner's and the replies, and a box to write one to a line of the work's flow, picked above it among those on which
+// the engine has a cell to give the words to, which a passage selected in the body can be quoted into and which names
+// that cell. Under the work's state line,
 // each other stop of the work, in the same look: one sentence of why and the buttons that end it, from the engine's
 // list, and a fault or a stall, which no one waits on, said as the engine gives it. The second tab holds what of the
 // work the lines do not say, and the legend of the strip's marks. While the window is out, R marks the item read, as
@@ -59,7 +60,7 @@ import {
   type Waited,
   type WorkPage,
 } from '../works-api';
-import { StateLegend, Strip } from '../works/marks';
+import { CallsTook, Parts, StateLegend, Strip } from '../works/marks';
 import { type Wait, type WaitAct, actOf, drawnInBody, waitsOf } from '../works/waiting';
 import {
   CANCEL_DOES,
@@ -73,6 +74,7 @@ import {
   WRITE_WORDS,
   standingCell,
   stateOf,
+  stateParts,
   stoppedAt,
   waitedWords,
 } from '../works/words';
@@ -205,10 +207,12 @@ function CellName({ cell, page }: { cell: string; page: WorkPage | null }) {
 type Tone = ItemStanding | WorkTone;
 
 /// The dot of each tone, as the look's status line colours it: red for a stop, a work that waits for the owner or one
-/// the engine halted, as its card is; grey for one that waits for anything else.
+/// the engine halted, as its card is; the yellow of a call for one that waits for the calls of tools; grey for one that
+/// waits for anything else.
 const DOT: Record<Tone, string> = {
   open: 'dot dot-running',
   running: 'dot dot-running',
+  calling: 'dot dot-calling',
   done: 'dot dot-added',
   owner: 'dot dot-removed',
   failed: 'dot dot-removed',
@@ -797,15 +801,17 @@ function Progress({ w, page }: { w: Summary; page: WorkPage | null }) {
   );
 }
 
-/// The work's state line, one line, the same part for every state: its dot and the word of its state, the cell it
-/// stands at where the engine's state names one, as a cell is shown everywhere; where it waits for the items its item
-/// depends on, which, as the engine gives them, those cancelled said so; and the work.
+/// The work's state line, one line, the same part for every state: its dot and the word of its state, the calls of
+/// tools it waits for with a link to where each runs, and how long it has waited for them; the cell it stands at where
+/// the engine's state names one, as a cell is shown everywhere; where it waits for the items its item depends on,
+/// which, as the engine gives them, those cancelled said so; and the work.
 function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
-  const { tone, word, cell } = stateOf(w);
+  const { tone, cell } = stateOf(w);
   const now = w.now;
   const items = now.kind === 'waits' ? now.on.filter((x) => x.kind === 'items') : [];
   return (
-    <Line tone={tone} word={word}>
+    <Line tone={tone} word={<Parts parts={stateParts(w)} />}>
+      {tone === 'calling' && <CallsTook work={w} />}
       {cell !== null && <CellName cell={cell} page={page} />}
       {items.map((x, i) => (
         <span key={i} className="muted">
@@ -1279,11 +1285,12 @@ function RulingBox({ ruling, act, links }: {
 }
 
 /// The discussion: the messages written before, the owner's and the replies, and a box to write one. The owner picks
-/// the line it goes to, of the lines that can ask the owner a question, and what they send is said to that line, or,
-/// where the work waits on that line for the owner's answer to a question, about that question; the engine chooses the
-/// cell it reaches. Each button names its line and, where the engine has a cell to give the words to on it, that cell
-/// by its id, the same way on every button; where it has none, the line alone, with why in its title. The line under
-/// the box names the cell the words reach by its title, or says why no cell can take them, and then they are not sent.
+/// the line it goes to, of the lines one of whose cells has words of its own, and what they send is said to that line;
+/// the engine chooses the cell it reaches (`speaking`). Each button names its line and, where the engine has a cell to
+/// give the words to on it, that cell by its id; a line on which it has none is grey, cannot be picked, and says why on
+/// pointing at it, in the engine's words. Of the lines that take the words, the one picked at first is the line the
+/// work stands at, else the one it reached last; where none takes them, none is picked, no box is drawn, and why is
+/// said once, under the lines. The line under the box names the cell the words reach by its title.
 function Discussion({ work, page, messages, pointers, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
   work: Summary;
   page: PageState;
@@ -1300,26 +1307,37 @@ function Discussion({ work, page, messages, pointers, messageTo, setMessageTo, q
   sent: (message: Message) => void;
 }) {
   const read = pageIn(page);
-  // The line of the cell the work waits at, which the box offers first.
-  const now = work.now;
-  const heldOn = now.kind === 'waits' ? read?.flow.cells.find((c) => c.id === now.at)?.line : undefined;
-  // The lines one of whose cells has words of its own, each with the cell the engine says the words said to it reach:
-  // the one of its cells the work has reached, which waits for the answer to its question where it waits for one.
   const flow = read?.flow;
+  const lineOf = (cell: string | null) => flow?.cells.find((c) => c.id === cell)?.line ?? null;
+  // The lines one of whose cells has words of its own, each with what the engine says of words said to it: the cell
+  // they reach, or why no cell can take them.
   const targets = (flow?.lines ?? [])
     .filter((l) => flow !== undefined && flow.cells.some((c) => c.line === l.name && wordsOf(flow, c.id) !== undefined))
     .map((l) => {
       const to: SpokenTo = { kind: 'line', line: l.name };
       return { line: l.name, to, speaking: read?.speaking?.find((s) => sameTo(s.to, to)) };
     });
-  // The one chosen, else the line the work stands at, else the first the engine has a cell for, or says why it has none.
+  // Why the words said to a line reach no cell, where they reach none.
+  const refusedOn = (t: (typeof targets)[number]): string | null =>
+    t.speaking === undefined
+      ? 'the engine does not say which cell the words would reach'
+      : t.speaking.cell === null
+        ? (t.speaking.refused ?? 'the engine does not say why')
+        : null;
+  const taking = targets.filter((t) => refusedOn(t) === null);
+  // The lines the work reached, the one it reached last first: the lines of the cells of its runs, latest first.
+  const reached = (read?.steps ?? [])
+    .flatMap((s) => (s.kind === 'run' ? [lineOf(s.cell)] : []))
+    .reverse();
+  // The one the owner chose, else the line the work stands at, else the one it reached last, of those taking words.
   const target =
-    targets.find((t) => t.line === messageTo) ??
-    targets.find((t) => t.line === heldOn) ??
-    targets.find((t) => t.speaking?.cell != null) ??
-    targets.find((t) => t.speaking !== undefined) ??
-    targets[0];
-  const speaking = target?.speaking;
+    taking.find((t) => t.line === messageTo) ??
+    taking.find((t) => t.line === lineOf(stateOf(work).cell)) ??
+    reached.map((line) => taking.find((t) => t.line === line)).find((t) => t !== undefined) ??
+    taking[0];
+  const reaches = target?.speaking?.cell ?? null;
+  // Why no line takes the words, where none does: each reason the engine gives, once.
+  const none = [...new Set(targets.map((t) => refusedOn(t) ?? ''))].filter((why) => why !== '').join('; ');
   return (
     <Fold title="Discussion" count={messages.length}>
       {messages.map((n, i) => (
@@ -1337,47 +1355,49 @@ function Discussion({ work, page, messages, pointers, messageTo, setMessageTo, q
         <p className="muted">Reading the work's flow</p>
       ) : 'failed' in page ? (
         <p className="failed small">The page could not read the work: {page.failed}</p>
-      ) : target === undefined ? (
+      ) : targets.length === 0 ? (
         <p className="muted">No cell of this flow takes the owner's words</p>
       ) : (
         <div className="write-box cw-compose">
           <div className="cw-to switch" role="radiogroup" aria-label="Whom the message goes to">
-            {targets.map((t) => (
-              <button
-                key={t.line}
-                type="button"
-                role="radio"
-                className="switch-choice"
-                aria-checked={t.line === target.line}
-                aria-pressed={t.line === target.line}
-                title={t.speaking?.cell === null ? t.speaking.refused ?? undefined : undefined}
-                onClick={() => setMessageTo(t.line)}
-              >
-                {t.speaking?.cell == null ? t.line : `${t.line} · ${t.speaking.cell}`}
-              </button>
-            ))}
+            {targets.map((t) => {
+              const refused = refusedOn(t);
+              const chosen = t.line === target?.line;
+              return (
+                <button
+                  key={t.line}
+                  type="button"
+                  role="radio"
+                  className="switch-choice"
+                  aria-checked={chosen}
+                  aria-pressed={chosen}
+                  disabled={refused !== null}
+                  title={refused === null ? undefined : `No cell takes the words: ${refused}`}
+                  onClick={() => setMessageTo(t.line)}
+                >
+                  {t.speaking?.cell == null ? t.line : `${t.line} · ${t.speaking.cell}`}
+                </button>
+              );
+            })}
           </div>
-          <Compose
-            key={draftKey(work.number, `${target.line}_spoken_to`)}
-            work={work}
-            draft={`${target.line}_spoken_to`}
-            line={target.line}
-            to={target.to}
-            reaches={speaking?.cell ?? null}
-            title={(cell) => titleOf(read, cell)}
-            cannot={
-              speaking === undefined
-                ? 'The engine does not say which cell the words would reach'
-                : speaking.cell === null
-                  ? `No cell takes the words: ${speaking.refused ?? 'the engine does not say why'}`
-                  : null
-            }
-            quote={quote}
-            unquote={unquote}
-            box={box}
-            act={act}
-            sent={sent}
-          />
+          {target !== undefined && reaches !== null ? (
+            <Compose
+              key={draftKey(work.number, `${target.line}_spoken_to`)}
+              work={work}
+              draft={`${target.line}_spoken_to`}
+              line={target.line}
+              to={target.to}
+              reaches={reaches}
+              title={(cell) => titleOf(read, cell)}
+              quote={quote}
+              unquote={unquote}
+              box={box}
+              act={act}
+              sent={sent}
+            />
+          ) : (
+            <p className="muted small">No cell takes the words: {none}</p>
+          )}
         </div>
       )}
     </Fold>
@@ -1390,18 +1410,16 @@ const sameTo = (a: SpokenTo, b: SpokenTo): boolean =>
 
 /// The box for what the owner says to one cell of one work, its draft kept as it is typed under the name `draft`, with
 /// the passage quoted into it over it, and the names one can write to offered when `@` is typed.
-function Compose({ work, draft, line, to, reaches, title, cannot, quote, unquote, box, act, sent }: {
+function Compose({ work, draft, line, to, reaches, title, quote, unquote, box, act, sent }: {
   work: Summary;
   draft: string;
   /// The line the message goes to.
   line: string;
   /// What the message is said to.
   to: SpokenTo;
-  /// The cell it reaches, as the engine chooses it; none where no cell can take it.
-  reaches: MessageCell | null;
+  /// The cell it reaches, as the engine chooses it.
+  reaches: MessageCell;
   title: (cell: string) => string;
-  /// Why it cannot be sent, where it cannot.
-  cannot: string | null;
   quote: string | null;
   unquote: () => void;
   box: RefObject<HTMLTextAreaElement | null>;
@@ -1429,12 +1447,9 @@ function Compose({ work, draft, line, to, reaches, title, cannot, quote, unquote
     type(text.replace(/@(\w*)$/, `@${x} `));
     box.current?.focus();
   };
-  // Only the cell the engine chooses: a name written with `@` is the owner's words, and reaches no one of itself.
-  const goes = reaches === null ? [] : [title(reaches)];
   // The cell the engine gave the words to, as it answered the act; none where it did not say.
   const [said, setSaid] = useState<MessageCell | null>(null);
   const submit = () => {
-    if (reaches === null) return;
     const words = text.trim();
     const content = quote === null ? words : `${quote.replace(/^/gm, '> ')}\n\n${words}`;
     void send({ kind: 'say', to, words: content }).then((done) => {
@@ -1461,7 +1476,7 @@ function Compose({ work, draft, line, to, reaches, title, cannot, quote, unquote
         ref={box}
         rows={3}
         value={text}
-        aria-label={reaches === null ? 'What to say' : `What to say to ${title(reaches)}`}
+        aria-label={`What to say to ${title(reaches)}`}
         placeholder="Write a message"
         onChange={(e) => type(e.target.value)}
       />
@@ -1475,8 +1490,9 @@ function Compose({ work, draft, line, to, reaches, title, cannot, quote, unquote
         </div>
       ) : null}
       <div className="write-line">
-        <span className="muted small write-readers">{cannot ?? `Goes to ${goes.join(', ')}`}</span>
-        <Button primary disabled={waiting || text.trim() === '' || cannot !== null} onClick={submit}>
+        {/* Only the cell the engine chooses: a name written with `@` is the owner's words, and reaches no one of itself. */}
+        <span className="muted small write-readers">Goes to {title(reaches)}</span>
+        <Button primary disabled={waiting || text.trim() === ''} onClick={submit}>
           Send
         </Button>
       </div>
