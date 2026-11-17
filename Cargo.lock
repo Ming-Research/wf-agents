@@ -1202,6 +1202,7 @@ dependencies = [
  "store",
  "tempfile",
  "tokio",
+ "toml",
  "web",
  "work",
 ]

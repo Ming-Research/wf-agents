@@ -168,6 +168,7 @@ pub fn build_cases(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, Vec<St
         .map_err(|e| vec![format!("the runtime: {e}")])?;
     let (compiled, settings, beside, commits) = (&compiled, &settings, &beside, &commits);
     let (imported, stand_in, made_name) = (imported.as_path(), stand_in.as_path(), read.cases.project.as_str());
+    let (rules, tests) = (&read.cases.rules, read.cases.tests.as_ref());
     let built = runtime.block_on(async {
         let mut said = Vec::new();
         for batch in chosen.chunks(AT_ONCE) {
@@ -189,8 +190,8 @@ pub fn build_cases(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, Vec<St
                         imported,
                         commits,
                         beside,
-                        rules: &read.cases.rules,
-                        tests: read.cases.tests.as_ref(),
+                        rules,
+                        tests,
                         dir: &dir,
                         program: Some(stand_in),
                         first_only: true,

@@ -30,6 +30,7 @@ store = { path = "../store" }
 # The directories a run of the cell cases makes and removes.
 tempfile.workspace = true
 tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+toml.workspace = true
 web = { path = "../web" }
 work = { path = "../work" }
 
