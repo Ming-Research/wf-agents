@@ -39,7 +39,8 @@ blocks it showed with nothing chosen meant nothing to the owner.
 ### decision a-row-is-a-run
 A row of a work's history is a run of a cell, and its left names only what woke it, an answer of the owner's by the
 question it answered. A pause, a resume, a cancel or a reopening of the work is a row half as high between the runs it
-fell between, a dashed line in the accent with what was done and when at the right. An act of the owner's that woke no
+fell between, a dashed line in the accent with what was done and when at the right; one before the first run, as of a
+work added paused and let on, is none. An act of the owner's that woke no
 run, a write of the outside's that woke none, and a new session are no row.
 Why: A column holds one kind of thing (principle a-column-holds-what-is-alike): rows of acts put the act itself where
 the runs' rows put what woke them. What the owner did is in the item's window over the history, the question answered

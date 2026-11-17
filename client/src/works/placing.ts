@@ -9,7 +9,7 @@
 // write of the owner's that woke it, so that no act of the owner's that woke a run is lost from it. Where a run of
 // another cell wrote what woke it, that cell's column has the dot of `outputs`, from which an arrow runs to the run's
 // own column, back where that cell is the later. A pause, a resume, a cancel or a reopening of the work is a line
-// between the runs it fell between, said with its time at the right. A write of the owner's or the outside's that woke
+// between the runs it fell between, said with its time at the right; one before the first run is none. A write of the owner's or the outside's that woke
 // no run, and an act of the owner's on a cell, is no row: the item's window holds what the owner did. A write of a run
 // is no row: it is the dot of the rows of the runs it woke. A new session of a line is no row: the run's Step says it.
 // A run of a cell the flow no longer has keeps its row, in no column.
@@ -278,7 +278,8 @@ export function placeSteps(page: Pick<WorkPage, 'steps' | 'flow' | 'blocks' | 's
   let day: string | null = null;
   steps.forEach((step, index) => {
     const row = rowOf(step);
-    if (row === null) return;
+    // A line before the first run divides nothing: a work is added paused, and let on to begin.
+    if (row === null || (row.divider !== null && !rows.some((r) => r.divider === null))) return;
     const today = dayKey(step.time);
     rows.push({ key: `${step.kind}:${step.at}`, index, step, newDay: today !== day, ...row });
     day = today;
