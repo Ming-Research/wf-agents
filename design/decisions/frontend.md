@@ -84,6 +84,7 @@ way-back line of its own: the history's arrow at its mark already says it (princ
 Why: The way back is what the owner looks for, so it takes a strong mark (principle scarce-emphasis), and one thing has
 one colour in every view (Article 8); in the muted colour it read as one more line. A colour of its own was turned down
 as one more meaning to learn. What else is in the accent is told from it by shape (judgment): what is chosen is a tint
-or an edge, a line's row a row of dots and a run under way its square mark, while a way back is a line along a row or
-between cells, with an arrow; any other arrow takes the accent only under the pointer. A dot has no shape to tell it
+or an edge, a line's row a row of dots, a run under way its square mark and a pause in a work's history a dashed line
+in a row half as high, while a way back is a solid line along a row or between cells, with an arrow; any other arrow
+takes the accent only under the pointer. A dot has no shape to tell it
 by, so no dot is ever in the accent for being a way back.

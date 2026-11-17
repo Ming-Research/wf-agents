@@ -340,6 +340,26 @@
   overflow: hidden;
 }
 
+/* Where the work was paused, let on again, cancelled or reopened, between two runs: a row half as high, a dashed line
+   in the accent across the cells, and what was done and when, small, at the right. */
+.history .divider-row > th,
+.history .divider-row > td {
+  height: calc(var(--row) / 2);
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.history .divider-line {
+  background: repeating-linear-gradient(to right, var(--accent) 0 6px, transparent 6px 10px) center / 100%
+    var(--hairline) no-repeat;
+}
+
+.history .divider-words {
+  color: var(--muted);
+  font-size: var(--size-label);
+  white-space: nowrap;
+}
+
 /* A name at the left of a step, with its sign or its tool's mark after it, as a block's name carries them on the flow's
    chart. */
 .step-name {

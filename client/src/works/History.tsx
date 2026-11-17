@@ -1,11 +1,12 @@
 // A work's history, drawn as the flow's matrix is: the cells of the work's flow across in the order of the walk, each
-// head the matrix's own; down the side the runs and the owner's acts, one to a row in the order they happened, the
-// oldest at the top. At the left of a row, what woke its run, named as the matrix names its rows, with the owner's
-// sign, the outside's or the tool's mark, or the act (`placing.ts`). Under the cells, in a run's row, the dot of
-// `outputs` under the cell whose run wrote what woke it, an arrow from it to the run's own column, drawn as the matrix
-// draws its ways back and in the accent where it runs back to an earlier cell, and in the run's column its mark, how
-// it ended or stands, alone; an act's row has nothing under the cells. At the right, its time, the day with it where
-// the day changes. The table keeps its whole width under the window over its right, as the flow's chart does, and the
+// head the matrix's own; down the side the runs, one to a row in the order they happened, the oldest at the top. At the
+// left of a row, what woke its run, named as the matrix names its rows, with the owner's sign, the outside's or the
+// tool's mark (`placing.ts`). Under the cells, the dot of `outputs` under the cell whose run wrote what woke it, an
+// arrow from it to the run's own column, drawn as the matrix draws its ways back and in the accent where it runs back
+// to an earlier cell, and in the run's column its mark, how it ended or stands, alone. At the right, its time, the day
+// with it where the day changes. Where the work was paused, let on again, cancelled or reopened, a row half as high
+// lies between the runs it fell between: a dashed line in the accent across the cells, and at the right what was done
+// and when. The table keeps its whole width under the window over its right, as the flow's chart does, and the
 // frame scrolls on past what the window covers. The chart opens scrolled to its end, the newest step, and follows new
 // steps while the owner is at the end.
 
@@ -153,17 +154,21 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <StepRow
-              key={row.key}
-              row={row}
-              cells={cells}
-              chosen={chosen === row.index}
-              pointed={pointed}
-              onChoose={() => onChoose(chosen === row.index ? null : row.index)}
-              onPoint={setPointed}
-            />
-          ))}
+          {rows.map((row) =>
+            row.divider !== null ? (
+              <DividerRow key={row.key} row={row} span={cells.length} />
+            ) : (
+              <StepRow
+                key={row.key}
+                row={row}
+                cells={cells}
+                chosen={chosen === row.index}
+                pointed={pointed}
+                onChoose={() => onChoose(chosen === row.index ? null : row.index)}
+                onPoint={setPointed}
+              />
+            ),
+          )}
         </tbody>
       </table>
       {rows.length === 0 && <p className="message muted">Nothing has happened to the work yet</p>}
@@ -172,6 +177,27 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
 }
 
 /// A step: what woke it or the act, the dot, the arrow and the run's mark under the cells, and its time.
+/// Where the work was paused, let on again, cancelled or reopened, between two runs: a line across the cells, and at the
+/// right what was done and when.
+function DividerRow({ row, span }: { row: HistoryRow; span: number }) {
+  const { step } = row;
+  const time = `${row.newDay ? `${dayOf(step.time)} ` : ''}${minuteOf(step.time)}`;
+  const did = partsText(row.did);
+  return (
+    <tr className="divider-row" title={`${fullTime(step.time)}: ${did}`}>
+      <th scope="row" className="lead">
+        <span className="visually-hidden">{did}</span>
+      </th>
+      <td className="divider-line" colSpan={span} aria-hidden="true" />
+      <td className="words">
+        <span className="divider-words">
+          {row.divider} {time}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
 function StepRow(props: {
   row: HistoryRow;
   cells: Cell[];

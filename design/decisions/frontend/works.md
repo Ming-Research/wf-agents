@@ -36,22 +36,24 @@ Why: What the owner answers and chooses belongs to the item, and each thing has 
 work's own docked at the chart's right was turned down: the owner could not see the item from the work, and the list of
 blocks it showed with nothing chosen meant nothing to the owner.
 
-### decision a-row-is-a-run-or-an-act
-A row of a work's history is a run of a cell, an act of the owner's that woke no cell, or a pause, a resume, a cancel
-or a reopening of the work. A write of the owner's or the outside's that woke a cell is named at the left of the row of
-the run it woke, a write of a run is the dot in the rows of the runs it woke, and a write of the outside's that woke
-no cell and a new session are no row.
-Why: The history is read as a chain, a write waking a cell whose run writes what wakes the next, and a row for each
-write said again what the rows of the runs it woke say. A write of the outside's that woke nothing is the engine's own
-bookkeeping, such as `asked = waiting`, which told the owner nothing.
+### decision a-row-is-a-run
+A row of a work's history is a run of a cell, and its left names only what woke it, an answer of the owner's by the
+question it answered. A pause, a resume, a cancel or a reopening of the work is a row half as high between the runs it
+fell between, a dashed line in the accent with what was done and when at the right. An act of the owner's that woke no
+run, a write of the outside's that woke none, and a new session are no row.
+Why: A column holds one kind of thing (principle a-column-holds-what-is-alike): rows of acts put the act itself where
+the runs' rows put what woke them. What the owner did is in the item's window over the history, the question answered
+and the words said; a write of the outside's that woke nothing is the engine's own bookkeeping, such as
+`asked = waiting`. A pause marked only on the next run's edge was turned down: it hid how long the work stood and why.
 
 ### decision a-write-woke-what-its-meaning-woke
 A write woke a run where a change of the block is among the run's causes and the version of the block the run started
 from has, as its meaning, the version the write wrote. A run's row names, of the writes that woke it, the latest, and
-after it every other write of the owner's.
+after it every other write of the owner's made since the cell's run before.
 Why: The records name a run's cause by its block and not by the write. Naming the version the run started from was
 turned down: a later version that kept the meaning woke nothing. An act of the owner's that woke a cell has no row of
-its own, so named only where it is the latest it would be lost from the history.
+its own, so named only where it is the latest it would be lost from the history; named in every run it stayed new to,
+it read as said again each time.
 
 ### decision the-history-goes-under-the-window
 A work's history keeps its whole width under the window over its right, as the flow's chart does, so that the window
