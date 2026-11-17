@@ -3,7 +3,7 @@
 # speaks to the cell, and the cell's answer from what its return writes of it in `outputs`, as its run writes it.
 # `words` is told to the cell after the list of what it returns.
 name = "{cell}_words"
-what = "What the owner says to the cell and what the cell answers, in order."
+what = "The owner's words to the cell and the cell's answers, each a version of its own, in order."
 from = "words"
 shown = true
 words = '''
