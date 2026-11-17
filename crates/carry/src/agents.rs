@@ -1383,12 +1383,20 @@ impl Inner {
             .await;
             added.map_err(|why| format!("The work's worktree is gone, and its branch could not stand in: {why}"))?;
         }
-        let asked = self.forked(fork, &made, (&line, of_session), &place.dir).await;
+        // Where the session went on past the round, the fork begins at the round's end: what came after is not in it.
+        let until = (later.iter())
+            .map(|(run, round)| work::sessions::start(work, *run, *round))
+            .min();
+        let asked = self.forked(fork, &made, (&line, of_session, until), &place.dir).await;
         if let Some(stand_in) = stand_in.as_mut() {
             stand_in.take_away().await;
         }
         let (answer, text, spent, read, kept) = asked?;
-        let held = (work.spent.get(&(made.run, made.number))).and_then(|s| s.context_tokens);
+        let last = match until {
+            Some(_) => (fork.run, fork.round),
+            None => (made.run, made.number),
+        };
+        let held = (work.spent.get(&last)).and_then(|s| s.context_tokens);
         // The session's last call: its last round's end, or a keep-warm ping of it since that was read from the cache.
         let ended = (work.records.returned.iter())
             .filter(|r| r.run == made.run)
@@ -1425,7 +1433,7 @@ impl Inner {
         &self,
         fork: &Fork,
         made: &SessionLine,
-        (line, of_session): (&str, u32),
+        (line, of_session, until): (&str, u32, Option<Seq>),
         dir: &Path,
     ) -> Result<(Option<String>, String, Spent, Option<u64>, PathBuf), String> {
         let base = kept::base(&self.data, fork.work, fork.run, fork.round);
@@ -1450,6 +1458,17 @@ impl Inner {
         // A fork's compaction gives the session nothing again.
         write(&compacted.again, b"").await?;
         write(&at("message.md"), fork.question.as_bytes()).await?;
+        let begins = match until {
+            None => None,
+            Some(_) => {
+                let stream = base.with_file_name(format!("{name}.stream.jsonl"));
+                let kept = tokio::fs::read(&stream).await.unwrap_or_default();
+                Some(cli::last_message(&kept).ok_or(
+                    "The session went on past the round, and the round's stream, which names its last message, was not \
+                     kept: the fork cannot begin at its end.",
+                )?)
+            }
+        };
         let agents = &self.settings.agents;
         let round = cli::arguments(
             agents,
@@ -1464,10 +1483,11 @@ impl Inner {
         );
         let mut command = Command::new(&agents.command);
         command
-            .args(cli::forked(round))
+            .args(cli::forked(round, begins.as_deref()))
             .env_clear()
             .envs(cli::environment(agents, std::env::vars()))
             .current_dir(dir);
+        // The program counts a session it goes on with from all it cost, whatever message the fork begins at.
         let before = session_cost(&fork.flow, &fork.kept, line, of_session);
         let mut stream = cli::Stream::default();
         let mut lines = Vec::new();
