@@ -1397,13 +1397,7 @@ impl Inner {
             held,
             expired,
             later,
-            kept: base
-                .with_file_name(format!(
-                    "{}.answer",
-                    base.file_name().unwrap_or_default().to_string_lossy()
-                ))
-                .display()
-                .to_string(),
+            kept: kept.display().to_string(),
         })
     }
 
