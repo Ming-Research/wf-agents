@@ -175,8 +175,9 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.drawer-title')).toEqual(['Show the cost of a work']);
     expect(text(el, '.drawer-belongs')).toEqual(['wf-agents']);
     const [itemLine, workLine] = lines(el);
-    // The item's line says where it stands; what it waits for is its work's line's to say.
-    expect(itemLine).toBe('Open Added 1.1d ago');
+    // The item's line says where it stands, and at its right the cell its work stands at before the strip; what it
+    // waits for is its work's line's to say.
+    expect(itemLine).toBe('Open Added 1.1d ago review_plan');
     expect(workLine).toContain('Waiting for you review_plan Review the plan');
     expect(noKeys(el)).toBe(true);
     // What it waits for is its card, under the line, in the look of every stop: why, and the button that ends it.

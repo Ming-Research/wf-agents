@@ -227,7 +227,9 @@ describe('the list of works', () => {
   it("says that a work the engine paused waits for you, and why, in the owner's tone, and a fault in the tone of what failed", () => {
     const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
     const row = page.querySelector('[data-work="50"]') as HTMLElement;
-    expect(row.querySelector('.now-words')?.textContent).toBe(`Waiting for you · The engine paused the work. ${FAILED}`);
+    expect(row.querySelector('.now-words')?.textContent).toBe(
+      `Waiting for you · implement · The engine paused the work. ${FAILED}`,
+    );
     expect(row.querySelector('.now')?.className).toContain('now-owner');
     expect(row.querySelector('.now-paused')).toBeNull();
     expect(row.querySelectorAll('.strip .state-failed')).toHaveLength(1);
