@@ -8,7 +8,7 @@
 //! project's host.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use carry::settings::Project;
 
