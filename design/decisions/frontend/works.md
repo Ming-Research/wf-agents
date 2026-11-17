@@ -50,7 +50,7 @@ and the words said; a write of the outside's that woke nothing is the engine's o
 ### decision a-run-is-marked-as-the-strip-marks-its-cell
 A run's mark in a work's history is one of the states the console's strip draws a cell in, with the strip's look and
 name: handed in for a run that finished, runs again for one abandoned. Whether a finished run changed anything is no
-state of it: the dots and arrows of the runs it woke show what it wrote.
+state of it: the arrows to the runs it woke show what it wrote.
 Why: The history had states of its own, handed in nothing new drawn as the dash the strip draws for skipped, and
 abandoned; one thing drawn two ways, and two things one way, across two views (Article 8).
 

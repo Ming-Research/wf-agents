@@ -1,8 +1,8 @@
 // A work's history, drawn as the flow's matrix is: the cells of the work's flow across in the order of the walk, each
 // head the matrix's own; down the side the runs, one to a row in the order they happened, the oldest at the top. At the
 // left of a row, what woke its run, named as the matrix names its rows, with the owner's sign, the outside's or the
-// tool's mark (`placing.ts`). Under the cells, the dot of `outputs` under the cell whose run wrote what woke it, an
-// arrow from it to the run's own column, drawn as the matrix draws its ways back and in the accent where it runs back
+// tool's mark (`placing.ts`). Under the cells, an arrow from the middle of the column of the cell whose run wrote what
+// woke it to the run's own column, drawn as the matrix draws its ways back and in the accent where it runs back
 // to an earlier cell, and in the run's column its mark, how it ended or stands, alone. At the right, its time, the day
 // with it where the day changes. Where the work was paused, let on again, cancelled or reopened, a row half as high
 // lies between the runs it fell between: a dashed line in the accent across the cells, and at the right what was done
@@ -21,11 +21,10 @@ import type { WorkPage } from '../works-api';
 import { type HistoryRow, type Named } from './placing';
 import { dayOf, fullTime, minuteOf, partsText } from './words';
 
-/// The marks the history draws, in the order its legend lists them (`Legend` in marks.tsx): the chain, a write's dot,
-/// the arrow to the run it woke and the way back; the signs of who wrote what woke a run, and a tool's mark; how a run
+/// The marks the history draws, in the order its legend lists them (`Legend` in marks.tsx): the arrow from a write to
+/// the run it woke and the way back; the signs of who wrote what woke a run, and a tool's mark; how a run
 /// ended, then how an open one stands.
 export const HISTORY_MARKS: MarkKey[] = [
-  'outputs',
   'wakes',
   'wayBack',
   'people',
@@ -58,8 +57,8 @@ const WHO: Record<NonNullable<Named['mark']>, string | undefined> = {
   tools: undefined,
 };
 
-/// How the arrow of a run's row runs through a cell's column: out of the dot's middle, through, or into the run's
-/// mark, along the side it comes from; and whether it is a way back, to an earlier cell.
+/// How the arrow of a run's row runs through a cell's column: out of the writer's column's middle, through, or into the
+/// run's mark, along the side it comes from; and whether it is a way back, to an earlier cell.
 function lineAt(row: HistoryRow, column: number): { left: boolean; right: boolean; back: boolean } | null {
   if (row.run === null || row.from === null) return null;
   const [low, high] = [Math.min(row.from.column, row.run.column), Math.max(row.from.column, row.run.column)];
@@ -179,9 +178,9 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
   );
 }
 
-/// A step: what woke it or the act, the dot, the arrow and the run's mark under the cells, and its time.
-/// Where the work was paused, let on again, cancelled or reopened, between two runs: a line across the cells, and at the
-/// right what was done and when.
+/// A step: what woke it or the act, the dot, the arrow and the run's mark under the cells, and its time. Where the work
+/// was paused, let on again, cancelled or reopened, between two runs: a line across the cells, and at the right what
+/// was done and when.
 function DividerRow({ row, span }: { row: HistoryRow; span: number }) {
   const { step } = row;
   const time = `${row.newDay ? `${dayOf(step.time)} ` : ''}${minuteOf(step.time)}`;
@@ -255,7 +254,6 @@ function StepRow(props: {
           >
             {line?.left && <span className={`seg seg-left ${kind}`} aria-hidden="true" />}
             {line?.right && <span className={`seg seg-right ${kind}`} aria-hidden="true" />}
-            {fromHere && MARKS.outputs.draw()}
             {runHere && <span className="glyphs">{MARKS[runHere.state].draw(words)}</span>}
             {runHere && row.from !== null && (
               <RowArrow reach={RUN_REACH} from={row.from.column > runHere.column ? 'right' : 'left'} />

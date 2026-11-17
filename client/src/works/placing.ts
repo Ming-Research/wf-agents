@@ -1,18 +1,18 @@
 // A work's history as the chart draws it, and the order of the list of works, worked out from the interface's JSON
 // alone so that they can be tested without drawing.
 //
-// The history is the chain of what woke what: a datum written woke a cell, whose run wrote data that woke the next.
-// Its columns are the cells of the work's flow in the order of the walk, and its rows, in the order they happened, the
-// runs of the cells. A run's row names what woke it: of the writes among its causes, the one written last, by the name
-// its row has on the flow's matrix, an answer of the owner's by the question it answered, with the owner's sign or the
+// The history is the chain of what woke what: a datum written woke a cell, whose run wrote data that woke the next. Its
+// columns are the cells of the work's flow in the order of the walk, and its rows, in the order they happened, the runs
+// of the cells. A run's row names what woke it: of the writes among its causes, the one written last, by the name its
+// row has on the flow's matrix, an answer of the owner's by the question it answered, with the owner's sign or the
 // outside's where either wrote it, or the tool whose results came in, with the tool's mark; and after it each other
 // write of the owner's that woke it, so that no act of the owner's that woke a run is lost from it. Where a run of
-// another cell wrote what woke it, that cell's column has the dot of `outputs`, from which an arrow runs to the run's
-// own column, back where that cell is the later. A pause, a resume, a cancel or a reopening of the work is a line
-// between the runs it fell between, said with its time at the right; one before the first run is none. A write of the owner's or the outside's that woke
-// no run, and an act of the owner's on a cell, is no row: the item's window holds what the owner did. A write of a run
-// is no row: it is the dot of the rows of the runs it woke. A new session of a line is no row: the run's Step says it.
-// A run of a cell the flow no longer has keeps its row, in no column.
+// another cell wrote what woke it, an arrow runs from the middle of that cell's column to the run's own column, back
+// where that cell is the later. A pause, a resume, a cancel or a reopening of the work is a line between the runs it
+// fell between, said with its time at the right; one before the first run is none. A write of the owner's or the
+// outside's that woke no run, and an act of the owner's on a cell, is no row: the item's window holds what the owner
+// did. A write of a run is no row: it is where the arrows of the rows of the runs it woke start. A new session of a
+// line is no row: the run's Step says it. A run of a cell the flow no longer has keeps its row, in no column.
 //
 // A write woke a run where the run has a change of the block among its causes and the version of the block it started
 // from has, as its meaning, the version the write wrote: the records name a run's cause by its block, and the run's
@@ -46,8 +46,8 @@ export interface HistoryRow {
   divider: 'paused' | 'resumed' | 'cancelled' | 'reopened' | null;
   /// Of a run of a cell the flow has, its cell's column and how it ended or stands.
   run: { column: number; state: RunState; words: string } | null;
-  /// Of a run woken by what a run of another cell the flow has wrote, that cell's column, where the dot stands and the
-  /// arrow starts, and what the dot says.
+  /// Of a run woken by what a run of another cell the flow has wrote, that cell's column, where the arrow starts, and
+  /// what its start says on the pointer's tip.
   from: { column: number; words: string } | null;
   /// Whether the row's day differs from the day of the row before, so that the day is shown again.
   newDay: boolean;
@@ -142,9 +142,9 @@ function wakings(
   return out.sort((a, b) => b.time - a.time || b.at - a.at);
 }
 
-/// A run's row: what woke it, the latest and then each other write of the owner's made since the cell's run before, each
-/// name once; the column of the cell whose run wrote the latest, where the flow has it and it is another than the run's;
-/// and the run's own column and mark.
+/// A run's row: what woke it, the latest and then each other write of the owner's made since the cell's run before,
+/// each name once; the column of the cell whose run wrote the latest, where the flow has it and it is another than the
+/// run's; and the run's own column and mark.
 function runRow(
   run: Run,
   page: Pick<WorkPage, 'flow' | 'blocks' | 'summary'>,
@@ -180,9 +180,9 @@ function runRow(
 }
 
 /// The new sessions each run began, by the run's number. A session with an id of its own is begun by the run whose
-/// round is the first of its line in it, the line's sessions with ids of their own up to it numbering it; one begun again
-/// under its id, or compacted, by the run whose round of its line was under way as it was recorded, the latest to begin
-/// by then. A session whose first round has not begun is with no run yet.
+/// round is the first of its line in it, the line's sessions with ids of their own up to it numbering it; one begun
+/// again under its id, or compacted, by the run whose round of its line was under way as it was recorded, the latest to
+/// begin by then. A session whose first round has not begun is with no run yet.
 export function sessionsBegun(steps: Step[]): Map<number, SessionStep[]> {
   const runs = steps.filter((s): s is Step & { kind: 'run' } => s.kind === 'run');
   const rounds = runs.flatMap((run) => run.rounds.map((round) => ({ run: run.run, round })));
