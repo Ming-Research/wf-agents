@@ -40,11 +40,11 @@ Why: A compacted session holds a summary where it held what the line read, so it
 
 ### decision a-fork-keeps-the-sessions-tools
 A fork of a round's session is given the command line of the session's last round whole, its tools among it, and a hook refuses each use of a tool but the program's own for the return; the tool list is never taken away.
-Why: The tools stand at the front of every request, before the system prompt and the messages, and the cache is read only as far as a request begins as the session's did; a fork given no tools reads none of its session from the cache and pays for all of it again. A hook that refused the return's tool too would leave the fork no way to answer in the return's form.
+Why: The tools stand at the front of every request, before the system prompt and the messages, as the form does (principle one-form-of-return-for-a-session), and the cache is read only as far as a request begins as the session's did; a fork given no tools reads none of its session from the cache and pays for all of it again. A hook that refused the return's tool too would leave the fork no way to answer in the return's form.
 
 ### decision a-fork-of-an-ended-work-stands-in-for-its-worktree
-Where a work has ended and its worktree is gone, a checkout of its kept branch is made at the worktree's place for a fork of one of its sessions and taken away after; a work that has not ended and has no worktree is refused.
-Why: The program finds a session by the directory it ran in, and an ended work's worktree is let go (decision letting-go-at-the-end) while its branch is kept. A checkout, not an empty directory, so that the program sees a repository as the session's rounds did (a judgment, not measured); and only for an ended work, since a directory at the place of one that goes on would be taken for its worktree by its next round.
+Where a work has ended and its worktree is gone, a checkout of its kept branch is made at the worktree's place for a fork of one of its sessions; what a fork of an ended work ran in is taken away after, and also when the fork is given up before its end; a work that has not ended and has no worktree is refused.
+Why: The program finds a session by the directory it ran in, and an ended work's worktree is let go (decision letting-go-at-the-end) while its branch is kept: a checkout left behind would be taken by the next fork for the worktree, and stay. A checkout, not an empty directory, so that the program sees a repository as the session's rounds did (a judgment, not measured); and only for an ended work, since a directory at the place of one that goes on would be taken for its worktree by its next round.
 
 ### decision a-forks-spend-is-kept-with-its-answer
 A fork's spend is said to whoever asked it and kept with what it was told, its stream and its answer beside its round's, not put in the work's records.

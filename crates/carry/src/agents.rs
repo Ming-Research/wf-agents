@@ -335,13 +335,8 @@ impl Rounds for Agents {
         &self,
         fork: Fork,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Forked, String>> + Send + '_>> {
-        // A task of its own, so that a request given up halfway does not cut the fork off and leave its checkout behind.
-        let inner = self.inner.clone();
-        let task = tokio::spawn(async move { inner.fork(&fork).await });
-        Box::pin(async move {
-            task.await
-                .unwrap_or_else(|e| Err(format!("The fork ended abruptly: {e}")))
-        })
+        // Whoever asks stops the fork by giving the request up: its program ends with it.
+        Box::pin(async move { self.inner.fork(&fork).await })
     }
 
     fn ping(&self, ping: Ping, reply: PingReply) {
@@ -1313,8 +1308,8 @@ impl Inner {
     }
 
     /// Asks a fork of the session the fork's round ran in its question ([`Rounds::fork`]): on the command line of that
-    /// session's last round, forked ([`cli::forked`]), in the work's worktree, or, where the work has ended and its
-    /// worktree is gone, a checkout of its kept branch made at the worktree's place for the fork and taken away after;
+    /// session's last round, forked ([`cli::forked`]), in the work's worktree; where the work has ended, what it runs in
+    /// is taken away after, a checkout of its kept branch made at the worktree's place where the worktree is gone;
     /// holding the work, so that no round of it runs beside the fork. What the fork was told, its stream and its answer
     /// are kept beside the round's, its hooks' files are its own and taken away after.
     async fn fork(&self, fork: &Fork) -> Result<Forked, String> {
@@ -1354,35 +1349,34 @@ impl Inner {
             }
         }
         let place = git::place(&self.data, &git::tag(&self.installation), fork.work);
-        let stood = match (place.dir.exists(), fork.ended) {
-            (true, _) => false,
-            (false, true) => {
-                git::configuration(&of.project, &place).await?;
-                // A worktree whose directory was taken away is named by the repository until it is pruned.
-                git::git(&of.project.repo, &["worktree", "prune"]).await?;
-                let dir = place.dir.to_string_lossy().to_string();
-                let added = git::git(
-                    &of.project.repo,
-                    &["worktree", "add", "--detach", &dir, &place.reference()],
-                )
-                .await;
-                added
-                    .map_err(|why| format!("The work's worktree is gone, and its branch could not stand in: {why}"))?;
-                true
-            }
-            (false, false) => {
-                return Err(format!(
-                    "Work {} has not ended, and its worktree is not there.",
-                    fork.work.0
-                ));
-            }
-        };
-        let asked = self.forked(fork, &made, (&line, of_session), &place.dir).await;
-        if stood && let Err(why) = git::remove(&of.project, &place).await {
-            eprintln!(
-                "The checkout made for a fork of work {} could not be taken away: {why}",
+        if !place.dir.exists() && !fork.ended {
+            return Err(format!(
+                "Work {} has not ended, and its worktree is not there.",
                 fork.work.0
-            );
+            ));
+        }
+        // An ended work's worktree is let go (decision letting-go-at-the-end): what the fork runs in is taken away after.
+        let mut stand_in = (fork.ended).then(|| StandIn {
+            project: of.project.clone(),
+            place: place.clone(),
+            work: fork.work,
+            gone: false,
+        });
+        if !place.dir.exists() {
+            git::configuration(&of.project, &place).await?;
+            // A worktree whose directory was taken away is named by the repository until it is pruned.
+            git::git(&of.project.repo, &["worktree", "prune"]).await?;
+            let dir = place.dir.to_string_lossy().to_string();
+            let added = git::git(
+                &of.project.repo,
+                &["worktree", "add", "--detach", &dir, &place.reference()],
+            )
+            .await;
+            added.map_err(|why| format!("The work's worktree is gone, and its branch could not stand in: {why}"))?;
+        }
+        let asked = self.forked(fork, &made, (&line, of_session), &place.dir).await;
+        if let Some(stand_in) = stand_in.as_mut() {
+            stand_in.take_away().await;
         }
         let (answer, text, spent, read, kept) = asked?;
         let held = (work.spent.get(&(made.run, made.number))).and_then(|s| s.context_tokens);
@@ -1499,18 +1493,64 @@ impl Inner {
             .unwrap_or_default();
         let (answer, spent) = match cli::read(&lines, Begin::Resume, before) {
             Ok(read) => (Some(read.structured.to_string()), read.spent),
-            // The program ended with no result: why is in what it said at its end.
-            Err(NoResult { spent: None, .. }) if !status.success() => {
-                let of = crate::projects::of(&self.projects, &fork.item)?;
-                let end = process::tail(String::from_utf8_lossy(&stderr).trim().as_bytes());
-                let why = process::ended(&of.beside.cost.program, &self.settings.agents.command, status, &end);
-                return Err(format!("The fork ended with no answer: {why}"));
+            // Neither a return nor words: why is what the stream and the program's end say.
+            Err(no) if text.is_empty() => {
+                let mut why = no.why;
+                if !status.success() {
+                    let of = crate::projects::of(&self.projects, &fork.item)?;
+                    let end = process::tail(String::from_utf8_lossy(&stderr).trim().as_bytes());
+                    let ended = process::ended(&of.beside.cost.program, &self.settings.agents.command, status, &end);
+                    why = format!("{why}; {ended}");
+                }
+                let cost = (no.spent.or_else(|| stream.priced()))
+                    .map(|spent| format!(" It cost ${:.4}.", spent.usd_micros as f64 / 1e6))
+                    .unwrap_or_default();
+                return Err(format!("The fork wrote no answer: {why}.{cost}"));
             }
             Err(no) => (None, no.spent.unwrap_or_else(|| stream.priced().unwrap_or_default())),
         };
         let kept = answer.clone().unwrap_or_else(|| text.clone());
         write(&at("answer"), kept.as_bytes()).await?;
         Ok((answer, text, spent, read, at("answer")))
+    }
+}
+
+/// A checkout at an ended work's worktree's place that a fork ran in: taken away once the fork is done with it, or, where
+/// the fork is given up before, as it is dropped.
+struct StandIn {
+    project: Project,
+    place: git::Place,
+    work: WorkNumber,
+    gone: bool,
+}
+
+impl StandIn {
+    async fn take_away(&mut self) {
+        self.gone = true;
+        if let Err(why) = git::remove(&self.project, &self.place).await {
+            eprintln!(
+                "The checkout work {} was forked in could not be taken away: {why}",
+                self.work.0
+            );
+        }
+    }
+}
+
+impl Drop for StandIn {
+    fn drop(&mut self) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        if self.gone {
+            return;
+        }
+        let mut left = StandIn {
+            project: self.project.clone(),
+            place: self.place.clone(),
+            work: self.work,
+            gone: true,
+        };
+        runtime.spawn(async move { left.take_away().await });
     }
 }
 
@@ -2100,11 +2140,13 @@ mod tests {
         let project = repo.project.clone();
         let (flow, beside) = engineer();
         let of = Of::new(&settings, project, beside, "refs/heads/main".to_string());
-        let agents = Agents::new(
+        // The time now is ten thousand seconds in; the cache keeps a session an hour after its last call.
+        let agents = Agents::with_clock(
             settings,
             data.clone(),
             Uuid::nil(),
             [("example".to_string(), of)].into(),
+            Arc::new(service::TokioClock::new(work::Time(10_000_000))),
         );
         let on = RanOn {
             level: "2".to_string(),
@@ -2133,7 +2175,19 @@ mod tests {
             work: WorkNumber(3),
             flow: Arc::new(flow),
             item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
-            kept: Arc::new(ran_once(on)),
+            kept: Arc::new(Work {
+                moments: vec![
+                    work::Moment {
+                        from: Seq(1),
+                        at: work::Time(1_000_000),
+                    },
+                    work::Moment {
+                        from: Seq(5),
+                        at: work::Time(6_000_000),
+                    },
+                ],
+                ..ran_once(on)
+            }),
             run: RunId(7),
             round: 1,
             question: "Which words can be read two ways?".to_string(),
@@ -2145,6 +2199,8 @@ mod tests {
         assert_eq!(answer["outcome"]["observations"][0], "The task reads two ways.");
         assert_eq!(forked.read, Some(9000));
         assert_eq!(forked.usd_micros, 500_000);
+        // Its round ended at a thousand seconds: the cache let the session go 5,400 seconds ago.
+        assert_eq!(forked.expired, Some(90));
         assert!(std::path::Path::new(&forked.kept).is_file(), "{}", forked.kept);
         // Given the session's own command line: what it began with, its model and effort, resumed and forked.
         let args = std::fs::read_to_string(data.join("args")).expect("its arguments");
@@ -2178,8 +2234,14 @@ mod tests {
             assert!(!kept(1, gone).exists(), "{gone}");
         }
         // The program's result says the session's total: the fork cost what it adds to what the session cost before,
-        // its rounds and its pings, and held what its last round's prompt held.
+        // its rounds and its pings, and not a later session's of the line; it held what its last round's prompt held.
+        // The ping, at six thousand seconds, was the session's last call.
         let mut paid = (*fork.kept).clone();
+        paid.sessions.push(work::Session {
+            at: Seq(6),
+            line: "engineer".to_string(),
+            why: Why::Owner,
+        });
         let spent = |usd_micros, context_tokens| Spent {
             usd_micros,
             context_tokens,
@@ -2200,6 +2262,7 @@ mod tests {
         let forked = agents.inner.fork(&again).await.expect("asked again");
         assert_eq!(forked.usd_micros, 350_000);
         assert_eq!(forked.held, Some(10_000));
+        assert_eq!(forked.expired, Some(6));
         assert!(forked.later.is_empty());
         assert!(kept(2, "answer").is_file());
         // A work that has not ended, its worktree gone, is not forked in a directory made for it.
