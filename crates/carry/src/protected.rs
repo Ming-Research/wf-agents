@@ -835,4 +835,162 @@ pub(crate) mod tests {
             "{ask}"
         );
     }
+
+    /// The words of the real flow this repository runs, read from `flow/agents/asks.toml`, as `acts`'s tests
+    /// read them: not the small flow's own words, kept apart in `tests::words` above.
+    fn real_words() -> AskProtected {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        flow::agents::read(&root)
+            .expect("the words beside the flows of this repository are read")
+            .asks
+            .protected
+    }
+
+    /// The question the engine asked of work 11's own change under the protected paths, rendered from the real
+    /// words and this real content (the four files of the change, each with the reason its return gave and its
+    /// diff against main, read from the live engine's record of the work), compared whole with the text kept in
+    /// `../tests/fixtures/protected-question.txt`.
+    #[test]
+    fn the_question_of_a_real_change_renders_as_the_text_kept_beside_the_tests() {
+        let files: Vec<(&str, char, &str, &str)> = vec![
+            (
+                "design/principles/flow.md",
+                'M',
+                r#"原则 `the-flow-gives-the-trees-rules` 里"规则是数据，和 guide 一样"已与代码不符，且 guide 不再是数据，改为"在每个会话的 system prompt 里给"；你在问题 `principle_wording` 里选了同意。"#,
+                r#"diff --git a/design/principles/flow.md b/design/principles/flow.md
+index fdf38c577..efdd261eb 100644
+--- a/design/principles/flow.md
++++ b/design/principles/flow.md
+@@ -108,9 +108,9 @@ Why: A rule in the project's own guide, left to the engineer and the review to k
+ missed it, the change merged (Article 7). The paths are a project's and not the flow's (Article 1).
+ 
+ ### principle the-flow-gives-the-trees-rules
+-The rules of the design tree, the tree's own file of rules, are data the cell of every agent takes, as the project's
+-guide is (the design of data and context): the flow gives them, and no cell is left to find them by following the
+-guide. The guide points to them as well, for the agents that work outside the flow.
++The rules of the design tree, the tree's own file of rules, are given to every agent by the flow, in the system prompt
++of every session, as the project's guide is: no cell is left to find them by following the guide. The guide points to
++them as well, for the agents that work outside the flow.
+ Why: Every project's agents need the same rules, and said once in the flow they reach every cell, where a rule an
+ agent must find by itself may go unread. An agent outside the flow is given nothing by the flow and has only the
+ guide."#,
+            ),
+            (
+                "flow/agents/session.toml",
+                'M',
+                r#"system prompt 的第一个 part 由 `datum = "guide"` 改为 `project = "guide"`，AGENTS.md 仍排在最前，从该 work 的 worktree 读，并去掉不再有的 `datum` 这种 part 的说明。"#,
+                r#"diff --git a/flow/agents/session.toml b/flow/agents/session.toml
+index 590af4a69..7ef79d5b8 100644
+--- a/flow/agents/session.toml
++++ b/flow/agents/session.toml
+@@ -1,18 +1,16 @@
+ # What a line's session begins with: its system prompt, these parts in this order (design statement 24). The program
+ # takes it once, as the session begins, and keeps it: a change of a part reaches a session only when it is reopened.
+ #
+-# A part is one of: `project`, a file of the project that `../project.toml` names; `datum`, the datum of the flow that
+-# stands for the file of that name there, as the work's branch has it, in the version current as the session begins,
+-# which the session then holds and is given what changed in since (design document `data-and-context`, 24): with no
+-# version, no prompt is made, and a flow of agents' cells without the datum is refused as the engine starts;
+-# `line = "rules"`, the sets of rules the line takes (`rules/`), in the order its file names them; `words`, a text of
+-# the engine's in this directory, its place `{your_line}` filled from `your_line.toml`; `returns = "how_you_return"`,
+-# how a cell returns, made from `return/` (`[how_you_return]` in `return.toml`) for the tools the flow names, the place
+-# `{store}` in the words of `query` filled with what the engine's records hold. The engine gives each setting these
+-# texts name, but for a file of the project, its value beside its name: the project's in its `project.toml`, and the
+-# installation's that `installation.toml` names.
++# A part is one of: `project`, a file of the project that `../project.toml` names, read from the work's worktree as the
++# session begins (decision the-projects-files-as-the-work-has-them); `line = "rules"`, the sets of rules the line
++# takes (`rules/`), in the order its file names them; `words`, a text of the engine's in this directory, its place
++# `{your_line}` filled from `your_line.toml`; `returns = "how_you_return"`, how a cell returns, made from `return/`
++# (`[how_you_return]` in `return.toml`) for the tools the flow names, the place `{store}` in the words of `query` filled
++# with what the engine's records hold. The engine gives each setting these texts name, but for a file of the project,
++# its value beside its name: the project's in its `project.toml`, and the installation's that `installation.toml`
++# names.
+ parts = [
+-  { datum = "guide" },
++  { project = "guide" },
+   { project = "constitution" },
+   { project = "tree_rules" },
+   { line = "rules" },"#,
+            ),
+            (
+                "flow/data/guide.toml",
+                'D',
+                r#"删除：`guide` 不再是数据，AGENTS.md 只放在每个会话的 system prompt 里（item #11，background v5）。"#,
+                r#"diff --git a/flow/data/guide.toml b/flow/data/guide.toml
+deleted file mode 100644
+index eeb352e96..000000000
+--- a/flow/data/guide.toml
++++ /dev/null
+@@ -1,5 +0,0 @@
+-# The project's guide for its agents (`[files.guide]` of the project's declaration), as the work's branch has it: data
+-# the cell of every agent watches. A session holds the version it began with in its system prompt, and is given what
+-# changed since (design document `data-and-context`, 15, 24).
+-what = "The project's guide for its agents, as the work's branch has it; between two versions, what changed."
+-from = "guide""#,
+            ),
+            (
+                "flow/engineer/flow.toml",
+                'M',
+                r#"从 `data` 和 `[every_agent]` 里去掉 `guide`（watches、kinds、do），`[every_agent]` 只剩 `reads` 和 `kinds`；每个代理格子不再关注它，消息里不再出现它。"#,
+                r#"diff --git a/flow/engineer/flow.toml b/flow/engineer/flow.toml
+index 4a67d05ec..dd504b920 100644
+--- a/flow/engineer/flow.toml
++++ b/flow/engineer/flow.toml
+@@ -6,7 +6,7 @@ order = ["S1", "R0", "R1", "R2", "D1", "D2", "P1", "P2", "I1", "T1", "T2", "M1",
+ # The engine's own data this flow uses, each defined once in `../data/`; a datum each cell or each line has its own of,
+ # in `../data/of_a_cell/` or `../data/of_a_line/`, is used where a cell names it. The flow's own data are in `blocks/`,
+ # its lines in `lines/`, its named tests in `tests/` and its cells in `cells/`, one file each.
+-data = ["start", "background", "dependencies", "asked", "tree", "head", "main", "guide"]
++data = ["start", "background", "dependencies", "asked", "tree", "head", "main"]
+ 
+ # What the item's card shows the owner of the work, in this order: the page shows what this names, and names no datum
+ # of its own.
+@@ -21,23 +21,16 @@ engine_asks_in = "I1"
+ # return holds them, the same for every line of the flow (`../agents/return/return.toml`).
+ tools = ["query", "run_tests"]
+ 
+-# What every agent cell of the flow watches and reads beside what its own file names, given first: the project's
+-# guide, and every cell's questions and every cell's words, so that what was asked, answered and said is known to the
+-# whole work (design document `data-and-context`, 15, 24, 33, 35). `{each}_` names each cell's own datum.
++# What every agent cell of the flow reads beside what its own file names, given first: every cell's questions and every
++# cell's words, so that what was asked, answered and said is known to the whole work (design document
++# `data-and-context`, 15, 33, 35). `{each}_` names each cell's own datum.
+ [every_agent]
+-watches = ["guide"]
+ reads = ["{each}_questions", "{each}_words"]
+ 
+ [every_agent.kinds]
+-guide = "last_and_latest"
+ "{each}_questions" = "all"
+ "{each}_words" = "all"
+ 
+-# What a cell does when the guide is new to it: at its first round, where its session holds the guide from its start,
+-# and once the guide changed (design document `data-and-context`, 22).
+-[every_agent.do]
+-guide = """Work under it as it now stands. Where it changed since the version you last worked from, look over what you hand in for what the change touches and bring that up to date; where the change touches nothing, hand in nothing new for it."""
+-
+ # The blocks of the plan and of the change, each watched or read as one: a new version of any of them is new to a cell
+ # that watches the group, and its round deals with the group by its name (design document `data-and-context`, 12).
+ [groups]"#,
+            ),
+        ];
+        let change = Change {
+            files: (files.iter())
+                .map(|(path, status, _, diff)| File {
+                    status: *status,
+                    path: path.to_string(),
+                    blob: "blob".to_string(),
+                    diff: diff.to_string(),
+                })
+                .collect(),
+        };
+        let given: BTreeMap<String, String> = (files.iter())
+            .map(|(path, _, why, _)| (path.to_string(), why.to_string()))
+            .collect();
+        let Some(Question::Asked { ask, .. }) = asking(&Work::default(), &real_words(), &change, &given) else {
+            panic!("the change is asked");
+        };
+        let expected = include_str!("../tests/fixtures/protected-question.txt");
+        assert_eq!(ask, expected);
+    }
 }
