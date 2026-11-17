@@ -5,11 +5,13 @@
 # project's tests (`tests_only` in its file) is told `tests_only` in place of `locks`, `{paths}` the paths of its tests
 # (`[tests]` of `project.toml`), each between backticks, joined by commas and the last by `or`; and, where the project
 # protects paths (`[protected]` of `project.toml`), `protected` last, `{paths}` those paths, each between backticks,
-# joined by commas and the last by `and`.
+# joined by commas and the last by `and`; a line that only reads is told `protected_read` after `reads_only`, with the
+# same paths, so that whoever judges the change knows which of its files are the owner's.
 reads_only = "You only read it, and change no file."
 writes = "Make your changes there and commit them there."
 locks = " Update a lock file with {commands}, your arguments after it."
 or = " or "
 tests_only = " Change only the project's tests, the files {paths} match; where a test must go into another file, say so in what you hand in."
 protected = " The project protects {paths}: change what is there only where the work needs it."
+protected_read = " The project protects {paths}: a change of them is to be made only where the work needs it."
 and = " and "

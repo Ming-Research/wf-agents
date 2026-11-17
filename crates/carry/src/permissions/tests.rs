@@ -331,7 +331,7 @@ fn an_agent_is_told_what_its_line_may_do() {
 }
 
 // A line that writes is told the paths the project protects, after what else it may do, and one that only reads is
-// not, as it changes no file.
+// told them too, after that it changes no file, as it may judge a change of them.
 #[test]
 fn a_line_that_writes_is_told_the_paths_the_project_protects() {
     let protected = [
@@ -352,7 +352,8 @@ fn a_line_that_writes_is_told_the_paths_the_project_protects() {
     );
     assert_eq!(
         of(true, &[]).told(&words(), &protected, None),
-        "You only read it, and change no file."
+        "You only read it, and change no file. The project protects `AGENTS.md`, `flow/` and `.github/workflows/`: a \
+         change of them is to be made only where the work needs it."
     );
 }
 
@@ -376,7 +377,8 @@ fn a_line_that_changes_only_the_tests_is_told_their_paths_and_no_lock_command() 
     );
     assert_eq!(
         of(true, &[]).told(&words(), &protected, Some(&tests[..])),
-        "You only read it, and change no file."
+        "You only read it, and change no file. The project protects `AGENTS.md`: a change of them is to be made only \
+         where the work needs it."
     );
 }
 

@@ -805,15 +805,29 @@ impl Real {
     /// The question the work waits for the owner's answer to, by its name, with the version to answer, where there is
     /// one, as its records keep it.
     pub fn waited_question(&self, work: WorkNumber) -> Option<(String, decide::Seq)> {
+        self.question_where(work, |q| q.holds())
+    }
+
+    /// A question of the work that stands with no answer, whether or not it holds the work, by its name and the
+    /// version to answer.
+    pub fn unanswered_question(&self, work: WorkNumber) -> Option<(String, decide::Seq)> {
+        self.question_where(work, |q| q.unanswered())
+    }
+
+    fn question_where(
+        &self,
+        work: WorkNumber,
+        which: impl Fn(&decide::questions::Standing<'_>) -> bool,
+    ) -> Option<(String, decide::Seq)> {
         let records = self.work(work).records;
         (decide::questions::questions(&records).into_iter())
-            .find(|(_, q)| q.holds())
+            .find(|(_, q)| which(q))
             .map(|(name, q)| (name.to_string(), q.latest.at))
     }
 
-    /// The owner answers the question the work waits for with its first option.
+    /// The owner answers, with its first option, a question of the work that stands with no answer.
     pub fn answer(&mut self, work: WorkNumber) {
-        let (question, version) = self.waited_question(work).expect("the work waits for an answer");
+        let (question, version) = self.unanswered_question(work).expect("a question waits for an answer");
         let act = Act::Answer {
             question,
             version,

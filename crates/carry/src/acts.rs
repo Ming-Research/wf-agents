@@ -1761,7 +1761,7 @@ mod tests {
             .unwrap_or_default();
         assert!(
             matches!(&checked.asks, Some(Question::Asked { ask, .. })
-                if ask.contains(&format!("`AGENTS.md`, added. Why, in the work's words: {no_reason}\n\n```diff\n"))),
+                if ask.contains(&format!("`AGENTS.md`: {no_reason}\n\n```diff\n"))),
             "{checked:?}"
         );
         assert_eq!(host.asked(), [Asked::Main], "the host is not asked for a verdict");

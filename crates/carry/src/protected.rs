@@ -6,7 +6,7 @@
 //! does not: each file it adds, changes or deletes, by its path and the content it ends with, so that main moving on
 //! asks nothing again where the work's own change is the same. The engine asks the owner of it by itself, in the
 //! question of `agents/asks.toml` (`[protected]`), which shows each file with why the work says it is needed and its
-//! change, waits, and recommends none of its options: asked again under its name where the change is another, or where
+//! change, and recommends none of its options: asked again under its name where the change is another, or where
 //! the work gives another reason for it before the owner answered, withdrawn once the work touches none of the paths.
 //! The owner's yes to the change holds while the change is the same, whatever reason is given for it after. The
 //! question is the engine's, beside what the round returns, and no agent writes it.
@@ -22,8 +22,10 @@
 //! pass while that change is not empty and is not one the owner let merge, by the option `merges` names; it asks, or
 //! asks again, where the question does not stand unanswered for that change, with the reasons the question that stands
 //! says and a file no round explained said to have none. A look the check cannot make fails the check. As a round of
-//! a line that may change the work ends, the engine looks as well, so that the owner is asked early; a look that fails
-//! there asks nothing and sends nothing back, the check being what holds the merge.
+//! a line that may change the work ends, the engine looks as well, so that the owner is asked early; that question does
+//! not hold the work, which goes on to its reviews, and the check waits while it stands unanswered (`asked`). A look
+//! that fails there asks nothing and sends nothing back, the check being what holds the merge. Where the check itself
+//! asks, the question holds the work, as nothing else would bring the owner's answer before the merge.
 //!
 //! Git is run with no program the repository's configuration or attributes could name, and so that what attributes
 //! say of a file cannot keep its content out of the change shown: the configuration is refused first as the acts
@@ -219,7 +221,7 @@ pub(crate) fn asking(
     given: &BTreeMap<String, String>,
 ) -> Option<Question> {
     let standing = standing(work, words);
-    asked(standing.as_ref(), words, change, given)
+    asked(standing.as_ref(), words, change, given, true)
 }
 
 fn asked(
@@ -227,6 +229,7 @@ fn asked(
     words: &AskProtected,
     change: &Change,
     given: &BTreeMap<String, String>,
+    waits: bool,
 ) -> Option<Question> {
     if change.files.is_empty() {
         return standing.filter(|s| s.stands).map(|_| Question::Withdrawn {
@@ -243,25 +246,15 @@ fn asked(
     }
     let files: Vec<String> = (change.files.iter())
         .map(|file| {
-            let kind = match file.status {
-                'A' => &words.added,
-                'D' => &words.deleted,
-                _ => &words.changed,
-            };
             let why = reasons.get(&file.path).unwrap_or(&words.no_reason);
-            let places = [
-                ("path", &file.path),
-                ("change", kind),
-                ("why", why),
-                ("diff", &file.diff),
-            ];
+            let places = [("path", &file.path), ("why", why), ("diff", &file.diff)];
             fill(&words.file, &places.map(|(name, value)| (name, value.as_str())))
         })
         .collect();
     let ask = fill(&words.ask, &[("files", &files.join("\n\n"))]);
     Some(Question::Asked {
         name: words.name.clone(),
-        waits: true,
+        waits,
         recommends: None,
         ask,
         options: (words.options.iter())
@@ -314,7 +307,7 @@ pub(crate) async fn look(
         });
     }
     Ok(Looked {
-        asks: asked(standing.as_ref(), words, &change, said),
+        asks: asked(standing.as_ref(), words, &change, said, false),
         unexplained: Vec::new(),
     })
 }
@@ -467,12 +460,11 @@ pub(crate) mod tests {
         assert_eq!(recommends, None, "the engine recommends nothing");
         // Each file, with its reason in the work's words, and then its own change.
         let (guide, cell) = (
-            ask.find("- AGENTS.md: added. Why: The guide must say it.\n")
-                .expect(&ask),
-            ask.find("- flow/cell.toml: added. Why: The flow needs the cell.\n")
+            ask.find("- AGENTS.md. Why: The guide must say it.\n").expect(&ask),
+            ask.find("- flow/cell.toml. Why: The flow needs the cell.\n")
                 .expect(&ask),
         );
-        assert!(ask.starts_with("May this merge?\n\n- AGENTS.md: "), "{ask}");
+        assert!(ask.starts_with("May this merge?\n\n- AGENTS.md. "), "{ask}");
         let (rules, title) = (
             ask.find("+Rules.").expect(&ask),
             ask.find("+title = \"A cell\"").expect(&ask),
@@ -624,7 +616,7 @@ pub(crate) mod tests {
         else {
             panic!("nothing is asked");
         };
-        assert!(ask.contains("- AGENTS.md: added. Why: none.\ndiff --git"), "{ask}");
+        assert!(ask.contains("- AGENTS.md. Why: none.\ndiff --git"), "{ask}");
         assert!(reasons.is_empty());
         // The owner's yes to it as it is needs no reason after it: a later round is not sent back, and nothing is asked.
         let backstop = asking(&Work::default(), &words(), &change, &BTreeMap::new()).unwrap();
@@ -655,10 +647,7 @@ pub(crate) mod tests {
         let Some(Question::Asked { ask, .. }) = asking(&taken_back, &words(), &change, &BTreeMap::new()) else {
             panic!("the change is not asked anew");
         };
-        assert!(
-            ask.contains("- AGENTS.md: added. Why: The guide must say it.\n"),
-            "{ask}"
-        );
+        assert!(ask.contains("- AGENTS.md. Why: The guide must say it.\n"), "{ask}");
     }
 
     #[tokio::test]
@@ -826,7 +815,7 @@ pub(crate) mod tests {
             panic!("nothing is asked: {asked:?}");
         };
         let (star, plain) = (
-            ask.find("- flow/a*.toml: added").expect(&ask),
+            ask.find("- flow/a*.toml. Why").expect(&ask),
             ask.find("- flow/ab.toml").expect(&ask),
         );
         let shown = &ask[star..plain];

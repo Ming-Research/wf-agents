@@ -566,6 +566,8 @@ pub struct YourLine {
     /// Of a line that writes, where the project protects paths, after the rest: `{paths}` those paths, each between
     /// backticks, joined by commas, and the last by `and`.
     pub protected: String,
+    /// Of a line that only reads, where the project protects paths, after `reads_only`: `{paths}` as in `protected`.
+    pub protected_read: String,
     pub and: String,
 }
 
@@ -605,19 +607,16 @@ pub struct Asks {
 
 /// The question the engine asks where a work's own change touches a path the project protects ([`Protected`]): asked
 /// again under its name where that change is another, or the work gives another reason for it before the owner
-/// answered, or it was answered with another option than `merges`; withdrawn once the work touches none. It waits, and
-/// recommends none of its options. `ask` is what it asks, `{files}` the files the change touches, each as `file` says,
-/// a blank line between two: `{path}` its path, `{change}` how it changes (`added`, `changed` or `deleted`), `{why}`
-/// why the work says the change is needed, or `no_reason` where it says nothing, and `{diff}` the file's change itself.
+/// answered, or it was answered with another option than `merges`; withdrawn once the work touches none. It waits only
+/// where the check before the merge asks it, and recommends none of its options. `ask` is what it asks, `{files}` the
+/// files the change touches, each as `file` says, a blank line between two: `{path}` its path, `{why}` why the work
+/// says the change is needed, or `no_reason` where it says nothing, and `{diff}` the file's change itself.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AskProtected {
     pub name: String,
     pub ask: String,
     pub file: String,
-    pub added: String,
-    pub changed: String,
-    pub deleted: String,
     /// What stands for why, of a file the work changes and says nothing of.
     pub no_reason: String,
     pub options: Vec<AskOption>,

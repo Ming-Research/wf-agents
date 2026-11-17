@@ -191,10 +191,15 @@ impl Permissions {
     /// What the agent is told its line may do in the worktree, in one line of the system prompt, which no rule says by
     /// itself, in the words beside the flows (`agents/your_line.toml`): that it changes no file there, or that it
     /// commits there, and either the commands it may update a lock file with or, of a line that changes only the
-    /// project's tests, the paths of those, `tests`; and the paths the project protects, these.
+    /// project's tests, the paths of those, `tests`; and the paths the project protects, these, to a line that only
+    /// reads as well, which judges a change of them.
     pub fn told(&self, words: &YourLine, protected: &[String], tests: Option<&[String]>) -> String {
         if self.reads_only {
-            return words.reads_only.clone();
+            let mut out = words.reads_only.clone();
+            if !protected.is_empty() {
+                out.push_str(&words.protected_read.replace("{paths}", &listed(protected, &words.and)));
+            }
+            return out;
         }
         let mut out = words.writes.clone();
         match tests {
