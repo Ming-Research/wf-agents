@@ -29,6 +29,14 @@ failed read as two stops; a line of the page's own over each card ("The work wai
 turned down as saying again what the card's look says, and a line under a question saying the merge waits for it
 likewise: the red card and the line's cell say it.
 
+### decision only-a-line-that-takes-words-is-picked
+Of the lines over the message box, one on which the engine has no cell to give the owner's words to is grey, cannot be
+picked and says why on pointing at it; of the others, the line the work stands at is picked first, else the one it
+reached last. Where none takes the words, none is picked, no box is drawn, and why is said once, under the lines.
+Why: Offered and picked though no cell of it could take the words, a line of a work that had not run was picked first,
+and the box under it then said the words would go nowhere (W11); the engine decides which cell a line's words
+reach (design document `data-and-context`, 35), and the page only shows it.
+
 ### decision the-pause-switch-is-the-owners-own
 The switch that pauses a work is named the owner's own pause and shows only that; the engine's pause is lifted from
 its card alone, by Resume.
