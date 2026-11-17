@@ -1308,20 +1308,21 @@ impl Inner {
     }
 
     /// Asks a fork of the session the fork's round ran in its question ([`Rounds::fork`]): on the command line of that
-    /// session's last round, forked ([`cli::forked`]), in the work's worktree; where the work has ended, what it runs in
-    /// is taken away after, a checkout of its kept branch made at the worktree's place where the worktree is gone;
+    /// session's last round, forked ([`cli::forked`]), in the work's worktree, or, where the work has ended and its
+    /// worktree is gone, a checkout of its kept branch made at the worktree's place and taken away after;
     /// holding the work, so that no round of it runs beside the fork. What the fork was told, its stream and its answer
     /// are kept beside the round's, its hooks' files are its own and taken away after.
     async fn fork(&self, fork: &Fork) -> Result<Forked, String> {
         let of = crate::projects::of(&self.projects, &fork.item)?;
         let (flow, work) = (&*fork.flow, &*fork.kept);
-        let lock = self.lock(fork.work);
-        let Ok(_one) = lock.try_lock() else {
+        let Ok(one) = self.lock(fork.work).try_lock_owned() else {
             return Err(format!(
                 "A round of work {} is under way: ask the fork once it has ended.",
                 fork.work.0
             ));
         };
+        // Held until the fork has ended, and what it stood in is taken away.
+        let mut holding = Some(one);
         let started = (work.records.started.iter()).find(|s| s.run == fork.run);
         let cell = started.and_then(|s| flow.cells.iter().find(|c| c.id == s.cell));
         let line = cell
@@ -1355,15 +1356,23 @@ impl Inner {
                 fork.work.0
             ));
         }
-        // An ended work's worktree is let go (decision letting-go-at-the-end): what the fork runs in is taken away after.
-        let mut stand_in = (fork.ended).then(|| StandIn {
+        // What stands in for an ended work's worktree, which is let go (decision letting-go-at-the-end), is a checkout
+        // with no branch, taken away after: one made now, or one an earlier fork could not take away. The work's own
+        // worktree, on its branch, is left to the work's end.
+        let standing = if fork.ended {
+            git::configuration(&of.project, &place).await?;
+            !place.dir.exists() || !git::said(&place.dir, &["symbolic-ref", "--quiet", "HEAD"]).await?.ok
+        } else {
+            false
+        };
+        let mut stand_in = standing.then(|| StandIn {
             project: of.project.clone(),
             place: place.clone(),
             work: fork.work,
+            holding: holding.take(),
             gone: false,
         });
         if !place.dir.exists() {
-            git::configuration(&of.project, &place).await?;
             // A worktree whose directory was taken away is named by the repository until it is pruned.
             git::git(&of.project.repo, &["worktree", "prune"]).await?;
             let dir = place.dir.to_string_lossy().to_string();
@@ -1516,11 +1525,12 @@ impl Inner {
 }
 
 /// A checkout at an ended work's worktree's place that a fork ran in: taken away once the fork is done with it, or, where
-/// the fork is given up before, as it is dropped.
+/// the fork is given up before, as it is dropped; the work held until it is.
 struct StandIn {
     project: Project,
     place: git::Place,
     work: WorkNumber,
+    holding: Option<tokio::sync::OwnedMutexGuard<()>>,
     gone: bool,
 }
 
@@ -1533,6 +1543,7 @@ impl StandIn {
                 self.work.0
             );
         }
+        self.holding = None;
     }
 }
 
@@ -1548,6 +1559,7 @@ impl Drop for StandIn {
             project: self.project.clone(),
             place: self.place.clone(),
             work: self.work,
+            holding: self.holding.take(),
             gone: true,
         };
         runtime.spawn(async move { left.take_away().await });
@@ -2286,6 +2298,19 @@ mod tests {
         let worktrees = git::tests::run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
         assert_eq!(worktrees.lines().filter(|l| l.starts_with("worktree ")).count(), 1);
         git::tests::run(&repo.project.repo, &["rev-parse", "--verify", &place.reference()]);
+        // The work's own worktree, on its branch, is left to the work's end; a checkout with no branch that an earlier
+        // fork left there is taken away.
+        let dir = place.dir.display().to_string();
+        git::tests::run(&repo.project.repo, &["worktree", "add", &dir, &place.branch]);
+        agents.inner.fork(&ended).await.expect("asked in the work's worktree");
+        assert!(place.dir.join("greeting.txt").is_file());
+        git::tests::run(&repo.project.repo, &["worktree", "remove", "--force", &dir]);
+        git::tests::run(
+            &repo.project.repo,
+            &["worktree", "add", "--detach", &dir, &place.branch],
+        );
+        agents.inner.fork(&ended).await.expect("asked in what was left");
+        assert!(!place.dir.exists());
     }
 
     /// The carrier of the engineer's flow's rounds, its data in this directory, and R2's first round of run 7 of work
