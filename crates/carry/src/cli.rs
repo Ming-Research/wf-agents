@@ -231,8 +231,10 @@ pub fn arguments(
 /// that the fork's first request begins as the session's did and is read from the prompt cache (the same system prompt,
 /// form of return, tools, model and effort); but for its settings' hooks, which gain one that refuses every use of a
 /// tool before it runs ([`refusal`]), and the session, forked after it rather than gone on with in place. The tools stay
-/// in the request: one given none, its front changed, read nothing of the session from the cache.
-pub fn forked(mut args: Vec<String>) -> Vec<String> {
+/// in the request: one given none, its front changed, read nothing of the session from the cache. Where the session went
+/// on past the round asked of, the fork begins at that round's last message, `begins`, and holds nothing of what came
+/// after.
+pub fn forked(mut args: Vec<String>, begins: Option<&str>) -> Vec<String> {
     let at = args.iter().position(|a| a == "--settings").map(|i| i + 1);
     if let Some(value) = at.and_then(|i| args.get_mut(i)) {
         let mut settings: Value = serde_json::from_str(value).unwrap_or_else(|_| json!({}));
@@ -241,7 +243,21 @@ pub fn forked(mut args: Vec<String>) -> Vec<String> {
         *value = settings.to_string();
     }
     args.push("--fork-session".to_string());
+    if let Some(begins) = begins {
+        args.extend(["--resume-session-at".to_string(), begins.to_string()]);
+    }
     args
+}
+
+/// The last message of a round in its session, as the round's stream names it: the id of the last message the program
+/// said it wrote to the session, of the session's own agent or given to it; a subagent's, which is not of the session's
+/// own thread, is passed over, as [`Stream`] passes it over. None where the stream names none.
+pub fn last_message(stream: &[u8]) -> Option<String> {
+    (String::from_utf8_lossy(stream).lines())
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|v| (v["type"] == "assistant" || v["type"] == "user") && v["parent_tool_use_id"].is_null())
+        .filter_map(|v| v["uuid"].as_str().map(str::to_string))
+        .next_back()
 }
 
 /// The hook's shell command that refuses the use of a tool, as the command line takes a hook's exit with 2, saying
@@ -1361,6 +1377,28 @@ mod tests {
     }
 
     #[test]
+    fn a_rounds_last_message_is_the_last_of_its_own_thread_the_program_wrote_to_its_session() {
+        // The real stream's last message of its own is the result of the tool that took the return; a subagent's message
+        // after it is not the session's own.
+        let taken = Some("ebcbcfba-6b99-4d90-b5d8-667683894910");
+        assert_eq!(last_message(STREAM.as_bytes()).as_deref(), taken);
+        let sub = json!({ "type": "assistant", "uuid": "sub-1", "parent_tool_use_id": "toolu_9", "message": {} });
+        let with_sub = format!("{}\n{sub}\n", STREAM.trim_end());
+        assert_eq!(last_message(with_sub.as_bytes()).as_deref(), taken);
+        let stream = [
+            r#"{"type":"system","subtype":"init","uuid":"s-1"}"#,
+            r#"{"type":"assistant","uuid":"a-1"}"#,
+            r#"{"type":"stream_event","uuid":"e-1"}"#,
+            r#"{"type":"user","uuid":"u-1"}"#,
+            r#"{"type":"stream_event","uuid":"e-2"}"#,
+            r#"{"type":"result","subtype":"success","uuid":"r-1"}"#,
+        ]
+        .join("\n");
+        assert_eq!(last_message(stream.as_bytes()).as_deref(), Some("u-1"));
+        assert_eq!(last_message(br#"{"type":"result","uuid":"r-1"}"#), None);
+    }
+
+    #[test]
     fn a_fork_is_given_every_argument_of_its_sessions_round_but_a_hook_that_refuses_each_tool_and_the_fork() {
         let ran = RanOn {
             level: "2".to_string(),
@@ -1385,9 +1423,12 @@ mod tests {
             session,
             Begin::Resume,
         );
-        let fork = forked(round.clone());
+        let fork = forked(round.clone(), None);
         assert_eq!(fork.len(), round.len() + 1);
         assert_eq!(fork.last().map(String::as_str), Some("--fork-session"));
+        // Where the session went on past the round, the fork begins at the round's last message.
+        let cut = forked(round.clone(), Some("m-9"));
+        assert_eq!(cut[round.len()..], ["--fork-session", "--resume-session-at", "m-9"]);
         let at = round.iter().position(|a| a == "--settings").expect("its settings") + 1;
         for (i, (was, is)) in round.iter().zip(&fork).enumerate().filter(|(i, _)| *i != at) {
             assert_eq!(was, is, "argument {i}");
