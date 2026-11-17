@@ -8,19 +8,19 @@
 // the body or in a message an agent wrote, a later pointer to it being a link to it, and after the last section where
 // no text points to it; drawn as they are: what it asks, as it was written, its options with what each does and what
 // follows, and the one it recommends; one the engine's one list of what waits on the owner names on the red tint,
-// framed in red, the look of every stop, an answered one with the answer picked. Each is picked by a press on an option
-// and let go by another, and at the end of the last section a button as wide as the body confirms them, which counts
-// the picks, waits until each choice has one and sends each question's answer to the engine; once confirmed, the picks
-// stand; and last, each block the owner may write that keeps the work from going on, drawn as such a question is, its
-// values the options, with a button that writes the one picked), each passage changed since the owner read it marked
-// at its left, and under the body the messages: the owner's and the replies, and a box to write one into a block of
-// the work that people write, chosen above it, which a passage selected in the body can be quoted into and which names
-// the cells that read it. Under the work's state line, each other stop of the work, in the same look: one sentence of
-// why and the buttons that end it, from the engine's list, and a fault or a stall, which no one waits on, said as the
-// engine gives it. The second tab holds what of the work the lines do not say, and the legend of the strip's marks.
-// While the window is out, R marks the item read, as its link does, unless a box has the keys. What the owner sends is
-// sent once: its button cannot be pressed while it is under way, and a refusal is said under the item it was for, and
-// only there.
+// framed in red, the look of every stop, an answered one settled, its options words with the one taken marked and
+// nothing to press. Each is picked by a press on an option and let go by another, and at the end of the last section a
+// button as wide as the body confirms them, which counts the picks, waits until each choice has one and sends each
+// question's answer to the engine; once confirmed, the picks stand, settled; and last, each block the owner may write
+// that keeps the work from going on, drawn as such a question is, its values the options, with a button that writes the
+// one picked), each passage changed since the owner read it marked at its left, and under the body the messages: the
+// owner's and the replies, and a box to write one into a block of the work that people write, chosen above it, which a
+// passage selected in the body can be quoted into and which names the cells that read it. Under the work's state line,
+// each other stop of the work, in the same look: one sentence of why and the buttons that end it, from the engine's
+// list, and a fault or a stall, which no one waits on, said as the engine gives it. The second tab holds what of the
+// work the lines do not say, and the legend of the strip's marks. While the window is out, R marks the item read, as
+// its link does, unless a box has the keys. What the owner sends is sent once: its button cannot be pressed while it is
+// under way, and a refusal is said under the item it was for, and only there.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/ItemWindow.tsx`), its layout as it
 // was, its parts the page's own (parts.tsx) where it used Primer's. What the engine does not give yet comes from the
@@ -45,7 +45,7 @@ import {
   useState,
 } from 'react';
 
-import { Button, Coded, Confirm, FoldMark, PanelPart, Switch } from '../parts';
+import { Button, Coded, Confirm, FoldMark, PanelPart, Switch, TICK } from '../parts';
 import { mocksShown } from '../mock-data';
 import {
   type Act,
@@ -68,6 +68,7 @@ import {
   NO_ENGINE,
   OWN_PAUSE,
   SHOW_QUESTION,
+  TAKEN,
   type Tone as WorkTone,
   WRITE_WORDS,
   standingCell,
@@ -1074,8 +1075,8 @@ function Section({
 }
 
 /// The options of a card that offers them, drawn as choices and told apart by shape from what stands above them: under
-/// a hairline, each a frame in the accent with a radio mark at its left, filled once picked, the one picked on the
-/// accent's tint; the one recommended tagged.
+/// a hairline, each a grey frame with a radio mark at its left, the one picked framed in the accent with its mark
+/// filled; the one recommended tagged.
 function Options({ options, chosen, recommended = null, pick, code = false }: {
   options: { label: string; detail: string }[];
   chosen: number | null;
@@ -1111,11 +1112,56 @@ function Options({ options, chosen, recommended = null, pick, code = false }: {
   );
 }
 
+/// The options of a question answered, which is settled: under the same hairline, each its words alone, with nothing
+/// that can be pressed; the one taken in the text's colour, marked at its left by a drawn tick that says on pointing at
+/// it that it was taken, the others muted; the one recommended tagged.
+function Settled({ options, chosen, recommended }: {
+  options: { label: string; detail: string }[];
+  chosen: number | null;
+  recommended: number | null;
+}) {
+  return (
+    <ul className="cw-options">
+      {options.map((o, i) => (
+        <li key={o.label} className={chosen === i ? 'cw-settled cw-settled-taken' : 'cw-settled'}>
+          {chosen === i ? <TickSign /> : <span className="cw-tick" aria-hidden="true" />}
+          <span className="cw-option-text">
+            <span className="cw-option-label">
+              {o.label}
+              {recommended === i ? <span className="tag cw-tag">Recommended</span> : null}
+            </span>
+            {o.detail !== '' && <span className="cw-option-detail">{o.detail}</span>}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/// The tick that marks the option taken, the page's tick (`TICK`), as wide as an option's radio mark.
+function TickSign() {
+  return (
+    <svg
+      className="cw-tick"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      role="img"
+      aria-label={TAKEN}
+    >
+      <title>{TAKEN}</title>
+      <path d={TICK} />
+    </svg>
+  );
+}
+
 /// A choice of the plan: a press on an option picks it, on another changes the pick, and on the one picked lets it go,
-/// until it is confirmed. Discuss takes it to the discussion, confirmed or not; under its options, how many messages are
-/// about it, which brings the first into view. A question with no options is answered in words, in a box in their
-/// place. A question the engine's list names holds the work, at its cell or at the merge: on the red tint, framed in
-/// red, the look of every stop.
+/// until it is confirmed; once confirmed, it is settled, and its options are words with the one taken marked.
+/// Discuss takes it to the discussion, confirmed or not; under its options, how many messages are about it, which
+/// brings the first into view. A question with no options is answered in words, in a box in their place. A question
+/// the engine's list names holds the work, at its cell or at the merge: on the red tint, framed in red, the look of
+/// every stop.
 function ChoiceBox({ p, pick, write, discuss, messages, jump, links }: {
   p: Choice;
   pick?: (option: number) => void;
@@ -1134,7 +1180,7 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump, links }: {
       <div className="cw-choice-q">
         <Markdown text={p.question} pointers={links} />
       </div>
-      {p.options.length === 0 && p.asks !== undefined ? (
+      {p.options.length === 0 && p.asks !== undefined && p.confirmed !== true ? (
         <textarea
           rows={3}
           value={p.answer ?? ''}
@@ -1144,14 +1190,12 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump, links }: {
           onChange={(e) => write?.(e.target.value)}
         />
       ) : null}
-      {p.options.length > 0 && (
-        <Options
-          options={p.options}
-          chosen={p.chosen}
-          recommended={p.recommended}
-          pick={pick}
-        />
-      )}
+      {p.options.length > 0 &&
+        (p.confirmed === true ? (
+          <Settled options={p.options} chosen={p.chosen} recommended={p.recommended} />
+        ) : (
+          <Options options={p.options} chosen={p.chosen} recommended={p.recommended} pick={pick} />
+        ))}
       {messages.length > 0 || discuss !== undefined ? (
         <div className="cw-choice-foot">
           {messages.length > 0 ? (

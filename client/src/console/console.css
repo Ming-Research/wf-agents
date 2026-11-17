@@ -160,8 +160,9 @@
   font-size: var(--size-small);
 }
 
-/* A choice that waits for the owner: a frame in the accent on its tint; once confirmed, a hairline on the ground. Its
-   options are buttons: the one picked ringed in the accent, the one under the pointer on the accent's tint. */
+/* A choice that waits for the owner: a frame in the accent on its tint; once confirmed, settled, a hairline on the
+   ground. While it waits its options are buttons: the one picked ringed in the accent, the one under the pointer on the
+   accent's tint. */
 .cw-choice {
   margin: var(--space-8) 0;
   padding: var(--space-12);
@@ -288,6 +289,40 @@
   display: block;
   color: var(--muted);
   font-size: var(--size-small);
+}
+
+/* The options of a question answered, settled: no frame, no radio mark and nothing under the pointer, each its words
+   alone, muted; the one taken in the text's colour and semibold, marked at its left by a tick, as wide as a radio mark,
+   in the green of what the owner did, taken. */
+.cw-settled {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  color: var(--muted);
+}
+
+.cw-settled + .cw-settled {
+  margin-top: var(--space-4);
+}
+
+.cw-settled .cw-option-label {
+  font-weight: var(--weight);
+}
+
+.cw-settled-taken {
+  color: var(--text);
+}
+
+.cw-settled-taken .cw-option-label {
+  font-weight: var(--weight-strong);
+}
+
+.cw-tick {
+  flex: none;
+  width: var(--space-12);
+  height: var(--space-12);
+  margin-top: var(--space-2);
+  color: var(--green);
 }
 
 /* The option recommended: the page's tag, muted, since it is no state. */

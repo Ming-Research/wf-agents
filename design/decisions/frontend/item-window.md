@@ -26,10 +26,12 @@ own was turned down, as a plan the cell that looks for a better way wrote pointe
 (work 10).
 
 ### decision an-option-is-picked-by-pressing-it
-An option of a question is a button: pressing it picks it, and pressing the one picked lets it go. It carries its radio
-mark inside it, at its left.
+An option of a question that waits for its answer is a button: pressing it picks it, and pressing the one picked lets
+it go. It carries its radio mark inside it, at its left. Once the question is answered its options are words alone,
+with no frame and no radio mark, the one taken marked by a tick.
 Why: A row of short labels under the options, each to be matched to its option, was turned down as easy to press
-wrongly, and radio buttons under the options as saying each option twice.
+wrongly, and radio buttons under the options as saying each option twice. Drawn as the buttons they were, with the one
+taken still framed in the accent, the options of an answered question read as a question still open (work 11).
 
 ### decision every-stop-is-one-card
 Every stop of a work is one card, in the one look of a stop: the engine's one sentence of why, a stall's among them,
