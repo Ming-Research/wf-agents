@@ -7,7 +7,7 @@ cell = "P2"
 id = "P2-01"
 item = 21
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Defect fixed toward decision a-month-is-a-text-key, which already says `YYYY-MM`: no entry made untrue, none needed; passes.'''
 
@@ -46,7 +46,7 @@ not_writes = ["tree_review"]
 id = "P2-02"
 item = 21
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that keying the month by a date parsed with a calendar crate goes against decisions a-month-is-a-text-key (not by a parsed date) and dates-are-checked-text (a calendar dependency turned down), with no tree edit.'''
 
@@ -81,7 +81,7 @@ writes = { tree_ok = "no", tree_review = "written" }
 id = "P2-03"
 item = 22
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Capability that goes against no entry and makes none untrue; the exact match is guarded by a test: passes.'''
 
@@ -121,7 +121,7 @@ not_writes = ["tree_review"]
 id = "P2-04"
 item = 22
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that the new entry names code identifiers (`Ledger::only`, its file, `==`).'''
 
@@ -166,7 +166,7 @@ writes = { tree_ok = "no", tree_review = "written" }
 id = "P2-05"
 item = 23
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Change of design that deletes amounts-are-floats and writes amounts-are-cents in the entry's form, with the reason that holds and none of the code's names, the comment that cites the old one brought along, and no sum left to wrap (Article 2): passes.'''
 
@@ -213,7 +213,7 @@ not_writes = ["tree_review"]
 id = "P2-06"
 item = 23
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that the entry keeps the name amounts-are-floats while it says cents, and its Why still gives the old reason (integer cents turned down), contradicting it; may add the `i64` in it.'''
 
@@ -259,7 +259,7 @@ writes = { tree_ok = "no", tree_review = "written" }
 id = "P2-07"
 item = 23
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that the change makes decision amounts-are-floats untrue and tree_edits leaves it.'''
 
@@ -299,7 +299,7 @@ writes = { tree_ok = "no", tree_review = "written" }
 id = "P2-08"
 item = 24
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that the new entry is dated (2026-11-16, November), names files, and records one work's measurement, which is no decision (no way chosen) and belongs in research/ and the pull request.'''
 
@@ -343,7 +343,7 @@ writes = { tree_ok = "no", tree_review = "written" }
 id = "P2-09"
 item = 25
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Cleanup that brings the code in line with principle one-file-format and makes no entry untrue: passes.'''
 
@@ -381,7 +381,7 @@ not_writes = ["tree_review"]
 id = "P2-10"
 item = 25
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that the plan deletes principle one-file-format and rewrites it as a decision: it speaks of every command, those not made too, so it is a principle, the owner's, and no question asks the owner.'''
 
@@ -424,7 +424,7 @@ writes = { tree_ok = "no", tree_review = "written" }
 id = "P2-11"
 item = 27
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that decision unreadable-lines-are-counted contradicts principle no-silent-skips (a line that cannot be read fails the command) and Article 2.'''
 
@@ -470,7 +470,7 @@ writes = { tree_ok = "no", tree_review = "written" }
 id = "P2-12"
 item = 27
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Deep research's stream: deletes reports-read-the-whole-file, which it makes untrue, and writes the decision that holds, with the ways turned down and their measured reasons, in the entry's form: passes.'''
 
@@ -518,7 +518,7 @@ not_writes = ["tree_review"]
 id = "P2-13"
 item = 28
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with points that the plan goes against Article 1 and rewrites the constitution and principle one-file-format with no question that asks the owner.'''
 

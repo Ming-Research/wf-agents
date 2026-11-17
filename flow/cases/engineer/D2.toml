@@ -7,7 +7,7 @@ cell = "D2"
 id = "D2-01"
 item = 21
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Finds the simpler way: the key is the date's first seven characters, as decision a-month-is-a-text-key already says; drops `chrono` (Article 3, dates-are-checked-text) and the rewritten decision, keeps the test.'''
 
@@ -44,7 +44,7 @@ changes = ["plan"]
 id = "D2-02"
 item = 21
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 The fix is one character at the root cause with a committed red test: no better way; hands in no plan block as changing its meaning.'''
 
@@ -78,7 +78,7 @@ keeps = ["plan"]
 id = "D2-03"
 item = 22
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Finds the better structure: filter the ledger to the category and keep `report::monthly` as it is, so the month key and the sum stay in one place; rewrites the plan for it.'''
 
@@ -111,7 +111,7 @@ changes = ["plan"]
 id = "D2-04"
 item = 22
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 A filter before `monthly`, whole-name match, an unknown category refused: no better way to name; changes nothing for the sake of answering.'''
 
@@ -146,7 +146,7 @@ keeps = ["plan"]
 id = "D2-05"
 item = 23
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Finds the simpler way the background names: one `i64` of cents, which adds as one integer (checked) and keeps a refund's sign (units and cents apart cannot hold -0.50 with the sign on the units); rewrites the plan and the entry.'''
 
@@ -186,7 +186,7 @@ changes = ["plan"]
 id = "D2-06"
 item = 23
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Cents as one `i64`, the file's format kept, more decimals refused, the decision replaced: no better way.'''
 
@@ -228,7 +228,7 @@ keeps = ["plan"]
 id = "D2-07"
 item = 24
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Finds the way truer to the item: time reading, parsing and summing by calling the library apart, with no `--timings` option, since the background says to change no code of tally.'''
 
@@ -261,7 +261,7 @@ changes = ["plan"]
 id = "D2-08"
 item = 25
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Finds the simpler way the item asks: delete the module, the command and its test, with no feature, no second CI run and nothing left to keep up.'''
 
@@ -294,7 +294,7 @@ changes = ["plan"]
 id = "D2-09"
 item = 25
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 The cleanup deletes what the item names and keeps `Ledger::write` for its test: no better way.'''
 
@@ -327,7 +327,7 @@ keeps = ["plan"]
 id = "D2-10"
 item = 27
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Finds the better way in the plan's own numbers: the stream meets the 50 ms (32 ms) with no dependency and no unsafe code (Article 3); the 9 ms the threads save is not asked. Rewrites the plan and the decision for it.'''
 
@@ -367,7 +367,7 @@ changes = ["plan"]
 id = "D2-11"
 item = 27
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 The stream, one way of checking a line, measured against the other two, the decision rewritten: no better way.'''
 
@@ -407,7 +407,7 @@ keeps = ["plan"]
 id = "D2-12"
 item = 27
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Finds the way a decision ruled out: 330 of the 410 ms is making the entries, so parsing without them reaches 50 ms on every report, where the cache file misses it after each edit and is a second file to keep in step; rewrites the plan and reports-read-the-whole-file.'''
 

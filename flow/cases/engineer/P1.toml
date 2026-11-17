@@ -7,7 +7,7 @@ cell = "P1"
 id = "P1-01"
 item = 21
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that `monthly_keeps_october_whole` cannot fail: both October dates share one key before the fix (`2026-1`) and after it (`2026-10`), so it is not red before, and it asserts no key.'''
 
@@ -38,7 +38,7 @@ writes = { plan_ok = "no", plan_review = "written" }
 id = "P1-02"
 item = 21
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Defect planned at its root cause (six characters cut), the committed test asserts the `YYYY-MM` keys and sums, no decision changes: passes, raises nothing.'''
 
@@ -73,7 +73,7 @@ not_writes = ["plan_review"]
 id = "P1-03"
 item = 22
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Capability planned as asked (a filter before `monthly`, the monthly report's output, whole-name match, an unknown category refused by Article 2), with tests: passes.'''
 
@@ -109,7 +109,7 @@ not_writes = ["plan_review"]
 id = "P1-04"
 item = 22
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that the rows print the category (`2026-01  food  12.50`) where the background asks for the monthly report's output; may add that a second render is a second place for one thing.'''
 
@@ -143,7 +143,7 @@ writes = { plan_ok = "no", plan_review = "written" }
 id = "P1-05"
 item = 23
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Change of design from the deep research: amounts as i64 cents, the file's format kept and written with two decimals, more than two decimals refused, an amount or a sum past an i64 refused rather than wrapped, the decision replaced and the comment that cites it with it; settles what `found` left: passes.'''
 
@@ -192,7 +192,7 @@ not_writes = ["plan_review"]
 id = "P1-06"
 item = 23
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that the ledger file would hold cents (`1250`), where the background asks the file's format unchanged (two decimals as text).'''
 
@@ -237,7 +237,7 @@ writes = { plan_ok = "no", plan_review = "written" }
 id = "P1-07"
 item = 24
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that the measurement adds `--timings` to tally's CLI, where the background (and `found`) say to measure without changing tally's code; acceptance has no condition that no code changes.'''
 
@@ -276,7 +276,7 @@ writes = { plan_ok = "no", plan_review = "written" }
 id = "P1-08"
 item = 25
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that `Ledger::write` is not used by `import-legacy` alone: `a_ledger_written_reads_back_the_same` calls it, so the plan's verified claim is wrong and it deletes what the item asks to keep (the rest behaves as before).'''
 
@@ -309,7 +309,7 @@ writes = { plan_ok = "no", plan_review = "written" }
 id = "P1-09"
 item = 25
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Cleanup planned whole (module, lib.rs, CLI arm, USAGE, test), `Ledger::write` kept for the round-trip test: passes.'''
 
@@ -343,7 +343,7 @@ not_writes = ["plan_review"]
 id = "P1-10"
 item = 27
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails with a point that the plan does not settle what `found` left (three ways each tried and measured): it picks threads untried, its own estimate does not reach 50 ms, and no acceptance condition decides the 50 ms.'''
 
@@ -438,6 +438,9 @@ blocks.acceptance.content = '''
 blocks.plan_review.content = '''
 1. Taken: the test is now `monthly_keeps_months_apart`, on 2026-01-05 and 2026-02-03, asserting the rows `2026-01` 12.50 and `2026-02` 23.10; committed, and red before the change (one row, `2026-0`) by run_tests.
 2. Taken: acceptance 1 says the two rows.'''
+
+[[cases.history]]
+cell = "R2"
 
 [cases.owes]
 writes = { plan_ok = "yes" }
@@ -695,6 +698,9 @@ blocks.acceptance.content = '''
 3. `tally report --monthly FILE` without `--category` is unchanged (reading the diff).
 4. The full workflows pass.'''
 
+[[cases.history]]
+cell = "R2"
+
 [cases.owes]
 writes = { plan_ok = "yes" }
 not_writes = ["plan_review"]
@@ -771,6 +777,9 @@ blocks.acceptance.content = '''
 3. `monthly_shows_empty_months` passes in CI: the row `2026-02` shows 0.00.
 4. The full workflows pass.'''
 
+[[cases.history]]
+cell = "R2"
+
 [cases.owes]
 writes = { plan_ok = "no", plan_review = "written" }
 
@@ -778,7 +787,7 @@ writes = { plan_ok = "no", plan_review = "written" }
 id = "P1-17"
 item = 23
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Fails on point 4: `negative_cents` is a question a fact settles (refunds are negative amounts today, in the code, the example ledger and `total_subtracts_refunds`, and the file's format stays): withdraw it.'''
 
@@ -827,7 +836,7 @@ writes = { plan_ok = "no", plan_review = "written" }
 id = "P1-18"
 item = 25
 ran_before = false
-new = ["plan"]
+new = ["guide", "plan"]
 judge = '''
 Reads the owner's words to the research (keep `import-legacy` one more version, with a notice) and its answer that agreed, and finds the plan still deletes it: fails with that point.'''
 

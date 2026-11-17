@@ -186,11 +186,9 @@ cell = "D2"
 
 [[cases.history]]
 cell = "P1"
-blocks.plan_ok.value = "yes"
-
-[[cases.history]]
-cell = "P2"
-blocks.tree_ok.value = "no"
+blocks.plan_review.content = '''
+1. plan_agent, part 1: the text is split into chunks of equal bytes, and nothing says how a line cut by a chunk's boundary is read: as written, its two halves go to two threads, and both fail to parse or a date is cut. Say where each chunk starts and ends (at a line), and add a test of a ledger whose lines cross the boundaries.'''
+blocks.plan_ok.value = "no"
 
 [cases.owes]
 writes = { plan_review = "written" }
@@ -245,11 +243,9 @@ cell = "D2"
 
 [[cases.history]]
 cell = "P1"
-blocks.plan_ok.value = "yes"
-
-[[cases.history]]
-cell = "P2"
-blocks.tree_ok.value = "no"
+blocks.plan_review.content = '''
+1. plan_agent, part 1: the threads are spawned by hand with `std::thread::scope`. Use `rayon`'s `par_chunks` instead: it is the standard crate for data parallelism, and it splits the work for you.'''
+blocks.plan_ok.value = "no"
 
 [cases.owes]
 writes = { plan_review = "written" }
@@ -277,6 +273,11 @@ blocks.found.content = '''
 4. The item does not say which conditions 'any condition' means.
 For the deep research: what 'faster' needs at the owner's size, measured; which queries to build within the CSV, and how; the parts, if they are more than one work.'''
 blocks.r1_questions.shaped = [{ name = "ledger_store", waits = true, recommends = 2, ask = "The item asks to keep the ledger in a SQLite file, which Article 1 of the constitution (the ledger is a plain text file the owner edits by hand) and principle one-file-format forbid. How does the work go on?", options = [{ does = "change the constitution and the principle so that the ledger may be a SQLite file", follows = "the item is built as it asks; the owner can no longer edit the ledger in a text editor" }, { does = "keep the ledger a plain CSV file and make the reports fast and the queries richer within it", follows = "the constitution stands; what SQLite would give is reached another way, as far as it can be" }, { does = "close the item", follows = "nothing changes" }] }]
+
+[[cases.history]]
+owner = "answer"
+question = "ledger_store"
+option = 2
 
 [[cases.history]]
 cell = "D1"
@@ -308,9 +309,9 @@ blocks.plan_ok.value = "yes"
 
 [[cases.history]]
 cell = "P2"
-blocks.tree_ok.value = "no"
 blocks.tree_review.content = '''
 1. tree_edits: the entry says when it was settled (`on 2026-11-12`) and names `Ledger::select`, an identifier from the code; the tree's rules allow neither. Give the reason without the date, in the system's own terms.'''
+blocks.tree_ok.value = "no"
 
 [cases.owes]
 writes = { tree_review = "written" }
@@ -369,7 +370,12 @@ blocks.plan_ok.value = "yes"
 
 [[cases.history]]
 cell = "P2"
-blocks.tree_ok.value = "no"
+blocks.tree_ok.value = "yes"
+
+[[cases.history]]
+cell = "I1"
+blocks.plan_doubts.content = '''
+1. plan_agent, part 3: `fast_matches_monthly` asserts with `assert_eq!` that the rows of `monthly_fast` equal those of `monthly`, f64 sums included. The fast path sums each chunk apart and then adds the chunks' sums, so the same amounts are added in another order, and f64 addition is not associative: on the generated 10,000-line ledger the sums can differ in the last bits, and the test fails though the report prints the same. Article 2 also forbids a sum that drifts. Say how the two paths' sums are made equal, or what the test compares.'''
 
 [cases.owes]
 writes = { plan_doubts = "written" }
@@ -423,15 +429,9 @@ Why: The owner's ledger is a few thousand lines and will reach about 40,000; str
 Where it does not hold, nothing changes here: a work of its own changes the decision.'''
 
 [[cases.history]]
-cell = "D2"
-
-[[cases.history]]
-cell = "P1"
-blocks.plan_ok.value = "yes"
-
-[[cases.history]]
-cell = "P2"
-blocks.tree_ok.value = "no"
+owner = "answer"
+question = "big_ledger"
+option = 2
 
 [cases.owes]
 changes = ["plan"]
@@ -513,6 +513,11 @@ For the deep research: what 'faster' needs at the owner's size, measured; which 
 blocks.r1_questions.shaped = [{ name = "ledger_store", waits = true, recommends = 2, ask = "The item asks to keep the ledger in a SQLite file, which Article 1 of the constitution (the ledger is a plain text file the owner edits by hand) and principle one-file-format forbid. How does the work go on?", options = [{ does = "change the constitution and the principle so that the ledger may be a SQLite file", follows = "the item is built as it asks; the owner can no longer edit the ledger in a text editor" }, { does = "keep the ledger a plain CSV file and make the reports fast and the queries richer within it", follows = "the constitution stands; what SQLite would give is reached another way, as far as it can be" }, { does = "close the item", follows = "nothing changes" }] }]
 
 [[cases.history]]
+owner = "answer"
+question = "ledger_store"
+option = 2
+
+[[cases.history]]
 cell = "D1"
 blocks.d1_questions.shaped = [{ name = "parts", waits = true, recommends = 1, ask = "Within the CSV ledger the work falls into two parts, each mergeable on its own: 1. `tally query`, which lists the entries of a date range and a category with their total; 2. reports that read the ledger as a stream, for ledgers far larger than the owner's (40,000 lines take 8 ms now). Together they are more than one work. How does the work go on?", options = [{ does = "this work does part 1, and part 2 becomes an item of its own", follows = "the queries come first, and each part merges alone" }, { does = "this work does both", follows = "one pull request of more than a day's work" }] }]
 
@@ -571,15 +576,9 @@ Why: The owner's ledger is a few thousand lines and will reach about 40,000; str
 Where it does not hold, nothing changes here: a work of its own changes the decision.'''
 
 [[cases.history]]
-cell = "D2"
-
-[[cases.history]]
-cell = "P1"
-blocks.plan_ok.value = "yes"
-
-[[cases.history]]
-cell = "P2"
-blocks.tree_ok.value = "no"
+owner = "words"
+to = "D1"
+content = "也量一下 `tally categories` 在 40,000 行上要多久，我平时用它最多。"
 
 [cases.owes]
 writes = { d1_words = "written" }
@@ -630,15 +629,9 @@ The monthly report reads the ledger whole, then scans it in as many parts as the
 Why: The owner's ledger reaches two million lines, and 50 ms is asked: building the entries took 281 ms, a scan on one thread 93 ms, in eight parts 14 ms; a memory map was turned down as unsafe code that saved less than the read it replaced, and `rayon` as a dependency for what a few lines do (Article 3).'''
 
 [[cases.history]]
-cell = "D2"
-
-[[cases.history]]
-cell = "P1"
-blocks.plan_ok.value = "yes"
-
-[[cases.history]]
-cell = "P2"
-blocks.tree_ok.value = "no"
+owner = "words"
+to = "D1"
+content = "为什么不用 mmap？我以为大文件都该用它。"
 
 [cases.owes]
 writes = { d1_words = "written" }
@@ -691,17 +684,6 @@ Why: The owner's ledger is a few thousand lines and will reach about 40,000; str
 Where it does not hold, nothing changes here: a work of its own changes the decision.'''
 
 [[cases.history]]
-cell = "D2"
-
-[[cases.history]]
-cell = "P1"
-blocks.plan_ok.value = "yes"
-
-[[cases.history]]
-cell = "P2"
-blocks.tree_ok.value = "no"
-
-[[cases.history]]
 owner = "background"
 content = '''
 决定 reports-read-the-whole-file 说报表先把整个账本读进内存，理由是 2026-03-01 在 5,000 行上量的 4 ms。主人的账本十年后大约 40,000 行。要的是：量出 `tally report --monthly` 在 40,000 行的账本上要多久，时间花在读文件、解析还是求和上，并据此说这个决定还成不成立。只量，不改 `tally` 的代码。
@@ -710,9 +692,6 @@ content = '''
 
 [[cases.history]]
 cell = "R0"
-
-[[cases.history]]
-cell = "D1"
 
 [cases.owes]
 changes = ["plan"]
@@ -765,14 +744,6 @@ Why: The owner's ledger reaches two million lines, and 50 ms is asked: building 
 cell = "D2"
 
 [[cases.history]]
-cell = "P1"
-blocks.plan_ok.value = "yes"
-
-[[cases.history]]
-cell = "P2"
-blocks.tree_ok.value = "no"
-
-[[cases.history]]
 main = "main-guide-commit-messages"
 
 [cases.owes]
@@ -816,14 +787,6 @@ blocks.acceptance.content = '''
 
 [[cases.history]]
 cell = "D2"
-
-[[cases.history]]
-cell = "P1"
-blocks.plan_ok.value = "yes"
-
-[[cases.history]]
-cell = "P2"
-blocks.tree_ok.value = "no"
 
 [[cases.history]]
 main = "main-guide-changelog"
@@ -880,11 +843,29 @@ cell = "D2"
 
 [[cases.history]]
 cell = "P1"
-blocks.plan_ok.value = "yes"
+blocks.plan_review.content = '''
+1. plan_agent, part 1: the text is split into chunks of equal bytes, and nothing says how a line cut by a chunk's boundary is read: as written, its two halves go to two threads, and both fail to parse or a date is cut. Say where each chunk starts and ends (at a line), and add a test of a ledger whose lines cross the boundaries.'''
+blocks.plan_ok.value = "no"
 
 [[cases.history]]
-cell = "P2"
-blocks.tree_ok.value = "no"
+cell = "D1"
+blocks.plan_agent.content = '''
+1. crates/tally/src/report.rs: `pub fn monthly_fast(text: &str) -> Result<Vec<(String, Amount)>, String>`: check the header; split the rest of `text` into N chunks (N = `std::thread::available_parallelism`), each starting after the first newline at or after its offset (the first at the start of the text) and ending at the first newline at or after the next chunk's offset; in `std::thread::scope`, each thread walks its chunk line by line, takes the line's first seven bytes as the month (`[u8; 7]`) and parses the second field with `amount::parse`, skipping the note, and sums into a `BTreeMap<[u8; 7], Amount>`; the maps are merged in chunk order. A line that cannot be read fails the report with its line number (principle no-silent-skips): each thread counts its lines, and the number adds the lines of the chunks before it.
+2. crates/tally-cli/src/main.rs: `report --monthly FILE` reads the file and calls `monthly_fast`.
+3. Tests in crates/tally/tests/report.rs: `fast_matches_monthly`: on examples/ledger.csv and on a generated 10,000-line ledger, `monthly_fast` gives the rows `monthly` gives (`assert_eq!`); `fast_fails_a_bad_line_with_its_number`; `fast_reads_lines_across_boundaries`, on a ledger whose lines cross every chunk's offset; all red before (no `monthly_fast`), green after.
+4. research/monthly-report-2m/README.md: the question, the criterion (50 ms), the numbers below and the run's link.
+Verified, by a timing test run by name in CI (https://ci.example.invalid/tally/runs/7311), not kept, on 2,000,000 lines (67 MB): read 21.9 ms; `Ledger::parse` 281.3 ms; `monthly` 63.4 ms; a byte scan without allocation on one thread 92.6 ms; with a memory map 97.1 ms; the scan on 8 threads 14.2 ms, 36.1 ms with the read. Inferred: the CI runner's 8 cores are what the owner's machine has; `available_parallelism` adapts.'''
+blocks.plan_review.content = '''
+1. Changed: each chunk starts after the first newline at or after its offset (the first at the start of the text) and ends at the first newline at or after the next chunk's offset; `fast_reads_lines_across_boundaries` tests a ledger whose lines cross every offset.'''
+
+[[cases.history]]
+cell = "D2"
+
+[[cases.history]]
+cell = "P1"
+blocks.plan_review.content = '''
+1. The answer moves each chunk's start past the first newline at or after its offset. A chunk whose range holds no newline, as in a ledger of fewer lines than chunks or a line longer than a chunk, then starts past its own end, or two chunks start at the same line and both read it. Say what such a chunk does, and test a ledger of two lines read in eight chunks.'''
+blocks.plan_ok.value = "no"
 
 [cases.owes]
 writes = { plan_review = "written" }
@@ -919,7 +900,7 @@ question = "waits"
 id = "D1-20"
 item = 27
 ran_before = true
-new = ["plan_review", "tree_review"]
+new = ["plan_review", "d1_words"]
 judge = '''
 Both reviews failed the plan at once: adds the header-only ledger to plan_agent with its test, keeps reports-read-the-whole-file for total and categories beside the new entry in tree_edits; answers each point in its own dialogue.'''
 
@@ -964,13 +945,14 @@ cell = "D2"
 
 [[cases.history]]
 cell = "P1"
-blocks.plan_ok.value = "yes"
+blocks.plan_review.content = '''
+1. plan_agent, part 1, and acceptance: nothing says what `monthly_fast` gives for a ledger of the header alone, for which `monthly` gives no rows; no test covers it. Say it, and add the test.'''
+blocks.plan_ok.value = "no"
 
 [[cases.history]]
-cell = "P2"
-blocks.tree_ok.value = "no"
-blocks.tree_review.content = '''
-1. tree_edits: the plan replaces reports-read-the-whole-file with a decision about the monthly report alone, but `tally total` and `tally categories` still read the whole ledger and build it (crates/tally-cli/src/main.rs lines 26 and 28): the old decision still holds for them. Keep it for them beside the new entry, or say why it goes.'''
+owner = "words"
+to = "D1"
+content = "树的评审也会提意见，先按计划评审改。"
 
 [cases.owes]
 writes = { plan_review = "written", tree_review = "written" }
