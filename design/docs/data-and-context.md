@@ -16,15 +16,15 @@ the owner's pauses, when a work is at its end.
 
 2. A new version comes from outside or from a cell. From outside: whoever made the item writes its background; the
    owner answers, speaks or rules; the owner lets the work on, first or after the item was reopened (`start`); the
-   items the work depends on merge (`dependencies`); the branch the works merge into moves (`main`); a file of the
-   project that the cells work under changes (`AGENTS.md`, the design tree); a cell's specification changes (design
-   document `changed-flow-walks-the-records`); a session is reopened (25). Each of these says that something happened
+   items the work depends on merge (`dependencies`); the branch the works merge into moves (`main`); the design tree
+   of the project changes (`tree`); a cell's specification changes (design document
+   `changed-flow-walks-the-records`); a session is reopened (25). Each of these says that something happened
    outside the work, and runs a cell only where a cell watches it. From a cell: what it hands in when a round of it
    ends. The code a round commits is handed in by that round, read from the branch as it ends (`head`). One datum is
    neither: `asked`, which the engine works out from the questions (33).
 
-3. A file's version is its content. It has a new version whenever its content changed, whoever changed it and
-   wherever: on the branch the works merge into, or in the work itself.
+3. The design tree's version is its commit with the id of the tree at it, and it has a new version whenever the tree
+   changed, whoever changed it and wherever: on the branch the works merge into, or in the work itself.
 
 4. The data carry themselves forward in this way: each new version takes the work from one state to the next. An agent
    is the tool of such a step, and nothing more.
@@ -76,8 +76,7 @@ the owner's pauses, when a work is at its end.
     order the cell names them.
 
 15. A session that is reopened has nothing, and its record is emptied. The next round in it is filled with all that
-    its cell's data ask for, from the top. What every cell is given alike comes first, `AGENTS.md` before all, so that
-    sessions share it in the cache.
+    its cell's data ask for, from the top. What every cell is given alike comes first (principle cache-order).
 
 16. Whether a cell runs is never the manager's matter, and what is filled is never the engine's.
 
@@ -114,9 +113,7 @@ new session lacks it.
 
 22. How far a change travels follows from this. An output made anew is a new version each time, so the change reaches
     the cells after. A round that brings its outputs up to date may find that they stand as they are and hand in
-    nothing new, and the change ends there (9). So when `AGENTS.md` changes, the cell of every agent runs again, and
-    each does only this: it sees that `AGENTS.md` changed and nothing else, looks over its outputs for what the change
-    touches, and where there is nothing, hands in nothing new.
+    nothing new, and the change ends there (9).
 
 ## What an agent reads by itself
 
@@ -126,8 +123,12 @@ new session lacks it.
     session read, as the files that changed, so that the agent reads those again; where the session has read none of
     it, it says so.
 
-24. `AGENTS.md` can be put into a context as it is. So it is data, which the cell of every agent watches: the context
-    manager fills it into each new session, and a cell runs again because of it only when its content changed.
+24. `AGENTS.md` is not data. It is in the system prompt of every session (decision
+    the-projects-files-as-the-work-has-them): no cell watches or reads it, and none runs because of it. A session that
+    was open when it changed does not receive the change, and a session begun later reads the new one. Giving it as
+    data, so that an open session was told what changed, was turned down: that case is rare, while the datum was
+    listed in the first message of every cell, and an agent copied it whole into what it dealt with and had its return
+    sent back (judgment on how rare the case is, not measured).
 
 25. The design tree is read by the agent, which chooses what bears on the problem. A session that has not read the tree
     for the work reads it in the first round of a cell that reads `tree` entered in it, before that round's own work
@@ -270,10 +271,10 @@ new session lacks it.
 
 45. The engineer flow, cell by cell, in the order of the walk. "Plan" is the group of `plan_owner`, `plan_agent`,
     `acceptance` and `tree_edits`; "change" the group of `code`, `title`, `decisions`, `evidence`, `tests` and `head`.
-    A dialogue is named by the datum its two sides write. Every agent's cell watches `AGENTS.md` (24), and reads every
-    cell's questions and every cell's words (33, 35); each cell that may ask also watches its own questions and its own
-    words (30, 35); a cell that reads `tree` reads it first where its session has not (25). None of this is repeated in
-    the table, and a blank under "Runs where" is every work.
+    A dialogue is named by the datum its two sides write. Every agent's cell reads every cell's questions and every
+    cell's words (33, 35); each cell that may ask also watches its own questions and its own words (30, 35); a cell that
+    reads `tree` reads it first where its session has not (25). None of this is repeated in the table, and a blank
+    under "Runs where" is every work.
 
     | Cell | Runs where | Watches | Reads | Writes |
     |---|---|---|---|---|

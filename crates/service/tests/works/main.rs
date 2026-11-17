@@ -90,11 +90,7 @@ pub fn trial_dir() -> PathBuf {
 pub fn trial_flow() -> Compiled {
     let source = flow::read(&trial_dir().join("flow")).expect("the trial flow is read");
     let has = flow::Has {
-        sources: BTreeSet::from([
-            driver::DEPENDENCIES.to_string(),
-            flow::ANSWER.to_string(),
-            "guide".to_string(),
-        ]),
+        sources: BTreeSet::from([driver::DEPENDENCIES.to_string(), flow::ANSWER.to_string()]),
         acts: BTreeSet::from(["merge".to_string()]),
         ..Default::default()
     };

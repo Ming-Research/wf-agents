@@ -43,7 +43,6 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     let parts: Vec<String> = (read.session.parts.iter())
         .map(|part| match part {
             SessionPart::Project(p) => format!("project {}", p.project),
-            SessionPart::Datum(d) => format!("datum {}", d.datum),
             SessionPart::Line(l) => format!("line {:?}", l.line),
             SessionPart::Words(w) => format!("words {}", w.words),
             SessionPart::Returns(r) => format!("returns {:?}", r.returns),

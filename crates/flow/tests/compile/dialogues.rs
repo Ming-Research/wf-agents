@@ -28,7 +28,6 @@ fn has() -> Has {
             "head",
             "tree",
             "words",
-            "guide",
         ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),

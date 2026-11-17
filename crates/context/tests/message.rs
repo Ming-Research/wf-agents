@@ -728,58 +728,6 @@ fn a_setting_the_task_what_a_cell_does_for_a_datum_or_a_block_s_words_name_is_se
     );
 }
 
-/// A guide of the project's, with the rule of this line.
-fn guide(rule: &str) -> String {
-    let mut lines: Vec<String> = (1..=12).map(|n| format!("Rule {n}.")).collect();
-    lines[5] = rule.to_string();
-    format!("{}\n", lines.join("\n"))
-}
-
-// The project's guide is data a cell watches (design document `data-and-context`, 24): a session holds the version its
-// system prompt began with, so a cell's first round is told the guide is new to it, with what it does for it, and is
-// sent only the line that the session holds it; once it changes, the round is told the version it last worked from and
-// the latest, and sent what changed between them.
-#[test]
-fn the_guide_is_held_from_the_session_s_start_and_what_changed_in_it_is_sent() {
-    let mut sim = Sim::of(support::guided(), support::guided_words());
-    sim.wrote("guide", &guide("Write in English."), None, Outsider::Outside);
-    let round = sim.round().expect("the plan is entered");
-    let first = sim.version("guide");
-    let entered = sim.enter(&round, false);
-    let new = format!("\n- `guide`, version {first}: Work under it.");
-    assert!(entered.text.contains(&new), "{}", entered.text);
-    let held = format!("## `guide`, version {first}, in this session already");
-    assert!(entered.text.contains(&held), "{}", entered.text);
-    assert!(!entered.text.contains("Write in English."), "{}", entered.text);
-    assert_eq!(entered.situation.data["guide"], Stands::HoldsNew);
-    assert!(!entered.fills.contains(&whole("guide", first)), "{:?}", entered.fills);
-    sim.tries(&round, 1, entered.fills);
-    sim.hands_in(&round, &[("plan", "Greet by name.", None)]);
-    // The guide changes, and runs the plan again, after the build of its line under way, in the session that began
-    // with its first version.
-    sim.wrote("guide", &guide("Write in plain English."), None, Outsider::Outside);
-    let latest = sim.version("guide");
-    let round = loop {
-        let round = sim.round().expect("a round is given");
-        if sim.cell(&round).id.as_str() == "plan" {
-            break round;
-        }
-        carry(&mut sim, &[("code", CODE, None)]);
-    };
-    let entered = sim.enter(&round, false);
-    let new = format!("\n- `guide`, new since version {first}, now version {latest}: Work under it.");
-    assert!(entered.text.contains(&new), "{}", entered.text);
-    let changed = format!("## `guide`, what changed from version {first} to version {latest}\n\n");
-    assert!(entered.text.contains(&changed), "{}", entered.text);
-    assert!(entered.text.contains("Write in plain English."), "{}", entered.text);
-    let change = Fill::Change {
-        block: BlockId::from("guide"),
-        version: Seq(latest),
-        since: Seq(first),
-    };
-    assert!(entered.fills.contains(&change), "{:?}", entered.fills);
-}
-
 // What is read of the branch as a round takes main in is written from outside and put into that round: no round's
 // (decision a-version-read-at-a-rounds-end-is-that-rounds), so that a round given it is told it by no line, as any
 // other version the outside wrote.

@@ -3,10 +3,9 @@
 What every flow's definition holds, whichever flow it is.
 
 ### decision every-agent-takes-is-the-flows
-What every agent cell of a flow watches and reads beside what its own file names, such as every cell's questions and
-words, is named once in the flow's `flow.toml` (`[every_agent]`), each with its kind, and given each agent cell first; a
-datum a cell names itself it takes as its own file names it. The engine holds no list of it, and no cell's file repeats
-it.
+What every agent cell of a flow reads beside what its own file names, such as every cell's questions and words, is named
+once in the flow's `flow.toml` (`[every_agent]`), each with its kind, and given each agent cell first; a datum a cell
+names itself it takes as its own file names it. The engine holds no list of it, and no cell's file repeats it.
 Why: What every cell takes is part of the flow, which the owner reads in its files and on its chart (Article 7); written
 in each cell's file it would be one thing in many places, and held in the engine's code, one the flow does not show
 (principle one-thing-one-place).
