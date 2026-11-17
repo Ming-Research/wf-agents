@@ -293,7 +293,7 @@ describe('why a run ran, in words', () => {
       'plan changed in meaning, which its record knew no version of',
     );
     const behind = { kind: 'changed', block: 'opinions', was: 12, behind: true } as const;
-    expect(causeWords(behind, true)).toBe('opinions changed in meaning since @12, by a cell after it: a way round');
+    expect(causeWords(behind, true)).toBe('opinions changed in meaning since v12, by a cell after it: a way round');
     expect(isWayRound({ because: [behind] })).toBe(true);
     expect(isWayRound({ because: [] })).toBe(false);
   });
@@ -303,8 +303,8 @@ describe('why a run ran, in words', () => {
     const because = [behind, { kind: 'changed', block: 'plan', was: 3, behind: false } as const];
     expect(isWayRound({ because })).toBe(false);
     expect(because.map((c) => causeWords(c, isWayRound({ because })))).toEqual([
-      'opinions changed in meaning since @12, by a cell after it',
-      'plan changed in meaning since @3',
+      'opinions changed in meaning since v12, by a cell after it',
+      'plan changed in meaning since v3',
     ]);
   });
 

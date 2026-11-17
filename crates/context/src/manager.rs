@@ -111,12 +111,18 @@ pub fn enter(
     // there (design document `data-and-context`, 39).
     let versions = decide::ruled_versions(&flow.flow, &records);
     let own = |v: &VersionView| matches!(v.by, Writer::Run(r) if of_cell(&records, r, cell));
+    // A version is told by its number among the versions of its datum (decision
+    // a-version-is-numbered-within-its-datum).
+    let number_of = |block: &BlockId, at: Seq| numbered(&records, [block], at);
     let mut situation = Situation {
         after_hand_in: !held.taken.is_empty(),
         ..Situation::default()
     };
+    let taken = (held.taken.iter())
+        .map(|(block, at)| -> Result<(BlockId, u64), String> { Ok((block.clone(), number_of(block, *at)?)) })
+        .collect::<Result<_, String>>()?;
     let mut values = Run {
-        taken: held.taken.clone(),
+        taken,
         work: about.work.to_string(),
         item: about.item.to_string(),
         item_title: about.title.to_string(),
@@ -135,11 +141,13 @@ pub fn enter(
             situation.data.insert(block.to_string(), Stands::Unwritten);
             continue;
         };
-        let version = |v: &VersionView| Version {
-            number: v.at,
-            value: v.value.clone(),
-            content: content(work, block, v.at).to_string(),
-            by: by(flow, &records, block, v),
+        let version = |v: &VersionView| -> Result<Version, String> {
+            Ok(Version {
+                number: number_of(block, v.at)?,
+                value: v.value.clone(),
+                content: content(work, block, v.at).to_string(),
+                by: by(flow, &records, block, v),
+            })
         };
         let last = last_worked_from(flow, &records, cell, block, all);
         let holds = |at: Seq| held.versions.get(block).is_some_and(|h| h.contains(&at));
@@ -147,8 +155,8 @@ pub fn enter(
             .iter()
             .any(|v| Some(v.at) > last && v.meaning == Some(v.at) && !own(v) && !v.ruled);
         let mut datum = Datum {
-            latest: version(latest),
-            last,
+            latest: version(latest)?,
+            last: last.map(|at| number_of(block, at)).transpose()?,
             ..Datum::default()
         };
         let whole = |at: Seq| {
@@ -168,7 +176,7 @@ pub fn enter(
                 false => (Stands::Lacks, whole(latest.at)),
             }
         } else if given.kind == InputKind::All && !lacking.is_empty() {
-            datum.versions = lacking.iter().map(|v| version(v)).collect();
+            datum.versions = lacking.iter().map(|v| version(v)).collect::<Result<_, String>>()?;
             let fills = lacking.iter().flat_map(|v| whole(v.at)).collect();
             let stands = if holds(all[0].at) {
                 Stands::HoldsLast
@@ -205,7 +213,7 @@ pub fn enter(
             match change {
                 Some((since, diff)) => {
                     // The change is told from the version it is from.
-                    (datum.last, datum.diff) = (Some(since), Some(diff));
+                    (datum.last, datum.diff) = (Some(number_of(block, since)?), Some(diff));
                     let fill = Fill::Change {
                         block: block.clone(),
                         version: latest.at,
@@ -240,8 +248,13 @@ pub fn enter(
         let last = (watched.blocks.iter())
             .filter_map(|b| last_worked_from(flow, &records, cell, b, of(b)))
             .max();
+        // Of a group, among the versions of the group: each place that wrote any of its blocks is one.
         if let Some(latest) = latest {
-            values.new.insert(watched.name.clone(), NewVersions { last, latest });
+            let new = NewVersions {
+                last: last.map(|at| numbered(&records, &watched.blocks, at)).transpose()?,
+                latest: numbered(&records, &watched.blocks, latest)?,
+            };
+            values.new.insert(watched.name.clone(), new);
         }
         situation.new.push(watched.name.clone());
     }
@@ -249,6 +262,8 @@ pub fn enter(
     // lacks; the round's own reasons are always sent.
     let mut results: Vec<CallId> = Vec::new();
     let mut sent_back: Vec<usize> = Vec::new();
+    // Each version given as written over, by its block and place.
+    let mut over: Vec<(BlockId, Seq)> = Vec::new();
     for k in 1..=number {
         let given = if k == number {
             work.given.get(&(run, k))
@@ -269,6 +284,13 @@ pub fn enter(
                 sent_back.push(k);
                 let round = (k < number).then_some(k);
                 values.sent_back.push((round, unmet.clone()));
+                for u in unmet {
+                    if let Unmet::WrittenOver { block, version } = u {
+                        values
+                            .numbers
+                            .insert((block.clone(), *version), number_of(block, *version)?);
+                    }
+                }
                 // The version the round's own return would have written over, of a block the cell is not given, is
                 // given with it where the session lacks it, so that the agent sees what it is to write over; but where
                 // the context gives it already, as the latest of what the cell writes.
@@ -286,12 +308,13 @@ pub fn enter(
                     let of = versions.get(block).and_then(|vs| vs.iter().find(|v| v.at == *version));
                     if let (false, false, Some(v)) = (given, held, of) {
                         let written = Version {
-                            number: v.at,
+                            number: number_of(block, v.at)?,
                             value: v.value.clone(),
                             content: content(work, block, v.at).to_string(),
                             by: by(flow, &records, block, v),
                         };
                         values.written_over.push((block.clone(), written));
+                        over.push((block.clone(), v.at));
                     }
                 }
             }
@@ -318,9 +341,9 @@ pub fn enter(
             name if name == Part::Results.name() => fills.push(Fill::Results(results.clone())),
             name if name == Part::SentBack.name() => {
                 fills.extend(sent_back.iter().map(|round| Fill::SentBack { round: *round }));
-                fills.extend(values.written_over.iter().map(|(block, v)| Fill::Whole {
+                fills.extend(over.iter().map(|(block, at)| Fill::Whole {
                     block: block.clone(),
-                    version: v.number,
+                    version: *at,
                 }));
             }
             name if s.form == Form::Text && kept_part(words, name) => {
@@ -335,6 +358,20 @@ pub fn enter(
         run: values,
         sent,
         fills,
+    })
+}
+
+/// The number of the datum's version written at this place, by which a round is told it: its place among the
+/// datum's versions, counted from one ([`Records::number`]); of a group, among the versions of the group.
+fn numbered<'b>(records: &Records, datum: impl IntoIterator<Item = &'b BlockId>, at: Seq) -> Result<u64, String> {
+    let datum: Vec<&BlockId> = datum.into_iter().collect();
+    let named: Vec<&str> = datum.iter().map(|b| b.as_str()).collect();
+    (records.number(datum.iter().copied(), at)).ok_or_else(|| {
+        format!(
+            "the work has no version of {} written at place {}",
+            named.join(", "),
+            at.0
+        )
     })
 }
 

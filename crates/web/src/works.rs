@@ -7,6 +7,10 @@
 //! content is, and the content of a version, of what a round handed in and of a call's result is asked for by itself,
 //! when the owner opens it.
 //!
+//! A version of a datum is given and taken by its number among the datum's versions, the first being 1 (decision
+//! a-version-is-numbered-within-its-datum); the place of the entry that wrote it, which the engine orders what
+//! happened by, is given only to order it among the steps, and never names it.
+//!
 //! - [`Items`]: every item with its work in brief, for the item graph and the list of works.
 //! - [`WorkPage`]: one work, as it is now and step by step from its start.
 //! - [`RoundPage`], [`VersionPage`], [`CallPage`]: the content the history leaves out.
@@ -284,8 +288,9 @@ pub struct Wait {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Ends {
-    /// Answers this version of the work's question of this name, by one of its options.
-    Answer { question: String, version: u64 },
+    /// Answers this version of the work's question of this name, by one of its options: the version by its number
+    /// among the versions of its cell's questions, none where it has none.
+    Answer { question: String, version: Option<u64> },
     /// Answers in words the question this call puts to them.
     Reply { call: u64 },
     /// Lets the run that reached its limit go on, as the result of this call.
@@ -310,10 +315,7 @@ impl Wait {
             key: waiting.key,
             why: waiting.why,
             ends: match waiting.ends {
-                EndsOf::Answer { question, version } => Ends::Answer {
-                    question,
-                    version: version.0,
-                },
+                EndsOf::Answer { question, version } => Ends::Answer { question, version },
                 EndsOf::Reply { call } => Ends::Reply { call: call.0 },
                 EndsOf::GoOn { call } => Ends::GoOn { call: call.0 },
                 EndsOf::LetGo { cell } => Ends::LetGo { cell: cell.to_string() },
@@ -675,8 +677,9 @@ pub struct QuestionPage {
     pub name: String,
     /// The cell it belongs to.
     pub cell: String,
-    /// The version an answer names: the place of the latest.
-    pub version: u64,
+    /// The version an answer names: the number of the latest among the versions of its cell's questions; none where it
+    /// has none, as a question of a cell with no questions of its own.
+    pub version: Option<u64>,
     /// The engine itself asked it, and not the cell's agent.
     pub engine: bool,
     pub waits: bool,
@@ -708,8 +711,8 @@ pub struct AnswerPage {
 }
 
 impl QuestionPage {
-    /// Each question of the work as it stands.
-    fn all(work: &Work) -> Vec<QuestionPage> {
+    /// Each question of the work, on this flow, as it stands.
+    fn all(flow: &flow::Compiled, work: &Work) -> Vec<QuestionPage> {
         (decide::questions::questions(&work.records).into_iter())
             .map(|(name, q)| {
                 let (ask, options, recommends, withdrawn) = match work.question(q.latest) {
@@ -733,7 +736,7 @@ impl QuestionPage {
                 QuestionPage {
                     name: name.to_string(),
                     cell: q.latest.cell.to_string(),
-                    version: q.latest.at.0,
+                    version: engine::asked::number_of(flow, &work.records, &q.latest.cell, q.latest.at),
                     engine: q.latest.engine,
                     waits: q.latest.waits,
                     withdrawn: withdrawn.or_else(|| q.latest.withdrawn.then(String::new)),
@@ -769,8 +772,8 @@ pub struct CellDetail {
 pub enum Cause {
     /// It had no record, as a run started before a cell ran only for what is new says.
     NoRecord,
-    /// The block is new to the cell. `was` is the version the cell consumed; `behind` says every new version was
-    /// written by a cell after this one.
+    /// The block is new to the cell. `was` is the version the cell consumed, by its number; `behind` says every new
+    /// version was written by a cell after this one.
     Changed {
         block: String,
         was: Option<u64>,
@@ -785,9 +788,9 @@ pub enum Cause {
 #[serde(rename_all = "camelCase")]
 pub struct Input {
     pub block: String,
-    /// The block's current version; none where it has none.
+    /// The block's current version, by its number; none where it has none.
     pub current: Option<u64>,
-    /// The version the cell consumed; none where it consumed none.
+    /// The version the cell consumed, by its number; none where it consumed none.
     pub known: Option<u64>,
     /// Whether the block is new to the cell.
     pub changed: bool,
@@ -805,12 +808,14 @@ pub struct Block {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Version {
-    /// The place of the entry that wrote it, which names it.
+    /// The place of the entry that wrote it, which orders it among the work's steps and names none of them.
     pub at: u64,
+    /// Its number among the versions of its block, the first being 1, which names it.
+    pub number: u64,
     pub time: u64,
     pub by: Writer,
-    /// The version at which the meaning it has last changed: itself, or an earlier one; none where the block has said
-    /// nothing yet, as of a first version handed in as changing nothing.
+    /// The version at which the meaning it has last changed, by its number: itself, or an earlier one; none where the
+    /// block has said nothing yet, as of a first version handed in as changing nothing.
     pub meaning: Option<u64>,
     /// The block's value, where it is a choice.
     pub value: Option<String>,
@@ -944,7 +949,7 @@ pub struct Run {
     pub spent: Spent,
 }
 
-/// A block a run started from, at this version.
+/// A block a run started from, at this version, by its number.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Basis {
@@ -1120,7 +1125,7 @@ pub struct RoundTry {
     pub filled: Vec<Vec<Fill>>,
 }
 
-/// One thing filled into a session, as the flow's files name it.
+/// One thing filled into a session, as the flow's files name it, each version by its number.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Fill {
@@ -1174,7 +1179,8 @@ pub enum Unmet {
     DealtWithTwice { block: String },
     /// Something ran the round, and the return deals with none of it and asks for no call.
     DealtWithNothing,
-    /// The block got this version from another writer since the round was told of the one it writes over.
+    /// The block got this version, by its number, from another writer since the round was told of the one it writes
+    /// over.
     WrittenOver { block: String, version: u64 },
     /// The block is a choice, written as changing nothing in meaning with another value than it has.
     ChoiceChanged { block: String },
@@ -1270,18 +1276,18 @@ pub struct CallRow {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RunEnd {
-    /// It finished, and wrote these blocks: each is the version of its block named by `at`.
+    /// It finished, and wrote these blocks: each is the version of its block written at `at`.
     Finished { at: u64, time: u64, writes: Vec<Handed> },
     /// It was abandoned, and wrote nothing.
     Abandoned { at: u64, time: u64 },
 }
 
-/// The content of a version of a block.
+/// The content of a version of a block, the version by its number.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionPage {
     pub block: String,
-    pub at: u64,
+    pub number: u64,
     pub content: String,
 }
 
@@ -1535,23 +1541,23 @@ pub enum Doing {
 }
 
 impl Fill {
-    fn of(fill: &FillOf) -> Fill {
-        match fill {
+    fn of(fill: &FillOf, records: &Records) -> Result<Fill, Broken> {
+        Ok(match fill {
             FillOf::Part { part, .. } => Fill::Part { part: part.clone() },
             FillOf::Whole { block, version } => Fill::Whole {
                 block: block.to_string(),
-                version: version.0,
+                version: numbered(records, block, *version)?,
             },
             FillOf::Change { block, version, since } => Fill::Change {
                 block: block.to_string(),
-                version: version.0,
-                since: since.0,
+                version: numbered(records, block, *version)?,
+                since: numbered(records, block, *since)?,
             },
             FillOf::Results(calls) => Fill::Results {
                 calls: calls.iter().map(|call| call.0).collect(),
             },
             FillOf::SentBack { round } => Fill::SentBack { round: *round },
-        }
+        })
     }
 }
 
@@ -1613,7 +1619,8 @@ pub enum Act {
     },
     /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
     Result { call: u64, result: String },
-    /// Answers a version of a question, the one the page shows, taking an option, counted from one, and nothing else.
+    /// Answers a version of a question, the one the page shows, by its number among the versions of its cell's
+    /// questions, taking an option, counted from one, and nothing else.
     Answer {
         question: String,
         version: u64,
@@ -1646,13 +1653,17 @@ pub struct ForkPage {
     pub text: String,
     /// What it cost, in millionths of a dollar.
     pub usd_micros: u64,
-    /// What its first call read from the cache, and what the session held, in tokens, where each is known.
+    /// What its first call read from the cache, and what the session held as the fork began, in tokens, where each is
+    /// known.
     pub read: Option<u64>,
     pub held: Option<u64>,
-    /// How many minutes before the session's cache had expired, where it had: since its last call, by a round or a
-    /// keep-warm ping, more than the cache's life had passed.
+    /// How many minutes before the cache had let go what the fork begins with, where it had: since the last call that
+    /// read it, more than the cache's life had passed.
     pub expired: Option<u64>,
-    /// The later rounds the session holds, by run and number.
+    /// The round asked of, by run and number.
+    pub round: (u64, usize),
+    /// The later rounds of the session, by run and number, which the fork leaves out, beginning at the end of the round
+    /// asked of.
     pub later: Vec<(u64, usize)>,
     /// The file the answer is kept in, on the engine's machine.
     pub kept: String,
@@ -1667,6 +1678,7 @@ impl ForkPage {
             read: forked.read,
             held: forked.held,
             expired: forked.expired,
+            round: (forked.round.0.0, forked.round.1),
             later: forked.later.into_iter().map(|(run, round)| (run.0, round)).collect(),
             kept: forked.kept,
         }
@@ -2381,15 +2393,17 @@ impl WorkPage {
         let every = EveryWork::of(driver);
         let view = viewed_at(driver, number, &every.at_once)?;
         let work = kept.work;
+        let records = &work.records;
         let mut blocks = Vec::new();
         for (block, versions) in &view.blocks {
             let versions = (versions.iter())
                 .map(|version| {
                     Ok(Version {
                         at: version.at.0,
+                        number: numbered(records, block, version.at)?,
                         time: time(work, version.at)?,
                         by: writer_of(kept.flow, work, block, version)?,
-                        meaning: version.meaning.map(|m| m.0),
+                        meaning: (version.meaning).map(|m| numbered(records, block, m)).transpose()?,
                         value: version.value.clone(),
                         said_to: said_to(work, block, version.at),
                         chars: chars(work, block, version.at)?,
@@ -2403,23 +2417,30 @@ impl WorkPage {
             });
         }
         let cells = (view.cells.iter())
-            .map(|cell| CellDetail {
-                cell: cell.cell.to_string(),
-                needs: cell.needs.iter().map(Cause::of).collect(),
-                inputs: (cell.runs_on.iter())
-                    .map(|input| Input {
-                        block: input.block.to_string(),
-                        current: input.current.map(|at| at.0),
-                        known: input.consumed.map(|at| at.0),
-                        changed: input.new,
-                    })
-                    .collect(),
+            .map(|cell| {
+                Ok(CellDetail {
+                    cell: cell.cell.to_string(),
+                    needs: (cell.needs.iter())
+                        .map(|cause| Cause::of(cause, records))
+                        .collect::<Result<_, Broken>>()?,
+                    inputs: (cell.runs_on.iter())
+                        .map(|input| {
+                            let number = |at: Option<Seq>| at.map(|at| numbered(records, &input.block, at)).transpose();
+                            Ok(Input {
+                                block: input.block.to_string(),
+                                current: number(input.current)?,
+                                known: number(input.consumed)?,
+                                changed: input.new,
+                            })
+                        })
+                        .collect::<Result<_, Broken>>()?,
+                })
             })
-            .collect();
+            .collect::<Result<_, Broken>>()?;
         let misses = driver.misses(number);
         let judged = driver.judged(Some(number), now);
         let mut runs = runs(kept)?;
-        in_detail(kept, &mut runs, &misses, &judged);
+        in_detail(kept, &mut runs, &misses, &judged)?;
         let mut steps: Vec<Step> = runs.into_iter().map(Step::Run).collect();
         for written in &work.records.written {
             let version = (view.blocks.get(&written.block))
@@ -2494,7 +2515,7 @@ impl WorkPage {
             cells,
             blocks,
             steps,
-            questions: QuestionPage::all(work),
+            questions: QuestionPage::all(kept.flow, work),
             speaking: Speaking::all(&kept),
         }))
     }
@@ -2517,29 +2538,31 @@ impl Step {
 }
 
 impl Cause {
-    fn of(cause: &CauseOf) -> Cause {
-        match cause {
+    fn of(cause: &CauseOf, records: &Records) -> Result<Cause, Broken> {
+        Ok(match cause {
             CauseOf::NoRecord => Cause::NoRecord,
             CauseOf::Changed { block, was, behind } => Cause::Changed {
                 block: block.to_string(),
-                was: was.map(|at| at.0),
+                was: was.map(|at| numbered(records, block, at)).transpose()?,
                 behind: *behind,
             },
             CauseOf::Results { calls } => Cause::Results {
                 calls: calls.iter().map(|call| call.0).collect(),
             },
-        }
+        })
     }
 }
 
 impl VersionPage {
-    /// The content of the version of the block written at this place; none where the work has no such version.
-    pub fn of(driver: &Driver, number: WorkNumber, block: &str, at: u64) -> Option<VersionPage> {
-        let work = driver.work(number)?.work;
-        let content = work.contents.get(&(BlockId::from(block), Seq(at)))?;
+    /// The content of the block's version of this number; none where the work has no such version.
+    pub fn of(driver: &Driver, work: WorkNumber, block: &str, number: u64) -> Option<VersionPage> {
+        let work = driver.work(work)?.work;
+        let block = BlockId::from(block);
+        let at = work.records.place([&block], number)?;
+        let content = work.contents.get(&(block.clone(), at))?;
         Some(VersionPage {
             block: block.to_string(),
-            at,
+            number,
             content: content.clone(),
         })
     }
@@ -2657,7 +2680,7 @@ impl Act {
                 option,
             } => service::Act::Answer {
                 question,
-                version: Seq(version),
+                version,
                 option,
             },
             Act::NewSession { line } => service::Act::NewSession { line },
@@ -2727,6 +2750,12 @@ impl Changed {
             copies: changed.copies,
         }
     }
+}
+
+/// The number of the block's version written at this place, by which the pages give and take it: its place among the
+/// block's versions, counted from one ([`Records::number`]).
+fn numbered(records: &Records, block: &BlockId, at: Seq) -> Result<u64, Broken> {
+    (records.number([block], at)).ok_or_else(|| Broken(format!("the work has no version of {block} at {}", at.0)))
 }
 
 /// The deciding code's view of the work, which the driver holds, in the room what holds every work at once leaves it.
@@ -2848,8 +2877,8 @@ impl Ask {
 }
 
 impl Unmet {
-    fn of(unmet: &UnmetOf) -> Unmet {
-        match unmet {
+    fn of(unmet: &UnmetOf, records: &Records) -> Result<Unmet, Broken> {
+        Ok(match unmet {
             UnmetOf::AsksNothing => Unmet::AsksNothing,
             UnmetOf::NotAnOutput { block } => Unmet::NotAnOutput {
                 block: block.to_string(),
@@ -2880,7 +2909,7 @@ impl Unmet {
             UnmetOf::DealtWithNothing => Unmet::DealtWithNothing,
             UnmetOf::WrittenOver { block, version } => Unmet::WrittenOver {
                 block: block.to_string(),
-                version: version.0,
+                version: numbered(records, block, *version)?,
             },
             UnmetOf::ChoiceChanged { block } => Unmet::ChoiceChanged {
                 block: block.to_string(),
@@ -2911,7 +2940,7 @@ impl Unmet {
                 value: value.clone(),
                 name: name.to_string(),
             },
-        }
+        })
     }
 }
 
@@ -2919,7 +2948,12 @@ impl Unmet {
 /// hold, with what was filled into its session, how it missed its session's cache, of these misses, and how it went
 /// against the lines of its history, as each call of a tool did, as judged: what a work's page shows of a round, and
 /// nothing else needs, since working out a round's session counts the line's rounds before it.
-fn in_detail(kept: Kept<'_>, runs: &mut [Run], misses: &[driver::cache::Miss], judged: &driver::judged::Judged) {
+fn in_detail(
+    kept: Kept<'_>,
+    runs: &mut [Run],
+    misses: &[driver::cache::Miss],
+    judged: &driver::judged::Judged,
+) -> Result<(), Broken> {
     let of_work = kept.head.number;
     let work = kept.work;
     let records = &work.records;
@@ -2955,21 +2989,28 @@ fn in_detail(kept: Kept<'_>, runs: &mut [Run], misses: &[driver::cache::Miss], j
             });
             round.tries = (work.ran.iter())
                 .filter(|ran| ran.run == run && ran.round == number)
-                .map(|ran| RoundTry {
-                    attempt: ran.attempt,
-                    ran: RanOn {
-                        level: ran.on.level.clone(),
-                        model: ran.on.model.clone(),
-                        effort: ran.on.effort.clone(),
-                    },
-                    filled: (work.filled.iter())
-                        .filter(|f| f.run == run && f.round == number && f.attempt == ran.attempt)
-                        .map(|f| f.fills.iter().map(Fill::of).collect())
-                        .collect(),
+                .map(|ran| {
+                    Ok(RoundTry {
+                        attempt: ran.attempt,
+                        ran: RanOn {
+                            level: ran.on.level.clone(),
+                            model: ran.on.model.clone(),
+                            effort: ran.on.effort.clone(),
+                        },
+                        filled: (work.filled.iter())
+                            .filter(|f| f.run == run && f.round == number && f.attempt == ran.attempt)
+                            .map(|f| {
+                                (f.fills.iter())
+                                    .map(|fill| Fill::of(fill, records))
+                                    .collect::<Result<Vec<_>, _>>()
+                            })
+                            .collect::<Result<_, Broken>>()?,
+                    })
                 })
-                .collect();
+                .collect::<Result<_, Broken>>()?;
         }
     }
+    Ok(())
 }
 
 /// Every run of the work, in the order they started, each with its rounds, its calls and how it ended; a round's
@@ -2996,7 +3037,9 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                     calls: calls.iter().map(|call| call.0).collect(),
                 },
                 Some(GivenOf::SentBack(unmet)) => Given::SentBack {
-                    unmet: unmet.iter().map(Unmet::of).collect(),
+                    unmet: (unmet.iter())
+                        .map(|unmet| Unmet::of(unmet, records))
+                        .collect::<Result<_, Broken>>()?,
                 },
                 None => return Err(Broken(format!("round {number} of run {} was given nothing", run.0))),
             };
@@ -3097,13 +3140,17 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
             cell: started.cell.to_string(),
             at: started.at.0,
             time: time(work, started.at)?,
-            because: started.because.iter().map(Cause::of).collect(),
+            because: (started.because.iter())
+                .map(|cause| Cause::of(cause, records))
+                .collect::<Result<_, Broken>>()?,
             basis: (started.basis.iter())
-                .map(|(block, version)| Basis {
-                    block: block.to_string(),
-                    version: version.map(|at| at.0),
+                .map(|(block, version)| {
+                    Ok(Basis {
+                        block: block.to_string(),
+                        version: version.map(|at| numbered(records, block, at)).transpose()?,
+                    })
                 })
-                .collect(),
+                .collect::<Result<_, Broken>>()?,
             spent: (rounds.iter())
                 .filter_map(|round| round.spent)
                 .fold(Spent::default(), Spent::with),

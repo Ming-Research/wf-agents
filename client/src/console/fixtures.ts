@@ -324,7 +324,7 @@ export function fixtureItems(start = Date.now()): Items {
             wait('answer-stale-runs', 'Should a stale run be abandoned at once or kept a day?', {
               kind: 'answer',
               question: 'stale-runs',
-              version: 12,
+              version: 2,
             }),
           ],
         },
@@ -590,7 +590,7 @@ const QUESTIONS: Record<number, Question[]> = {
     {
       name: 'stale-runs',
       cell: 'research',
-      version: 12,
+      version: 2,
       engine: false,
       waits: true,
       withdrawn: null,
@@ -605,7 +605,7 @@ const QUESTIONS: Record<number, Question[]> = {
     {
       name: 'stale-limit',
       cell: 'research',
-      version: 9,
+      version: 1,
       engine: false,
       waits: false,
       withdrawn: null,
@@ -661,7 +661,7 @@ export function fixtureSource(start = Date.now()): Source {
       case 'answer': {
         // The answer is kept; a question the work waited for at its cell holds it no more, and the cell runs.
         const q = (questions[s.item] ?? []).find((x) => x.name === what.question && x.version === what.version);
-        if (q === undefined) throw new Error(`There is no question ${what.question} at ${what.version}`);
+        if (q === undefined) throw new Error(`There is no question ${what.question} of version ${what.version}`);
         q.answer = { option: what.option, at: Date.now(), why: null };
         s.waits = (s.waits ?? []).filter((w) => w.key !== `answer-${q.name}`);
         if (s.now.kind === 'waits' && s.now.on.some((w) => w.kind === 'answer' && w.question === q.name))
@@ -711,7 +711,7 @@ export function fixtureSource(start = Date.now()): Source {
       }
     },
     // The made-up works have no block with a version.
-    loadVersion: (work, block, at) => Promise.reject(new Error(`Work ${work} has no version ${block}@${at}`)),
+    loadVersion: (work, block, number) => Promise.reject(new Error(`Work ${work} has no version ${number} of ${block}`)),
     act: (work, what) => {
       try {
         const { summary } = find(work);

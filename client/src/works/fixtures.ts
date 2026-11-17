@@ -200,20 +200,22 @@ class History {
     return all?.[all.length - 1];
   }
 
+  /// A new version of the block, numbered among its versions.
   private version(block: string, by: Writer, content: string, value: string | null, matters: boolean): Version {
     const was = this.current(block);
+    const number = (this.versions.get(block)?.length ?? 0) + 1;
     const choice = FLOW.blocks.find((b) => b.name === block)?.values !== null;
     const changed = !was || (choice ? was.value !== value : matters);
-    const v: Version = { at: this.place, time: this.time, by, meaning: changed ? this.place : was.meaning, value, saidTo: null, chars: content.length, empty: value === null && content.trim() === '' };
+    const v: Version = { at: this.place, number, time: this.time, by, meaning: changed ? number : was.meaning, value, saidTo: null, chars: content.length, empty: value === null && content.trim() === '' };
     this.versions.set(block, [...(this.versions.get(block) ?? []), v]);
-    this.contents.set(`${block}@${v.at}`, content);
+    this.contents.set(`${block}/${v.number}`, content);
     return v;
   }
 
   wrote(block: string, by: 'owner' | 'outside', content: string, value: string | null = null, minutes = 5) {
     const at = this.next(minutes);
     const v = this.version(block, { kind: by }, content, value, true);
-    this.steps.push({ kind: 'wrote', at, time: this.time, block, by: { kind: by }, changed: v.meaning === at, value, chars: v.chars });
+    this.steps.push({ kind: 'wrote', at, time: this.time, block, by: { kind: by }, changed: v.meaning === v.number, value, chars: v.chars });
   }
 
   did(kind: 'paused' | 'resumed' | 'cancelled', minutes = 5) {
@@ -243,7 +245,7 @@ class History {
     if (!c) throw new Error(`no cell ${cellId}`);
     const basis = [...new Set([...named(c), ...c.outputs])].map((block) => ({
       block,
-      version: this.current(block)?.at ?? null,
+      version: this.current(block)?.number ?? null,
     }));
     this.runs += 1;
     const run: RunStep = {
@@ -285,7 +287,7 @@ class History {
     // a version, with the task; the results of calls; why the round before was sent back.
     const data = (defined?.given ?? []).flatMap(({ block }): Fill[] => {
       const v = this.current(block);
-      return v ? [{ kind: 'whole', block, version: v.at }] : [];
+      return v ? [{ kind: 'whole', block, version: v.number }] : [];
     });
     const fills: Fill[] =
       given.kind === 'results'
@@ -421,10 +423,10 @@ class History {
     return run;
   }
 
-  /// The meaning a block had at a version.
-  private meaningAt(block: string, at: number | null): number | null {
-    if (at === null) return null;
-    return this.versions.get(block)?.find((v) => v.at === at)?.meaning ?? null;
+  /// The meaning a block had at the version of this number.
+  private meaningAt(block: string, number: number | null): number | null {
+    if (number === null) return null;
+    return this.versions.get(block)?.find((v) => v.number === number)?.meaning ?? null;
   }
 
   private runsOf(cellId: string): RunStep[] {
@@ -439,11 +441,12 @@ class History {
     const finished = this.runsOf(cellId).filter((r) => r.end?.kind === 'finished');
     const record = finished[finished.length - 1];
     const inputs = named(c).map((block) => {
-      const current = this.current(block)?.at ?? null;
+      const current = this.current(block)?.number ?? null;
       let known: number | null = null;
       if (record?.end?.kind === 'finished') {
+        const at = record.end.at;
         known = record.end.writes.some((w) => w.block === block)
-          ? record.end.at
+          ? (this.versions.get(block)?.find((v) => v.at === at)?.number ?? null)
           : (record.basis.find((b) => b.block === block)?.version ?? null);
       }
       const changed = record !== undefined && this.meaningAt(block, current) !== this.meaningAt(block, known);
@@ -455,7 +458,7 @@ class History {
           .filter((i) => i.changed)
           .map((i) => {
             const meaning = this.meaningAt(i.block, i.current);
-            const by = this.versions.get(i.block)?.find((v) => v.at === meaning)?.by;
+            const by = this.versions.get(i.block)?.find((v) => v.number === meaning)?.by;
             const behind = by?.kind === 'run' && (order.get(by.cell) ?? 0) > (order.get(cellId) ?? 0);
             return { kind: 'changed', block: i.block, was: i.known, behind };
           });
@@ -938,10 +941,10 @@ export function fixtureWork(n: number): WorkPage {
   return work(n).page;
 }
 
-export function fixtureVersion(n: number, block: string, at: number): VersionPage {
-  const content = work(n).history.contents.get(`${block}@${at}`);
-  if (content === undefined) throw new Error(`no version ${block}@${at}`);
-  return { block, at, content };
+export function fixtureVersion(n: number, block: string, number: number): VersionPage {
+  const content = work(n).history.contents.get(`${block}/${number}`);
+  if (content === undefined) throw new Error(`no version ${number} of ${block}`);
+  return { block, number, content };
 }
 
 export function fixtureRound(n: number, run: number, round: number): RoundPage {

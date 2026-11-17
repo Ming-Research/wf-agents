@@ -174,8 +174,8 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 };
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
                 let mut texts = Vec::new();
-                for (name, at) in texts_of(&page, block.as_deref())? {
-                    let path = format!("/api/v1/works/{work}/versions/{}/{at}", encoded(&name));
+                for (name, version) in texts_of(&page, block.as_deref())? {
+                    let path = format!("/api/v1/works/{work}/versions/{}/{version}", encoded(&name));
                     let version: VersionPage = send(address, Method::GET, &path, None::<&()>).await?;
                     texts.push((name, version.content));
                 }
@@ -477,12 +477,13 @@ async fn send<T: DeserializeOwned, B: Serialize>(
     serde_json::from_slice(body).map_err(|e| format!("The engine's answer cannot be read: {e}."))
 }
 
-/// A question as it stands, in lines: its name, cell and version, the first line of what it asks, its options and the
-/// owner's answer; of one withdrawn, why.
+/// A question as it stands, in lines: its name, cell and version, by its number, the first line of what it asks, its
+/// options and the owner's answer; of one withdrawn, why.
 fn question(q: &QuestionPage) -> Vec<String> {
     let by = if q.engine { ", asked by the engine" } else { "" };
     let waits = if q.waits { ", waits" } else { "" };
-    let head = format!("  {} (of {}, version {}{by}{waits})", q.name, q.cell, q.version);
+    let version = q.version.map_or_else(|| "none".to_string(), |n| n.to_string());
+    let head = format!("  {} (of {}, version {version}{by}{waits})", q.name, q.cell);
     if let Some(why) = &q.withdrawn {
         return vec![format!("{head}: withdrawn: {why}")];
     }
@@ -501,10 +502,10 @@ fn question(q: &QuestionPage) -> Vec<String> {
             let why = a.why.as_deref().map_or_else(String::new, |why| format!(": \"{why}\""));
             format!("    answered {}{why}", a.option)
         }
-        None => format!(
-            "    unanswered: wf-agents answer <work> {} {} <option>",
-            q.name, q.version
-        ),
+        None => match q.version {
+            Some(number) => format!("    unanswered: wf-agents answer <work> {} {number} <option>", q.name),
+            None => "    unanswered, and no version of its cell's questions names it to answer by".to_string(),
+        },
     });
     lines
 }
@@ -1241,11 +1242,11 @@ fn tags_said(tags: &Tags) -> String {
     lines.join("\n")
 }
 
-/// The blocks whose text is to be read, with the version of each: the one named, or every block people write, as the
-/// flow declares them, whose latest version the owner wrote, which is the item's own text. The owner's words to a cell
-/// and answers are the owner's too, and no text of the item's.
+/// The blocks whose text is to be read, with the number of the version of each: the one named, or every block people
+/// write, as the flow declares them, whose latest version the owner wrote, which is the item's own text. The owner's
+/// words to a cell and answers are the owner's too, and no text of the item's.
 fn texts_of(page: &WorkPage, block: Option<&str>) -> Result<Vec<(String, u64)>, String> {
-    let latest = |b: &web::works::Block| b.versions.last().map(|v| (b.name.clone(), v.at));
+    let latest = |b: &web::works::Block| b.versions.last().map(|v| (b.name.clone(), v.number));
     match block {
         Some(name) => {
             let found = page.blocks.iter().find(|b| b.name == name).and_then(latest);
@@ -2272,7 +2273,7 @@ mod tests {
             .map(|n| QuestionPage {
                 name: format!("q{n:03}"),
                 cell: "plan".to_string(),
-                version: n,
+                version: Some(n),
                 engine: false,
                 waits: true,
                 withdrawn: None,
@@ -2452,9 +2453,10 @@ mod tests {
             name: name.to_string(),
             versions: vec![Version {
                 at,
+                number: 1,
                 time: at,
                 by,
-                meaning: Some(at),
+                meaning: Some(1),
                 value: None,
                 said_to: None,
                 chars: 5,
@@ -2606,8 +2608,9 @@ const FORK_FIELD: usize = 4_000;
 const READ_ENOUGH: u64 = 80;
 
 /// What a fork answered, in words: each field of its return that holds something, by its key, each cut at
-/// [`FORK_FIELD`] characters, saying where it is kept whole; else what its program said; then what it cost, and the
-/// share of the session its first request read from the cache, said plainly where under [`READ_ENOUGH`] percent.
+/// [`FORK_FIELD`] characters, saying where it is kept whole; else what its program said; then what it cost, the share
+/// of the session its first request read from the cache, said plainly where under [`READ_ENOUGH`] percent, and, where
+/// the session went on past the round asked of, that the fork began at that round's end.
 pub fn forked_said(page: &ForkPage) -> String {
     let mut out = String::new();
     let cut = |text: &str| -> String {
@@ -2658,8 +2661,9 @@ pub fn forked_said(page: &ForkPage) -> String {
             .iter()
             .map(|(run, round)| format!("run {run} round {round}"))
             .collect();
+        let (run, round) = page.round;
         out.push_str(&format!(
-            "The session holds later rounds besides: {}.\n",
+            "It began at the end of run {run} round {round}, the session's later rounds left out: {}.\n",
             later.join(", ")
         ));
     }
@@ -2707,6 +2711,7 @@ mod fork_tests {
             read: Some(9_000),
             held: Some(10_000),
             expired: None,
+            round: (7, 1),
             later: Vec::new(),
             kept: "/k/7-1.fork.1.answer".to_string(),
         }
@@ -2741,7 +2746,7 @@ mod fork_tests {
     }
 
     #[test]
-    fn a_long_field_is_cut_saying_where_it_is_whole_and_the_later_rounds_of_the_session_are_named() {
+    fn a_long_field_is_cut_saying_where_it_is_whole_and_the_later_rounds_the_fork_left_out_are_named() {
         let long = ForkPage {
             answer: Some(serde_json::json!({ "outcome": { "observations": ["x".repeat(5_000)] } }).to_string()),
             later: vec![(8, 1), (8, 2)],
@@ -2755,7 +2760,13 @@ mod fork_tests {
             )),
             "{said}"
         );
-        assert!(said.contains("The session holds later rounds besides: run 8 round 1, run 8 round 2."));
+        assert!(
+            said.contains(
+                "It began at the end of run 7 round 1, the session's later rounds left out: run 8 round 1, run 8 \
+                 round 2."
+            ),
+            "{said}"
+        );
         // No return: what the program said is said.
         let text = ForkPage {
             answer: None,

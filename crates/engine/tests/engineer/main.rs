@@ -121,6 +121,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Mutex, PoisonError};
 
+use decide::questions::Standing;
 use decide::run::Failure;
 use decide::{
     BlockId, Cause, CellId, Condition, Decision, End, Flow, Outsider, Pauser, Records, RunId, Seq, TestKind, Waited,
@@ -176,6 +177,13 @@ impl Branch {
 
 /// The branch, shared.
 type Shared = Rc<Cell<Branch>>;
+
+/// The number the owner answers the question's latest version by: its number among the versions of its cell's
+/// questions, which each cell of the engineer's flow that is asked in has.
+fn latest_number(flow: &Compiled, records: &Records, q: &Standing<'_>) -> u64 {
+    let number = engine::asked::number_of(flow, records, &q.latest.cell, q.latest.at);
+    number.expect("a version of its cell's questions")
+}
 
 /// What the latest version of the block says, where it has one.
 fn says_now<'a>(d: &'a Driver, block: &BlockId) -> Option<&'a str> {
@@ -1105,9 +1113,9 @@ impl Random {
         }
         // The owner answers a question that stands with no answer in one act of two, by either option, so that what
         // waits for every question to be answered, the check among it, is not held back long.
-        let unanswered: Vec<(String, Seq)> = (decide::questions::questions(&d.work.records).into_iter())
+        let unanswered: Vec<(String, u64)> = (decide::questions::questions(&d.work.records).into_iter())
             .filter(|(_, q)| q.unanswered())
-            .map(|(name, q)| (name.to_string(), q.latest.at))
+            .map(|(name, q)| (name.to_string(), latest_number(&d.flow, &d.work.records, &q)))
             .collect();
         if !unanswered.is_empty() && d.rng.chance(50) {
             let (question, version) = unanswered[d.rng.below(unanswered.len())].clone();
@@ -1178,9 +1186,9 @@ impl Random {
             }
             // The owner answers the latest version of a question that stands, answered or not, by either option.
             90..=95 => {
-                let standing: Vec<(String, Seq)> = (decide::questions::questions(&d.work.records).into_iter())
+                let standing: Vec<(String, u64)> = (decide::questions::questions(&d.work.records).into_iter())
                     .filter(|(_, q)| q.stands())
-                    .map(|(name, q)| (name.to_string(), q.latest.at))
+                    .map(|(name, q)| (name.to_string(), latest_number(&d.flow, &d.work.records, &q)))
                     .collect();
                 (!standing.is_empty()).then(|| {
                     let (question, version) = standing[d.rng.below(standing.len())].clone();
@@ -1788,7 +1796,7 @@ impl History {
         // The owner answers a question that stands with no answer, its latest version, by the option it recommends.
         let unanswered = (decide::questions::questions(&self.d.work.records).into_iter())
             .find(|(_, q)| q.unanswered())
-            .map(|(name, q)| (name.to_string(), q.latest.at));
+            .map(|(name, q)| (name.to_string(), latest_number(&self.d.flow, &self.d.work.records, &q)));
         if let Some((question, version)) = unanswered {
             let answer = Event::Answer {
                 question,

@@ -65,11 +65,11 @@ pub enum Event {
     /// What the owner said reached the round of this run that is under way, after a use of one of its program's own
     /// tools: these versions, which the engine gave its carrier to tell the round ([`Effect::Tell`]), are put into it.
     SaidToRound { run: RunId, versions: Vec<(BlockId, Seq)> },
-    /// The owner answers this version of the question, taking this option, counted from one, and nothing else (design
-    /// document `data-and-context`, 30).
+    /// The owner answers this version of the question, by its number among the versions of its cell's questions,
+    /// taking this option, counted from one, and nothing else (design document `data-and-context`, 30).
     Answer {
         question: String,
-        version: Seq,
+        version: u64,
         option: u64,
     },
     /// A new session of the line began, or is to begin with the line's next round, for this reason.
@@ -269,8 +269,9 @@ pub enum Refused {
     NotToRelease,
     /// The work has no question of this name.
     NoSuchQuestion(String),
-    /// The question has no such version that asks it: none was written at that place, or it withdrew the question.
-    NoSuchVersion { question: String, version: Seq },
+    /// The question has no version of this number that asks it: none of its versions has that number among the
+    /// versions of its cell's questions, or the one that has withdrew the question.
+    NoSuchVersion { question: String, version: u64 },
     /// The version of the question has no option of this number.
     NotAnOption { question: String, option: u64 },
     /// The work's item is not cancelled: there is no cancel to reopen.

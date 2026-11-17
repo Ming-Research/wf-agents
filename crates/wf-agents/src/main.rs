@@ -333,9 +333,10 @@ enum Command {
         at: At,
     },
     /// Asks a fork of the session a round of a work ran in a question, through the running engine: with the round's own
-    /// system prompt, form of return, tools, model and effort, so that its first request is read from the cache; every
-    /// use of a tool refused, so that nothing of the work changes; its answer in the return's form. Prints each field of
-    /// the answer, what the fork cost, and the share of the session its first request read from the cache.
+    /// system prompt, form of return, tools, model and effort, so that its first request is read from the cache; begun
+    /// at the round's end where the session went on past it; every use of a tool refused, so that nothing of the work
+    /// changes; its answer in the return's form. Prints each field of the answer, what the fork cost, and the share of
+    /// the session its first request read from the cache.
     Fork {
         work: u64,
         run: u64,
@@ -348,7 +349,8 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Answers a version of a question of a work, taking an option, counted from one.
+    /// Answers a version of a question of a work, by its number among the versions of its cell's questions, taking an
+    /// option, counted from one.
     Answer {
         work: u64,
         question: String,
