@@ -2035,6 +2035,8 @@ mod tests {
                 bar: String::new(),
                 sent_back: 0,
                 waits: Vec::new(),
+                level: Some("1".to_string()),
+                cell_level: None,
             },
         }
     }

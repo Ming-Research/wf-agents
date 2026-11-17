@@ -30,12 +30,15 @@ use crate::works::{
 };
 
 /// The routes of the items and the works, over the engine's loop; an item is added at one of these levels, to one of
-/// these projects.
+/// these projects, and a work's rounds run at them.
 pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
     let levels = std::sync::Arc::new(levels);
     let shown = LevelsPage::of(&levels);
     let named = ProjectsPage::of(&projects);
     let (to_add, projects) = (levels.clone(), std::sync::Arc::new(projects));
+    let (to_list, to_show) = (levels.clone(), levels.clone());
+    let items = move |handle: State<Handle>| items(handle, to_list.clone());
+    let work = move |handle: State<Handle>, path: Result<Path<u64>, PathRejection>| work(handle, to_show.clone(), path);
     let add = move |handle: State<Handle>, body: Bytes| add(handle, to_add.clone(), projects.clone(), body);
     let change = move |handle: State<Handle>, body: Bytes| change(handle, levels.clone(), body);
     Router::new()
@@ -86,8 +89,8 @@ async fn engine_act(State(handle): State<Handle>, body: Bytes) -> Response {
     }
 }
 
-async fn items(State(handle): State<Handle>) -> Response {
-    match handle.read_at(Items::of).await {
+async fn items(State(handle): State<Handle>, levels: std::sync::Arc<Levels>) -> Response {
+    match handle.read_at(move |driver, now| Items::of(driver, &levels, now)).await {
         Ok(Ok(items)) => Json(items).into_response(),
         Ok(Err(broken)) => fail(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -267,14 +270,18 @@ async fn graph(
     }
 }
 
-async fn work(State(handle): State<Handle>, path: Result<Path<u64>, PathRejection>) -> Response {
+async fn work(
+    State(handle): State<Handle>,
+    levels: std::sync::Arc<Levels>,
+    path: Result<Path<u64>, PathRejection>,
+) -> Response {
     let number = match path {
         Ok(Path(number)) => WorkNumber(number),
         Err(rejection) => return unreadable(&rejection),
     };
     let missing = format!("There is no work {}.", number.0);
     let page = handle
-        .read_at(move |driver, now| driver.work(number).map(|_| WorkPage::of(driver, number, now)))
+        .read_at(move |driver, now| driver.work(number).map(|_| WorkPage::of(driver, &levels, number, now)))
         .await;
     found(page, number, missing)
 }

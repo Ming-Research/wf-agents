@@ -258,11 +258,23 @@ pub fn running_carried(
     dir: tempfile::TempDir,
     carriers: service::Carriers,
 ) -> Running {
-    let flow = flow::compile(
-        &flow::read(&trial_dir().join("flow")).unwrap(),
-        &trial_has(&Source::default()),
-    )
-    .unwrap();
+    running_flow(store, dir, carriers, &trial_flow())
+}
+
+/// The trial flow's files.
+pub fn trial_flow() -> Source {
+    flow::read(&trial_dir().join("flow")).unwrap()
+}
+
+/// Starts the engine's loop on these files of the trial flow, as a test changed them, with these carriers over this
+/// store, kept in this directory, and serves the interface over it.
+pub fn running_flow(
+    store: Box<dyn store::Storage + Send>,
+    dir: tempfile::TempDir,
+    carriers: service::Carriers,
+    source: &Source,
+) -> Running {
+    let flow = flow::compile(source, &trial_has(&Source::default())).unwrap();
     let clock = Arc::new(TokioClock::new(work::Time(START)));
     let (service, inbox) = Service::open(store, vec![flow], carriers, clock).unwrap();
     let handle = service.handle();

@@ -271,6 +271,16 @@ pub struct Summary {
     /// says ([`driver::owner`]): what the count, the marks, the cards and the notifications of the pages read.
     #[serde(default)]
     pub waits: Vec<Wait>,
+    /// The level its rounds run at, by the rule that gives a round its level ([`Levels::of_round`]): its item's, or
+    /// the default where its item has none; none where that rule refuses it, the item's level being none an item may
+    /// be at.
+    #[serde(default)]
+    pub level: Option<String>,
+    /// The level the rounds of the cell it stands at run at, by the same rule: its level raised as far as the cell's
+    /// line says, never above the highest an item may be at; none where it stands at no cell, as a work that ended,
+    /// at an engine cell, whose acts run on no level, or where the rule refuses its level.
+    #[serde(default)]
+    pub cell_level: Option<String>,
 }
 
 /// One thing a work waits on the owner for: what names it within its work, which a notification's address and the
@@ -1787,8 +1797,8 @@ pub struct Refusal {
 pub struct Broken(pub String);
 
 impl Items {
-    /// Every item the driver holds, each with its work, as they stand at this time.
-    pub fn of(driver: &Driver, now: Time) -> Result<Items, Broken> {
+    /// Every item the driver holds, each with its work, as they stand at this time, its rounds at these levels.
+    pub fn of(driver: &Driver, levels: &Levels, now: Time) -> Result<Items, Broken> {
         let mut items = Vec::new();
         let every = EveryWork::of(driver);
         let outage = every.outages.agents.clone();
@@ -1803,7 +1813,7 @@ impl Items {
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
                 tags: kept.item.tags.clone(),
                 history: ItemHistory::of(kept.item),
-                work: Summary::of(kept, &view, driver, &every, now)?,
+                work: Summary::of(kept, &view, driver, &every, levels, now)?,
             });
         }
         items.sort_by_key(|item| item.number);
@@ -1851,12 +1861,13 @@ impl Summary {
     /// The work in brief, from what the driver holds of it, the deciding code's view of it, what every work reads
     /// alike as the driver works it out, and what the driver says of the rest: what holds back the round it would
     /// begin next, where each round or call under way stands, as what carries it out says, and what it waits on the
-    /// owner for; at the time `when` by the loop's clock.
+    /// owner for; its rounds at these levels; at the time `when` by the loop's clock.
     pub(crate) fn of(
         kept: Kept<'_>,
         view: &View,
         driver: &Driver,
         every: &EveryWork,
+        levels: &Levels,
         when: Time,
     ) -> Result<Summary, Broken> {
         let work = kept.work;
@@ -1917,6 +1928,7 @@ impl Summary {
                 open: cell.open.as_ref().map(|open| open.run.0),
             })
             .collect();
+        let (level, cell_level) = levels_of(levels, kept.item.level.as_deref(), kept.flow, &now);
         Ok(Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
@@ -1938,8 +1950,27 @@ impl Summary {
             sent_back: (runs.iter().flat_map(|run| &run.rounds))
                 .filter(|round| matches!(round.given, Given::SentBack { .. }))
                 .count(),
+            level,
+            cell_level,
         })
     }
+}
+
+/// The level a work's rounds run at and the level of the cell it stands at ([`Summary::level`],
+/// [`Summary::cell_level`]), by the one rule that gives a round its level: of an item at this level, its work on this
+/// flow doing what `now` says.
+fn levels_of(
+    levels: &Levels,
+    item: Option<&str>,
+    flow: &flow::Compiled,
+    now: &Now,
+) -> (Option<String>, Option<String>) {
+    let at = |above: u32| levels.of_round(item, above).ok();
+    let cell = now
+        .cell()
+        .and_then(|cell| (flow.cells.iter()).find(|spec| spec.id.as_str() == cell));
+    let cell_level = (cell.filter(|spec| spec.kind == Kind::Agent)).and_then(|spec| at(spec.levels_above));
+    (at(0), cell_level)
 }
 
 /// What holds every work at once, as the bar reads it at a moment: each stretch the pause of everything held, from the
@@ -2088,6 +2119,18 @@ fn on_items(waited: &WaitedOf) -> bool {
 }
 
 impl Now {
+    /// The cell the work stands at, as what it does now names it; none where it names none, as a work that ended or
+    /// whose records are at fault.
+    pub(crate) fn cell(&self) -> Option<&str> {
+        match self {
+            Now::Round { cell, .. } | Now::Next { cell } => Some(cell.as_str()),
+            Now::Paused { at, .. } | Now::Everything { at, .. } | Now::Waits { at, .. } | Now::Stalled { at, .. } => {
+                Some(at.as_str())
+            }
+            Now::Fault { .. } | Now::Merged | Now::Cancelled => None,
+        }
+    }
+
     /// What the work does now. Of what holds it back, its own pause is said first, then the owner's pause of
     /// everything, then the wait every work shares, then a slot. A round under way whose act waits for the project's
     /// turn, as the act says, waits for it.
@@ -2380,8 +2423,9 @@ pub(crate) fn pinged(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Spent {
 }
 
 impl WorkPage {
-    /// The work of this number, as the driver holds it now; none where the driver has no such work.
-    pub fn of(driver: &Driver, number: WorkNumber, now: Time) -> Result<Option<WorkPage>, Broken> {
+    /// The work of this number, as the driver holds it now, its rounds at these levels; none where the driver has no
+    /// such work.
+    pub fn of(driver: &Driver, levels: &Levels, number: WorkNumber, now: Time) -> Result<Option<WorkPage>, Broken> {
         let Some(kept) = driver.work(number) else {
             return Ok(None);
         };
@@ -2500,7 +2544,7 @@ impl WorkPage {
         }
         steps.sort_by_key(Step::at);
         Ok(Some(WorkPage {
-            summary: Summary::of(kept, &view, driver, &every, now)?,
+            summary: Summary::of(kept, &view, driver, &every, levels, now)?,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
             project: kept.item.project.clone(),
@@ -3352,6 +3396,43 @@ mod tests {
             });
         }
         work
+    }
+
+    // A work's level and its cell's are what the rule that gives a round its level says (the route's test shows a line
+    // that raises it): where the rule refuses the item's level, neither is said, and only an agent's cell has a level.
+    #[test]
+    fn a_works_level_and_its_cells_are_the_rules_and_none_where_it_refuses_or_no_agent_runs() {
+        let flow = flow();
+        let level = |name: &str| service::Level {
+            name: name.to_string(),
+            desc: format!("Work of level {name}"),
+        };
+        let levels = Levels::new(["1", "2", "3"].map(level), "2", Some("2")).expect("the levels are made");
+        let of = |item: Option<&str>, now: &Now| levels_of(&levels, item, &flow, now);
+        let at = |cell: &str| Now::Next { cell: cell.to_string() };
+        let given = |level: &str| Some(level.to_string());
+        assert_eq!(of(Some("1"), &at("write")), (given("1"), given("1")));
+        assert_eq!(
+            of(None, &at("write")),
+            (given("2"), given("2")),
+            "an item of no level is at the default"
+        );
+        assert_eq!(
+            of(Some("1"), &at("merge")),
+            (given("1"), None),
+            "an engine cell's act runs on no level"
+        );
+        assert_eq!(
+            of(Some("1"), &Now::Merged),
+            (given("1"), None),
+            "a work that ended stands at no cell"
+        );
+        assert_eq!(of(Some("9"), &at("write")), (None, None), "no level");
+        assert_eq!(
+            of(Some("3"), &at("write")),
+            (None, None),
+            "above the highest an item may be at"
+        );
     }
 
     #[test]
