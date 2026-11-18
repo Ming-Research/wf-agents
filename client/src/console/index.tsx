@@ -116,8 +116,9 @@ export function ConsolePage({
         };
         if (latestData.current !== undefined) s.show(shownTree(latestData.current, showsNow.current));
         selectNamed();
-        // To try the drawing from the browser's console: `consoleScene.show(consoleFake(2000))` draws a made-up tree.
-        Object.assign(window, { consoleScene: s, consoleFake: fakeShown });
+        // To try the drawing from the browser's console on the dev server: `consoleScene.show(consoleFake(2000))` draws
+        // a made-up tree.
+        if (import.meta.env.DEV) Object.assign(window, { consoleScene: s, consoleFake: fakeShown });
       },
       // A browser that cannot draw the tree (no WebGL) says so in its place.
       (e: unknown) => alive && setUndrawn(e instanceof Error ? e.message : String(e)),
