@@ -130,14 +130,9 @@ export function allTokens(spent: Spent): number {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/// What was taken, in one line: `$0.42 · 14k tokens · 4m 12s · 7 rounds`.
+/// What was taken, in one line: `$0.42 · 14k tokens`; how long it took is said where it began.
 export function spentWords(spent: Spent): string {
-  return [
-    dollars(spent.usdMicros),
-    `${tokens(allTokens(spent))} tokens`,
-    duration(spent.workingMs),
-    plural(spent.rounds, 'round'),
-  ].join(' · ');
+  return [dollars(spent.usdMicros), `${tokens(allTokens(spent))} tokens`].join(' · ');
 }
 
 /// The tokens apart, for a panel: `12k in, 8.1k from the cache, 2.1k out`.

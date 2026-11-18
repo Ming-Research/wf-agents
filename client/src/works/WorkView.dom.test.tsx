@@ -527,7 +527,7 @@ describe("the Step of the work's item window", () => {
     expect(panel.textContent).toContain('withdrawn with its run');
     expect(part(panel, 'Handed in').textContent).toContain('it wrote nothing');
     // A result is read only when it is opened.
-    const calls = part(panel, 'What it did');
+    const calls = part(panel, 'Details');
     expect(calls.querySelector('pre.content')).toBeNull();
     await click(button(calls, 'Show result'));
     expect(calls.querySelector('pre.content')?.textContent).toBe('Found 0 errors.');

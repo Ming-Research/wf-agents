@@ -5,7 +5,7 @@
 // inputs at the versions it began with, those new to it first; what it handed in, each version's content opened where
 // it stands; and each time it ran, in order, a return sent back said where the next time begins: what came back (the
 // calls it asked the engine for with their results, or what was sent back), what it took, and what its agent did, was
-// told and returned. No number the engine keeps a run, a round or a call by is shown. Of a write of the owner's that woke no cell: what it did, the block's version and value, whether it changed
+// told and returned, each time's own when only where there were several. No number the engine keeps a run, a round or a call by is shown. Of a write of the owner's that woke no cell: what it did, the block's version and value, whether it changed
 // the block's meaning, and its content. Of another act: what was done, and when. With no row, that the work stands at
 // no run. A content is read only when the owner opens it.
 
@@ -101,14 +101,17 @@ function CallLine({ row, reader, abandoned }: { row: CallRow; reader: Reader; ab
   );
 }
 
-/// One time the cell was run within the run: where it is not the first, why it ran again, its return sent back or its
+/// The details of each time the cell was run within the run, when it was where there were several: where it is not the
+/// first, why it ran again, its return sent back or its
 /// last time having failed; what came back: the calls it asked the engine for, each with its result, or what it handed
 /// in, listed where it was sent back, since what was kept is under Handed in; what it took, the context it ended with,
 /// how it missed its session's cache, and what its agent did, followed or read only while the Step is `shown`; then the
 /// system prompt of its session, and what it was told and what it returned, as its carrier kept them.
-function RoundPart({ run, round, calls, first, sentBack, failedBefore, reader, shown }: {
+function RoundPart({ run, round, calls, first, timed, sentBack, failedBefore, reader, shown }: {
   run: Run;
   round: Round;
+  /// The run ran its cell more than once, so that each time says when it was; once, the run's own time says it.
+  timed: boolean;
   /// The calls it asked for, made after it began and before the next time did.
   calls: CallRow[];
   first: boolean;
@@ -135,7 +138,8 @@ function RoundPart({ run, round, calls, first, sentBack, failedBefore, reader, s
     <PanelPart
       label={
         <>
-          {first ? 'What it did' : 'Ran again'} <span className="muted small">{when}</span>
+          {first ? 'Details' : 'Ran again'}
+          {timed && <span className="muted small"> {when}</span>}
         </>
       }
     >
@@ -413,6 +417,7 @@ function RunStep({ run, mark, began, page, reader, shown }: {
           round={round}
           calls={run.calls.filter((c) => c.made >= round.began && c.made < (run.rounds[i + 1]?.began ?? Infinity))}
           first={i === 0}
+          timed={run.rounds.length > 1}
           sentBack={run.rounds[i + 1]?.given.kind === 'sentBack'}
           failedBefore={run.rounds[i - 1]?.back?.kind === 'failed'}
           reader={reader}

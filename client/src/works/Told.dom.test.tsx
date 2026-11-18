@@ -85,11 +85,11 @@ async function click(element: Element | null | undefined) {
   });
 }
 
-/// The part of a run's panel of the time its cell ran of this number: the first what it did, the others each time it
+/// The part of a run's panel of the time its cell ran of this number: the first its details, the others each time it
 /// ran again.
 function roundPart(panel: HTMLElement, number: number): HTMLElement {
   const parts = [...panel.querySelectorAll('section.panel-part')].filter((p) =>
-    /^(What it did|Ran again) /.test(p.querySelector('.panel-part-label')?.textContent ?? ''),
+    /^(Details|Ran again)( |$)/.test(p.querySelector('.panel-part-label')?.textContent ?? ''),
   );
   const part = parts[number - 1];
   if (!part) throw new Error(`no time ${number}`);
