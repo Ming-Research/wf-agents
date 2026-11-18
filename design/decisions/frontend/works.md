@@ -16,7 +16,9 @@ session held in grey, was turned down: it did not show what the agent got that r
 What a round's agent does is given on a stream of the round's own, which the page that has the round open opens:
 every thing from the round's start, every try in order, then the round's end. The engine follows the file the agent's
 program writes, from where it last read, every half second while the stream is open, and its stream of changes says
-nothing of it; the whole of a round's history is given at once beside it.
+nothing of it; the whole of a round's history is given at once beside it. The page adds each thing to its list as it
+comes and never reads the list anew while it follows the round; a stream it loses it follows again a few seconds later,
+passing over as many things as the list holds, which the stream tells again first.
 Why: Asked every few seconds for the last things of the end of the latest try's file, the page's list jumped, came
 up short past a tool's long result and emptied as a new try began. The engine's loop never sees what an agent does,
 and a change on its one stream for each line would have every page read its works again many times a minute, where a

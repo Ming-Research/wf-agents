@@ -21,8 +21,9 @@ import type {
   ChangesPage,
   Copies,
   DiffPage,
-  Doing,
   DoingPage,
+  Done,
+  Following,
   Engine,
   EngineAct,
   Items,
@@ -46,6 +47,8 @@ export interface Source {
   loadRound(work: number, run: number, round: number): Promise<RoundPage>;
   loadTold(work: number, run: number, round: number): Promise<ToldPage>;
   loadDoing(work: number, run: number, round: number): Promise<DoingPage>;
+  /// Follows what the round's agent does, from the round's start, as it comes; gives the way to stop following.
+  followDoing(work: number, run: number, round: number, following: Following): () => void;
   /// Each file the work changed, and the diff of one of them.
   loadChanges(work: number): Promise<ChangesPage>;
   loadDiff(work: number, path: string): Promise<DiffPage>;
@@ -72,6 +75,7 @@ export const INTERFACE: Source = {
   loadRound: api.loadRound,
   loadTold: api.loadTold,
   loadDoing: api.loadDoing,
+  followDoing: api.followDoing,
   loadChanges: api.loadChanges,
   loadDiff: api.loadDiff,
   loadSystem: api.loadSystem,
@@ -95,6 +99,21 @@ export const FIXTURES: Source = {
   loadRound: async (work, run, round) => (await import('./fixtures')).fixtureRound(work, run, round),
   loadTold: async (work, run, round) => (await import('./fixtures')).fixtureTold(work, run, round),
   loadDoing: async (work, run, round) => (await import('./fixtures')).fixtureDoing(work, run, round),
+  // What the round did is told at once, and no more comes: the fixtures stand still.
+  followDoing: (work, run, round, following) => {
+    let stopped = false;
+    void import('./fixtures').then((f) => {
+      if (stopped) return;
+      try {
+        f.fixtureDoing(work, run, round).doing.forEach((d) => following.done(d));
+      } catch (e) {
+        following.failed(message(e));
+      }
+    });
+    return () => {
+      stopped = true;
+    };
+  },
   loadChanges: (work) => Promise.reject(new Error(`The made-up work ${work} changed no files`)),
   loadDiff: (work) => Promise.reject(new Error(`The made-up work ${work} changed no files`)),
   loadSystem: async (work, line, session) => (await import('./fixtures')).fixtureSystem(work, line, session),
@@ -117,15 +136,18 @@ export interface Reader {
   call(call: number): Promise<string | null>;
   /// The system prompt the line's session of this number, the line's first being none, began with; kept once read.
   system(line: string, session: number): Promise<string>;
-  /// What the agent of a round was last seen doing, the latest last; read anew each time.
-  doing(run: number, number: number): Promise<Doing[]>;
+  /// What the agent of a round that ended did, from its start, every try in order; kept once read.
+  doing(run: number, number: number): Promise<Done[]>;
+  /// Follows what the agent of a round does, from its start, as it comes; gives the way to stop following.
+  follow(run: number, number: number, following: Following): () => void;
   /// Each file the work changed, and the diff of one of them; read anew each time, as the work's head moves.
   changes(): Promise<ChangesPage>;
   diff(path: string): Promise<DiffPage>;
 }
 
-/// The reads of a work's contents, each made once: a version, an ended round, what it was told and returned, and a
-/// call's result do not change once there. A round under way is read again each time, since it has more to come.
+/// The reads of a work's contents, each made once: a version, an ended round, what it was told and returned and what
+/// its agent did, and a call's result do not change once there. A round under way is read again each time, since it
+/// has more to come, and what its agent does is followed as it comes.
 export function readerOf(source: Source, work: number): Reader {
   const once = new Map<string, Promise<unknown>>();
   const cached = <T,>(key: string, load: () => Promise<T>): Promise<T> => {
@@ -151,7 +173,8 @@ export function readerOf(source: Source, work: number): Reader {
     call: (call) => cached(`c:${call}`, async () => (await source.loadCall(work, call)).result),
     system: (line, session) =>
       cached(`s:${line}/${session}`, async () => (await source.loadSystem(work, line, session)).text),
-    doing: async (run, number) => (await source.loadDoing(work, run, number)).doing,
+    doing: (run, number) => cached(`d:${run}/${number}`, async () => (await source.loadDoing(work, run, number)).doing),
+    follow: (run, number, following) => source.followDoing(work, run, number, following),
     changes: () => source.loadChanges(work),
     diff: (path) => source.loadDiff(work, path),
   };
