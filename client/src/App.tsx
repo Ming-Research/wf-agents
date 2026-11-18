@@ -62,12 +62,16 @@ export function Views({
   /// What the server gives (serves.ts); nothing while it is being asked.
   serves?: Serves | null;
 }) {
-  const [flowShown, setFlowShown] = useState(route.view === 'flow');
-  if (route.view === 'flow' && !flowShown) setFlowShown(true);
-  // The console, once shown, is kept as the flow is while another view is shown: its tree, the item selected and its
-  // window stand as the owner left them.
-  const [consoleShown, setConsoleShown] = useState(route.view === 'console');
-  if (route.view === 'console' && !consoleShown) setConsoleShown(true);
+  // Every view, once shown, is kept while another is shown, as a tab is: what it shows, where it is scrolled, what is
+  // chosen and its window stand as the owner left them. Of the works' pages, the last one shown is kept; the system's
+  // view keeps the span it was last shown over.
+  const [seen, setSeen] = useState<ReadonlySet<Route['view']>>(() => new Set([route.view]));
+  if (!seen.has(route.view)) setSeen(new Set([...seen, route.view]));
+  const [lastWork, setLastWork] = useState(route.view === 'work' ? route : null);
+  if (route.view === 'work' && (lastWork?.work !== route.work || lastWork.run !== route.run)) setLastWork(route);
+  const [period, setPeriod] = useState(periodOf(route));
+  if (route.view === 'system' && periodOf(route) !== period) setPeriod(periodOf(route));
+  const kept = (view: Route['view']) => serves === 'all' && seen.has(view);
   return (
     <>
       {route.view !== 'flow' && serves !== 'all' && (
@@ -75,7 +79,7 @@ export function Views({
           {serves === null ? <p className="message muted">Reading</p> : <FlowAlone route={route} />}
         </div>
       )}
-      {consoleShown && serves === 'all' && (
+      {kept('console') && (
         <div className="view" hidden={route.view !== 'console'}>
           {/* The console's drawing library is large: it is read only once the console is first shown. */}
           <Suspense fallback={<p className="message muted">Reading the console</p>}>
@@ -87,18 +91,37 @@ export function Views({
           </Suspense>
         </div>
       )}
-      {route.view !== 'flow' && route.view !== 'console' && serves === 'all' && (
-        <div className="view">
-          {route.view === 'works' && <WorksList />}
-          {route.view === 'work' && (
-            <WorkView key={`${route.work}/${route.run ?? ''}`} work={route.work} run={route.run} />
-          )}
-          {route.view === 'observations' && <ObservationsView />}
-          {route.view === 'system' && <SystemView period={periodOf(route)} />}
-          {route.view === 'settings' && <SettingsView />}
+      {kept('works') && (
+        <div className="view" hidden={route.view !== 'works'}>
+          <WorksList />
         </div>
       )}
-      {flowShown && (
+      {serves === 'all' && lastWork !== null && (
+        <div className="view" hidden={route.view !== 'work'}>
+          <WorkView
+            key={`${lastWork.work}/${lastWork.run ?? ''}`}
+            work={lastWork.work}
+            run={lastWork.run}
+            active={route.view === 'work'}
+          />
+        </div>
+      )}
+      {kept('observations') && (
+        <div className="view" hidden={route.view !== 'observations'}>
+          <ObservationsView />
+        </div>
+      )}
+      {kept('system') && (
+        <div className="view" hidden={route.view !== 'system'}>
+          <SystemView period={period} />
+        </div>
+      )}
+      {kept('settings') && (
+        <div className="view" hidden={route.view !== 'settings'}>
+          <SettingsView />
+        </div>
+      )}
+      {seen.has('flow') && (
         <div className="view" hidden={route.view !== 'flow'}>
           <FlowView active={route.view === 'flow'} loadFlow={loadFlow} />
         </div>

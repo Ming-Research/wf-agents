@@ -31,10 +31,12 @@ import { hasEnded } from './words';
 /// The tabs of a work's item window: the console's two, then the row chosen and what the work used.
 const WORK_TABS = ['item', 'work', 'step', 'usage'] as const;
 
-export function WorkView({ work, run }: {
+export function WorkView({ work, run, active = true }: {
   work: number;
   /// The run the address names, chosen as the work is first shown, as by a link to it.
   run?: number;
+  /// Whether the work's page is the view shown: kept while another is, it takes no keys.
+  active?: boolean;
 }) {
   const source = useSource();
   const load = useCallback(() => source.loadWork(work), [source, work]);
@@ -49,7 +51,7 @@ export function WorkView({ work, run }: {
       <p className="message muted">Reading work {work}</p>
     );
   }
-  return <WorkScreen page={page} failed={failed} onActed={read} run={run} />;
+  return <WorkScreen page={page} failed={failed} onActed={read} run={run} active={active} />;
 }
 
 /// The reads of a work's contents, each made once: a version, an ended round, what it was told and returned, and a
@@ -83,8 +85,10 @@ export function readerOf(source: Source, work: number): Reader {
   };
 }
 
-export function WorkScreen({ page, failed = null, onActed, run }: {
+export function WorkScreen({ page, failed = null, onActed, run, active = true }: {
   page: WorkPage;
+  /// Whether the work's page is the view shown: kept while another is, it takes no keys.
+  active?: boolean;
   /// Why the last read of the work failed, where it did: what is shown is from before.
   failed?: string | null;
   onActed: () => void;
@@ -145,6 +149,7 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
   // Escape slides the window in while it has the keys, and else lets the row go; a question the page asks answers it
   // alone.
   useEffect(() => {
+    if (!active) return;
     const key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || document.querySelector('dialog[open]') !== null) return;
       const inside = panel.current?.contains(document.activeElement) === true;
@@ -155,7 +160,7 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [win.open, choose, putWindow]);
+  }, [win.open, choose, putWindow, active]);
   useEffect(() => {
     const el = panel.current;
     if (el === null) return;
@@ -248,7 +253,7 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
               act={act}
               loadVersion={source.loadVersion}
               actEngine={source.actOnEngine}
-              open={win.open}
+              open={win.open && active}
               titleHref={hashOf({ view: 'console', item: item.number })}
               more={more}
               tab={tab}
