@@ -8,7 +8,7 @@ line = "deep_researcher"
 effort = "xhigh"
 task = { file = "tasks/better_way.md" }
 when = { deep_needed = "yes", d2_handed_in = "no" }
-watches = ["plan"]
+watches = ["plan", "better_found"]
 reads = ["background", "tree"]
 outputs = ["better_found"]
 
@@ -25,3 +25,4 @@ plan_owner = "latest"
 plan_agent = "latest"
 acceptance = "latest"
 tree_edits = "latest"
+better_found = "all"
