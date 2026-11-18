@@ -9,7 +9,7 @@ effort = "high"
 task = '''
 Review the tests and the evidence of the change in `code`, in a session of your own, and change no file. Read the diff
 from main to `head`. Judge only by what the implementation was asked to do (`plan_agent`, `acceptance`) and the
-repository's rules. Not the code and not the tree: the other two reviews have them.
+repository's rules. Not the code and not the design tree.
 
 1. Does `evidence` show each condition of `acceptance` on the change?
 2. Was each new or extended test red on the code before the change, where its kind needs it, as a run shows?

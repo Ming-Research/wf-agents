@@ -8,8 +8,7 @@ effort = "high"
 task = '''
 Review the code of the change in `code`, in a session of your own, and change no file. Read the diff from main to
 `head`. Judge only by what the implementation was asked to do (`plan_owner`, `acceptance`) and the repository's rules;
-old code that lagged behind a decision before this work is no point. Not the tests and not the tree: the other two
-reviews have them.
+old code that lagged behind a decision before this work is no point. Not the tests and not the design tree.
 
 1. Does the code do what the plan says, with no short cut, other method, change of direction, or more than the work needs?
 2. Is it well built, by the standards of software engineering?
