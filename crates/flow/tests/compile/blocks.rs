@@ -278,14 +278,10 @@ fn the_blocks_entries_are_added_to_are_each_cell_s_own_questions_and_words() {
         [
             "d1_questions",
             "d1_words",
-            "d2_questions",
-            "d2_words",
             "i1_questions",
             "i1_words",
             "r1_questions",
             "r1_words",
-            "r2_questions",
-            "r2_words",
         ]
     );
 }
@@ -314,24 +310,21 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
     };
     let compiled = flow::compile(&source, &has);
     assert!(compiled.is_ok(), "{:?}", compiled.err());
-    // R2, which may ask the owner and wait, as the work-4 case: not watching its own words.
-    let r2 = source.cells.get_mut("R2").expect("the flow has R2");
-    let (with, without) = (
-        r#"watches = ["plan", "r2_questions", "r2_words"]"#,
-        r#"watches = ["plan", "r2_questions"]"#,
-    );
-    assert!(r2.contains(with), "{r2}");
-    *r2 = (r2.lines())
-        .filter(|line| !line.starts_with("r2_words = "))
+    // R1, which may ask the owner and wait, as the work-4 case: not watching its own words.
+    let r1 = source.cells.get_mut("R1").expect("the flow has R1");
+    let (with, without) = ("  \"r1_words\",\n]\nreads", "]\nreads");
+    assert!(r1.contains(with), "{r1}");
+    *r1 = (r1.lines())
+        .filter(|line| !line.starts_with("r1_words = "))
         .collect::<Vec<_>>()
         .join("\n")
         .replace(with, without);
-    let refused = flow::compile(&source, &has).expect_err("R2 asks and cannot be spoken to");
+    let refused = flow::compile(&source, &has).expect_err("R1 asks and cannot be spoken to");
     let what = AsksAndCannotBeSpokenTo {
-        block: "r2_questions".to_string(),
+        block: "r1_questions".to_string(),
     };
     assert!(
-        refused.iter().any(|f| f.file == "cells/R2.toml" && f.what == what),
+        refused.iter().any(|f| f.file == "cells/R1.toml" && f.what == what),
         "{refused:?}"
     );
     assert_eq!(refused.len(), 1, "{refused:?}");

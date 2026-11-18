@@ -95,6 +95,22 @@ fn a_start_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() 
     assert!(faults[0].ends_with("its writes must give text"), "{}", faults[0]);
 }
 
+// The block that says a cell has handed in gives the words the engine writes with its yes: where its file gives none,
+// each cell's of them is a fault on that file.
+#[test]
+fn a_cells_handed_in_that_gives_no_words_is_a_fault_on_the_file_that_holds_it() {
+    let dir = copied();
+    without(dir.path(), "data/of_a_cell/handed_in.toml", "text = ");
+    let faults = driver::faults(&engineer(dir.path()));
+    let blocks = ["d2_handed_in", "r2_handed_in"];
+    assert_eq!(faults.len(), blocks.len(), "{faults:?}");
+    for (fault, block) in faults.iter().zip(blocks) {
+        assert!(fault.contains("data/of_a_cell/handed_in.toml"), "{fault}");
+        assert!(fault.contains(&format!("the block {block} ")), "{fault}");
+        assert!(fault.ends_with("its writes must give text"), "{fault}");
+    }
+}
+
 // A cell's own words give the words of its answers as well as of the owner's: where their file gives none for an
 // answer, each cell's of them is a fault on that file.
 #[test]
@@ -102,7 +118,7 @@ fn a_cells_words_that_give_no_words_for_an_answer_are_a_fault_on_the_file_that_h
     let dir = copied();
     without(dir.path(), "data/of_a_cell/words.toml", "reply = ");
     let faults = driver::faults(&engineer(dir.path()));
-    let blocks = ["d1_words", "d2_words", "i1_words", "r1_words", "r2_words"];
+    let blocks = ["d1_words", "i1_words", "r1_words"];
     assert_eq!(faults.len(), blocks.len(), "{faults:?}");
     for (fault, block) in faults.iter().zip(blocks) {
         assert!(fault.contains("data/of_a_cell/words.toml"), "{fault}");

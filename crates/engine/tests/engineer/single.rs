@@ -158,14 +158,20 @@ impl W {
     pub(super) fn reviewed() -> W {
         let mut w = W::planned();
         w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
-        w.hands_in("T1", &[("review_ok", Some("yes"))], Vec::new());
-        w.hands_in(
+        w.reviews_pass();
+        w
+    }
+
+    /// The three reviews of the change, in their order, each find nothing to change, the test review asking for no
+    /// testing.
+    pub(super) fn reviews_pass(&mut self) {
+        self.hands_in("T1", &[("review_ok", Some("yes"))], Vec::new());
+        self.hands_in(
             "T2",
             &[("test_ok", Some("yes")), ("needs_testing", Some("no"))],
             Vec::new(),
         );
-        w.hands_in("T3", &[("design_ok", Some("yes"))], Vec::new());
-        w
+        self.hands_in("T3", &[("design_ok", Some("yes"))], Vec::new());
     }
 }
 

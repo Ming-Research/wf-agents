@@ -88,8 +88,8 @@ const DEPENDENCIES_BLOCK: &str = r#"
 "#;
 
 /// A writer that waits for the items its item depends on to have merged, and reads a request and the opinions on what
-/// it wrote; a judge that writes opinions for it and a verdict, a choice; and the merge, the engine's own cell, which
-/// waits for the verdict's yes.
+/// it wrote; a judge that writes opinions for it and a verdict, a choice, yes until it is written; and the merge, the
+/// engine's own cell, which waits while the verdict is no.
 /// Returns may be sent back twice, a run may make three calls, and a cell may go round three times.
 pub fn judged() -> Compiled {
     let flow = format!(
@@ -109,6 +109,7 @@ pub fn judged() -> Compiled {
         [blocks.text]
         [blocks.verdict]
         values = ["yes", "no"]
+        default = "yes"
         people = true
         [blocks.merged]
         shown = true
