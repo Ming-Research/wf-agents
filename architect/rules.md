@@ -110,9 +110,11 @@ reports (`wf-agents wait`):
 
 ## 6. Size, joining, splitting, narrowing, cancelling
 
-- Every work goes through the whole flow, whatever its size, and a run is not light: a change the size of a rewording
-  does not run alone. A work is at most what one engineer finishes in a day and a reader of its pull request takes in
-  at once.
+- Every work goes through the whole flow, whatever its size, and a run is not light: about ten rounds of agents and
+  half an hour go on a work before anything of it merges, whatever the change is. A work is at least what is worth
+  that: a change of a wording, of a constant, of a comment and the like does not run alone, and is joined into an item
+  that carries it, or made by hand outside the flow. A work is at most what one engineer finishes in a day and a reader
+  of its pull request takes in at once.
 - A change is a work item of its own only for a reason that can be named: other items wait for it alone; it needs a
   higher level than its neighbours; it is in another repository; joined, the work would take more than a day; joined,
   it would wait for what it does not need; the owner wants it first. That it is a separate change is no reason.
