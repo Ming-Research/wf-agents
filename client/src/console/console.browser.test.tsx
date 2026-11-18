@@ -473,11 +473,11 @@ describe('the console page', () => {
     // Of the made-up items, 25 are open or stand over an open one; 3 more are done and 1 more cancelled; and 9 are done
     // or cancelled or stand over one that is.
     expect(scene.stats.items).toBe(25);
-    await userEvent.click(box('Done'));
+    box('Done').click();
     await expect.poll(() => scene.stats.items).toBe(27);
-    await userEvent.click(box('Cancelled'));
+    box('Cancelled').click();
     await expect.poll(() => scene.stats.items).toBe(28);
-    await userEvent.click(box('Open'));
+    box('Open').click();
     await expect.poll(() => scene.stats.items).toBe(9);
     expect(localStorage.getItem('wf-agents.console-shows')).toBe('done,cancelled');
   });

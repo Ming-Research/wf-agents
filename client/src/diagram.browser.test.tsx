@@ -1,8 +1,8 @@
-// @vitest-environment happy-dom
-// A diagram an agent writes in a passage (the design of the owner's page, 9 to 13): a ```mermaid or ```dot fence drawn
-// as a diagram once it comes near the screen, at mermaid's strictest setting and cleaned of what draws no SVG; and,
-// where it cannot be drawn, its source with a note under it. The libraries are stood in for: what they draw is theirs,
-// and what is tested is what the page does with it.
+// A diagram an agent writes in a passage (the design of the owner's page, 9 to 13), in a real browser (Chromium), whose
+// parsing of SVG and shadow roots the cleaning and the drawing rest on: a ```mermaid or ```dot fence drawn as a diagram
+// once it comes near the screen, at mermaid's strictest setting and cleaned of what draws no SVG; and, where it cannot
+// be drawn, its source with a note under it. The libraries are stood in for: what they draw is theirs, and what is
+// tested is what the page does with it; and the screen is stood in for, to say when a diagram comes near it.
 import './dom-setup';
 
 import { act } from 'react';

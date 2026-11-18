@@ -403,7 +403,10 @@ describe('the panel of the item selected', () => {
     const speaking: Speaking[] = [{ to: { kind: 'line', line: 'builder' }, cell: null, refused }];
     const el = draw(12, answered(sent), engineer(pageOf(itemOf(12), speaking)), true);
     // Where no line takes the words, none is picked, no box is drawn, and why is said once, under the lines.
-    expect(text(el, '.cw-compose > p.muted')).toEqual([`No cell takes the words: ${refused}`]);
+    // Each reason once: the engine's of the builder's line, and that it says nothing of the deep research's.
+    expect(text(el, '.cw-compose > p.muted')).toEqual([
+      `No cell takes the words: ${refused}; the engine does not say which cell the words would reach`,
+    ]);
     expect(text(el, '.cw-to [aria-checked="true"]')).toEqual([]);
     expect(discussion(el).querySelector('textarea')).toBeNull();
     expect(button(el, 'Send')).toBeUndefined();
@@ -685,7 +688,18 @@ describe("the work's state line, one part for every state", () => {
 /// The options of the questions drawn, by question, each as its label and whether it is picked.
 const options = (el: HTMLElement) =>
   [...el.querySelectorAll('.cw-choice')].map((c) =>
-    [...c.querySelectorAll('.cw-option')].map((o) => `${o.querySelector('.cw-option-label')?.textContent ?? ''}${o.classList.contains('on') ? ' *' : ''}`),
+    [...c.querySelectorAll('.cw-option, .cw-settled')].map(
+      (o) =>
+        `${o.querySelector('.cw-option-label')?.textContent ?? ''}${o.classList.contains('on') || o.classList.contains('cw-settled-taken') ? ' *' : ''}`,
+    ),
+  );
+
+/// Each line of the diffs in the questions' words, its pieces kept as they are, removed as `-[…]`, added as `+[…]`.
+const diffLines = (root: ParentNode) =>
+  [...root.querySelectorAll('.cw-choice-q .cw-diff-text')].map((line) =>
+    [...line.children]
+      .map((p) => (p.tagName === 'DEL' ? `-[${p.textContent}]` : p.tagName === 'INS' ? `+[${p.textContent}]` : p.textContent))
+      .join(''),
   );
 
 describe('the questions put to the owner, in the panel of the item selected', () => {
@@ -770,8 +784,9 @@ describe('the questions put to the owner, in the panel of the item selected', ()
     ], [question('protected_files', { cell: 'implement', engine: true, waits: true, ask })]);
     // A question is drawn once the texts that may point to it are read.
     await act(async () => undefined);
-    expect(text(el, '.cw-choice-q p')).toEqual(['Whether the change may merge.', '- flow/agents/tools/run_tests.toml: changed']);
-    expect([...el.querySelectorAll('.cw-choice-q pre.content')].map((p) => p.textContent)).toEqual(['-a = 1\n+a = 2']);
+    // A list is drawn as every list is, each item a paragraph; a diff as the text it changes.
+    expect(text(el, '.cw-choice-q p')).toEqual(['Whether the change may merge.', 'flow/agents/tools/run_tests.toml: changed']);
+    expect(diffLines(el)).toEqual(['a = -[1] +[2]']);
   });
 
   it('shows a question the work has gone on past in the look of a choice of the plan, which stops nothing yet, with no words of its own', async () => {
@@ -940,10 +955,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
       'flow/agents/tools/run_tests.toml: The tool needs a longer timeout.',
       'flow/project.toml: it gives none.',
     ]);
-    expect([...card.querySelectorAll('.cw-choice-q pre.content')].map((p) => p.textContent)).toEqual([
-      '-ms = 1000\n+ms = 2000',
-      '+name = "x"',
-    ]);
+    expect(diffLines(card)).toEqual(['ms = -[1000] +[2000]', '+[name = "x"]']);
     expect(options(el)).toEqual([['Let it mergeRecommended', 'Take it back']]);
     pick(el, 0, 0);
     await act(async () => button(el, 'Confirm (1/1)').click());
@@ -963,7 +975,10 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     await act(async () => undefined);
     expect(text(el, '.cw-choice-q')).toEqual(['What of old?']);
     expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-done');
+    // Settled: its options words alone, with no radio mark to press, the one taken marked by a tick that says so.
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it *']]);
+    expect(el.querySelector('.cw-option, .cw-radio')).toBeNull();
+    expect(el.querySelector('.cw-settled-taken svg')?.getAttribute('aria-label')).toBe('The option you took');
     expect(el.querySelector('.cw-confirm')).toBeNull();
   });
 });
