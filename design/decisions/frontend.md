@@ -15,6 +15,13 @@ Why: Prism's markup, and its plugin that colours a diff, which works only on tha
 agent writes would become markup the page did not mean (principle agent-writing-is-data). Read line by line, a comment
 or a string over several lines would be read wrong past its first.
 
+### decision a-drawing-stands-apart-from-the-pages-styles
+A diagram's drawing stands in a shadow root of its own, which no style of the page reaches but the one that sizes it.
+Why: Mermaid names the words of its shapes, its lines and a chart's key `label`, `edge` and `legend`, as the page
+names parts of its own, and the page's label made every word of a flowchart small, muted and in capitals. Undoing the
+page's styles in a drawing one by one was turned down: the next part the page names as mermaid names a class would
+reach the drawings again.
+
 ### decision the-page-uses-no-component-library
 The page is drawn with a small set of parts of its own (`client/src/parts.tsx`), and uses no component library.
 Why: A library's parts spend room on padding and chrome the owner does not read, and one small set of our own is

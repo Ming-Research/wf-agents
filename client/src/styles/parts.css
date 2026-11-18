@@ -765,6 +765,116 @@ textarea:disabled {
   font-size: 14px;
 }
 
+/* A diagram in a passage (diagram.tsx), at its own size, or as narrow as its place when wider (never larger, never
+   scrolling, never widening the page), as the drawing's own style says in its shadow root: the width and height of
+   its drawing and its viewBox keep its proportions. Made narrower, a click on it opens it larger. The buttons that
+   open it larger and that show its source sit in its top right corner, on the card, seen under the pointer or the
+   keyboard's focus, and always where there is no pointer to hover with. */
+.diagram {
+  position: relative;
+  min-width: 0;
+  margin: var(--space-4) 0 0;
+}
+
+.diagram-drawing-scaled {
+  cursor: zoom-in;
+}
+
+.diagram-tools {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: var(--space-8);
+  padding: 0 var(--space-4);
+  background: var(--card);
+  font-size: var(--size-small);
+}
+
+.diagram-tool {
+  opacity: 0;
+}
+
+.diagram:hover .diagram-tool,
+.diagram:focus-within .diagram-tool,
+.diagram-tool[aria-pressed='true'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .diagram-tool {
+    opacity: 1;
+  }
+}
+
+.diagram-note {
+  margin: var(--space-4) 0 0;
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+/* The window a diagram opens larger in: a card over the page, as the page's question is, nearly as large as the
+   window; its name and a button that closes it on a head with a line under it, the viewer filling the rest on the
+   card the diagram was drawn for, and how it is moved and scaled under it. */
+.diagram-window {
+  width: calc(100vw - var(--space-16) * 4);
+  max-width: none;
+  height: calc(100vh - var(--space-16) * 4);
+  max-height: none;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow:
+    0 0 0 var(--hairline) var(--line),
+    0 8px 16px rgb(0 0 0 / 8%),
+    0 24px 48px rgb(0 0 0 / 16%);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--size-body);
+}
+
+.diagram-window[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.diagram-window::backdrop {
+  background: rgb(31 35 40 / 35%);
+}
+
+.diagram-window-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--space-12) var(--space-16);
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+.diagram-window-title {
+  font-size: var(--size-title);
+  font-weight: var(--weight-strong);
+}
+
+.diagram-window-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  user-select: none;
+}
+
+.diagram-window-stage .viewer {
+  background: var(--card);
+}
+
+.diagram-window-hint {
+  margin: 0;
+  padding: var(--space-8) var(--space-16);
+  border-top: var(--hairline) solid var(--line);
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
 /* The form of a return as a tree (FormTree.tsx): each property on a line, its type after it, muted, a required one
    marked in red; a node that holds others folds at a press of its head, by its drawn mark; where a return holds
    one of several, each in a box with an `or` line between two. A kind of return is strong, a tool green, the blocks a
