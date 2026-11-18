@@ -340,10 +340,10 @@
   overflow: hidden;
 }
 
-/* The cell a row's run ran in, washed in the colour of its state, so that the runs read down the history as a trail of
-   lit cells; its mark stays at its middle. */
+/* The cell a row's run ran in, edged inside in the colour of its state, so that the runs read down the history as a
+   trail of framed cells, in dark as in light, where a wash of the colour hardly showed; its mark stays at its middle. */
 .history .spot.ran {
-  background-color: color-mix(in srgb, var(--ran) 18%, transparent);
+  box-shadow: inset 0 0 0 var(--chart-cell-edge) var(--ran);
 }
 
 /* The cells' heads and the flow's lines under them, the matrix's own rows, stay at the top together while the runs
