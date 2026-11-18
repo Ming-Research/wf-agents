@@ -1466,7 +1466,8 @@ fn the_switch_of_keeping_sessions_warm_is_kept_and_a_ping_comes_once_it_is_switc
     opened_again(&mut s, warm("opus"));
     assert!(!s.driver.keeping_warm());
     assert!(s.driver.wake().is_none(), "nothing to wake for");
-    assert!(pings(&s, &s.driver.tick(Time(at), None, None).unwrap()).is_empty());
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
+    assert!(pings(&s, &todos).is_empty());
     // Switched on again, the driver asks for the ping that is due and gives it at that time.
     s.driver
         .keep_warm(Time(s.clock), true)
