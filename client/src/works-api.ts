@@ -373,6 +373,8 @@ export type Unmet =
   | { kind: 'notAValue'; block: string; value: string }
   | { kind: 'notAChoice'; block: string }
   | { kind: 'notHandedIn'; block: string }
+  /// It hands in a choice with a value that stands with nothing but some blocks, and these besides.
+  | { kind: 'nothingBut'; block: string; value: string; besides: string[] }
   | { kind: 'unreadable'; why: string }
   | { kind: 'notRunBy'; block: string }
   | { kind: 'dealtWithTwice'; block: string }

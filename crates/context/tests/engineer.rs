@@ -824,43 +824,78 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-// A question the work waits for holds the work at its cell whether or not the cell applies now (design document
-// `data-and-context`, 32): the research, in one return, hands the plan to the deep research, `deep_needed` yes, which
-// skips the research from then on, and asks a question the work waits for. Before the answer no cell after the research
-// runs, whatever is new to it; the owner's words to the engineer's line, which stands at the research, are refused,
-// saying the research does not apply now, and go to no other cell (35). The answer, though it takes the option the
-// research recommends, changes the research's questions in meaning, since the work waited for it (31), and runs the
-// deep research, which took charge and watches them (28), told that they ran it; the research does not run.
+// The research hands the work to the deep research with what it found and nothing else (decision
+// the-research-hands-over-with-what-it-found-alone): a return of it that writes `deep_needed` yes and asks a question the
+// work waits for, as one was seen to, is sent back, and its next round is told why in the words beside the flows; the
+// question is not asked. Its next return, with what it found alone, is taken, and the deep research runs.
 #[test]
-fn a_question_that_waits_at_the_research_it_skipped_holds_the_deep_research_until_the_answer_runs_it() {
+fn the_research_s_hand_over_holding_a_question_is_sent_back_saying_what_else_it_held() {
     let (mut sim, research) = until("R1");
     tried(&mut sim, &research);
-    let mut came = Came::hands_in(vec![
-        handed("deep_needed", "", Some("yes")),
-        handed("found", "Where the name comes from is open.", None),
-    ]);
+    let hand_over = || {
+        vec![
+            handed("deep_needed", "", Some("yes")),
+            handed("found", "Where the name comes from is open.", None),
+        ]
+    };
+    let mut came = Came::hands_in(hand_over());
     came.said.questions = vec![naming()];
     sim.returns(&research, came, 0);
-    let waits_at_the_research = |sim: &Sim| {
+    let again = sim.round().expect("the research is entered again");
+    assert_eq!((again.cell.as_str(), again.run, again.number), ("R1", research.run, 2));
+    assert!(sim.versions("r1_questions").is_empty(), "the question was asked");
+    let entered = sim.enter(&again, sim.begins(&again));
+    let said = "- `deep_needed` is `yes`, and a return with that value holds none of `r1_questions`.";
+    assert!(entered.text.contains(said), "{}", entered.text);
+    sim.tries(&again, 1, entered.fills);
+    sim.returns(&again, Came::hands_in(hand_over()), 0);
+    let deep = sim.round().expect("the deep research is given a round");
+    assert_eq!(deep.cell.as_str(), "D1");
+    assert!(!decide::applies(&sim.flow.flow, &sim.work.records, &CellId::from("R1")));
+}
+
+// A question the work waits for holds the work at its cell whether or not the cell applies now (design document
+// `data-and-context`, 32): the plan's second look asks one the work waits for, and the owner then rewrites the
+// background, on which the research runs again and hands the work to the deep research, `deep_needed` yes, which skips
+// the second look from then on. Before the answer no cell after the second look runs, whatever is new to it; the
+// owner's words to the engineer's line, which stands at the second look, are refused, saying it does not apply now, and
+// go to no other cell (35). The answer, though it takes the option the second look recommends, changes its questions in
+// meaning, since the work waited for it (31): the deep research runs first, on what is new to it, and then the deep
+// research's second look, which took charge from the second look and watches its questions (28), told that they ran it;
+// the second look does not run.
+#[test]
+fn a_question_that_waits_at_a_cell_since_skipped_holds_the_work_until_the_answer_runs_the_cell_in_charge() {
+    let (mut sim, second) = until("R2");
+    tried(&mut sim, &second);
+    let mut came = Came::hands_in(Vec::new());
+    came.said.questions = vec![naming()];
+    sim.returns(&second, came, 0);
+    let waits_at_the_second_look = |sim: &Sim| {
         let decision = decide::decide(&sim.flow.flow, &sim.work.records);
         let held = matches!(&decision, Decision::Wait { at, on }
-            if at.as_str() == "R1" && *on == [Waited::Answer { question: "naming".to_string() }]);
+            if at.as_str() == "R2" && *on == [Waited::Answer { question: "naming".to_string() }]);
         (held, decision)
     };
     assert_eq!(sim.round(), None, "the work waits for the answer");
-    let (held, decision) = waits_at_the_research(&sim);
-    assert!(held, "{decision:?}");
-    assert!(!decide::applies(&sim.flow.flow, &sim.work.records, &CellId::from("R1")));
 
-    // What is new to the cells after the research runs none of them: the owner rewrites the background, which runs the
-    // reading of the tree before the research, and the deep research after it; main moves, which runs the check.
+    // The owner rewrites the background, which runs the reading of the tree and the research before the second look:
+    // the research hands the work to the deep research, which skips the second look. Main moves, which runs the check.
     sim.writes("background", "Greet the user by name, warmly.");
     next(&mut sim, "R0", &[]);
+    next(
+        &mut sim,
+        "R1",
+        &[
+            ("deep_needed", "", Some("yes")),
+            ("found", "Where the name comes from is open.", None),
+        ],
+    );
     sim.wrote("main", "The main branch main is at m2.", None, Outsider::Outside);
-    assert_eq!(sim.round(), None, "a cell after the research runs before the answer");
-    let (held, decision) = waits_at_the_research(&sim);
+    assert_eq!(sim.round(), None, "a cell after the second look runs before the answer");
+    let (held, decision) = waits_at_the_second_look(&sim);
     assert!(held, "{decision:?}");
-    for cell in ["D1", "M1"] {
+    assert!(!decide::applies(&sim.flow.flow, &sim.work.records, &CellId::from("R2")));
+    for cell in ["D1", "D2", "M1"] {
         let new = decide::new_to(&sim.flow.flow, &sim.work.records, &CellId::from(cell));
         assert!(
             !new.is_empty(),
@@ -868,9 +903,9 @@ fn a_question_that_waits_at_the_research_it_skipped_holds_the_deep_research_unti
         );
     }
 
-    // The owner's words to the engineer's line would reach the research, which does not apply now: refused, saying so,
-    // and written nowhere.
-    let skipped = Err(NoOne::Skipped(CellId::from("R1")));
+    // The owner's words to the engineer's line would reach the second look, which does not apply now: refused, saying
+    // so, and written nowhere.
+    let skipped = Err(NoOne::Skipped(CellId::from("R2")));
     assert_eq!(receiver(&sim, To::Line("engineer".into())), skipped);
     let words: usize = (sim.flow.cells.iter())
         .filter_map(|c| spoken::words_of(&sim.flow, &c.id))
@@ -883,7 +918,7 @@ fn a_question_that_waits_at_the_research_it_skipped_holds_the_deep_research_unti
     let refused = engine::handle(&sim.flow, &mut sim.work, engine::Time(1_000), said);
     assert_eq!(
         refused,
-        Err(engine::Refused::NoOneSpokenTo(NoOne::Skipped(CellId::from("R1"))))
+        Err(engine::Refused::NoOneSpokenTo(NoOne::Skipped(CellId::from("R2"))))
     );
     let after: usize = (sim.flow.cells.iter())
         .filter_map(|c| spoken::words_of(&sim.flow, &c.id))
@@ -891,16 +926,16 @@ fn a_question_that_waits_at_the_research_it_skipped_holds_the_deep_research_unti
         .sum();
     assert_eq!(after, words, "the refused words are written to no cell");
 
-    // The owner answers by the option the research recommends: the question's version is the latest of R1's
+    // The owner answers by the option the second look recommends: the question's version is the latest of R2's
     // questions.
-    let version = sim.versions("r1_questions").len() as u64;
+    let version = sim.versions("r2_questions").len() as u64;
     sim.take(Event::Answer {
         question: "naming".to_string(),
         version,
         option: 1,
     });
     let versions = decide::versions(&sim.work.records);
-    let answer = versions[&BlockId::from("r1_questions")]
+    let answer = versions[&BlockId::from("r2_questions")]
         .last()
         .expect("the answer is a version");
     assert_eq!(
@@ -908,33 +943,39 @@ fn a_question_that_waits_at_the_research_it_skipped_holds_the_deep_research_unti
         Some(answer.at),
         "an answer to a question the work waited for changes nothing"
     );
-    let deep = sim.round().expect("the answer runs a cell");
-    assert_eq!(
-        deep.cell.as_str(),
+    next(
+        &mut sim,
         "D1",
-        "the deep research, in charge, takes the answer"
-    );
-    let told = decide::told(&sim.flow.flow, &sim.work.records, deep.run).expect("the run started");
-    assert!(
-        told.ran_by.contains(&BlockId::from("r1_questions")),
-        "{:?}",
-        told.ran_by
-    );
-    let entered = sim.enter(&deep, sim.begins(&deep));
-    assert!(
-        entered.situation.new.contains(&"r1_questions".to_string()),
-        "{:?}",
-        entered.situation.new
-    );
-    sim.tries(&deep, 1, entered.fills);
-    sim.hands_in(
-        &deep,
         &[
             ("plan_owner", "Greet by the first name.", None),
             ("plan_agent", "Add the first name to the greeting.", None),
             ("acceptance", "The greeting names the user.", None),
         ],
     );
+    let deep = sim.round().expect("the answer runs a cell");
+    assert_eq!(
+        deep.cell.as_str(),
+        "D2",
+        "the deep research's second look, in charge, takes the answer"
+    );
+    let told = decide::told(&sim.flow.flow, &sim.work.records, deep.run).expect("the run started");
+    assert!(
+        told.ran_by.contains(&BlockId::from("r2_questions")),
+        "{:?}",
+        told.ran_by
+    );
+    let entered = sim.enter(&deep, sim.begins(&deep));
+    assert!(
+        entered.situation.new.contains(&"r2_questions".to_string()),
+        "{:?}",
+        entered.situation.new
+    );
+    sim.tries(&deep, 1, entered.fills);
+    sim.hands_in(&deep, &[]);
     let after = sim.round().expect("a round is given");
-    assert_ne!(after.cell.as_str(), "R1", "the research, skipped, runs for the answer");
+    assert_ne!(
+        after.cell.as_str(),
+        "R2",
+        "the second look, skipped, runs for the answer"
+    );
 }

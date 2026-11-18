@@ -283,7 +283,7 @@ new session lacks it.
     |---|---|---|---|---|
     | S1 Start | the items it depends on merged | `start` | | `place` |
     | R0 Understand the problem and the design tree | | `background`, `engineer_session` | `tree` | nothing |
-    | R1 Initial research | no deep research | `background`, `plan_review`, `tree_review`, `plan_doubts` | `tree` | `deep_needed` every time, `found`, plan, answers in its dialogues, questions |
+    | R1 Initial research | no deep research | `background`, `plan_review`, `tree_review`, `plan_doubts` | `tree` | `deep_needed` every time; with yes, `found` and nothing else; with no, plan, answers in its dialogues, questions |
     | R2 Is there a better way | no deep research | plan | `background`, `tree` | plan, where it finds a better way; questions |
     | D1 Deep research | deep research | `background`, `found`, `plan_review`, `tree_review`, `plan_doubts`, R1's questions | `tree` | plan, answers in its dialogues, questions |
     | D2 Is there a better way | deep research | plan, R2's questions | `background`, `tree` | plan, where it finds a better way; questions |

@@ -283,6 +283,9 @@ pub struct Block {
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, as the
     /// block's file says; none where it says nothing.
     pub writes: Texts,
+    /// Of a choice, by a value of it, the other blocks a return that writes it with that value may hold, and no more of
+    /// what its cell may write, as its file says (`with_nothing_but`); none where it says none.
+    pub with_nothing_but: BTreeMap<String, Vec<BlockId>>,
     /// Who writes it.
     pub writers: Writers,
     /// Who reads it.
@@ -485,6 +488,16 @@ pub enum FaultKind {
     DefaultNotAChoice { block: String },
     /// The choice says what it counts as before it is written, and that is not one of its values.
     DefaultNotAValue { block: String, default: String },
+    /// The block says what a return that writes it with this value holds nothing else but (`with_nothing_but`), and
+    /// the value is not one of its values, or it is no choice.
+    NothingButNotAValue { block: String, value: String },
+    /// The block says that a return that writes it with this value may hold this other block beside it
+    /// (`with_nothing_but`), and no cell that writes the block may write that one.
+    NothingButNotAnOutput {
+        block: String,
+        value: String,
+        output: String,
+    },
     /// A block is named `test`, which a cell's `when` and `requires` take for a named test.
     BlockNamedTest,
     /// A cell's `when` or `requires` is a table of no keys: it says nothing that must hold.
@@ -1415,6 +1428,31 @@ impl<'a> Definition<'a> {
                         faults.push(at("default", what));
                     }
                     Some(_) => {}
+                }
+            }
+            // What a return that writes the choice with a value may hold beside it: a value of the choice, and blocks
+            // a cell that writes the choice may write.
+            let writers = &self.uses[name.as_str()].writers;
+            let may_write =
+                |output: &str| (writers.iter()).any(|(_, id)| self.cells[*id].outputs.iter().any(|o| o == output));
+            for (value, outputs) in &block.with_nothing_but {
+                let field = format!("with_nothing_but.{value}");
+                if !block.values.as_ref().is_some_and(|values| values.contains(value)) {
+                    let what = FaultKind::NothingButNotAValue {
+                        block: name.clone(),
+                        value: value.clone(),
+                    };
+                    faults.push(at(&field, what));
+                }
+                for (j, output) in outputs.iter().enumerate() {
+                    if !may_write(output) {
+                        let what = FaultKind::NothingButNotAnOutput {
+                            block: name.clone(),
+                            value: value.clone(),
+                            output: output.clone(),
+                        };
+                        faults.push(at(&format!("{field}[{j}]"), what));
+                    }
                 }
             }
             if name == WHEN_TEST {
@@ -2468,6 +2506,9 @@ impl<'a> Definition<'a> {
                     words: declared.words.clone(),
                     shape: declared.shape.clone().map(|shape| Shape(toml::Value::Table(shape))),
                     writes: declared.writes.clone(),
+                    with_nothing_but: (declared.with_nothing_but.iter())
+                        .map(|(value, blocks)| (value.clone(), blocks.iter().map(|b| BlockId(b.clone())).collect()))
+                        .collect(),
                     writers: Writers {
                         cells: ids(&writers),
                         people: declared.people,

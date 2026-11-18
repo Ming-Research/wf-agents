@@ -837,6 +837,18 @@ impl Build<'_> {
             ),
             Unmet::NotAChoice { block: b } => (&f.not_a_choice, vec![block(b)]),
             Unmet::NotHandedIn { block: b } => (&f.not_handed_in, vec![block(b)]),
+            Unmet::NothingBut {
+                block: b,
+                value,
+                besides,
+            } => {
+                let ticked: Vec<String> = besides.iter().map(|b| format!("`{b}`")).collect();
+                let besides = ticked.join(&words.between);
+                (
+                    &f.nothing_but,
+                    vec![block(b), ("value", value.clone()), ("besides", besides)],
+                )
+            }
             Unmet::Unreadable { why } => (&f.unreadable, vec![("why", why.clone())]),
             Unmet::NotRunBy { block: b } => (&f.not_run_by, vec![("name", watched(b))]),
             Unmet::DealtWithTwice { block: b } => (&f.dealt_with_twice, vec![("name", watched(b))]),

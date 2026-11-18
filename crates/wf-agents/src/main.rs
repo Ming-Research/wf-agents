@@ -897,6 +897,14 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::DefaultNotAValue { block, default } => {
             format!("{block} counts as {default} before it is written, which is not one of its values")
         }
+        F::NothingButNotAValue { block, value } => {
+            format!(
+                "{block} says what a return with {value} holds nothing else but, and {value} is not one of its values"
+            )
+        }
+        F::NothingButNotAnOutput { block, value, output } => {
+            format!("{block} says a return with {value} may hold {output}, which no cell that writes {block} may write")
+        }
         F::BlockNamedTest => {
             "a block is named test, which a cell's when and requires take for a named test".to_string()
         }

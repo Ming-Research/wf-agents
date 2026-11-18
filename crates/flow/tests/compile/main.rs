@@ -17,6 +17,7 @@ mod must_write;
 mod named_by;
 mod named_tests;
 mod notes;
+mod nothing_but;
 mod system;
 mod takes_main;
 mod tools;

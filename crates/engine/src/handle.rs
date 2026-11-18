@@ -90,8 +90,9 @@ pub fn handle_then(
         && let Some(told) = told(&flow.flow, &work.records, run)
     {
         let choices = choices(flow);
+        let nothing_but = nothing_but(flow);
         let answers = answers(flow, work, run);
-        if let Some(requires) = requires(flow, &choices, &answers, &told, work, run)
+        if let Some(requires) = requires(flow, &choices, &nothing_but, &answers, &told, work, run)
             && let Step::Finish { dealt_with, writes } = run::next(
                 &log(flow, work, run, &told),
                 requires,
@@ -677,11 +678,12 @@ fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) 
 /// a wait made or came to rest for the owner at a limit, and not when a round of it began or is held.
 fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<Effect>) -> bool {
     let choices = choices(flow);
+    let nothing_but = nothing_but(flow);
     let answers = answers(flow, work, run);
     let Some(told) = told(&flow.flow, &work.records, run) else {
         return false;
     };
-    let Some(requires) = requires(flow, &choices, &answers, &told, work, run) else {
+    let Some(requires) = requires(flow, &choices, &nothing_but, &answers, &told, work, run) else {
         return false;
     };
     let Some(started) = work.records.started.iter().find(|s| s.run == run) else {
@@ -870,11 +872,21 @@ pub(crate) fn choices(flow: &Compiled) -> BTreeMap<BlockId, Vec<String>> {
         .collect()
 }
 
+/// Of each choice of the flow that says it, by a value of it, the other blocks a return that writes it with that value
+/// may hold, and no more of what its cell may write (`with_nothing_but`).
+pub(crate) fn nothing_but(flow: &Compiled) -> BTreeMap<BlockId, BTreeMap<String, Vec<BlockId>>> {
+    (flow.blocks.iter())
+        .filter(|(_, declared)| !declared.with_nothing_but.is_empty())
+        .map(|(block, declared)| (block.clone(), declared.with_nothing_but.clone()))
+        .collect()
+}
+
 /// What the flow requires of what the run's cell returns, with what its round was told; none where the run's cell is
 /// not in the flow.
 pub(crate) fn requires<'a>(
     flow: &'a Compiled,
     choices: &'a BTreeMap<BlockId, Vec<String>>,
+    nothing_but: &'a BTreeMap<BlockId, BTreeMap<String, Vec<BlockId>>>,
     answered_by: &'a BTreeMap<BlockId, Answer>,
     told: &'a Told,
     work: &Work,
@@ -893,6 +905,9 @@ pub(crate) fn requires<'a>(
         answered_by,
         dialogues: &flow.flow.cells()[place].dialogues,
         verdicts: &flow.flow.cells()[place].verdicts,
+        nothing_but,
+        questions: asked::questions_of(flow, &spec.id),
+        words: spoken::words_of(flow, &spec.id),
     })
 }
 

@@ -206,6 +206,50 @@ fn a_round_the_script_says_nothing_of_commits_where_it_hands_in_what_an_act_desc
 }
 
 #[test]
+fn a_round_the_script_says_nothing_of_hands_a_value_that_stands_alone_in_with_what_it_names_alone() {
+    let flow = engineer();
+    // The research's first value of `deep_needed` is yes, which stands with nothing but what it found: the plan and the
+    // answers in its dialogues, which no cell before it reads, are not handed in beside it.
+    let words = |block: &str| format!("The {block} as R1 wrote it in its run 1, round 1.");
+    assert_eq!(
+        Script::default()
+            .round(&flow, cell(&flow, "R1"), 1, 1, &BTreeMap::new())
+            .ends,
+        Ends::Came(Came::hands_in(vec![
+            handed("deep_needed", &words("deep_needed"), Some("yes")),
+            handed("found", &words("found"), None),
+        ]))
+    );
+}
+
+#[test]
+fn a_round_the_script_says_nothing_of_writes_what_only_a_cell_that_never_runs_beside_it_reads_before_it() {
+    let flow = engineer();
+    // The plan's second look, before the deep research, runs only where `deep_needed` is no and the deep research only
+    // where it is yes, so the plan, which the second look reads, is no way back for the deep research: it writes it, and
+    // its answers in its dialogues, which only the research, as far apart, reads before it. Its own questions and words,
+    // which the reading of the tree reads, it writes not.
+    let words = |block: &str| format!("The {block} as D1 wrote it in its run 1, round 1.");
+    let blocks = [
+        "plan_owner",
+        "plan_agent",
+        "acceptance",
+        "tree_edits",
+        "plan_review",
+        "tree_review",
+        "plan_doubts",
+    ];
+    assert_eq!(
+        Script::default()
+            .round(&flow, cell(&flow, "D1"), 1, 1, &BTreeMap::new())
+            .ends,
+        Ends::Came(Came::hands_in(
+            blocks.iter().map(|b| handed(b, &words(b), None)).collect()
+        ))
+    );
+}
+
+#[test]
 fn a_script_with_a_field_it_does_not_know_is_not_read() {
     assert!(Script::read("[took]\nseconds = 3\n").is_err());
     assert!(

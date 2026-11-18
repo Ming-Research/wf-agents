@@ -50,6 +50,47 @@ fn a_round_entered_for_the_owner_while_its_cell_waits_is_held_to_no_block_its_ce
     assert_eq!(step(vec![handed_in(vec![prose("verdict")])], &s), send_back(unmet));
 }
 
+/// The cell, which must hand in its verdict, with words of its own, its dialogue with the owner: its round was run by
+/// the request and by the owner's words.
+fn spoken_to() -> Spec {
+    let mut s = must_write(&["verdict"]);
+    s.outputs.push("spoken".into());
+    s.words = Some("spoken".into());
+    s.told.ran_by = vec!["request".into(), "spoken".into()];
+    s
+}
+
+#[test]
+fn a_return_that_only_answers_the_owner_in_the_cell_s_words_owes_no_block_its_cell_must_write() {
+    let s = spoken_to();
+    let finish = Step::Finish {
+        dealt_with: vec!["spoken".into()],
+        writes: vec![prose("spoken")],
+    };
+    assert_eq!(step(vec![works(&["spoken"], vec![prose("spoken")])], &s), finish);
+    // What it hands in is still checked: the words named and no answer written, as the reading finds, is sent back for
+    // that alone.
+    let found = vec![Unmet::NotAnswered {
+        name: "spoken".to_string(),
+    }];
+    let round = came(&["spoken"], vec![], found.clone(), false);
+    assert_eq!(step(vec![round], &s), send_back(found));
+}
+
+#[test]
+fn a_return_that_does_more_than_answer_the_owner_owes_what_its_cell_must_write() {
+    let s = spoken_to();
+    let unmet = vec![Unmet::NotHandedIn {
+        block: "verdict".into(),
+    }];
+    let more_dealt_with = works(&["spoken", "request"], vec![prose("spoken")]);
+    assert_eq!(step(vec![more_dealt_with], &s), send_back(unmet.clone()));
+    let more_written = works(&["spoken"], vec![prose("spoken"), prose("plan")]);
+    assert_eq!(step(vec![more_written], &s), send_back(unmet.clone()));
+    let asking = asks_beside(&["spoken"], vec![prose("spoken")], false);
+    assert_eq!(step(vec![asking], &s), send_back(unmet));
+}
+
 #[test]
 fn a_block_the_cell_must_hand_in_handed_in_wrongly_is_said_only_to_be_wrong() {
     let unmet = vec![Unmet::NoValue {

@@ -205,6 +205,20 @@ describe('the words of the page', () => {
         what: { kind: 'defaultNotAValue', block: 'deep_needed', default: 'maybe' },
       }),
     ).toBe('deep_needed counts as maybe before it is written, which is not one of its values.');
+    expect(
+      faultWords({
+        file: 'blocks/plan/deep_needed.toml',
+        field: 'with_nothing_but.maybe',
+        what: { kind: 'nothingButNotAValue', block: 'deep_needed', value: 'maybe' },
+      }),
+    ).toBe('deep_needed says what a return with maybe holds nothing else but, and maybe is not one of its values.');
+    expect(
+      faultWords({
+        file: 'blocks/plan/deep_needed.toml',
+        field: 'with_nothing_but.yes[0]',
+        what: { kind: 'nothingButNotAnOutput', block: 'deep_needed', value: 'yes', output: 'code' },
+      }),
+    ).toBe('deep_needed says a return with yes may hold code, which no cell that writes deep_needed may write.');
     expect(faultWords({ file: 'blocks/test.toml', field: '', what: { kind: 'blockNamedTest' } })).toBe(
       "A block is named test, which a cell's when takes for a named test.",
     );
