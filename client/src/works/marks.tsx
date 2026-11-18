@@ -1,7 +1,7 @@
 // The marks of the works page: the strip of a work's cells, one mark per cell of its flow, each standing as its run
 // does, and the marks its legend lists; the line of what a work does now, a dot in its tone and its words, and how long
 // a work has waited for the calls of tools, kept current; a line of pieces of words; and a part that opens a content,
-// or anything read, only when the owner asks for it.
+// or anything read, only when the owner asks for it, with the read it makes once it is wanted.
 
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 
@@ -121,26 +121,23 @@ export function Content({ text }: { text: string }) {
   return <pre className="content">{text === '' ? <span className="muted">(empty)</span> : text}</pre>;
 }
 
-/// What the owner opens: read when first opened, then shown as `show` draws it. What was read is kept while `of`
-/// stays the same, and read again, when next shown, once it changes: what was read of a round under way is not what
-/// it is once the round has ended.
-export function Unfold<T>({ label, load, show, of = null }: {
-  label: ReactNode;
-  load: () => Promise<T>;
-  show: (value: T) => ReactNode;
-  of?: unknown;
-}) {
-  const [open, setOpen] = useState(false);
-  const [content, setContent] = useState<{ of: unknown; got: { value: T } | { failed: string } } | null>(null);
+/// What was read: its value, or why it could not be read.
+export type Got<T> = { value: T } | { failed: string };
+
+/// What `load` reads once it is `wanted`: none until then and while it is read, then what it read or why it could
+/// not. What was read is kept while `of` stays the same, and read again, when next wanted, once it changes: what was
+/// read of a round under way is not what it is once the round has ended.
+export function useWanted<T>(wanted: boolean, load: () => Promise<T>, of: unknown = null): Got<T> | null {
+  const [content, setContent] = useState<{ of: unknown; got: Got<T> } | null>(null);
   const latest = useRef(load);
   const asked = useRef<{ of: unknown } | null>(null);
   useEffect(() => {
     latest.current = load;
   });
   const got = content !== null && Object.is(content.of, of) ? content.got : null;
-  const wanted = open && got === null;
+  const asking = wanted && got === null;
   useEffect(() => {
-    if (!wanted || (asked.current !== null && Object.is(asked.current.of, of))) return;
+    if (!asking || (asked.current !== null && Object.is(asked.current.of, of))) return;
     const ask = { of };
     asked.current = ask;
     latest.current().then(
@@ -151,20 +148,32 @@ export function Unfold<T>({ label, load, show, of = null }: {
         if (asked.current === ask) setContent({ of, got: { failed: e instanceof Error ? e.message : String(e) } });
       },
     );
-  }, [wanted, of]);
+  }, [asking, of]);
+  return got;
+}
+
+/// What was read, as `show` draws it; until it is, that it is being read; or why it could not be.
+export function Loaded<T>({ got, show }: { got: Got<T> | null; show: (value: T) => ReactNode }) {
+  if (got === null) return <p className="muted small">Reading</p>;
+  if ('failed' in got) return <p className="small failed">It could not be read: {got.failed}</p>;
+  return <>{show(got.value)}</>;
+}
+
+/// What the owner opens: read when first opened (`useWanted`), then shown as `show` draws it.
+export function Unfold<T>({ label, load, show, of = null }: {
+  label: ReactNode;
+  load: () => Promise<T>;
+  show: (value: T) => ReactNode;
+  of?: unknown;
+}) {
+  const [open, setOpen] = useState(false);
+  const got = useWanted(open, load, of);
   return (
     <div className="opener">
       <button type="button" className="link" aria-expanded={open} onClick={() => setOpen(!open)}>
         {open ? 'Hide' : 'Show'} {label}
       </button>
-      {open &&
-        (got === null ? (
-          <p className="muted small">Reading</p>
-        ) : 'failed' in got ? (
-          <p className="small failed">It could not be read: {got.failed}</p>
-        ) : (
-          show(got.value)
-        ))}
+      {open && <Loaded got={got} show={show} />}
     </div>
   );
 }

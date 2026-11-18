@@ -18,7 +18,9 @@ import type {
   Act,
   CallPage,
   Changed,
+  ChangesPage,
   Copies,
+  DiffPage,
   Doing,
   DoingPage,
   Engine,
@@ -44,6 +46,9 @@ export interface Source {
   loadRound(work: number, run: number, round: number): Promise<RoundPage>;
   loadTold(work: number, run: number, round: number): Promise<ToldPage>;
   loadDoing(work: number, run: number, round: number): Promise<DoingPage>;
+  /// Each file the work changed, and the diff of one of them.
+  loadChanges(work: number): Promise<ChangesPage>;
+  loadDiff(work: number, path: string): Promise<DiffPage>;
   loadSystem(work: number, line: string, session: number): Promise<SystemPage>;
   loadCall(work: number, call: number): Promise<CallPage>;
   /// What the owner does to a work: words said answer with the cell the engine gave them to, every other act with
@@ -67,6 +72,8 @@ export const INTERFACE: Source = {
   loadRound: api.loadRound,
   loadTold: api.loadTold,
   loadDoing: api.loadDoing,
+  loadChanges: api.loadChanges,
+  loadDiff: api.loadDiff,
   loadSystem: api.loadSystem,
   loadCall: api.loadCall,
   act: api.act,
@@ -88,6 +95,8 @@ export const FIXTURES: Source = {
   loadRound: async (work, run, round) => (await import('./fixtures')).fixtureRound(work, run, round),
   loadTold: async (work, run, round) => (await import('./fixtures')).fixtureTold(work, run, round),
   loadDoing: async (work, run, round) => (await import('./fixtures')).fixtureDoing(work, run, round),
+  loadChanges: (work) => Promise.reject(new Error(`The made-up work ${work} changed no files`)),
+  loadDiff: (work) => Promise.reject(new Error(`The made-up work ${work} changed no files`)),
   loadSystem: async (work, line, session) => (await import('./fixtures')).fixtureSystem(work, line, session),
   loadCall: async (work, call) => (await import('./fixtures')).fixtureCall(work, call),
   act: async (work, what) => {
@@ -110,6 +119,9 @@ export interface Reader {
   system(line: string, session: number): Promise<string>;
   /// What the agent of a round was last seen doing, the latest last; read anew each time.
   doing(run: number, number: number): Promise<Doing[]>;
+  /// Each file the work changed, and the diff of one of them; read anew each time, as the work's head moves.
+  changes(): Promise<ChangesPage>;
+  diff(path: string): Promise<DiffPage>;
 }
 
 /// The reads of a work's contents, each made once: a version, an ended round, what it was told and returned, and a
@@ -140,6 +152,8 @@ export function readerOf(source: Source, work: number): Reader {
     system: (line, session) =>
       cached(`s:${line}/${session}`, async () => (await source.loadSystem(work, line, session)).text),
     doing: async (run, number) => (await source.loadDoing(work, run, number)).doing,
+    changes: () => source.loadChanges(work),
+    diff: (path) => source.loadDiff(work, path),
   };
 }
 

@@ -427,6 +427,11 @@
   color: var(--orange-text);
 }
 
+/* Lines added and removed (`LinesChanged` in marks.tsx), kept together on one line; their colours are set on them. */
+.lines-changed {
+  white-space: nowrap;
+}
+
 .opener {
   flex-basis: 100%;
 }

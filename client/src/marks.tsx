@@ -3,7 +3,8 @@
 // strip of a work's cells, a work's history and the observations each list in their legend the marks they draw, so
 // that one thing has one name and one look in every view (Article 8). What the flow's files define is named by its key
 // (principle definitions-shown-as-written); how a run ended or stands has one set of marks, which the strip draws for
-// each cell, as its run stands, and the history for each run (`works/state-marks.ts`).
+// each cell, as its run stands, and the history for each run (`works/state-marks.ts`). Beside the table, the look of a
+// work's lines added and removed, which the page and the console's cards both draw from.
 
 import type { ReactNode } from 'react';
 
@@ -11,6 +12,7 @@ import { ConditionGlyph, DataGlyphs, LineGlyph, ToolGlyph } from './Chart';
 import { type Mark, NO_MARK } from './matrix';
 import { Sign } from './parts';
 import { RUN_STATES, type RunState, lookStyle, pulses } from './works/state-marks';
+import { keysLine, linesAdded, linesRemoved } from './works/words';
 
 /// A mark the page draws: of the flow's definition, as its files' keys name it; of a line between cells; of who
 /// writes a datum besides the cells; of how a run ended or stands; of an observation not read.
@@ -115,6 +117,26 @@ export const MARKS: Record<MarkKey, Entry> = {
 
 /// A mark's name.
 export const markName = (key: MarkKey): string => MARKS[key].name;
+
+/// The colours of lines added and removed, as tokens' names: the green and the red a diff draws added and removed text
+/// in (`console/diff.tsx`), as small text takes them.
+export const LINES_LOOKS = { added: '--green-text', removed: '--red-text' } as const;
+
+/// Lines added and removed, `+210 −40`, each in its colour; on pointing at them, what they count by its keys, with the
+/// files where they are given.
+export function LinesChanged({ added, removed, files }: { added: number; removed: number; files?: number }) {
+  const keys: [string, string][] = [
+    ...(files === undefined ? [] : [['files', String(files)] as [string, string]]),
+    ['added', String(added)],
+    ['removed', String(removed)],
+  ];
+  return (
+    <span className="mono lines-changed" title={keysLine(keys)}>
+      <span style={{ color: `var(${LINES_LOOKS.added})` }}>{linesAdded(added)}</span>{' '}
+      <span style={{ color: `var(${LINES_LOOKS.removed})` }}>{linesRemoved(removed)}</span>
+    </span>
+  );
+}
 
 /// The legend of a view: each mark it draws, as the table draws it, with its name and, where one is given, how many
 /// of it the view has, `way back (3)`; on one line, wrapping only where the view's line has no room for it.

@@ -88,6 +88,10 @@ export function count(n: number): string {
   return n.toLocaleString('en');
 }
 
+/// Lines added and removed, as a diff counts them: `+210`, `−40`.
+export const linesAdded = (n: number): string => `+${count(n)}`;
+export const linesRemoved = (n: number): string => `−${count(n)}`;
+
 /// What share of a whole a part is, in whole percent: `89%`; a dash where the whole is nothing.
 export function share(part: number, whole: number): string {
   return whole > 0 ? `${Math.round((100 * part) / whole)}%` : '–';

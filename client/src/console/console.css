@@ -400,12 +400,19 @@
   font-weight: var(--weight);
 }
 
-/* The words of a question and of its options, and a pointer to a question in a text, can be selected, to copy or to
-   quote: a browser selects no words of a button otherwise. */
+/* The words of a question and of its options, a pointer to a question in a text, and the path of a file the work
+   changed, which opens its diff, can be selected, to copy or to quote: a browser selects no words of a button
+   otherwise. */
 .cw-choice-q,
 .cw-option,
-.cw-pointer {
+.cw-pointer,
+.cw-file {
   user-select: text;
+}
+
+/* The path of a file the work changed wraps anywhere, as a long path has no blank to wrap at. */
+.cw-file {
+  overflow-wrap: anywhere;
 }
 
 /* Under a choice's options: how many messages are about it, a muted link at the left, and Discuss at the right. */

@@ -20,7 +20,8 @@
 // that cell. Under the work's state line,
 // each other stop of the work, in the same look: one sentence of why and the buttons that end it, from the engine's
 // list, and a fault or a stall, which no one waits on, said as the engine gives it. The second tab holds what of the
-// work the lines do not say, and the legend of the strip's marks; the third, Step, everything about the row of the
+// work the lines do not say, the legend of the strip's marks, and what the work changed, file by file, each opening
+// its diff; the third, Step, everything about the row of the
 // work's history the page chose, else the run the work stands at; the fourth, Usage, what the work used. Each page
 // keeps its own choice of tab. While the window is out, R marks the item read, as its link does, unless a box has the
 // keys. What the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is said
@@ -51,12 +52,15 @@ import {
 } from 'react';
 
 import { CHOICE_KEYS, useKept } from '../kept';
-import { Legend } from '../marks';
+import { Legend, LinesChanged } from '../marks';
 import { mocksShown } from '../mock-data';
-import { Button, Coded, Confirm, FoldMark, PanelPart, Switch, TICK } from '../parts';
+import { Button, Coded, Confirm, FoldMark, ListRow, PanelPart, Switch, TICK } from '../parts';
 import {
   type Act,
+  type ChangesPage,
+  type DiffPage,
   type EngineAct,
+  type FileChange,
   type Item,
   loadVersion as loadVersionOf,
   type Question,
@@ -66,9 +70,9 @@ import {
   type Waited,
   type WorkPage,
 } from '../works-api';
-import { CallsTook, Parts, STRIP_MARKS, Strip } from '../works/marks';
+import { CallsTook, type Got, Loaded, Parts, STRIP_MARKS, Strip, useWanted } from '../works/marks';
 import { type HistoryRow, placeSteps, sessionsBegun, standingRun } from '../works/placing';
-import { readerOf, useSource } from '../works/source';
+import { type Reader, readerOf, useSource } from '../works/source';
 import { StepTab } from '../works/StepPanel';
 import { UsageTab } from '../works/Usage';
 import { type Wait, type WaitAct, actOf, drawnInBody, waitsOf } from '../works/waiting';
@@ -82,12 +86,14 @@ import {
   TAKEN,
   type Tone as WorkTone,
   WRITE_WORDS,
+  count,
   standingCell,
   stateOf,
   stateParts,
   stoppedAt,
   waitedWords,
 } from '../works/words';
+import { Diff } from './diff';
 import { type ItemStanding, age, dollars, standingOf } from './items';
 import { Markdown, type Pointers } from './markdown';
 import { markRead } from './mock';
@@ -677,7 +683,7 @@ function ItemView({
         ) : tab === 'usage' ? (
           read === null ? <Unread page={page} /> : <UsageTab page={read} />
         ) : tab === 'work' ? (
-          <WorkFacts w={work} page={read} verdicts={mock.verdicts} />
+          <WorkFacts w={work} page={read} verdicts={mock.verdicts} reader={reader} />
         ) : (
           <>
             <div className="cw-body" onMouseUp={selected}>
@@ -1547,8 +1553,92 @@ function sentBackOf(w: Summary, page: WorkPage | null): number {
   );
 }
 
-/// What of the work the lines do not say, and what the marks of the strip in its line mean.
-function WorkFacts({ w, page, verdicts }: { w: Summary; page: WorkPage | null; verdicts: [string, string][] }) {
+/// What the work changed, file by file, as git in its project's repository says: each file's path, its lines added and
+/// removed or that it is binary, and that it is not committed where only the work's worktree holds its change; a press
+/// on a file's path opens its diff, drawn as a diff in a passage is. Read while the tab shows it, and again each time
+/// the work's count of what it changed changes, what was read standing meanwhile; nothing where the work has nothing
+/// to tell, as before its branch is made.
+function Changes({ w, reader }: { w: Summary; reader: Reader }) {
+  const changed = w.changed ?? null;
+  const of = changed === null ? null : `${changed.files} ${changed.added} ${changed.removed}`;
+  const [read, setRead] = useState<{ of: string; got: Got<ChangesPage> } | null>(null);
+  useEffect(() => {
+    if (of === null) return;
+    let alive = true;
+    reader.changes().then(
+      (value) => alive && setRead({ of, got: { value } }),
+      (e: unknown) => alive && setRead({ of, got: { failed: refusal(e) } }),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [reader, of]);
+  if (changed === null) return null;
+  return (
+    <PanelPart label="Files changed" count={changed.files}>
+      <Loaded
+        got={read?.got ?? null}
+        show={(page) =>
+          page.files.length === 0 ? (
+            <p className="muted">None</p>
+          ) : (
+            <ul>
+              {page.files.map((f) => (
+                <FileRow key={f.path} file={f} reader={reader} of={read?.of} />
+              ))}
+            </ul>
+          )
+        }
+      />
+    </PanelPart>
+  );
+}
+
+/// A file the work changed: its path, which opens its diff at a press and lets it go at another, the diff read when it
+/// is first opened and again once the work's count of what it changed changes (`of`); its lines added and removed, or
+/// that it is binary; and that it is not committed, where only the worktree holds its change.
+function FileRow({ file, reader, of }: { file: FileChange; reader: Reader; of: string | undefined }) {
+  const [open, setOpen] = useState(false);
+  const got = useWanted(open, () => reader.diff(file.path), of);
+  return (
+    <ListRow>
+      <button
+        type="button"
+        className="link mono cw-file"
+        aria-expanded={open}
+        title={open ? 'Hide its diff' : 'Show its diff'}
+        onClick={() => setOpen(!open)}
+      >
+        {file.path}
+      </button>
+      {file.binary ? <span className="muted">binary</span> : <LinesChanged added={file.added} removed={file.removed} />}
+      {!file.committed && <span className="muted">not committed</span>}
+      {open && (
+        <div className="opener">
+          <Loaded got={got} show={(d) => <FileDiff page={d} />} />
+        </div>
+      )}
+    </ListRow>
+  );
+}
+
+/// The diff of a file, drawn as a diff in a passage is, and where it was cut, how long it is whole.
+function FileDiff({ page }: { page: DiffPage }) {
+  return (
+    <>
+      <Diff text={page.diff} />
+      {page.cut !== null && <p className="muted small">Cut short of its whole {count(page.cut)} bytes</p>}
+    </>
+  );
+}
+
+/// What of the work the lines do not say, what the marks of the strip in its line mean, and what the work changed.
+function WorkFacts({ w, page, verdicts, reader }: {
+  w: Summary;
+  page: WorkPage | null;
+  verdicts: [string, string][];
+  reader: Reader;
+}) {
   const tier = workTierOf();
   const rows: [string, ReactNode][] = [
     ['Rounds', String(w.spent.rounds)],
@@ -1572,6 +1662,7 @@ function WorkFacts({ w, page, verdicts }: { w: Summary; page: WorkPage | null; v
       <PanelPart label="The cells' marks">
         <Legend marks={STRIP_MARKS} />
       </PanelPart>
+      <Changes w={w} reader={reader} />
     </>
   );
 }
