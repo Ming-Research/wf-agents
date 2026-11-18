@@ -12,7 +12,7 @@
 // several of its lines is read as one.
 
 import { useMemo } from 'react';
-import { codeKinds, codeParts, grammarOf, type CodeKind, type Grammar } from '../code';
+import { CodeWords, codeKinds, codeParts, grammarOf, type CodeKind, type Grammar } from '../code';
 
 /// A line of a part of a file a diff changes: kept, removed or added, and its text without its sign.
 type Line = { sign: ' ' | '-' | '+'; text: string };
@@ -302,18 +302,6 @@ function compareHunk(hunk: Hunk, grammar: Grammar | null): Drawn[] {
   return drawn;
 }
 
-/// The words of a stretch of code, each kind in its colour.
-const coloured = (parts: Shown['parts']) =>
-  parts.map((p, k) =>
-    p.kind === null ? (
-      p.text
-    ) : (
-      <span key={k} className={`code-${p.kind}`}>
-        {p.text}
-      </span>
-    ),
-  );
-
 /// A ```diff block of a passage, or the diff of a file a work changed, whose path is `path`: each file it changes,
 /// named where it changes several, what it says of each beside its lines, and each part of it that changed, a hairline
 /// between two.
@@ -355,14 +343,16 @@ export function Diff({ text, path = null }: { text: string; path?: string | null
                     {line.pieces.map((p, k) =>
                       p.kind === 'removed' ? (
                         <del key={k} className="cw-removed">
-                          {coloured(p.parts)}
+                          <CodeWords parts={p.parts} />
                         </del>
                       ) : p.kind === 'added' ? (
                         <ins key={k} className="cw-added">
-                          {coloured(p.parts)}
+                          <CodeWords parts={p.parts} />
                         </ins>
                       ) : (
-                        <span key={k}>{coloured(p.parts)}</span>
+                        <span key={k}>
+                          <CodeWords parts={p.parts} />
+                        </span>
                       ),
                     )}
                   </span>

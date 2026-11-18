@@ -1,7 +1,8 @@
 // The kind of each word of code the page draws, so that it is coloured by it: a keyword, a literal or a comment, read
-// by Prism in the language its file's name says (decision code-is-coloured-from-prisms-words). Prism only reads the
-// words: what it would write as markup is never taken. The languages are those most projects write.
+// by Prism in the language its file's name or its fence says (decision code-is-coloured-from-prisms-words). Prism only
+// reads the words: what it would write as markup is never taken. The languages are those most projects write.
 import Prism from 'prismjs';
+import { useMemo } from 'react';
 import 'prismjs/components/prism-markup';
 import 'prismjs/components/prism-css';
 import 'prismjs/components/prism-clike';
@@ -93,9 +94,19 @@ const KIND_OF: Record<string, CodeKind | null> = {
 
 /// The grammar of the file a path names, where the page knows its language.
 export function grammarOf(path: string | null): Grammar | null {
-  const end = path === null ? undefined : /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase();
-  const language = end === undefined ? undefined : LANGUAGES[end];
-  return language === undefined ? null : (Prism.languages[language] ?? null);
+  const end = path === null ? undefined : /\.([^./]+)$/.exec(path)?.[1];
+  return end === undefined ? null : grammarNamed(end);
+}
+
+/// The grammar of a language by a name a fence gives it, its own or the end of a file's name in it, where the page
+/// knows it.
+export function grammarNamed(name: string): Grammar | null {
+  const lower = name.toLowerCase();
+  const language = LANGUAGES[lower] ?? lower;
+  const grammar: unknown = Object.prototype.hasOwnProperty.call(Prism.languages, language)
+    ? Prism.languages[language]
+    : undefined;
+  return typeof grammar === 'object' && grammar !== null ? (grammar as Grammar) : null;
 }
 
 /// The kind of each character of a text of code, as a number: 0 for none, else one more than its kind's place in
@@ -138,4 +149,32 @@ export function codeParts(
     from = to;
   }
   return parts;
+}
+
+/// The words of a stretch of code, each kind in its colour.
+export function CodeWords({ parts }: { parts: { text: string; kind: CodeKind | null }[] }) {
+  return parts.map((p, k) =>
+    p.kind === null ? (
+      p.text
+    ) : (
+      <span key={k} className={`code-${p.kind}`}>
+        {p.text}
+      </span>
+    ),
+  );
+}
+
+/// A block of code, its words coloured by `grammar`, or in the text's colour where there is none.
+export function CodeBlock({ text, grammar }: { text: string; grammar: Grammar | null }) {
+  const parts = useMemo(
+    () => codeParts(text, grammar === null ? null : codeKinds(text, grammar), 0, text.length),
+    [text, grammar],
+  );
+  return (
+    <pre className="content">
+      <code>
+        <CodeWords parts={parts} />
+      </code>
+    </pre>
+  );
 }

@@ -2,8 +2,8 @@
 // the-page-draws-markdown-itself): headings, each a small heading whatever its level (principle
 // an-agents-heading-is-small); paragraphs; lists, every one numbered (the design of the owner's page, 14), each item
 // holding blocks of its own; quotes; tables, in the page's table; rules; and blocks of code between fences, a change of
-// files among them drawn as the text it changes (`diff.tsx`) and a diagram shown as its source (the page has no library
-// that draws one). In a line: `code`, **strong**, *stressed* and ~~struck~~ words, links, pictures, breaks, and a
+// files among them drawn as the text it changes (`diff.tsx`), the words of one in a language the page knows coloured
+// by their kind (`code.tsx`), and a diagram shown as its source (the page has no library that draws one). In a line: `code`, **strong**, *stressed* and ~~struck~~ words, links, pictures, breaks, and a
 // pointer to a question of the work, `{{name}}`, as the words of a cell's questions tell its agent to write one
 // (decision a-question-stands-where-a-text-points-to-it). What stands in code is text, a pointer too. Nothing written
 // becomes markup the page did not mean (principle agent-writing-is-data): a link leads only to the web or to a view of
@@ -11,6 +11,7 @@
 
 import { Fragment, type ReactNode } from 'react';
 
+import { CodeBlock, grammarNamed } from '../code';
 import { Diff } from './diff';
 
 /// How a piece of a line is set: strong, stressed, struck, and the link it stands in, none where it stands in none.
@@ -489,9 +490,7 @@ function drawBlocks(blocks: Block[], pointers: Pointers | undefined, held: Set<s
           block.lang === 'diff' ? (
             <Diff key={key} text={block.text} />
           ) : (
-            <pre key={key} className="content">
-              <code>{block.text}</code>
-            </pre>
+            <CodeBlock key={key} text={block.text} grammar={grammarNamed(block.lang)} />
           ),
         );
         break;
