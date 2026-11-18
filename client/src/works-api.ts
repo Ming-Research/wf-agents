@@ -566,7 +566,7 @@ export type Step =
   /// A new session of the line began, or begins with the line's next round.
   | { kind: 'session'; at: number; time: number; line: string; why: SessionWhy };
 
-/// Why a line began a new session: its context was past the limit of its line; its rounds run on another
+/// Why a line began a new session: its context was past the limit the engine held it to; its rounds run on another
 /// model or under another account than its session's ran on; the owner asked; the service's safety check flagged the
 /// line's last round; the run guard stopped it; the agents' program had lost the one before; the agents' program
 /// compacted it during a round.

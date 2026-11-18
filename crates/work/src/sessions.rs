@@ -53,8 +53,7 @@ pub struct RanOn {
 /// Why a line's session was reopened.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Why {
-    /// The context of the line's session, as its last round ended, was past the limit of its line, in tokens: the line
-    /// its rounds' history gives, never more than the installation's limit.
+    /// The context of the line's session, as its last round ended, was past the limit the engine held it to, in tokens.
     Limit { context: u64, limit: u64 },
     /// The line's rounds run on another model than the one its session was begun on, whose prompt cache holds
     /// nothing of it.

@@ -25,7 +25,7 @@ use flow::Compiled;
 use store::Item;
 use work::{Time, Work};
 
-use crate::sessions::{self, Limits, Policy};
+use crate::sessions::{self, Policy};
 
 /// How long after a ping that failed the next is tried, in milliseconds, while the cache still keeps the session: a
 /// failure that passes is most often over in a minute, and a minute is a sixtieth of what the cache keeps.
@@ -49,7 +49,7 @@ pub struct Kept {
 /// Each line's session the work keeps warm as of `now`, in the order of the walk: none for a work that has ended, one
 /// with a round under way, or with no policy of keeping sessions warm; and none whose cache has let it go by `now`,
 /// which a ping would write again whole, for nothing.
-pub fn kept(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, limits: &Limits, now: Time) -> Vec<Kept> {
+pub fn kept(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, now: Time) -> Vec<Kept> {
     let decision = decide(&flow.flow, &work.records);
     if matches!(
         decision,
@@ -61,14 +61,14 @@ pub fn kept(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, limits: 
     let back = coming_back(flow, work, &decision);
     (lines(flow))
         .filter(|line| back.contains(*line))
-        .filter_map(|line| next(flow, work, item, line, policy, limits))
+        .filter_map(|line| next(flow, work, item, line, policy))
         .filter(|kept| now < kept.life)
         .collect()
 }
 
 /// The pings due for the work at `now`: those [`kept`] whose time has come.
-pub fn due(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, limits: &Limits, now: Time) -> Vec<Due> {
-    (kept(flow, work, item, policy, limits, now).into_iter())
+pub fn due(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, now: Time) -> Vec<Due> {
+    (kept(flow, work, item, policy, now).into_iter())
         .filter(|kept| kept.at <= now)
         .map(|kept| kept.due)
         .collect()
@@ -81,7 +81,7 @@ fn under_way(work: &Work) -> bool {
 
 /// How a line's session stands for keeping it warm: the session, when its next ping is due, whether or not that time
 /// has come, and when the cache lets the session go; none where it is not to be kept warm.
-fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy, limits: &Limits) -> Option<Kept> {
+fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy) -> Option<Kept> {
     let warm = policy.warm.as_ref()?;
     let on_line = |run: RunId| line_of_run(flow, work, run) == Some(line);
     let session = work::sessions::number_at(work, line, work.tick());
@@ -120,7 +120,7 @@ fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy, 
         return None;
     }
     // The line is not to begin a new session at its next round, which holds nothing of this one.
-    if sessions::due(flow, work, item, line, policy, limits.get(line)).is_some() {
+    if sessions::due(flow, work, item, line, policy).is_some() {
         return None;
     }
     let read = pings.iter().filter(|p| p.failed.is_none()).map(|p| p.at).max();
