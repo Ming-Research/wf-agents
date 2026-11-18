@@ -186,7 +186,7 @@ describe('the panel of the item selected', () => {
     const card = el.querySelector('[data-wait="limit"]') as HTMLElement;
     expect(card.className).toBe('cw-choice cw-choice-holds');
     expect(text(card, '.cw-choice-q')).toEqual(['The cell ran 3 times in a row for what a cell after it wrote, its limit.']);
-    // No cell asked it, so its frame says no one and is unbroken.
+    // It belongs to no cell, so its frame names none and is unbroken.
     expect(card.querySelector('.cw-choice-by')).toBe(null);
     expect(card.querySelector('button')?.title).toBe('Run the cell again past its limit');
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
@@ -270,8 +270,8 @@ describe('the panel of the item selected', () => {
     expect(text(asked, '.cw-choice-q')).toEqual(['May a page keep its stream open while hidden?']);
     // It holds the work: on the red tint, with no line to say so.
     expect(asked.className).toBe('cw-choice cw-choice-holds');
-    // Its frame says who asked it, broken around the words as a fieldset's legend breaks it: the cell by its id, and
-    // the line it runs on after it.
+    // Its frame names the cell it belongs to, broken around the words as a fieldset's legend breaks it: the cell by
+    // its id, and the line that cell runs on after it.
     expect(asked.tagName).toBe('FIELDSET');
     expect(text(asked, '.cw-choice-by')).toEqual(['implement builder']);
   });

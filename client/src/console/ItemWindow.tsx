@@ -530,8 +530,8 @@ function ItemView({
     setAnswers((was) => ({ ...was, [key]: was[key] === option ? null : option }));
   };
   const writeQuestion = (q: Choice, text: string) => setWritten((was) => ({ ...was, [pickKey(q)]: text }));
-  // The cell that asked a question, and the line that cell runs on, as the work's flow names it; none of a choice of
-  // the plan, which no cell asked.
+  // The cell a question belongs to, and the line that cell runs on, as the work's flow names it; none of a choice of
+  // the plan, which belongs to no cell.
   const askedBy = (q: Choice) => {
     const asks = q.asks;
     if (asks === undefined) return undefined;
@@ -1096,7 +1096,7 @@ function Section({
   pointers?: (at: number) => Pointers;
   /// What a choice's words draw at theirs: links alone.
   links?: Pointers;
-  /// The cell that asked a choice, and the line it is on; none where no cell asked it.
+  /// The cell a choice belongs to, and the line it is on; none where it belongs to no cell.
   askedBy?: (c: Choice) => { cell: string; line: string | null } | undefined;
 }) {
   if (parts.length === 0 && !keep && empty === undefined) return null;
@@ -1245,7 +1245,7 @@ function TickSign() {
 /// every stop.
 function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
   p: Choice;
-  /// The cell that asked it and the line that cell is on; none of a choice of the plan, which no cell asked.
+  /// The cell it belongs to and the line that cell is on; none of a choice of the plan, which belongs to no cell.
   by?: { cell: string; line: string | null };
   pick?: (option: number) => void;
   write?: (text: string) => void;
@@ -1307,9 +1307,10 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
   );
 }
 
-/// Who asked a question, on the frame of its card: the cell by its id, and the line it is on after it, so that the
-/// owner sees where a question came from without opening anything. A card no cell asked draws none, and its frame is
-/// unbroken.
+/// Whose question it is, on the frame of its card: the cell it belongs to, by its id, and the line that cell runs on
+/// after it, so that the owner sees where a question came from without opening anything; whether the cell's agent or
+/// the engine asked it is left out (decision a-question-names-its-cell-on-its-frame). A card that belongs to no cell
+/// draws none, and its frame is unbroken.
 function Asked({ by }: { by?: { cell: string; line: string | null } }) {
   if (by === undefined) return null;
   return (
