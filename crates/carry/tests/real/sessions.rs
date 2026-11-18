@@ -1,14 +1,14 @@
-//! When a line goes on in its session and when it begins a new one, with the command line: the context a round ended
-//! with, past the installation's limit, has the line's next round begin a session of its own id; a compaction is
-//! counted and given the round's whole message again; and the sessions are recorded with why they began.
+//! When a line goes on in its session and when it begins a new one, with the command line: a round ending with more
+//! context than the installation's number has the line go on in its session, which every round's command line gives
+//! the program that number to compact; a compaction is counted and given the round's whole message again; and the
+//! sessions are recorded with why they began.
 
 use service::Act;
-use work::Why;
 
 use crate::{Call, Fake, On, Real, ended};
 
 #[tokio::test]
-async fn a_round_ending_past_the_context_limit_has_the_lines_next_round_begin_a_session_of_its_own() {
+async fn a_round_ending_with_more_context_than_the_installations_number_has_its_line_go_on_in_its_session() {
     let fake = Fake {
         context: Some(600_000),
         ..Fake::default()
@@ -21,26 +21,27 @@ async fn a_round_ending_past_the_context_limit_has_the_lines_next_round_begin_a_
     assert_eq!(calls.len(), 3);
     let (plan, build) = (calls[0].session(), calls[1].session());
     assert_eq!(plan.0, "--session-id");
-    assert_eq!(build.0, "--session-id", "the build begins a new session");
-    assert_ne!(build.1, plan.1, "under an id of its own");
+    assert_eq!(
+        build,
+        ("--resume", plan.1),
+        "the build goes on in the session the plan began"
+    );
+    // Every round gives the program the installation's number as the context at which it compacts the session.
+    for call in &calls {
+        let at = (call.args.iter()).position(|a| a == "--autocompact");
+        let given = at.map(|i| call.args[i + 1].as_str());
+        assert_eq!(given, Some("500000"), "{:?}", call.args);
+    }
     let kept = real.work(work);
-    let engineer: Vec<&Why> = (kept.sessions.iter())
-        .filter(|s| s.line == "engineer")
-        .map(|s| &s.why)
-        .collect();
-    let limit = Why::Limit {
-        context: 600_000,
-        limit: 500_000,
-    };
-    // The plan's round, then the build's, each ended past the limit.
-    assert_eq!(engineer, [&limit, &limit]);
+    assert!(
+        (kept.sessions.iter()).all(|s| s.line != "engineer"),
+        "the engineer's line began no new session: {:?}",
+        kept.sessions
+    );
     assert!(
         (kept.spent.values().filter(|spent| spent.input_tokens > 0)).all(|spent| spent.context_tokens == Some(600_000)),
         "each agent's round's context is recorded"
     );
-    // A new session costs what the command line says it cost, the earlier session's rounds being no part of it.
-    let build_run = real.run_of(work, "build");
-    assert_eq!(kept.spent[&(build_run, 1)].usd_micros, 10_000);
 }
 
 #[tokio::test]

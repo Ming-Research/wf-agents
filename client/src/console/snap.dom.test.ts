@@ -8,6 +8,7 @@ import type { CellNow, Now } from '../works-api';
 import { stateOf } from '../works/words';
 import { age } from './items';
 import {
+  beatOf,
   dashesAlong,
   DIM,
   eased,
@@ -43,7 +44,7 @@ describe("a card's mood", () => {
     expect(stateOf({ now, cells, waits: [] }).tone).toBe('quiet');
     expect(moodOf({ now, cells, waits: [] })).toBe('waiting');
     // One that waits at its cell for the call of a tool the engine carries out waits, in the yellow of a call, and its
-    // card is one that waits (decision a-call-waited-for-is-no-run).
+    // card waits for the call, in that yellow (decision a-call-waited-for-is-no-run).
     const tool: Now = {
       kind: 'waits',
       at: 'M2',
@@ -51,7 +52,7 @@ describe("a card's mood", () => {
     };
     const at: CellNow[] = [{ ...cells[0], cell: 'M2' }];
     expect(stateOf({ now: tool, cells: at, waits: [] }).tone).toBe('calling');
-    expect(moodOf({ now: tool, cells: at, waits: [] })).toBe('waiting');
+    expect(moodOf({ now: tool, cells: at, waits: [] })).toBe('calling');
     // An act of the engine's own under way is a round, and its card runs.
     const act: Now = { kind: 'round', cell: 'M2', run: 2, round: 1, since: 0 };
     expect(stateOf({ now: act, cells: at, waits: [] }).tone).toBe('running');
@@ -148,5 +149,18 @@ describe('the ground of the page under the soft lights', () => {
 
   it('lies nowhere while nothing is lit', () => {
     expect(grounded(0, 0, ROW, ROW / 2, true, [])).toBe(false);
+  });
+});
+
+describe("a running cell's beat on its card", () => {
+  // The page's build writes the token's time in seconds (`.75s`), the page's source in milliseconds: the card's mark
+  // beats once in 750 ms either way, as the works page's marks do, never once in 0.75 ms.
+  it.each(['750ms', '.75s', '0.75s'])('is 750 ms when the styles write %s', (written) => {
+    document.documentElement.style.setProperty('--pulse', written);
+    try {
+      expect(beatOf().ms).toBe(750);
+    } finally {
+      document.documentElement.style.removeProperty('--pulse');
+    }
   });
 });

@@ -3,15 +3,10 @@
 //! the line's next round is given.
 //!
 //! With the installation's [`Policy`], a line begins a new session at its next round when the account or the model its
-//! session's rounds ran on, as the work's records say, is not the one its rounds run on now, or when its last round
-//! ended with a context past the policy's [`Policy::limit`]. That limit is the installation's alone: no line drawn
-//! from the history of the line's rounds lowers it (decision `a-session-is-replaced-past-its-limit`). The limit waits
-//! while a run of the line has not ended, as one rewriting a return that was sent back, or a cell of the line waits
-//! for the results of the calls its run asked for: it goes on in the session that holds what it did, and the next
-//! round of the line after that begins the new one. Nor does the limit end a session whose last round was of a cell
-//! that reads the [`SESSION`] block: that cell loads the session, and a new session for its own size would load it
-//! again without end. A new session for any other reason begins at once, and a round whose run ran in the session
-//! before is told what the run was doing.
+//! session's rounds ran on, as the work's records say, is not the one its rounds run on now. No line begins one for the
+//! context its session holds: the agents' program compacts the session at the installation's own number, given it on
+//! every round's command line, and the line goes on in it (decision `a-session-is-compacted-at-its-limit`). A new
+//! session begins at once, and a round whose run ran in the session before is told what the run was doing.
 //!
 //! Whatever the policy, a line a round of whose session the service's safety check flagged, the run guard stopped, or
 //! whose prompt was too long for the model, begins a new session, in which that round is tried again, so that none is
@@ -40,9 +35,6 @@ use work::{Back, RanOn, Why, Work};
 pub struct Policy {
     /// How many values of a history a line is worked out from at least ([`crate::history`]).
     pub samples: usize,
-    /// The most a session's context may hold as a round of its line ends, in tokens, before the line begins a new
-    /// session.
-    pub limit: u64,
     /// What a round of the cell, for the item, runs on now: its model and account among it; none where it cannot run.
     #[allow(clippy::type_complexity)]
     pub on: Box<dyn Fn(&Item, &CellSpec) -> Option<RanOn> + Send>,
@@ -61,8 +53,12 @@ pub struct Warm {
     /// the session, no more than writing it to the cache again would beyond reading it. A session on a model not here
     /// is not pinged, its worth not being known.
     pub most: BTreeMap<String, u32>,
-    /// Whether sessions are kept warm while the owner holds everything.
-    pub while_paused: bool,
+    /// Whether a line's session is kept warm at all, as the installation says (`sessions.keep_warm`): where it is not,
+    /// no ping is given, whatever holds the work.
+    pub keep_warm: bool,
+    /// The most a work may spend, in millionths of a dollar, as the installation says (`agents.work_budget_usd`); none
+    /// where it sets none. A work the engine paused past it is pinged no more, a ping counting in its spend.
+    pub budget: Option<u64>,
 }
 
 /// The source of the blocks the driver writes as a line begins a new session: each a block a cell reads that loads
@@ -179,8 +175,8 @@ fn line_of_run<'a>(flow: &'a Compiled, work: &Work, run: RunId) -> Option<&'a st
 }
 
 /// The new session the line begins at its next round, as the policy says: where its session's rounds ran under
-/// another account or on another model than the line's rounds run on now, or where its last round ended past the
-/// policy's limit.
+/// another account or on another model than the line's rounds run on now. A session past the installation's context is
+/// compacted by the agents' program and goes on (decision `a-session-is-compacted-at-its-limit`).
 pub fn due(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy) -> Option<Event> {
     let on_line = |run: RunId| line_of_run(flow, work, run) == Some(line);
     let session = number_at(work, line, work.tick());
@@ -203,12 +199,6 @@ pub fn due(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Polic
             was: began.account.clone(),
         });
     }
-    if let Some(context) = past_limit(flow, work, line, policy.limit) {
-        return anew(Why::Limit {
-            context,
-            limit: policy.limit,
-        });
-    }
     if let (Some(began), Some(now)) = (began, &now)
         && began.model != now.model
     {
@@ -217,16 +207,6 @@ pub fn due(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Polic
         });
     }
     None
-}
-
-/// The line's last round that ended, by its run and number: the latest end of a round of the line.
-fn last_ended(flow: &Compiled, work: &Work, line: &str) -> Option<(RunId, usize)> {
-    let mut ended: Vec<(RunId, usize)> = Vec::new();
-    for returned in &work.records.returned {
-        let number = ended.iter().filter(|(run, _)| *run == returned.run).count() + 1;
-        ended.push((returned.run, number));
-    }
-    (ended.into_iter().rev()).find(|(run, _)| line_of_run(flow, work, *run) == Some(line))
 }
 
 /// Whether a session of the line with an id of its own was recorded after the round of this number of the run took its
@@ -262,27 +242,4 @@ fn tried_anew(flow: &Compiled, work: &Work, line: &str) -> Option<Why> {
         };
         (line_of_run(flow, work, run) == Some(line) && !begun_since(work, line, run, number)).then_some(why)
     })
-}
-
-/// The context the line's last round ended with, where it was past the limit in the session the line is in, and the
-/// limit ends that session.
-fn past_limit(flow: &Compiled, work: &Work, line: &str, limit: u64) -> Option<u64> {
-    let (run, number) = last_ended(flow, work, line)?;
-    let context = work.spent.get(&(run, number))?.context_tokens?;
-    if context <= limit || begun_since(work, line, run, number) {
-        return None;
-    }
-    let started = work.records.started.iter().find(|s| s.run == run)?;
-    let loads = (flow.blocks.values())
-        .filter(|b| b.writers.outside.as_deref() == Some(SESSION))
-        .any(|b| b.readers.cells.contains(&started.cell));
-    // A run of the line that has not ended, as on a return sent back, goes on in the session it ran in, and so does a
-    // cell of the line that applies and is owed the results of the calls its run asked for: the limit takes effect
-    // once the line's runs have ended and none of its cells waits so. A cell skipped since it asked waits for nothing.
-    let r = &work.records;
-    let of_line = || (r.started.iter()).filter(|s| line_of_cell(flow, s.cell.as_str()) == Some(line));
-    let open =
-        of_line().any(|s| !(r.finished.iter().any(|f| f.run == s.run) || r.abandoned.iter().any(|a| a.run == s.run)));
-    let waiting = (decide::owed(&flow.flow, r).keys()).any(|cell| line_of_cell(flow, cell.as_str()) == Some(line));
-    (!loads && !open && !waiting).then_some(context)
 }

@@ -1209,11 +1209,11 @@ impl Driver {
         }
     }
 
-    /// The keep-warm pings due at `now` and not under way, each given once: none while the wait every work shares
-    /// holds the agents' rounds, whose pings would fail as they do, nor while the engine holds everything as it
-    /// opened, until the owner has seen how things stand ([`warm`]).
+    /// The keep-warm pings due at `now` and not under way, each given once: of every work that has not ended, whoever
+    /// holds it, and none while the wait every work shares holds the agents' rounds, whose pings would fail as their
+    /// rounds do ([`warm`]).
     fn pings(&mut self, now: Time) -> Vec<Todo> {
-        let Some(policy) = (self.policy.as_ref()).filter(|_| !self.gate().holds_agents() && self.warming()) else {
+        let Some(policy) = (self.policy.as_ref()).filter(|_| !self.gate().holds_agents()) else {
             return Vec::new();
         };
         let mut todos = Vec::new();
@@ -1239,25 +1239,12 @@ impl Driver {
         todos
     }
 
-    /// Whether sessions are kept warm now: not while the engine holds everything as it opened on works going on, which
-    /// spends nothing before the owner has seen how things stand (principle `no-unseen-spending-loop`); while the owner
-    /// holds everything, as the settings say (`sessions.warm_while_paused`).
-    fn warming(&self) -> bool {
-        let keeps = (self.policy.as_ref())
-            .and_then(|p| p.warm.as_ref())
-            .is_some_and(|w| w.while_paused);
-        match &self.paused {
-            None => true,
-            Some(paused) => paused.by == Pauser::Owner && keeps,
-        }
-    }
-
     /// When the next keep-warm ping not under way is due, of every work that has not ended, as of the time the driver
     /// was last told: a ping due then and not given waits for no later time than the next moment, and one whose
     /// session's cache will have let it go by then is due at no time, so that the driver is never woken for a ping it
     /// will not give.
     fn next_ping(&self) -> Option<Time> {
-        let policy = self.policy.as_ref().filter(|_| self.warming())?;
+        let policy = self.policy.as_ref()?;
         let now = self.ticked.unwrap_or(Time(0));
         let soonest = Time(now.0.saturating_add(1));
         (self.works.iter())

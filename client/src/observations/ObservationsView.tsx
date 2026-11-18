@@ -137,7 +137,7 @@ function Row({ o, sending, onMarkRead }: { o: Observation; sending: boolean; onM
         <p className="observation-facts">
           <span className="mono">O{o.number}</span>
           <a className="link mono" href={`#/works/${o.work}/runs/${o.run}`} title="Open the work with this run chosen">
-            W{o.work} run {o.run} round {o.round}
+            W{o.work}
           </a>
           <Attr name="cell" value={o.cell} />
           <span className="observation-item" title={o.title}>

@@ -101,11 +101,14 @@ async function runPanel(page: WorkPage, run: number, source: Source): Promise<HT
   return container.querySelector('aside') as HTMLElement;
 }
 
-/// The part of the round of this number in a run's panel.
+/// The part of a run's panel of the time its cell ran of this number: the first its details, the others each time it
+/// ran again.
 function roundPart(panel: HTMLElement, number: number): HTMLElement {
-  const parts = [...panel.querySelectorAll('section.panel-part')];
-  const part = parts.find((p) => p.querySelector('.panel-part-label')?.textContent?.startsWith(`Round ${number} `));
-  if (!part) throw new Error(`no round ${number}`);
+  const parts = [...panel.querySelectorAll('section.cw-fold')].filter((p) =>
+    /^(Details|Ran again)( |$)/.test(p.querySelector('.cw-fold-head')?.textContent ?? ''),
+  );
+  const part = parts[number - 1];
+  if (!part) throw new Error(`no time ${number}`);
   return part as HTMLElement;
 }
 
@@ -130,13 +133,8 @@ describe("a round's part of a run's panel", () => {
     // and asks for two calls.
     const panel = await runPanel(fixtureWork(41), 0, sourceOf());
     const first = roundPart(panel, 1);
-    expect(keys(pair(first, 'Ran'))).toEqual([
-      'line builder',
-      'session 0',
-      'level 2',
-      'model claude-sonnet-5-5',
-      'effort high',
-    ]);
+    // What it ran on is the run's, said once above its times.
+    expect(pair(first, 'Ran')).toBeUndefined();
     // The records' keys, and what the page works out from them said plainly.
     expect(keys(pair(first, 'Took'))).toEqual([
       'usd_micros in dollars $0.09',
@@ -162,14 +160,18 @@ describe("a round's part of a run's panel", () => {
     expect(keys(pair(round, 'Took')).at(-1)).toBe('priced true');
   });
 
-  it('shows what was filled into its session, each part as the flow\'s files name it, before what it was sent', async () => {
+  it('names its times by what they were and never by a number, and says why it ran again', async () => {
     const panel = await runPanel(fixtureWork(41), 0, sourceOf());
-    const first = roundPart(panel, 1);
-    expect(rows(pair(first, 'Filled'))).toEqual(['work', 'outputs', 'context request v1', 'task']);
-    // The second round is given the results of the first one's calls.
-    expect(rows(pair(roundPart(panel, 2), 'Filled'))).toEqual(['results [1, 2]']);
-    const order = [...first.querySelectorAll('dt, button')].map((e) => e.textContent?.trim());
-    expect(order.indexOf('Filled')).toBeLessThan(order.indexOf('Show what it was told'));
+    const labels = [...panel.querySelectorAll('.cw-fold-head')].map((l) => l.textContent ?? '');
+    expect(labels.filter((l) => l.startsWith('Details ')).length).toBe(1);
+    expect(labels.filter((l) => l.startsWith('Ran again ')).length).toBe(1);
+    expect(labels.some((l) => /Round \d/.test(l))).toBe(false);
+    // The second time is given the results of the first one's calls; nothing filled into the session is listed.
+    expect(pair(roundPart(panel, 2), 'Why')?.textContent).toBe('the results of the calls it asked for came back');
+    expect(pair(roundPart(panel, 1), 'Filled')).toBeUndefined();
+    // The calls the first time asked for are under it, by what they are, with no number.
+    expect(rows(pair(roundPart(panel, 1), 'Back')).length).toBeGreaterThan(0);
+    expect(pair(roundPart(panel, 1), 'Back')?.textContent).not.toMatch(/call \d/);
   });
 
   it("shows on each round the system prompt of its session, which each round is sent, read once when opened", async () => {
@@ -277,7 +279,7 @@ describe('what a work used', () => {
       "first round's begin to last round's end",
       'under way',
     ]);
-    expect([...panel.querySelectorAll('.panel-part-label')].map((l) => l.firstChild?.textContent)).toEqual([
+    expect([...panel.querySelectorAll('.cw-fold-head > span:nth-child(2)')].map((l) => l.textContent)).toEqual([
       'Where the time went',
       'Models',
       'Where the cost went',
@@ -285,7 +287,7 @@ describe('what a work used', () => {
       'Tools',
     ]);
     // Every model row says the level and effort its rounds recorded, by their keys.
-    const models = [...panel.querySelectorAll('section.panel-part')][1];
+    const models = [...panel.querySelectorAll('section.cw-fold')][1];
     expect([...models.querySelectorAll('li.list-row > span:not(.row-note)')].map((k) => k.textContent)).toEqual([
       'model claude-sonnet-5-5',
       'level 2',

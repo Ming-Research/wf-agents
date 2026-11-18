@@ -251,7 +251,6 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
     .unwrap();
     let policy = driver::Policy {
         samples: 2,
-        limit: 1_000_000,
         on: Box::new(|_, _| Some(opus())),
         warm: None,
     };

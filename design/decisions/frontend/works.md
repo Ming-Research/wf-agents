@@ -102,3 +102,13 @@ The level of the cell a work stands at, which the engine gives with the work's o
 cell at all.
 Why: A level chooses the model an agent's rounds run on (decision a-level-is-a-difficulty), and an engine cell's act
 runs on none; given the item's level, the list would say that a model of that level runs the merge.
+
+### decision a-runs-inputs-are-what-its-cell-is-given
+The Inputs of a run are the blocks the flow gives its cell, each at the version the run began with; the versions it
+began with of a block it may only write are no part of them, and what it wrote of those is under Handed in.
+Why: The engine gives a run the version of every block its cell may write so that it can tell whether a hand-in
+changed anything; that is its own bookkeeping, which the owner's page does not show for existing (constitution,
+Article 8), and shown as an input it read like a datum the cell had been given. The engine's own `outputs` list, which
+names a cell's outputs among what it is given so that a cell brings them up to date, was turned down as the page's
+notion of what a cell is given: the page has one, the flow's `every_agent`, `reads` and `watches`, and the flow's view
+shows a cell's outputs in a fold of their own.
