@@ -472,14 +472,17 @@ fn a_round_ending_with_more_context_than_the_installations_number_has_its_line_g
 #[test]
 fn a_new_session_of_one_line_writes_its_own_block_alone_and_runs_again_no_cell_of_another_line() {
     let mut s = S::on_flow(two_lines(), policy("opus"), None);
-    s.hands_in(100, true);
-    s.hands_in(100, true);
-    // The owner asks the engineer's line for a new session: it begins one, and its own block is written.
     let asked = |line: &str| Event::Anew {
         line: line.to_string(),
         why: Why::Owner,
     };
+    s.hands_in(100, true);
+    assert_eq!(s.round().1, "build");
+    // The owner asks the engineer's line for a new session while the build's round is under way: the line begins one
+    // as the round ends, and its own block is written.
+    s.began();
     s.on(asked("engineer"));
+    s.hands_in(100, true);
     assert!(matches!(s.sessions().last(), Some((line, Why::Owner)) if line == "engineer"));
     assert_eq!(s.versions_of("engineer_session").len(), 1);
     assert!(
@@ -492,9 +495,11 @@ fn a_new_session_of_one_line_writes_its_own_block_alone_and_runs_again_no_cell_o
     assert_eq!(s.round().1, "look");
     s.hands_in(100, true);
     assert_eq!(s.round().1, "review");
-    // The owner asks the review's line: it begins one, which writes its own block and runs its loading cell alone.
-    s.hands_in(100, true);
+    // The owner asks the review's line while its round is under way: it begins one, which writes its own block and
+    // runs its loading cell alone.
+    s.began();
     s.on(asked("review"));
+    s.hands_in(100, true);
     assert!(matches!(s.sessions().last(), Some((line, Why::Owner)) if line == "review"));
     assert_eq!(s.versions_of("review_session").len(), 1);
     assert_eq!(
