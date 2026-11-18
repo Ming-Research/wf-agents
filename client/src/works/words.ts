@@ -531,19 +531,6 @@ export function stoppedAt(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string |
   return s.cells.find((c) => c.open !== null)?.cell ?? null;
 }
 
-/// The cell a work stands at, named under its card's number and before its strip in the item's window, with the token
-/// of the colour it is named in, as small text takes its colour's text step: the stop's red where the work is stopped
-/// there; the yellow of a call where its cell carries one out, an act of the engine's own or a tool's call; the running
-/// colour while a round of it runs; else the muted grey; none where it stands at no cell.
-export function standingCell(s: Pick<Summary, 'now' | 'cells' | 'waits'>): { cell: string; colour: string } | null {
-  const stopped = stoppedAt(s);
-  if (stopped !== null) return { cell: stopped, colour: '--red-text' };
-  const { tone, cell } = stateOf(s);
-  if (cell === null) return null;
-  if (s.cells.some((c) => c.cell === cell && c.state === 'calling')) return { cell, colour: '--yellow-text' };
-  return { cell, colour: tone === 'running' ? '--running-text' : '--muted' };
-}
-
 /// The first line of a text, for a line of a list or a notification.
 export const firstLine = (text: string): string => text.trim().split('\n')[0] ?? '';
 

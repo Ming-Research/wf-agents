@@ -95,8 +95,8 @@
   margin-left: auto;
 }
 
-/* The name of the cell the work stands at, just before its strip. */
-.cw-standing {
+/* The level the work's cell runs at, just before its strip. */
+.cw-level {
   display: inline-flex;
   align-items: center;
   gap: var(--space-4);

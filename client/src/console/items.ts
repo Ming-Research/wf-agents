@@ -18,7 +18,7 @@ import { itemOf } from './real';
 export type ItemStanding = 'open' | 'done' | 'cancelled';
 
 /// The work going on on an item, as its node shows it: what it does now, how each cell of its flow stands, when it was
-/// added, what it has taken, and when something last happened to it.
+/// added, what it has taken, when something last happened to it, and the level its cell runs at.
 export type ShownWork = {
   number: number;
   now: Now;
@@ -36,6 +36,10 @@ export type ShownWork = {
   sentBack: number;
   usdMicros: number;
   last: number | null;
+  /// The level its rounds run at, none where the engine gives none; and how many levels above it the line of the cell
+  /// it stands at runs that cell, none counted as nought.
+  level: string | null;
+  raise: number;
 };
 
 export type Shown = {
@@ -164,6 +168,8 @@ export function shownTree(data: Items, every = false): Shown[] {
               sentBack: w.sentBack ?? 0,
               usdMicros: w.spent.usdMicros,
               last: w.last,
+              level: w.level ?? null,
+              raise: w.raise ?? 0,
             }
           : null,
       children: [

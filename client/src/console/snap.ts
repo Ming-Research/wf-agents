@@ -24,8 +24,8 @@
 // cell's does. Pointing at where a card's work's time went says what the stretch was.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
-// every constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where
-// it drew the stages; what the new interface has nothing for
+// every constant as they were. What changed: a card's second row draws the level the work's cell runs at and the works
+// page's strip of the work's cells where it drew the stages; what the new interface has nothing for
 // yet (an item new to the owner, messages unread) is read from the console's made-up data (`mock.ts`); the colours the
 // page's tokens came from are read from the tokens, so that the canvas follows light and dark; the canvas follows the
 // size of what holds it, besides the window's; the links dim with the items they join while an item is lit
@@ -35,9 +35,10 @@
 import { Application, BitmapText, BlurFilter, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
 import { accentNow, onAccent, turning } from '../accent';
+import { levelLook, levelWords } from '../marks';
 import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
-import { STATE, standingCell, stateOf, stoppedAt } from '../works/words';
+import { NO_LEVEL, STATE, stateOf, stoppedAt } from '../works/words';
 import { type Shown, type ShownWork, age } from './items';
 import { BAR_KINDS, TRACK_WORDS } from './track';
 import { indexTree, type Tree } from './tree';
@@ -493,13 +494,13 @@ export type DrawnMark = {
   pulses: boolean;
 };
 
-/// A card's strip as it was drawn: its marks, how many cells did not fit, and where its room ends; and the name of the
-/// cell its work stands at, under the card's number, with its colour, or none.
+/// A card's strip as it was drawn: its marks, how many cells did not fit, and where its room ends; and the level its
+/// work's cell runs at, under the card's number, with its colour and whether it is strong.
 export type DrawnStrip = {
   marks: DrawnMark[];
   more: number;
   end: number;
-  name: { text: string; colour: string } | null;
+  level: { text: string; colour: string; strong: boolean } | null;
 };
 
 /// How much of its work's colour a card in work takes, the rest white, and its edge, a deeper shade of it.
@@ -530,11 +531,15 @@ const NUMBER = () => ({
 const TITLE_SIZE = 13;
 
 /// The styles of a node's words, by their colour: its title in the sans-serif face, and its numbers in the page's
-/// monospace, smaller. Each is made from plain values once: one made by spreading another keeps the other's fill.
+/// monospace, smaller, strong where asked. Each is made from plain values once: one made by spreading another keeps
+/// the other's fill.
 type Styles = {
   title: (fill: string) => TextStyle;
-  mono: (fill: string) => TextStyle;
+  mono: (fill: string, strong?: boolean) => TextStyle;
 };
+
+/// The weight of strong words: the page's (`--weight-strong`).
+const STRONG = '600';
 
 /// The faces of a node's words: Primer's stacks, which the console on `old-main` drew in, without the face Primer names
 /// first and the page never loaded. A canvas resolves a stack by its own rules (PixiJS quotes every name but the
@@ -547,18 +552,18 @@ function makeStyles(): Styles {
   const mono = MONO;
   const size = TITLE_SIZE;
   const made = new Map<string, TextStyle>();
-  const style = (fontFamily: string, fontSize: number, fill: string) => {
-    const key = `${fontFamily}|${fontSize}|${fill}`;
+  const style = (fontFamily: string, fontSize: number, fill: string, strong = false) => {
+    const key = `${fontFamily}|${fontSize}|${fill}|${strong}`;
     let s = made.get(key);
     if (s === undefined) {
-      s = new TextStyle({ fontFamily, fontSize, fill });
+      s = new TextStyle({ fontFamily, fontSize, fill, ...(strong ? { fontWeight: STRONG } : {}) });
       made.set(key, s);
     }
     return s;
   };
   return {
     title: (fill) => style(sans, size, fill),
-    mono: (fill) => style(mono, Math.round(size * 0.8), fill),
+    mono: (fill, strong) => style(mono, Math.round(size * 0.8), fill, strong),
   };
 }
 
@@ -899,8 +904,8 @@ export class SnapScene {
   /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does
   /// with an edge of a deeper shade of it; its edge the accent's tint above a work. On its first row its number in its
   /// state's colour, its title, and at the right how many things its work waits for from the owner, white on red; on
-  /// the second row, for an item whose work goes on, the strip of the work's cells as the works page draws it, where
-  /// its time went, and how long it has gone on.
+  /// the second row, for an item whose work goes on, under the number the level its cell runs at, the strip of the
+  /// work's cells as the works page draws it, where its time went, and how long it has gone on.
   private node(item: Shown, k: number): Container {
     const s = this.styles as Styles;
     const view = new Container();
@@ -1032,23 +1037,24 @@ export class SnapScene {
         i = j;
       }
     }
+    // Under the number, the level the work's cell runs at, in its look (`levelLook`), as the item's window writes it
+    // before its strip; a dash, muted, where the engine gives none.
+    const look = w.level === null ? null : levelLook(w.level, w.raise);
+    const colour = look === null ? PALETTE.muted : token(look.colour, PALETTE.ink);
+    const strong = look?.strong ?? false;
+    const level = new BitmapText({
+      text: w.level === null ? NO_LEVEL.shown : levelWords(w.level, w.raise),
+      style: s.mono(colour, strong),
+    });
+    level.position.set(x, row2 - level.height / 2);
+    view.addChild(level);
     // The second row: the work's strip, as the works page draws it, from under the title, so that the number stands
-    // alone in a column at the card's left, ending short of where its time went.
+    // alone in a column at the card's left, or from past the level where it is wider than that column; ending short of
+    // where its time went.
     const at = here(w);
-    this.strip(view, item.id, k, w.cells, title.x, row2, barX - 8, at);
-    // Under the number, the name of the cell the work stands at, in the colour [`standingCell`] gives it, as the item's
-    // window names it before its strip. A name wider than the room under the number is cut.
-    const standing = standingCell(w);
-    if (standing !== null) {
-      const colour = token(standing.colour, PALETTE.muted);
-      const name = new BitmapText({ text: standing.cell, style: s.mono(colour) });
-      const room = title.x - x - 4;
-      while (name.text.length > 1 && name.width > room) name.text = name.text.slice(0, -1);
-      name.position.set(x, row2 - name.height / 2);
-      view.addChild(name);
-      const drawn = this.drawnStrips.get(item.id);
-      if (drawn !== undefined) drawn.name = { text: name.text, colour };
-    }
+    this.strip(view, item.id, k, w.cells, Math.max(title.x, x + level.width + 4), row2, barX - 8, at);
+    const drawn = this.drawnStrips.get(item.id);
+    if (drawn !== undefined) drawn.level = { text: level.text, colour, strong };
     // How long it has gone on, at the right, its colour by its age; the label is kept up as time passes.
     const label = new BitmapText({ text: '', style: s.mono(PALETTE.muted) });
     view.addChild(track, label);
@@ -1122,12 +1128,12 @@ export class SnapScene {
     view.addChild(still, running);
     if (more !== null) view.addChild(more);
     if (marks.some((m) => m.pulses)) this.pulses.set(k, running);
-    this.drawnStrips.set(id, { marks, more: cells.length - shown, end, name: null });
+    this.drawnStrips.set(id, { marks, more: cells.length - shown, end, level: null });
   }
 
   /// What the card of item `id` drew for its work's cells, for the tests: each mark, where it stands from the card's
-  /// left and its middle, its measures and colours, and whether it pulses; how many cells did not fit; and where the
-  /// room for the strip ends. None for an item whose card has no work.
+  /// left and its middle, its measures and colours, and whether it pulses; how many cells did not fit; where the room
+  /// for the strip ends; and the level under the number. None for an item whose card has no work.
   drawnStrip(id: number): DrawnStrip | null {
     return this.drawnStrips.get(id) ?? null;
   }

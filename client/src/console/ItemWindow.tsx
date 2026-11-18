@@ -1,6 +1,6 @@
 // What the window beside the console shows of the item selected: its number, its title, which brings the item into view
-// in the tree, and its project; a line of where the item stands, with the works page's strip of the work's cells and
-// where its time went at its right, and a line of what its work does; what the owner does to the work (let it on, pause
+// in the tree, and its project; a line of where the item stands, with the level the work's cell runs at, the works
+// page's strip of the work's cells and where its time went at its right, and a line of what its work does; what the owner does to the work (let it on, pause
 // it, cancel it); four tabs, Item, Work, Step and Usage, the same on the console and on a work's page; and under them,
 // while something in the item is new to the owner, a strip that says what changed, with a link to mark the item read.
 // The first tab holds the body (a section for each datum the work's flow's
@@ -52,7 +52,7 @@ import {
 } from 'react';
 
 import { CHOICE_KEYS, useKept } from '../kept';
-import { Legend, LinesChanged } from '../marks';
+import { Legend, LevelMark, LinesChanged } from '../marks';
 import { mocksShown } from '../mock-data';
 import { Button, Coded, Confirm, FoldMark, ListRow, PanelPart, Switch, TICK } from '../parts';
 import {
@@ -87,7 +87,6 @@ import {
   type Tone as WorkTone,
   WRITE_WORDS,
   count,
-  standingCell,
   stateOf,
   stateParts,
   stoppedAt,
@@ -823,16 +822,11 @@ function ItemLine({
 /// How far the work has come and where its time went, together at the right end of the item's line, which its own
 /// line, holding the cell's title, has no room left for.
 function Progress({ w, page }: { w: Summary; page: WorkPage | null }) {
-  const standing = standingCell(w);
   return (
     <span className="cw-progress">
-      {/* The cell the work stands at, named before the strip as the card names it under its number. */}
-      <span className="cw-standing">
-        {standing !== null && (
-          <span className="mono" style={{ color: `var(${standing.colour})` }}>
-            {standing.cell}
-          </span>
-        )}
+      {/* The level the work's cell runs at, before the strip, as the card writes it under its number. */}
+      <span className="cw-level">
+        <LevelMark level={w.level ?? null} raise={w.raise ?? 0} />
         <Strip cells={w.cells} stopped={stoppedAt(w)} />
       </span>
       <span className="cw-track">

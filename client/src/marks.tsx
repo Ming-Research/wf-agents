@@ -3,8 +3,9 @@
 // strip of a work's cells, a work's history and the observations each list in their legend the marks they draw, so
 // that one thing has one name and one look in every view (Article 8). What the flow's files define is named by its key
 // (principle definitions-shown-as-written); how a run ended or stands has one set of marks, which the strip draws for
-// each cell, as its run stands, and the history for each run (`works/state-marks.ts`). Beside the table, the look of a
-// work's lines added and removed, which the page and the console's cards both draw from.
+// each cell, as its run stands, and the history for each run (`works/state-marks.ts`). Beside the table, the looks of
+// the level a work's cell runs at and of a work's lines added and removed, which the page and the console's cards both
+// draw from.
 
 import type { ReactNode } from 'react';
 
@@ -12,7 +13,7 @@ import { ConditionGlyph, DataGlyphs, LineGlyph, ToolGlyph } from './Chart';
 import { type Mark, NO_MARK } from './matrix';
 import { Sign } from './parts';
 import { RUN_STATES, type RunState, lookStyle, pulses } from './works/state-marks';
-import { keysLine, linesAdded, linesRemoved } from './works/words';
+import { NO_LEVEL, keysLine, linesAdded, linesRemoved } from './works/words';
 
 /// A mark the page draws: of the flow's definition, as its files' keys name it; of a line between cells; of who
 /// writes a datum besides the cells; of how a run ended or stands; of an observation not read.
@@ -117,6 +118,51 @@ export const MARKS: Record<MarkKey, Entry> = {
 
 /// A mark's name.
 export const markName = (key: MarkKey): string => MARKS[key].name;
+
+/// The looks of the level a work's cell really runs at, its item's level raised as far as the cell's line says, lowest
+/// first: the first muted, the second in the text's colour, the third in the accent, and each above it in the accent
+/// and strong. Each colour is a token's name, as small text takes it (decision a-level-looks-as-the-level-it-runs-at).
+export const LEVEL_LOOKS = [
+  { colour: '--muted', strong: false },
+  { colour: '--text', strong: false },
+  { colour: '--accent-text', strong: false },
+  { colour: '--accent-text', strong: true },
+] as const;
+
+export type LevelLook = (typeof LEVEL_LOOKS)[number];
+
+/// A level as a card and the item's window write it: `L2`, and `L2+1` where the cell's line raises it one above.
+export const levelWords = (level: string, raise: number): string => (raise > 0 ? `L${level}+${raise}` : `L${level}`);
+
+/// The look of a level raised so far, by the number the level's name is and the raise, past the highest an item may be
+/// at too; a level whose name is no number takes the second.
+export function levelLook(level: string, raise: number): LevelLook {
+  const real = /^\d+$/.test(level) ? Number(level) + raise : 2;
+  return LEVEL_LOOKS[Math.min(LEVEL_LOOKS.length, Math.max(1, real)) - 1];
+}
+
+/// The level a work's cell runs at, `L2` or `L2+1`, in its look, saying on pointing at it its keys, `level 2,
+/// levels_above 1`; where the engine gives no level, a dash, and why on pointing at it.
+export function LevelMark({ level, raise }: { level: string | null; raise: number }) {
+  if (level === null) {
+    return (
+      <span className="mono muted" title={NO_LEVEL.level}>
+        {NO_LEVEL.shown}
+      </span>
+    );
+  }
+  const look = levelLook(level, raise);
+  const keys: [string, string][] = [['level', level], ...(raise > 0 ? [['levels_above', String(raise)] as [string, string]] : [])];
+  return (
+    <span
+      className="mono"
+      style={{ color: `var(${look.colour})`, fontWeight: look.strong ? 'var(--weight-strong)' : undefined }}
+      title={keysLine(keys)}
+    >
+      {levelWords(level, raise)}
+    </span>
+  );
+}
 
 /// The colours of lines added and removed, as tokens' names: the green and the red a diff draws added and removed text
 /// in (`console/diff.tsx`), as small text takes them.

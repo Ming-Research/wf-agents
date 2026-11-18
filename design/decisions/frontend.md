@@ -33,6 +33,16 @@ for a return sent back was turned down as one more to learn, and a run whose rou
 hiding that it failed; that the two kinds of failing need no telling apart at a glance, the run's Step saying which,
 rests on judgment.
 
+### decision a-level-looks-as-the-level-it-runs-at
+A console card, under its number, and the item's window, before the strip, write the level a work's cell runs at as
+its item's level and how far the cell's line raises it, `L2` or `L2+1`, in the look of the level it really runs at,
+the two added, past the highest level an item may be at too: the first muted, the second the text's colour, the third
+the accent, and every one above the accent and strong. The cell the work stands at is not named there.
+Why: The look says how dear a model the cell runs on, so `L2+1` looks as `L3` does, and `L3+1`, which its line asks to
+run above the third, looks apart from it. Telling the levels apart by hue was turned down: red, yellow, the accent and
+green each mean a state already (principle scarce-emphasis), and no four hues clear of them were found. The strip marks
+the cell the work stands at, so naming it as well said one thing twice (Article 8).
+
 ### decision a-cancelled-work-is-grey
 The mark of a cancelled work, in the list of works and on the console, is grey and never red.
 Why: The owner reads a red mark as a fault.
