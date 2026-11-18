@@ -76,11 +76,10 @@ fn two_cells_that_make_the_plan_hold_no_dialogue_with_each_other() {
     }
 }
 
-// The two cells that look for a better way both speak to the plan's writer in `better_found`, and neither watches
-// anything else the other writes: they hold no dialogue with each other, each judging there the plan the writer makes
-// and making nothing a dialogue answers.
+// The two cells that look for a better way both speak to the plan's writer in `better_found`: each judges there the plan
+// the writer makes, and makes nothing a dialogue answers.
 #[test]
-fn two_cells_that_speak_to_the_plan_s_writer_hold_no_dialogue_with_each_other() {
+fn the_cells_that_look_for_a_better_way_judge_the_plan_in_their_dialogue_with_its_writer() {
     let compiled = compiled(&engineer());
     let plan: Vec<String> = ["plan_owner", "plan_agent", "acceptance", "tree_edits"]
         .map(String::from)

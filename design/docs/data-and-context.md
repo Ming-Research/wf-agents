@@ -20,8 +20,10 @@ the owner's pauses, when a work is at its end.
    of the project changes (`tree`); a cell's specification changes (design document
    `changed-flow-walks-the-records`); a session is reopened (25). Each of these says that something happened
    outside the work, and runs a cell only where a cell watches it. From a cell: what it hands in when a round of it
-   ends. The code a round commits is handed in by that round, read from the branch as it ends (`head`). One datum is
-   neither: `asked`, which the engine works out from the questions (33).
+   ends. The code a round commits is handed in by that round, read from the branch as it ends (`head`). Two data are
+   neither: `asked`, which the engine works out from the questions (33), and a cell's `handed_in`, which the engine
+   writes yes as the first run of the cell that deals with something finishes, so that a cell whose condition reads it
+   runs until it has handed in once.
 
 3. The design tree's version is its commit with the id of the tree at it, and it has a new version whenever the tree
    changed, whoever changed it and wherever: on the branch the works merge into, or in the work itself.
@@ -38,7 +40,10 @@ the owner's pauses, when a work is at its end.
    is consumed yet, and everything it watches is new.
 
 6. The engine chooses by this. Going through the flow from its start, it takes the first cell that watches a datum new
-   to it and that the flow lets run, and runs it for one round. Entering a cell means this: each round is one entering.
+   to it and that the flow lets run, and runs it for one round; but a cell run only by what cells after it wrote waits
+   while one after it, short of the next cell with preconditions, has something else to run for or waits for the
+   results of its calls. So the cells a change reaches run in one pass, and what they send back is answered after it,
+   all at once. Entering a cell means this: each round is one entering.
 
 7. Nothing else runs a cell (principle a-cell-knows-only-its-data). The engine knows nothing of sessions either: a
    session that is reopened reaches it only as a new version of data (25), and it chooses as always.
@@ -223,15 +228,16 @@ new session lacks it.
 
 36. A cell that makes something, the plan or the change, is judged by agents' cells that did not make it, and may be
     doubted by a cell that builds on it. Each that judges or doubts it has a dialogue with the maker (principle
-    one-dialogue-for-each-party), which the two write and both watch: the one judging or doubting writes its points,
-    and the maker writes its answer as the dialogue's next version. So an answer is new only to the one it answers,
+    one-dialogue-for-each-party), which the two write and both watch, the maker being, where two cells may make it, the
+    one in charge (27, 28): the one judging or doubting writes its points, and the maker writes its answer as the
+    dialogue's next version. So an answer is new only to the one it answers,
     and a point only to the maker (5, 9).
 
 37. Each that judges hands in its verdict, a choice of its own (passed or not), at every round, and the check before
     the merge reads the verdicts. A doubt has no verdict.
 
 38. Each judge watches what should make it judge again, besides its dialogue. The reviews of the plan watch the plan,
-    and the review of the code watches the change. The adversarial testing watches only what asks for it, the
+    and the reviews of the change watch the change. The adversarial testing watches only what asks for it, the test
     review's word that the change needs testing and the conditions the work is accepted by: run on each version of the
     code, it found nothing in half its runs.
 
@@ -283,16 +289,18 @@ new session lacks it.
     |---|---|---|---|---|
     | S1 Start | the items it depends on merged | `start` | | `place` |
     | R0 Understand the problem and the design tree | | `background`, `engineer_session` | `tree` | nothing |
-    | R1 Initial research | no deep research | `background`, `plan_review`, `tree_review`, `plan_doubts` | `tree` | `deep_needed` every time; with yes, `found` and nothing else; with no, plan, answers in its dialogues, questions |
-    | R2 Is there a better way | no deep research | plan | `background`, `tree` | plan, where it finds a better way; questions |
-    | D1 Deep research | deep research | `background`, `found`, `plan_review`, `tree_review`, `plan_doubts`, R1's questions | `tree` | plan, answers in its dialogues, questions |
-    | D2 Is there a better way | deep research | plan, R2's questions | `background`, `tree` | plan, where it finds a better way; questions |
+    | R1 Initial research | no deep research | `background`, `better_found`, `plan_review`, `tree_review`, `plan_doubts` | `tree` | `deep_needed` every time; with yes, `found` and nothing else; with no, plan, answers in its dialogues, questions |
+    | R2 Is there a better way | no deep research, and R2 has not handed in | plan, `better_found` | `background`, `tree` | a better way in `better_found`, where it finds one |
+    | D1 Deep research | deep research | `background`, `found`, `better_found`, `plan_review`, `tree_review`, `plan_doubts`, R1's questions | `tree` | plan, answers in its dialogues, questions |
+    | D2 Is there a better way | deep research, and D2 has not handed in | plan, `better_found` | `background`, `tree` | a better way in `better_found`, where it finds one |
     | P1 Design review | | plan, `plan_review` | `background`, `found`, `tree` | `plan_ok` every time; points in `plan_review` where it fails |
     | P2 Design tree review | | plan, `tree_review` | `background`, `tree` | `tree_ok` every time; points in `tree_review` where it fails |
-    | I1 Implement | | plan, `plan_doubts`, `review`, `testing`, `check` | `background`, `tree` | `code`, `title`, `decisions`, `evidence`, `acceptance`, `head` by its commits; answers in `review` and `testing`; doubts in `plan_doubts`; questions, which hold the engine's (34) |
-    | T1 Review | | change, `review` | plan, `background`, `tree` | `review_ok` and `needs_testing` every time; points in `review` where it fails |
-    | T2 Adversarial testing | `needs_testing` is yes | `needs_testing`, `acceptance`, `testing` | `code`, `evidence`, `plan_agent`, `background` | `tests`, `head` by its commits, `testing_ok` every time; points in `testing` where something stays red |
-    | M1 Check before the merge | no verdict stands at fail, `review_ok` is yes, and no question stands unanswered | `head`, `main`, `asked` | `code` | `checked`, `check` |
+    | I1 Implement | `plan_ok` and `tree_ok` are yes | plan, `plan_doubts`, `review`, `test_review`, `design_review`, `testing`, `check` | `background`, `tree` | `code`, `title`, `decisions`, `evidence`, `acceptance`, `head` by its commits; answers in `review`, `test_review`, `design_review` and `testing`; doubts in `plan_doubts`; questions, which hold the engine's (34) |
+    | T1 Code review | | change, `review` | plan, `background`, `tree` | `review_ok` every time; points in `review` where it fails |
+    | T2 Test review | | change, `test_review` | plan, `background`, `tree` | `test_ok` and `needs_testing` every time; points in `test_review` where it fails |
+    | T3 Design tree review of the change | | change, `design_review` | plan, `background`, `tree` | `design_ok` every time; points in `design_review` where it fails |
+    | T4 Adversarial testing | `needs_testing` is yes | `needs_testing`, `acceptance`, `testing` | `code`, `evidence`, `plan_agent`, `background` | `tests`, `head` by its commits, `testing_ok` every time; points in `testing` where something stays red |
+    | M1 Check before the merge | no verdict stands at fail, `review_ok`, `test_ok` and `design_ok` are yes, and no question stands unanswered | `head`, `main`, `asked` | `code` | `checked`, `check` |
     | M2 Merge | `checked` is yes | `checked` | `title` | `merged` |
 
     The flow of a deliverable item has one cell, V1 Deliver, which runs where the items it depends on have merged,

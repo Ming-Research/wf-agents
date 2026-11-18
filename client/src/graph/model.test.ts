@@ -58,18 +58,28 @@ describe('the flowchart of the engineer flow', () => {
 
   it('draws one fork for each decision, one on a block named by it, a branch for each value', () => {
     const forks = chart.nodes.filter((n) => n.kind === 'fork').map((n) => `${n.id} ${n.name ?? 'test'}`);
-    expect(forks).toEqual(['f:R1 deep_needed', 'f:R2 deep_needed', 'f:T2 needs_testing']);
+    expect(forks).toEqual([
+      'f:R1 deep_needed',
+      'f:R2 test',
+      'f:D1 deep_needed',
+      'f:D2 d2_handed_in',
+      'f:T4 needs_testing',
+    ]);
     // After R0: deep_needed may hold either, as a walk again after R1 wrote it finds it.
     expect(step(chart, cellNode('R0'), forkNode('R1'))).toBeDefined();
     expect(step(chart, forkNode('R1'), cellNode('R1'))?.branch).toBe('no');
     expect(step(chart, forkNode('R1'), cellNode('D1'))?.branch).toBe('yes');
-    // After R1, which may write it: no into R2, yes into D1.
+    // After R1, which may write deep_needed: R2 runs where it is no and R2 has not handed in, its two keys one fork,
+    // and past it the fork on deep_needed: yes into D1.
     expect(step(chart, cellNode('R1'), forkNode('R2'))).toBeDefined();
-    expect(step(chart, forkNode('R2'), cellNode('R2'))?.branch).toBe('no');
-    expect(step(chart, forkNode('R2'), cellNode('D1'))?.branch).toBe('yes');
-    // A cell entered by a branch has no box of its own, and none where its when surely holds, as D2's after D1.
+    expect(step(chart, forkNode('R2'), cellNode('R2'))?.branch).toBe('✓');
+    expect(step(chart, forkNode('R2'), forkNode('D1'))?.branch).toBe('✗');
+    expect(step(chart, forkNode('D1'), cellNode('D1'))?.branch).toBe('yes');
+    // After D1, deep_needed surely yes: D2's fork is on the one key that may hold, whether D2 has handed in.
+    expect(step(chart, cellNode('D1'), forkNode('D2'))).toBeDefined();
+    expect(step(chart, forkNode('D2'), cellNode('D2'))?.branch).toBe('no');
+    // A cell entered by a branch has no box of its own.
     for (const id of ['R1', 'R2', 'D1', 'D2', 'P1']) expect(nodeOf(chart, wayInNode(id))).toBeUndefined();
-    expect(step(chart, cellNode('D1'), cellNode('D2'))?.branch).toBeNull();
     // R1 and D1 exclude each other as written; R1's own write of deep_needed is what parts them, so R1's write can run
     // D1, and D1's cannot run R1.
     const cellOf = (id: string) => engineer.cells.find((c) => c.id === id) as Cell;
@@ -78,8 +88,14 @@ describe('the flowchart of the engineer flow', () => {
     expect(canRun(cellOf('D1'), cellOf('R1'))).toBe(false);
   });
 
-  it('draws no edge from one fork to another', () => {
-    for (const e of chart.edges) expect(isFork(chart, e.source) && isFork(chart, e.target)).toBe(false);
+  // A branch that comes to a cell whose `when` is on the fork's block is a branch of that fork; a fork on several keys,
+  // as R2's, may lead straight into a fork on another block, as D1's.
+  it('draws no edge from one fork to another on the same block', () => {
+    const blockOf = (id: string) => nodeOf(chart, id)?.name ?? null;
+    for (const e of chart.edges.filter((x) => isFork(chart, x.source) && isFork(chart, x.target))) {
+      expect(blockOf(e.source)).not.toBe(blockOf(e.target));
+    }
+    expect(step(chart, forkNode('R2'), forkNode('D1'))).toBeDefined();
   });
 
   it('ends no arrow at a condition but a way back into a fork whose branch cells it reaches, each of them', () => {
@@ -97,6 +113,7 @@ describe('the flowchart of the engineer flow', () => {
       'P1>f:R1 plan_review R1,D1',
       'P2>f:R1 tree_review R1,D1',
       'I1>f:R1 plan_doubts R1,D1',
+      'I1>f:D2 plan D2,P1',
     ]);
     // A way back to one of a fork's cells alone ends at that cell.
     expect(arrow(chart, 'I1', 'R2')?.target).toBe(cellNode('R2'));
@@ -110,21 +127,28 @@ describe('the flowchart of the engineer flow', () => {
         'f:R1 no > c:R1',
         'f:R1 yes > c:D1',
         'c:R1 > f:R2',
-        'f:R2 no > c:R2',
-        'f:R2 yes > c:D1',
-        // The short way skips D1 and D2, which run only where deep_needed is yes; the deep way goes through them. The
-        // ways join at the plan's reviews, which run on every work.
+        'f:R2 ✓ > c:R2',
+        'f:R2 ✗ > f:D1',
+        'f:D1 yes > c:D1',
+        'f:D1 no > c:P1',
+        // The short way skips D1 and D2, which run only where deep_needed is yes; the deep way goes through them, D2
+        // only until it has handed in. The ways join at the plan's reviews, which run on every work.
         'c:R2 > c:P1',
-        'c:D1 > c:D2',
+        'c:D1 > f:D2',
+        'f:D2 no > c:D2',
+        'f:D2 yes > c:P1',
         'c:D2 > c:P1',
         'c:P1 > c:P2',
-        'c:P2 > c:I1',
+        // I1 waits at its gate for the plan's verdicts.
+        'c:P2 > w:I1',
         'c:I1 > c:T1',
-        // T1 writes needs_testing: through T2 or past it, to M1's gate.
-        'c:T1 > f:T2',
-        'f:T2 yes > c:T2',
-        'f:T2 no > w:M1',
-        'c:T2 > w:M1',
+        'c:T1 > c:T2',
+        'c:T2 > c:T3',
+        // T2 writes needs_testing: through T4 or past it, to M1's gate.
+        'c:T3 > f:T4',
+        'f:T4 yes > c:T4',
+        'f:T4 no > w:M1',
+        'c:T4 > w:M1',
         'c:M1 > w:M2',
       ].sort(),
     );
@@ -137,19 +161,25 @@ describe('the flowchart of the engineer flow', () => {
       'settled',
       'asked',
       'review_ok',
+      'test_ok',
+      'design_ok',
     ]);
     expect(nodeOf(chart, wayInNode('M2'))?.requires).toEqual([{ on: 'block', block: 'checked', value: 'yes' }]);
     expect(nodeOf(chart, wayInNode('S1'))?.requires).toEqual([{ on: 'block', block: 'dependencies', value: 'merged' }]);
-    expect(chart.nodes.filter((n) => n.kind === 'way-in').map((n) => n.cell)).toEqual(['S1', 'M1', 'M2']);
-    for (const id of ['S1', 'M1', 'M2']) {
+    expect(nodeOf(chart, wayInNode('I1'))?.requires.map((k) => (k.on === 'block' ? k.block : k.test.name))).toEqual([
+      'plan_ok',
+      'tree_ok',
+    ]);
+    expect(chart.nodes.filter((n) => n.kind === 'way-in').map((n) => n.cell)).toEqual(['S1', 'I1', 'M1', 'M2']);
+    for (const id of ['S1', 'I1', 'M1', 'M2']) {
       expect(chart.edges.find((e) => e.id === `in:${id}`)).toMatchObject({
         source: wayInNode(id),
         target: cellNode(id),
         main: true,
       });
     }
-    expect(step(chart, cellNode('T2'), wayInNode('M1'))).toBeDefined();
-    expect(step(chart, forkNode('T2'), wayInNode('M1'))).toBeDefined();
+    expect(step(chart, cellNode('T4'), wayInNode('M1'))).toBeDefined();
+    expect(step(chart, forkNode('T4'), wayInNode('M1'))).toBeDefined();
     const tag = chart.edges.find((e) => e.kind === 'outside' && e.target === wayInNode('S1'));
     expect(nodeOf(chart, tag?.source ?? '')?.name).toBe('dependencies');
     expect(nodeOf(chart, tag?.source ?? '')?.outside).toEqual({ people: false, sources: ['dependencies'] });
@@ -175,50 +205,48 @@ describe('the flowchart of the engineer flow', () => {
       { name: 'change', group: true },
       { name: 'review', group: false },
     ]);
-    expect(all['I1>T2']).toBe('acceptance, testing');
-    expect(all['T2>I1']).toBe('testing');
-    expect(all['R1>D1']).toBe('found, plan_review, tree_review, plan_doubts, r1_questions');
+    expect(all['I1>T4']).toBe('acceptance, testing');
+    expect(all['T4>I1']).toBe('testing');
+    expect(all['R1>D1']).toBe('found, better_found, plan_review, tree_review, plan_doubts, r1_questions');
     // The check's head and main are no cell's writes: nothing runs it but from outside.
     expect(all['I1>M1']).toBeUndefined();
     expect(all['M1>M2']).toBe('checked');
     const pairs = everyArrow(chart).map((e) => `${e.from}>${e.to}`);
     expect(new Set(pairs).size).toBe(pairs.length);
-    // Three ways back are drawn as one each, into a fork (below).
-    expect(pairs).toHaveLength(35);
+    // Four ways back are drawn as one each, into a fork (below).
+    expect(pairs).toHaveLength(34);
   });
 
   it('folds an arrow that runs along the main path into its step, its names on the step after the branch', () => {
-    // R1's plan runs R2, which the path reaches from R1 through the fork alone: on the branch no, not a second line.
+    // R1's plan runs R2, which the path reaches from R1 through the fork alone: on the branch ✓, not a second line.
     const r2 = step(chart, forkNode('R2'), cellNode('R2'));
-    expect(`${r2?.branch} ${r2?.label}`).toBe('no plan');
+    expect(`${r2?.branch} ${r2?.label}`).toBe('✓ plan, better_found');
     expect(r2?.folds.map((f) => f.id)).toEqual(['a:R1>R2']);
     expect(drawn(chart)).not.toContain('R1>R2');
-    const d1 = step(chart, forkNode('R2'), cellNode('D1'));
-    expect(`${d1?.branch} ${d1?.label}`).toBe('yes found, plan_review, tree_review, plan_doubts, r1_questions');
-    // R2's plan runs P1, which the path reaches from R2 straight.
-    expect(step(chart, cellNode('R2'), cellNode('P1'))?.folds.map((f) => f.id)).toEqual(['a:R2>P1']);
+    // And D1, through two forks and no cell between.
+    const d1 = step(chart, forkNode('D1'), cellNode('D1'));
+    expect(`${d1?.branch} ${d1?.label}`).toBe(
+      'yes found, better_found, plan_review, tree_review, plan_doubts, r1_questions',
+    );
+    // R2 writes no plan: the step from it to P1 carries nothing.
+    expect(step(chart, cellNode('R2'), cellNode('P1'))?.folds).toEqual([]);
     expect(step(chart, cellNode('I1'), cellNode('T1'))?.label).toBe('change, review');
-    expect(step(chart, cellNode('T2'), wayInNode('M1'))?.label).toBe('');
+    expect(step(chart, cellNode('T4'), wayInNode('M1'))?.label).toBe('');
     // A step no arrow runs along carries nothing.
     expect(step(chart, cellNode('P1'), cellNode('P2'))?.label).toBe('');
-    // An arrow with a cell of the path between stays an arrow: R1's plan runs P1, but D1 and D2 come between.
+    // An arrow with a cell of the path between stays an arrow: R1's plan runs D2, but D1 comes between.
     expect(drawn(chart).filter((pair) => !chart.edges.some((e) => e.back && `${e.from}>${e.to}` === pair))).toEqual([
       'R1>D2',
-      'R1>P1',
       'R1>P2',
       'R1>I1',
-      'R1>T2',
-      'R2>P2',
-      'R2>I1',
-      'R2>T2',
-      'D1>P1',
+      'R1>T4',
       'D1>P2',
       'D1>I1',
-      'D1>T2',
-      'D2>P2',
-      'D2>I1',
-      'D2>T2',
+      'D1>T4',
       'I1>T2',
+      'I1>T3',
+      'I1>T4',
+      'T2>T4',
     ]);
     // A way back is never folded.
     expect(chart.edges.flatMap((e) => e.folds).filter((f) => f.back)).toEqual([]);
@@ -230,17 +258,23 @@ describe('the flowchart of the engineer flow', () => {
       'P1>f:R1 plan_review',
       'P2>f:R1 tree_review',
       'I1>f:R1 plan_doubts',
+      'I1>f:D2 plan',
+      'R2>c:R1 better_found',
+      'D2>c:D1 better_found',
       'I1>c:R2 plan',
-      'I1>c:D2 plan',
-      'I1>c:P1 plan',
       'I1>c:P2 plan',
       'T1>c:I1 review',
-      'T2>c:I1 testing',
-      'T2>c:T1 change',
+      'T2>c:I1 test_review',
+      'T3>c:I1 design_review',
+      'T4>c:I1 testing',
+      'T4>c:T1 change',
+      'T4>c:T2 change',
+      'T4>c:T3 change',
       'M1>c:I1 check',
     ]);
-    // Eleven arrows; the three into the fork after R1 each stand for the ways back to both cells it leads to.
-    expect(chart.waysBack).toBe(14);
+    // Sixteen arrows; the three into the fork after R1 and the one into D2's each stand for the ways back to both cells
+    // it leads to.
+    expect(chart.waysBack).toBe(20);
     const place = (id: string | null) => engineer.cells.findIndex((c) => c.id === id);
     for (const e of chart.edges.filter((x) => x.kind === 'arrow')) expect(e.back).toBe(place(e.from) > place(e.to));
   });
@@ -254,7 +288,8 @@ describe('the flowchart of the engineer flow', () => {
     expect(tags('R1')).toEqual(['background people', 'r1_questions answer', 'r1_words words']);
     expect(tags('D1')).toEqual(['background people', 'r1_questions answer', 'd1_questions answer', 'd1_words words']);
     expect(tags('M1')).toEqual(['head head', 'main main', 'asked asked']);
-    expect(tags('R2')).toEqual(['r2_questions answer', 'r2_words words']);
+    // R2 asks nothing and is spoken to by no one: it watches only what cells write.
+    expect(tags('R2')).toEqual([]);
     expect(nodeOf(chart, outsideNode('R0', 'engineer_session'))?.cell).toBe('R0');
   });
 
@@ -264,12 +299,12 @@ describe('the flowchart of the engineer flow', () => {
 
   it('draws the arrows a write runs into and out of the cell chosen, or every one', () => {
     const pairs = (chosen: string | null, all: boolean) => shownArrows(chart, chosen, all).map((e) => `${e.from}>${e.to}`);
-    expect(pairs('D1', false)).toEqual(['D1>P1', 'D1>P2', 'D1>I1', 'D1>T2']);
-    expect(pairs('T2', false)).toEqual(['R1>T2', 'R2>T2', 'D1>T2', 'D2>T2', 'I1>T2']);
+    expect(pairs('D1', false)).toEqual(['D1>P2', 'D1>I1', 'D1>T4']);
+    expect(pairs('T4', false)).toEqual(['R1>T4', 'D1>T4', 'I1>T4', 'T2>T4']);
     // None with nothing chosen, nor the folded ones nor the ways back of the cell chosen.
     expect(pairs(null, false)).toEqual([]);
-    expect(pairs('R2', false)).toEqual(['R2>P2', 'R2>I1', 'R2>T2']);
-    expect(pairs(null, true)).toHaveLength(16);
+    expect(pairs('T2', false)).toEqual(['I1>T2', 'T2>T4']);
+    expect(pairs(null, true)).toHaveLength(11);
   });
 
   it('gives what a cell’s own file reads and watches in the order it is given them, and lights the cells that write it', () => {
@@ -283,6 +318,8 @@ describe('the flowchart of the engineer flow', () => {
       'tree_edits lastAndLatest watches',
       'plan_doubts all watches',
       'review all watches',
+      'test_review all watches',
+      'design_review all watches',
       'testing all watches',
       'check latest watches',
       'i1_questions all watches',
@@ -291,7 +328,7 @@ describe('the flowchart of the engineer flow', () => {
     expect(context.find((t) => t.block === 'tree')?.outside).toEqual({ people: false, sources: ['tree'] });
     // What every agent cell is given (every cell's questions and words) is the view line's, not the box's.
     expect(context.some((t) => t.block === 'r1_questions')).toBe(false);
-    expect([...litBy(engineer, 'I1')].sort()).toEqual(['D1', 'D2', 'M1', 'R1', 'R2', 'T1', 'T2']);
+    expect([...litBy(engineer, 'I1')].sort()).toEqual(['D1', 'M1', 'R1', 'T1', 'T2', 'T3', 'T4']);
   });
 });
 

@@ -1829,8 +1829,7 @@ impl<'a> Definition<'a> {
     /// with whether the cell is the maker: the other side watches something else it writes. What a cell watches as one
     /// of a group, such as the plan its makers bring up to date, is no dialogue; nor is a datum two cells write that each
     /// watches something else the other writes: both make what a third judges, as the research and the deep research
-    /// make the plan, and neither judges the other; nor one where neither watches anything else the other writes: both
-    /// speak to a third, as the two cells that look for a better way speak to the plan's writer.
+    /// make the plan, and neither judges the other.
     fn sides(&self, id: &str, file: &CellFile) -> Vec<(BlockId, &'a str, bool)> {
         let mut sides = Vec::new();
         for block in (file.outputs.iter()).filter(|b| file.watches.contains(b)) {
@@ -1845,7 +1844,7 @@ impl<'a> Definition<'a> {
                     (by.iter()).any(|t| t.as_str() != block.as_str() && outputs.contains(&t.0))
                 };
                 let maker = makes(&self.judges_by(other), &file.outputs);
-                if maker == makes(&self.judges_by(id), &other_file.outputs) {
+                if maker && makes(&self.judges_by(id), &other_file.outputs) {
                     continue;
                 }
                 sides.push((BlockId(block.clone()), other, maker));
