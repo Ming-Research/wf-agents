@@ -1547,15 +1547,28 @@ mod tests {
         assert_eq!(Settings::read(&given).unwrap().agents.subagents.most, 1);
     }
 
-    // Keeping sessions warm was once a switch over the owner's pause of everything alone: settings that still name it
-    // so are told where it went.
+    // Keeping sessions warm was a key of these settings, under two names: settings that still name either are told
+    // that it is the engine's own state now, which the owner switches on their page.
     #[test]
-    fn the_switch_of_keeping_sessions_warm_where_it_once_was_is_told_where_it_moved() {
-        let old = SAMPLE.replace("keep_warm = true", "warm_while_paused = true");
-        assert_ne!(old, SAMPLE, "the sample sets the switch");
+    fn the_keys_that_once_said_whether_sessions_are_kept_warm_are_told_where_it_went() {
+        for key in ["keep_warm", "warm_while_paused"] {
+            let old = SAMPLE.replace("warm_minutes = 55", &format!("warm_minutes = 55\n{key} = true"));
+            assert_ne!(old, SAMPLE, "the sample sets the minutes");
+            let refused = Settings::read(&old).expect_err("refused");
+            assert!(refused.contains(&format!("sessions.{key}")), "{refused}");
+            assert!(refused.contains("page"), "{refused}");
+        }
+    }
+
+    // The context at which the agents' program compacts a session was `context_limit`, which said "limit" of a number
+    // that ends no session: settings that still name it are told where it went.
+    #[test]
+    fn the_context_a_session_is_compacted_at_where_it_once_was_is_told_where_it_moved() {
+        let old = SAMPLE.replace("compact_at = 500000", "context_limit = 500000");
+        assert_ne!(old, SAMPLE, "the sample sets it");
         let refused = Settings::read(&old).expect_err("refused");
-        assert!(refused.contains("sessions.warm_while_paused"), "{refused}");
-        assert!(refused.contains("keep_warm"), "{refused}");
+        assert!(refused.contains("sessions.context_limit"), "{refused}");
+        assert!(refused.contains("compact_at"), "{refused}");
     }
 
     // The owner's language was once a setting of the agents: settings that still say it there are told where it went.

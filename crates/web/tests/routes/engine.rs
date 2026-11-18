@@ -1,6 +1,7 @@
-//! `GET /api/v1/engine` and `POST /api/v1/engine/acts`: the engine's slots and the pause of everything, the owner's or
-//! the engine's own as it starts with works going on, which holds every work back and is lifted for all at once; and a
-//! work that waits for a slot says so.
+//! `GET /api/v1/engine` and `POST /api/v1/engine/acts`: the engine's slots, the pause of everything, the owner's or
+//! the engine's own as it starts with works going on, which holds every work back and is lifted for all at once, and
+//! whether the sessions of works that wait are kept warm, which the owner switches; and a work that waits for a slot
+//! says so.
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
@@ -38,7 +39,7 @@ async fn the_engine_says_its_slots_and_whether_everything_is_paused() {
     let router = &running.router;
     assert_eq!(
         get_json(router, "/api/v1/engine").await,
-        json!({ "slots": 2, "taken": 0, "paused": null })
+        json!({ "slots": 2, "taken": 0, "paused": null, "keepWarm": true })
     );
     assert_eq!(post(router, "/api/v1/items", &item("First")).await.0, StatusCode::OK);
     let engine = get_json(router, "/api/v1/engine").await;
@@ -97,6 +98,31 @@ async fn a_work_that_waits_for_a_slot_says_so() {
         get_json(router, "/api/v1/works/2").await["summary"]["now"],
         json!({ "kind": "waits", "at": "plan", "on": [{ "kind": "slot" }] })
     );
+}
+
+/// Switches whether the sessions of works that wait are kept warm, and gives what the engine says of it after.
+async fn switch(router: &axum::Router, on: bool) -> Value {
+    let act = json!({ "kind": "keepWarm", "on": on });
+    assert_eq!(
+        post(router, "/api/v1/engine/acts", &act).await,
+        (StatusCode::NO_CONTENT, Value::Null)
+    );
+    get_json(router, "/api/v1/engine").await["keepWarm"].clone()
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_sessions_of_works_that_wait_are_kept_warm_until_the_owner_switches_it_off() {
+    let running = running();
+    let router = &running.router;
+    assert_eq!(
+        get_json(router, "/api/v1/engine").await["keepWarm"],
+        json!(true),
+        "kept warm until the owner switches it off"
+    );
+    assert_eq!(switch(router, false).await, json!(false));
+    // Switched as it stands, it stands; switched on again, the engine keeps them warm again.
+    assert_eq!(switch(router, false).await, json!(false));
+    assert_eq!(switch(router, true).await, json!(true));
 }
 
 #[tokio::test(start_paused = true)]
