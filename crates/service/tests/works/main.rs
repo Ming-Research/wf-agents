@@ -566,7 +566,8 @@ impl Rounds for Warm {
                 life_ms: 3_600_000,
                 after_ms: 3_300_000,
                 most: [(MODEL.to_string(), 2)].into(),
-                while_paused: false,
+                keep_warm: true,
+                budget: None,
             }),
         })
     }

@@ -190,10 +190,10 @@ pub struct Sessions {
     /// cache lets it go, time for the ping and four tries again a minute apart.
     #[serde(default = "warm_minutes")]
     pub warm_minutes: u64,
-    /// Whether the sessions of works are kept warm while the owner holds everything: a session waits out the pause
-    /// warm, at a ping an hour, and is not written again whole when the owner lets everything on.
-    #[serde(default = "warm_while_paused")]
-    pub warm_while_paused: bool,
+    /// Whether the sessions of works that wait are kept warm at all: with it, a waiting session is pinged whoever holds
+    /// its work, so that it is not written again whole when the work goes on; without it, no ping is ever given.
+    #[serde(default = "keep_warm")]
+    pub keep_warm: bool,
 }
 
 impl Default for Sessions {
@@ -202,7 +202,7 @@ impl Default for Sessions {
             context_limit: context_limit(),
             cache_minutes: cache_minutes(),
             warm_minutes: warm_minutes(),
-            warm_while_paused: warm_while_paused(),
+            keep_warm: keep_warm(),
         }
     }
 }
@@ -224,7 +224,7 @@ fn warm_minutes() -> u64 {
     55
 }
 
-fn warm_while_paused() -> bool {
+fn keep_warm() -> bool {
     true
 }
 
@@ -593,6 +593,11 @@ const HEAVY_MOVED: &str = "agents.permissions.heavy: the heavy commands are a pr
      project declares its own in its flow/project.toml as [heavy] (commands), and what every agent is refused whatever \
      its project is in agents/refused.toml beside the flows; take heavy out of agents.permissions.";
 
+/// What the settings are told where they name `sessions.warm_while_paused`, the switch that once kept a waiting
+/// session warm while the owner held everything and nowhere else.
+const WARM_WHILE_PAUSED: &str = "sessions.warm_while_paused: a waiting session is kept warm whoever holds its work, so \
+     the setting is one switch over keeping sessions warm at all: write it as keep_warm in [sessions].";
+
 /// What the settings are told where they name `agents.owner_language`, where the owner's language once was.
 const OWNER_LANGUAGE: &str = "agents.owner_language: the owner's language is the owner's, not the agents': take it \
      out of [agents] and write it as language in a table [owner], as install.sample.toml shows.";
@@ -668,6 +673,13 @@ impl Settings {
         let permissions = agents.and_then(|a| a.get("permissions")).and_then(|p| p.as_table());
         if permissions.is_some_and(|permissions| permissions.contains_key("heavy")) {
             return Err(HEAVY_MOVED.to_string());
+        }
+        let kept = table
+            .as_ref()
+            .and_then(|t| t.get("sessions"))
+            .and_then(|s| s.as_table());
+        if kept.is_some_and(|sessions| sessions.contains_key("warm_while_paused")) {
+            return Err(WARM_WHILE_PAUSED.to_string());
         }
         // Settings of the one project an installation once had are told where its tables went.
         let moved: Vec<&str> = (["project", "github"].into_iter())
@@ -847,7 +859,8 @@ impl Settings {
             most: (self.agents.levels.values())
                 .filter_map(|level| Some((level.model.clone(), crate::cost::pings_worth(&level.model)?)))
                 .collect(),
-            while_paused: sessions.warm_while_paused,
+            keep_warm: sessions.keep_warm,
+            budget: self.budget_micros(),
         });
         Policy {
             samples: self.history.samples,
@@ -921,13 +934,13 @@ mod tests {
         let without = SAMPLE
             .replace("cache_minutes = 60\n", "")
             .replace("warm_minutes = 55\n", "");
-        let without = without.replace("warm_while_paused = true\n", "");
+        let without = without.replace("keep_warm = true\n", "");
         assert_ne!(without, SAMPLE, "the sample sets them");
         let settings = Settings::read(&without).expect("it reads without");
         let warm = settings.policy().warm.expect("kept warm");
         assert_eq!(
-            (warm.life_ms, warm.after_ms, warm.while_paused),
-            (3_600_000, 3_300_000, true)
+            (warm.life_ms, warm.after_ms, warm.keep_warm, warm.budget),
+            (3_600_000, 3_300_000, true, Some(5_000_000))
         );
         // The sample's levels run on Haiku, Sonnet and Opus 5.5 and on Fable 5.1.
         let most: Vec<(&str, u32)> = warm.most.iter().map(|(m, n)| (m.as_str(), *n)).collect();
@@ -1532,6 +1545,17 @@ mod tests {
             "work_budget_usd = 5.0\nsubagents = { most = 1 }",
         );
         assert_eq!(Settings::read(&given).unwrap().agents.subagents.most, 1);
+    }
+
+    // Keeping sessions warm was once a switch over the owner's pause of everything alone: settings that still name it
+    // so are told where it went.
+    #[test]
+    fn the_switch_of_keeping_sessions_warm_where_it_once_was_is_told_where_it_moved() {
+        let old = SAMPLE.replace("keep_warm = true", "warm_while_paused = true");
+        assert_ne!(old, SAMPLE, "the sample sets the switch");
+        let refused = Settings::read(&old).expect_err("refused");
+        assert!(refused.contains("sessions.warm_while_paused"), "{refused}");
+        assert!(refused.contains("keep_warm"), "{refused}");
     }
 
     // The owner's language was once a setting of the agents: settings that still say it there are told where it went.

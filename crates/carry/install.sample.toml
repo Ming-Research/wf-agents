@@ -150,9 +150,11 @@ cache_minutes = 60
 # cost, each reading the session, no more than writing it again would beyond reading it, at its model's prices: 39 on
 # Opus and Sonnet 5.5, 19 on Haiku 5.5, 79 on Fable 5.1. Left out, it is 55.
 warm_minutes = 55
-# Whether sessions are kept warm while the owner holds everything, so that they are not written again whole when the
-# owner lets everything on. Left out, they are.
-warm_while_paused = true
+# Whether the sessions of works that wait are kept warm at all. With it, a waiting session is pinged whoever holds its
+# work: the engine as it opened, a pause of everything or of the work alone, or a question it waits on the owner for, so
+# that the session is not written again whole when the work goes on. A work the engine paused for spending more than it
+# may is pinged no more, a ping counting in its spend. Without it, no ping is ever given. Left out, they are kept warm.
+keep_warm = true
 
 [history]
 # A measured quantity (a round's growth of context, its cost and time, a work's spend) is judged against the history

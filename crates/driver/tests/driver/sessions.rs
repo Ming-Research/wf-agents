@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use decide::BlockId;
 use driver::Policy;
-use driver::{FirstWrite, NewItem, SESSION};
+use driver::{FirstWrite, Found, NewItem, SESSION};
 use engine::RanOn;
 use engine::{Ask, Handed, Session, Why};
 use flow::{Compiled, Has};
@@ -227,6 +227,8 @@ struct S {
     model: String,
     /// The account the rounds' tries begin under.
     account: Option<String>,
+    /// What each round of the work that ends spends, in millionths of a dollar.
+    usd: u64,
 }
 
 impl S {
@@ -327,11 +329,41 @@ impl S {
             clock: START,
             model: "opus".to_string(),
             account: account.map(str::to_string),
+            usd: 0,
         }
     }
 
     fn kept(&self) -> &engine::Work {
         self.driver.work(self.work).expect("the work").work
+    }
+
+    /// Another work of the flow, let on, with its first round under way: the work and that round's run.
+    fn another(&mut self) -> (WorkNumber, RunId) {
+        let new = NewItem {
+            title: "Another".to_string(),
+            level: "1".to_string(),
+            project: PROJECT.to_string(),
+            depends_on: Vec::new(),
+            tags: Vec::new(),
+            flow: "sessions".to_string(),
+            writes: vec![FirstWrite {
+                block: "request".into(),
+                content: "Greet the user.".to_string(),
+                value: None,
+            }],
+        };
+        self.clock += 1000;
+        let (_, work, _) = self.driver.add(Time(self.clock), new).expect("the work is added");
+        let todos = (self.driver)
+            .happened(Time(self.clock), work, Event::Resumed)
+            .expect("it is let on");
+        let run = (todos.iter())
+            .find_map(|todo| match &todo.effect {
+                Effect::Round { run, .. } if todo.work == work => Some(*run),
+                _ => None,
+            })
+            .expect("its first round");
+        (work, run)
     }
 
     fn on(&mut self, event: Event) {
@@ -360,6 +392,7 @@ impl S {
         let spent = Spent {
             input_tokens: 10,
             context_tokens: Some(context),
+            usd_micros: self.usd,
             ..Default::default()
         };
         self.on(Event::Returned { run, came, spent });
@@ -1042,17 +1075,29 @@ fn a_round_the_run_guard_stopped_is_tried_again_in_a_new_session_and_a_second_pa
 }
 
 /// The policy where every round runs on this model, and a line that waits has its session pinged 55 minutes after its
-/// last call, of an hour the cache keeps it, at most twice in a wait.
+/// last call, of an hour the cache keeps it, at most twice in a wait; sessions are kept warm, and a work may spend what
+/// it likes.
 fn warm(model: &str) -> Policy {
     Policy {
         warm: Some(driver::Warm {
             life_ms: 3_600_000,
             after_ms: 3_300_000,
             most: [(model.to_string(), 2)].into(),
-            while_paused: false,
+            keep_warm: true,
+            budget: None,
         }),
         ..policy(model)
     }
+}
+
+/// The policy of [`warm`] with this much of the switch of keeping sessions warm and this budget of a work, in
+/// millionths of a dollar.
+fn warm_with(model: &str, keep_warm: bool, budget: Option<u64>) -> Policy {
+    let mut policy = warm(model);
+    let warm = policy.warm.as_mut().expect("the sessions are kept warm");
+    warm.keep_warm = keep_warm;
+    warm.budget = budget;
+    policy
 }
 
 /// The pings of the work the driver gives in these todos.
@@ -1086,8 +1131,44 @@ fn pinged(spent: Spent, failed: Option<&str>) -> Event {
 
 /// The sessions of the work's lines that are kept warm, as the policy keeps them.
 fn kept_warm(s: &S) -> Vec<driver::warm::Kept> {
+    kept_warm_on(s, &warm("opus"))
+}
+
+/// The sessions of the work's lines that are kept warm, as this policy keeps them.
+fn kept_warm_on(s: &S, policy: &Policy) -> Vec<driver::warm::Kept> {
     let held = s.driver.work(s.work).expect("the work");
-    driver::warm::kept(held.flow, held.work, held.item, &warm("opus"), Time(s.clock))
+    driver::warm::kept(held.flow, held.work, held.item, policy, Time(s.clock))
+}
+
+/// A work with this policy whose engineer's session waits for a tool's result, and when its next ping is due, as a
+/// policy that keeps sessions warm says: a work that is not kept warm waits all the same, and a test asks whether it
+/// is pinged at that time.
+fn waiting(policy: Policy) -> (S, u64) {
+    let mut s = S::with(policy, None);
+    s.hands_in(100, true);
+    s.asks(100);
+    let at = kept_warm(&s).first().expect("a session kept warm").at.0;
+    (s, at)
+}
+
+/// The driver is opened again on the store, with this policy, while the work goes on: it holds everything itself,
+/// until the owner has seen how things stand.
+fn opened_again(s: &mut S, policy: Policy) {
+    let (driver, _) = Driver::open(
+        Box::new(s.db.open()),
+        vec![s.flow.clone()],
+        SLOTS,
+        Some(policy),
+        Time(s.clock),
+    )
+    .expect("the driver opens again");
+    s.driver = driver;
+    assert!(
+        s.driver
+            .everything_paused()
+            .is_some_and(|paused| paused.by == Pauser::Engine),
+        "the engine holds everything as it opened"
+    );
 }
 
 #[test]
@@ -1244,32 +1325,17 @@ fn a_miss_after_what_comes_before_the_messages_changed_is_expected_and_a_hit_is_
 }
 
 #[test]
-fn no_session_is_pinged_while_the_engine_holds_everything_as_it_opened_until_the_owner_lifts_it() {
-    let mut s = S::with(warm("opus"), None);
-    s.hands_in(100, true);
-    s.asks(100);
-    let at = woken(&s);
-    // The engine opens again on the work going on, and holds everything until the owner has seen how things stand.
-    let (driver, _) = Driver::open(
-        Box::new(s.db.open()),
-        vec![s.flow.clone()],
-        SLOTS,
-        Some(warm("opus")),
-        Time(s.clock),
-    )
-    .expect("the driver opens again");
-    s.driver = driver;
-    assert!(
-        s.driver
-            .everything_paused()
-            .is_some_and(|paused| paused.by == Pauser::Engine)
+fn a_session_is_pinged_while_the_engine_holds_everything_as_it_opened() {
+    let (mut s, at) = waiting(warm("opus"));
+    // The engine opens again on the work going on and holds everything until the owner has seen how things stand: the
+    // hold is on the work going on, and the session's cache is what the work has already paid for.
+    opened_again(&mut s, warm("opus"));
+    assert_eq!(
+        s.driver.wake().map(|wake| wake.at.0),
+        Some(at),
+        "the driver waits for the ping's time"
     );
-    let held = s.driver.tick(Time(at), None, None).unwrap();
-    assert!(pings(&s, &held).is_empty(), "a ping spends before the owner has looked");
-    assert!(s.driver.wake().is_none(), "nothing to wake for while it holds");
-    let lifted = s.driver.pause_everything(Time(at + 1), false).unwrap();
-    let mut todos = lifted;
-    todos.extend(s.driver.tick(Time(at + 2), None, None).unwrap());
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
     assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
 }
 
@@ -1310,22 +1376,129 @@ fn only_the_lines_the_work_can_come_back_to_and_none_while_a_round_of_it_is_unde
 }
 
 #[test]
-fn no_session_is_pinged_while_the_owner_holds_everything_unless_the_settings_keep_them_warm_then() {
-    for while_paused in [false, true] {
-        let mut policy = warm("opus");
-        if let Some(warm) = &mut policy.warm {
-            warm.while_paused = while_paused;
+fn a_session_is_pinged_while_the_owners_pause_holds_everything_or_the_work_alone() {
+    for everything in [true, false] {
+        let (mut s, at) = waiting(warm("opus"));
+        if everything {
+            s.driver
+                .pause_everything(Time(s.clock), true)
+                .expect("everything is paused");
+        } else {
+            s.on(Event::Paused {
+                by: Pauser::Owner,
+                why: None,
+            });
         }
-        let mut s = S::with(policy, None);
-        s.hands_in(100, true);
-        s.asks(100);
-        let at = woken(&s);
-        s.driver
-            .pause_everything(Time(s.clock), true)
-            .expect("everything is paused");
         let todos = s.driver.tick(Time(at), None, None).unwrap();
-        assert_eq!(!pings(&s, &todos).is_empty(), while_paused);
+        assert_eq!(
+            pings(&s, &todos),
+            [("engineer".to_string(), 0)],
+            "everything paused: {everything}"
+        );
     }
+}
+
+#[test]
+fn no_session_of_a_work_the_engine_paused_for_spending_more_than_it_may_is_pinged() {
+    let budget = Some(1_000_000);
+    let mut s = S::with(warm_with("opus", true, budget), None);
+    s.usd = 600_000;
+    s.hands_in(100, true);
+    s.asks(100);
+    let at = kept_warm_on(&s, &warm_with("opus", true, budget))
+        .first()
+        .expect("a session kept warm")
+        .at
+        .0;
+    // Its two rounds spent $1.20 of the $1.00 a work may spend, and the engine paused it for that: a ping counts in
+    // the work's spend, and the budget is the refusal to let the work spend more.
+    s.on(Event::Paused {
+        by: Pauser::Engine,
+        why: Some("it spent $1.20 of the $1.00 a work may spend".to_string()),
+    });
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
+    assert!(pings(&s, &todos).is_empty(), "a ping of a work past its budget");
+    assert!(s.driver.wake().is_none(), "nothing to wake for while it stands so");
+    // Let on by the owner, who alone lets a work on, it is kept warm as any other.
+    s.on(Event::Resumed);
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
+    assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
+}
+
+#[test]
+fn no_session_is_pinged_at_all_where_the_installation_keeps_none_warm() {
+    // Under each hold a waiting session is otherwise pinged under: none, the engine's as it opened, and the owner's
+    // over everything and over the work alone.
+    for hold in ["none", "the engine's as it opened", "everything", "the work"] {
+        let (mut s, at) = waiting(warm_with("opus", false, None));
+        match hold {
+            "the engine's as it opened" => opened_again(&mut s, warm_with("opus", false, None)),
+            "everything" => {
+                s.driver
+                    .pause_everything(Time(s.clock), true)
+                    .expect("everything is paused");
+            }
+            "the work" => s.on(Event::Paused {
+                by: Pauser::Owner,
+                why: None,
+            }),
+            _ => {}
+        }
+        let todos = s.driver.tick(Time(at), None, None).unwrap();
+        assert!(pings(&s, &todos).is_empty(), "pinged while {hold} holds it");
+        assert_eq!(
+            s.driver.wake(),
+            None,
+            "woken for a ping it will not give while {hold} holds it"
+        );
+    }
+}
+
+#[test]
+fn the_wait_every_work_shares_stops_every_ping_until_a_check_finds_the_outside_well() {
+    let (mut s, at) = waiting(warm("opus"));
+    // Another work's round fails for a cause outside every work: no agent's round of any work begins until a check
+    // finds the outside well, and a ping, which runs with the command line a round runs with, would fail as they do.
+    let (other, run) = s.another();
+    let failed = Event::Failed {
+        run,
+        why: "the network cannot be reached".to_string(),
+        failure: decide::run::Failure::Offline,
+        resets: None,
+        spent: Spent::default(),
+    };
+    s.driver
+        .happened(Time(s.clock), other, failed)
+        .expect("the driver takes it");
+    assert!(s.driver.outage().is_some_and(|outage| outage.holds()));
+    assert!(!kept_warm(&s).is_empty(), "the session is kept warm all the same");
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
+    assert!(pings(&s, &todos).is_empty(), "a ping while the agents' rounds wait");
+    // A check finds the outside well: the wait is over, and the ping is given.
+    let todos = s.driver.tick(Time(at + 1), Some(Found::Well), None).unwrap();
+    assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
+}
+
+#[test]
+fn no_ping_of_a_line_the_work_passed_for_good_while_its_pause_holds_it_at_another_lines_cell() {
+    let mut s = S::on_flow(two_lines(), warm("opus"), None);
+    s.hands_in(100, true);
+    // The owner pauses the work while the build's round is under way: having handed in, the work stands paused at the
+    // look, a cell of the review's line, and nothing the review's cells write runs a cell of the engineer's.
+    s.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
+    s.hands_in(100, true);
+    let shown = s.driver.view(s.work).expect("the work is shown").decision;
+    assert!(
+        matches!(&shown, Decision::Paused { cell } if cell.as_str() == "look"),
+        "{shown:?}"
+    );
+    assert!(
+        kept_warm(&s).is_empty(),
+        "the engineer's line, which the work has passed for good, is pinged"
+    );
 }
 
 #[test]
