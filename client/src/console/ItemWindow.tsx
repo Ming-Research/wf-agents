@@ -1,6 +1,7 @@
 // What the window beside the console shows of the item selected: its number, its title, which brings the item into view
 // in the tree, and its project; a line of where the item stands, with the level the work's cell runs at, the works
-// page's strip of the work's cells and where its time went at its right, and a line of what its work does; what the owner does to the work (let it on, pause
+// page's strip of the work's cells and where its time went at its right, and a line of what its work does, the lines
+// it changed at its right end; what the owner does to the work (let it on, pause
 // it, cancel it); four tabs, Item, Work, Step and Usage, the same on the console and on a work's page; and under them,
 // while something in the item is new to the owner, a strip that says what changed, with a link to mark the item read.
 // The first tab holds the body (a section for each datum the work's flow's
@@ -93,7 +94,7 @@ import {
   waitedWords,
 } from '../works/words';
 import { Diff } from './diff';
-import { type ItemStanding, age, dollars, standingOf } from './items';
+import { type ItemStanding, age, dollars, linesOf, standingOf } from './items';
 import { Markdown, type Pointers } from './markdown';
 import { markRead } from './mock';
 import {
@@ -839,12 +840,14 @@ function Progress({ w, page }: { w: Summary; page: WorkPage | null }) {
 /// The work's state line, one line, the same part for every state: its dot and the word of its state, the calls of
 /// tools it waits for with a link to where each runs, and how long it has waited for them; the cell it stands at where
 /// the engine's state names one, as a cell is shown everywhere; where it waits for the items its item depends on,
-/// which, as the engine gives them, those cancelled said so; the work; and its pull request, where it has one, a link
-/// to it on the host of its repository.
+/// which, as the engine gives them, those cancelled said so; the work; its pull request, where it has one, a link to it
+/// on the host of its repository; and at its right end, where the work changed lines, those it added and removed, as
+/// its card says them.
 function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
   const { tone, cell } = stateOf(w);
   const now = w.now;
   const items = now.kind === 'waits' ? now.on.filter((x) => x.kind === 'items') : [];
+  const lines = linesOf(w);
   return (
     <Line tone={tone} word={<Parts parts={stateParts(w)} />}>
       {tone === 'calling' && <CallsTook work={w} />}
@@ -867,6 +870,11 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
         >
           PR #{w.pull.number}
         </a>
+      )}
+      {lines !== null && (
+        <span className="cw-lines">
+          <LinesChanged added={lines.added} removed={lines.removed} files={lines.files} />
+        </span>
       )}
     </Line>
   );

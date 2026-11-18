@@ -95,6 +95,11 @@
   margin-left: auto;
 }
 
+/* The lines the work changed, at the right end of its line. */
+.cw-lines {
+  margin-left: auto;
+}
+
 /* The level the work's cell runs at, just before its strip. */
 .cw-level {
   display: inline-flex;

@@ -18,7 +18,7 @@ import { itemOf } from './real';
 export type ItemStanding = 'open' | 'done' | 'cancelled';
 
 /// The work going on on an item, as its node shows it: what it does now, how each cell of its flow stands, when it was
-/// added, what it has taken, when something last happened to it, and the level its cell runs at.
+/// added, what it has taken, when something last happened to it, the level its cell runs at, and the lines it changed.
 export type ShownWork = {
   number: number;
   now: Now;
@@ -40,7 +40,19 @@ export type ShownWork = {
   /// it stands at runs that cell, none counted as nought.
   level: string | null;
   raise: number;
+  /// The lines it added and removed, none where it changed none (`linesOf`).
+  lines: Lines | null;
 };
+
+/// The lines a work added and removed, and in how many files.
+export type Lines = { added: number; removed: number; files: number };
+
+/// The lines a work added and removed, as its summary counts them; none where it changed no line, or the engine has
+/// nothing to tell.
+export function linesOf(w: Pick<Summary, 'changed'>): Lines | null {
+  const c = w.changed;
+  return c == null || c.added + c.removed === 0 ? null : { added: c.added, removed: c.removed, files: c.files };
+}
 
 export type Shown = {
   id: number;
@@ -170,6 +182,7 @@ export function shownTree(data: Items, every = false): Shown[] {
               last: w.last,
               level: w.level ?? null,
               raise: w.raise ?? 0,
+              lines: linesOf(w),
             }
           : null,
       children: [

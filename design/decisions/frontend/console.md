@@ -28,6 +28,15 @@ Why: Red says a problem, and a work not done within an hour is one, so it stands
 would be one more meaning to learn. A line from the work's own history loses: it says nothing until the history holds
 enough works, and among works that all run long, a long one does not stand out.
 
+### decision a-card-of-a-work-that-changed-lines-has-a-row-for-them
+A card whose work changed lines has a low row under its second row for the lines added and removed, `+210 −40`, the
+added in the green and the removed in the red a diff draws them in; a card of a work that changed none has no such row
+and keeps its height.
+Why: The second row has no room left for them, and the blank under it is too low for a line of words; a row on every
+card would leave a blank where nothing changed, which rests on judgment. Green for what was added and red for what was
+removed is how a diff draws them everywhere on the page; the reverse, as prices are drawn, was turned down as one
+meaning in two colours (Article 8).
+
 ### decision a-card-stands-still
 No card is lit or moved for its work's state: one that waits for the owner has no rings round it, and a running one no
 light going round its edge. What runs is shown by the pulse of its running cell's mark, and by the way from its item up

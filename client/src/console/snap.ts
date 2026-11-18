@@ -25,7 +25,8 @@
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
 // every constant as they were. What changed: a card's second row draws the level the work's cell runs at and the works
-// page's strip of the work's cells where it drew the stages; what the new interface has nothing for
+// page's strip of the work's cells where it drew the stages, and a row under it the lines the work changed, where it
+// changed any; what the new interface has nothing for
 // yet (an item new to the owner, messages unread) is read from the console's made-up data (`mock.ts`); the colours the
 // page's tokens came from are read from the tokens, so that the canvas follows light and dark; the canvas follows the
 // size of what holds it, besides the window's; the links dim with the items they join while an item is lit
@@ -35,20 +36,22 @@
 import { Application, BitmapText, BlurFilter, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
 import { accentNow, onAccent, turning } from '../accent';
-import { levelLook, levelWords } from '../marks';
+import { LINES_LOOKS, levelLook, levelWords } from '../marks';
 import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
-import { NO_LEVEL, STATE, stateOf, stoppedAt } from '../works/words';
+import { NO_LEVEL, STATE, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
 import { type Shown, type ShownWork, age } from './items';
 import { BAR_KINDS, TRACK_WORDS } from './track';
 import { indexTree, type Tree } from './tree';
 
 export const NODE_W = 300;
 /// A row's height, and the height of a node of one row: an item with a work going on has a second row, the work's, this
-/// part of a row high, so that the work sits close under the title.
+/// part of a row high, so that the work sits close under the title; and a work that changed lines a row under that,
+/// this part of a row high, for the lines it added and removed.
 const NODE_H = 26;
 export const ROW = 32;
 const WORK_ROW = 0.55;
+const LINES_ROW = 0.45;
 export const PITCH = 370;
 /// The room between the items of one item and those of the next in a column, in rows.
 const APART = 0.7;
@@ -405,8 +408,11 @@ const BAR_W = 70;
 const BAR_X = NODE_W - 8 - 36 - BAR_W;
 const BAR_REACH = 6;
 
-/// The middle of a card's second row, the work's, from the card's middle, for a card `h` high.
-const workRow = (h: number) => -h / 2 + h - (WORK_ROW * ROW) / 2 - 3;
+/// The middle of a card's second row, the work's, from the card's middle, for a card `h` high: as far from the card's
+/// top on every card with a work, whether a row of its lines changed stands under it or not; and the middle of that
+/// row.
+const workRow = (h: number) => -h / 2 + high(1 + WORK_ROW) - (WORK_ROW * ROW) / 2 - 3;
+const linesRow = (h: number) => workRow(h) + LINES_ROW * ROW;
 
 /// What a work's state is to its node: running, waiting for the owner, paused, stopped by the engine for a problem, or
 /// waiting for something else.
@@ -819,7 +825,9 @@ export class SnapScene {
       else this.shadowsOf.set(it.id, [...(this.shadowsOf.get(it.id) ?? []), k]);
     });
     this.under = -1;
-    this.rows = Float64Array.from(items, (i) => (i.work !== null ? 1 + WORK_ROW : 1));
+    this.rows = Float64Array.from(items, (i) =>
+      i.work === null ? 1 : 1 + WORK_ROW + (i.work.lines === null ? 0 : LINES_ROW),
+    );
     this.pre = tree.columns.map((col) => {
       const p = new Float64Array(col.length + 1);
       for (let r = 0; r < col.length; r += 1) p[r + 1] = p[r] + this.rows[col[r]];
@@ -905,7 +913,8 @@ export class SnapScene {
   /// with an edge of a deeper shade of it; its edge the accent's tint above a work. On its first row its number in its
   /// state's colour, its title, and at the right how many things its work waits for from the owner, white on red; on
   /// the second row, for an item whose work goes on, under the number the level its cell runs at, the strip of the
-  /// work's cells as the works page draws it, where its time went, and how long it has gone on.
+  /// work's cells as the works page draws it, where its time went, and how long it has gone on; and under that, where
+  /// the work changed lines, the lines it added and removed.
   private node(item: Shown, k: number): Container {
     const s = this.styles as Styles;
     const view = new Container();
@@ -1055,6 +1064,22 @@ export class SnapScene {
     this.strip(view, item.id, k, w.cells, Math.max(title.x, x + level.width + 4), row2, barX - 8, at);
     const drawn = this.drawnStrips.get(item.id);
     if (drawn !== undefined) drawn.level = { text: level.text, colour, strong };
+    // Under the second row, where the work changed lines, those it added and removed, `+210 −40`, from under the
+    // title, each in its colour (`LINES_LOOKS`), a blank of the monospace apart, as the item's window says them.
+    if (w.lines !== null) {
+      const middle = linesRow(h);
+      const added = new BitmapText({
+        text: linesAdded(w.lines.added),
+        style: s.mono(token(LINES_LOOKS.added, PALETTE.green)),
+      });
+      const removed = new BitmapText({
+        text: linesRemoved(w.lines.removed),
+        style: s.mono(token(LINES_LOOKS.removed, PALETTE.red)),
+      });
+      added.position.set(title.x, middle - added.height / 2);
+      removed.position.set(title.x + added.width + added.width / added.text.length, middle - removed.height / 2);
+      view.addChild(added, removed);
+    }
     // How long it has gone on, at the right, its colour by its age; the label is kept up as time passes.
     const label = new BitmapText({ text: '', style: s.mono(PALETTE.muted) });
     view.addChild(track, label);
