@@ -622,7 +622,7 @@ function bandSpot(cell: Cell, chosenCell: string | null, pointed: boolean): stri
 
 /// What every row of a band is given: the cells, the cell chosen and the one whose words the rows show, and the
 /// column under the pointer.
-type BandProps = {
+export type BandProps = {
   cells: Cell[];
   chosenCell: string | null;
   saying: Cell | null;
@@ -675,7 +675,7 @@ function BandWords(props: { says: string; what: string; saying: Cell | null; onP
 /// The row of a line, at the top: its name in the accent, a dot under each cell on it, the dots joined along the row,
 /// and the line's keys as its file writes them; on the row of the chosen cell's line, that it is its `line`. Chosen by
 /// its name, it opens the line's panel.
-function LineLine(props: BandProps & { row: LineRow; chosen: boolean; onChoose: () => void }) {
+export function LineLine(props: BandProps & { row: LineRow; chosen: boolean; onChoose: () => void }) {
   const { row, cells, chosen, onChoose, chosenCell, saying, pointed, onPoint } = props;
   const keys = row.line ? keysWords(lineKeys(row.line)) : '';
   const says = saying?.kind === 'agent' && saying.line === row.name ? 'line' : '';

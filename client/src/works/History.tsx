@@ -10,10 +10,11 @@
 // frame scrolls on past what the window covers. The chart opens scrolled to its end, the newest step, and follows new
 // steps while the owner is at the end.
 
-import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Cell } from '../api';
-import { CellHead, FLOW_WIDTHS, RowArrow, WIDTHS, WordsHead, useWheel } from '../Chart';
+import { CellHead, FLOW_WIDTHS, LineLine, RowArrow, WIDTHS, WordsHead, useWheel } from '../Chart';
+import { matrix } from '../matrix';
 import { MARKS, type MarkKey, markName } from '../marks';
 import { Arrow, Edge } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
@@ -80,6 +81,8 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
   const [lead, setLead] = useKeptWidth(WIDTH_KEYS.historyNames, NAMES.min, NAMES.max);
   const [widths, setWidth] = useKeptWidths(WIDTH_KEYS.historyCells, CELLS.min, WIDTHS.cellMax);
   const [pointed, setPointed] = useState<number | null>(null);
+  // The flow's lines, each the matrix's own row of it, under the cells' heads.
+  const lines = useMemo(() => matrix(page.flow).lines, [page.flow]);
   useWheel(frame);
   const leadWidth = lead ?? NAMES.first;
   const widthOf = (id: string) => widths[id] ?? CELLS.first;
@@ -154,6 +157,19 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
               label="When"
             />
           </tr>
+          {lines.map((row) => (
+            <LineLine
+              key={row.name}
+              row={row}
+              chosen={false}
+              onChoose={() => undefined}
+              cells={cells}
+              chosenCell={null}
+              saying={null}
+              pointed={pointed}
+              onPoint={setPointed}
+            />
+          ))}
         </thead>
         <tbody>
           {rows.map((row) =>

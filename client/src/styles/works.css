@@ -340,6 +340,22 @@
   overflow: hidden;
 }
 
+/* The cells' heads and the flow's lines under them, the matrix's own rows, stay at the top together while the runs
+   scroll under them; a line's name stays at the left as the heads' corner does. */
+.history thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.history thead .line-row > th {
+  top: auto;
+}
+
+.history thead .line-row > * {
+  background-color: var(--ground);
+}
+
 /* Where the work was paused, let on again, cancelled or reopened, between two runs: a row half as high, a dashed line
    in the accent across the cells, and what was done and when, small, at the right. */
 .history .divider-row > th,
