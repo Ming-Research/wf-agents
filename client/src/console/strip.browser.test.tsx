@@ -28,7 +28,7 @@ const cellsOf = (states: CellState[]): CellNow[] =>
     open: state === 'running' || state === 'calling' || state === 'resting' || state === 'failed' ? 1 : null,
   }));
 
-/// An item whose work, a round under way, stands as `cells` say.
+/// An item whose work, a round under way at level 2, stands as `cells` say.
 const working = (id: number, cells: CellNow[]): Shown => ({
   id,
   title: `Item ${id}`,
@@ -51,6 +51,9 @@ const working = (id: number, cells: CellNow[]): Shown => ({
     from: Date.now(),
     usdMicros: 12_340_000,
     last: null,
+    level: '2',
+    raise: 0,
+    lines: null,
   },
   children: [],
 });
@@ -133,11 +136,12 @@ describe("a card's strip", () => {
     expect(drawn(light)).toEqual(laidOut(cells));
     // Only the marks of the cell running and of the cell with a call under way pulse.
     expect(light.marks.map((m) => m.pulses)).toEqual([false, true, true, false, false, false, false, false]);
-    // Under the number, the name of the cell the work runs at, in the running colour's text step.
-    const runningText = getComputedStyle(document.documentElement).getPropertyValue('--running-text').trim();
-    expect(light.name).toEqual({ text: 'c1', colour: runningText });
+    // Under the number, the level the work's cell runs at, in the look of that level: the second in the text's colour
+    // (decision a-level-looks-as-the-level-it-runs-at).
+    const text = getComputedStyle(document.documentElement).getPropertyValue('--text').trim();
+    expect(light.level).toEqual({ text: 'L2', colour: text, strong: false });
     // A filled mark is not ringed in its own colour, which would show as a border on a dimmed card; a hollow one is.
-    expect(light.marks.map((m) => m.ringed)).toEqual([false, false, false, false, false, true, true, false]);
+    expect(light.marks.map((m) => m.ringed)).toEqual([false, false, false, false, true, true, true, false]);
     // Under the title, so that the number stands alone at the card's left, and short of where the work's time went.
     expect(light.marks[0].x).toBe(36);
     const last = light.marks[light.marks.length - 1];

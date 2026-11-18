@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Now } from '../works-api';
 import { stateOf } from '../works/words';
+import { age } from './items';
 import {
-  age,
   dashesAlong,
   DIM,
   eased,
@@ -36,15 +36,26 @@ describe("a work's age on its card", () => {
 
 describe("a card's mood", () => {
   it('is taken from the state every view names a work by', () => {
-    // A tool's call under way at a cell the work does not wait at: the state says it waits, and the card says so too.
+    // A work that waits for the turn, whatever call is under way at another cell: the state says it waits, and the card
+    // says so too.
     const now: Now = { kind: 'waits', at: 'M2', on: [{ kind: 'turn', holder: 3, since: 0 }] };
     const cells: CellNow[] = [{ cell: 'M1', state: 'calling', finished: 0, record: null, open: 1 }];
     expect(stateOf({ now, cells, waits: [] }).tone).toBe('quiet');
     expect(moodOf({ now, cells, waits: [] })).toBe('waiting');
-    // At the cell it waits at, the call runs, as its state says.
+    // One that waits at its cell for the call of a tool the engine carries out waits, in the yellow of a call, and its
+    // card is one that waits (decision a-call-waited-for-is-no-run).
+    const tool: Now = {
+      kind: 'waits',
+      at: 'M2',
+      on: [{ kind: 'call', call: 4, who: null, what: { kind: 'tool', name: 'run_tests', input: '' } }],
+    };
     const at: CellNow[] = [{ ...cells[0], cell: 'M2' }];
-    expect(stateOf({ now, cells: at, waits: [] }).tone).toBe('running');
-    expect(moodOf({ now, cells: at, waits: [] })).toBe('running');
+    expect(stateOf({ now: tool, cells: at, waits: [] }).tone).toBe('calling');
+    expect(moodOf({ now: tool, cells: at, waits: [] })).toBe('waiting');
+    // An act of the engine's own under way is a round, and its card runs.
+    const act: Now = { kind: 'round', cell: 'M2', run: 2, round: 1, since: 0 };
+    expect(stateOf({ now: act, cells: at, waits: [] }).tone).toBe('running');
+    expect(moodOf({ now: act, cells: at, waits: [] })).toBe('running');
   });
 });
 
@@ -76,15 +87,17 @@ describe('the dashed ways of the items whose work runs', () => {
     expect(linksStrength(1)).toBe(1);
   });
 
-  it('ease to their strength over frames, and come to it, as the items do', () => {
+  it('ease to their strength over frames, down and back up in the same time, and come to it, as the items do', () => {
     const frame = 16;
     const dimmed = linksStrength(DIM);
     // One frame after the light goes off a way, it has gone only a little of the way down.
     const once = eased(1, dimmed, frame);
     expect(once).toBeLessThan(1);
     expect(once).toBeGreaterThan(1 - (1 - dimmed) / 4);
+    // Coming back up goes as far in a frame as going down.
+    expect(eased(dimmed, 1, frame) - dimmed).toBeCloseTo(1 - once, 12);
     let a = dimmed;
-    for (let n = 0; n < 60; n += 1) a = eased(a, 1, frame);
+    for (let n = 0; n < 120; n += 1) a = eased(a, 1, frame);
     expect(a).toBeCloseTo(1, 3);
     expect(eased(0.7, 0.7, frame)).toBe(0.7);
   });

@@ -5,7 +5,8 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { DoingPage, WorkPage } from '../works-api';
+import { REOPEN_MS } from '../changes';
+import type { Done, Following, WorkPage } from '../works-api';
 import {
   fixtureCall,
   fixtureCopies,
@@ -18,7 +19,6 @@ import {
   fixtureVersion,
   fixtureWork,
 } from './fixtures';
-import { DOING_MS } from './Round';
 import { type Source, SourceContext } from './source';
 import { WorkScreen } from './WorkView';
 
@@ -31,7 +31,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/// A source answered from the fixtures, with these reads over them, which counts how often each round's agent's doing
+/// A source answered from the fixtures, with these reads over them, which counts how often what each round's agent did
 /// and each session's system prompt were read.
 function sourceOf(over: Partial<Source> = {}): Source & { reads: { doing: number; system: string[] } } {
   const reads = { doing: 0, system: [] as string[] };
@@ -48,6 +48,9 @@ function sourceOf(over: Partial<Source> = {}): Source & { reads: { doing: number
       reads.doing += 1;
       return fixtureDoing(n, run, round);
     },
+    followDoing: () => () => undefined,
+    loadChanges: () => Promise.reject(new Error('not read here')),
+    loadDiff: () => Promise.reject(new Error('not read here')),
     loadSystem: async (n, line, session) => {
       reads.system.push(`${line} ${session}`);
       return fixtureSystem(n, line, session);
@@ -89,10 +92,12 @@ function drawWork(page: WorkPage, source: Source): HTMLElement {
   return container;
 }
 
-/// Draws the work, chooses the run of its step at this place, and gives the panel.
-async function runPanel(page: WorkPage, step: number, source: Source): Promise<HTMLElement> {
+/// Draws the work, its item read, chooses the run of the row at this place among the runs' rows, and gives the item's
+/// window, whose Step then shows it.
+async function runPanel(page: WorkPage, run: number, source: Source): Promise<HTMLElement> {
   const container = drawWork(page, source);
-  await click(container.querySelectorAll('tbody tr.step-row')[step]?.querySelector('.step-lead button'));
+  await settle();
+  await click(container.querySelectorAll('tbody tr.step-row')[run]?.querySelector('.step-lead button'));
   return container.querySelector('aside') as HTMLElement;
 }
 
@@ -123,7 +128,7 @@ describe("a round's part of a run's panel", () => {
   it('shows what it ran on, what it took and the context it ended with, by their keys', async () => {
     // The long history's plan: its first round runs in the builder's first session, which the records count as none,
     // and asks for two calls.
-    const panel = await runPanel(fixtureWork(41), 1, sourceOf());
+    const panel = await runPanel(fixtureWork(41), 0, sourceOf());
     const first = roundPart(panel, 1);
     expect(keys(pair(first, 'Ran'))).toEqual([
       'line builder',
@@ -151,14 +156,14 @@ describe("a round's part of a run's panel", () => {
     const second = run.rounds[1];
     second.missed = { read: 1_200, held: 34_340, differs: ['model'] };
     second.estimated = true;
-    const panel = await runPanel(page, 1, sourceOf());
+    const panel = await runPanel(page, 0, sourceOf());
     const round = roundPart(panel, 2);
     expect(keys(pair(round, 'Missed'))).toEqual(['first_read 1,200', 'held 34,340', 'differs model']);
     expect(keys(pair(round, 'Took')).at(-1)).toBe('priced true');
   });
 
   it('shows what was filled into its session, each part as the flow\'s files name it, before what it was sent', async () => {
-    const panel = await runPanel(fixtureWork(41), 1, sourceOf());
+    const panel = await runPanel(fixtureWork(41), 0, sourceOf());
     const first = roundPart(panel, 1);
     expect(rows(pair(first, 'Filled'))).toEqual(['work', 'outputs', 'context request v1', 'task']);
     // The second round is given the results of the first one's calls.
@@ -169,7 +174,7 @@ describe("a round's part of a run's panel", () => {
 
   it("shows on each round the system prompt of its session, which each round is sent, read once when opened", async () => {
     const source = sourceOf();
-    const panel = await runPanel(fixtureWork(41), 1, source);
+    const panel = await runPanel(fixtureWork(41), 0, source);
     const [first, second] = [roundPart(panel, 1), roundPart(panel, 2)];
     expect(source.reads.system).toEqual([]);
     await click(button(first, 'Show system prompt'));
@@ -179,61 +184,84 @@ describe("a round's part of a run's panel", () => {
     expect([first, second].map((r) => r.querySelector('pre.content')?.textContent)).toEqual([text, text]);
   });
 
-  it('shows what the agent of a round under way is doing, read again every few seconds while it is shown', async () => {
+  it('follows what the agent of a round under way does as it comes, while the Step is shown, the latest two open', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const said: DoingPage = { doing: [{ kind: 'said', text: 'The types check.' }, { kind: 'compacting' }] };
-    let reads = 0;
+    const streams: { following: Following; stopped: boolean }[] = [];
     const source = sourceOf({
-      loadDoing: async (n, run, round) => {
-        reads += 1;
-        return reads === 1 ? fixtureDoing(n, run, round) : said;
+      followDoing: (_work, _run, _round, following) => {
+        const stream = { following, stopped: false };
+        streams.push(stream);
+        return () => {
+          stream.stopped = true;
+        };
       },
     });
-    // Work 42's implementation has its second round under way.
-    const panel = await runPanel(fixtureWork(42), 2, source);
-    await settle();
-    expect(reads).toBe(1);
-    expect(rows(pair(roundPart(panel, 2), 'Doing'))).toEqual([
-      'Readclient/src/sizes.ts',
-      'The width is kept under the key the panel names; I will read it back as the page loads.',
-      'Editclient/src/sizes.ts',
-      'Bashnpm run typecheck',
-    ]);
-    // A round that ended says nothing of what its agent is doing.
-    expect(pair(roundPart(panel, 1), 'Doing')).toBeUndefined();
+    // Work 42's implementation has its second round under way: it is followed from its start, and its first round,
+    // which ended, is read once, whole.
+    const panel = await runPanel(fixtureWork(42), 1, source);
+    expect(streams).toHaveLength(1);
+    expect(source.reads.doing).toBe(1);
+    expect(pair(roundPart(panel, 1), 'Did')?.textContent).toBe('[]');
+    expect(pair(roundPart(panel, 2), 'Doing')?.textContent).toBe('[]');
+    const told: Done[] = [
+      { kind: 'tool', name: 'Read', on: 'client/src/sizes.ts' },
+      { kind: 'said', text: 'The width is kept under its key.' },
+      { kind: 'tool', name: 'Edit', on: 'client/src/sizes.ts' },
+    ];
+    act(() => told.forEach((d) => streams[0].following.done(d)));
+    const doing = () => pair(roundPart(panel, 2), 'Doing');
+    // The latest two stand open; those before them are folded behind one line that opens them all.
+    expect(rows(doing())).toEqual(['The width is kept under its key.', 'Editclient/src/sizes.ts']);
+    await click(button(doing() as HTMLElement, 'Show 1 earlier'));
+    expect(rows(doing())).toEqual(['Readclient/src/sizes.ts', 'The width is kept under its key.', 'Editclient/src/sizes.ts']);
+    await click(button(doing() as HTMLElement, 'Hide 1 earlier'));
+    // The window put away, nothing is followed; brought back, the round is followed anew from its start, passing over
+    // what the list holds.
+    await click(panel.querySelector('.cw-tab'));
+    expect(streams[0].stopped).toBe(true);
+    await click(panel.querySelector('.cw-tab'));
+    expect(streams).toHaveLength(2);
+    const fourth: Done = { kind: 'compacting' };
+    act(() => [...told, fourth].forEach((d) => streams[1].following.done(d)));
+    expect(rows(doing())).toEqual(['Editclient/src/sizes.ts', 'compact_boundary']);
+    expect(button(doing() as HTMLElement, 'Show 2 earlier')).toBeDefined();
+    // A stream the browser lost is followed again a few seconds later; once all was told, nothing more is followed.
+    act(() => streams[1].following.lost());
+    expect(streams).toHaveLength(2);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(DOING_MS);
+      await vi.advanceTimersByTimeAsync(REOPEN_MS);
     });
-    expect(reads).toBe(2);
-    expect(rows(pair(roundPart(panel, 2), 'Doing'))).toEqual(['The types check.', 'compact_boundary']);
-    // Folded away, the panel reads nothing; brought back, it reads again at once.
-    await click(panel.querySelector('.drawer-tab'));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3 * DOING_MS);
+    expect(streams).toHaveLength(3);
+    act(() => streams[2].following.end());
+    await click(panel.querySelector('.cw-tab'));
+    await click(panel.querySelector('.cw-tab'));
+    expect(streams).toHaveLength(3);
+  });
+
+  it('says why what the agent did could not be read', async () => {
+    const held: { following: Following | null } = { following: null };
+    const source = sourceOf({
+      followDoing: (_work, _run, _round, following) => {
+        held.following = following;
+        return () => undefined;
+      },
     });
-    expect(reads).toBe(2);
-    await click(panel.querySelector('.drawer-tab'));
-    expect(reads).toBe(3);
-    // Let go of, the run's panel reads nothing more.
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3 * DOING_MS);
-    });
-    expect(reads).toBe(3);
+    const panel = await runPanel(fixtureWork(42), 1, source);
+    act(() => held.following?.failed('the round kept nothing that can be read'));
+    expect(pair(roundPart(panel, 2), 'Doing')?.querySelector('.failed')?.textContent).toBe(
+      'It could not be read: the round kept nothing that can be read',
+    );
   });
 });
 
 describe('what a work used', () => {
-  it("opens from what the view's line says the work has taken, and closes again", async () => {
+  it("is the Usage of the work's item window", async () => {
     const page = drawWork(fixtureWork(41), sourceOf());
-    const spend = page.querySelector('.view-end button.link') as HTMLButtonElement;
-    expect(spend.getAttribute('aria-pressed')).toBe('false');
-    await click(spend);
-    const panel = page.querySelector('aside') as HTMLElement;
-    expect(panel.getAttribute('aria-label')).toBe('What work W41 used');
-    expect(spend.getAttribute('aria-pressed')).toBe('true');
+    await settle();
+    const window = page.querySelector('aside') as HTMLElement;
+    await click(button(window, 'Usage'));
+    expect(window.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Usage');
+    const panel = window.querySelector('.drawer-body') as HTMLElement;
     // What it took and its rounds, by the records' keys and what the page works out from them said plainly.
     const totals = [...panel.querySelectorAll('.usage-totals .keys > span > span:first-child')];
     expect(totals.map((k) => k.textContent)).toEqual([
@@ -267,7 +295,5 @@ describe('what a work used', () => {
     const gaps = [...panel.querySelectorAll('.usage-timeline .us-gap')].map((g) => g.getAttribute('title') ?? '');
     expect(gaps.length).toBeGreaterThan(0);
     for (const gap of gaps) expect(gap).toMatch(/^Not running: from .+, to .+, for \d+[smhd]/);
-    await click(spend);
-    expect(page.querySelector('aside')?.getAttribute('aria-label')).toBe('Blocks');
   });
 });

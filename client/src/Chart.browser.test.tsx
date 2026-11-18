@@ -1,6 +1,6 @@
 // The way back on the matrix in a real browser (Chromium), where the marks are laid out: its line and its arrow are in
-// the accent, in light and in dark; and the arrow's point is on the edge of the mark it points to, a ring, a disc and a
-// ring or the ring of `reads`, without reaching into it, at any zoom.
+// the accent, in light and in dark, as is the line the legend draws for it; and the arrow's point is on the edge of the
+// mark it points to, a ring, a disc and a ring or the ring of `reads`, without reaching into it, at any zoom.
 
 import './styles/tokens.css';
 import './styles/parts.css';
@@ -11,7 +11,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Flow } from './api';
-import { Chart, Legend } from './Chart';
+import { Chart, MATRIX_MARKS } from './Chart';
+import { Legend } from './marks';
 import { matrix } from './matrix';
 import { cell, everyAgent, flowOf } from './testing';
 
@@ -61,7 +62,7 @@ describe('the way back on the matrix', () => {
     flushSync(() =>
       root.render(
         <>
-          <Legend waysBack={m.waysBack} />
+          <Legend marks={MATRIX_MARKS} counts={{ wayBack: m.waysBack }} />
           <Chart matrix={m} chosen={null} onChoose={() => undefined} />
         </>,
       ),
@@ -80,8 +81,9 @@ describe('the way back on the matrix', () => {
       const arrows = [...host.querySelectorAll('.part.arrow')];
       expect(arrows).toHaveLength(3);
       for (const arrow of arrows) expect(getComputedStyle(arrow).fill).toBe(accent);
-      const legend = host.querySelector('.legend-back');
+      const legend = host.querySelector('.legend .legend-line.back');
       expect(legend).not.toBeNull();
+      expect(legend?.parentElement?.textContent).toMatch(/^ way back \(\d+\)$/);
       expect(getComputedStyle(legend as Element).backgroundColor).toBe(accent);
       root.unmount();
     });

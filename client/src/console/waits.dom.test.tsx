@@ -7,11 +7,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { hashOf, routeOf } from '../route';
 import { standingOf } from '../system/standing';
-import { rank } from '../works/placing';
+import { orderWorks } from '../works/placing';
 import { waitingCount, waitsOf, waitsOnOwner } from '../works/waiting';
 import { STATE, nowTone, stateOf } from '../works/words';
 import type { Flow } from '../api';
-import type { Act, Block, EngineAct, Failure, Item, Now, Outage, Pauser, Question, Step, Wait, WorkPage } from '../works-api';
+import type { Act, Block, EngineAct, Failure, Item, Now, Outage, Pauser, Question, Step, Summary, Wait, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { asksOf } from './items';
 import { ItemPanel } from './ItemWindow';
@@ -28,6 +28,13 @@ afterEach(() => {
 });
 
 const base = fixtureItems().items.find((i) => i.number === 12) as Item;
+
+/// The works of these summaries, numbered in their order, as the list of works orders them by its column of states.
+const byState = (works: Summary[]): number[] =>
+  orderWorks(
+    works.map((w, i) => ({ ...base, number: i + 1, work: { ...w, number: i + 1, last: 0 } })),
+    { by: 'state', turned: false },
+  ).map((w) => w.work.number);
 const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };
 
 /// A work held by the wait every work shares, of this cause.
@@ -291,7 +298,9 @@ describe("what waits for the owner, as the engine's one list names it", () => {
     const summary = { ...base.work, now: paused, waits: [] };
     expect(waitsOnOwner(summary)).toBe(false);
     expect(asksOf(summary)).toBe(0);
-    expect(rank(summary)).not.toBe(0);
+    // In the list's column of states it stands after a work the list says waits for the owner.
+    const owner = { ...base.work, waits: [OWNERS[3][2]] };
+    expect(byState([summary, owner])).toEqual([2, 1]);
     expect(standingOf(summary)).not.toBe('owner');
   });
 });
@@ -345,7 +354,11 @@ describe('a stop that no one waits on', () => {
     const summary = (now: Now) => ({ ...base.work, now, waits: [] });
     expect(moodOf({ now: STALLED, cells: [], waits: [] })).toBe(moodOf({ now: fault, cells: [], waits: [] }));
     expect(nowTone(summary(STALLED))).toBe(nowTone(summary(fault)));
-    expect(rank(summary(STALLED))).toBe(rank(summary(fault)));
+    // In the list's column of states the two stand together, after what waits for the owner and before what runs.
+    const running = summary({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 });
+    expect(byState([running, summary(STALLED), summary(fault), { ...base.work, waits: [OWNERS[3][2]] }])).toEqual([
+      4, 3, 2, 1,
+    ]);
     expect(standingOf(summary(STALLED))).toBe('halted');
     expect(stateOf(summary(STALLED)).word).toBe(stateOf(summary(fault)).word);
   });

@@ -41,6 +41,13 @@ const source: Source = {
   loadRound: async (n, run, round) => fixtureRound(n, run, round),
   loadTold: async (n, run, round) => fixtureTold(n, run, round),
   loadDoing: async (n, run, round) => fixtureDoing(n, run, round),
+  followDoing: () => () => undefined,
+  loadChanges: async () => {
+    throw new Error('not read here');
+  },
+  loadDiff: async () => {
+    throw new Error('not read here');
+  },
   loadSystem: async (n, line, session) => fixtureSystem(n, line, session),
   loadCall: async (n, call) => fixtureCall(n, call),
   act: async () => null,

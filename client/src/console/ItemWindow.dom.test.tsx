@@ -5,8 +5,9 @@ import { act } from 'react';
 import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { levelWords } from '../marks';
 import { cellNowWords } from '../works/marks';
-import { standingCell, stoppedAt } from '../works/words';
+import { NO_LEVEL, stoppedAt } from '../works/words';
 import type { Act, CellNow, Item, Now, Question, Speaking, Wait, WorkPage } from '../works-api';
 import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
@@ -232,16 +233,17 @@ describe('the panel of the item selected', () => {
       const cells = work.cells;
       const strip = el.querySelectorAll('.cw-item > .status-line .cw-progress .strip');
       expect(strip).toHaveLength(1);
-      const marks = [...strip[0].querySelectorAll('.state-mark')];
-      expect(marks.map((m) => m.classList.item(1))).toEqual(cells.map((c) => `state-${c.state}`));
+      const marks = [...strip[0].querySelectorAll<HTMLElement>('.state-mark')];
+      expect(marks.map((m) => m.title)).toEqual(cells.map(cellNowWords));
       // The cell the work is stopped at, for the owner or by the engine, filled in red as on its card; no other.
       const stopped = stoppedAt(work);
-      expect(marks.filter((m) => m.classList.contains('stopped')).map((m) => cells[marks.indexOf(m)].cell)).toEqual(
+      expect(marks.filter((m) => m.style.background === 'var(--red)').map((m) => cells[marks.indexOf(m)].cell)).toEqual(
         stopped === null ? [] : [stopped],
       );
-      // The cell it stands at, named before the strip, as its card names it under its number.
-      const named = el.querySelector('.cw-item > .status-line .cw-progress .cw-standing > .mono');
-      expect(named?.textContent ?? null).toBe(standingCell(work)?.cell ?? null);
+      // The level its cell runs at, written before the strip, as its card writes it under its number; a dash where the
+      // engine gives none.
+      const level = el.querySelector('.cw-item > .status-line .cw-progress .cw-level > .mono');
+      expect(level?.textContent).toBe(work.level == null ? NO_LEVEL.shown : levelWords(work.level, work.raise ?? 0));
       // The bright marks pulse, as on the card.
       expect(marks.map((m) => m.classList.contains('pulses'))).toEqual(
         cells.map((c) => c.state === 'running' || c.state === 'calling'),
@@ -249,24 +251,6 @@ describe('the panel of the item selected', () => {
       // The strip's own words, cell by cell.
       expect(strip[0].getAttribute('aria-label')).toBe(cells.map(cellNowWords).join('; '));
     }
-  });
-
-  it("explains the strip's marks by the works page's legend, on the work's tab", () => {
-    const el = draw(12, answered([]));
-    expect(el.querySelector('.legend')).toBeNull();
-    act(() => button(el, 'Work').click());
-    const legend = el.querySelector('.panel-part .legend');
-    expect(legend?.getAttribute('aria-label')).toBe("What the marks of a cell's state mean");
-    expect(text(el, '.legend li')).toEqual([
-      'done',
-      'running',
-      'call under way',
-      'under way: between rounds, or failed and to be given again',
-      'runs again',
-      'not run yet',
-      'skipped',
-      'stopped here, for you or by the engine',
-    ]);
   });
 
   it('says on the work\'s line what the work waits for and who gives it, and a question a cell asked at the plan\'s end', () => {
