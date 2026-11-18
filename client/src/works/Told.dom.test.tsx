@@ -85,11 +85,14 @@ async function click(element: Element | null | undefined) {
   });
 }
 
-/// The part of the round of this number in a run's panel.
+/// The part of a run's panel of the time its cell ran of this number: the first what it did, the others each time it
+/// ran again.
 function roundPart(panel: HTMLElement, number: number): HTMLElement {
-  const parts = [...panel.querySelectorAll('section.panel-part')];
-  const part = parts.find((p) => p.querySelector('.panel-part-label')?.textContent?.startsWith(`Round ${number} `));
-  if (!part) throw new Error(`no round ${number}`);
+  const parts = [...panel.querySelectorAll('section.panel-part')].filter((p) =>
+    /^(What it did|Ran again) /.test(p.querySelector('.panel-part-label')?.textContent ?? ''),
+  );
+  const part = parts[number - 1];
+  if (!part) throw new Error(`no time ${number}`);
   return part as HTMLElement;
 }
 

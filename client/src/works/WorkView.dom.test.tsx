@@ -517,17 +517,17 @@ describe("the Step of the work's item window", () => {
     // A run is told by its cell and its time, never by the number the engine keeps it by.
     expect(panel.querySelector('.status-line')?.textContent).not.toMatch(/run \d/);
     expect(panel.textContent).toContain(began(41, 3));
-    expect(part(panel, 'Why it ran').textContent).toContain('the cell had no record');
-    expect(texts(panel, '.panel-part-label')).toEqual(
-      expect.arrayContaining(['Why it ran 1', 'Started from 5', 'Handed in', 'Calls 2']),
-    );
-    expect(panel.textContent).toContain('the results of 1 call');
+    expect(part(panel, 'Why it ran').textContent).toContain('it had not run before');
+    expect(texts(panel, '.panel-part-label')).toEqual(expect.arrayContaining(['Why it ran 1', 'Handed in']));
+    expect(texts(panel, '.panel-part-label').some((l) => l.startsWith('Inputs'))).toBe(true);
+    // No part of its own for its calls, nor a round by its number: each call stands under the time that asked for it.
+    expect(texts(panel, '.panel-part-label').some((l) => l.startsWith('Calls') || /Round \d/.test(l))).toBe(false);
     expect(panel.textContent).toContain('Should the cached tokens be shown apart from the others?');
     // The question it rested at was withdrawn with it.
-    expect(part(panel, 'Calls').textContent).toContain('withdrawn with its run');
+    expect(panel.textContent).toContain('withdrawn with its run');
     expect(part(panel, 'Handed in').textContent).toContain('it wrote nothing');
     // A result is read only when it is opened.
-    const calls = part(panel, 'Calls');
+    const calls = part(panel, 'What it did');
     expect(calls.querySelector('pre.content')).toBeNull();
     await click(button(calls, 'Show result'));
     expect(calls.querySelector('pre.content')?.textContent).toBe('Found 0 errors.');
@@ -557,7 +557,7 @@ describe("the Step of the work's item window", () => {
     const { page } = await drawWork(41);
     // The deep research's second run said its change did not matter, and the solution kept its meaning.
     await chooseRun(page, 4);
-    expect(step(page).textContent).toContain('said not to matter');
+    expect(step(page).textContent).toContain('it said this changes nothing they read');
     expect(step(page).textContent).toMatch(/kept the meaning of v\d+/);
     // The plan's second run wrote needs_deep_research as it was: a choice keeps its meaning while its value does.
     await chooseRun(page, 3);
@@ -586,11 +586,11 @@ describe("the Step of the work's item window", () => {
   });
 
   // A version is shown by `v` and its number among its block's versions, never by its place among the work's steps.
-  it('names each version a run started from by v and its number among its block’s versions, those new to it first', async () => {
+  it('names each input a run began with by v and its number among its block’s versions, those new to it first', async () => {
     const { page } = await drawWork(41);
     // The review's second run, woken by the code and the answer the implementation wrote again.
     await chooseRun(page, 8);
-    const started = part(step(page), 'Started from');
+    const started = part(step(page), 'Inputs');
     const rows = [...started.querySelectorAll('.list-row')];
     expect(rows.map((r) => r.querySelector('.mono')?.textContent)).toEqual([
       'code v2',

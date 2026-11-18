@@ -18,11 +18,8 @@ const pct = (part: number, whole: number) => (whole > 0 ? (100 * part) / whole :
 /// How long rounds were under way together, said plainly.
 const UNDER_WAY = 'under way';
 
-/// A round by its keys: its number in its run, and its cell.
-const roundKeys = (r: RoundOf): Key[] => [
-  ['round', String(r.number)],
-  ['cell', r.cell],
-];
+/// A round by its key: its cell, the time beside it saying which of the cell's it was.
+const roundKeys = (r: RoundOf): Key[] => [['cell', r.cell]];
 
 /// When a stretch began and ended, and how long it was.
 const whenKeys = (s: Span): Key[] => [

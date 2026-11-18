@@ -297,7 +297,7 @@ describe('the rows of a history', () => {
     // A run of a cell the flow no longer has keeps its row, in no column.
     const gone = rows[7];
     expect(gone.run).toBeNull();
-    expect(partsText(gone.did)).toBe('gone, which the flow no longer has · the cell had no record');
+    expect(partsText(gone.did)).toBe('gone, which the flow no longer has · it had not run before');
   });
 });
 

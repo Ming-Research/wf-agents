@@ -1,11 +1,11 @@
 // The Step of the item's window: everything about the row of the work's history it is given, the one the owner chose
 // on the work's page, else the run the work stands at (`standingRun`). Of a run: how it ended or stands, where the
 // work waits at it for the calls of tools in the words the work's state says that in everywhere, when it began and how
-// long it took, what it took, what its rounds ran on and the sessions they ran in, with each new session it began and
-// why; why it ran; the versions it started from, those new to it first; what it handed in, each version's content
-// opened where it stands; each round, with what it was given (the reasons a return was sent back among them), what
-// came back, what it ran on, took, was filled with, what its agent did, and what it was told and returned; and its
-// calls. Of a write of the owner's that woke no cell: what it did, the block's version and value, whether it changed
+// long it took, what it took, what it ran on, with each new session it began and why; why it ran, in plain words; its
+// inputs at the versions it began with, those new to it first; what it handed in, each version's content opened where
+// it stands; and each time it ran, in order, a return sent back said where the next time begins: what came back (the
+// calls it asked the engine for with their results, or what was sent back), what it took, and what its agent did, was
+// told and returned. No number the engine keeps a run, a round or a call by is shown. Of a write of the owner's that woke no cell: what it did, the block's version and value, whether it changed
 // the block's meaning, and its content. Of another act: what was done, and when. With no row, that the work stands at
 // no run. A content is read only when the owner opens it.
 
@@ -16,13 +16,12 @@ import { ListRow, PanelPart, Sign, StatusLine } from '../parts';
 import type { CallRow, Following, Handed, Round, Run, Step, WorkPage } from '../works-api';
 import { CallsTook, Opener, Parts } from './marks';
 import { type HistoryRow, type SessionStep, runState } from './placing';
-import { ContextKeys, DoneList, Filled, Keys, MissedKeys, RanKeys, SystemPrompt, TookKeys } from './Round';
+import { ContextKeys, DoneList, Keys, MissedKeys, SystemPrompt, TookKeys } from './Round';
 import type { Reader } from './source';
 import type { RunState } from './state-marks';
 import { RoundTold } from './Told';
 import {
   type Part,
-  askWords,
   callState,
   callWaitParts,
   callWords,
@@ -31,7 +30,6 @@ import {
   clock,
   duration,
   fullTime,
-  givenWords,
   isOpen,
   isWayRound,
   plain,
@@ -65,9 +63,10 @@ function VersionName({ block, number }: { block: string; number: number | null }
 const versionAt = (page: WorkPage, block: string, at: number) =>
   page.blocks.find((b) => b.name === block)?.versions.find((v) => v.at === at);
 
-/// What a run said of a change it handed in: it is its word, which the engine takes for prose and not for a choice.
+/// What a run said of a change it handed in: whether it matters to the cells that read the block, its word, which the
+/// engine takes for prose and not for a choice.
 export function saidWords(handed: Handed): string {
-  return handed.matters ? 'said to matter' : 'said not to matter';
+  return handed.matters ? 'it said this matters to the cells that read it' : 'it said this changes nothing they read';
 }
 
 /// A block handed in: its name, its value, whether the run said the change matters, its length, and its content; and,
@@ -90,7 +89,6 @@ function CallLine({ row, reader, abandoned }: { row: CallRow; reader: Reader; ab
   const what = row.what;
   return (
     <ListRow>
-      <span className="mono muted">call {row.call}</span>
       <span>{callWords(what)}</span>
       {what.kind === 'tool' && <span className="mono call-input">{what.input}</span>}
       {what.kind === 'question' && <span className="question">{what.question}</span>}
@@ -103,11 +101,24 @@ function CallLine({ row, reader, abandoned }: { row: CallRow; reader: Reader; ab
   );
 }
 
-/// One round: what it was given, what came back, when it began and ended, what it ran on, what it took, the context it
-/// ended with, what was filled into its session and, of an agent's round, what its agent is doing or did, followed or
-/// read only while the Step is `shown`; then the system prompt of its session, and what it was told and what it
-/// returned, as its carrier kept them.
-function RoundPart({ run, round, reader, shown }: { run: Run; round: Round; reader: Reader; shown: boolean }) {
+/// One time the cell was run within the run: where it is not the first, why it ran again, its return sent back or its
+/// last time having failed; what came back: the calls it asked the engine for, each with its result, or what it handed
+/// in, listed where it was sent back, since what was kept is under Handed in; what it took, the context it ended with,
+/// how it missed its session's cache, and what its agent did, followed or read only while the Step is `shown`; then the
+/// system prompt of its session, and what it was told and what it returned, as its carrier kept them.
+function RoundPart({ run, round, calls, first, sentBack, failedBefore, reader, shown }: {
+  run: Run;
+  round: Round;
+  /// The calls it asked for, made after it began and before the next time did.
+  calls: CallRow[];
+  first: boolean;
+  /// What it handed in was sent back, by the time after it.
+  sentBack: boolean;
+  /// The time before it failed.
+  failedBefore: boolean;
+  reader: Reader;
+  shown: boolean;
+}) {
   const doing = useCallback(() => reader.doing(run.run, round.number), [reader, run.run, round.number]);
   const follow = useCallback(
     (following: Following) => reader.follow(run.run, round.number, following),
@@ -120,91 +131,69 @@ function RoundPart({ run, round, reader, shown }: { run: Run; round: Round; read
     round.ended === null
       ? `began ${clock(round.began)}, under way`
       : `${clock(round.began)} to ${clock(round.ended)}, ${duration(round.ended - round.began)}`;
-  const calls = given.kind === 'results' ? run.calls.filter((c) => given.calls.includes(c.call)) : [];
   return (
     <PanelPart
       label={
         <>
-          Round {round.number} <span className="muted small">{when}</span>
+          {first ? 'What it did' : 'Ran again'} <span className="muted small">{when}</span>
         </>
       }
     >
       <dl className="pairs round">
-        <dt>Given</dt>
-        <dd>
-          {given.kind === 'sentBack' ? (
-            <>
-              its return sent back:
+        {given.kind === 'sentBack' && (
+          <>
+            <dt>Sent back</dt>
+            <dd>
               <ul className="reasons">
                 {given.unmet.map((u, i) => (
                   <ListRow key={i}>{unmetWords(u)}</ListRow>
                 ))}
               </ul>
-            </>
-          ) : (
-            givenWords(given)
-          )}
-          {calls.length > 0 && (
-            <ul>
-              {calls.map((c) => (
-                <ListRow key={c.call}>
-                  <span className="mono muted">call {c.call}</span>
-                  <span>{callWords(c.what)}</span>
-                  <Opener
-                    label="result"
-                    load={async () =>
-                      (await reader.round(run.run, round.number, round.ended !== null)).results.find((r) => r.call === c.call)?.result ?? ''
-                    }
-                  />
-                </ListRow>
-              ))}
-            </ul>
-          )}
-        </dd>
+            </dd>
+          </>
+        )}
+        {!first && given.kind !== 'sentBack' && (failedBefore || given.kind === 'results') && (
+          <>
+            <dt>Why</dt>
+            <dd>{failedBefore ? 'the time before failed' : 'the results of the calls it asked for came back'}</dd>
+          </>
+        )}
         <dt>Back</dt>
         <dd>
           {back === null && <span className="muted">{round.ended === null ? 'nothing yet' : 'nothing: the run was abandoned'}</span>}
-          {back?.kind === 'failed' && <span className="failed">nothing; the round failed: {back.why}</span>}
+          {back?.kind === 'failed' && <span className="failed">nothing; it failed: {back.why}</span>}
           {back?.kind === 'asked' && (
             <>
-              asked for {back.asks.length === 0 ? 'nothing' : ''}
-              <ul>
-                {back.asks.map((a, i) => (
-                  <ListRow key={i}>
-                    <span>{askWords(a)}</span>
-                    {a.kind === 'tool' ? (
-                      <span className="mono call-input">{a.input}</span>
-                    ) : (
-                      <span className="question">{a.question}</span>
-                    )}
-                  </ListRow>
-                ))}
-              </ul>
+              asked the engine for{' '}
+              {back.asks.length === 0 ? 'nothing' : back.asks.length === 1 ? '1 call' : `${back.asks.length} calls`}
+              {calls.length > 0 && (
+                <ul>
+                  {calls.map((c) => (
+                    <CallLine key={c.call} row={c} reader={reader} abandoned={run.end?.kind === 'abandoned'} />
+                  ))}
+                </ul>
+              )}
             </>
           )}
           {back?.kind === 'handedIn' && (
             <>
-              handed in {back.blocks.length === 0 ? 'nothing' : ''}
-              <ul>
-                {back.blocks.map((h, i) => (
-                  <HandedRow
-                    key={i}
-                    handed={h}
-                    load={async () => (await reader.round(run.run, round.number, round.ended !== null)).handed[i]?.content ?? ''}
-                  />
-                ))}
-              </ul>
+              handed in {back.blocks.length === 0 ? 'nothing' : sentBack ? 'this, which was sent back' : 'what is under Handed in'}
+              {sentBack && (
+                <ul>
+                  {back.blocks.map((h, i) => (
+                    <HandedRow
+                      key={i}
+                      handed={h}
+                      load={async () =>
+                        (await reader.round(run.run, round.number, round.ended !== null)).handed[i]?.content ?? ''
+                      }
+                    />
+                  ))}
+                </ul>
+              )}
             </>
           )}
         </dd>
-        {(session !== null || round.tries.length > 0) && (
-          <>
-            <dt>Ran</dt>
-            <dd>
-              <RanKeys round={round} />
-            </dd>
-          </>
-        )}
         {round.spent && (
           <>
             <dt>Took</dt>
@@ -226,14 +215,6 @@ function RoundPart({ run, round, reader, shown }: { run: Run; round: Round; read
             <dt>Missed</dt>
             <dd>
               <MissedKeys missed={round.missed} />
-            </dd>
-          </>
-        )}
-        {round.tries.some((t) => t.filled.length > 0) && (
-          <>
-            <dt>Filled</dt>
-            <dd>
-              <Filled tries={round.tries} />
             </dd>
           </>
         )}
@@ -309,12 +290,16 @@ function RunStep({ run, mark, began, page, reader, shown }: {
       }),
     ).values(),
   ];
-  const sessions = [
-    ...new Map(run.rounds.flatMap((r) => (r.session ? [[`${r.session.line} ${r.session.number}`, r.session] as const] : []))).values(),
-  ];
-  // The blocks it was told the change of first, then the rest it started from.
+  // Its inputs, the blocks it is given, watches or reads, at the versions it began with: those it was told the change
+  // of first; none that had no version yet, nor what it may only write, which Handed in shows.
   const changed = new Set(run.because.flatMap((c) => (c.kind === 'changed' ? [c.block] : [])));
-  const basis = [...run.basis].sort((a, b) => Number(changed.has(b.block)) - Number(changed.has(a.block)));
+  const taken = new Set([
+    ...(cell?.given ?? []).map((g) => g.block),
+    ...[...(cell?.watches ?? []), ...(cell?.reads ?? [])].flatMap((w) => w.blocks),
+  ]);
+  const inputs = run.basis
+    .filter((b) => b.version !== null && taken.has(b.block))
+    .sort((a, b) => Number(changed.has(b.block)) - Number(changed.has(a.block)));
   // What it wrote before it finished, as a question it asked, apart from what it handed in as it finished.
   const before = page.blocks.flatMap((b) =>
     b.versions
@@ -348,11 +333,6 @@ function RunStep({ run, mark, began, page, reader, shown }: {
           ))}
         </StatusLine>
       )}
-      {sessions.map((s) => (
-        <StatusLine key={`${s.line} ${s.number}`} word="Session" dot={false}>
-          <Keys keys={[['line', s.line], ['session', String(s.number)]]} />
-        </StatusLine>
-      ))}
       {began.map((s) => (
         <SessionLine key={s.at} step={s} />
       ))}
@@ -368,22 +348,22 @@ function RunStep({ run, mark, began, page, reader, shown }: {
           ))}
         </ul>
       </PanelPart>
-      <PanelPart label="Started from" count={basis.length}>
-        <ul>
-          {basis.map((b) => (
-            <ListRow key={b.block}>
-              <VersionName block={b.block} number={b.version} />
-              {changed.has(b.block) && <span className="changed-word">new to it</span>}
-              {b.version === null ? (
-                <span className="muted">no version yet</span>
-              ) : (
+      <PanelPart label="Inputs" count={inputs.length}>
+        {inputs.length === 0 ? (
+          <p className="muted">None had a version yet</p>
+        ) : (
+          <ul>
+            {inputs.map((b) => (
+              <ListRow key={b.block}>
+                <VersionName block={b.block} number={b.version} />
+                {changed.has(b.block) && <span className="changed-word">new to it</span>}
                 <Opener label="content" load={() => reader.version(b.block, b.version as number)} />
-              )}
-            </ListRow>
-          ))}
-        </ul>
+              </ListRow>
+            ))}
+          </ul>
+        )}
       </PanelPart>
-      <PanelPart label="Handed in" last>
+      <PanelPart label="Handed in">
         {end === null && <p className="muted">Nothing yet</p>}
         {end?.kind === 'abandoned' && <p>Abandoned {clock(end.time)}; it wrote nothing</p>}
         {end?.kind === 'finished' && (
@@ -426,20 +406,19 @@ function RunStep({ run, mark, began, page, reader, shown }: {
           </ul>
         )}
       </PanelPart>
-      {run.rounds.map((round) => (
-        <RoundPart key={round.number} run={run} round={round} reader={reader} shown={shown} />
+      {run.rounds.map((round, i) => (
+        <RoundPart
+          key={round.number}
+          run={run}
+          round={round}
+          calls={run.calls.filter((c) => c.made >= round.began && c.made < (run.rounds[i + 1]?.began ?? Infinity))}
+          first={i === 0}
+          sentBack={run.rounds[i + 1]?.given.kind === 'sentBack'}
+          failedBefore={run.rounds[i - 1]?.back?.kind === 'failed'}
+          reader={reader}
+          shown={shown}
+        />
       ))}
-      <PanelPart label="Calls" count={run.calls.length} last>
-        {run.calls.length === 0 ? (
-          <p className="muted">It made none</p>
-        ) : (
-          <ul>
-            {run.calls.map((c) => (
-              <CallLine key={c.call} row={c} reader={reader} abandoned={end?.kind === 'abandoned'} />
-            ))}
-          </ul>
-        )}
-      </PanelPart>
     </>
   );
 }
