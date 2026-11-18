@@ -129,50 +129,61 @@ function WhyKeys({ why }: { why: SessionWhy | null }) {
 /// A session as the usage names it: its line, and its number among the line's as the records count them.
 const sessionName = (s: SessionRow) => `${s.line} ${s.number}`;
 
-/// Each session's context after each of its rounds, a line for each session labelled at its end, a compaction marked
-/// by a larger point; each point says its round and its context on pointing at it.
+/// Each session's context after each of its rounds, a line for each session, its name in a column at the right at the
+/// height its line ends, the names kept a line apart where the lines end close; the most any reached at the top left;
+/// a compaction marked by a larger point; each point says its round and its context on pointing at it.
 function ContextChart({ sessions, rounds }: { sessions: SessionRow[]; rounds: number }) {
   const points = sessions.flatMap((s) => s.points);
   if (points.length === 0) return <p className="muted small">No round recorded its context</p>;
-  const [W, H, left, right, top, bottom] = [320, 120, 4, 60, 6, 6];
+  // The chart's units, and what a character and a line of its words take in them, at the size of its text.
+  const [W, H, left, top, bottom] = [320, 120, 4, 16, 6];
+  const [char, line] = [6.6, 12];
+  const right = 12 + Math.max(...sessions.map((s) => sessionName(s).length)) * char;
   const most = Math.max(...points.map((p) => p.context));
   const x = (at: number) => left + ((W - left - right) * at) / Math.max(rounds - 1, 1);
   const y = (context: number) => top + (H - top - bottom) * (1 - context / most);
+  // Each name at the height its line ends, those that would touch pushed down a line apart, then all of them up as
+  // far as the last runs past the chart's foot.
+  const named = sessions
+    .filter((s) => s.points.length > 0)
+    .map((s) => ({ name: sessionName(s), at: y(s.points[s.points.length - 1].context) + 4 }))
+    .sort((a, b) => a.at - b.at);
+  named.forEach((n, i) => {
+    if (i > 0) n.at = Math.max(n.at, named[i - 1].at + line);
+  });
+  const over = named.length > 0 ? Math.max(0, named[named.length - 1].at - (H - 2)) : 0;
   return (
     <svg className="usage-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="The context after each round">
       <line className="usage-grid" x1={left} x2={W - right} y1={y(most)} y2={y(most)} />
       <line className="usage-grid" x1={left} x2={W - right} y1={y(0)} y2={y(0)} />
-      <text className="usage-chart-text" x={W - right + 4} y={y(most) + 4}>
+      <text className="usage-chart-text" x={left} y={top - 5}>
         {tokens(most)}
       </text>
-      {sessions.map((s) => {
-        const last = s.points[s.points.length - 1];
-        return (
-          <g key={sessionName(s)}>
-            {s.points.length > 1 && (
-              <polyline className="usage-line" points={s.points.map((p) => `${x(p.at)},${y(p.context)}`).join(' ')} />
-            )}
-            {s.points.map((p) => (
-              <circle key={p.at} className="usage-point" cx={x(p.at)} cy={y(p.context)} r={p.compacted ? 4 : 2.5}>
-                <title>
-                  {keysLine([
-                    ...roundKeys(p.round),
-                    ['line', s.line],
-                    ['session', String(s.number)],
-                    ['context_tokens', count(p.context)],
-                    ...(p.compacted ? ([['compactions', String(p.round.compactions)]] as Key[]) : []),
-                  ])}
-                </title>
-              </circle>
-            ))}
-            {last && (
-              <text className="usage-chart-text" x={x(last.at) + 6} y={y(last.context) + 4}>
-                {sessionName(s)}
-              </text>
-            )}
-          </g>
-        );
-      })}
+      {sessions.map((s) => (
+        <g key={sessionName(s)}>
+          {s.points.length > 1 && (
+            <polyline className="usage-line" points={s.points.map((p) => `${x(p.at)},${y(p.context)}`).join(' ')} />
+          )}
+          {s.points.map((p) => (
+            <circle key={p.at} className="usage-point" cx={x(p.at)} cy={y(p.context)} r={p.compacted ? 4 : 2.5}>
+              <title>
+                {keysLine([
+                  ...roundKeys(p.round),
+                  ['line', s.line],
+                  ['session', String(s.number)],
+                  ['context_tokens', count(p.context)],
+                  ...(p.compacted ? ([['compactions', String(p.round.compactions)]] as Key[]) : []),
+                ])}
+              </title>
+            </circle>
+          ))}
+        </g>
+      ))}
+      {named.map((n) => (
+        <text key={n.name} className="usage-chart-text" x={W - right + 8} y={n.at - over}>
+          {n.name}
+        </text>
+      ))}
     </svg>
   );
 }
