@@ -208,7 +208,7 @@ impl Default for Sessions {
 }
 
 /// The least and the most context the agents' program compacts a session at, as its own help gives the range of
-/// `--autocompact` (`claude` 2.1.326: "Auto-compact window size (auto, or 100k-1M tokens)").
+/// `--autocompact` (`claude` 2.1.326: "Auto-compact window size (auto, or 100k–1M tokens)").
 const COMPACTS_AT_LEAST: u64 = 100_000;
 const COMPACTS_AT_MOST: u64 = 1_000_000;
 
