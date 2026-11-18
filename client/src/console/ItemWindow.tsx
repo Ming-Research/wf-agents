@@ -643,7 +643,12 @@ function ItemView({
         </h2>
         {item.project !== null && <span className="drawer-belongs mono">{item.project}</span>}
       </header>
-      <ItemLine item={item} goal={goal} tier={mock.tier}>
+      <ItemLine
+        item={item}
+        goal={goal}
+        tier={mock.tier}
+        level={<LevelMark level={work.level ?? null} raise={work.raise ?? 0} />}
+      >
         <Progress w={work} page={read} />
       </ItemLine>
       <WorkLine w={work} page={read} />
@@ -800,16 +805,20 @@ function ItemLine({
   item,
   goal,
   tier,
+  level,
   children,
 }: {
   item: Item;
   goal: boolean;
   tier: string | null;
+  /// The level its work's cell runs at, as the card writes it under its number, after the item's standing.
+  level: ReactNode;
   children?: ReactNode;
 }) {
   const standing = standingOf(item);
   return (
     <Line tone={standing} word={STANDING_WORDS[standing]}>
+      {level}
       {goal ? <span className="muted">Goal</span> : null}
       {tier !== null ? <span className="muted">Tier {tier}</span> : null}
       <span className="muted">Added {ago(item.added)} ago</span>
@@ -823,11 +832,7 @@ function ItemLine({
 function Progress({ w, page }: { w: Summary; page: WorkPage | null }) {
   return (
     <span className="cw-progress">
-      {/* The level the work's cell runs at, before the strip, as the card writes it under its number. */}
-      <span className="cw-level">
-        <LevelMark level={w.level ?? null} raise={w.raise ?? 0} />
-        <Strip cells={w.cells} stopped={stoppedAt(w)} />
-      </span>
+      <Strip cells={w.cells} stopped={stoppedAt(w)} />
       <span className="cw-track">
         <TimeTrack spans={barSpans(w.bar ?? (page === null ? '' : barOf(page)))} />
       </span>

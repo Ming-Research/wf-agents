@@ -242,9 +242,9 @@ describe('the panel of the item selected', () => {
       expect(marks.filter((m) => m.style.background === 'var(--red)').map((m) => cells[marks.indexOf(m)].cell)).toEqual(
         stopped === null ? [] : [stopped],
       );
-      // The level its cell runs at, written before the strip, as its card writes it under its number; a dash where the
-      // engine gives none.
-      const level = el.querySelector('.cw-item > .status-line .cw-progress .cw-level > .mono');
+      // The level its cell runs at, written on the item's line after its standing, as its card writes it under its
+      // number; a dash where the engine gives none.
+      const level = el.querySelector('.cw-item > .status-line > .status-word + .mono');
       expect(level?.textContent).toBe(work.level == null ? NO_LEVEL.shown : levelWords(work.level, work.raise ?? 0));
       // The bright marks pulse, as on the card.
       expect(marks.map((m) => m.classList.contains('pulses'))).toEqual(

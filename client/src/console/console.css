@@ -100,13 +100,6 @@
   margin-left: auto;
 }
 
-/* The level the work's cell runs at, just before its strip. */
-.cw-level {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-
 /* Where the work's time went, in the track the works page's usage draws too (styles/parts.css). */
 .cw-track {
   display: block;
