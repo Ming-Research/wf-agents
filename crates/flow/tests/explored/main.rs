@@ -255,10 +255,8 @@ const NEVER: &[(&str, &str)] = &[
     ),
     (
         "R2 ran back on better_found, written by a cell after it",
-        "R2 runs until it has handed in, r2_handed_in = no in its condition (decision \
-         the-better-way-is-looked-for-once): the plan's writer answers in better_found only what a run of R2 that dealt \
-         with something wrote there, after which the engine has written r2_handed_in = yes and R2 is skipped, so no \
-         answer runs it.",
+        "The cells after R2 that write better_found are D1 and D2, which run only where deep_needed is yes, and R2 runs \
+         only where it is no.",
     ),
     (
         "D1 ran on r1_questions",

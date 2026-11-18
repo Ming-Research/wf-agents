@@ -32,6 +32,10 @@ const CHECK: &str = "check";
 /// The source of the questions' standing, which the engine writes.
 pub const ASKED: &str = "asked";
 
+/// The source of a cell's own word that it has handed its work in, which the engine writes yes as the first run of
+/// the cell that dealt with something finishes.
+pub const HANDED_IN: &str = "handed_in";
+
 /// What a round of a cell returns.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Variant {
@@ -159,6 +163,9 @@ pub struct Model {
     /// Of each cell by its place, its own words and its own questions, where it has them.
     pub spoken: Vec<Option<BlockId>>,
     pub answered: Vec<Option<BlockId>>,
+    /// Of each cell by its place, its own block of the source `handed_in`, where its condition or preconditions name
+    /// one.
+    pub handed_in: Vec<Option<BlockId>>,
     /// The block of the questions' standing, which the engine writes.
     pub asked: Option<BlockId>,
     /// Each pair of cells whose conditions want another value of a block, by their places, with the block.
@@ -293,6 +300,16 @@ impl Model {
             spoken.push(own(WORDS));
             answered.push(own(ANSWER));
         }
+        // Named in a cell's condition or preconditions, not among its outputs: found by the cell whose own it is.
+        let handed_in = (cells.iter())
+            .map(|cell| {
+                (compiled.blocks.iter())
+                    .find(|(_, b)| {
+                        b.writers.outside.as_deref() == Some(HANDED_IN) && b.of_cell.as_ref() == Some(&cell.id)
+                    })
+                    .map(|(id, _)| id.clone())
+            })
+            .collect();
         let sources = [START, DEPENDENCIES, MAIN, TREE, HEAD]
             .into_iter()
             .filter_map(|source| {
@@ -354,6 +371,7 @@ impl Model {
             groups,
             spoken,
             answered,
+            handed_in,
             asked,
             contradicting,
             sources,
