@@ -312,7 +312,7 @@ async fn work(
                 let asked = page
                     .as_ref()
                     .and_then(|page| crate::works::asked(driver, &page.summary));
-                Ok(page.map(|page| (page, asked)))
+                Ok::<_, Broken>(page.map(|page| (page, asked)))
             })
         })
         .await;
