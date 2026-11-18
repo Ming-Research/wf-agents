@@ -197,7 +197,7 @@ fn change_of(path: &[String]) -> Option<Change> {
     let parts: Vec<&str> = path.iter().map(String::as_str).collect();
     match parts.as_slice() {
         ["owner", "language"] | ["agents", "levels", _, "model"] => Some(Change::Name),
-        ["agents", "slots"] | ["sessions", "context_limit"] => Some(Change::Count),
+        ["agents", "slots"] | ["sessions", "compact_at"] => Some(Change::Count),
         ["items", "highest_level"] => Some(Change::Level),
         _ => None,
     }

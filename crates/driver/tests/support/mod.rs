@@ -466,6 +466,14 @@ impl Storage for Failing {
     fn everything_pauses(&self) -> Result<Vec<store::PauseOfEverything>, store::Fault> {
         self.store.everything_pauses()
     }
+
+    fn keeping_warm(&self) -> Result<bool, store::Fault> {
+        self.store.keeping_warm()
+    }
+
+    fn keep_warm(&mut self, warm: bool, at: Time) -> Result<(), store::Fault> {
+        self.store.keep_warm(warm, at)
+    }
 }
 
 /// What opening the driver gives.

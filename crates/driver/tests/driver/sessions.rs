@@ -485,7 +485,7 @@ fn a_line_goes_on_in_its_first_session_while_nothing_ends_it() {
 
 // However much context a round of a line ends with, the line goes on in its session: the agents' program compacts it
 // at the installation's number, which every round's command line gives it, and no size of a session has the engine
-// begin a new one (decision `a-session-is-compacted-at-its-limit`).
+// begin a new one (decision `a-session-is-compacted-at-the-installations-number`).
 #[test]
 fn a_round_ending_with_more_context_than_the_installations_number_has_its_line_go_on_in_its_session() {
     let mut s = S::new();
@@ -1083,20 +1083,16 @@ fn warm(model: &str) -> Policy {
             life_ms: 3_600_000,
             after_ms: 3_300_000,
             most: [(model.to_string(), 2)].into(),
-            keep_warm: true,
             budget: None,
         }),
         ..policy(model)
     }
 }
 
-/// The policy of [`warm`] with this much of the switch of keeping sessions warm and this budget of a work, in
-/// millionths of a dollar.
-fn warm_with(model: &str, keep_warm: bool, budget: Option<u64>) -> Policy {
+/// The policy of [`warm`] with this budget of a work, in millionths of a dollar.
+fn warm_within(model: &str, budget: Option<u64>) -> Policy {
     let mut policy = warm(model);
-    let warm = policy.warm.as_mut().expect("the sessions are kept warm");
-    warm.keep_warm = keep_warm;
-    warm.budget = budget;
+    (policy.warm.as_mut().expect("the sessions are kept warm")).budget = budget;
     policy
 }
 
@@ -1129,15 +1125,16 @@ fn pinged(spent: Spent, failed: Option<&str>) -> Event {
     }
 }
 
-/// The sessions of the work's lines that are kept warm, as the policy keeps them.
+/// The sessions of the work's lines that are kept warm, as the policy and the driver's own state keep them.
 fn kept_warm(s: &S) -> Vec<driver::warm::Kept> {
     kept_warm_on(s, &warm("opus"))
 }
 
-/// The sessions of the work's lines that are kept warm, as this policy keeps them.
+/// The sessions of the work's lines that are kept warm, as this policy and the driver's own state keep them.
 fn kept_warm_on(s: &S, policy: &Policy) -> Vec<driver::warm::Kept> {
     let held = s.driver.work(s.work).expect("the work");
-    driver::warm::kept(held.flow, held.work, held.item, policy, Time(s.clock))
+    let warm = s.driver.keeping_warm();
+    driver::warm::kept(held.flow, held.work, held.item, policy, warm, Time(s.clock))
 }
 
 /// A work with this policy whose engineer's session waits for a tool's result, and when its next ping is due, as a
@@ -1231,7 +1228,7 @@ fn a_ping_that_failed_is_tried_again_a_minute_after_and_none_past_the_caches_lif
     );
     // Past the cache's life no ping is due: it would write the session whole again, for nothing.
     let held = s.driver.work(s.work).unwrap();
-    let late = driver::warm::due(held.flow, held.work, held.item, &warm("opus"), kept[0].life);
+    let late = driver::warm::due(held.flow, held.work, held.item, &warm("opus"), true, kept[0].life);
     assert!(late.is_empty());
 }
 
@@ -1401,11 +1398,11 @@ fn a_session_is_pinged_while_the_owners_pause_holds_everything_or_the_work_alone
 #[test]
 fn no_session_of_a_work_the_engine_paused_for_spending_more_than_it_may_is_pinged() {
     let budget = Some(1_000_000);
-    let mut s = S::with(warm_with("opus", true, budget), None);
+    let mut s = S::with(warm_within("opus", budget), None);
     s.usd = 600_000;
     s.hands_in(100, true);
     s.asks(100);
-    let at = kept_warm_on(&s, &warm_with("opus", true, budget))
+    let at = kept_warm_on(&s, &warm_within("opus", budget))
         .first()
         .expect("a session kept warm")
         .at
@@ -1426,13 +1423,16 @@ fn no_session_of_a_work_the_engine_paused_for_spending_more_than_it_may_is_pinge
 }
 
 #[test]
-fn no_session_is_pinged_at_all_where_the_installation_keeps_none_warm() {
+fn no_session_is_pinged_at_all_where_the_owner_switched_keeping_them_warm_off() {
     // Under each hold a waiting session is otherwise pinged under: none, the engine's as it opened, and the owner's
     // over everything and over the work alone.
     for hold in ["none", "the engine's as it opened", "everything", "the work"] {
-        let (mut s, at) = waiting(warm_with("opus", false, None));
+        let (mut s, at) = waiting(warm("opus"));
+        s.driver
+            .keep_warm(Time(s.clock), false)
+            .expect("the owner switches it off");
         match hold {
-            "the engine's as it opened" => opened_again(&mut s, warm_with("opus", false, None)),
+            "the engine's as it opened" => opened_again(&mut s, warm("opus")),
             "everything" => {
                 s.driver
                     .pause_everything(Time(s.clock), true)
@@ -1444,6 +1444,7 @@ fn no_session_is_pinged_at_all_where_the_installation_keeps_none_warm() {
             }),
             _ => {}
         }
+        assert!(!s.driver.keeping_warm(), "{hold}: the switch holds");
         let todos = s.driver.tick(Time(at), None, None).unwrap();
         assert!(pings(&s, &todos).is_empty(), "pinged while {hold} holds it");
         assert_eq!(
@@ -1452,6 +1453,29 @@ fn no_session_is_pinged_at_all_where_the_installation_keeps_none_warm() {
             "woken for a ping it will not give while {hold} holds it"
         );
     }
+}
+
+#[test]
+fn the_switch_of_keeping_sessions_warm_is_kept_and_a_ping_comes_once_it_is_switched_on_again() {
+    let (mut s, at) = waiting(warm("opus"));
+    assert!(s.driver.keeping_warm(), "kept warm until the owner switches it off");
+    s.driver
+        .keep_warm(Time(s.clock), false)
+        .expect("the owner switches it off");
+    // Opened again on the store, the engine keeps none warm: the switch is its own state, not a setting.
+    opened_again(&mut s, warm("opus"));
+    assert!(!s.driver.keeping_warm());
+    assert!(s.driver.wake().is_none(), "nothing to wake for");
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
+    assert!(pings(&s, &todos).is_empty());
+    // Switched on again, the driver asks for the ping that is due and gives it at that time.
+    s.driver
+        .keep_warm(Time(s.clock), true)
+        .expect("the owner switches it on");
+    assert!(s.driver.keeping_warm());
+    let wake = s.driver.wake().expect("the driver waits for a time");
+    let todos = s.driver.tick(wake.at, None, None).unwrap();
+    assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
 }
 
 #[test]

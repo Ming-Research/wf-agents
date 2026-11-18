@@ -92,7 +92,12 @@ async fn engine_act(State(handle): State<Handle>, body: Bytes) -> Response {
         Ok(act) => act,
         Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The act cannot be read: {e}.")),
     };
-    match handle.pause_everything(act.pauses()).await {
+    let done = match act {
+        EngineAct::Pause {} => handle.pause_everything(true).await,
+        EngineAct::Resume {} => handle.pause_everything(false).await,
+        EngineAct::KeepWarm { on } => handle.keep_warm(on).await,
+    };
+    match done {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(refusal) => refused(&refusal),
     }
