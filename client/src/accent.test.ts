@@ -197,7 +197,11 @@ describe('the tokens', () => {
     ];
     // The tools' time follows a meaning: it is drawn in the yellow of a call.
     const meanings = [...(Object.values(MEANINGS).flat() as string[]), 'track-tool'];
-    const placed = new Set([...accent, ...neutral, ...meanings]);
+    // What tells things of one kind apart and says how nothing stands: the lines of the flow in a chart of them, and the
+    // kinds of the words of code. The accent keeps clear of the meanings alone (decision
+    // an-accent-keeps-clear-of-the-meanings).
+    const kinds = ['flow-line-1', 'flow-line-2', 'flow-line-3', 'flow-line-4', 'flow-line-5', 'code-keyword', 'code-literal'];
+    const placed = new Set([...accent, ...neutral, ...meanings, ...kinds]);
     // A token is a colour where its value is one, in any of CSS's notations, or names a token that is one.
     const notation = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\(/i;
     const isColour = (block: Record<string, string>, v: string, depth = 0): boolean =>

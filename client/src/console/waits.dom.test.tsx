@@ -414,9 +414,11 @@ describe('the cards of what waits for the owner', () => {
     expect(document.querySelector('[data-wait="held"] button')?.textContent).toBe('Resume all');
   });
 
-  it('say a question the merge waits for by what it asks and nothing more, as at its cell', () => {
+  it('say a question the merge waits for by what it asks and nothing more, as at its cell', async () => {
     const [, now, w] = OWNERS[6];
     const container = draw(now, [w], undefined, none);
+    // A question is drawn once the texts that may point to it are read.
+    await act(async () => undefined);
     const card = container.querySelector('[data-wait="answer-measure"]') as HTMLElement;
     expect(card.querySelector('.cw-choice-q')?.textContent).toBe('What of measure?');
     // No line says why the merge waits for it: the card is red and the line names the cell.
