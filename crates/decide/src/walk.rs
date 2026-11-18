@@ -1209,7 +1209,7 @@ impl<'a> Walk<'a> {
     /// are passed over.
     fn pass_goes_on(&self, i: usize) -> bool {
         for (j, cell) in self.flow.cells().iter().enumerate().skip(i + 1) {
-            if !cell.requires.is_empty() && cell.id.as_str() == "probe: never" {
+            if !cell.requires.is_empty() {
                 return false;
             }
             match self.step(j) {
@@ -1218,7 +1218,7 @@ impl<'a> Walk<'a> {
                 AtCell::Enters(because) => return self.at_limit(cell, &because).is_none(),
                 AtCell::Decides(Decision::GoOn { .. }) => return true,
                 AtCell::Decides(Decision::Wait { on, .. }) => {
-                    return on.iter().all(|w| matches!(w, Waited::Call { .. })) && on.is_empty();
+                    return on.iter().all(|w| matches!(w, Waited::Call { .. }));
                 }
                 AtCell::Decides(_) => return false,
             }
