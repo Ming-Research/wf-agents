@@ -19,8 +19,8 @@
 // picked above it among those on which the engine has a cell to give the words to, which a passage selected in the body
 // can be quoted into and which names that cell. Under the work's state line, each other stop of the work, in the same
 // look: one sentence of why and the buttons that end it, from the engine's list, and a fault or a stall, which no one
-// waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, the legend of the
-// strip's marks, and what the work changed, file by file, each opening its diff; the third, Step, everything about the
+// waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, and what the work
+// changed, file by file, each opening its diff; the third, Step, everything about the
 // row of the work's history the page chose, else the run the work stands at; the fourth, Usage, what the work used.
 // Each page keeps its own choice of tab. While the window is out, R marks the item read, as its link does, unless a box
 // has the keys. What the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is
@@ -51,7 +51,7 @@ import {
 } from 'react';
 
 import { CHOICE_KEYS, useKept } from '../kept';
-import { Legend, LevelMark, LinesChanged } from '../marks';
+import { LevelMark, LinesChanged } from '../marks';
 import { mocksShown } from '../mock-data';
 import { Button, Coded, Confirm, FoldMark, ListRow, PanelPart, Switch, TICK } from '../parts';
 import {
@@ -69,7 +69,7 @@ import {
   type Waited,
   type WorkPage,
 } from '../works-api';
-import { CallsTook, type Got, Loaded, Parts, STRIP_MARKS, Strip, useWanted } from '../works/marks';
+import { CallsTook, type Got, Loaded, Parts, Strip, useWanted } from '../works/marks';
 import { type HistoryRow, placeSteps, sessionsBegun, standingRun } from '../works/placing';
 import { type Reader, readerOf, useSource } from '../works/source';
 import { StepTab } from '../works/StepPanel';
@@ -1644,7 +1644,7 @@ function FileDiff({ page }: { page: DiffPage }) {
   );
 }
 
-/// What of the work the lines do not say, what the marks of the strip in its line mean, and what the work changed.
+/// What of the work the lines do not say, and what the work changed.
 function WorkFacts({ w, page, verdicts, reader }: {
   w: Summary;
   page: WorkPage | null;
@@ -1671,9 +1671,6 @@ function WorkFacts({ w, page, verdicts, reader }: {
           </Fragment>
         ))}
       </dl>
-      <PanelPart label="The cells' marks">
-        <Legend marks={STRIP_MARKS} />
-      </PanelPart>
       <Changes w={w} reader={reader} />
     </>
   );
