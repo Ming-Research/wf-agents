@@ -153,7 +153,6 @@ const MODEL: &str = "the model";
 fn warm() -> driver::Policy {
     driver::Policy {
         samples: 3,
-        limit: 500_000,
         on: Box::new(|_, _| {
             Some(engine::RanOn {
                 level: "1".to_string(),

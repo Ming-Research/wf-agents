@@ -109,6 +109,13 @@ export function ConsolePage({
           const id = item?.id ?? null;
           if (id === was) return;
           was = id;
+          // The address says the item selected while the console is shown, so that its tab leads back to it (decision
+          // a-views-choices-are-kept-in-the-browser); an address of one of its waits stands while it is selected.
+          if (activeNow.current) {
+            const at = id === null ? '#/console' : `#/console/items/${id}`;
+            const hash = window.location.hash;
+            if (hash !== at && !(id !== null && hash.startsWith(`${at}/waits/`))) window.location.replace(at);
+          }
           setWin((w) => {
             if (id !== null) return w.open ? w : { open: true, byHand: false };
             return w.byHand ? w : { open: false, byHand: false };
@@ -162,7 +169,10 @@ export function ConsolePage({
     if (open && selectedId !== null) scene.current?.reveal(selectedId, room(true));
   }, [open, selectedId]);
 
+  // Whether the console is shown, for the scene's handler, made once.
+  const activeNow = useRef(active);
   useEffect(() => {
+    activeNow.current = active;
     scene.current?.setShown(active);
   }, [active]);
 

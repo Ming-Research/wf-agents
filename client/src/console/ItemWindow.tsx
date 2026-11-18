@@ -15,9 +15,10 @@
 // choice has one and sends each question's answer to the engine; once confirmed, the picks stand, settled; and last,
 // each block the owner may write that keeps the work from going on, drawn as such a question is, its values the
 // options, with a button that writes the one picked), each passage changed since the owner read it marked at its left,
-// and under the body the messages: the owner's and the replies, and a box to write one to a line of the work's flow,
-// picked above it among those on which the engine has a cell to give the words to, which a passage selected in the body
-// can be quoted into and which names that cell. Under the work's state line, each other stop of the work, in the same
+// and under the body the messages: the owner's and the replies, what the owner said from the window standing under them
+// until a read of the work brings it, and a box to write one to a line of the work's flow, picked above it among those
+// on which the engine has a cell to give the words to, which a passage selected in the body can be quoted into and
+// which names that cell. Under the work's state line, each other stop of the work, in the same
 // look: one sentence of why and the buttons that end it, from the engine's list, and a fault or a stall, which no one
 // waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, and what the work
 // changed, file by file, each opening its diff; the third, Step, everything about the
@@ -53,7 +54,7 @@ import {
 import { CHOICE_KEYS, useKept } from '../kept';
 import { LevelMark, LinesChanged } from '../marks';
 import { mocksShown } from '../mock-data';
-import { Button, Coded, Confirm, FoldMark, ListRow, PanelPart, Switch, TICK, Tabs } from '../parts';
+import { Button, Coded, Confirm, Fold, ListRow, Switch, TICK, Tabs } from '../parts';
 import {
   type Act,
   type ChangesPage,
@@ -393,15 +394,21 @@ function ItemView({
   const [readWith, setReadWith] = useState<ReadonlySet<string>>(new Set());
   // Without the mocks, what the owner may rule of the preconditions the work waits for, read with the body.
   const [rulings, setRulings] = useState<Ruling[]>([]);
+  // What the owner said from this window, which stands under the messages the body was read with until a read begun
+  // after it was said brings it: the engine wrote the words as it took them, so a later read holds them, while the
+  // body of a read already under way cannot, and what the owner said must not go out of view.
+  const [said, setSaid] = useState<Message[]>([]);
   useEffect(() => {
     if (mocksShown() || read === null) return;
     let alive = true;
+    const begun = Date.now();
     const failed = (e: unknown) => alive && setBodyFailed(e instanceof Error ? e.message : String(e));
     const names = new Set((read.questions ?? []).map((q) => q.name));
     readBody(read, loadVersion).then(
       (b) => {
         if (!alive) return;
         setBody(b);
+        setSaid((was) => was.filter((m) => m.at >= begun));
         setBodyRead(true);
         setBodyFailed(null);
         setReadWith(names);
@@ -456,7 +463,10 @@ function ItemView({
   };
   const jump = (at: number) =>
     document.getElementById(messageId(work.number, at))?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  const about = (c: Choice) => messagesAbout(body.messages, c);
+  // The messages the window draws, in one list: those the body was read with, and under them what the owner said that
+  // it does not hold yet.
+  const messages = said.length === 0 ? body.messages : [...body.messages, ...said];
+  const about = (c: Choice) => messagesAbout(messages, c);
   const markAsRead = useCallback(() => {
     const clear = (ps: Part[]) => ps.map((p) => ({ ...p, changed: false }));
     markRead(item.number);
@@ -509,7 +519,7 @@ function ItemView({
       ...sections.flatMap((s) =>
         s.parts.flatMap((p, i): Pointing[] => (p.kind === 'text' ? [{ key: partKey(s.title, i), text: p.text }] : [])),
       ),
-      ...body.messages.flatMap((m, i): Pointing[] => (m.who === 'owner' ? [] : [{ key: messageKey(i), text: m.text }])),
+      ...messages.flatMap((m, i): Pointing[] => (m.who === 'owner' ? [] : [{ key: messageKey(i), text: m.text }])),
     ],
     new Set(named.keys()),
   );
@@ -520,10 +530,19 @@ function ItemView({
     setAnswers((was) => ({ ...was, [key]: was[key] === option ? null : option }));
   };
   const writeQuestion = (q: Choice, text: string) => setWritten((was) => ({ ...was, [pickKey(q)]: text }));
+  // The cell a question belongs to, and the line that cell runs on, as the work's flow names it; none of a choice of
+  // the plan, which belongs to no cell.
+  const askedBy = (q: Choice) => {
+    const asks = q.asks;
+    if (asks === undefined) return undefined;
+    const cell = read?.flow.cells.find((c) => c.id === asks.cell);
+    return { cell: asks.cell, line: cell?.line ?? null };
+  };
   // A question's card, wherever it stands.
   const card = (q: Choice) => (
     <ChoiceBox
       p={q}
+      by={askedBy(q)}
       pick={q.confirmed === true ? undefined : (o) => pickQuestion(q, o)}
       write={q.confirmed === true ? undefined : (t) => writeQuestion(q, t)}
       discuss={() => discuss(q)}
@@ -621,9 +640,9 @@ function ItemView({
     const frame = host.getBoundingClientRect();
     setOffer({ x: at.left - frame.left + at.width / 2, y: at.top - frame.top, text });
   };
-  // A message sent stands under the others, the owner's own.
+  // A message sent stands under the others, the owner's own, until a read of the work brings it.
   const sent = (message: Message) => {
-    setBody((was) => ({ ...was, messages: [...was.messages, message] }));
+    setSaid((was) => [...was, message]);
     setQuote(null);
   };
   return (
@@ -643,7 +662,12 @@ function ItemView({
         </h2>
         {item.project !== null && <span className="drawer-belongs mono">{item.project}</span>}
       </header>
-      <ItemLine item={item} goal={goal} tier={mock.tier}>
+      <ItemLine
+        item={item}
+        goal={goal}
+        tier={mock.tier}
+        level={<LevelMark level={work.level ?? null} raise={work.raise ?? 0} />}
+      >
         <Progress w={work} page={read} />
       </ItemLine>
       <WorkLine w={work} page={read} />
@@ -694,6 +718,7 @@ function ItemView({
                   empty={nothingYet}
                   pointers={(i) => pointersOf(partKey(s.title, i))}
                   links={pointersOf(null)}
+                  askedBy={askedBy}
                 />
               ))}
               <Section
@@ -708,6 +733,7 @@ function ItemView({
                 jump={jump}
                 pointers={(i) => pointersOf(last === undefined ? null : partKey(last.title, i))}
                 links={pointersOf(null)}
+                askedBy={askedBy}
                 after={
                   <>
                     {body.choicesWait || toAnswer.length > 0 ? (
@@ -749,8 +775,8 @@ function ItemView({
             <Discussion
               work={work}
               page={page}
-              messages={body.messages}
-              pointers={(i) => pointersOf(body.messages[i]?.who === 'owner' ? null : messageKey(i))}
+              messages={messages}
+              pointers={(i) => pointersOf(messages[i]?.who === 'owner' ? null : messageKey(i))}
               messageTo={messageTo}
               setMessageTo={setMessageTo}
               quote={quote}
@@ -800,16 +826,20 @@ function ItemLine({
   item,
   goal,
   tier,
+  level,
   children,
 }: {
   item: Item;
   goal: boolean;
   tier: string | null;
+  /// The level its work's cell runs at, as the card writes it under its number, after the item's standing.
+  level: ReactNode;
   children?: ReactNode;
 }) {
   const standing = standingOf(item);
   return (
     <Line tone={standing} word={STANDING_WORDS[standing]}>
+      {level}
       {goal ? <span className="muted">Goal</span> : null}
       {tier !== null ? <span className="muted">Tier {tier}</span> : null}
       <span className="muted">Added {ago(item.added)} ago</span>
@@ -819,13 +849,13 @@ function ItemLine({
 }
 
 /// How far the work has come and where its time went, together at the right end of the item's line, which its own
-/// line, holding the cell's title, has no room left for.
+/// line, holding the cell's title, has no room left for: the cell it stands at, by its id, before the strip.
 function Progress({ w, page }: { w: Summary; page: WorkPage | null }) {
+  const { cell } = stateOf(w);
   return (
     <span className="cw-progress">
-      {/* The level the work's cell runs at, before the strip, as the card writes it under its number. */}
-      <span className="cw-level">
-        <LevelMark level={w.level ?? null} raise={w.raise ?? 0} />
+      <span className="cw-at">
+        {cell !== null && <span className="mono muted">{cell}</span>}
         <Strip cells={w.cells} stopped={stoppedAt(w)} />
       </span>
       <span className="cw-track">
@@ -1028,46 +1058,6 @@ function writeDraft(key: string, text: string) {
   }
 }
 
-/// Which sections of the item's text the owner folded away, kept in this browser, so that one folded stays folded
-/// from item to item.
-const FOLDED = 'console-window-folded';
-function foldedNow(): string[] {
-  try {
-    const kept = JSON.parse(localStorage.getItem(FOLDED) ?? '[]') as unknown;
-    return Array.isArray(kept) ? kept.filter((k): k is string => typeof k === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-/// A section of the item's window: a whole row in the accent's colour that names it and folds it away at a press,
-/// and under it what it holds.
-function Fold({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
-  const [folded, setFolded] = useState(() => foldedNow().includes(title));
-  const turn = () => {
-    const now = !folded;
-    setFolded(now);
-    try {
-      const kept = foldedNow().filter((k) => k !== title);
-      localStorage.setItem(FOLDED, JSON.stringify(now ? [...kept, title] : kept));
-    } catch {
-      // Kept only where the browser lets it be.
-    }
-  };
-  return (
-    <section className="cw-fold">
-      <button type="button" className="cw-fold-head" aria-expanded={!folded} onClick={turn}>
-        <span className="cw-fold-sign" aria-hidden="true">
-          <FoldMark open={!folded} />
-        </span>
-        <span>{title}</span>
-        {count !== undefined && <span className="cw-fold-count mono">{count}</span>}
-      </button>
-      {!folded && <div className="cw-fold-body">{children}</div>}
-    </section>
-  );
-}
-
 function Section({
   title,
   parts,
@@ -1081,6 +1071,7 @@ function Section({
   empty,
   pointers,
   links,
+  askedBy,
 }: {
   /// Its name, over it; with none, its parts are drawn with no fold.
   title?: string;
@@ -1105,6 +1096,8 @@ function Section({
   pointers?: (at: number) => Pointers;
   /// What a choice's words draw at theirs: links alone.
   links?: Pointers;
+  /// The cell a choice belongs to, and the line it is on; none where it belongs to no cell.
+  askedBy?: (c: Choice) => { cell: string; line: string | null } | undefined;
 }) {
   if (parts.length === 0 && !keep && empty === undefined) return null;
   const drawn = (
@@ -1117,6 +1110,7 @@ function Section({
           ) : (
             <ChoiceBox
               p={p}
+              by={askedBy?.(p)}
               links={links}
               pick={choose === undefined || p.confirmed === true ? undefined : (o) => choose(i, o)}
               write={write === undefined || p.confirmed === true ? undefined : (t) => write(i, t)}
@@ -1197,6 +1191,34 @@ function Settled({ options, chosen, recommended }: {
   );
 }
 
+/// Whether the cell the owner's words went to has taken them: a clock until a run of it begins with them, then the
+/// page's tick; what it means said on pointing at it.
+function TakenMark({ taken, to }: { taken: boolean; to: string }) {
+  const words = taken ? `Taken by ${to}` : `Not taken yet: ${to} takes it as it next runs`;
+  return (
+    <svg
+      className={taken ? 'cw-taken' : 'cw-waiting'}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      role="img"
+      aria-label={words}
+    >
+      <title>{words}</title>
+      {taken ? (
+        <path d={TICK} />
+      ) : (
+        <>
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 7.5 V12 L15 14" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 /// The tick that marks the option taken, the page's tick (`TICK`), as wide as an option's radio mark.
 function TickSign() {
   return (
@@ -1221,8 +1243,10 @@ function TickSign() {
 /// brings the first into view. A question with no options is answered in words, in a box in their place. A question
 /// the engine's list names holds the work, at its cell or at the merge: on the red tint, framed in red, the look of
 /// every stop.
-function ChoiceBox({ p, pick, write, discuss, messages, jump, links }: {
+function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
   p: Choice;
+  /// The cell it belongs to and the line that cell is on; none of a choice of the plan, which belongs to no cell.
+  by?: { cell: string; line: string | null };
   pick?: (option: number) => void;
   write?: (text: string) => void;
   discuss?: () => void;
@@ -1232,10 +1256,11 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump, links }: {
   links?: Pointers;
 }) {
   return (
-    <div
+    <fieldset
       className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${p.holds === true ? ' cw-choice-holds' : ''}`}
       data-wait={waitKeyOf(p)}
     >
+      <Asked by={by} />
       <div className="cw-choice-q">
         <Markdown text={p.question} pointers={links} />
       </div>
@@ -1278,7 +1303,19 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump, links }: {
           ) : null}
         </div>
       ) : null}
-    </div>
+    </fieldset>
+  );
+}
+
+/// Whose question it is, on the frame of its card: the cell it belongs to, by its id, and the line that cell runs on
+/// after it. A card that belongs to no cell draws none, and its frame is unbroken.
+function Asked({ by }: { by?: { cell: string; line: string | null } }) {
+  if (by === undefined) return null;
+  return (
+    <legend className="cw-choice-by">
+      <span className="mono">{by.cell}</span>
+      {by.line !== null && <span className="muted"> {by.line}</span>}
+    </legend>
   );
 }
 
@@ -1399,6 +1436,7 @@ function Discussion({ work, page, messages, pointers, messageTo, setMessageTo, q
             <span className="status-word">{writerOf(n.who, read)}</span>
             <span className="muted">to {n.to.map((x) => writerOf(x, read)).join(', ')}</span>
             <span className="mono muted">{ago(n.at)} ago</span>
+            {n.taken !== undefined && <TakenMark taken={n.taken} to={n.to.map((x) => writerOf(x, read)).join(', ')} />}
           </div>
           {n.quote !== null ? <blockquote className="cw-quote">{n.quote}</blockquote> : null}
           <Markdown text={n.text} pointers={pointers(i)} />
@@ -1481,12 +1519,10 @@ function Compose({ work, draft, line, to, reaches, title, quote, unquote, box, a
 }) {
   const key = draftKey(work.number, draft);
   const [text, setText] = useState(() => readDraft(key));
-  const [written, setWritten] = useState(false);
   const { waiting, refused, send } = useSending(act);
   const working = !ended(work);
   const type = (t: string) => {
     setText(t);
-    setWritten(false);
     writeDraft(key, t);
   };
   // Typing `@` offers the names one can write to: the line the message goes to, only while a work goes on, then the
@@ -1500,8 +1536,6 @@ function Compose({ work, draft, line, to, reaches, title, quote, unquote, box, a
     type(text.replace(/@(\w*)$/, `@${x} `));
     box.current?.focus();
   };
-  // The cell the engine gave the words to, as it answered the act; none where it did not say.
-  const [said, setSaid] = useState<MessageCell | null>(null);
   const submit = () => {
     const words = text.trim();
     const content = quote === null ? words : `${quote.replace(/^/gm, '> ')}\n\n${words}`;
@@ -1510,9 +1544,8 @@ function Compose({ work, draft, line, to, reaches, title, quote, unquote, box, a
       const reached = (done.answer as Said | null)?.reached ?? null;
       writeDraft(key, '');
       setText((now) => (now.trim() === words ? '' : now));
-      setWritten(true);
-      setSaid(reached);
-      sent({ who: 'owner', at: Date.now(), to: reached === null ? [] : [reached], quote, text: words });
+      // The cell the engine gave the words to, as it answered the act, has not taken them yet.
+      sent({ who: 'owner', at: Date.now(), to: reached === null ? [] : [reached], quote, text: words, taken: false });
     });
   };
   return (
@@ -1549,7 +1582,6 @@ function Compose({ work, draft, line, to, reaches, title, quote, unquote, box, a
           Send
         </Button>
       </div>
-      {written && <p className="cw-done">{said === null ? 'Said' : `Said to ${title(said)}`}</p>}
       {refused !== null && <p className="failed small">{refused}</p>}
     </>
   );
@@ -1587,7 +1619,7 @@ function Changes({ w, reader }: { w: Summary; reader: Reader }) {
   }, [reader, of]);
   if (changed === null) return null;
   return (
-    <PanelPart label="Files changed" count={changed.files}>
+    <Fold title="Files changed" count={changed.files}>
       <Loaded
         got={read?.got ?? null}
         show={(page) =>
@@ -1602,7 +1634,7 @@ function Changes({ w, reader }: { w: Summary; reader: Reader }) {
           )
         }
       />
-    </PanelPart>
+    </Fold>
   );
 }
 

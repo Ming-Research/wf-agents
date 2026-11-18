@@ -182,13 +182,11 @@ fn reopened(s: &mut S, policy: Policy) -> Vec<Todo> {
     todos
 }
 
-/// The policy where every round runs on this model, a history of one value giving a line, a limit of 500 tokens, and
-/// no session kept warm.
+/// The policy where every round runs on this model, a history of one value giving a line, and no session kept warm.
 fn policy(model: &str) -> Policy {
     let model = model.to_string();
     Policy {
         samples: 1,
-        limit: 500,
         on: Box::new(move |_, _| Some(on(&model))),
         warm: None,
     }
@@ -208,7 +206,6 @@ fn policy_under(model: &str, account: Account) -> Policy {
     let model = model.to_string();
     Policy {
         samples: 1,
-        limit: 500,
         warm: None,
         on: Box::new(move |_, _| {
             Some(RanOn {
@@ -453,54 +450,40 @@ fn a_line_goes_on_in_its_first_session_while_nothing_ends_it() {
     assert_eq!(s.engineer(build, 1), (0, false), "in the session the load began");
 }
 
+// However much context a round of a line ends with, the line goes on in its session: the agents' program compacts it
+// at the installation's number, which every round's command line gives it, and no size of a session has the engine
+// begin a new one (decision `a-session-is-compacted-at-its-limit`).
 #[test]
-fn a_round_past_the_limit_has_the_cell_that_loads_the_session_run_again_once_the_lines_runs_have_ended() {
+fn a_round_ending_with_more_context_than_the_installations_number_has_its_line_go_on_in_its_session() {
     let mut s = S::new();
     s.hands_in(100, true);
     let (build, _) = s.round();
-    // The build asks for a tool past the limit: it waits on the result in the session that holds what it did.
-    s.asks(600);
-    assert!(s.sessions().is_empty(), "a cell of the line waits for its result");
-    assert!(s.session_block().is_empty());
-    let call = s.kept().records.called.last().expect("the build's call").call;
-    s.on(Event::Done {
-        call,
-        result: "the request".to_string(),
-    });
-    // Entered again for the result, the build goes on in its session.
-    let (again, cell) = s.round();
-    assert_eq!(cell, "build");
-    assert_ne!(again, build);
-    assert_eq!(s.engineer(again, 1), (0, false), "the build goes on in its session");
-    // Its run ends past the limit: the line begins a new session at its next round.
-    s.hands_in(600, true);
-    let limit = Why::Limit {
-        context: 600,
-        limit: 500,
-    };
-    assert_eq!(s.sessions().last(), Some(&("engineer".to_string(), limit)));
-    let block = s.session_block();
-    assert_eq!(block.len(), 1);
-    assert!(
-        block[0].contains("`engineer`") && block[0].contains("600"),
-        "{}",
-        block[0]
-    );
-    // The loading cell runs before the line goes on, in the new session, which it begins.
-    let (load, cell) = s.round();
-    assert_eq!(cell, "load");
-    assert_eq!(s.engineer(load, 1), (1, true));
-    s.hands_in(100, false);
-    assert_eq!(s.session_block().len(), 1, "nothing more is written");
+    // The build's run ends with far more context than any number an installation sets.
+    s.hands_in(10_000_000, true);
+    assert!(s.sessions().is_empty(), "no new session for the context it ended with");
+    assert!(s.session_block().is_empty(), "the loading cell is not run again");
+    // The line goes on in the session its load began, and the loading cell has run once.
+    let (review, cell) = s.round();
+    assert_eq!(cell, "review", "the engineer's line handed in; the review goes on");
+    assert_ne!(review, build);
+    assert_eq!(runs(&s, "load"), 1);
 }
 
 #[test]
 fn a_new_session_of_one_line_writes_its_own_block_alone_and_runs_again_no_cell_of_another_line() {
     let mut s = S::on_flow(two_lines(), policy("opus"), None);
+    let asked = |line: &str| Event::Anew {
+        line: line.to_string(),
+        why: Why::Owner,
+    };
     s.hands_in(100, true);
-    // The build ends past the limit: the engineer's line begins a new session, and its own block is written.
-    s.hands_in(600, true);
-    assert!(matches!(s.sessions().last(), Some((line, Why::Limit { .. })) if line == "engineer"));
+    assert_eq!(s.round().1, "build");
+    // The owner asks the engineer's line for a new session while the build's round is under way: the line begins one
+    // as the round ends, and its own block is written.
+    s.began();
+    s.on(asked("engineer"));
+    s.hands_in(100, true);
+    assert!(matches!(s.sessions().last(), Some((line, Why::Owner)) if line == "engineer"));
     assert_eq!(s.versions_of("engineer_session").len(), 1);
     assert!(
         s.versions_of("review_session").is_empty(),
@@ -512,10 +495,12 @@ fn a_new_session_of_one_line_writes_its_own_block_alone_and_runs_again_no_cell_o
     assert_eq!(s.round().1, "look");
     s.hands_in(100, true);
     assert_eq!(s.round().1, "review");
-    // The review ends past the limit: its line begins a new session, which writes its own block and runs its loading
-    // cell alone.
-    s.hands_in(600, true);
-    assert!(matches!(s.sessions().last(), Some((line, Why::Limit { .. })) if line == "review"));
+    // The owner asks the review's line while its round is under way: it begins one, which writes its own block and
+    // runs its loading cell alone.
+    s.began();
+    s.on(asked("review"));
+    s.hands_in(100, true);
+    assert!(matches!(s.sessions().last(), Some((line, Why::Owner)) if line == "review"));
     assert_eq!(s.versions_of("review_session").len(), 1);
     assert_eq!(
         s.versions_of("engineer_session").len(),
@@ -564,28 +549,6 @@ fn the_engineers_flow_gives_each_line_that_loads_its_session_a_block_of_its_own(
 }
 
 #[test]
-fn a_cell_skipped_after_it_asked_for_calls_holds_its_lines_session_no_longer() {
-    let mut s = S::new();
-    s.hands_in(100, true);
-    // The build asks for a tool past the limit: the line goes on in its session while the build waits.
-    s.asks(600);
-    assert!(s.sessions().is_empty(), "a cell of the line waits for its result");
-    // A person stops the build: skipped now, it waits for nothing, and the limit ends the line's session.
-    s.on(Event::Wrote {
-        block: "stop".into(),
-        by: Outsider::Person,
-        content: "Stop.".to_string(),
-        matters: true,
-        value: Some("yes".to_string()),
-    });
-    let limit = Why::Limit {
-        context: 600,
-        limit: 500,
-    };
-    assert_eq!(s.sessions().last(), Some(&("engineer".to_string(), limit)));
-}
-
-#[test]
 fn a_run_waiting_on_a_tools_result_as_its_line_begins_a_new_session_goes_on_in_the_session_the_load_began() {
     let mut s = S::new();
     s.hands_in(100, true);
@@ -610,28 +573,6 @@ fn a_run_waiting_on_a_tools_result_as_its_line_begins_a_new_session_goes_on_in_t
     assert_eq!(cell, "build");
     assert_ne!(again, build);
     assert_eq!(s.engineer(again, 1), (1, false));
-}
-
-#[test]
-fn the_limit_ends_no_session_at_a_return_sent_back_nor_at_the_round_of_the_cell_that_loads_it() {
-    let mut s = S::new();
-    s.hands_in(900, true);
-    assert!(s.sessions().is_empty(), "the load's own size");
-    let (build, _) = s.round();
-    let wrong = Handed {
-        block: "verdict".into(),
-        content: "not the build's".to_string(),
-        matters: true,
-        value: None,
-    };
-    s.ends(900, Came::hands_in(vec![wrong]));
-    assert_eq!(s.round().0, build, "sent back");
-    assert!(
-        s.sessions().is_empty(),
-        "the return is written again in the session that wrote it"
-    );
-    s.hands_in(900, true);
-    assert!(matches!(s.sessions().last(), Some((line, Why::Limit { .. })) if line == "engineer"));
 }
 
 #[test]
@@ -830,36 +771,6 @@ fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_at_the
     assert_eq!(s.session_block().len(), 1);
 }
 
-#[test]
-fn another_account_begins_the_new_session_before_a_context_past_the_limit_does() {
-    let under = account(None);
-    let mut s = S::with(policy_under("opus", under.clone()), None);
-    s.hands_in(100, true);
-    let (run, cell) = s.round();
-    assert_eq!(cell, "build");
-    // The build's try began under the account before; it is changed as the try runs, and the round ends past the
-    // limit, its run ending: both would begin a new session, and the account says why.
-    s.began();
-    *under.lock().unwrap() = Some("second".to_string());
-    let handed = Handed {
-        block: "code".into(),
-        content: "the code".to_string(),
-        matters: true,
-        value: None,
-    };
-    let spent = Spent {
-        input_tokens: 10,
-        context_tokens: Some(600),
-        ..Default::default()
-    };
-    s.on(Event::Returned {
-        run,
-        came: Came::hands_in(vec![handed]),
-        spent,
-    });
-    assert_eq!(s.sessions(), [("engineer".to_string(), Why::Account { was: None })]);
-}
-
 /// The version of the tree a carrier says the work's branch has now.
 fn tree_is(content: &str) -> Event {
     Event::Wrote {
@@ -1042,7 +953,6 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
     // Level 1 runs on opus, which the service does not have; level 2 on sonnet.
     let by_level = Policy {
         samples: 1,
-        limit: 500,
         warm: None,
         on: Box::new(|item, _| {
             let model = if item.level.as_deref() == Some("2") {
@@ -1095,40 +1005,6 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
     assert!(
         why.contains("opus") && why.contains(&format!("work {}", s.work.0)),
         "{why}"
-    );
-}
-
-// A line's session is replaced past the installation's limit alone: a context past the line its line's history gives,
-// within that limit, goes on in its session (decision `a-session-is-replaced-past-its-limit`).
-#[test]
-fn a_session_is_replaced_past_the_installations_limit_and_never_for_its_lines_history() {
-    let sessions_after = |context: u64| {
-        let mut s = S::with(
-            Policy {
-                limit: 1_000,
-                ..policy("opus")
-            },
-            None,
-        );
-        // The line's history, the work before's one round, gives a line of 500 tokens, below either context.
-        let history: Vec<f64> = (s.driver.history("sessions").iter())
-            .filter(|sample| sample.line.as_deref() == Some("engineer"))
-            .filter_map(|sample| sample.spent.context_tokens)
-            .map(|tokens| tokens as f64)
-            .collect();
-        assert_eq!(driver::history::line(&history), Some(500.0));
-        s.hands_in(100, true);
-        s.hands_in(context, true);
-        s.sessions()
-    };
-    let limit = Why::Limit {
-        context: 1_100,
-        limit: 1_000,
-    };
-    assert_eq!(
-        [sessions_after(600), sessions_after(1_100)],
-        [Vec::new(), vec![("engineer".to_string(), limit)]],
-        "past the line's history alone the line goes on in its session; past the limit of 1000 it begins a new one"
     );
 }
 

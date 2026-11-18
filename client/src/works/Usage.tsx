@@ -7,7 +7,7 @@
 
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 
-import { Attr, ListRow, PanelPart } from '../parts';
+import { Attr, Fold, ListRow } from '../parts';
 import type { SessionWhy, WorkPage } from '../works-api';
 import { Keys } from './Round';
 import { type RoundOf, type SessionRow, type Span, usageOf } from './used';
@@ -18,12 +18,8 @@ const pct = (part: number, whole: number) => (whole > 0 ? (100 * part) / whole :
 /// How long rounds were under way together, said plainly.
 const UNDER_WAY = 'under way';
 
-/// A round by its keys: its run, its number in the run, and its cell.
-const roundKeys = (r: RoundOf): Key[] => [
-  ['run', String(r.run)],
-  ['round', String(r.number)],
-  ['cell', r.cell],
-];
+/// A round by its key: its cell, the time beside it saying which of the cell's it was.
+const roundKeys = (r: RoundOf): Key[] => [['cell', r.cell]];
 
 /// When a stretch began and ended, and how long it was.
 const whenKeys = (s: Span): Key[] => [
@@ -159,9 +155,12 @@ function ContextChart({ sessions, rounds, lines }: { sessions: SessionRow[]; rou
   const points = sessions.flatMap((s) => s.points);
   if (points.length === 0) return <p className="muted small">No round recorded its context</p>;
   // What a character and a line of the chart's words take, and the dash before a name.
-  const [H, left, top, bottom, char, line, dash] = [120, 4, 6, 6, 6.6, 13, 12];
+  const [H, top, bottom, char, line, dash, gap] = [120, 6, 6, 6.6, 13, 12, 6];
   const most = Math.max(...points.map((p) => p.context));
-  const right = 12 + dash + Math.max(...sessions.map((s) => sessionName(s).length), tokens(most).length) * char;
+  // The scale at the left, its top the most context a round ended with and its foot none; the names at the right.
+  const scale = [tokens(most), '0'];
+  const left = gap + Math.max(...scale.map((t) => t.length)) * char + gap;
+  const right = 12 + dash + Math.max(...sessions.map((s) => sessionName(s).length)) * char;
   const x = (at: number) => left + ((W - left - right) * at) / Math.max(rounds - 1, 1);
   const y = (context: number) => top + (H - top - bottom) * (1 - context / most);
   // Each name at the end of its line; one that would lie over a name placed before it goes down a line at a time.
@@ -179,8 +178,11 @@ function ContextChart({ sessions, rounds, lines }: { sessions: SessionRow[]; rou
     <svg ref={box} className="usage-chart" viewBox={`0 0 ${W} ${height}`} role="img" aria-label="The context after each round">
       <line className="usage-grid" x1={left} x2={W - right} y1={y(most)} y2={y(most)} />
       <line className="usage-grid" x1={left} x2={W - right} y1={y(0)} y2={y(0)} />
-      <text className="usage-chart-text" x={W - right + 4} y={y(most) + 4}>
-        {tokens(most)}
+      <text className="usage-chart-text" x={left - gap} y={y(most) + 4} textAnchor="end">
+        {scale[0]}
+      </text>
+      <text className="usage-chart-text" x={left - gap} y={y(0) + 4} textAnchor="end">
+        {scale[1]}
       </text>
       {sessions.map((s) => (
         <g key={sessionName(s)} style={{ '--usage-line': lineColour(lines, s.line) } as CSSProperties}>
@@ -235,11 +237,11 @@ export function UsageTab({ page }: { page: WorkPage }) {
           <Keys keys={[['keep-warm pings', String(page.summary.pinged.rounds)], ...spentKeys(page.summary.pinged)]} />
         )}
       </div>
-      <PanelPart label="Where the time went">
+      <Fold title="Where the time went">
         <TimeBar time={u.time} />
         <Timeline spans={u.spans} start={u.start} end={u.end} />
-      </PanelPart>
-      <PanelPart label="Models" count={u.models.length}>
+      </Fold>
+      <Fold title="Models" count={u.models.length}>
         <ul>
           {u.models.map((m) => (
             <ListRow key={m.ran === null ? '' : `${m.ran.model} ${m.ran.level} ${m.ran.effort ?? ''}`}>
@@ -264,8 +266,8 @@ export function UsageTab({ page }: { page: WorkPage }) {
             </ListRow>
           ))}
         </ul>
-      </PanelPart>
-      <PanelPart label="Where the cost went" count={u.cells.length}>
+      </Fold>
+      <Fold title="Where the cost went" count={u.cells.length}>
         <Bars
           rows={u.cells.map((c) => {
             const title = page.flow.cells.find((x) => x.id === c.cell)?.title;
@@ -288,8 +290,8 @@ export function UsageTab({ page }: { page: WorkPage }) {
             };
           })}
         />
-      </PanelPart>
-      <PanelPart label="Sessions" count={u.sessions.length}>
+      </Fold>
+      <Fold title="Sessions" count={u.sessions.length}>
         <ul>
           {u.sessions.map((s) => (
             <ListRow key={sessionName(s)}>
@@ -312,9 +314,9 @@ export function UsageTab({ page }: { page: WorkPage }) {
         </ul>
         <p className="usage-sub">Context after each round</p>
         <ContextChart sessions={u.sessions} rounds={u.rounds.length} lines={page.flow.lines.map((l) => l.name)} />
-      </PanelPart>
+      </Fold>
       {u.tools.length > 0 && (
-        <PanelPart label="Tools" count={u.tools.length}>
+        <Fold title="Tools" count={u.tools.length}>
           <Bars
             rows={u.tools.map((t) => ({
               key: t.name,
@@ -328,7 +330,7 @@ export function UsageTab({ page }: { page: WorkPage }) {
               ]),
             }))}
           />
-        </PanelPart>
+        </Fold>
       )}
     </>
   );

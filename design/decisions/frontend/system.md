@@ -20,8 +20,8 @@ Why: With a border it reads as the frame of an agent's words, which the page dra
 
 ### decision the-page-changes-what-is-tuned-while-the-engine-runs
 The settings' view changes the language the owner reads, each level's model, the highest level an item may be at, the
-context past which a line begins a new session, the slots and the account the agents run under; every other key only
-the file changes.
+context at which the agents' program compacts a line's session, the slots and the account the agents run under; every
+other key only the file changes.
 Why: These are what the owner tunes as works go on, to their cost, their pace and the account's limit; the rest are
 set once as the installation is made, and a wrong one stops the engine as it starts. A box for every key was turned
 down: it would make the whole file a form to save.

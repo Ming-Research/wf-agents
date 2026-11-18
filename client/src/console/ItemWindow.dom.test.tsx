@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { levelWords } from '../marks';
 import { cellNowWords } from '../works/marks';
-import { NO_LEVEL, stoppedAt } from '../works/words';
+import { NO_LEVEL, stateOf, stoppedAt } from '../works/words';
 import type { Act, CellNow, Item, Now, Question, Speaking, Wait, WorkPage } from '../works-api';
 import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
@@ -176,15 +176,18 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.drawer-title')).toEqual(['Show the cost of a work']);
     expect(text(el, '.drawer-belongs')).toEqual(['wf-agents']);
     const [itemLine, workLine] = lines(el);
-    // The item's line says where it stands, and at its right the level its work's cell runs at before the strip, a dash
-    // where the engine gives none; what it waits for is its work's line's to say.
-    expect(itemLine).toBe('Open Added 1.1d ago –');
+    // The item's line says where it stands, then the level its work's cell runs at, a dash where the engine gives none,
+    // then when it was added, and at its right the cell the work stands at, by its id, before the strip (decision
+    // a-level-looks-as-the-level-it-runs-at); what it waits for is its work's line's to say.
+    expect(itemLine).toBe('Open – Added 1.1d ago review_plan');
     expect(workLine).toContain('Waiting for you review_plan Review the plan');
     expect(noKeys(el)).toBe(true);
     // What it waits for is its card, under the line, in the look of every stop: why, and the button that ends it.
     const card = el.querySelector('[data-wait="limit"]') as HTMLElement;
     expect(card.className).toBe('cw-choice cw-choice-holds');
     expect(text(card, '.cw-choice-q')).toEqual(['The cell ran 3 times in a row for what a cell after it wrote, its limit.']);
+    // It belongs to no cell, so its frame names none and is unbroken.
+    expect(card.querySelector('.cw-choice-by')).toBe(null);
     expect(card.querySelector('button')?.title).toBe('Run the cell again past its limit');
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
   });
@@ -242,10 +245,13 @@ describe('the panel of the item selected', () => {
       expect(marks.filter((m) => m.style.background === 'var(--red)').map((m) => cells[marks.indexOf(m)].cell)).toEqual(
         stopped === null ? [] : [stopped],
       );
-      // The level its cell runs at, written before the strip, as its card writes it under its number; a dash where the
-      // engine gives none.
-      const level = el.querySelector('.cw-item > .status-line .cw-progress .cw-level > .mono');
+      // The level its cell runs at, written on the item's line after its standing, as its card writes it under its
+      // number; a dash where the engine gives none.
+      const level = el.querySelector('.cw-item > .status-line > .status-word + .mono');
       expect(level?.textContent).toBe(work.level == null ? NO_LEVEL.shown : levelWords(work.level, work.raise ?? 0));
+      // The cell it stands at, by its id, just before the strip; none where it stands at none.
+      const at = el.querySelector('.cw-item > .status-line .cw-progress .cw-at > .mono');
+      expect(at?.textContent ?? null).toBe(stateOf(work).cell);
       // The bright marks pulse, as on the card.
       expect(marks.map((m) => m.classList.contains('pulses'))).toEqual(
         cells.map((c) => c.state === 'running' || c.state === 'calling'),
@@ -264,6 +270,10 @@ describe('the panel of the item selected', () => {
     expect(text(asked, '.cw-choice-q')).toEqual(['May a page keep its stream open while hidden?']);
     // It holds the work: on the red tint, with no line to say so.
     expect(asked.className).toBe('cw-choice cw-choice-holds');
+    // Its frame names the cell it belongs to, broken around the words as a fieldset's legend breaks it: the cell by
+    // its id, and the line that cell runs on after it.
+    expect(asked.tagName).toBe('FIELDSET');
+    expect(text(asked, '.cw-choice-by')).toEqual(['implement builder']);
   });
 
   it("says a message to the chosen cell's line, names the cell the engine says it reaches, and then the one it gave it to", async () => {
@@ -287,7 +297,10 @@ describe('the panel of the item selected', () => {
     await act(async () => button(el, 'Send').click());
     expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'line', line: 'builder' }, words: 'Keep it to one table' }]]);
     expect((el.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
-    expect(text(el, '.cw-done')).toEqual(['Said to Initial research']);
+    // What was said stands as the owner's message, marked as not yet taken by the cell; no line under the box says it.
+    expect(text(el, '.cw-done')).toEqual([]);
+    const mine = [...el.querySelectorAll('.cw-message-owner')].at(-1);
+    expect(mine?.querySelector('.cw-waiting')?.getAttribute('aria-label')).toContain('Not taken yet');
   });
 
   it('says words to the line of the cell the work waits at for an answer to its question, which the engine says they reach', async () => {

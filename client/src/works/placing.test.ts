@@ -145,14 +145,14 @@ describe('the rows of a history', () => {
     // The arrow starts in the column of the cell whose run wrote the latest of what woke the run: none where the owner
     // or the outside wrote it.
     expect(rows.map((r) => r.from?.column ?? null)).toEqual([null, 0, 1, null, 0, 0, 2, 3, 2, 3, 2, null]);
-    expect(rows[7].from?.words).toBe('review run 7: outputs opinions_implement v1');
+    expect(rows[7].from?.words).toBe('review: outputs opinions_implement v1');
     // The owner's request and the main the outside wrote are named with the sign of who wrote them.
     expect(rows[0].names).toEqual([{ name: 'request', mark: 'people' }]);
     expect(rows[11].names).toEqual([{ name: 'main', mark: 'outside' }]);
     // A run of the implementation abandoned runs again; each other run handed in.
     expect(rows.map((r) => r.run?.state)).toEqual(['handedIn', 'handedIn', 'again', ...Array(9).fill('handedIn')]);
     // On pointing at its names, everything that woke it, the latest first.
-    expect(partsText(rows[2].did)).toBe('woken by solution v1 from run 2 of deep_research; plan v1 from run 1 of plan');
+    expect(partsText(rows[2].did)).toBe('woken by solution v1 from deep_research; plan v1 from plan');
   });
 
   it("draws the work's pauses, resumes, cancels and reopenings as lines between the runs, none before the first run", () => {
@@ -268,15 +268,15 @@ describe('the rows of a history', () => {
         from: null,
         did: 'woken by request v2 from the owner; opinions_plan v1 from the owner',
       },
-      { names: ['plan'], divider: null, run: '2 handedIn', from: 0, did: 'woken by plan v1 from run 1 of plan' },
-      { names: ['code'], divider: null, run: '3 handedIn', from: 2, did: 'woken by code v1 from run 3 of implement' },
+      { names: ['plan'], divider: null, run: '2 handedIn', from: 0, did: 'woken by plan v1 from plan' },
+      { names: ['code'], divider: null, run: '3 handedIn', from: 2, did: 'woken by code v1 from implement' },
       // What the review wrote ran the implementation again: its arrow starts in a later cell's column.
       {
         names: ['opinions_implement'],
         divider: null,
         run: '2 atRest',
         from: 3,
-        did: 'woken by opinions_implement v1 from run 4 of review',
+        did: 'woken by opinions_implement v1 from review',
       },
       {
         names: ['run_tests (tools)'],
@@ -297,7 +297,7 @@ describe('the rows of a history', () => {
     // A run of a cell the flow no longer has keeps its row, in no column.
     const gone = rows[7];
     expect(gone.run).toBeNull();
-    expect(partsText(gone.did)).toBe('gone, which the flow no longer has · the cell had no record');
+    expect(partsText(gone.did)).toBe('gone, which the flow no longer has · it had not run before');
   });
 });
 
@@ -328,12 +328,14 @@ describe('how a run ended or stands', () => {
     expect(runState(open([round(1, failed)]), stopped)).toBe('stopped');
   });
 
-  it("is the run a work stands at, which the item's window shows where no row is chosen: the run under way, else its cell's latest", () => {
+  it("is the run the item's window shows where no row is chosen: the run under way, else the work's latest", () => {
     const steps: Step[] = [run(1, 'plan', 1, [], []), run(2, 'implement', 3, [], []), run(3, 'implement', 5, [], [])];
     expect(standingRun({ steps, summary: summary({ kind: 'round', cell: 'plan', run: 1, round: 2, since: 0 }) })).toBe(1);
     expect(standingRun({ steps, summary: summary(waiting) })).toBe(3);
-    expect(standingRun({ steps, summary: summary({ kind: 'waits', at: 'review', on: [] }) })).toBeNull();
-    expect(standingRun({ steps, summary: summary({ kind: 'merged' }) })).toBeNull();
+    // Standing at a cell that has not run, or ended, it shows what ran last, never nothing.
+    expect(standingRun({ steps, summary: summary({ kind: 'waits', at: 'review', on: [] }) })).toBe(3);
+    expect(standingRun({ steps, summary: summary({ kind: 'merged' }) })).toBe(3);
+    expect(standingRun({ steps: [], summary: summary(waiting) })).toBeNull();
   });
 
   it('gives each new session to the run that began it: by its number on its line, or, lost or compacted, to the round then under way', () => {

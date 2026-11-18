@@ -419,6 +419,63 @@ export function PanelPart({ label, count, last, children }: {
   );
 }
 
+/// Which sections of the item's window the owner folded away, by their names, kept in this browser, so that one folded
+/// stays folded from item to item and from tab to tab.
+const FOLDED = 'console-window-folded';
+function foldedNow(): string[] {
+  try {
+    const kept = JSON.parse(localStorage.getItem(FOLDED) ?? '[]') as unknown;
+    return Array.isArray(kept) ? kept.filter((k): k is string => typeof k === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/// A section of the item's window, in every tab of it: a whole row in the accent's colour that names it and folds it
+/// away at a press, how many it holds and a muted note beside the name, and under it what it holds. The spaces between
+/// the name and what follows it are not drawn, the row's gap being, but keep them apart where the row is read as text.
+export function Fold({ title, count, note, children }: {
+  title: string;
+  count?: number;
+  note?: ReactNode;
+  children: ReactNode;
+}) {
+  const [folded, setFolded] = useState(() => foldedNow().includes(title));
+  const turn = () => {
+    const now = !folded;
+    setFolded(now);
+    try {
+      const kept = foldedNow().filter((k) => k !== title);
+      localStorage.setItem(FOLDED, JSON.stringify(now ? [...kept, title] : kept));
+    } catch {
+      // Kept only where the browser lets it be.
+    }
+  };
+  return (
+    <section className="cw-fold">
+      <button type="button" className="cw-fold-head" aria-expanded={!folded} onClick={turn}>
+        <span className="cw-fold-sign" aria-hidden="true">
+          <FoldMark open={!folded} />
+        </span>
+        <span>{title}</span>
+        {count !== undefined && (
+          <>
+            {' '}
+            <span className="cw-fold-count mono">{count}</span>
+          </>
+        )}
+        {note !== undefined && (
+          <>
+            {' '}
+            <span className="cw-fold-note">{note}</span>
+          </>
+        )}
+      </button>
+      {!folded && <div className="cw-fold-body">{children}</div>}
+    </section>
+  );
+}
+
 /// The signs a block's name carries: people write it, the outside writes it, it is shown. Drawn by the page, 12px, in
 /// the colour of the text round them.
 export type SignName = 'people' | 'outside' | 'shown';

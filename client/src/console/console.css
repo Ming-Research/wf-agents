@@ -4,9 +4,6 @@
    (styles/tokens.css), but for the console's own colours named below. */
 
 .console {
-  /* A work waiting for something that is not the owner: the console's pale yellow, which asks nothing of them. It has
-     no token: the page marks no other state so. It reads on the dark ground as it is. */
-  --console-waiting: #e8cc6a;
   /* What is new to the owner: the page's accent's tint as a wash behind a strip; the canvas draws it so too. The window
      (its tab, its edge, its shadow) is the page's part (`.cw`, styles/parts.css). */
   --console-accent-wash: var(--accent-tint);
@@ -55,8 +52,8 @@
 
 /* The item in the window, laid out as the page's panel (styles/parts.css): its head (`.drawer-head`), its status lines
    (`.status-line`), the buttons of what the owner does to the work, and under a hairline its body (`.drawer-body`):
-   the switch between the item and the work, and their sections (`.panel-part`). What follows is only what the page's
-   parts do not draw. */
+   the switch between its tabs, and their sections (`.cw-fold`). What follows is only what the page's parts do not
+   draw. */
 
 /* What the window says with nothing selected, as the page's panel says it. */
 .cw-empty {
@@ -95,16 +92,16 @@
   margin-left: auto;
 }
 
-/* The lines the work changed, at the right end of its line. */
-.cw-lines {
-  margin-left: auto;
-}
-
-/* The level the work's cell runs at, just before its strip. */
-.cw-level {
+/* The cell the work stands at, just before its strip. */
+.cw-at {
   display: inline-flex;
   align-items: center;
   gap: var(--space-4);
+}
+
+/* The lines the work changed, at the right end of its line. */
+.cw-lines {
+  margin-left: auto;
 }
 
 /* Where the work's time went, in the track the works page's usage draws too (styles/parts.css). */
@@ -277,6 +274,17 @@
   padding: var(--space-12);
   border: var(--hairline) solid var(--accent);
   background: var(--accent-tint);
+  /* A fieldset keeps the width of its widest content unless it is told it may shrink. */
+  min-width: 0;
+}
+
+/* Who asked a question, on the frame of its card at its top left, the frame broken around it as a fieldset's legend
+   breaks it: the cell by its id, and the line it runs on after it, so that where a question came from is read without
+   opening anything. A card no cell asked draws none, and its frame is unbroken. */
+.cw-choice-by {
+  margin-inline-start: var(--space-8);
+  padding: 0 var(--space-4);
+  font-size: var(--size-small);
 }
 
 .cw-choice-done {
@@ -434,6 +442,24 @@
   color: var(--green);
 }
 
+/* Whether a cell has taken the owner's words, after when they were said: a muted clock until it has, then a tick in
+   the green of what is done. */
+.cw-taken,
+.cw-waiting {
+  flex: none;
+  width: var(--space-12);
+  height: var(--space-12);
+  align-self: center;
+}
+
+.cw-taken {
+  color: var(--green);
+}
+
+.cw-waiting {
+  color: var(--muted);
+}
+
 /* The option recommended: the page's tag, muted, since it is no state. */
 .cw-tag {
   background: var(--muted);
@@ -578,49 +604,6 @@
 
 .cw-to .switch-choice:disabled:hover {
   background: transparent;
-}
-
-/* A section of the item's window: its head is its name in the accent, strong, with a line after it to the window's
-   edge, which folds the section away at a press; under it, what the section holds. */
-.cw-fold {
-  margin-bottom: var(--space-12);
-}
-
-.cw-fold-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  width: 100%;
-  margin: var(--space-16) 0 var(--space-8);
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--head);
-  font-size: var(--size-body);
-  font-weight: var(--weight-strong);
-  text-align: left;
-  cursor: pointer;
-}
-
-.cw-fold:first-child .cw-fold-head {
-  margin-top: 0;
-}
-
-/* The line after the name, to the edge. */
-.cw-fold-head::after {
-  content: '';
-  flex: 1;
-  height: var(--hairline);
-  background: var(--head);
-}
-
-.cw-fold-sign {
-  width: var(--space-12);
-}
-
-.cw-fold-count {
-  color: var(--muted);
-  font-weight: var(--weight);
 }
 
 /* The boxes that tick which kinds of item the tree shows, one under another in the frame a switch has (`.switch`), on

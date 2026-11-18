@@ -1,15 +1,13 @@
-// What a round's part of a run's panel shows of the round beside what it was given and what came back, each by its key
-// as the flow's files and the work's records write it, and what the page works out from them said plainly: what it
-// ran on and in which session of its line; what it took; the context it ended with; how it missed its session's prompt
-// cache, where it did; what was filled into its session, which is what was new to the round; what its agent did, the
-// latest two and the rest folded, followed as it comes while the round is under way and read once after; and the
-// system prompt of its session, which each of its rounds is given.
+// What a time a cell ran shows in a run's panel beside what came back, each by its key as the flow's files and the
+// work's records write it, and what the page works out from them said plainly: what it took; the context it ended
+// with; how it missed its session's prompt cache, where it did; what its agent did, the latest two and the rest folded,
+// followed as it comes while it is under way and read once after; and the system prompt of its session.
 
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { REOPEN_MS } from '../changes';
 import { Attr, ListRow } from '../parts';
-import type { Doing, Done, Fill, Following, Missed, Round, RoundTry, Spent } from '../works-api';
+import type { Doing, Done, Following, Missed, Spent } from '../works-api';
 import { Content, Unfold } from './marks';
 import { type Key, count, spentKeys } from './words';
 
@@ -22,18 +20,6 @@ export function Keys({ keys }: { keys: [string, ReactNode][] }) {
       ))}
     </span>
   );
-}
-
-/// The session of its line the round runs in, as the records count it, and what its last try ran on.
-export function RanKeys({ round }: { round: Round }) {
-  const session = round.session;
-  const ran = round.tries[round.tries.length - 1]?.ran;
-  const keys: Key[] = [
-    ...(session ? ([['line', session.line], ['session', String(session.number)]] as Key[]) : []),
-    ...(ran ? ([['level', ran.level], ['model', ran.model]] as Key[]) : []),
-    ...(ran?.effort ? ([['effort', ran.effort]] as Key[]) : []),
-  ];
-  return <Keys keys={keys} />;
 }
 
 /// What the round took, and, where it was worked out from its calls at their models' prices, that it was: `priced`.
@@ -66,82 +52,6 @@ export function ContextKeys({ context, compactions }: { context: number; compact
         ['compactions', String(compactions)],
       ]}
     />
-  );
-}
-
-/// A version of a block, named by its number among the block's versions: `plan v2`.
-function Version({ block, number }: { block: string; number: number }) {
-  return (
-    <>
-      {block} <span className="muted">v{number}</span>
-    </>
-  );
-}
-
-/// One thing filled into the session, by the part of the message it fills as the flow's files name it.
-function FillRow({ fill }: { fill: Fill }) {
-  switch (fill.kind) {
-    case 'part':
-      return (
-        <ListRow>
-          <span className="mono">{fill.part}</span>
-        </ListRow>
-      );
-    case 'whole':
-      return (
-        <ListRow>
-          <Attr name="context" value={<Version block={fill.block} number={fill.version} />} />
-        </ListRow>
-      );
-    case 'change':
-      return (
-        <ListRow>
-          <Attr name="context" value={<Version block={fill.block} number={fill.version} />} />
-          <Attr name="since" value={`v${fill.since}`} />
-        </ListRow>
-      );
-    case 'results':
-      return (
-        <ListRow>
-          <Attr name="results" value={`[${fill.calls.join(', ')}]`} />
-        </ListRow>
-      );
-    case 'sentBack':
-      return (
-        <ListRow>
-          <Attr name="sent_back" value={`round ${fill.round}`} />
-        </ListRow>
-      );
-  }
-}
-
-/// What was filled into the session of each try, each time it was: what the session lacked of what the cell is given.
-/// The try is named only where there is more than one filling to tell apart.
-export function Filled({ tries }: { tries: RoundTry[] }) {
-  const fillings = tries.flatMap((t) => t.filled.map((fills, i) => ({ attempt: t.attempt, again: i > 0, fills })));
-  const named = fillings.length > 1;
-  return (
-    <>
-      {fillings.map((f) => (
-        <div key={`${f.attempt} ${f.again ? 'again' : ''}`} className="filling">
-          {named && (
-            <span className="muted small">
-              try {f.attempt}
-              {f.again ? ', its session begun again' : ''}
-            </span>
-          )}
-          {f.fills.length === 0 ? (
-            <span className="muted mono">[]</span>
-          ) : (
-            <ul>
-              {f.fills.map((fill, i) => (
-                <FillRow key={i} fill={fill} />
-              ))}
-            </ul>
-          )}
-        </div>
-      ))}
-    </>
   );
 }
 

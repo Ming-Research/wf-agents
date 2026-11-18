@@ -35,7 +35,8 @@ Why: Red says there is a problem to look at, and a pause is something someone ch
 A work that waits at a cell for the results of calls of tools the engine carries out is said, wherever the page says
 its state, the run's Step among them, to wait for each tool by its name, where it runs (in CI, linked to the run, or
 by the engine) and for how long, in the yellow of a call; never to run or to have finished, and its console card is
-one that waits. An act of the engine's own under way is a round, and runs.
+one that waits, unfilled, its edge and its light in that yellow. An act of the engine's own under way is a round, and
+runs.
 Why: Said to run by the item's window and its card and to have finished by the run's panel, while its history said a
 call was under way, one work said three things at once and none of them what it waited for (W11).
 
@@ -49,10 +50,11 @@ hiding that it failed; that the two kinds of failing need no telling apart at a 
 rests on judgment.
 
 ### decision a-level-looks-as-the-level-it-runs-at
-A console card, under its number, and the item's window, before the strip, write the level a work's cell runs at as
-its item's level and how far the cell's line raises it, `L2` or `L2+1`, in the look of the level it really runs at,
-the two added, past the highest level an item may be at too: the first muted, the second the text's colour, the third
-the accent, and every one above the accent and strong. The cell the work stands at is not named there.
+A console card, under its number, and the item's window, after the item's standing, write the level a work's cell
+runs at as its item's level and how far the cell's line raises it, `L2` or `L2+1`, in the look of the level it really
+runs at, the two added, past the highest level an item may be at too: the first muted, the second the text's colour,
+the third the accent, and every one above the accent and strong. The cell the work stands at is not named beside it;
+the window names it by its id before the strip.
 Why: The look says how dear a model the cell runs on, so `L2+1` looks as `L3` does, and `L3+1`, which its line asks to
 run above the third, looks apart from it. Telling the levels apart by hue was turned down: red, yellow, the accent and
 green each mean a state already (principle scarce-emphasis), and no four hues clear of them were found. The strip marks
