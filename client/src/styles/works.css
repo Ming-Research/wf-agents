@@ -340,6 +340,12 @@
   overflow: hidden;
 }
 
+/* The cell a row's run ran in, washed in the colour of its state, so that the runs read down the history as a trail of
+   lit cells; its mark stays at its middle. */
+.history .spot.ran {
+  background-color: color-mix(in srgb, var(--ran) 18%, transparent);
+}
+
 /* The cells' heads and the flow's lines under them, the matrix's own rows, stay at the top together while the runs
    scroll under them; a line's name stays at the left as the heads' corner does. */
 .history thead {

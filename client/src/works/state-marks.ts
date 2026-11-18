@@ -75,6 +75,12 @@ export const CELL_LOOKS = Object.fromEntries(
   Object.entries(STATE_OF_CELL).map(([cell, run]) => [cell, RUN_STATES[run]]),
 ) as Record<CellState, MarkLook>;
 
+/// The colour a state is drawn in, as a value for CSS: a square's fill, or its ring where it is hollow; a dash's.
+export const colourOf = (state: RunState): string => {
+  const look = RUN_STATES[state];
+  return `var(${look.shape === 'square' ? (look.fill ?? look.edge) : look.fill})`;
+};
+
 /// Whether a run's mark pulses: running and waiting, the bright marks, wherever they are drawn.
 export const pulses = (state: RunState): boolean => state === 'running' || state === 'waiting';
 

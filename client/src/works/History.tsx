@@ -20,6 +20,7 @@ import { Arrow, Edge } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
 import type { WorkPage } from '../works-api';
 import { type HistoryRow, type Named } from './placing';
+import { colourOf } from './state-marks';
 import { dayOf, fullTime, minuteOf, partsText } from './words';
 
 /// The marks the history draws, in the order its legend lists them (`Legend` in marks.tsx): the arrow from a write to
@@ -264,7 +265,13 @@ function StepRow(props: {
         return (
           <td
             key={cell.id}
-            className={`spot ${pointed === c ? 'pointed' : ''} ${runHere || fromHere ? 'has-mark' : ''}`}
+            className={[
+              'spot',
+              pointed === c ? 'pointed' : '',
+              runHere || fromHere ? 'has-mark' : '',
+              runHere ? 'ran' : '',
+            ].join(' ')}
+            style={runHere ? ({ '--ran': colourOf(runHere.state) } as CSSProperties) : undefined}
             title={words || undefined}
             onMouseEnter={() => onPoint(c)}
           >
