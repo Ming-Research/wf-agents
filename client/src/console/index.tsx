@@ -32,7 +32,18 @@ import { ItemPanel, type PageState } from './ItemWindow';
 import { SnapScene } from './snap';
 import { type Heard, type Source, inOrder, pageSource } from './source';
 
-export function ConsolePage({ source: given, named, wait }: { source?: Source; named?: number; wait?: string } = {}) {
+export function ConsolePage({
+  source: given,
+  named,
+  wait,
+  active = true,
+}: {
+  source?: Source;
+  named?: number;
+  wait?: string;
+  /// Whether the console is the view shown: kept while another is, it stops drawing and takes no keys.
+  active?: boolean;
+} = {}) {
   const works = useSource();
   const source = useMemo(() => given ?? pageSource(), [given]);
   const panel = useRef<HTMLElement>(null);
@@ -145,6 +156,11 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
   }, [open, selectedId]);
 
   useEffect(() => {
+    scene.current?.setShown(active);
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
     const key = (e: KeyboardEvent) => {
       // Escape answers a question the page asks, and nothing else.
       if (e.key !== 'Escape' || document.querySelector('dialog[open]') !== null) return;
@@ -156,7 +172,7 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [open]);
+  }, [open, active]);
 
   // The item selected as the interface gives it, and its work's page, read when another is selected and again when
   // something happened to that work; an answer older than the one shown is dropped, and a read that failed says so.
@@ -226,7 +242,7 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
             wait={wait}
             actEngine={works.actOnEngine}
             goal={selected !== null && goalMock(selected.work !== null, selected.children.length)}
-            open={open}
+            open={open && active}
             onRead={() =>
               latestData.current !== undefined && scene.current?.show(shownTree(latestData.current, everyNow.current))
             }

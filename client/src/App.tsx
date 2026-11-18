@@ -64,6 +64,10 @@ export function Views({
 }) {
   const [flowShown, setFlowShown] = useState(route.view === 'flow');
   if (route.view === 'flow' && !flowShown) setFlowShown(true);
+  // The console, once shown, is kept as the flow is while another view is shown: its tree, the item selected and its
+  // window stand as the owner left them.
+  const [consoleShown, setConsoleShown] = useState(route.view === 'console');
+  if (route.view === 'console' && !consoleShown) setConsoleShown(true);
   return (
     <>
       {route.view !== 'flow' && serves !== 'all' && (
@@ -71,14 +75,20 @@ export function Views({
           {serves === null ? <p className="message muted">Reading</p> : <FlowAlone route={route} />}
         </div>
       )}
-      {route.view !== 'flow' && serves === 'all' && (
+      {consoleShown && serves === 'all' && (
+        <div className="view" hidden={route.view !== 'console'}>
+          {/* The console's drawing library is large: it is read only once the console is first shown. */}
+          <Suspense fallback={<p className="message muted">Reading the console</p>}>
+            <LazyConsolePage
+              active={route.view === 'console'}
+              named={'item' in route ? route.item : undefined}
+              wait={'item' in route ? route.wait : undefined}
+            />
+          </Suspense>
+        </div>
+      )}
+      {route.view !== 'flow' && route.view !== 'console' && serves === 'all' && (
         <div className="view">
-          {route.view === 'console' && (
-            // The console's drawing library is large: it is read only once the console is first shown.
-            <Suspense fallback={<p className="message muted">Reading the console</p>}>
-              <LazyConsolePage named={'item' in route ? route.item : undefined} wait={'item' in route ? route.wait : undefined} />
-            </Suspense>
-          )}
           {route.view === 'works' && <WorksList />}
           {route.view === 'work' && (
             <WorkView key={`${route.work}/${route.run ?? ''}`} work={route.work} run={route.run} />

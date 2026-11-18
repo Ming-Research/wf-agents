@@ -744,6 +744,16 @@ export class SnapScene {
     this.ready = true;
   }
 
+  /// Draws while the view is shown, and stops while another view hides it; shown again, it draws at the size of what
+  /// holds it, which its observer follows.
+  setShown(shown: boolean): void {
+    if (!this.ready) return;
+    if (shown) {
+      this.app.queueResize();
+      this.app.ticker.start();
+    } else this.app.ticker.stop();
+  }
+
   destroy(): void {
     this.gone = true;
     window.removeEventListener('pointermove', this.drag);
