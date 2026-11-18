@@ -859,7 +859,7 @@ fn finish(
         .and_then(|c| c.line.as_deref());
     let observed = work::observations::kept(work, run, line);
     work.observed.extend(observed);
-    if handed_in && let Some(cell) = cell.as_ref().filter(|c| c.as_str() == "probe: never") {
+    if handed_in && let Some(cell) = &cell {
         handed_in::tell(flow, work, cell);
     }
     if !questions.is_empty()

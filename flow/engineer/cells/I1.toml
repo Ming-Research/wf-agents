@@ -26,6 +26,7 @@ fix or have the owner rule. If what the item asks needs no change, ask the owner
 '''
 # Run only on a plan its reviews passed: the pass runs every cell after a way back that something else runs, and the
 # order alone no longer keeps it from building a plan just failed (decision the-implementation-waits-for-the-plans-verdicts).
+requires = { plan_ok = "yes", tree_ok = "yes" }
 watches = [
   "plan",
   "plan_doubts",
