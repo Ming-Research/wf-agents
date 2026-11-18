@@ -1,7 +1,8 @@
 // A change of files as the item window draws a passage's ```diff block (decision
 // a-diff-is-drawn-as-the-text-it-changes): the block read as a unified diff, as git and the engine write one, and each
 // part of a file it changes drawn as the text reads after the change, in the look of code, with each change in its
-// place: the words removed struck through in red, then the words added in green. The words of the two sides are
+// place: the words removed struck through in red, then the words added in green; each line it draws with its number
+// in the file after the change at its left, where the diff gives the numbers and the line is in that file. The words of the two sides are
 // compared, and blanks are not: a passage wrapped again changes nothing. Two changes fewer than `CLOSE` words apart are
 // one change, so that no change is read word by word. The lines of the diff that say what git keeps of a file (its
 // modes, its blobs, the numbers of its lines) are not drawn, and a file's path is drawn only where the block changes
@@ -12,9 +13,13 @@ import { useMemo } from 'react';
 /// A line of a part of a file a diff changes: kept, removed or added, and its text without its sign.
 type Line = { sign: ' ' | '-' | '+'; text: string };
 
+/// A part of a file a diff changes: the number its lines begin at in the file after the change, none where the diff
+/// gives no numbers; and its lines.
+type Hunk = { from: number | null; lines: Line[] };
+
 /// What a diff says of one file: its path, where it says one; what it says of the file beside its lines, such as that
 /// it is binary; and the parts of it that changed.
-type FileChange = { path: string | null; notes: string[]; hunks: Line[][] };
+type FileChange = { path: string | null; notes: string[]; hunks: Hunk[] };
 
 /// A piece of what a part of a file is drawn as: text as it reads after the change, words removed, or words added.
 type Piece = { kind: 'same' | 'removed' | 'added'; text: string };
@@ -22,8 +27,9 @@ type Piece = { kind: 'same' | 'removed' | 'added'; text: string };
 /// Whether a character is the sign a line of a part of a file begins with.
 const isSign = (c: string): c is Line['sign'] => c === ' ' || c === '-' || c === '+';
 
-/// A part of a file, as a unified diff begins it: the numbers of its lines on each side, which say how long it is.
-const HUNK = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
+/// A part of a file, as a unified diff begins it: the numbers of its lines on each side, which say where it begins and
+/// how long it is.
+const HUNK = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
 /// What git says of a file beside its change that the owner does not read: its modes, its blobs, how alike it is to
 /// another. A rename's or a copy's path is said by the paths of its change.
@@ -86,7 +92,7 @@ function readDiff(text: string): FileChange[] | null {
       // As many lines as the part's numbers say, or every line where the diff has no numbers; a line no sign begins
       // ends it, and a note that a file has no line break at its end belongs to no line.
       let removed = hunk === null ? Infinity : Number(hunk[1] ?? 1);
-      let added = hunk === null ? Infinity : Number(hunk[2] ?? 1);
+      let added = hunk === null ? Infinity : Number(hunk[3] ?? 1);
       const body: Line[] = [];
       for (i += hunk === null ? 0 : 1; i < lines.length && (removed > 0 || added > 0); i++) {
         const l = lines[i];
@@ -99,7 +105,7 @@ function readDiff(text: string): FileChange[] | null {
       }
       while (i < lines.length && lines[i].startsWith('\\')) i += 1;
       if (whole && i < lines.length) return null;
-      current().hunks.push(body);
+      current().hunks.push({ from: hunk === null ? null : Number(hunk[2]), lines: body });
       continue;
     }
     current().notes.push(line);
@@ -239,12 +245,41 @@ function compare(before: string, after: string): Piece[] {
   return out;
 }
 
-/// What a part of a file is drawn as, from its lines.
-const compareHunk = (hunk: Line[]): Piece[] =>
-  compare(
-    hunk.flatMap((l) => (l.sign === '+' ? [] : [l.text])).join('\n'),
-    hunk.flatMap((l) => (l.sign === '-' ? [] : [l.text])).join('\n'),
+/// A line a part of a file is drawn as: the pieces on it, and its number in the file after the change, none where the
+/// line is only in the file before it or the diff gives no numbers.
+type Drawn = { number: number | null; pieces: Piece[] };
+
+/// What a part of a file is drawn as, from its lines: the pieces compared, cut at each line break into the lines drawn,
+/// each numbered as the file after the change counts it where any of it, or the break that ends it, is in that file.
+function compareHunk(hunk: Hunk): Drawn[] {
+  const pieces = compare(
+    hunk.lines.flatMap((l) => (l.sign === '+' ? [] : [l.text])).join('\n'),
+    hunk.lines.flatMap((l) => (l.sign === '-' ? [] : [l.text])).join('\n'),
   );
+  const drawn: Drawn[] = [];
+  let next = hunk.from;
+  let on: Piece[] = [];
+  let after = false;
+  const end = (breakAfter: boolean) => {
+    const inAfter = after || breakAfter;
+    drawn.push({ number: inAfter && next !== null ? next : null, pieces: on });
+    if (inAfter && next !== null) next += 1;
+    on = [];
+    after = false;
+  };
+  for (const p of pieces) {
+    const parts = p.text.split('\n');
+    parts.forEach((text, i) => {
+      if (i > 0) end(p.kind !== 'removed');
+      if (text !== '') {
+        on.push({ kind: p.kind, text });
+        if (p.kind !== 'removed') after = true;
+      }
+    });
+  }
+  if (on.length > 0 || drawn.length === 0) end(false);
+  return drawn;
+}
 
 /// A ```diff block of a passage: each file it changes, named where it changes several, what it says of each beside
 /// its lines, and each part of it that changed, a hairline between two.
@@ -271,21 +306,30 @@ export function Diff({ text }: { text: string }) {
               {note}
             </div>
           ))}
-          {f.hunks.map((pieces, j) => (
+          {f.hunks.map((lines, j) => (
             <div key={j} className={j > 0 ? 'cw-diff-apart' : undefined}>
-              {pieces.map((p, k) =>
-                p.kind === 'removed' ? (
-                  <del key={k} className="cw-removed">
-                    {p.text}
-                  </del>
-                ) : p.kind === 'added' ? (
-                  <ins key={k} className="cw-added">
-                    {p.text}
-                  </ins>
-                ) : (
-                  p.text
-                ),
-              )}
+              {lines.map((line, n) => (
+                <div key={n} className="cw-diff-line">
+                  <span className="cw-diff-number" aria-hidden="true">
+                    {line.number ?? ''}
+                  </span>
+                  <span className="cw-diff-text">
+                    {line.pieces.map((p, k) =>
+                      p.kind === 'removed' ? (
+                        <del key={k} className="cw-removed">
+                          {p.text}
+                        </del>
+                      ) : p.kind === 'added' ? (
+                        <ins key={k} className="cw-added">
+                          {p.text}
+                        </ins>
+                      ) : (
+                        p.text
+                      ),
+                    )}
+                  </span>
+                </div>
+              ))}
             </div>
           ))}
         </div>

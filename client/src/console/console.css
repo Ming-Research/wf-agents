@@ -77,7 +77,8 @@
   border: 0;
   background: none;
   color: inherit;
-  font: inherit;
+  font-size: inherit;
+  line-height: inherit;
   text-align: left;
   text-decoration: none;
   cursor: pointer;
@@ -228,6 +229,27 @@
   color: var(--muted);
 }
 
+/* A line of a part of a file: its number in the file after the change, muted, in a column of its own that copying
+   leaves out, and its text, which wraps under itself. */
+.cw-diff-line {
+  display: flex;
+}
+
+.cw-diff-number {
+  flex: none;
+  width: 5ch;
+  padding-right: 1ch;
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+}
+
+.cw-diff-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+}
+
 .cw-diff-apart {
   margin-top: var(--space-8);
   padding-top: var(--space-8);
@@ -306,7 +328,8 @@
   border-radius: var(--corner);
   background: var(--card);
   color: var(--text);
-  font: inherit;
+  font-size: inherit;
+  line-height: inherit;
   text-align: left;
   cursor: pointer;
   transition: background-color var(--hover-time);
@@ -415,8 +438,17 @@
   user-select: text;
 }
 
-/* The path of a file the work changed wraps anywhere, as a long path has no blank to wrap at. */
+/* The path of a file the work changed: in the text's colour, a button with nothing of one but the pointer, wrapping
+   anywhere, as a long path has no blank to wrap at. */
 .cw-file {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
   overflow-wrap: anywhere;
 }
 

@@ -1616,7 +1616,7 @@ function FileRow({ file, reader, of }: { file: FileChange; reader: Reader; of: s
     <ListRow>
       <button
         type="button"
-        className="link mono cw-file"
+        className="mono cw-file"
         aria-expanded={open}
         title={open ? 'Hide its diff' : 'Show its diff'}
         onClick={() => setOpen(!open)}
