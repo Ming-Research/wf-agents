@@ -1097,6 +1097,41 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
         "{why}"
     );
 }
+
+// A line's session is replaced past the installation's limit alone: a context past the line its line's history gives,
+// within that limit, goes on in its session (decision `a-session-is-replaced-past-its-limit`).
+#[test]
+fn a_session_is_replaced_past_the_installations_limit_and_never_for_its_lines_history() {
+    let sessions_after = |context: u64| {
+        let mut s = S::with(
+            Policy {
+                limit: 1_000,
+                ..policy("opus")
+            },
+            None,
+        );
+        // The line's history, the work before's one round, gives a line of 500 tokens, below either context.
+        let history: Vec<f64> = (s.driver.history("sessions").iter())
+            .filter(|sample| sample.line.as_deref() == Some("engineer"))
+            .filter_map(|sample| sample.spent.context_tokens)
+            .map(|tokens| tokens as f64)
+            .collect();
+        assert_eq!(driver::history::line(&history), Some(500.0));
+        s.hands_in(100, true);
+        s.hands_in(context, true);
+        s.sessions()
+    };
+    let limit = Why::Limit {
+        context: 1_100,
+        limit: 1_000,
+    };
+    assert_eq!(
+        [sessions_after(600), sessions_after(1_100)],
+        [Vec::new(), vec![("engineer".to_string(), limit)]],
+        "past the line's history alone the line goes on in its session; past the limit of 1000 it begins a new one"
+    );
+}
+
 #[test]
 fn a_line_whose_history_is_too_short_to_give_a_line_is_limited_by_the_policy() {
     let mut s = S::with(
