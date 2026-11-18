@@ -64,7 +64,7 @@ Why: Starting over wastes what was done, and a round in progress has already spe
 
 ### principle no-unseen-spending-loop
 Nothing spends again and again unseen: a run that repeats or runs away is stopped, and a work that cannot go on by itself waits, saying why, for the one who decides.
-Why: A cell could be sent back, rerun and paid for without end; retrying during an outage wrote the whole input into one session until it was full; a long round judged only at its end has already spent the money; after a restart the owner must see the state before works spend again. (Article 3)
+Why: A cell could be sent back, rerun and paid for without end; retrying during an outage wrote the whole input into one session until it was full; a long round judged only at its end has already spent the money; after a restart the owner must see the state before works go on. (Article 3)
 
 ### principle nothing-passes-for-normal
 Nothing is taken or shown as other than it is: what is unknown, missing or failed is refused or said, never ignored or shown as empty, zero or normal.

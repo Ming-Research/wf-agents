@@ -583,6 +583,11 @@ const HEAVY_MOVED: &str = "agents.permissions.heavy: the heavy commands are a pr
      project declares its own in its flow/project.toml as [heavy] (commands), and what every agent is refused whatever \
      its project is in agents/refused.toml beside the flows; take heavy out of agents.permissions.";
 
+/// What the settings are told where they name `sessions.warm_while_paused`, the switch that once kept a waiting
+/// session warm while the owner held everything and nowhere else.
+const WARM_WHILE_PAUSED: &str = "sessions.warm_while_paused: a waiting session is kept warm whoever holds its work, so \
+     the setting is one switch over keeping sessions warm at all: write it as keep_warm in [sessions].";
+
 /// What the settings are told where they name `agents.owner_language`, where the owner's language once was.
 const OWNER_LANGUAGE: &str = "agents.owner_language: the owner's language is the owner's, not the agents': take it \
      out of [agents] and write it as language in a table [owner], as install.sample.toml shows.";
@@ -658,6 +663,13 @@ impl Settings {
         let permissions = agents.and_then(|a| a.get("permissions")).and_then(|p| p.as_table());
         if permissions.is_some_and(|permissions| permissions.contains_key("heavy")) {
             return Err(HEAVY_MOVED.to_string());
+        }
+        let kept = table
+            .as_ref()
+            .and_then(|t| t.get("sessions"))
+            .and_then(|s| s.as_table());
+        if kept.is_some_and(|sessions| sessions.contains_key("warm_while_paused")) {
+            return Err(WARM_WHILE_PAUSED.to_string());
         }
         // Settings of the one project an installation once had are told where its tables went.
         let moved: Vec<&str> = (["project", "github"].into_iter())

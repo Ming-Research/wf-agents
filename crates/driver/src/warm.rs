@@ -11,6 +11,15 @@
 //! ping of a line the work has passed for good would be paid for nothing. A ping that failed is tried again a minute
 //! after, while the cache keeps the session.
 //!
+//! Whoever holds the work, its lines that can come back are pinged all the same: the engine as it opened, the owner's
+//! pause of everything or of the work alone, or a question the work waits on the owner for. A hold is on the work
+//! going on, and a session's cache is what the work has already paid for, which a hold is not there to let go of
+//! (principles `no-unseen-spending-loop` and `keep-what-was-paid-for`). Two exceptions, each for a reason of its own:
+//! not while the wait every work shares holds the agents' rounds, since a ping runs with the command line a round runs
+//! with and would fail as they do ([`crate::Driver::pings`]); and not for a work the engine paused because it spent
+//! more than it may, since a ping counts in the work's spend and the budget is the refusal to let that work spend
+//! more. Whether sessions are kept warm at all is the installation's one switch ([`Warm::keep_warm`]).
+//!
 //! A ping is a job of its work: none is due while a round of the work is under way, on any line, and the loop holds
 //! back the work's rounds while one of its pings is (crate `service`). What is due is worked out from the work's
 //! records and the time alone: a session's last call is the end of the latest of its rounds that called the model, or
@@ -20,12 +29,12 @@
 
 use std::collections::BTreeSet;
 
-use decide::{CellId, Decision, RunId, decide};
+use decide::{CellId, Decision, Pauser, RunId, decide};
 use flow::Compiled;
 use store::Item;
 use work::{Time, Work};
 
-use crate::sessions::{self, Policy};
+use crate::sessions::{self, Policy, Warm};
 
 /// How long after a ping that failed the next is tried, in milliseconds, while the cache still keeps the session: a
 /// failure that passes is most often over in a minute, and a minute is a sixtieth of what the cache keeps.
@@ -46,15 +55,20 @@ pub struct Kept {
     pub life: Time,
 }
 
-/// Each line's session the work keeps warm as of `now`, in the order of the walk: none for a work that has ended, one
-/// with a round under way, or with no policy of keeping sessions warm; and none whose cache has let it go by `now`,
-/// which a ping would write again whole, for nothing.
+/// Each line's session the work keeps warm as of `now`, in the order of the walk, whoever holds the work: none for a
+/// work that has ended, one with a round under way, one with no policy of keeping sessions warm, or one the engine
+/// paused for spending more than it may; and none whose cache has let it go by `now`, which a ping would write again
+/// whole, for nothing.
 pub fn kept(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, now: Time) -> Vec<Kept> {
+    let Some(warm) = policy.warm.as_ref().filter(|warm| warm.keep_warm) else {
+        return Vec::new();
+    };
     let decision = decide(&flow.flow, &work.records);
     if matches!(
         decision,
         Decision::Ended(_) | Decision::Busy { .. } | Decision::Fault(_)
     ) || under_way(work)
+        || over_budget(work, warm)
     {
         return Vec::new();
     }
@@ -77,6 +91,18 @@ pub fn due(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, now: Time
 /// Whether a round of the work has begun and not ended.
 fn under_way(work: &Work) -> bool {
     work.records.rounds.len() > work.records.returned.len()
+}
+
+/// Whether the engine paused the work because it spent more than it may: the pause that holds the work is the
+/// engine's, and what the work has spent in all, its pings with its rounds, is past the budget a work has
+/// ([`Warm::budget`]). A ping counts in that spend, and the budget is the refusal to let the work spend more; let on
+/// by the owner, who alone lets a work on, the work is kept warm as any other.
+fn over_budget(work: &Work, warm: &Warm) -> bool {
+    let Some(budget) = warm.budget else {
+        return false;
+    };
+    let engine = (decide::pause(&work.records)).is_some_and(|pause| pause.by == Pauser::Engine);
+    engine && crate::history::totals(work).0 > budget as f64
 }
 
 /// How a line's session stands for keeping it warm: the session, when its next ping is due, whether or not that time
@@ -138,8 +164,8 @@ fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy) 
 }
 
 /// The lines the work can come back to from where it stands: the lines of the cells where it stands, those of its open
-/// runs and the one it runs or waits at next, or, where it stands at none, the cell it last ran; and of every cell a
-/// block those cells write runs, and on, as far as the data reach.
+/// runs and the one it runs, waits or is held at next, or, where it stands at none, the cell it last ran; and of every
+/// cell a block those cells write runs, and on, as far as the data reach.
 fn coming_back(flow: &Compiled, work: &Work, decision: &Decision) -> BTreeSet<String> {
     let r = &work.records;
     let open = (r.started.iter())
@@ -147,10 +173,11 @@ fn coming_back(flow: &Compiled, work: &Work, decision: &Decision) -> BTreeSet<St
         .map(|s| s.cell.clone());
     let mut at: Vec<CellId> = open.collect();
     match decision {
-        Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Abandon { cell, .. } => {
-            at.push(cell.clone())
-        }
-        Decision::Wait { at: cell, .. } => at.push(cell.clone()),
+        Decision::Run { cell, .. }
+        | Decision::GoOn { cell, .. }
+        | Decision::Abandon { cell, .. }
+        | Decision::Paused { cell } => at.push(cell.clone()),
+        Decision::Wait { at: cell, .. } | Decision::Stalled { at: cell, .. } => at.push(cell.clone()),
         _ => {}
     }
     if at.is_empty() {
