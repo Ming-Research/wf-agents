@@ -274,6 +274,16 @@ CREATE TABLE everything_paused (
     time INTEGER NOT NULL
 );
 
+-- The sessions of works that wait were kept warm (1) or were not (0), as the owner switched it on their page, at
+-- `time`, `n` counting from one: the latest row says whether they are kept warm now, and none that they are, which is
+-- how an installation whose owner never switched it stands. It is the installation's, not a work's, and it is the
+-- engine's own state and no setting, so that a switch takes effect at once.
+CREATE TABLE keep_warm (
+    n INTEGER PRIMARY KEY,
+    warm INTEGER NOT NULL CHECK (warm IN (0, 1)),
+    time INTEGER NOT NULL
+);
+
 -- What the work held outside the engine was let go, once it had ended and nothing of it was under way: a row each time
 -- it ended and did, a work reopened ending again.
 CREATE TABLE released (

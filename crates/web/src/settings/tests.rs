@@ -41,7 +41,7 @@ const KNOWN: [(&str, &[&str]); 4] = [
         &["command", "slots", "args", "permissions", "levels", "config_dir"],
     ),
     ("items", &["default_level", "highest_level", "title_max"]),
-    ("sessions", &["context_limit"]),
+    ("sessions", &["compact_at"]),
 ];
 
 /// The stand-in for the engine's reading of the settings.
@@ -63,7 +63,7 @@ fn read(text: &str) -> Result<JsonValue, String> {
         return Err("agents.slots: at least one round must be able to run".to_string());
     }
     if json.get("sessions").is_none() {
-        json["sessions"] = serde_json::json!({ "context_limit": 500000 });
+        json["sessions"] = serde_json::json!({ "compact_at": 500000 });
     }
     json["agents"]["work_budget_usd"] = serde_json::json!(5.0);
     Ok(json)
@@ -188,7 +188,7 @@ fn the_file_is_shown_as_it_writes_the_settings_in_its_order() {
         (None, Some("5.0"))
     );
     assert!(table(&page, "sessions").left_out);
-    let limit = key(&page, "sessions", "context_limit");
+    let limit = key(&page, "sessions", "compact_at");
     assert_eq!(
         (limit.written.as_deref(), limit.running.as_deref()),
         (None, Some("500000"))
@@ -213,7 +213,7 @@ fn a_change_is_written_with_the_files_comments_and_layout_kept() {
                 ("agents.slots", serde_json::json!(3)),
                 ("agents.levels.2.model", serde_json::json!("claude-opus-5-5")),
                 ("items.highest_level", serde_json::json!("2")),
-                ("sessions.context_limit", serde_json::json!(400000)),
+                ("sessions.compact_at", serde_json::json!(400000)),
             ],
         ),
     )
@@ -223,7 +223,7 @@ fn a_change_is_written_with_the_files_comments_and_layout_kept() {
         saved.said,
         "owner.language = \"English\" instead of \"Chinese\"; agents.slots = 3 instead of 2; \
          agents.levels.2.model = \"claude-opus-5-5\" instead of \"claude-sonnet-5-5\"; items.highest_level = \"2\"; \
-         sessions.context_limit = 400000"
+         sessions.compact_at = 400000"
     );
     assert!(!saved.committed, "no git keeps it");
     let text = std::fs::read_to_string(&install.file).unwrap();
@@ -237,7 +237,7 @@ fn a_change_is_written_with_the_files_comments_and_layout_kept() {
         text.contains("[items]\ndefault_level = \"1\"\ntitle_max = 40\nhighest_level = \"2\"\n"),
         "{text}"
     );
-    assert!(text.contains("[sessions]\ncontext_limit = 400000\n"), "{text}");
+    assert!(text.contains("[sessions]\ncompact_at = 400000\n"), "{text}");
     let page = shown(&install).map_err(|r| r.1).unwrap();
     assert_eq!(
         key(&page, "agents", "slots").running.as_deref(),
