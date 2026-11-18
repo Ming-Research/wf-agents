@@ -328,12 +328,14 @@ describe('how a run ended or stands', () => {
     expect(runState(open([round(1, failed)]), stopped)).toBe('stopped');
   });
 
-  it("is the run a work stands at, which the item's window shows where no row is chosen: the run under way, else its cell's latest", () => {
+  it("is the run the item's window shows where no row is chosen: the run under way, else the work's latest", () => {
     const steps: Step[] = [run(1, 'plan', 1, [], []), run(2, 'implement', 3, [], []), run(3, 'implement', 5, [], [])];
     expect(standingRun({ steps, summary: summary({ kind: 'round', cell: 'plan', run: 1, round: 2, since: 0 }) })).toBe(1);
     expect(standingRun({ steps, summary: summary(waiting) })).toBe(3);
-    expect(standingRun({ steps, summary: summary({ kind: 'waits', at: 'review', on: [] }) })).toBeNull();
-    expect(standingRun({ steps, summary: summary({ kind: 'merged' }) })).toBeNull();
+    // Standing at a cell that has not run, or ended, it shows what ran last, never nothing.
+    expect(standingRun({ steps, summary: summary({ kind: 'waits', at: 'review', on: [] }) })).toBe(3);
+    expect(standingRun({ steps, summary: summary({ kind: 'merged' }) })).toBe(3);
+    expect(standingRun({ steps: [], summary: summary(waiting) })).toBeNull();
   });
 
   it('gives each new session to the run that began it: by its number on its line, or, lost or compacted, to the round then under way', () => {

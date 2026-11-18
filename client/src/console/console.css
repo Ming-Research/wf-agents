@@ -434,6 +434,24 @@
   color: var(--green);
 }
 
+/* Whether a cell has taken the owner's words, after when they were said: a muted clock until it has, then a tick in
+   the green of what is done. */
+.cw-taken,
+.cw-waiting {
+  flex: none;
+  width: var(--space-12);
+  height: var(--space-12);
+  align-self: center;
+}
+
+.cw-taken {
+  color: var(--green);
+}
+
+.cw-waiting {
+  color: var(--muted);
+}
+
 /* The option recommended: the page's tag, muted, since it is no state. */
 .cw-tag {
   background: var(--muted);

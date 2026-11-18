@@ -290,7 +290,10 @@ describe('the panel of the item selected', () => {
     await act(async () => button(el, 'Send').click());
     expect(sent).toEqual([[12, { kind: 'say', to: { kind: 'line', line: 'builder' }, words: 'Keep it to one table' }]]);
     expect((el.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
-    expect(text(el, '.cw-done')).toEqual(['Said to Initial research']);
+    // What was said stands as the owner's message, marked as not yet taken by the cell; no line under the box says it.
+    expect(text(el, '.cw-done')).toEqual([]);
+    const mine = [...el.querySelectorAll('.cw-message-owner')].at(-1);
+    expect(mine?.querySelector('.cw-waiting')?.getAttribute('aria-label')).toContain('Not taken yet');
   });
 
   it('says words to the line of the cell the work waits at for an answer to its question, which the engine says they reach', async () => {

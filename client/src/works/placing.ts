@@ -212,16 +212,13 @@ export function runState(run: Run, summary: Pick<Summary, 'now' | 'cells' | 'wai
   return now === 'failed' || back === 'failed' || back === 'handedIn' ? 'failed' : 'atRest';
 }
 
-/// The run a work stands at now, which the item's window's Step shows where no row of the history is chosen: the run
-/// whose round is under way, else the latest run of the cell it stands at; none where it stands at no cell, or that
-/// cell has not run.
+/// The run the item's window's Step shows where no row of the history is chosen: the run whose round is under way,
+/// else the work's latest run, whatever cell the work stands at now; none where nothing has run yet.
 export function standingRun(page: Pick<WorkPage, 'summary' | 'steps'>): number | null {
   const now = page.summary.now;
   if (now.kind === 'round') return now.run;
-  const { cell } = stateOf(page.summary);
-  if (cell === null) return null;
   let run: number | null = null;
-  for (const s of page.steps) if (s.kind === 'run' && s.cell === cell) run = s.run;
+  for (const s of page.steps) if (s.kind === 'run') run = s.run;
   return run;
 }
 

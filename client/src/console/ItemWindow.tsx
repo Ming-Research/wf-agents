@@ -1206,6 +1206,34 @@ function Settled({ options, chosen, recommended }: {
   );
 }
 
+/// Whether the cell the owner's words went to has taken them: a clock until a run of it begins with them, then the
+/// page's tick; what it means said on pointing at it.
+function TakenMark({ taken, to }: { taken: boolean; to: string }) {
+  const words = taken ? `Taken by ${to}` : `Not taken yet: ${to} takes it as it next runs`;
+  return (
+    <svg
+      className={taken ? 'cw-taken' : 'cw-waiting'}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      role="img"
+      aria-label={words}
+    >
+      <title>{words}</title>
+      {taken ? (
+        <path d={TICK} />
+      ) : (
+        <>
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 7.5 V12 L15 14" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 /// The tick that marks the option taken, the page's tick (`TICK`), as wide as an option's radio mark.
 function TickSign() {
   return (
@@ -1408,6 +1436,7 @@ function Discussion({ work, page, messages, pointers, messageTo, setMessageTo, q
             <span className="status-word">{writerOf(n.who, read)}</span>
             <span className="muted">to {n.to.map((x) => writerOf(x, read)).join(', ')}</span>
             <span className="mono muted">{ago(n.at)} ago</span>
+            {n.taken !== undefined && <TakenMark taken={n.taken} to={n.to.map((x) => writerOf(x, read)).join(', ')} />}
           </div>
           {n.quote !== null ? <blockquote className="cw-quote">{n.quote}</blockquote> : null}
           <Markdown text={n.text} pointers={pointers(i)} />
@@ -1490,12 +1519,10 @@ function Compose({ work, draft, line, to, reaches, title, quote, unquote, box, a
 }) {
   const key = draftKey(work.number, draft);
   const [text, setText] = useState(() => readDraft(key));
-  const [written, setWritten] = useState(false);
   const { waiting, refused, send } = useSending(act);
   const working = !ended(work);
   const type = (t: string) => {
     setText(t);
-    setWritten(false);
     writeDraft(key, t);
   };
   // Typing `@` offers the names one can write to: the line the message goes to, only while a work goes on, then the
@@ -1509,8 +1536,6 @@ function Compose({ work, draft, line, to, reaches, title, quote, unquote, box, a
     type(text.replace(/@(\w*)$/, `@${x} `));
     box.current?.focus();
   };
-  // The cell the engine gave the words to, as it answered the act; none where it did not say.
-  const [said, setSaid] = useState<MessageCell | null>(null);
   const submit = () => {
     const words = text.trim();
     const content = quote === null ? words : `${quote.replace(/^/gm, '> ')}\n\n${words}`;
@@ -1519,9 +1544,8 @@ function Compose({ work, draft, line, to, reaches, title, quote, unquote, box, a
       const reached = (done.answer as Said | null)?.reached ?? null;
       writeDraft(key, '');
       setText((now) => (now.trim() === words ? '' : now));
-      setWritten(true);
-      setSaid(reached);
-      sent({ who: 'owner', at: Date.now(), to: reached === null ? [] : [reached], quote, text: words });
+      // The cell the engine gave the words to, as it answered the act, has not taken them yet.
+      sent({ who: 'owner', at: Date.now(), to: reached === null ? [] : [reached], quote, text: words, taken: false });
     });
   };
   return (
@@ -1558,7 +1582,6 @@ function Compose({ work, draft, line, to, reaches, title, quote, unquote, box, a
           Send
         </Button>
       </div>
-      {written && <p className="cw-done">{said === null ? 'Said' : `Said to ${title(said)}`}</p>}
       {refused !== null && <p className="failed small">{refused}</p>}
     </>
   );

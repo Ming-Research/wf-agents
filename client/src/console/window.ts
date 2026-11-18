@@ -41,7 +41,15 @@ export type Choice = Extract<Part, { kind: 'choice' }>;
 
 /// A message under the body: who wrote it, when, to whom, what of the body it quotes, and what it says. A cell writes
 /// one, or is written to, by its id.
-export type Message = { who: Who | MessageCell; at: number; to: (Who | MessageCell)[]; quote: string | null; text: string };
+export type Message = {
+  who: Who | MessageCell;
+  at: number;
+  to: (Who | MessageCell)[];
+  quote: string | null;
+  text: string;
+  /// Of the owner's words to a cell: whether a run of that cell has begun with them; of any other message, none.
+  taken?: boolean;
+};
 
 /// A section of the body: a datum the flow's card names, by its name, with the passages of its current version.
 export type BodySection = { title: string; parts: Part[] };

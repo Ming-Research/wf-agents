@@ -155,9 +155,12 @@ function ContextChart({ sessions, rounds, lines }: { sessions: SessionRow[]; rou
   const points = sessions.flatMap((s) => s.points);
   if (points.length === 0) return <p className="muted small">No round recorded its context</p>;
   // What a character and a line of the chart's words take, and the dash before a name.
-  const [H, left, top, bottom, char, line, dash] = [120, 4, 6, 6, 6.6, 13, 12];
+  const [H, top, bottom, char, line, dash, gap] = [120, 6, 6, 6.6, 13, 12, 6];
   const most = Math.max(...points.map((p) => p.context));
-  const right = 12 + dash + Math.max(...sessions.map((s) => sessionName(s).length), tokens(most).length) * char;
+  // The scale at the left, its top the most context a round ended with and its foot none; the names at the right.
+  const scale = [tokens(most), '0'];
+  const left = gap + Math.max(...scale.map((t) => t.length)) * char + gap;
+  const right = 12 + dash + Math.max(...sessions.map((s) => sessionName(s).length)) * char;
   const x = (at: number) => left + ((W - left - right) * at) / Math.max(rounds - 1, 1);
   const y = (context: number) => top + (H - top - bottom) * (1 - context / most);
   // Each name at the end of its line; one that would lie over a name placed before it goes down a line at a time.
@@ -175,8 +178,11 @@ function ContextChart({ sessions, rounds, lines }: { sessions: SessionRow[]; rou
     <svg ref={box} className="usage-chart" viewBox={`0 0 ${W} ${height}`} role="img" aria-label="The context after each round">
       <line className="usage-grid" x1={left} x2={W - right} y1={y(most)} y2={y(most)} />
       <line className="usage-grid" x1={left} x2={W - right} y1={y(0)} y2={y(0)} />
-      <text className="usage-chart-text" x={W - right + 4} y={y(most) + 4}>
-        {tokens(most)}
+      <text className="usage-chart-text" x={left - gap} y={y(most) + 4} textAnchor="end">
+        {scale[0]}
+      </text>
+      <text className="usage-chart-text" x={left - gap} y={y(0) + 4} textAnchor="end">
+        {scale[1]}
       </text>
       {sessions.map((s) => (
         <g key={sessionName(s)} style={{ '--usage-line': lineColour(lines, s.line) } as CSSProperties}>

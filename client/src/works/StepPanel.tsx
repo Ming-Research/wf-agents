@@ -13,7 +13,7 @@ import { Fragment, type ReactNode, useCallback } from 'react';
 
 import { StateMark, markName } from '../marks';
 import { ListRow, PanelPart, Sign, StatusLine } from '../parts';
-import type { CallRow, Following, Handed, Round, Run, Step, WorkPage } from '../works-api';
+import type { CallRow, Following, Handed, Round, Run, Step, Unmet, WorkPage } from '../works-api';
 import { CallsTook, Opener, Parts } from './marks';
 import { type HistoryRow, type SessionStep, runState } from './placing';
 import { ContextKeys, DoneList, Keys, MissedKeys, SystemPrompt, TookKeys } from './Round';
@@ -115,8 +115,8 @@ function RoundPart({ run, round, calls, first, timed, sentBack, failedBefore, re
   /// The calls it asked for, made after it began and before the next time did.
   calls: CallRow[];
   first: boolean;
-  /// What it handed in was sent back, by the time after it.
-  sentBack: boolean;
+  /// Why what it handed in was sent back, as the time after it was told; none where it was not.
+  sentBack: Unmet[] | null;
   /// The time before it failed.
   failedBefore: boolean;
   reader: Reader;
@@ -144,22 +144,16 @@ function RoundPart({ run, round, calls, first, timed, sentBack, failedBefore, re
       }
     >
       <dl className="pairs round">
-        {given.kind === 'sentBack' && (
-          <>
-            <dt>Sent back</dt>
-            <dd>
-              <ul className="reasons">
-                {given.unmet.map((u, i) => (
-                  <ListRow key={i}>{unmetWords(u)}</ListRow>
-                ))}
-              </ul>
-            </dd>
-          </>
-        )}
-        {!first && given.kind !== 'sentBack' && (failedBefore || given.kind === 'results') && (
+        {!first && (given.kind === 'sentBack' || failedBefore || given.kind === 'results') && (
           <>
             <dt>Why</dt>
-            <dd>{failedBefore ? 'the time before failed' : 'the results of the calls it asked for came back'}</dd>
+            <dd>
+              {given.kind === 'sentBack'
+                ? 'what it handed in the time before was sent back'
+                : failedBefore
+                  ? 'the time before failed'
+                  : 'the results of the calls it asked for came back'}
+            </dd>
           </>
         )}
         <dt>Back</dt>
@@ -181,8 +175,8 @@ function RoundPart({ run, round, calls, first, timed, sentBack, failedBefore, re
           )}
           {back?.kind === 'handedIn' && (
             <>
-              handed in {back.blocks.length === 0 ? 'nothing' : sentBack ? 'this, which was sent back' : 'what is under Handed in'}
-              {sentBack && (
+              handed in {back.blocks.length === 0 ? 'nothing' : sentBack !== null ? 'this, which was sent back' : 'what is under Handed in'}
+              {sentBack !== null && (
                 <ul>
                   {back.blocks.map((h, i) => (
                     <HandedRow
@@ -198,6 +192,18 @@ function RoundPart({ run, round, calls, first, timed, sentBack, failedBefore, re
             </>
           )}
         </dd>
+        {sentBack !== null && (
+          <>
+            <dt>Sent back</dt>
+            <dd>
+              <ul className="reasons">
+                {sentBack.map((u, i) => (
+                  <ListRow key={i}>{unmetWords(u)}</ListRow>
+                ))}
+              </ul>
+            </dd>
+          </>
+        )}
         {round.spent && (
           <>
             <dt>Took</dt>
@@ -418,7 +424,10 @@ function RunStep({ run, mark, began, page, reader, shown }: {
           calls={run.calls.filter((c) => c.made >= round.began && c.made < (run.rounds[i + 1]?.began ?? Infinity))}
           first={i === 0}
           timed={run.rounds.length > 1}
-          sentBack={run.rounds[i + 1]?.given.kind === 'sentBack'}
+          sentBack={(() => {
+            const next = run.rounds[i + 1]?.given;
+            return next?.kind === 'sentBack' ? next.unmet : null;
+          })()}
           failedBefore={run.rounds[i - 1]?.back?.kind === 'failed'}
           reader={reader}
           shown={shown}
@@ -511,7 +520,7 @@ function ActStep({ step }: { step: Step & { kind: keyof typeof ACT_WORDS } }) {
   );
 }
 
-/// The Step: the row of the work's history it is given, or, with none, that the work stands at no run. `shown` is
+/// The Step: the row of the work's history it is given, or, with none, that nothing has run yet. `shown` is
 /// whether the Step is in view, which what a round's agent does is followed or read only while it is.
 export function StepTab({ page, row, sessions, reader, shown }: {
   page: WorkPage;
@@ -521,7 +530,7 @@ export function StepTab({ page, row, sessions, reader, shown }: {
   reader: Reader;
   shown: boolean;
 }) {
-  if (row === undefined) return <p className="muted">The work stands at no run</p>;
+  if (row === undefined) return <p className="muted">Nothing has run yet</p>;
   const step = row.step;
   switch (step.kind) {
     case 'run':

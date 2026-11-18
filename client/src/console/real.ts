@@ -126,6 +126,11 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
     const block = wordsOf(page.flow, c.id);
     return block === undefined ? [] : versionsOf(page, block.name).map((v) => ({ v, block, cell: c.id }));
   });
+  // Whether a run of the cell has begun with this version of the block it is said in, or a later one.
+  const takenBy = (cell: string, block: string, version: number): boolean =>
+    page.steps.some(
+      (s) => s.kind === 'run' && s.cell === cell && (s.basis.find((b) => b.block === block)?.version ?? 0) >= version,
+    );
   const said = await Promise.all([
     ...words.map(async ({ v, block, cell }): Promise<Message & { place: number }> => {
       const entry = await contentOf(load, work, block.name, v.number);
@@ -135,12 +140,14 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
         return { who: cell, at: v.time, to: ['owner'], quote: null, text: answer, place: v.at };
       }
       const { quote, text: said } = quoted(placesOf(entry, text('owner'))?.get('words') ?? entry);
-      return { who: 'owner', at: v.time, to: [cell], quote, text: said, place: v.at };
+      const taken = takenBy(cell, block.name, v.number);
+      return { who: 'owner', at: v.time, to: [cell], quote, text: said, taken, place: v.at };
     }),
     ...notes.flatMap((b) =>
       versionsOf(page, b.name).map(async (v): Promise<Message & { place: number }> => {
         const { quote, text } = quoted(await contentOf(load, work, b.name, v.number));
-        return { who: 'owner', at: v.time, to: [b.readBy.cells[0]], quote, text, place: v.at };
+        const taken = takenBy(b.readBy.cells[0], b.name, v.number);
+        return { who: 'owner', at: v.time, to: [b.readBy.cells[0]], quote, text, taken, place: v.at };
       }),
     ),
   ]);
@@ -158,7 +165,7 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
   const messages = said
     .filter((m) => m.text.trim() !== '' && answers(m))
     .sort((a, b) => a.at - b.at || a.place - b.place)
-    .map(({ who, at, to, quote, text }) => ({ who, at, to, quote, text }));
+    .map(({ who, at, to, quote, text, taken }) => ({ who, at, to, quote, text, ...(taken === undefined ? {} : { taken }) }));
   return { sections, choicesWait: false, messages };
 }
 
