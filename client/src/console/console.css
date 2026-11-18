@@ -4,9 +4,6 @@
    (styles/tokens.css), but for the console's own colours named below. */
 
 .console {
-  /* A work waiting for something that is not the owner: the console's pale yellow, which asks nothing of them. It has
-     no token: the page marks no other state so. It reads on the dark ground as it is. */
-  --console-waiting: #e8cc6a;
   /* What is new to the owner: the page's accent's tint as a wash behind a strip; the canvas draws it so too. The window
      (its tab, its edge, its shadow) is the page's part (`.cw`, styles/parts.css). */
   --console-accent-wash: var(--accent-tint);

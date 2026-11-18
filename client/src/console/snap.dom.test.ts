@@ -44,7 +44,7 @@ describe("a card's mood", () => {
     expect(stateOf({ now, cells, waits: [] }).tone).toBe('quiet');
     expect(moodOf({ now, cells, waits: [] })).toBe('waiting');
     // One that waits at its cell for the call of a tool the engine carries out waits, in the yellow of a call, and its
-    // card is one that waits (decision a-call-waited-for-is-no-run).
+    // card waits for the call, in that yellow (decision a-call-waited-for-is-no-run).
     const tool: Now = {
       kind: 'waits',
       at: 'M2',
@@ -52,7 +52,7 @@ describe("a card's mood", () => {
     };
     const at: CellNow[] = [{ ...cells[0], cell: 'M2' }];
     expect(stateOf({ now: tool, cells: at, waits: [] }).tone).toBe('calling');
-    expect(moodOf({ now: tool, cells: at, waits: [] })).toBe('waiting');
+    expect(moodOf({ now: tool, cells: at, waits: [] })).toBe('calling');
     // An act of the engine's own under way is a round, and its card runs.
     const act: Now = { kind: 'round', cell: 'M2', run: 2, round: 1, since: 0 };
     expect(stateOf({ now: act, cells: at, waits: [] }).tone).toBe('running');
