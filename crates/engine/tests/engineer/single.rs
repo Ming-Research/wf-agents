@@ -359,7 +359,7 @@ fn the_plans_reviews_judge_one_version_in_one_pass_and_the_research_answers_both
 
 // The better-way cell runs once a work: the engine writes that it handed in as its first run that dealt with something
 // finishes, and the cell is skipped from then on, though the plan changes (decision the-better-way-is-looked-for-once).
-// A run that only asked for a tool dealt with nothing, and does not count.
+// A round that failed and a run that only asked for a tool dealt with nothing, and do not count.
 #[test]
 fn the_better_way_cell_runs_until_it_has_handed_in_once() {
     let handed_in = |w: &W| {
@@ -376,9 +376,25 @@ fn the_better_way_cell_runs_until_it_has_handed_in_once() {
         ("acceptance", None),
     ];
     w.hands_in("R1", &plan, Vec::new());
-    // The cell asks for a tool: its run finishes, having dealt with nothing.
+    // The cell's first round fails: nothing came back, and the engine pauses the work until the owner lets it on.
     let (run, cell) = w.round();
     assert_eq!(cell, "R2");
+    w.on(Event::Failed {
+        run,
+        why: "The agent's program could not start.".to_string(),
+        failure: decide::run::Failure::Other,
+        resets: None,
+        spent: Spent::default(),
+    });
+    assert_eq!(handed_in(&w), 0, "a round that failed hands in nothing");
+    w.on(Event::Resumed);
+    // Its next round asks for a tool: its run finishes, having dealt with nothing.
+    let (again, cell) = w.round();
+    assert_eq!(
+        (again, cell.as_str()),
+        (run, "R2"),
+        "the run whose round failed has its next round"
+    );
     let asks = Came::asks(vec![engine::Ask::Tool {
         name: "query".to_string(),
         input: "{}".to_string(),
