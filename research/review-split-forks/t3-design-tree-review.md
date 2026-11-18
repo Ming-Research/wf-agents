@@ -5,7 +5,8 @@ of `review_ok`, and the points it says go in `design_review` in `review`.
 ---
 
 Review the change in `code` against the design tree, in a session of your own, and change no file. Read the diff from
-main to `head`, and whole each file of decisions whose topic it touches.
+main to `head`, and whole each file of decisions whose topic it touches. Not the code and not the tests: the other two
+reviews have them.
 
 1. Does the code break a principle, a decision or a document of the tree? A document may be ahead of the code: the change builds toward it, never away from it.
 2. Do the entries the change writes into `design/` say what `tree_edits` says, and no more?
