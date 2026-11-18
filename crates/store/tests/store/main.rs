@@ -471,6 +471,11 @@ fn history(d: &mut Driver) {
     d.wrote("request", Outsider::Person, None);
     d.end(hands_in(&[("text", None)]));
     d.wrote("checks", Outsider::Outside, Some("pass"));
+    // The host found the work's pull request as its checks ran.
+    d.on(Event::Pulled {
+        number: 41,
+        url: "https://github.com/o/r/pull/41".to_string(),
+    });
     d.wrote("verdict", Outsider::Person, Some("no"));
     d.on(Event::LetGo { cell: "write".into() });
     // Answered, the judge is entered again, and hands in until a run of it finishes, writing a choice; the writer then

@@ -61,8 +61,9 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, RanOn, Time, Why};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Doing, Fork, Forked, Network, Outside, Ping, PingReply, Release, ReleaseReply, Returned,
-    Round, RoundReply, Rounds, Saying, Teller, Telling, Told, ToolCall, Tools, Try, WITHDRAWN,
+    Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, Forked, Hosting, Mark,
+    Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round, RoundReply, Rounds,
+    Saying, Seen, Teller, Telling, Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use driver::{Along, Under};
@@ -1033,40 +1034,103 @@ impl Handle {
         Ok(Some(self.carriers.agents.fork(fork).await))
     }
 
-    /// What the agent of the round of this number of the run was last seen doing, as the carrier of its cell's kind
-    /// keeps it as it comes: none where there is no such work, and inside, none where the work has no such round, or
-    /// why it could not be read. It is read off the loop, as [`Handle::told`] reads.
+    /// What the agent of the round of this number of the run did from the mark on, as the carrier of its cell's kind
+    /// keeps it as it comes, and whether the round had ended as the records stood just before it was read, so that
+    /// what was read of a round that had ended is all it did: none where there is no such work, and inside, none where
+    /// the work has no such round, or why it could not be read. It is read off the loop, as [`Handle::told`] reads.
     pub async fn doing(
         &self,
-        work: WorkNumber,
-        run: RunId,
-        round: usize,
-    ) -> Result<Option<Result<Option<Vec<Doing>>, String>>, Refusal> {
+        (work, run, round): (WorkNumber, RunId, usize),
+        from: Mark,
+    ) -> Result<Option<Result<Option<(Doings, bool)>, String>>, Refusal> {
         let kind = self
             .read(move |driver| {
                 let kept = driver.work(work)?;
                 if !kept.work.given.contains_key(&(run, round)) {
                     return Some(None);
                 }
-                let started = kept.work.records.started.iter().find(|s| s.run == run);
-                Some(Some(
-                    (started.and_then(|s| cell_spec(kept.flow, &s.cell))).map(|spec| spec.kind),
-                ))
+                let records = &kept.work.records;
+                let started = records.started.iter().find(|s| s.run == run);
+                let kind = (started.and_then(|s| cell_spec(kept.flow, &s.cell))).map(|spec| spec.kind);
+                // A round has ended once its run has come back from as many rounds.
+                let ended = records.returned.iter().filter(|r| r.run == run).count() >= round;
+                Some(Some((kind, ended)))
             })
             .await?;
-        let kind = match kind {
+        let (kind, ended) = match kind {
             None => return Ok(None),
             Some(None) => return Ok(Some(Ok(None))),
-            Some(Some(kind)) => kind,
+            Some(Some(found)) => found,
         };
         let carriers = self.carriers.clone();
-        let doing = tokio::task::spawn_blocking(move || carriers.doing(kind, work, run, round)).await;
+        let doing = tokio::task::spawn_blocking(move || carriers.doing(kind, (work, run, round), from)).await;
         Ok(Some(match doing {
-            Ok(doing) => doing.map(Some),
+            Ok(doing) => doing.map(|doings| Some((doings, ended))),
             Err(e) => Err(format!("what was kept of it could not be read: {e}")),
         }))
     }
+
+    /// What the repository of each work's project says of it beside its records, in the order asked, as the carrier
+    /// of the engine's acts works it out off the loop, [`SEEN`] works at once.
+    pub async fn seen(&self, of: Vec<OfWork>) -> Vec<Result<Seen, String>> {
+        let at_once = Arc::new(tokio::sync::Semaphore::new(SEEN));
+        let asked: Vec<_> = (of.into_iter())
+            .map(|of| {
+                let (carriers, at_once) = (self.carriers.clone(), at_once.clone());
+                tokio::spawn(async move {
+                    let _turn = at_once.acquire_owned().await;
+                    carriers.seen(of).await
+                })
+            })
+            .collect();
+        let mut seen = Vec::with_capacity(asked.len());
+        for asked in asked {
+            seen.push(
+                asked
+                    .await
+                    .unwrap_or_else(|e| Err(format!("it could not be worked out: {e}"))),
+            );
+        }
+        seen
+    }
+
+    /// Each file the work changed, as the carrier of the engine's acts works it out off the loop: none where there is
+    /// no such work, and inside, none where nothing tells what it changed, or why it could not be worked out.
+    pub async fn changes(&self, work: WorkNumber) -> Result<Option<Result<Option<Changes>, String>>, Refusal> {
+        let Some(of) = self.of_work(work).await? else {
+            return Ok(None);
+        };
+        Ok(Some(self.carriers.changes(of).await))
+    }
+
+    /// The unified diff of the file of this path the work changed, as the carrier of the engine's acts works it out
+    /// off the loop: none where there is no such work, and inside, none where the work changed no file of the path, or
+    /// why it could not be worked out.
+    pub async fn diff(&self, work: WorkNumber, path: String) -> Result<Option<Result<Option<Diff>, String>>, Refusal> {
+        let Some(of) = self.of_work(work).await? else {
+            return Ok(None);
+        };
+        Ok(Some(self.carriers.diff(of, path).await))
+    }
+
+    /// The work as the carrier of its project's repository is asked of it for its changes; none where there is no
+    /// such work.
+    async fn of_work(&self, work: WorkNumber) -> Result<Option<OfWork>, Refusal> {
+        self.read(move |driver| {
+            driver.work(work).map(|kept| OfWork {
+                work,
+                item: kept.item.clone(),
+                merged: None,
+            })
+        })
+        .await
+    }
 }
+
+/// How many works the repository is asked of at once: each look runs a few git commands, which take tens of
+/// milliseconds each, mostly the process starting, so a few at once keep a read of every work short without
+/// crowding the machine.
+pub const SEEN: usize = 8;
 
 /// The specification of the cell in the flow.
 fn cell_spec<'a>(flow: &'a Compiled, cell: &CellId) -> Option<&'a CellSpec> {

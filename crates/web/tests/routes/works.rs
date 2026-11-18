@@ -67,6 +67,10 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 // Its rounds run at its item's level, and the plan's line raises it no higher.
                 "level": "2",
                 "cellLevel": "2",
+                "raise": 0,
+                // The trial's host keeps no pull request, and its acts' carrier no repository to say what it changed.
+                "pull": null,
+                "changed": null,
             },
             "title": "Greet the user",
             "level": "2",

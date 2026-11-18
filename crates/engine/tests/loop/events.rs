@@ -246,3 +246,35 @@ fn a_write_for_the_round_of_a_run_abandoned_is_written_and_put_in_nowhere() {
     );
     assert_eq!(w.work.records.put_in, Vec::new());
 }
+
+// What the host says of the pull request each check finds again is kept once for each pull request, at a place of its
+// own and a moment of its own, and runs no cell.
+#[test]
+fn a_pull_request_the_host_found_is_kept_once_for_each_and_starts_nothing() {
+    let (mut w, ..) = W::requested();
+    let pulled = |number: u64| Event::Pulled {
+        number,
+        url: format!("https://github.com/o/r/pull/{number}"),
+    };
+    let started = w.work.records.started.len();
+    let moments = w.work.moments.len();
+    assert_eq!(w.on(pulled(7)), vec![]);
+    let first = w.work.tick().0 - 1;
+    assert_eq!(w.work.moments.len(), moments + 1, "kept as a moment of its own");
+    let before = w.work.clone();
+    assert_eq!(w.on(pulled(7)), vec![]);
+    assert_eq!(w.work, before, "found again, it is kept once");
+    w.on(pulled(8));
+    let kept: Vec<(u64, u64, &str)> = (w.work.pulls.iter())
+        .map(|p| (p.at.0, p.number, p.url.as_str()))
+        .collect();
+    let second = w.work.tick().0 - 1;
+    assert_eq!(
+        kept,
+        [
+            (first, 7, "https://github.com/o/r/pull/7"),
+            (second, 8, "https://github.com/o/r/pull/8")
+        ]
+    );
+    assert_eq!(w.work.records.started.len(), started, "no cell runs for it");
+}

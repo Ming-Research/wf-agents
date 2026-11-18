@@ -5,7 +5,8 @@
 //! the merge before it merges (decision a-version-read-at-a-rounds-end-is-that-rounds): read at the end of an agent's round on a line that may
 //! change the work, a version is what the round committed, which its run hands in; read anywhere else, it is no round's
 //! doing and is written from outside, put into the round where the round's own act read it, as taking main in. A round
-//! that failed hands in nothing: what it committed is read at the end of the round that takes it up.
+//! that failed hands in nothing: what it committed is read at the end of the round that takes it up. A new version of
+//! the head is kept under a reference of the engine's own as it is read (`crate::head::keep`).
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -103,6 +104,10 @@ impl Looking {
         let mut new = Vec::new();
         for kept in &self.kept {
             if let Some(content) = kept.datum.read(place, &self.reading, kept.last.as_deref()).await? {
+                // A new head is kept as it is read, so that what the work committed outlives its branch.
+                if kept.datum == Datum::Head {
+                    head::keep(place, &content).await?;
+                }
                 new.push((kept.block.clone(), content));
             }
         }

@@ -47,6 +47,32 @@ async fn the_agents_run_pushes_the_last_commit_opens_its_pull_request_and_runs_t
 }
 
 #[tokio::test]
+async fn the_agents_run_says_the_pull_request_it_checks_the_work_through_for_the_work_to_keep() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github().fast(
+        &head,
+        vec![passed("lint"), passed("test")],
+        Some(("test-results", fast::junit())),
+    );
+    let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+    let reply = service::CallReply::new(WORK, CallId(1), to);
+    let mut stop = Stop::never().hosting(reply.hosting());
+    let place = hub.place();
+    (hub.host
+        .run_tests(&branch(&place), &Named::default(), hub.call(), &mut stop)
+        .await)
+        .expect("run")
+        .expect("nothing stopped it");
+    let pull = hub.github().pull_requests()[0].clone();
+    let pulled = engine::Event::Pulled {
+        number: pull.number,
+        url: pull.url,
+    };
+    assert_eq!(super::ends::heard(&mut said), [pulled]);
+}
+
+#[tokio::test]
 async fn changes_not_committed_are_said_and_nothing_is_pushed() {
     let hub = Hub::new();
     hub.committed().await;

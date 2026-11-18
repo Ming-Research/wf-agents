@@ -142,6 +142,11 @@ impl Host for Local {
     async fn reopen(&self, _: &Branch<'_>) -> Result<(), String> {
         Ok(())
     }
+
+    /// The local repository has no pull requests: a work merges in its checkout.
+    fn pull_at(&self, _: u64) -> Option<String> {
+        None
+    }
 }
 
 /// The reference that holds main's head as the local repository gives it, main of this name: the branch itself.

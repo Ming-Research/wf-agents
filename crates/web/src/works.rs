@@ -16,7 +16,8 @@
 //! - [`RoundPage`], [`VersionPage`], [`CallPage`]: the content the history leaves out.
 //! - [`ToldPage`]: what a round was told and what came back of it, as its carrier kept them.
 //! - [`SystemPage`]: the system prompt a line's session began with, as its carrier kept it.
-//! - [`DoingPage`]: what the agent of a round was last seen doing, as its carrier keeps it as it comes.
+//! - [`DoingPage`], [`Done`]: what the agent of a round did, as its carrier keeps it as it comes.
+//! - [`ChangesPage`], [`DiffPage`]: what a work changed, as git in its project's repository says.
 //! - [`Act`], [`NewItem`]: what the owner does on the pages.
 //! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots and the pause of everything, and what the owner
 //!   does to it.
@@ -281,6 +282,73 @@ pub struct Summary {
     /// at an engine cell, whose acts run on no level, or where the rule refuses its level.
     #[serde(default)]
     pub cell_level: Option<String>,
+    /// How many levels the line of the cell it stands at raises that cell above its level, as the line's
+    /// `levels_above` says, whatever the highest level an item may be at holds the cell's level to; none where it
+    /// stands at no agent's cell.
+    #[serde(default)]
+    pub raise: Option<u32>,
+    /// The pull request the host of its repository checks it through: the latest the host found, as the work keeps
+    /// it; of a work that merged before works kept theirs, the one the title of the commit its merge made names. None
+    /// where it has none, as on a host with no pull requests.
+    #[serde(default)]
+    pub pull: Option<Pull>,
+    /// What it changed: the files touched and the lines added and removed between where its branch left main and its
+    /// latest head, together with what its worktree holds not yet committed while the worktree is there, as git in the
+    /// project's repository says ([`Summary::saw`]). None where nothing of it is there to tell, as before its branch is
+    /// made, and where git could not say, which the engine's standard error says.
+    #[serde(default)]
+    pub changed: Option<Diffstat>,
+}
+
+/// A pull request on the host of a work's repository: its number, and its address.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pull {
+    pub number: u64,
+    pub url: String,
+}
+
+/// How much a work changed: how many files, and how many lines added and removed in them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Diffstat {
+    pub files: u64,
+    pub added: u64,
+    pub removed: u64,
+}
+
+/// Each file a work changed, as its summary counts them, in the order of their paths, with the commit where its branch
+/// left main and its latest head they are between, and whether what its worktree holds not yet committed was counted,
+/// the worktree being there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangesPage {
+    pub base: String,
+    pub head: String,
+    pub worktree: bool,
+    pub files: Vec<FileChange>,
+}
+
+/// A file a work changed: its path; the lines added and removed, none of a binary file; and whether its latest head
+/// holds a change of it, or only its worktree does.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileChange {
+    pub path: String,
+    pub added: u64,
+    pub removed: u64,
+    pub binary: bool,
+    pub committed: bool,
+}
+
+/// The unified diff of one file a work changed, between where its changes are, up to where it was cut, with its whole
+/// length in bytes where it was.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffPage {
+    pub path: String,
+    pub diff: String,
+    pub cut: Option<u64>,
 }
 
 /// One thing a work waits on the owner for: what names it within its work, which a notification's address and the
@@ -1537,12 +1605,21 @@ pub struct SystemPage {
     pub text: String,
 }
 
-/// What the agent of a round was last seen doing, as its program said it as it went: the last few things its latest
-/// try did, the latest last.
+/// What the agent of a round did from its start, as its program said it as it went: each thing in the order done,
+/// every try in order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DoingPage {
-    pub doing: Vec<Doing>,
+    pub doing: Vec<Done>,
+}
+
+/// A thing an agent did, with the try of its round it did it in, the first being one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Done {
+    pub attempt: usize,
+    #[serde(flatten)]
+    pub doing: Doing,
 }
 
 /// A thing an agent was seen doing.
@@ -1588,10 +1665,48 @@ impl Doing {
     }
 }
 
+impl Done {
+    pub fn of((attempt, doing): (usize, service::Doing)) -> Done {
+        Done {
+            attempt,
+            doing: Doing::of(doing),
+        }
+    }
+}
+
 impl DoingPage {
-    pub fn of(doing: Vec<service::Doing>) -> DoingPage {
+    pub fn of(done: Vec<(usize, service::Doing)>) -> DoingPage {
         DoingPage {
-            doing: doing.into_iter().map(Doing::of).collect(),
+            doing: done.into_iter().map(Done::of).collect(),
+        }
+    }
+}
+
+impl ChangesPage {
+    pub fn of(changes: service::Changes) -> ChangesPage {
+        ChangesPage {
+            base: changes.base,
+            head: changes.head,
+            worktree: changes.worktree,
+            files: (changes.files.into_iter())
+                .map(|file| FileChange {
+                    path: file.path,
+                    added: file.added,
+                    removed: file.removed,
+                    binary: file.binary,
+                    committed: file.committed,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl DiffPage {
+    pub fn of(diff: service::Diff) -> DiffPage {
+        DiffPage {
+            path: diff.path,
+            diff: diff.text,
+            cut: diff.cut,
         }
     }
 }
@@ -1940,7 +2055,11 @@ impl Summary {
                 open: cell.open.as_ref().map(|open| open.run.0),
             })
             .collect();
-        let (level, cell_level) = levels_of(levels, kept.item.level.as_deref(), kept.flow, &now);
+        let (level, cell_level, raise) = levels_of(levels, kept.item.level.as_deref(), kept.flow, &now);
+        let pull = (work.pulls.last()).map(|pulled| Pull {
+            number: pulled.number,
+            url: pulled.url.clone(),
+        });
         Ok(Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
@@ -1964,25 +2083,78 @@ impl Summary {
                 .count(),
             level,
             cell_level,
+            raise,
+            pull,
+            // What git says of it is worked out off the loop, after this ([`Summary::saw`]).
+            changed: None,
         })
+    }
+
+    /// The summary with what the repository of its work's project says of the work beside its records: what it
+    /// changed, and, where the work keeps no pull request, the one its merge names.
+    pub fn saw(&mut self, seen: service::Seen) {
+        self.changed = seen.changed.map(|stat| Diffstat {
+            files: stat.files,
+            added: stat.added,
+            removed: stat.removed,
+        });
+        if self.pull.is_none() {
+            self.pull = seen.pull.map(|pull| Pull {
+                number: pull.number,
+                url: pull.url,
+            });
+        }
     }
 }
 
-/// The level a work's rounds run at and the level of the cell it stands at ([`Summary::level`],
-/// [`Summary::cell_level`]), by the one rule that gives a round its level: of an item at this level, its work on this
-/// flow doing what `now` says.
+/// The work of this summary as the carrier of its project's repository is asked of it for what the summary shows
+/// beside the records ([`Summary::saw`]): with what its merge wrote, where it merged and keeps no pull request. None
+/// where the driver has no such work.
+pub fn asked(driver: &Driver, summary: &Summary) -> Option<service::OfWork> {
+    let number = WorkNumber(summary.number);
+    let kept = driver.work(number)?;
+    let merged = match (&summary.pull, &summary.now) {
+        (None, Now::Merged) => merge_wrote(&kept),
+        _ => None,
+    };
+    Some(service::OfWork {
+        work: number,
+        item: kept.item.clone(),
+        merged,
+    })
+}
+
+/// What the run that merged the work wrote: the latest finished run of an engine cell, which is the last a work that
+/// merged ends with; none where it wrote nothing.
+fn merge_wrote(kept: &Kept<'_>) -> Option<String> {
+    let records = &kept.work.records;
+    let engine = |run: RunId| {
+        let started = records.started.iter().find(|s| s.run == run);
+        started.is_some_and(|s| (kept.flow.cells.iter()).any(|spec| spec.id == s.cell && spec.kind == Kind::Engine))
+    };
+    let merged = (records.finished.iter())
+        .filter(|f| engine(f.run))
+        .max_by_key(|f| f.at)?;
+    let write = merged.writes.first()?;
+    kept.work.contents.get(&(write.block.clone(), merged.at)).cloned()
+}
+
+/// The level a work's rounds run at, the level of the cell it stands at, and how far that cell's line raises it
+/// ([`Summary::level`], [`Summary::cell_level`], [`Summary::raise`]), by the one rule that gives a round its level: of an
+/// item at this level, its work on this flow doing what `now` says.
 fn levels_of(
     levels: &Levels,
     item: Option<&str>,
     flow: &flow::Compiled,
     now: &Now,
-) -> (Option<String>, Option<String>) {
+) -> (Option<String>, Option<String>, Option<u32>) {
     let at = |above: u32| levels.of_round(item, above).ok();
     let cell = now
         .cell()
         .and_then(|cell| (flow.cells.iter()).find(|spec| spec.id.as_str() == cell));
-    let cell_level = (cell.filter(|spec| spec.kind == Kind::Agent)).and_then(|spec| at(spec.levels_above));
-    (at(0), cell_level)
+    let agent = cell.filter(|spec| spec.kind == Kind::Agent);
+    let cell_level = agent.and_then(|spec| at(spec.levels_above));
+    (at(0), cell_level, agent.map(|spec| spec.levels_above))
 }
 
 /// What holds every work at once, as the bar reads it at a moment: each stretch the pause of everything held, from the
@@ -3417,6 +3589,7 @@ mod tests {
 
     // A work's level and its cell's are what the rule that gives a round its level says (the route's test shows a line
     // that raises it): where the rule refuses the item's level, neither is said, and only an agent's cell has a level.
+    // How far the cell's line raises it is the line's, as an agent's cell stands, whatever the rule says.
     #[test]
     fn a_works_level_and_its_cells_are_the_rules_and_none_where_it_refuses_or_no_agent_runs() {
         let flow = flow();
@@ -3428,26 +3601,26 @@ mod tests {
         let of = |item: Option<&str>, now: &Now| levels_of(&levels, item, &flow, now);
         let at = |cell: &str| Now::Next { cell: cell.to_string() };
         let given = |level: &str| Some(level.to_string());
-        assert_eq!(of(Some("1"), &at("write")), (given("1"), given("1")));
+        assert_eq!(of(Some("1"), &at("write")), (given("1"), given("1"), Some(0)));
         assert_eq!(
             of(None, &at("write")),
-            (given("2"), given("2")),
+            (given("2"), given("2"), Some(0)),
             "an item of no level is at the default"
         );
         assert_eq!(
             of(Some("1"), &at("merge")),
-            (given("1"), None),
+            (given("1"), None, None),
             "an engine cell's act runs on no level"
         );
         assert_eq!(
             of(Some("1"), &Now::Merged),
-            (given("1"), None),
+            (given("1"), None, None),
             "a work that ended stands at no cell"
         );
-        assert_eq!(of(Some("9"), &at("write")), (None, None), "no level");
+        assert_eq!(of(Some("9"), &at("write")), (None, None, Some(0)), "no level");
         assert_eq!(
             of(Some("3"), &at("write")),
-            (None, None),
+            (None, None, Some(0)),
             "above the highest an item may be at"
         );
     }

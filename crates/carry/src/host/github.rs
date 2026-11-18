@@ -6,10 +6,12 @@
 //! merge and whose body to what the work says of itself, is what is merged, by GitHub once it is made ready, in a
 //! commit of that name. A work that has ended has, where it did not merge, its pull request closed.
 //!
-//! What it does is found again on GitHub, never kept by the engine: the pull request by the work's branch, and a run of
-//! a workflow by the value its name holds, worked out from what asked for it. A check given again after the engine
-//! started again pushes nothing GitHub has, finds the pull request it opened, and waits for the runs it asked for on
-//! the same commit, or reads them where they have ended; a merge given again finds the pull request merged.
+//! What it does is found again on GitHub, never by what the engine kept: the pull request by the work's branch, and a
+//! run of a workflow by the value its name holds, worked out from what asked for it. A check given again after the
+//! engine started again pushes nothing GitHub has, finds the pull request it opened, and waits for the runs it asked
+//! for on the same commit, or reads them where they have ended; a merge given again finds the pull request merged. The
+//! pull request each check finds is said, through what it was given to say it with, so that the work keeps its number
+//! and address for its page.
 //!
 //! An agent's `run_tests` is run on the last commit of its work's branch, pushed and put in the same pull request:
 //! by the fast workflow where it names tests or checks, by the full ones where it names none (the module `fast`); what
@@ -355,7 +357,8 @@ impl<A: Api> Host for GitHub<A> {
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
         self.push(branch, commit).await?;
-        self.pull_request(branch).await?;
+        let pull = self.pull_request(branch).await?;
+        stop.pulled(pull.number, &pull.url);
         let request = fast::Request {
             work: branch.work,
             commit,
@@ -490,7 +493,8 @@ impl<A: Api> Host for GitHub<A> {
             return Ok(Some(fill(&words.no_own_commit, &[("main", &self.project.main)])));
         }
         self.push(branch, &commit).await?;
-        self.pull_request(branch).await?;
+        let pull = self.pull_request(branch).await?;
+        stop.pulled(pull.number, &pull.url);
         let request = fast::Request {
             work: branch.work,
             commit: &commit,
@@ -510,6 +514,10 @@ impl<A: Api> Host for GitHub<A> {
                 .map_err(|why| format!("GitHub did not close the pull request {}: {why}", open.url))?;
         }
         Ok(())
+    }
+
+    fn pull_at(&self, number: u64) -> Option<String> {
+        (self.project.github.as_ref()).map(|github| github.pull_at(number))
     }
 
     async fn reopen(&self, branch: &Branch<'_>) -> Result<(), String> {

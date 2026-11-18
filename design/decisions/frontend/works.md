@@ -12,11 +12,15 @@ try was sent, as they were kept.
 Why: What was filled is what was new to the round; one list of a round's inputs, those sent in bold and those its
 session held in grey, was turned down: it did not show what the agent got that round.
 
-### decision what-an-agent-does-is-asked-for
-While a round is under way and its run's Step is in view, the page asks every few seconds what its agent is doing, and
-the engine's stream of changes says nothing of it.
-Why: What an agent does is read from the stream its program writes as it goes, which the engine's loop never sees; a
-change sent for each line of it would have every page read its works again many times a minute.
+### decision what-an-agent-does-comes-on-a-stream-of-its-round
+What a round's agent does is given on a stream of the round's own, which the page that has the round open opens:
+every thing from the round's start, every try in order, then the round's end. The engine follows the file the agent's
+program writes, from where it last read, every half second while the stream is open, and its stream of changes says
+nothing of it; the whole of a round's history is given at once beside it.
+Why: Asked every few seconds for the last things of the end of the latest try's file, the page's list jumped, came
+up short past a tool's long result and emptied as a new try began. The engine's loop never sees what an agent does,
+and a change on its one stream for each line would have every page read its works again many times a minute, where a
+stream of the round costs only the page that follows it.
 
 ### decision the-model-a-round-recorded
 What a work used shows each model at the level and effort its rounds recorded they ran at.
@@ -82,6 +86,13 @@ presses the head of another; a work's state orders it only by its own column, wh
 Why: The list is the record of every work, for the owner to look back at, and what needs the owner now is the
 console's (principle the-console-is-where-the-owner-works). Putting first what waits for the owner, then a fault, what
 goes on, what is paused and what has ended was turned down: an order no head of the list shows is hidden from the owner.
+
+### decision a-raise-is-what-the-line-says
+How far the line of the cell a work stands at raises it is given as the line's `levels_above` says, beside the level
+the cell runs at, and is never worked out as the distance between that level and the work's.
+Why: The highest level an item may be at holds a raised cell's level down, so that an item at that level runs the
+cell at its own level; the distance would then be nought, and a cell its line raises could not be told from one it
+does not.
 
 ### decision an-engine-cell-has-no-level
 The level of the cell a work stands at, which the engine gives with the work's own, is none at an engine cell, as at no

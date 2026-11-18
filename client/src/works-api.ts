@@ -17,8 +17,15 @@
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}`: one round in full (`RoundPage`).
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}/told`: what the round was told and what came back of it, as
 //   its carrier kept them (`ToldPage`); no try where it kept nothing.
-// - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}/doing`: what the round's agent was last seen doing, as its
-//   carrier keeps it as it comes (`DoingPage`); read again every few seconds while the round is under way.
+// - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}/doing`: what the round's agent did from its start, every try
+//   in order, as its carrier keeps it as it comes (`DoingPage`).
+// - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}/doing/stream`: the same as it comes, as server-sent events
+//   to the page that has the round open (`followDoing`): `done` for each thing (`Done`), from the round's start; then,
+//   once the round has ended and all it did was sent, `end`, and the stream ends; or `failed` (`Refusal`), why what
+//   was kept of the round could not be read, and the stream ends.
+// - `GET  /api/v1/works/{work}/changes`: each file the work changed, as git in its project's repository says
+//   (`ChangesPage`).
+// - `GET  /api/v1/works/{work}/changes/diff?path=…`: the unified diff of one file the work changed (`DiffPage`).
 // - `GET  /api/v1/works/{work}/lines/{line}/sessions/{session}/system`: the system prompt the line's session of this
 //   number, the line's first being none, began with (`SystemPage`).
 // - `GET  /api/v1/works/{work}/calls/{call}`: a call with its result (`CallPage`).
@@ -244,6 +251,59 @@ export interface Summary {
   /// says, never above the highest an item may be at; none where it stands at no cell, as a work that ended, at an
   /// engine cell, whose acts run on no level, or where the rule refuses its level. Absent from made-up data, as none.
   cellLevel?: string | null;
+  /// How many levels the line of the cell it stands at raises that cell above its level, as the line's `levels_above`
+  /// says, whatever the highest level an item may be at holds `cellLevel` to; none where it stands at no agent's cell.
+  /// Absent from made-up data, as none.
+  raise?: number | null;
+  /// The pull request the host of its repository checks it through: the latest the host found, as the work keeps it; of
+  /// a work that merged before works kept theirs, the one the title of the commit its merge made names. None where it
+  /// has none, as on a host with no pull requests. Absent from made-up data, as none.
+  pull?: Pull | null;
+  /// What it changed: the files touched and the lines added and removed between where its branch left main and its
+  /// latest head, together with what its worktree holds not yet committed while the worktree is there. None where
+  /// nothing of it is there to tell, as before its branch is made, and where git could not say. Absent from made-up
+  /// data, as none.
+  changed?: Diffstat | null;
+}
+
+/// A pull request on the host of a work's repository: its number, and its address.
+export interface Pull {
+  number: number;
+  url: string;
+}
+
+/// How much a work changed: how many files, and how many lines added and removed in them.
+export interface Diffstat {
+  files: number;
+  added: number;
+  removed: number;
+}
+
+/// Each file a work changed, as its summary counts them, in the order of their paths, with the commit where its branch
+/// left main and its latest head they are between, and whether what its worktree holds not yet committed was counted,
+/// the worktree being there.
+export interface ChangesPage {
+  base: string;
+  head: string;
+  worktree: boolean;
+  files: FileChange[];
+}
+
+/// A file a work changed: its path; the lines added and removed, none of a binary file; and whether its latest head
+/// holds a change of it, or only its worktree does.
+export interface FileChange {
+  path: string;
+  added: number;
+  removed: number;
+  binary: boolean;
+  committed: boolean;
+}
+
+/// The unified diff of one file a work changed, up to where it was cut, with its whole length in bytes where it was.
+export interface DiffPage {
+  path: string;
+  diff: string;
+  cut: number | null;
 }
 
 /// One thing a work waits on the owner for: its key within the work, which a notification's address and the card that
@@ -770,9 +830,22 @@ export type Doing =
   | { kind: 'said'; text: string }
   | { kind: 'compacting' };
 
-/// What the agent of a round was last seen doing: the last few things its latest try did, the latest last.
+/// A thing an agent did, with the try of its round it did it in, the first being one; the try is absent from made-up
+/// data.
+export type Done = Doing & { attempt?: number };
+
+/// What the agent of a round did from its start: each thing in the order done, every try in order.
 export interface DoingPage {
-  doing: Doing[];
+  doing: Done[];
+}
+
+/// What a page following a round is told as it comes: each thing the round's agent does; that the round has ended and
+/// all it did was told; why what was kept of it could not be read; or that the browser lost the stream.
+export interface Following {
+  done: (done: Done) => void;
+  end: () => void;
+  failed: (why: string) => void;
+  lost: () => void;
 }
 
 /// What the owner does to a work.
@@ -903,6 +976,30 @@ export const loadTold = (work: number, run: number, round: number) =>
   read<ToldPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}/told`);
 export const loadDoing = (work: number, run: number, round: number) =>
   read<DoingPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}/doing`);
+/// Follows what the round's agent does, from the round's start, telling `following` each thing as it comes, and the
+/// end; gives the way to stop following, which the page calls once it no longer has the round open. A stream the
+/// browser lost is not opened again by itself, which would tell every thing again from the start: the page is told,
+/// and follows the round anew where it still has it open.
+export function followDoing(work: number, run: number, round: number, following: Following): () => void {
+  const events = new EventSource(`/api/v1/works/${work}/runs/${run}/rounds/${round}/doing/stream`);
+  events.addEventListener('done', (event) => following.done(JSON.parse(event.data) as Done));
+  events.addEventListener('end', () => {
+    events.close();
+    following.end();
+  });
+  events.addEventListener('failed', (event) => {
+    events.close();
+    following.failed((JSON.parse(event.data) as Refusal).error);
+  });
+  events.onerror = () => {
+    events.close();
+    following.lost();
+  };
+  return () => events.close();
+}
+export const loadChanges = (work: number) => read<ChangesPage>(`/api/v1/works/${work}/changes`);
+export const loadDiff = (work: number, path: string) =>
+  read<DiffPage>(`/api/v1/works/${work}/changes/diff?path=${encodeURIComponent(path)}`);
 export const loadSystem = (work: number, line: string, session: number) =>
   read<SystemPage>(`/api/v1/works/${work}/lines/${encodeURIComponent(line)}/sessions/${session}/system`);
 export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/works/${work}/calls/${call}`);

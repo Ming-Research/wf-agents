@@ -130,6 +130,49 @@ async fn the_tree_and_the_head_are_read_in_one_step_each_a_version_only_where_it
     assert_eq!(again.head(), Some(built.as_str()));
 }
 
+// Each new head is kept under the engine's own reference as it is read, so that what the work committed outlives its
+// worktree and its branch, and git's collecting of what no reference holds.
+#[tokio::test]
+async fn each_new_head_is_kept_under_the_engines_own_reference_and_outlives_the_branch() {
+    let (repo, place) = started().await;
+    let kept = format!("refs/wf-agents/{}", place.branch);
+    let resolves = |reference: &str| {
+        let verify = ["rev-parse", "--verify", "--quiet", reference];
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo.project.repo)
+            .args(verify)
+            .output()
+            .expect("git runs");
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    };
+    let mut looking = Looking::of(&reading_the_branch(), &Work::default(), reading());
+    looking.read(&place).await.unwrap();
+    assert_eq!(
+        resolves(&kept),
+        None,
+        "a branch with no change of its own keeps nothing"
+    );
+    let first = commit(&place.dir, "farewell.txt", "Bye.\n");
+    looking.read(&place).await.unwrap();
+    assert_eq!(resolves(&kept), Some(first));
+    let second = commit(&place.dir, "farewell.txt", "Goodbye.\n");
+    looking.read(&place).await.unwrap();
+    assert_eq!(resolves(&kept).as_deref(), Some(second.as_str()));
+    git::remove(&repo.project, &place).await.unwrap();
+    run(&repo.project.repo, &["branch", "-D", &place.branch]);
+    run(&repo.project.repo, &["gc", "-q", "--prune=now"]);
+    let object = format!("{second}^{{commit}}");
+    assert_eq!(
+        resolves(&object).as_deref(),
+        Some(second.as_str()),
+        "the commit outlives the branch"
+    );
+}
+
 #[tokio::test]
 async fn a_round_is_given_what_changed_from_each_earlier_version_of_the_tree_and_the_head_to_the_latest() {
     let (_repo, place) = started().await;

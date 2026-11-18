@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use service::{Along, Saying};
+use service::{Along, Hosting, Saying};
 use tokio::sync::oneshot;
 
 /// The rounds or the calls a carrier was given, by their key.
@@ -40,7 +40,7 @@ pub(crate) enum Failing<R> {
 
 /// What carries a round or a call out is told by this to stop. It may be waited for again and again, as between the
 /// looks of a wait: once told, it comes at once each time. Through it, too, what carries it out says where it stands as
-/// it goes, where it was given the way to.
+/// it goes, and what the host found of the work, where it was given the way to.
 pub(crate) struct Stop {
     /// The way it is told, until it was told or can no longer be.
     told: Option<oneshot::Receiver<()>>,
@@ -48,6 +48,8 @@ pub(crate) struct Stop {
     stopped: bool,
     /// The way to say where it stands, and what was said last; none where nobody listens.
     saying: Option<(Saying, Option<Along>)>,
+    /// The way to say what the host found of the work; none where nobody listens.
+    hosting: Option<Hosting>,
 }
 
 impl Stop {
@@ -61,6 +63,7 @@ impl Stop {
             told: Some(told),
             stopped: false,
             saying: None,
+            hosting: None,
         }
     }
 
@@ -68,6 +71,19 @@ impl Stop {
     pub(crate) fn saying(mut self, saying: Saying) -> Stop {
         self.saying = Some((saying, None));
         self
+    }
+
+    /// The stop, through which what the host found of the work is said this way.
+    pub(crate) fn hosting(mut self, hosting: Hosting) -> Stop {
+        self.hosting = Some(hosting);
+        self
+    }
+
+    /// Says that the host checks the work through the pull request of this number, at this address.
+    pub(crate) fn pulled(&self, number: u64, url: &str) {
+        if let Some(hosting) = &self.hosting {
+            hosting.pulled(number, url.to_string());
+        }
     }
 
     /// Says where what is carried out stands now, or that it no longer stands anywhere it says; said once for each

@@ -2037,6 +2037,9 @@ mod tests {
                 waits: Vec::new(),
                 level: Some("1".to_string()),
                 cell_level: None,
+                raise: None,
+                pull: None,
+                changed: None,
             },
         }
     }

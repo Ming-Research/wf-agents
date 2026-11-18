@@ -99,6 +99,9 @@ pub enum Event {
         spent: Spent,
         failed: Option<String>,
     },
+    /// The host of the work's repository found the work checked through the pull request of this number, at this
+    /// address, opening it where the work had none: kept with the work where it is another than the latest kept.
+    Pulled { number: u64, url: String },
     /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
     Released,
     /// What the work held outside the engine could not be let go, for this reason, as whatever carried out

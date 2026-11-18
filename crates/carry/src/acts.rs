@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use decide::{BlockId, End, Finished, RunId};
 use engine::Came;
 use flow::Compiled;
-use service::{Along, Release, ReleaseReply, Round, RoundReply, Rounds, Teller};
+use service::{Along, Changes, Diff, OfWork, Pull, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, Teller};
 use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
 use work::{Handed, Question, Said, Spent, Work};
@@ -37,6 +37,7 @@ mod ends;
 mod failing;
 
 use crate::branch::{self, Looking};
+use crate::changed;
 use crate::git::{self, Started};
 use crate::held::{Failing, Held, Stop};
 use crate::host::{Asking, Branch, Failed, Host, NotMerged};
@@ -125,6 +126,8 @@ struct Inner<H> {
     turn_freed: Notify,
     /// The look at the network to the host; none where no network reaches it.
     look: Option<Arc<dyn service::Network>>,
+    /// What was worked out of what the works changed, by their heads.
+    known: changed::Known,
 }
 
 /// What came of an act: what it hands in, with what the engine asks the owner beside it, what it observed beyond the
@@ -152,6 +155,7 @@ impl<H: Host> Acts<H> {
                 turn: std::sync::Mutex::new(Turn::default()),
                 turn_freed: Notify::new(),
                 look: None,
+                known: changed::Known::default(),
             }),
         }
     }
@@ -221,10 +225,11 @@ impl<H: Host> Rounds for Acts<H> {
         let key = (round.work, round.run, round.number);
         let teller = reply.teller();
         let saying = reply.saying(round.number);
+        let hosting = reply.hosting();
         let Some(stop) = self.inner.held.hold(key, reply) else {
             return;
         };
-        let mut stop = stop.saying(saying);
+        let mut stop = stop.saying(saying).hosting(hosting);
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let done = inner.act(&round, &teller, &mut stop).await;
@@ -283,6 +288,36 @@ impl<H: Host> Rounds for Acts<H> {
                 Err(why) => reply.failed(why),
             }
         });
+    }
+
+    fn seen(&self, of: OfWork) -> Pin<Box<dyn Future<Output = Result<Seen, String>> + Send + '_>> {
+        Box::pin(self.inner.seen(of))
+    }
+
+    fn changes(&self, of: OfWork) -> Pin<Box<dyn Future<Output = Result<Option<Changes>, String>> + Send + '_>> {
+        Box::pin(async move {
+            let inner = &self.inner;
+            let place = git::place(&inner.data, &inner.tag, of.work);
+            let changed = (inner.known)
+                .changed(&inner.project.repo, &inner.host.kept_main(), of.work, &place)
+                .await?;
+            Ok(changed.map(|changed| changed.changes))
+        })
+    }
+
+    fn diff(
+        &self,
+        of: OfWork,
+        path: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Diff>, String>> + Send + '_>> {
+        Box::pin(async move {
+            let inner = &self.inner;
+            let place = git::place(&inner.data, &inner.tag, of.work);
+            let main = inner.host.kept_main();
+            (inner.known)
+                .diff(&inner.project.repo, &main, (of.work, &place), &path)
+                .await
+        })
     }
 }
 
@@ -453,6 +488,30 @@ impl<H: Host> Inner<H> {
 }
 
 impl<H: Host> Inner<H> {
+    /// What the project's repository says of the work beside its records: what it changed, and, of a work that merged
+    /// with no pull request kept, the pull request the commit its merge made names at the end of its title, as GitHub
+    /// titles the commit of a merge, at the address the host gives it.
+    async fn seen(&self, of: OfWork) -> Result<Seen, String> {
+        let (repo, main) = (&self.project.repo, self.host.kept_main());
+        let place = git::place(&self.data, &self.tag, of.work);
+        let changed = self.known.changed(repo, &main, of.work, &place).await?;
+        let merged = (of.merged.as_deref()).and_then(|said| changed::merged_commit(said, &self.words.merge.text));
+        let named = match merged {
+            Some(commit) => self.known.pull_named(repo, &commit).await?,
+            None => None,
+        };
+        let pull = named.and_then(|number| {
+            Some(Pull {
+                number,
+                url: self.host.pull_at(number)?,
+            })
+        });
+        Ok(Seen {
+            changed: changed.map(|changed| changed.stat()),
+            pull,
+        })
+    }
+
     /// Lets go of what the acts made for the work, which has ended, holding the repository: the host lets go of what it
     /// holds for it, and its worktrees are taken away. Tried once: what fails is said, and is not tried again unseen.
     async fn release(&self, release: &Release) -> Result<(), String> {

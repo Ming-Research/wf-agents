@@ -1,16 +1,19 @@
 //! `GET /api/v1/works/{work}/runs/{run}/rounds/{number}/told`: what a round was told and what came back of it, as
-//! its carrier kept them; `.../doing`: what its agent was last seen doing; and
-//! `GET /api/v1/works/{work}/lines/{line}/sessions/{session}/system`: the system prompt a session began with.
+//! its carrier kept them; `.../doing`: what its agent did from its start, and `.../doing/stream`, the same as it comes;
+//! and `GET /api/v1/works/{work}/lines/{line}/sessions/{session}/system`: the system prompt a session began with.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Barrier};
+use std::sync::{Arc, Barrier, Mutex};
 
-use axum::http::StatusCode;
+use axum::body::Body;
+use axum::http::{Request, StatusCode, header};
 use decide::{RunId, Seq};
+use http_body_util::BodyExt;
 use serde_json::json;
-use service::{Back, Doing, Returned, Round, RoundReply, Rounds, Scripted, Told, Try};
+use service::{Back, Doing, Doings, Mark, Returned, Round, RoundReply, Rounds, Scripted, Told, Try};
 use store::{Store, WorkNumber};
+use tower::ServiceExt;
 use work::{Fill, RanOn};
 
 use crate::{Running, get_json, greeted, pass, post, refused, running, running_carried, trial_script};
@@ -22,7 +25,7 @@ struct Keeping {
     kept: BTreeMap<(u64, u64, usize), Told>,
     /// The number of the try of the first round that says what it ran on and what was filled into its session.
     attempt: usize,
-    doing: BTreeMap<(u64, u64, usize), Vec<Doing>>,
+    doing: BTreeMap<(u64, u64, usize), Vec<(usize, Doing)>>,
 }
 
 /// The system prompt [`Keeping`] kept of the engineer's first session of the first work.
@@ -63,8 +66,9 @@ impl Rounds for Keeping {
         Ok(((work.0, line, session) == (1, "engineer", 0)).then(|| SYSTEM.to_string()))
     }
 
-    fn doing(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Vec<Doing>, String> {
-        Ok(self.doing.get(&(work.0, run.0, round)).cloned().unwrap_or_default())
+    fn doing(&self, work: WorkNumber, run: RunId, round: usize, from: Mark) -> Result<Doings, String> {
+        let done = self.doing.get(&(work.0, run.0, round)).cloned().unwrap_or_default();
+        Ok(Doings { done, next: from })
     }
 }
 
@@ -82,7 +86,7 @@ fn keeping_at(kept: BTreeMap<(u64, u64, usize), Told>, attempt: usize) -> Runnin
 fn keeping_all(
     kept: BTreeMap<(u64, u64, usize), Told>,
     attempt: usize,
-    doing: BTreeMap<(u64, u64, usize), Vec<Doing>>,
+    doing: BTreeMap<(u64, u64, usize), Vec<(usize, Doing)>>,
 ) -> Running {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
@@ -346,18 +350,24 @@ async fn a_round_is_given_each_try_with_what_it_ran_on_and_what_was_filled_into_
 }
 
 #[tokio::test(start_paused = true)]
-async fn what_the_agent_of_a_round_was_last_seen_doing_is_read_from_its_carrier() {
+async fn what_the_agent_of_a_round_did_from_its_start_is_read_from_its_carrier_every_try_in_order() {
     let seen = vec![
-        Doing::Tool {
-            name: "Bash".to_string(),
-            on: Some("cargo test".to_string()),
-        },
-        Doing::Said("The tests pass.".to_string()),
-        Doing::Compacting,
-        Doing::Tool {
-            name: "StructuredOutput".to_string(),
-            on: None,
-        },
+        (
+            1,
+            Doing::Tool {
+                name: "Bash".to_string(),
+                on: Some("cargo test".to_string()),
+            },
+        ),
+        (1, Doing::Said("The tests pass.".to_string())),
+        (2, Doing::Compacting),
+        (
+            2,
+            Doing::Tool {
+                name: "StructuredOutput".to_string(),
+                on: None,
+            },
+        ),
     ];
     let seeing = keeping_all(BTreeMap::new(), 1, BTreeMap::from([((1, 1, 1), seen)]));
     let router = &seeing.router;
@@ -366,10 +376,10 @@ async fn what_the_agent_of_a_round_was_last_seen_doing_is_read_from_its_carrier(
         get_json(router, "/api/v1/works/1/runs/1/rounds/1/doing").await,
         json!({
             "doing": [
-                { "kind": "tool", "name": "Bash", "on": "cargo test" },
-                { "kind": "said", "text": "The tests pass." },
-                { "kind": "compacting" },
-                { "kind": "tool", "name": "StructuredOutput", "on": null },
+                { "attempt": 1, "kind": "tool", "name": "Bash", "on": "cargo test" },
+                { "attempt": 1, "kind": "said", "text": "The tests pass." },
+                { "attempt": 2, "kind": "compacting" },
+                { "attempt": 2, "kind": "tool", "name": "StructuredOutput", "on": null },
             ],
         })
     );
@@ -387,6 +397,120 @@ async fn what_the_agent_of_a_round_was_last_seen_doing_is_read_from_its_carrier(
     assert_eq!(
         get_json(&scripted.router, "/api/v1/works/1/runs/1/rounds/1/doing").await,
         json!({ "doing": [] })
+    );
+}
+
+/// The script's agents, whose agent of the first round of the first work is seen doing what `done` holds, read from
+/// the mark on, the mark counting what was read.
+struct Following {
+    agents: Arc<dyn Rounds>,
+    done: Arc<Mutex<Vec<(usize, Doing)>>>,
+}
+
+impl Rounds for Following {
+    fn give(&self, round: Round, reply: RoundReply) {
+        self.agents.give(round, reply);
+    }
+
+    fn stop(&self, round: Round, reply: RoundReply) {
+        self.agents.stop(round, reply);
+    }
+
+    fn doing(&self, work: WorkNumber, run: RunId, round: usize, from: Mark) -> Result<Doings, String> {
+        if (work.0, run.0, round) != (1, 1, 1) {
+            return Ok(Doings {
+                done: Vec::new(),
+                next: from,
+            });
+        }
+        let done = self.done.lock().unwrap();
+        let read = usize::try_from(from.at).unwrap();
+        Ok(Doings {
+            done: done[read..].to_vec(),
+            next: Mark {
+                attempt: 1,
+                at: done.len() as u64,
+            },
+        })
+    }
+}
+
+/// The next event of a stream, past the comments that keep it open; none once the stream has ended.
+async fn next_event(body: &mut Body) -> Option<String> {
+    loop {
+        let frame = body.frame().await?.unwrap();
+        let text = String::from_utf8(frame.into_data().unwrap().to_vec()).unwrap();
+        if !text.starts_with(':') {
+            return Some(text);
+        }
+    }
+}
+
+// The page that has a round open is sent each thing its agent does as it comes, every try in order from the round's
+// start, and once the round has ended and all it did was sent, the end, after which the stream ends.
+#[tokio::test(start_paused = true)]
+async fn what_a_rounds_agent_does_is_sent_as_it_comes_to_the_page_following_it_and_then_its_end() {
+    let done = Arc::new(Mutex::new(vec![
+        (
+            1,
+            Doing::Tool {
+                name: "Bash".to_string(),
+                on: Some("cargo test".to_string()),
+            },
+        ),
+        (2, Doing::Said("Again.".to_string())),
+    ]));
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let mut carriers = Scripted::new(trial_script()).carriers();
+    carriers.agents = Arc::new(Following {
+        agents: carriers.agents.clone(),
+        done: done.clone(),
+    });
+    let running = running_carried(Box::new(store), dir, carriers);
+    let router = &running.router;
+    let item = json!({
+        "title": "Greet the user",
+        "dependsOn": [],
+        "project": "trial",
+        "flow": "trial",
+        "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
+    });
+    assert_eq!(post(router, "/api/v1/items", &item).await.0, StatusCode::OK);
+    let resumed = post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" })).await;
+    assert_eq!(resumed.0, StatusCode::NO_CONTENT);
+    // The plan's first round is under way for a second and a half.
+    pass(100).await;
+    let path = "/api/v1/works/1/runs/1/rounds/1/doing/stream";
+    let request = Request::builder().uri(path).body(Body::empty()).unwrap();
+    let response = router.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CONTENT_TYPE], "text/event-stream");
+    let mut body = response.into_body();
+    let event = |kind: &str, data: serde_json::Value| Some(format!("event: {kind}\ndata: {data}\n\n"));
+    assert_eq!(
+        next_event(&mut body).await,
+        event(
+            "done",
+            json!({ "attempt": 1, "kind": "tool", "name": "Bash", "on": "cargo test" })
+        )
+    );
+    assert_eq!(
+        next_event(&mut body).await,
+        event("done", json!({ "attempt": 2, "kind": "said", "text": "Again." }))
+    );
+    // What the agent does next is sent as it comes.
+    done.lock().unwrap().push((2, Doing::Compacting));
+    assert_eq!(
+        next_event(&mut body).await,
+        event("done", json!({ "attempt": 2, "kind": "compacting" }))
+    );
+    assert_eq!(next_event(&mut body).await, event("end", json!({})));
+    assert_eq!(next_event(&mut body).await, None, "the stream ends with the round");
+    // A round the records lack is refused before any stream opens.
+    assert_eq!(
+        refused(router, "/api/v1/works/1/runs/1/rounds/7/doing/stream").await,
+        (StatusCode::NOT_FOUND, "Work 1 has no round 7 of run 1.".to_string())
     );
 }
 
