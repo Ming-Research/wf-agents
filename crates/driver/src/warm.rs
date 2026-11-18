@@ -164,9 +164,9 @@ fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy) 
 }
 
 /// The lines the work can come back to from where it stands: the lines of the cells where it stands, those of its open
-/// runs and the one it runs, waits or is held at next, and, where it is stalled, of each cell that writes what it
-/// waits for, which is where it goes on from; or, where it stands at none, the cell it last ran; and of every cell a
-/// block those cells write runs, and on, as far as the data reach.
+/// runs and the one it runs, waits or is held at next, or, where it stands at none, as a work stalled with nothing of
+/// it under way, the cell it last ran; and of every cell a block those cells write runs, and on, as far as the data
+/// reach.
 fn coming_back(flow: &Compiled, work: &Work, decision: &Decision) -> BTreeSet<String> {
     let r = &work.records;
     let open = (r.started.iter())
@@ -179,12 +179,6 @@ fn coming_back(flow: &Compiled, work: &Work, decision: &Decision) -> BTreeSet<St
         | Decision::Abandon { cell, .. }
         | Decision::Paused { cell }
         | Decision::Wait { at: cell, .. } => at.push(cell.clone()),
-        // A stalled work waits for what only these cells write, and comes back at one of them, which a person's words
-        // or the outside can run; the cell it stands at runs once they have.
-        Decision::Stalled { at: cell, by, .. } => {
-            at.push(cell.clone());
-            at.extend(by.iter().map(|stalling| stalling.cell.clone()));
-        }
         _ => {}
     }
     if at.is_empty() {
