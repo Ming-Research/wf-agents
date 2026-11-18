@@ -276,6 +276,9 @@
   background: var(--accent-tint);
   /* A fieldset keeps the width of its widest content unless it is told it may shrink. */
   min-width: 0;
+  /* How a card is folded and unfolded: the window's own motion as it slides in, so that the panel moves one way. */
+  --turn-time: 240ms;
+  --turn-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 /* Who asked a question, on the frame of its card at its top left, the frame broken around it as a fieldset's legend

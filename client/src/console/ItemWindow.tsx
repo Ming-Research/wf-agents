@@ -46,6 +46,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1237,6 +1238,12 @@ function TickSign() {
   );
 }
 
+/// A time as a style gives it, in milliseconds: `240ms` or `0.24s`; none where it says neither.
+function millisecondsOf(value: string): number {
+  const said = /^([+-]?(?:\d+\.?\d*|\.\d+))(ms|s)$/.exec(value.trim());
+  return said === null ? 0 : Number.parseFloat(said[1]) * (said[2] === 's' ? 1000 : 1);
+}
+
 /// A choice of the plan: a press on an option picks it, on another changes the pick, and on the one picked lets it go,
 /// until it is confirmed; once confirmed, it is settled, and its options are words with the one taken marked.
 /// Discuss takes it to the discussion, confirmed or not; under its options, how many messages are about it, which
@@ -1259,8 +1266,39 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
   // and a question that waits among them, opens whole. Answering one here leaves it open: what was just done stays in
   // view, and it is folded when the window is read again.
   const [open, setOpen] = useState(p.confirmed !== true);
+  const box = useRef<HTMLFieldSetElement>(null);
+  // The card's height before the press, which the turn is drawn from.
+  const was = useRef<number | null>(null);
+  const turn = () => {
+    was.current = box.current?.getBoundingClientRect().height ?? null;
+    setOpen((now) => !now);
+  };
+  // The card's height is drawn from what it was to what it now is, so that the cards under it rise or give way with
+  // it, and the card is brought into view: folded from above the panel's top, it would otherwise be left off-screen.
+  useLayoutEffect(() => {
+    const el = box.current;
+    const from = was.current;
+    was.current = null;
+    if (el === null || from === null) return;
+    const to = el.getBoundingClientRect().height;
+    const look = getComputedStyle(el);
+    const time = millisecondsOf(look.getPropertyValue('--turn-time'));
+    // Drawn only where the browser draws: a host that has neither, as the tests', turns at once.
+    const drawn =
+      typeof el.animate === 'function' &&
+      (typeof window.matchMedia !== 'function' || !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (drawn && time > 0 && Math.round(from) !== Math.round(to)) {
+      const held = { height: `${from}px`, overflow: 'hidden' };
+      el.animate([held, { ...held, height: `${to}px` }], {
+        duration: time,
+        easing: look.getPropertyValue('--turn-ease').trim() || 'ease',
+      });
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [open]);
   return (
     <fieldset
+      ref={box}
       className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${p.holds === true ? ' cw-choice-holds' : ''}`}
       data-wait={waitKeyOf(p)}
     >
@@ -1269,7 +1307,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
         <Markdown text={p.question} pointers={links} />
       </div>
       {!open ? (
-        <button type="button" className="cw-choice-turn" onClick={() => setOpen(true)}>
+        <button type="button" className="cw-choice-turn" onClick={turn}>
           Show it all
         </button>
       ) : null}
@@ -1314,7 +1352,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
         </div>
       ) : null}
       {open ? (
-        <button type="button" className="cw-choice-turn" onClick={() => setOpen(false)}>
+        <button type="button" className="cw-choice-turn" onClick={turn}>
           Fold it
         </button>
       ) : null}
