@@ -623,14 +623,14 @@
   font-weight: var(--weight);
 }
 
-/* The boxes that tick which kinds of item the tree shows, side by side in the frame a switch has (`.switch`), on the
-   page's ground, so that the cards under them do not show through. */
+/* The boxes that tick which kinds of item the tree shows, one under another in the frame a switch has (`.switch`), on
+   the page's ground, so that the cards under them do not show through. */
 .console-shows {
   display: inline-flex;
-  align-items: center;
-  height: var(--control);
-  padding: 0 var(--space-8);
-  gap: var(--space-12);
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--space-4) var(--space-8);
+  gap: var(--space-4);
   border: var(--hairline) solid var(--line);
   border-radius: var(--corner);
   background: var(--ground);
