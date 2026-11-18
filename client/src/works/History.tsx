@@ -84,6 +84,8 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
   const [pointed, setPointed] = useState<number | null>(null);
   // The flow's lines, each the matrix's own row of it, under the cells' heads.
   const lines = useMemo(() => matrix(page.flow).lines, [page.flow]);
+  // The flow's groups, whose names a row writes with the word `group` after them, as the matrix does.
+  const groups = useMemo(() => new Set(page.flow.groups.map((g) => g.name)), [page.flow]);
   useWheel(frame);
   const leadWidth = lead ?? NAMES.first;
   const widthOf = (id: string) => widths[id] ?? CELLS.first;
@@ -181,6 +183,7 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
                 key={row.key}
                 row={row}
                 cells={cells}
+                groups={groups}
                 chosen={chosen === row.index}
                 pointed={pointed}
                 onChoose={() => onChoose(chosen === row.index ? null : row.index)}
@@ -220,12 +223,14 @@ function DividerRow({ row, span }: { row: HistoryRow; span: number }) {
 function StepRow(props: {
   row: HistoryRow;
   cells: Cell[];
+  /// The names of the flow's groups.
+  groups: ReadonlySet<string>;
   chosen: boolean;
   pointed: number | null;
   onChoose: () => void;
   onPoint: (column: number | null) => void;
 }) {
-  const { row, cells, chosen, pointed, onChoose, onPoint } = props;
+  const { row, cells, groups, chosen, pointed, onChoose, onPoint } = props;
   const { step } = row;
   const did = partsText(row.did);
   const time = `${row.newDay ? `${dayOf(step.time)} ` : ''}${minuteOf(step.time)}`;
@@ -251,6 +256,7 @@ function StepRow(props: {
           {row.names.map((n) => (
             <span key={`${n.name} ${n.mark}`} className="step-name">
               <span className="block-name">{n.name}</span>
+              {groups.has(n.name) && <span className="row-label">group</span>}
               {n.mark !== null && MARKS[n.mark].draw(WHO[n.mark])}
             </span>
           ))}
