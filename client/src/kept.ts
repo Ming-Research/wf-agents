@@ -35,7 +35,7 @@ export const CHOICE_KEYS = {
   flowView: 'wf-agents.flow-view',
   /// Whether the flowchart draws every arrow a write runs.
   flowDataArrows: 'wf-agents.flow-data-arrows',
-  /// Which items the console's tree shows.
+  /// Which of the kinds of item the console's tree shows, each one ticked.
   consoleShows: 'wf-agents.console-shows',
   /// The tab of the console's item window.
   consoleTab: 'wf-agents.console-window-tab',
@@ -61,4 +61,27 @@ export function useKept<T extends string>(key: string, first: T, allowed: readon
     [key],
   );
   return [value, set] as const;
+}
+
+/// Which of `allowed` are ticked, kept under `key` as a list with commas: `first` until the owner ticks or unticks one.
+/// A kept list none of whose entries is allowed, kept by an earlier page, is taken as none kept.
+export function useKeptTicks<T extends string>(key: string, first: readonly T[], allowed: readonly T[]) {
+  const [value, setValue] = useState<ReadonlySet<T>>(() => {
+    const v = read(key);
+    if (v === null) return new Set(first);
+    const ticked = v.split(',').filter((t): t is T => (allowed as readonly string[]).includes(t));
+    return new Set(v !== '' && ticked.length === 0 ? first : ticked);
+  });
+  const tick = useCallback(
+    (t: T, on: boolean) =>
+      setValue((was) => {
+        const now = new Set(was);
+        if (on) now.add(t);
+        else now.delete(t);
+        write(key, allowed.filter((a) => now.has(a)).join(','));
+        return now;
+      }),
+    [key, allowed],
+  );
+  return [value, tick] as const;
 }

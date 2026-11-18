@@ -17,6 +17,9 @@ import { itemOf } from './real';
 /// What the item is to deliver: not yet, delivered, or given up.
 export type ItemStanding = 'open' | 'done' | 'cancelled';
 
+/// The kinds of item by how they stand, in the order the console lists them: every item is one of them.
+export const STANDINGS: readonly ItemStanding[] = ['open', 'done', 'cancelled'];
+
 /// The work going on on an item, as its node shows it: what it does now, how each cell of its flow stands, when it was
 /// added, what it has taken, when something last happened to it, the level its cell runs at, and the lines it changed.
 export type ShownWork = {
@@ -109,8 +112,8 @@ const drawn = (w: Summary) =>
     w.now.kind === 'waits' ||
     w.now.kind === 'stalled');
 
-/// The tree of the items: of those still open and what stands over them, or, with `every`, of every item.
-export function shownTree(data: Items, every = false): Shown[] {
+/// The tree of the items that stand as one of `shown` stands, and what stands over them.
+export function shownTree(data: Items, shown: ReadonlySet<ItemStanding> = new Set(['open'])): Shown[] {
   const byId = new Map(data.items.map((i) => [i.number, i]));
   const standing = (id: number): ItemStanding => standingOf(byId.get(id));
   // Each item's main dependent: the first by number of the items that depend on it.
@@ -130,13 +133,13 @@ export function shownTree(data: Items, every = false): Shown[] {
       under.set(i.number, [...(under.get(i.number) ?? []), d]);
       above.add(d);
     }
-  // An item is kept when it or something under it is open, or when every item is shown. An item met again on its own
-  // way down, which only a cycle of dependencies does, is not gone down again.
+  // An item is kept when it or something under it stands as one of those shown. An item met again on its own way down,
+  // which only a cycle of dependencies does, is not gone down again.
   const kept = new Map<number, boolean>();
   const keep = (id: number): boolean => {
     const known = kept.get(id);
     if (known !== undefined) return known;
-    const own = every || standing(id) === 'open';
+    const own = shown.has(standing(id));
     kept.set(id, own);
     const children = (under.get(id) ?? []).map(keep);
     const k = own || children.some((c) => c);

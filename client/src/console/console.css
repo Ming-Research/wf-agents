@@ -608,3 +608,16 @@
   color: var(--muted);
   font-weight: var(--weight);
 }
+
+/* The boxes that tick which kinds of item the tree shows, side by side in the frame a switch has (`.switch`), on the
+   page's ground, so that the cards under them do not show through. */
+.console-shows {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control);
+  padding: 0 var(--space-8);
+  gap: var(--space-12);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: var(--ground);
+}
