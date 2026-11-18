@@ -28,14 +28,14 @@ Why: Red says a problem, and a work not done within an hour is one, so it stands
 would be one more meaning to learn. A line from the work's own history loses: it says nothing until the history holds
 enough works, and among works that all run long, a long one does not stand out.
 
-### decision a-card-of-a-work-that-changed-lines-has-a-row-for-them
-A card whose work changed lines has a low row under its second row for the lines added and removed, `+210 −40`, the
-added in the green and the removed in the red a diff draws them in; a card of a work that changed none has no such row
-and keeps its height.
-Why: The second row has no room left for them, and the blank under it is too low for a line of words; a row on every
-card would leave a blank where nothing changed, which rests on judgment. Green for what was added and red for what was
-removed is how a diff draws them everywhere on the page; the reverse, as prices are drawn, was turned down as one
-meaning in two colours (Article 8).
+### decision a-card-writes-the-lines-its-work-changed-where-its-time-went
+A card writes the lines its work added and removed, `+210 −40`, on its second row past the strip, where it drew the
+line of where the work's time went; an ended item's card, at the right of its one row. The added are in the green and
+the removed in the red a diff draws them in. The line of where a work's time went stays in the item's window only.
+Why: The second row had room for the one or the other, and the owner chose the lines; the time's line is drawn once,
+in the window (Article 8). A low row under the second row for the lines was turned down: the second row had room.
+Green for what was added and red for what was removed is how a diff draws them everywhere on the page; the reverse, as
+prices are drawn, was turned down as one meaning in two colours (Article 8).
 
 ### decision a-card-stands-still
 No card is lit or moved for its work's state: one that waits for the owner has no rings round it, and a running one no

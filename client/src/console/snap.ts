@@ -21,12 +21,12 @@
 // in as the pointer comes. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`. An act
 // of the engine's own under way keeps its card running as a round does; a work that waits for the calls of tools the
 // engine carries out is a work that waits. Either way its cell's mark, in the yellow of a call, pulses as a running
-// cell's does. Pointing at where a card's work's time went says what the stretch was.
+// cell's does.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
-// every constant as they were. What changed: a card's second row draws the level the work's cell runs at and the works
-// page's strip of the work's cells where it drew the stages, and a row under it the lines the work changed, where it
-// changed any; what the new interface has nothing for
+// every constant as they were. What changed: a card's second row draws the level the work's cell runs at, the works
+// page's strip of the work's cells where it drew the stages, and the lines the work changed; an ended item's one row,
+// the lines its work changed; what the new interface has nothing for
 // yet (an item new to the owner, messages unread) is read from the console's made-up data (`mock.ts`); the colours the
 // page's tokens came from are read from the tokens, so that the canvas follows light and dark; the canvas follows the
 // size of what holds it, besides the window's; the links dim with the items they join while an item is lit
@@ -41,17 +41,14 @@ import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
 import { NO_LEVEL, STATE, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
 import { type Shown, type ShownWork, age } from './items';
-import { BAR_KINDS, TRACK_WORDS } from './track';
 import { indexTree, type Tree } from './tree';
 
 export const NODE_W = 300;
 /// A row's height, and the height of a node of one row: an item with a work going on has a second row, the work's, this
-/// part of a row high, so that the work sits close under the title; and a work that changed lines a row under that,
-/// this part of a row high, for the lines it added and removed.
+/// part of a row high, so that the work sits close under the title.
 const NODE_H = 26;
 export const ROW = 32;
 const WORK_ROW = 0.55;
-const LINES_ROW = 0.45;
 export const PITCH = 370;
 /// The room between the items of one item and those of the next in a column, in rows.
 const APART = 0.7;
@@ -199,14 +196,6 @@ const LIGHT = {
   /// What is new to the owner: the line inside a card's left edge, and its mark on the map.
   unseen: '#3673f5',
   accent: '#3673f5',
-  /// Where a work's time went, in the colours of the track in the item's window (styles/parts.css): a model's, the
-  /// tools', idle, and the ground they lie on with how far it lets the card through. An idle stretch takes the colour
-  /// of what the work waited for: the owner's red, a pause's muted grey, or idle.
-  model: '#3673f5',
-  tools: '#eab308',
-  idle: '#e8ecf2',
-  track: '#818b98',
-  trackAlpha: 0x1f / 255,
   /// What joins an item to those under it: Primer's neutral muted, `#818b981f` in light and `#656c7633` in dark, as
   /// the console on `old-main` read it, a little lighter.
   other: '#818b98',
@@ -314,9 +303,6 @@ export function themed(): typeof LIGHT {
     red: token('--red', LIGHT.red),
     green: token('--green', LIGHT.green),
     onTag: token('--on-colour', LIGHT.onTag),
-    model: token('--track-model', LIGHT.model),
-    tools: token('--track-tool', LIGHT.tools),
-    idle: token('--track-gap', LIGHT.idle),
   };
   if (getComputedStyle(document.documentElement).colorScheme !== 'dark') return { ...LIGHT, ...own, ...t };
   return {
@@ -335,9 +321,6 @@ export function themed(): typeof LIGHT {
     amber: token('--orange-text', LIGHT.amber),
     other: '#656c76',
     otherAlpha: 0.85 * (0x33 / 255),
-    // The ground of where a work's time went, as the track in the item's window has it in dark.
-    track: '#656c76',
-    trackAlpha: 0x33 / 255,
   };
 }
 
@@ -402,17 +385,12 @@ const TONE = () => ({
   danger: PALETTE.red,
 });
 
-/// Where a card draws its work's time: how wide the line is, where it begins from the card's left, and how far above
-/// or below it the pointer may be to point at it.
-const BAR_W = 70;
-const BAR_X = NODE_W - 8 - 36 - BAR_W;
-const BAR_REACH = 6;
+/// Where a card's second row writes the lines its work added and removed, from the card's left: past the strip, before
+/// how long the work has gone on.
+const LINES_X = NODE_W - 8 - 36 - 70;
 
-/// The middle of a card's second row, the work's, from the card's middle, for a card `h` high: as far from the card's
-/// top on every card with a work, whether a row of its lines changed stands under it or not; and the middle of that
-/// row.
+/// The middle of a card's second row, the work's, from the card's middle, for a card `h` high.
 const workRow = (h: number) => -h / 2 + high(1 + WORK_ROW) - (WORK_ROW * ROW) / 2 - 3;
-const linesRow = (h: number) => workRow(h) + LINES_ROW * ROW;
 
 /// What a work's state is to its node: running, waiting for the owner, paused, stopped by the engine for a problem, or
 /// waiting for something else.
@@ -826,7 +804,7 @@ export class SnapScene {
     });
     this.under = -1;
     this.rows = Float64Array.from(items, (i) =>
-      i.work === null ? 1 : 1 + WORK_ROW + (i.work.lines === null ? 0 : LINES_ROW),
+      i.work === null ? 1 : 1 + WORK_ROW,
     );
     this.pre = tree.columns.map((col) => {
       const p = new Float64Array(col.length + 1);
@@ -913,8 +891,8 @@ export class SnapScene {
   /// with an edge of a deeper shade of it; its edge the accent's tint above a work. On its first row its number in its
   /// state's colour, its title, and at the right how many things its work waits for from the owner, white on red; on
   /// the second row, for an item whose work goes on, under the number the level its cell runs at, the strip of the
-  /// work's cells as the works page draws it, where its time went, and how long it has gone on; and under that, where
-  /// the work changed lines, the lines it added and removed.
+  /// work's cells as the works page draws it, the lines the work added and removed where it changed any, and how long
+  /// it has gone on. An item whose work has ended has its one row, with the lines its work changed at its right.
   private node(item: Shown, k: number): Container {
     const s = this.styles as Styles;
     const view = new Container();
@@ -1010,42 +988,29 @@ export class SnapScene {
     if (item.unread > 0) tag(String(item.unread), PALETTE.unseen, null, true);
     if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, 'back', false);
     if (item.work === null && item.blocked > 0) tag(String(item.blocked), PALETTE.muted, 'lock', false);
+    // Of an item whose work has ended, the lines that work added and removed, at the right of its one row, each in its
+    // colour (`LINES_LOOKS`), as the item's window says them.
+    const ended = item.work === null ? item.endedLines : null;
+    if (ended != null) {
+      const removed = new BitmapText({
+        text: linesRemoved(ended.removed),
+        style: s.mono(token(LINES_LOOKS.removed, PALETTE.red)),
+      });
+      const added = new BitmapText({
+        text: linesAdded(ended.added),
+        style: s.mono(token(LINES_LOOKS.added, PALETTE.green)),
+      });
+      const gap = added.width / Math.max(1, added.text.length);
+      removed.position.set(right - removed.width, row1 - removed.height / 2);
+      added.position.set(right - removed.width - gap - added.width, row1 - added.height / 2);
+      view.addChild(added, removed);
+      right -= removed.width + gap + added.width + 8;
+    }
     // The title ends where the badges begin.
     fit(title, right - title.x);
     if (item.work === null || mood === null) return view;
     const w = item.work;
     const row2 = workRow(h);
-    // Where its time went, on a thin line: a model's, the tools', or idle in the colour of what the work waited for
-    // (`track.tsx`); nothing where the engine does not say. Each stretch says what it was on pointing at it.
-    const barW = BAR_W;
-    const barX = BAR_X;
-    const cells = [...w.bar];
-    const kind: Record<string, string> = {
-      m: PALETTE.model,
-      t: PALETTE.tools,
-      o: PALETTE.red,
-      p: PALETTE.muted,
-      w: PALETTE.idle,
-      '.': PALETTE.idle,
-    };
-    const cw = barW / Math.max(1, cells.length);
-    const track = new Graphics();
-    // Drawn as the track in the item's window is, a little lower: a rounded ground, and on it a rounded block for
-    // each stretch of one kind.
-    const trackH = 4;
-    if (cells.length > 0) {
-      track
-        .roundRect(barX, row2 - trackH / 2, barW, trackH, trackH / 2)
-        .fill({ color: PALETTE.track, alpha: PALETTE.trackAlpha });
-      for (let i = 0; i < cells.length; ) {
-        let j = i;
-        while (j < cells.length && cells[j] === cells[i]) j += 1;
-        track
-          .roundRect(barX + i * cw, row2 - trackH / 2, Math.max(2, (j - i) * cw), trackH, 2)
-          .fill(kind[cells[i]] ?? kind['.']);
-        i = j;
-      }
-    }
     // Under the number, the level the work's cell runs at, in its look (`levelLook`), as the item's window writes it
     // before its strip; a dash, muted, where the engine gives none.
     const look = w.level === null ? null : levelLook(w.level, w.raise);
@@ -1059,15 +1024,15 @@ export class SnapScene {
     view.addChild(level);
     // The second row: the work's strip, as the works page draws it, from under the title, so that the number stands
     // alone in a column at the card's left, or from past the level where it is wider than that column; ending short of
-    // where its time went.
+    // the lines the work changed.
     const at = here(w);
-    this.strip(view, item.id, k, w.cells, Math.max(title.x, x + level.width + 4), row2, barX - 8, at);
+    this.strip(view, item.id, k, w.cells, Math.max(title.x, x + level.width + 4), row2, LINES_X - 8, at);
     const drawn = this.drawnStrips.get(item.id);
     if (drawn !== undefined) drawn.level = { text: level.text, colour, strong };
-    // Under the second row, where the work changed lines, those it added and removed, `+210 −40`, from under the
-    // title, each in its colour (`LINES_LOOKS`), a blank of the monospace apart, as the item's window says them.
+    // Past the strip, where the work changed lines, those it added and removed, `+210 −40`, each in its colour
+    // (`LINES_LOOKS`), a blank of the monospace apart, as the item's window says them.
     if (w.lines !== null) {
-      const middle = linesRow(h);
+      const middle = row2;
       const added = new BitmapText({
         text: linesAdded(w.lines.added),
         style: s.mono(token(LINES_LOOKS.added, PALETTE.green)),
@@ -1076,13 +1041,13 @@ export class SnapScene {
         text: linesRemoved(w.lines.removed),
         style: s.mono(token(LINES_LOOKS.removed, PALETTE.red)),
       });
-      added.position.set(title.x, middle - added.height / 2);
-      removed.position.set(title.x + added.width + added.width / added.text.length, middle - removed.height / 2);
+      added.position.set(LINES_X, middle - added.height / 2);
+      removed.position.set(LINES_X + added.width + added.width / added.text.length, middle - removed.height / 2);
       view.addChild(added, removed);
     }
     // How long it has gone on, at the right, its colour by its age; the label is kept up as time passes.
     const label = new BitmapText({ text: '', style: s.mono(PALETTE.muted) });
-    view.addChild(track, label);
+    view.addChild(label);
     this.ages.set(k, { from: w.from, label, shown: '', row: row2 });
     this.age(k);
     return view;
@@ -1522,23 +1487,6 @@ export class SnapScene {
     return Math.abs(p.y - y(d, rank)) <= h ? t.columns[d][rank] : -1;
   }
 
-  /// What the stretch of the bar under the pointer was, where the pointer is on the bar of the card under it: the kind
-  /// of the character of the engine's bar at that place, in the words of the item window's track; nothing elsewhere.
-  private tip(t: Tree, x: (d: number) => number, y: (d: number, rank: number) => number): string {
-    const p = this.pointer;
-    const i = this.under;
-    if (p === null || i < 0) return '';
-    const work = this.shownItems[i].work;
-    if (work === null || work.bar === '') return '';
-    const d = t.depth[i];
-    const dx = p.x - x(d) - BAR_X;
-    const dy = p.y - y(d, t.rank[i]) - workRow(high(this.rows[i]));
-    if (dx < 0 || dx > BAR_W || Math.abs(dy) > BAR_REACH) return '';
-    const cells = [...work.bar];
-    const kind = BAR_KINDS[cells[Math.min(cells.length - 1, Math.floor((dx / BAR_W) * cells.length))]];
-    return kind === undefined ? '' : TRACK_WORDS[kind];
-  }
-
   private drag = (e: PointerEvent) => {
     if (this.dragging === null) return;
     this.leftGoal = null;
@@ -1721,10 +1669,6 @@ export class SnapScene {
       return set;
     };
     this.under = this.pointed(t, x, y);
-    // On pointing at where an item's work's time went, what the stretch under the pointer was, in the words of the
-    // track in the item's window, as every mark says what it is.
-    const tip = this.tip(t, x, y);
-    if (this.app.canvas.title !== tip) this.app.canvas.title = tip;
     const chain = lit(this.under);
     // The item selected, the same way, in the accent; only the item itself glows, those lit with it are only ringed,
     // so that it stands out among them.

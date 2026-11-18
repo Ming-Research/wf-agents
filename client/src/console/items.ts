@@ -58,6 +58,9 @@ export type Shown = {
   id: number;
   title: string;
   standing: ItemStanding;
+  /// Of an item whose work has ended, the lines that work added and removed; none where it changed none, or the item's
+  /// work goes on, whose own `lines` say them.
+  endedLines?: Lines | null;
   /// How many things its work waits on the owner for, as the engine's one list of it counts them.
   asks: number;
   /// It is a deliverable: an item that says what is to be delivered and is made of the items under it, with no work
@@ -185,6 +188,7 @@ export function shownTree(data: Items, every = false): Shown[] {
               lines: linesOf(w),
             }
           : null,
+      endedLines: w !== undefined && !drawn(w) ? linesOf(w) : null,
       children: [
         ...[...(under.get(id) ?? [])]
           .filter((c) => keep(c) && !making.has(c))
