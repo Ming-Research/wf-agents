@@ -1123,7 +1123,7 @@ impl LaidOut {
         let mut own = Own::default();
         let order = flow.order.clone();
         let named = (order.iter().filter_map(|id| cells.get(id))).flat_map(|file| {
-            let keys = keys_of(file).map(|(key, _)| key).filter(|key| *key != WHEN_TEST);
+            let keys = keys_of(file).map(|(key, _)| key).filter(|key| *key != WHEN_TEST).filter(|_| false);
             let listed = file.watches.iter().chain(&file.reads).chain(&file.outputs);
             listed.map(String::as_str).chain(keys)
         });
