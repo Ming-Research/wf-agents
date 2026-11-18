@@ -76,3 +76,14 @@ The switch that pauses a work is named the owner's own pause and shows only that
 its card alone, by Resume.
 Why: Pressed for the engine's pause, the switch said the owner had paused a work they had not, and its Start beside
 the card was a second way to end one stop.
+
+### decision the-owners-words-stand-until-a-read-brings-them
+A message the owner sends from the window is drawn under the ones the body was read with, marked as not taken yet until
+a cell has taken it, and is dropped only by a read of the work begun after it was sent, which holds it.
+Why: The message is kept beside the body, not written into it, because a read of the work already under way as the
+owner pressed Send is served with a body the engine wrote the words after, and setting that body threw away what the
+owner had just said while the box had already been cleared: the words went out of view altogether and the discussion
+read as if nothing was said (principles owner-keeps-their-place and nothing-passes-for-normal). Dropping each by the
+read begun after it, rather than by matching the words of the body, keeps the engine's record the one that says a
+message stands and compares only times the browser itself took; a read begun before the send but served after the
+engine wrote the words shows the message twice until the next read, taken over losing it.

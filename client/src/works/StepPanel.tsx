@@ -6,8 +6,8 @@
 // it stands; and each time it ran, in order, a return sent back said where the next time begins: what came back (the
 // calls it asked the engine for with their results, or what was sent back), what it took, and what its agent did, was
 // told and returned, each time's own when only where there were several. No number the engine keeps a run, a round or a call by is shown. Of a write of the owner's that woke no cell: what it did, the block's version and value, whether it changed
-// the block's meaning, and its content. Of another act: what was done, and when. With no row, that the work stands at
-// no run. A content is read only when the owner opens it.
+// the block's meaning, and its content. Of another act: what was done, and when. With no row, that nothing has run yet.
+// A content is read only when the owner opens it.
 
 import { Fragment, type ReactNode, useCallback } from 'react';
 

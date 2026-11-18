@@ -15,9 +15,10 @@
 // choice has one and sends each question's answer to the engine; once confirmed, the picks stand, settled; and last,
 // each block the owner may write that keeps the work from going on, drawn as such a question is, its values the
 // options, with a button that writes the one picked), each passage changed since the owner read it marked at its left,
-// and under the body the messages: the owner's and the replies, and a box to write one to a line of the work's flow,
-// picked above it among those on which the engine has a cell to give the words to, which a passage selected in the body
-// can be quoted into and which names that cell. Under the work's state line, each other stop of the work, in the same
+// and under the body the messages: the owner's and the replies, what the owner said from the window standing under them
+// until a read of the work brings it, and a box to write one to a line of the work's flow, picked above it among those
+// on which the engine has a cell to give the words to, which a passage selected in the body can be quoted into and
+// which names that cell. Under the work's state line, each other stop of the work, in the same
 // look: one sentence of why and the buttons that end it, from the engine's list, and a fault or a stall, which no one
 // waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, and what the work
 // changed, file by file, each opening its diff; the third, Step, everything about the
@@ -393,15 +394,21 @@ function ItemView({
   const [readWith, setReadWith] = useState<ReadonlySet<string>>(new Set());
   // Without the mocks, what the owner may rule of the preconditions the work waits for, read with the body.
   const [rulings, setRulings] = useState<Ruling[]>([]);
+  // What the owner said from this window, which stands under the messages the body was read with until a read begun
+  // after it was said brings it: the engine wrote the words as it took them, so a later read holds them, while the
+  // body of a read already under way cannot, and what the owner said must not go out of view.
+  const [said, setSaid] = useState<Message[]>([]);
   useEffect(() => {
     if (mocksShown() || read === null) return;
     let alive = true;
+    const begun = Date.now();
     const failed = (e: unknown) => alive && setBodyFailed(e instanceof Error ? e.message : String(e));
     const names = new Set((read.questions ?? []).map((q) => q.name));
     readBody(read, loadVersion).then(
       (b) => {
         if (!alive) return;
         setBody(b);
+        setSaid((was) => was.filter((m) => m.at >= begun));
         setBodyRead(true);
         setBodyFailed(null);
         setReadWith(names);
@@ -456,7 +463,10 @@ function ItemView({
   };
   const jump = (at: number) =>
     document.getElementById(messageId(work.number, at))?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  const about = (c: Choice) => messagesAbout(body.messages, c);
+  // The messages the window draws, in one list: those the body was read with, and under them what the owner said that
+  // it does not hold yet.
+  const messages = said.length === 0 ? body.messages : [...body.messages, ...said];
+  const about = (c: Choice) => messagesAbout(messages, c);
   const markAsRead = useCallback(() => {
     const clear = (ps: Part[]) => ps.map((p) => ({ ...p, changed: false }));
     markRead(item.number);
@@ -509,7 +519,7 @@ function ItemView({
       ...sections.flatMap((s) =>
         s.parts.flatMap((p, i): Pointing[] => (p.kind === 'text' ? [{ key: partKey(s.title, i), text: p.text }] : [])),
       ),
-      ...body.messages.flatMap((m, i): Pointing[] => (m.who === 'owner' ? [] : [{ key: messageKey(i), text: m.text }])),
+      ...messages.flatMap((m, i): Pointing[] => (m.who === 'owner' ? [] : [{ key: messageKey(i), text: m.text }])),
     ],
     new Set(named.keys()),
   );
@@ -621,9 +631,9 @@ function ItemView({
     const frame = host.getBoundingClientRect();
     setOffer({ x: at.left - frame.left + at.width / 2, y: at.top - frame.top, text });
   };
-  // A message sent stands under the others, the owner's own.
+  // A message sent stands under the others, the owner's own, until a read of the work brings it.
   const sent = (message: Message) => {
-    setBody((was) => ({ ...was, messages: [...was.messages, message] }));
+    setSaid((was) => [...was, message]);
     setQuote(null);
   };
   return (
@@ -754,8 +764,8 @@ function ItemView({
             <Discussion
               work={work}
               page={page}
-              messages={body.messages}
-              pointers={(i) => pointersOf(body.messages[i]?.who === 'owner' ? null : messageKey(i))}
+              messages={messages}
+              pointers={(i) => pointersOf(messages[i]?.who === 'owner' ? null : messageKey(i))}
               messageTo={messageTo}
               setMessageTo={setMessageTo}
               quote={quote}

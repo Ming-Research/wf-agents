@@ -585,20 +585,23 @@ describe("the Step of the work's item window", () => {
     expect(written?.textContent).toContain('said nothing yet');
   });
 
-  // A version is shown by `v` and its number among its block's versions, never by its place among the work's steps.
+  // A version is shown by `v` and its number among its block's versions, never by its place among the work's steps; and
+  // the inputs are the blocks the cell is given alone: the versions the run began with of what it may only write are
+  // none of them, and what it wrote of those is under Handed in.
   it('names each input a run began with by v and its number among its block’s versions, those new to it first', async () => {
     const { page } = await drawWork(41);
-    // The review's second run, woken by the code and the answer the implementation wrote again.
-    await chooseRun(page, 8);
+    // The implementation's run that the review's first finding sent round again: it began from that finding, new to it,
+    // from the plan and the solution as they stood, and from the code and the answer it may write, which it is given by
+    // nothing.
+    await chooseRun(page, 7);
     const started = part(step(page), 'Inputs');
     const rows = [...started.querySelectorAll('.list-row')];
     expect(rows.map((r) => r.querySelector('.mono')?.textContent)).toEqual([
-      'code v2',
-      'answer_review v2',
       'opinions_implement v1',
-      'content v1',
+      'plan v2',
+      'solution v2',
     ]);
-    expect(rows.map((r) => r.textContent?.includes('new to it'))).toEqual([true, true, false, false]);
+    expect(rows.map((r) => r.textContent?.includes('new to it'))).toEqual([true, false, false]);
     expect(started.textContent).not.toContain('@');
   });
 });
