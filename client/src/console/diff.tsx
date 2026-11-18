@@ -261,7 +261,8 @@ type Shown = { kind: Piece['kind']; parts: { text: string; kind: CodeKind | null
 type Drawn = { number: number | null; pieces: Shown[] };
 
 /// What a part of a file is drawn as, from its lines: the pieces compared, cut at each line break into the lines drawn,
-/// each numbered as the file after the change counts it where any of it, or the break that ends it, is in that file;
+/// each numbered as the file after the change counts it where any of it, or the break that ends it, is in that file:
+/// taken from its side after the change, and not from the side before it nor put by the page between two changes;
 /// the words of each side coloured by the file's grammar, where the page has one.
 function compareHunk(hunk: Hunk, grammar: Grammar | null): Drawn[] {
   const before = hunk.lines.flatMap((l) => (l.sign === '+' ? [] : [l.text])).join('\n');
@@ -286,14 +287,14 @@ function compareHunk(hunk: Hunk, grammar: Grammar | null): Drawn[] {
   for (const p of pieces) {
     let at = p.at;
     p.text.split('\n').forEach((text, i) => {
-      if (i > 0) end(p.kind !== 'removed');
+      if (i > 0) end(p.side === 'after');
       if (text !== '') {
         const parts =
           p.side === null
             ? [{ text, kind: null }]
             : codeParts(p.side === 'before' ? before : after, kinds[p.side], at, at + text.length);
         on.push({ kind: p.kind, parts });
-        if (p.kind !== 'removed') inAfter = true;
+        if (p.side === 'after') inAfter = true;
       }
       at += text.length + 1;
     });
