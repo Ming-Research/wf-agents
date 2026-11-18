@@ -163,8 +163,8 @@ async fn a_work_that_merged_keeping_no_pull_request_is_given_the_one_its_merge_n
 
 #[tokio::test(start_paused = true)]
 async fn each_file_a_work_changed_and_the_diff_of_one_are_given_and_what_there_is_none_of_refused() {
-    let running = with_repository(false);
-    let router = &running.router;
+    let repository = with_repository(false);
+    let router = &repository.router;
     greeted(router).await;
     assert_eq!(
         get_json(router, "/api/v1/works/1/changes").await,
