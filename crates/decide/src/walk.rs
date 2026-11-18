@@ -12,7 +12,12 @@
 //! for standing unanswered, whether or not the cell applies now, the work waits for the owner's answer, the cell being
 //! entered meanwhile only for the owner turning to it and no later cell run (design document `data-and-context`, 32);
 //! at the first whose preconditions do not hold, or that something new runs and that has reached a limit, the work
-//! waits; the first that something new runs is otherwise entered; the rest are passed. A work that waits only for what
+//! waits; the first that something new runs is otherwise entered; the rest are passed. A cell run only by what cells
+//! after it wrote, a way back, is passed too while a cell after it, short of the next cell with preconditions, is to be
+//! entered for something that is no way back of its own, has a run at rest, or waits for the results of its calls: so
+//! the cells a change reaches run in one pass, and what they send back is answered after it, all at once. A cell with
+//! preconditions ends that look, and is reached only by walking from the first cell, so that no verdict it reads is
+//! taken while its judge has something new (design document `data-and-context`, 6). A work that waits only for what
 //! cells write, and in which nothing new runs a cell, nothing is under way and no one is waited for, is stalled: every
 //! cell before where it stands was passed and every one after it is held, so no cell will write what it waits for, and
 //! it goes on only once a person or a source outside the work writes what runs a cell ([`Decision::Stalled`]). One
@@ -230,42 +235,18 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
         }
     }
     for (i, cell) in cells.iter().enumerate() {
-        if !walk.applies(i) {
-            // A question the cell waits for holds the work at its place all the same: no later cell runs while it
-            // stands unanswered (design document `data-and-context`, 32).
-            let held = walk.held(i);
-            if !held.is_empty() {
-                return walk.waiting(i, held);
-            }
+        let because = match walk.step(i) {
+            AtCell::Pass => continue,
+            AtCell::Decides(decision) => return decision,
+            AtCell::Enters(because) => because,
+        };
+        // A way back waits for the pass: the cells after it that are to run for something else run first (design
+        // document `data-and-context`, 6).
+        if way_round(&because) && walk.pass_goes_on(i) {
             continue;
         }
-        let wait = |on| walk.waiting(i, on);
-        if let Some(run) = walk.runs.values().find(|r| r.at_rest() && r.started.cell == cell.id) {
-            let mut on = walk.open_calls(run);
-            on.extend(walk.unmet(i));
-            if !on.is_empty() {
-                return wait(on);
-            }
-            return Decision::GoOn {
-                cell: cell.id.clone(),
-                run: run.started.run,
-            };
-        }
-        // A question the cell waits for holds the work at the cell until it is answered, and the results of its calls
-        // until they are in: the cell is entered meanwhile only for the owner turning to it, and no later cell runs.
-        let (because, mut on) = walk.entering(i);
-        // A precondition that does not hold holds the work at its cell whether or not something new runs the cell: a
-        // gate guards what comes after it as much as its own cell.
-        on.extend(walk.unmet(i));
-        if because.is_empty() {
-            if on.is_empty() {
-                continue;
-            }
-            return wait(on);
-        }
-        on.extend(walk.at_limit(cell, &because));
-        if !on.is_empty() {
-            return wait(on);
+        if let Some(limit) = walk.at_limit(cell, &because) {
+            return walk.waiting(i, vec![limit]);
         }
         // A pause holds back the run, unless it is for a note a person wrote or the owner turning to the cell:
         // everything before this is decided whether or not the work is paused.
@@ -273,7 +254,7 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
             return Decision::Paused { cell: cell.id.clone() };
         }
         if cell.slot && !room.slot {
-            return wait(vec![Waited::Slot]);
+            return walk.waiting(i, vec![Waited::Slot]);
         }
         return Decision::Run {
             cell: cell.id.clone(),
@@ -1177,6 +1158,70 @@ impl<'a> Walk<'a> {
         (because, Vec::new())
     }
 
+    /// What the walk does at the cell at this place, before a way back, a limit, a pause and a slot are weighed: passes
+    /// it, decides there, or would enter it for these reasons.
+    fn step(&self, i: usize) -> AtCell {
+        let cell = &self.flow.cells()[i];
+        if !self.applies(i) {
+            // A question the cell waits for holds the work at its place all the same: no later cell runs while it
+            // stands unanswered (design document `data-and-context`, 32).
+            let held = self.held(i);
+            if !held.is_empty() {
+                return AtCell::Decides(self.waiting(i, held));
+            }
+            return AtCell::Pass;
+        }
+        if let Some(run) = self.runs.values().find(|r| r.at_rest() && r.started.cell == cell.id) {
+            let mut on = self.open_calls(run);
+            on.extend(self.unmet(i));
+            if !on.is_empty() {
+                return AtCell::Decides(self.waiting(i, on));
+            }
+            return AtCell::Decides(Decision::GoOn {
+                cell: cell.id.clone(),
+                run: run.started.run,
+            });
+        }
+        // A question the cell waits for holds the work at the cell until it is answered, and the results of its calls
+        // until they are in: the cell is entered meanwhile only for the owner turning to it, and no later cell runs.
+        let (because, mut on) = self.entering(i);
+        // A precondition that does not hold holds the work at its cell whether or not something new runs the cell: a
+        // gate guards what comes after it as much as its own cell.
+        on.extend(self.unmet(i));
+        if !on.is_empty() {
+            return AtCell::Decides(self.waiting(i, on));
+        }
+        if because.is_empty() {
+            return AtCell::Pass;
+        }
+        AtCell::Enters(because)
+    }
+
+    /// Whether the pass goes on past the way back at this place: a cell after it, short of the next cell with
+    /// preconditions and of any the walk would stop at for another reason, is to be entered for something that is no
+    /// way back of its own and at no limit, has a run at rest that goes on, or waits for the results of its calls (design
+    /// document `data-and-context`, 6). Those between that the walk passes, or would enter for a way back of their own,
+    /// are passed over.
+    fn pass_goes_on(&self, i: usize) -> bool {
+        let cells = self.flow.cells();
+        for j in i + 1..cells.len() {
+            if !cells[j].requires.is_empty() {
+                return false;
+            }
+            match self.step(j) {
+                AtCell::Pass => {}
+                AtCell::Enters(because) if way_round(&because) => {}
+                AtCell::Enters(because) => return self.at_limit(&cells[j], &because).is_none(),
+                AtCell::Decides(Decision::GoOn { .. }) => return true,
+                AtCell::Decides(Decision::Wait { on, .. }) => {
+                    return on.iter().all(|w| matches!(w, Waited::Call { .. }));
+                }
+                AtCell::Decides(_) => return false,
+            }
+        }
+        false
+    }
+
     /// The calls the cell at this place is owed the results of, in the order they were made, and those of them that
     /// have no result yet. A call is owed where a run of the cell asked for it as its return was taken, after its last
     /// round ended and before it finished, and no run of the cell that finished since was given it.
@@ -1322,6 +1367,16 @@ impl<'a> Walk<'a> {
         }
         None
     }
+}
+
+/// What the walk does at one cell, before a way back, a limit, a pause and a slot are weighed ([`Walk::step`]).
+enum AtCell {
+    /// The cell is passed: its condition does not hold and no question holds the work there, or nothing is new to it.
+    Pass,
+    /// The walk decides at the cell: a wait there, a stall, or the run at rest going on.
+    Decides(Decision),
+    /// The cell would be entered for these reasons.
+    Enters(Vec<Cause>),
 }
 
 /// Whether a run for these reasons is a way round: something new runs it, and every new version was written by a cell

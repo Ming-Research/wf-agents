@@ -20,6 +20,7 @@ mod meaning;
 mod named_tests;
 mod opinions;
 mod order;
+mod pass;
 mod paused_answers;
 mod preconditions;
 mod questions;
