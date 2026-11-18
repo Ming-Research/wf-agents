@@ -482,6 +482,21 @@ describe('the console page', () => {
     expect(localStorage.getItem('wf-agents.console-shows')).toBe('done,cancelled');
   });
 
+  it('writes the item selected into the address, so that the tab of the console leads back to it', async () => {
+    const scene = await drawn();
+    const was = window.location.hash;
+    try {
+      scene.select(12);
+      await expect.poll(() => window.location.hash).toBe('#/console/items/12');
+      scene.select(2);
+      await expect.poll(() => window.location.hash).toBe('#/console/items/2');
+      scene.select(null);
+      await expect.poll(() => window.location.hash).toBe('#/console');
+    } finally {
+      history.replaceState(null, '', was === '' ? window.location.pathname : was);
+    }
+  });
+
   it('brings the panel out with the item selected, and on Escape lets the item go and folds the panel', async () => {
     const scene = await drawn();
     expect(folded()).toBe(true);
