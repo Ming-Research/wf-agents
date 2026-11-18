@@ -12,7 +12,7 @@
 import { Fragment, type ReactNode, useCallback } from 'react';
 
 import { StateMark, markName } from '../marks';
-import { ListRow, PanelPart, Sign, StatusLine } from '../parts';
+import { Fold, ListRow, Sign, StatusLine } from '../parts';
 import type { CallRow, Following, Handed, Round, Run, Step, Unmet, WorkPage } from '../works-api';
 import { CallsTook, Opener, Parts } from './marks';
 import { type HistoryRow, type SessionStep, runState } from './placing';
@@ -135,14 +135,7 @@ function RoundPart({ run, round, calls, first, timed, sentBack, failedBefore, re
       ? `began ${clock(round.began)}, under way`
       : `${clock(round.began)} to ${clock(round.ended)}, ${duration(round.ended - round.began)}`;
   return (
-    <PanelPart
-      label={
-        <>
-          {first ? 'Details' : 'Ran again'}
-          {timed && <span className="muted small"> {when}</span>}
-        </>
-      }
-    >
+    <Fold title={first ? 'Details' : 'Ran again'} note={timed ? when : undefined}>
       <dl className="pairs round">
         {!first && (given.kind === 'sentBack' || failedBefore || given.kind === 'results') && (
           <>
@@ -239,7 +232,7 @@ function RoundPart({ run, round, calls, first, timed, sentBack, failedBefore, re
       </dl>
       {session !== null && <SystemPrompt load={() => reader.system(session.line, session.number)} />}
       <RoundTold load={() => reader.told(run.run, round.number, round.ended !== null)} ended={round.ended} />
-    </PanelPart>
+    </Fold>
   );
 }
 
@@ -346,7 +339,7 @@ function RunStep({ run, mark, began, page, reader, shown }: {
       {began.map((s) => (
         <SessionLine key={s.at} step={s} />
       ))}
-      <PanelPart label="Why it ran" count={run.because.length}>
+      <Fold title="Why it ran" count={run.because.length}>
         <ul>
           {run.because.map((c, i) => (
             <ListRow key={i}>
@@ -357,8 +350,8 @@ function RunStep({ run, mark, began, page, reader, shown }: {
             </ListRow>
           ))}
         </ul>
-      </PanelPart>
-      <PanelPart label="Inputs" count={inputs.length}>
+      </Fold>
+      <Fold title="Inputs" count={inputs.length}>
         {inputs.length === 0 ? (
           <p className="muted">None had a version yet</p>
         ) : (
@@ -372,8 +365,8 @@ function RunStep({ run, mark, began, page, reader, shown }: {
             ))}
           </ul>
         )}
-      </PanelPart>
-      <PanelPart label="Handed in">
+      </Fold>
+      <Fold title="Handed in">
         {end === null && <p className="muted">Nothing yet</p>}
         {end?.kind === 'abandoned' && <p>Abandoned {clock(end.time)}; it wrote nothing</p>}
         {end?.kind === 'finished' && (
@@ -415,7 +408,7 @@ function RunStep({ run, mark, began, page, reader, shown }: {
             ))}
           </ul>
         )}
-      </PanelPart>
+      </Fold>
       {run.rounds.map((round, i) => (
         <RoundPart
           key={round.number}
@@ -469,7 +462,7 @@ function WriteStep({ step, row, page, reader }: {
       <StatusLine word="When" dot={false}>
         {fullTime(step.time)}, {chars(step.chars)}
       </StatusLine>
-      <PanelPart label="Content">
+      <Fold title="Content">
         <Opener
           label="content"
           load={() =>
@@ -478,7 +471,7 @@ function WriteStep({ step, row, page, reader }: {
               : reader.version(step.block, version.number)
           }
         />
-      </PanelPart>
+      </Fold>
     </>
   );
 }
@@ -513,9 +506,9 @@ function ActStep({ step }: { step: Step & { kind: keyof typeof ACT_WORDS } }) {
       <StatusLine word={step.kind === 'paused' && step.by === 'engine' ? 'Paused by the engine' : ACT_WORDS[step.kind]}>
         {fullTime(step.time)}
       </StatusLine>
-      <PanelPart label="What was done">
+      <Fold title="What was done">
         <p>{what.trim()}</p>
-      </PanelPart>
+      </Fold>
     </>
   );
 }

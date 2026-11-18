@@ -55,8 +55,8 @@
 
 /* The item in the window, laid out as the page's panel (styles/parts.css): its head (`.drawer-head`), its status lines
    (`.status-line`), the buttons of what the owner does to the work, and under a hairline its body (`.drawer-body`):
-   the switch between the item and the work, and their sections (`.panel-part`). What follows is only what the page's
-   parts do not draw. */
+   the switch between its tabs, and their sections (`.cw-fold`). What follows is only what the page's parts do not
+   draw. */
 
 /* What the window says with nothing selected, as the page's panel says it. */
 .cw-empty {
@@ -596,49 +596,6 @@
 
 .cw-to .switch-choice:disabled:hover {
   background: transparent;
-}
-
-/* A section of the item's window: its head is its name in the accent, strong, with a line after it to the window's
-   edge, which folds the section away at a press; under it, what the section holds. */
-.cw-fold {
-  margin-bottom: var(--space-12);
-}
-
-.cw-fold-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  width: 100%;
-  margin: var(--space-16) 0 var(--space-8);
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--head);
-  font-size: var(--size-body);
-  font-weight: var(--weight-strong);
-  text-align: left;
-  cursor: pointer;
-}
-
-.cw-fold:first-child .cw-fold-head {
-  margin-top: 0;
-}
-
-/* The line after the name, to the edge. */
-.cw-fold-head::after {
-  content: '';
-  flex: 1;
-  height: var(--hairline);
-  background: var(--head);
-}
-
-.cw-fold-sign {
-  width: var(--space-12);
-}
-
-.cw-fold-count {
-  color: var(--muted);
-  font-weight: var(--weight);
 }
 
 /* The boxes that tick which kinds of item the tree shows, one under another in the frame a switch has (`.switch`), on

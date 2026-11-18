@@ -175,8 +175,8 @@ const step = (page: HTMLElement) => page.querySelector('aside .drawer-body') as 
 
 /// A part of the Step by its label's first words.
 const part = (root: ParentNode, label: string) =>
-  [...root.querySelectorAll<HTMLElement>('section.panel-part')].find((p) =>
-    p.querySelector('.panel-part-label')?.textContent?.startsWith(label),
+  [...root.querySelectorAll<HTMLElement>('section.cw-fold')].find((p) =>
+    p.querySelector('.cw-fold-head')?.textContent?.startsWith(label),
   ) as HTMLElement;
 
 describe('the list of works', () => {
@@ -518,10 +518,10 @@ describe("the Step of the work's item window", () => {
     expect(panel.querySelector('.status-line')?.textContent).not.toMatch(/run \d/);
     expect(panel.textContent).toContain(began(41, 3));
     expect(part(panel, 'Why it ran').textContent).toContain('it had not run before');
-    expect(texts(panel, '.panel-part-label')).toEqual(expect.arrayContaining(['Why it ran 1', 'Handed in']));
-    expect(texts(panel, '.panel-part-label').some((l) => l.startsWith('Inputs'))).toBe(true);
+    expect(texts(panel, '.cw-fold-head')).toEqual(expect.arrayContaining(['Why it ran 1', 'Handed in']));
+    expect(texts(panel, '.cw-fold-head').some((l) => l.startsWith('Inputs'))).toBe(true);
     // No part of its own for its calls, nor a round by its number: each call stands under the time that asked for it.
-    expect(texts(panel, '.panel-part-label').some((l) => l.startsWith('Calls') || /Round \d/.test(l))).toBe(false);
+    expect(texts(panel, '.cw-fold-head').some((l) => l.startsWith('Calls') || /Round \d/.test(l))).toBe(false);
     expect(panel.textContent).toContain('Should the cached tokens be shown apart from the others?');
     // The question it rested at was withdrawn with it.
     expect(panel.textContent).toContain('withdrawn with its run');

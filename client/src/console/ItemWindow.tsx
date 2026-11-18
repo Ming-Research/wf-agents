@@ -53,7 +53,7 @@ import {
 import { CHOICE_KEYS, useKept } from '../kept';
 import { LevelMark, LinesChanged } from '../marks';
 import { mocksShown } from '../mock-data';
-import { Button, Coded, Confirm, FoldMark, ListRow, PanelPart, Switch, TICK, Tabs } from '../parts';
+import { Button, Coded, Confirm, Fold, ListRow, Switch, TICK, Tabs } from '../parts';
 import {
   type Act,
   type ChangesPage,
@@ -1037,46 +1037,6 @@ function writeDraft(key: string, text: string) {
   }
 }
 
-/// Which sections of the item's text the owner folded away, kept in this browser, so that one folded stays folded
-/// from item to item.
-const FOLDED = 'console-window-folded';
-function foldedNow(): string[] {
-  try {
-    const kept = JSON.parse(localStorage.getItem(FOLDED) ?? '[]') as unknown;
-    return Array.isArray(kept) ? kept.filter((k): k is string => typeof k === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-/// A section of the item's window: a whole row in the accent's colour that names it and folds it away at a press,
-/// and under it what it holds.
-function Fold({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
-  const [folded, setFolded] = useState(() => foldedNow().includes(title));
-  const turn = () => {
-    const now = !folded;
-    setFolded(now);
-    try {
-      const kept = foldedNow().filter((k) => k !== title);
-      localStorage.setItem(FOLDED, JSON.stringify(now ? [...kept, title] : kept));
-    } catch {
-      // Kept only where the browser lets it be.
-    }
-  };
-  return (
-    <section className="cw-fold">
-      <button type="button" className="cw-fold-head" aria-expanded={!folded} onClick={turn}>
-        <span className="cw-fold-sign" aria-hidden="true">
-          <FoldMark open={!folded} />
-        </span>
-        <span>{title}</span>
-        {count !== undefined && <span className="cw-fold-count mono">{count}</span>}
-      </button>
-      {!folded && <div className="cw-fold-body">{children}</div>}
-    </section>
-  );
-}
-
 function Section({
   title,
   parts,
@@ -1619,7 +1579,7 @@ function Changes({ w, reader }: { w: Summary; reader: Reader }) {
   }, [reader, of]);
   if (changed === null) return null;
   return (
-    <PanelPart label="Files changed" count={changed.files}>
+    <Fold title="Files changed" count={changed.files}>
       <Loaded
         got={read?.got ?? null}
         show={(page) =>
@@ -1634,7 +1594,7 @@ function Changes({ w, reader }: { w: Summary; reader: Reader }) {
           )
         }
       />
-    </PanelPart>
+    </Fold>
   );
 }
 

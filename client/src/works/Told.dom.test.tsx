@@ -88,8 +88,8 @@ async function click(element: Element | null | undefined) {
 /// The part of a run's panel of the time its cell ran of this number: the first its details, the others each time it
 /// ran again.
 function roundPart(panel: HTMLElement, number: number): HTMLElement {
-  const parts = [...panel.querySelectorAll('section.panel-part')].filter((p) =>
-    /^(Details|Ran again)( |$)/.test(p.querySelector('.panel-part-label')?.textContent ?? ''),
+  const parts = [...panel.querySelectorAll('section.cw-fold')].filter((p) =>
+    /^(Details|Ran again)( |$)/.test(p.querySelector('.cw-fold-head')?.textContent ?? ''),
   );
   const part = parts[number - 1];
   if (!part) throw new Error(`no time ${number}`);

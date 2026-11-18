@@ -7,7 +7,7 @@
 
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 
-import { Attr, ListRow, PanelPart } from '../parts';
+import { Attr, Fold, ListRow } from '../parts';
 import type { SessionWhy, WorkPage } from '../works-api';
 import { Keys } from './Round';
 import { type RoundOf, type SessionRow, type Span, usageOf } from './used';
@@ -237,11 +237,11 @@ export function UsageTab({ page }: { page: WorkPage }) {
           <Keys keys={[['keep-warm pings', String(page.summary.pinged.rounds)], ...spentKeys(page.summary.pinged)]} />
         )}
       </div>
-      <PanelPart label="Where the time went">
+      <Fold title="Where the time went">
         <TimeBar time={u.time} />
         <Timeline spans={u.spans} start={u.start} end={u.end} />
-      </PanelPart>
-      <PanelPart label="Models" count={u.models.length}>
+      </Fold>
+      <Fold title="Models" count={u.models.length}>
         <ul>
           {u.models.map((m) => (
             <ListRow key={m.ran === null ? '' : `${m.ran.model} ${m.ran.level} ${m.ran.effort ?? ''}`}>
@@ -266,8 +266,8 @@ export function UsageTab({ page }: { page: WorkPage }) {
             </ListRow>
           ))}
         </ul>
-      </PanelPart>
-      <PanelPart label="Where the cost went" count={u.cells.length}>
+      </Fold>
+      <Fold title="Where the cost went" count={u.cells.length}>
         <Bars
           rows={u.cells.map((c) => {
             const title = page.flow.cells.find((x) => x.id === c.cell)?.title;
@@ -290,8 +290,8 @@ export function UsageTab({ page }: { page: WorkPage }) {
             };
           })}
         />
-      </PanelPart>
-      <PanelPart label="Sessions" count={u.sessions.length}>
+      </Fold>
+      <Fold title="Sessions" count={u.sessions.length}>
         <ul>
           {u.sessions.map((s) => (
             <ListRow key={sessionName(s)}>
@@ -314,9 +314,9 @@ export function UsageTab({ page }: { page: WorkPage }) {
         </ul>
         <p className="usage-sub">Context after each round</p>
         <ContextChart sessions={u.sessions} rounds={u.rounds.length} lines={page.flow.lines.map((l) => l.name)} />
-      </PanelPart>
+      </Fold>
       {u.tools.length > 0 && (
-        <PanelPart label="Tools" count={u.tools.length}>
+        <Fold title="Tools" count={u.tools.length}>
           <Bars
             rows={u.tools.map((t) => ({
               key: t.name,
@@ -330,7 +330,7 @@ export function UsageTab({ page }: { page: WorkPage }) {
               ]),
             }))}
           />
-        </PanelPart>
+        </Fold>
       )}
     </>
   );

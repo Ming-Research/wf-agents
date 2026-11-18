@@ -104,8 +104,8 @@ async function runPanel(page: WorkPage, run: number, source: Source): Promise<HT
 /// The part of a run's panel of the time its cell ran of this number: the first its details, the others each time it
 /// ran again.
 function roundPart(panel: HTMLElement, number: number): HTMLElement {
-  const parts = [...panel.querySelectorAll('section.panel-part')].filter((p) =>
-    /^(Details|Ran again)( |$)/.test(p.querySelector('.panel-part-label')?.textContent ?? ''),
+  const parts = [...panel.querySelectorAll('section.cw-fold')].filter((p) =>
+    /^(Details|Ran again)( |$)/.test(p.querySelector('.cw-fold-head')?.textContent ?? ''),
   );
   const part = parts[number - 1];
   if (!part) throw new Error(`no time ${number}`);
@@ -162,7 +162,7 @@ describe("a round's part of a run's panel", () => {
 
   it('names its times by what they were and never by a number, and says why it ran again', async () => {
     const panel = await runPanel(fixtureWork(41), 0, sourceOf());
-    const labels = [...panel.querySelectorAll('.panel-part-label')].map((l) => l.textContent ?? '');
+    const labels = [...panel.querySelectorAll('.cw-fold-head')].map((l) => l.textContent ?? '');
     expect(labels.filter((l) => l.startsWith('Details ')).length).toBe(1);
     expect(labels.filter((l) => l.startsWith('Ran again ')).length).toBe(1);
     expect(labels.some((l) => /Round \d/.test(l))).toBe(false);
@@ -279,7 +279,7 @@ describe('what a work used', () => {
       "first round's begin to last round's end",
       'under way',
     ]);
-    expect([...panel.querySelectorAll('.panel-part-label')].map((l) => l.firstChild?.textContent)).toEqual([
+    expect([...panel.querySelectorAll('.cw-fold-head > span:nth-child(2)')].map((l) => l.textContent)).toEqual([
       'Where the time went',
       'Models',
       'Where the cost went',
@@ -287,7 +287,7 @@ describe('what a work used', () => {
       'Tools',
     ]);
     // Every model row says the level and effort its rounds recorded, by their keys.
-    const models = [...panel.querySelectorAll('section.panel-part')][1];
+    const models = [...panel.querySelectorAll('section.cw-fold')][1];
     expect([...models.querySelectorAll('li.list-row > span:not(.row-note)')].map((k) => k.textContent)).toEqual([
       'model claude-sonnet-5-5',
       'level 2',
