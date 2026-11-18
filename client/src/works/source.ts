@@ -1,7 +1,7 @@
 // Where the works page reads the items and the works from, and sends what the owner does: the interface
 // (works-api.ts), or, when the page's address has `?fixtures`, the fixtures (fixtures.ts), so that the page can be
 // looked at before the interface serves the works. The page reaches it through a context, which a test sets to its
-// own source.
+// own source. The item's window reads a work's contents through it, each that does not change read once (`Reader`).
 //
 // The page is to stay quick with several hundred works, each change of any of them read again. So the interface's
 // changes come on the page's one stream (changes.ts); a part reads again at most once at a time, and once more after
@@ -19,6 +19,7 @@ import type {
   CallPage,
   Changed,
   Copies,
+  Doing,
   DoingPage,
   Engine,
   EngineAct,
@@ -95,6 +96,52 @@ export const FIXTURES: Source = {
   },
   changes: () => () => undefined,
 };
+
+/// What the item's window reads a work's contents through, each read once.
+export interface Reader {
+  /// The content of the block's version of this number.
+  version(block: string, number: number): Promise<string>;
+  /// A round in full; kept once read only where the round had ended, since one under way has more to come.
+  round(run: number, number: number, ended: boolean): Promise<RoundPage>;
+  /// What a round was told and returned, as its carrier kept them; kept once read only where the round had ended.
+  told(run: number, number: number, ended: boolean): Promise<ToldPage>;
+  call(call: number): Promise<string | null>;
+  /// The system prompt the line's session of this number, the line's first being none, began with; kept once read.
+  system(line: string, session: number): Promise<string>;
+  /// What the agent of a round was last seen doing, the latest last; read anew each time.
+  doing(run: number, number: number): Promise<Doing[]>;
+}
+
+/// The reads of a work's contents, each made once: a version, an ended round, what it was told and returned, and a
+/// call's result do not change once there. A round under way is read again each time, since it has more to come.
+export function readerOf(source: Source, work: number): Reader {
+  const once = new Map<string, Promise<unknown>>();
+  const cached = <T,>(key: string, load: () => Promise<T>): Promise<T> => {
+    let p = once.get(key) as Promise<T> | undefined;
+    if (!p) {
+      p = load();
+      once.set(key, p);
+      p.catch(() => once.delete(key));
+    }
+    return p;
+  };
+  return {
+    version: (block, number) =>
+      cached(`v:${block}/${number}`, async () => (await source.loadVersion(work, block, number)).content),
+    round: (run, number, ended) =>
+      ended
+        ? cached<RoundPage>(`r:${run}/${number}`, () => source.loadRound(work, run, number))
+        : source.loadRound(work, run, number),
+    told: (run, number, ended) =>
+      ended
+        ? cached<ToldPage>(`t:${run}/${number}`, () => source.loadTold(work, run, number))
+        : source.loadTold(work, run, number),
+    call: (call) => cached(`c:${call}`, async () => (await source.loadCall(work, call)).result),
+    system: (line, session) =>
+      cached(`s:${line}/${session}`, async () => (await source.loadSystem(work, line, session)).text),
+    doing: async (run, number) => (await source.loadDoing(work, run, number)).doing,
+  };
+}
 
 /// The source the page's address names.
 export function sourceOf(search: string): Source {

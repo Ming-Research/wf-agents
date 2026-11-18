@@ -33,9 +33,9 @@ Why: One number for all the gaps was turned down: two gaps of plainly different 
 of either.
 
 ### decision a-works-page-shows-its-item-window
-A work's page shows the console's item window for the work's item, in the console's window over its right, with Step
-and Usage after the window's own Item and Work; what the owner answers, chooses and writes is there alone, and nothing
-the window shows is said again in the view's line.
+A work's page shows the console's item window for the work's item, in the console's window over its right, its Step
+showing the row of the history chosen (decision one-window-on-the-console-and-a-works-page); what the owner answers,
+chooses and writes is there alone, and nothing the window shows is said again in the view's line.
 Why: What the owner answers and chooses belongs to the item, and each thing has one place (Article 8). A panel of the
 work's own docked at the chart's right was turned down: the owner could not see the item from the work, and the list of
 blocks it showed with nothing chosen meant nothing to the owner.

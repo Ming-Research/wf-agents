@@ -1,7 +1,17 @@
 # The item's window
 
-What the console, and a work's page for the work's item, open for an item: what its flow's card names, the questions in
-it and the owner's words to each cell.
+What the console, and a work's page for the work's item, open for an item: its tabs, what its flow's card names, the
+questions in it and the owner's words to each cell.
+
+### decision one-window-on-the-console-and-a-works-page
+The window has the same four tabs on the console and on a work's page, Item, Work, Step and Usage, each page keeping
+its own choice of tab; Step shows the row of the work's history the owner chose, where the page draws the history and
+one is chosen, and else the run the work stands at: the run whose round is under way, or else the latest run of the
+cell it stands at.
+Why: The console holds the items and the works going on under them, and is where the owner works (principle
+the-console-is-where-the-owner-works); Step and Usage on a work's page alone left the owner no way to see from the
+console what a work does now and what it used, and one window drawn from one set of parts shows each thing one way
+(Article 8).
 
 ### decision the-card-is-the-flows
 What the item's card shows the owner is named by the work's flow in its own `flow.toml` (`card`), data of the flow in

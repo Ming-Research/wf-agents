@@ -1,8 +1,9 @@
 // What the window beside the console shows of the item selected: its number, its title, which brings the item into view
 // in the tree, and its project; a line of where the item stands, with the works page's strip of the work's cells and
 // where its time went at its right, and a line of what its work does; what the owner does to the work (let it on, pause
-// it, cancel it); two tabs; and under them, while something in the item is new to the owner, a strip that says what
-// changed, with a link to mark the item read. The first tab holds the body (a section for each datum the work's flow's
+// it, cancel it); four tabs, Item, Work, Step and Usage, the same on the console and on a work's page; and under them,
+// while something in the item is new to the owner, a strip that says what changed, with a link to mark the item read.
+// The first tab holds the body (a section for each datum the work's flow's
 // card names, in its order and by its name, with each choice that waits for the owner where it stands in it, and each
 // question put to the owner that stands, once and only there: at the first pointer to it, `{{name}}`, in a passage of
 // the body or in a message an agent wrote, a later pointer to it being a link to it, and after the last section where
@@ -19,9 +20,11 @@
 // that cell. Under the work's state line,
 // each other stop of the work, in the same look: one sentence of why and the buttons that end it, from the engine's
 // list, and a fault or a stall, which no one waits on, said as the engine gives it. The second tab holds what of the
-// work the lines do not say, and the legend of the strip's marks. While the window is out, R marks the item read, as
-// its link does, unless a box has the keys. What the owner sends is sent once: its button cannot be pressed while it is
-// under way, and a refusal is said under the item it was for, and only there.
+// work the lines do not say, and the legend of the strip's marks; the third, Step, everything about the row of the
+// work's history the page chose, else the run the work stands at; the fourth, Usage, what the work used. Each page
+// keeps its own choice of tab. While the window is out, R marks the item read, as its link does, unless a box has the
+// keys. What the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is said
+// under the item it was for, and only there.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/ItemWindow.tsx`), its layout as it
 // was, its parts the page's own (parts.tsx) where it used Primer's. What the engine does not give yet comes from the
@@ -30,8 +33,8 @@
 // added is kept in that layout: the work line's facts, the row of what the owner does to the work under the lines, the
 // block a message is written in over its box, and the flow's name among the work's facts.
 //
-// A work's page shows the same window for the work's item, with more choices of its own after Item and Work, and the
-// title leading to the item in the console, which the page gives (`more`, `titleHref`).
+// A work's page shows the same window for the work's item, with the row of the work's history chosen and the title
+// leading to the item in the console, which the page gives (`row`, `titleHref`), and its own choice of tab (`tab`).
 
 import './console.css';
 
@@ -42,6 +45,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -63,6 +67,10 @@ import {
   type WorkPage,
 } from '../works-api';
 import { CallsTook, Parts, STRIP_MARKS, Strip } from '../works/marks';
+import { type HistoryRow, placeSteps, sessionsBegun, standingRun } from '../works/placing';
+import { readerOf, useSource } from '../works/source';
+import { StepTab } from '../works/StepPanel';
+import { UsageTab } from '../works/Usage';
 import { type Wait, type WaitAct, actOf, drawnInBody, waitsOf } from '../works/waiting';
 import {
   CANCEL_DOES,
@@ -121,6 +129,21 @@ const ended = (s: Summary) => s.now.kind === 'merged' || s.now.kind === 'cancell
 export type PageState = { page: WorkPage } | { failed: string } | null;
 
 const pageIn = (p: PageState): WorkPage | null => (p !== null && 'page' in p ? p.page : null);
+
+/// The window's tabs, in the order its switch shows them, on the console and on a work's page alike.
+export const WINDOW_TABS = ['item', 'work', 'step', 'usage'] as const;
+export type WindowTab = (typeof WINDOW_TABS)[number];
+
+const TAB_NAMES: Record<WindowTab, string> = { item: 'Item', work: 'Work', step: 'Step', usage: 'Usage' };
+
+/// What a tab that draws the work's page says until it is read, or where it could not be.
+function Unread({ page }: { page: PageState }) {
+  return page !== null && 'failed' in page ? (
+    <p className="failed small">The page could not read the work: {page.failed}</p>
+  ) : (
+    <p className="muted">Reading the work</p>
+  );
+}
 
 /// A cell's title in the work's flow, or its id where the flow does not name it.
 const titleOf = (page: WorkPage | null, cell: string) => page?.flow.cells.find((c) => c.id === cell)?.title ?? cell;
@@ -307,12 +330,13 @@ export type ItemPanelProps = {
   onTitle?: () => void;
   /// Where the title leads instead, where the window stands on another page than the tree's.
   titleHref?: string;
-  /// The choices of the window's switch after Item and Work, each with its name and what it shows, where the page has
-  /// more to show of the work.
-  more?: { value: string; name: string; content: ReactNode }[];
-  /// The choice shown, where the page chooses it, and what is told of the owner's choice of another.
-  tab?: string;
-  onTab?: (tab: string) => void;
+  /// The row of the work's history the owner chose, which Step shows, where the page draws the history and one is
+  /// chosen.
+  row?: HistoryRow;
+  /// The tab shown, where the page chooses it, and what is told of the owner's choice of another; else the window keeps
+  /// the console's choice itself.
+  tab?: WindowTab;
+  onTab?: (tab: WindowTab) => void;
   /// The card of what the work waits for that the window is to show, by its key (`Wait.key`), where the address names
   /// one.
   wait?: string;
@@ -336,7 +360,7 @@ function ItemView({
   onRead,
   onTitle,
   titleHref,
-  more = [],
+  row,
   tab: chosenTab,
   onTab,
   wait,
@@ -345,6 +369,14 @@ function ItemView({
   const work = item.work;
   const read = pageIn(page);
   const send = (what: Act) => act(work.number, what);
+  // What Step and Usage read of the work: the rows of its history and the sessions each run began, and its contents,
+  // each read once.
+  const source = useSource();
+  const reader = useMemo(() => readerOf(source, work.number), [source, work.number]);
+  const rows = useMemo(() => (read === null ? [] : placeSteps(read)), [read]);
+  const sessions = useMemo(() => sessionsBegun(read?.steps ?? []), [read]);
+  const standing = read === null ? null : standingRun(read);
+  const stepRow = row ?? rows.find((r) => r.step.kind === 'run' && r.step.run === standing);
   const mock = itemOf(item);
   const [body, setBody] = useState<Body>(() => firstBody(item));
   // Without the mocks, the body is read from the work's blocks each time its page is read: whether it was read yet,
@@ -381,13 +413,12 @@ function ItemView({
     };
   }, [read, loadVersion]);
   const [unseen, setUnseen] = useState(mock.unseen);
-  const [ownTab, setOwnTab] = useKept(CHOICE_KEYS.consoleTab, 'item', ['item', 'work']);
+  const [ownTab, setOwnTab] = useKept(CHOICE_KEYS.consoleTab, 'item', WINDOW_TABS);
   const tab = chosenTab ?? ownTab;
-  const setTab = (to: string) => {
-    if (chosenTab === undefined && (to === 'item' || to === 'work')) setOwnTab(to);
+  const setTab = (to: WindowTab) => {
+    if (chosenTab === undefined) setOwnTab(to);
     onTab?.(to);
   };
-  const shownMore = more.find((m) => m.value === tab);
   const [quote, setQuote] = useState<string | null>(null);
   const [offer, setOffer] = useState<{ x: number; y: number; text: string } | null>(null);
   // What the owner's last Confirm did, said under it.
@@ -618,11 +649,7 @@ function ItemView({
         <div className="cw-tabs">
           <Switch
             label="What the window shows"
-            choices={[
-              { value: 'item', name: 'Item' },
-              { value: 'work', name: 'Work' },
-              ...more.map((m) => ({ value: m.value, name: m.name })),
-            ]}
+            choices={WINDOW_TABS.map((value) => ({ value, name: TAB_NAMES[value] }))}
             value={tab}
             onChange={setTab}
           />
@@ -641,8 +668,14 @@ function ItemView({
             </button>
           </div>
         ) : null}
-        {shownMore !== undefined ? (
-          shownMore.content
+        {tab === 'step' ? (
+          read === null ? (
+            <Unread page={page} />
+          ) : (
+            <StepTab page={read} row={stepRow} sessions={sessions} reader={reader} shown={open} />
+          )
+        ) : tab === 'usage' ? (
+          read === null ? <Unread page={page} /> : <UsageTab page={read} />
         ) : tab === 'work' ? (
           <WorkFacts w={work} page={read} verdicts={mock.verdicts} />
         ) : (

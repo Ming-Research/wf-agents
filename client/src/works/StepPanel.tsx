@@ -1,21 +1,22 @@
-// The Step of the item's window on a work's page: everything about the row of the work's history the owner chose. Of a
-// run: how it ended or stands, where the work waits at it for the calls of tools in the words the work's state says
+// The Step of the item's window: everything about the row of the work's history it is given, the one the owner chose
+// on the work's page, else the run the work stands at (`standingRun`). Of a run: how it ended or stands, where the work waits at it for the calls of tools in the words the work's state says
 // that in everywhere, when it began and how long it took, what it took, what its rounds ran on and the sessions
 // they ran in, with each new session it began and why; why it ran; the versions it started from, those new to it first;
 // what it handed in, each version's content opened where it stands; each round, with what it was given (the reasons a
 // return was sent back among them), what came back, what it ran on, took, was filled with, was told and returned; and
 // its calls. Of a write of the owner's that woke no cell: what it did, the block's version and value, whether it
-// changed the block's meaning, and its content. Of another act: what was done, and when. With nothing chosen,
-// that a row is to be chosen. A content is read only when the owner opens it.
+// changed the block's meaning, and its content. Of another act: what was done, and when. With no row, that the work
+// stands at no run. A content is read only when the owner opens it.
 
 import { Fragment, type ReactNode, useCallback } from 'react';
 
 import { StateMark, markName } from '../marks';
 import { ListRow, PanelPart, Sign, StatusLine } from '../parts';
-import type { CallRow, Doing, Handed, Round, RoundPage, Run, Step, ToldPage, WorkPage } from '../works-api';
+import type { CallRow, Handed, Round, Run, Step, WorkPage } from '../works-api';
 import { CallsTook, Opener, Parts } from './marks';
 import { type HistoryRow, type SessionStep, runState } from './placing';
 import { ContextKeys, DoingNow, Filled, Keys, MissedKeys, RanKeys, SystemPrompt, TookKeys } from './Round';
+import type { Reader } from './source';
 import type { RunState } from './state-marks';
 import { RoundTold } from './Told';
 import {
@@ -40,21 +41,6 @@ import {
   unmetWords,
   writerWords,
 } from './words';
-
-/// What the Step reads the contents through, each read once.
-export interface Reader {
-  /// The content of the block's version of this number.
-  version(block: string, number: number): Promise<string>;
-  /// A round in full; kept once read only where the round had ended, since one under way has more to come.
-  round(run: number, number: number, ended: boolean): Promise<RoundPage>;
-  /// What a round was told and returned, as its carrier kept them; kept once read only where the round had ended.
-  told(run: number, number: number, ended: boolean): Promise<ToldPage>;
-  call(call: number): Promise<string | null>;
-  /// The system prompt the line's session of this number, the line's first being none, began with; kept once read.
-  system(line: string, session: number): Promise<string>;
-  /// What the agent of a round was last seen doing, the latest last; read anew each time.
-  doing(run: number, number: number): Promise<Doing[]>;
-}
 
 const chars = (n: number) => `${n.toLocaleString('en')} chars`;
 
@@ -537,8 +523,8 @@ function ActStep({ step }: { step: Step & { kind: keyof typeof ACT_WORDS } }) {
   );
 }
 
-/// The Step: the row chosen, or, with none, that a row is to be chosen. `shown` is whether the Step is in view, which
-/// what a round's agent is doing is read only while it is.
+/// The Step: the row of the work's history it is given, or, with none, that the work stands at no run. `shown` is
+/// whether the Step is in view, which what a round's agent is doing is read only while it is.
 export function StepTab({ page, row, sessions, reader, shown }: {
   page: WorkPage;
   row: HistoryRow | undefined;
@@ -547,7 +533,7 @@ export function StepTab({ page, row, sessions, reader, shown }: {
   reader: Reader;
   shown: boolean;
 }) {
-  if (row === undefined) return <p className="muted">Choose a row of the history to see its step here</p>;
+  if (row === undefined) return <p className="muted">The work stands at no run</p>;
   const step = row.step;
   switch (step.kind) {
     case 'run':
