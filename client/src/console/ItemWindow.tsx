@@ -839,7 +839,8 @@ function Progress({ w, page }: { w: Summary; page: WorkPage | null }) {
 /// The work's state line, one line, the same part for every state: its dot and the word of its state, the calls of
 /// tools it waits for with a link to where each runs, and how long it has waited for them; the cell it stands at where
 /// the engine's state names one, as a cell is shown everywhere; where it waits for the items its item depends on,
-/// which, as the engine gives them, those cancelled said so; and the work.
+/// which, as the engine gives them, those cancelled said so; the work; and its pull request, where it has one, a link
+/// to it on the host of its repository.
 function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
   const { tone, cell } = stateOf(w);
   const now = w.now;
@@ -856,6 +857,17 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
       <a href={`#/works/${w.number}`} className="link mono" title={`Open work ${w.number}`}>
         W{w.number}
       </a>
+      {w.pull != null && (
+        <a
+          href={w.pull.url}
+          className="link mono"
+          target="_blank"
+          rel="noreferrer"
+          title={`Open pull request ${w.pull.number} on the host of the work's repository`}
+        >
+          PR #{w.pull.number}
+        </a>
+      )}
     </Line>
   );
 }
