@@ -21,13 +21,6 @@ that depends on it, it is only a line that points there.
 Why: Shown whole in several places, an item would be counted, read and answered more than once, and each thing has one
 place (Article 8).
 
-### decision a-works-age-is-red-past-an-hour
-A card gives its work's age in three colours and no more: grey under half an hour, amber from half an hour to an hour,
-and red past an hour, however long.
-Why: Red says a problem, and a work not done within an hour is one, so it stands out as one; a fourth colour past a day
-would be one more meaning to learn. A line from the work's own history loses: it says nothing until the history holds
-enough works, and among works that all run long, a long one does not stand out.
-
 ### decision a-card-writes-the-lines-its-work-changed-where-its-time-went
 A card writes the lines its work added and removed, `+210 −40`, on its second row past the strip, where it drew the
 line of where the work's time went; an ended item's card, at the right of its one row. The added are in the green and

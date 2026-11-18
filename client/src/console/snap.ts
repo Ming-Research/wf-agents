@@ -185,7 +185,7 @@ const LIGHT = {
   paused: '#8b93a1',
   halted: '#e5484d',
   waiting: '#e8cc6a',
-  amber: '#d97706',
+  amber: '#b45309',
   red: '#e5484d',
   green: '#2f9e6e',
   /// The pointer's blue: the lines at the edges of the column under it, and the own colour of an item with no work of
@@ -302,6 +302,7 @@ export function themed(): typeof LIGHT {
     halted: token('--red', LIGHT.halted),
     red: token('--red', LIGHT.red),
     green: token('--green', LIGHT.green),
+    amber: token('--orange-text', LIGHT.amber),
     onTag: token('--on-colour', LIGHT.onTag),
   };
   if (getComputedStyle(document.documentElement).colorScheme !== 'dark') return { ...LIGHT, ...own, ...t };
@@ -318,7 +319,6 @@ export function themed(): typeof LIGHT {
     chosenRibbon: between(t.card, t.chosen, 0.3),
     mapBar: between(t.card, own.over, 0.6),
     paused: t.muted,
-    amber: token('--orange-text', LIGHT.amber),
     other: '#656c76',
     otherAlpha: 0.85 * (0x33 / 255),
   };

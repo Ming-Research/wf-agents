@@ -4,7 +4,8 @@
 // tool's mark (`placing.ts`). Under the cells, an arrow from the middle of the column of the cell whose run wrote what
 // woke it to the run's own column, drawn as the matrix draws its ways back and in the accent where it runs back
 // to an earlier cell, and in the run's column its mark, how it ended or stands, alone. At the right, how long the run
-// took, or has been under way while it is open, and when it began on pointing at it. Where the work was paused, let on
+// took, or has been under way while it is open, in the colour a console card gives a work's age, and when it began on
+// pointing at it. Where the work was paused, let on
 // again, cancelled or reopened, a row half as high lies between the runs it fell between: a dashed line in the accent
 // across the cells, and at the right what was done, and when on pointing at it. The table keeps its whole width under
 // the window over its right, as the flow's chart does, and the frame scrolls on past what the window covers. The chart opens scrolled to its end, the newest step, and follows new
@@ -16,6 +17,7 @@ import type { Cell } from '../api';
 import { CellHead, FLOW_WIDTHS, LineLine, RowArrow, WIDTHS, WordsHead, useWheel } from '../Chart';
 import { matrix } from '../matrix';
 import { MARKS, type MarkKey, markName } from '../marks';
+import { age } from '../console/items';
 import { Arrow, Edge } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
 import type { WorkPage } from '../works-api';
@@ -220,7 +222,8 @@ function DividerRow({ row, span }: { row: HistoryRow; span: number }) {
   );
 }
 
-/// A run: what woke it, the arrow and its mark under the cells, and how long it took.
+/// A run: what woke it, the arrow and its mark under the cells, and how long it took, coloured as a card colours a
+/// work's age (decision a-works-age-is-red-past-an-hour).
 function StepRow(props: {
   row: HistoryRow;
   cells: Cell[];
@@ -236,7 +239,7 @@ function StepRow(props: {
   const { row, cells, groups, chosen, pointed, onChoose, onPoint, now } = props;
   const { step } = row;
   const did = partsText(row.did);
-  const took = step.kind === 'run' ? duration(runTook(step, now)) : '';
+  const ms = step.kind === 'run' ? runTook(step, now) : null;
   return (
     <tr className={`row step-row ${chosen ? 'chosen' : ''}`} onClick={onChoose}>
       <th
@@ -295,7 +298,7 @@ function StepRow(props: {
         );
       })}
       <td className="words" title={`Began ${fullTime(step.time)}`} onMouseEnter={() => onPoint(null)}>
-        <span className="step-time">{took}</span>
+        {ms !== null && <span className={`step-time ${age(ms).tone}`}>{duration(ms)}</span>}
       </td>
     </tr>
   );

@@ -402,6 +402,16 @@
   font-size: var(--size-small);
 }
 
+/* How long a run took, in the colours a console card gives a work's age: grey, amber from half an hour, red past an
+   hour. */
+.step-time.attention {
+  color: var(--orange-text);
+}
+
+.step-time.danger {
+  color: var(--red);
+}
+
 .step-row {
   cursor: pointer;
 }
