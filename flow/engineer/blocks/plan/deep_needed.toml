@@ -2,3 +2,5 @@ what = "Whether the plan needs the deep research first: yes only when the direct
 values = ["yes", "no"]
 # Until someone says yes, the research has the plan, and the deep research does not run.
 default = "no"
+# With yes the research hands the work over and runs no more, so its return holds nothing else but what it found.
+with_nothing_but = { yes = ["found"] }

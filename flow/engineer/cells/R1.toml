@@ -13,7 +13,7 @@ page, has not seen it); what it asks for, not there already. Where it does not h
 reach, ask the owner how to go on, with a question that waits. A test goes with the project's tests, anything else you
 make in `project.research`, committed. If the design itself is at fault, say so.
 
-Decide `deep_needed`. With yes, write only `found`. With no, write the plan (`plan_owner`, `plan_agent`,
+Decide `deep_needed`. With yes, write only `found`, and ask no question. With no, write the plan (`plan_owner`, `plan_agent`,
 `acceptance`, and `tree_edits`) and no `found`. Where the solution needs the design tree changed, propose that in
 `tree_edits` rather than bend the solution. Before handing in, ask yourself where the plan is most likely wrong, and
 check that point.

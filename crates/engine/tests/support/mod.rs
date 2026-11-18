@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use decide::run::Failure;
-use decide::{CallId, Cause, Decision, Outsider, Pauser, Records, RunId, Started, decide};
+use decide::{CallId, Cause, CellId, Decision, Finished, Outsider, Pauser, Records, RunId, Started, decide};
 use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
 use flow::Compiled;
 
@@ -81,7 +81,9 @@ pub struct Seen {
 /// A run is held to what its cell must write where its return asked for no call, however much of what ran its round it
 /// dealt with (decision a-return-hands-in-what-its-cell-must-every-time). A return with a question that waits is not
 /// held either; the histories that check this give no cell that must write a question to ask. Nor is a run entered while
-/// its cell waited ([`waited`]).
+/// its cell waited ([`waited`]), nor one that only answered the owner: it dealt with its cell's own words alone, wrote
+/// nothing among its cell's outputs but its answer in them, what it committed being none of them, and asked nothing
+/// ([`answered_alone`]).
 pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String> {
     for finished in &records.finished {
         let started = (records.started.iter())
@@ -93,7 +95,7 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
             .max();
         let asked = (records.called.iter())
             .any(|c| c.run == finished.run && c.at < finished.at && ended.is_none_or(|e| c.at > e));
-        if asked || waited(records, started) {
+        if asked || waited(records, started) || answered_alone(flow, records, finished, &started.cell) {
             continue;
         }
         let spec = (flow.cells.iter())
@@ -109,6 +111,19 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
         }
     }
     None
+}
+
+/// Whether the finished run of this cell only answered the owner, read from the records: it dealt with the cell's own
+/// words alone, wrote nothing among the cell's outputs but its answer in them, and asked no question (design document
+/// `data-and-context`, 35).
+pub fn answered_alone(flow: &Compiled, records: &Records, finished: &Finished, cell: &CellId) -> bool {
+    let Some(own) = engine::spoken::words_of(flow, cell) else {
+        return false;
+    };
+    let outputs = (flow.flow.place(cell)).map_or(&[][..], |place| &flow.flow.cells()[place].outputs[..]);
+    finished.dealt_with.as_deref() == Some(std::slice::from_ref(own))
+        && (finished.writes.iter()).all(|w| w.block == *own || !outputs.contains(&w.block))
+        && !(records.questions.iter()).any(|q| q.run == finished.run && !q.engine)
 }
 
 /// Whether the cell of the run waited, as the run started, for what an earlier run of it asked: the result of a call

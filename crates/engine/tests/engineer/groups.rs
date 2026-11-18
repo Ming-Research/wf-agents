@@ -144,6 +144,11 @@ fn each_datum_or_group_a_cell_watches_named_as_dealt_with_is_taken_for_any_block
                     answered_by: &BTreeMap::new(),
                     dialogues: &cell.dialogues,
                     verdicts: &cell.verdicts,
+                    // This test's returns write no choice and must write nothing, which a value that stands with
+                    // nothing but some blocks, or an answer to the owner alone, would bear on.
+                    nothing_but: &BTreeMap::new(),
+                    questions: None,
+                    words: None,
                 };
                 // A maker woken by a point in its dialogue answers it there (design document `data-and-context`, 41).
                 let writes: Vec<decide::Write> = (cell.dialogues.contains_key(block))

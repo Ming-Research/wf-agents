@@ -140,6 +140,10 @@ export function faultWords(fault: Fault): string {
       return `${w.block} says what it counts as before it is written, but it is not a choice.`;
     case 'defaultNotAValue':
       return `${w.block} counts as ${w.default} before it is written, which is not one of its values.`;
+    case 'nothingButNotAValue':
+      return `${w.block} says what a return with ${w.value} holds nothing else but, and ${w.value} is not one of its values.`;
+    case 'nothingButNotAnOutput':
+      return `${w.block} says a return with ${w.value} may hold ${w.output}, which no cell that writes ${w.block} may write.`;
     case 'blockNamedTest':
       return "A block is named test, which a cell's when takes for a named test.";
     case 'emptyCondition':

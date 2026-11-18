@@ -765,6 +765,9 @@ pub struct SentBackFaults {
     pub not_a_value: String,
     pub not_a_choice: String,
     pub not_handed_in: String,
+    /// `{block}` a choice written with `{value}`, which a return holds with nothing but what its file names, and
+    /// `{besides}` the other blocks the return holds, each between backticks, joined by `between`.
+    pub nothing_but: String,
     pub unreadable: String,
     pub not_run_by: String,
     pub dealt_with_twice: String,

@@ -9,6 +9,7 @@ mod failing;
 mod handing_in;
 mod limits;
 mod malformed;
+mod nothing_but;
 mod owed;
 mod paused;
 mod paused_answers;
@@ -32,6 +33,9 @@ struct Spec {
     answered_by: BTreeMap<BlockId, Answer>,
     dialogues: BTreeMap<BlockId, Vec<BlockId>>,
     verdicts: BTreeMap<BlockId, Verdict>,
+    nothing_but: BTreeMap<BlockId, BTreeMap<String, Vec<BlockId>>>,
+    questions: Option<BlockId>,
+    words: Option<BlockId>,
 }
 
 impl Spec {
@@ -46,13 +50,17 @@ impl Spec {
             answered_by: &self.answered_by,
             dialogues: &self.dialogues,
             verdicts: &self.verdicts,
+            nothing_but: &self.nothing_but,
+            questions: self.questions.as_ref(),
+            words: self.words.as_ref(),
         }
     }
 }
 
 /// A cell that may write the plan and the verdict, a choice of yes or no, and need hand in neither; its returns may be
 /// sent back twice. Its round was run by the request and the opinions, and was told of the latest version of each
-/// block it may write: the plan's of version 4, the verdict's, yes, of version 5.
+/// block it may write: the plan's of version 4, the verdict's, yes, of version 5. No value of its choice stands with
+/// nothing but some blocks, and it has no questions and no words of its own.
 fn spec() -> Spec {
     let standing = |at: u64, value: Option<&str>| Standing {
         told: Some(Seq(at)),
@@ -80,6 +88,9 @@ fn spec() -> Spec {
         answered_by: BTreeMap::new(),
         dialogues: BTreeMap::new(),
         verdicts: BTreeMap::new(),
+        nothing_but: BTreeMap::new(),
+        questions: None,
+        words: None,
     }
 }
 
@@ -214,6 +225,25 @@ fn came(dealt_with: &[&str], writes: Vec<Write>, found: Vec<Unmet>, waits: bool)
             found,
             waits,
             questions: Vec::new(),
+            read: Vec::new(),
+        }),
+    }
+}
+
+/// A round whose return dealt with these, wrote these, and asked one question, which waits for the owner's answer or
+/// not.
+fn asks_beside(dealt_with: &[&str], writes: Vec<Write>, waits: bool) -> Round {
+    Round {
+        returned: Some(Return::Came {
+            dealt_with: dealt_with.iter().map(|&b| b.into()).collect(),
+            writes,
+            calls: 0,
+            found: vec![],
+            waits,
+            questions: vec![Asking {
+                name: "which".to_string(),
+                withdrawn: false,
+            }],
             read: Vec::new(),
         }),
     }

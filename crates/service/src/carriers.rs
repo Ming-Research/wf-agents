@@ -100,7 +100,7 @@ pub trait Rounds: Send + Sync {
         None
     }
 
-    /// Asks a fork of the session the round ran in a question (design document `testing`, 34), as the planner asks
+    /// Asks a fork of the session the round ran in a question (design document `testing`, 27), as the planner asks
     /// it: what the fork answered, or why it could not be asked. It is called off the loop, as [`Rounds::told`] is,
     /// and takes no slot. Rounds carried out in no session have none to fork, as by default.
     fn fork(&self, fork: Fork) -> Pin<Box<dyn Future<Output = Result<Forked, String>> + Send + '_>> {

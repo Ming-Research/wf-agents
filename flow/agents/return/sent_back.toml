@@ -25,6 +25,9 @@ not_a_value = "`{value}` is not one of the values of `{block}`, which are {value
 # A block that is no choice, not written as a string.
 not_a_choice = "`{block}` is no choice: write its whole new version as a string."
 not_handed_in = "`{block}` is not handed in, and this cell hands it in every time, as it stands."
+# A choice, `{block}`, written with `{value}`, which its file says a return holds with nothing but some other blocks
+# (`with_nothing_but`), and the other blocks this return holds, `{besides}`, each between backticks, joined by `between`.
+nothing_but = "`{block}` is `{value}`, and a return with that value holds none of {besides}."
 unreadable = "What came back could not be read as a return of its form, each quote and each line break inside a text needing to be escaped: {why}"
 not_run_by = "`{name}` is named in `dealt_with`, but it did not run this round."
 dealt_with_twice = "`{name}` is named twice in `dealt_with`."

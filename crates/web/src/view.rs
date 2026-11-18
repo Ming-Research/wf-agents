@@ -513,6 +513,19 @@ pub enum What {
         block: String,
         default: String,
     },
+    /// The block says what a return that writes it with this value holds nothing else but, and the value is not one of
+    /// its values, or it is no choice.
+    NothingButNotAValue {
+        block: String,
+        value: String,
+    },
+    /// The block says a return that writes it with this value may hold this other block, and no cell that writes the
+    /// block may write that one.
+    NothingButNotAnOutput {
+        block: String,
+        value: String,
+        output: String,
+    },
     /// A block is named `test`, which a cell's `when` and `requires` take for a named test.
     BlockNamedTest,
     /// A cell's `when` or `requires` is a table of no keys.
@@ -835,6 +848,8 @@ impl What {
             F::TaskFileOutside { file } => What::TaskFileOutside { file },
             F::DefaultNotAChoice { block } => What::DefaultNotAChoice { block },
             F::DefaultNotAValue { block, default } => What::DefaultNotAValue { block, default },
+            F::NothingButNotAValue { block, value } => What::NothingButNotAValue { block, value },
+            F::NothingButNotAnOutput { block, value, output } => What::NothingButNotAnOutput { block, value, output },
             F::BlockNamedTest => What::BlockNamedTest,
             F::EmptyCondition => What::EmptyCondition,
             F::GroupNameTaken { group } => What::GroupNameTaken { group },

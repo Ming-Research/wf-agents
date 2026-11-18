@@ -46,7 +46,8 @@
 //!   owner or the architect otherwise), asking for nothing in one in twenty-five, handing in a block its cell may not
 //!   write beside the rest in one in twenty-five, and otherwise handing in what its cell may write: each choice in nine
 //!   of ten, its first value (yes) in a little over half of those; each other block in four of five, mattering in seven
-//!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering. A return that
+//!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering; and beside a
+//!   value that stands with nothing but some blocks (`with_nothing_but`), those alone, and no question. A return that
 //!   hands in names as dealt with each thing its round was told ran it, by its name, as an agent writes it. Beside
 //!   such a hand-in, the agent of a cell an answer runs writes in the record of the questions a question of its own in
 //!   three of a hundred, which waits in one of five, the return then handing in each block its cell must write; asks
@@ -787,6 +788,7 @@ impl Random {
                 handed_in.push(h);
             }
         }
+        alone(&d.flow, &mut handed_in);
         handed_in
     }
 
@@ -829,6 +831,31 @@ impl Random {
         }
         Came::hands_in(handed_in)
     }
+}
+
+/// Of what a return hands in, each value that stands with nothing but some blocks (`with_nothing_but`), by its choice,
+/// with those blocks.
+fn standing_alone(flow: &Compiled, handed_in: &[Handed]) -> Vec<(BlockId, Vec<BlockId>)> {
+    (handed_in.iter())
+        .filter_map(|h| {
+            let only = flow.blocks.get(&h.block)?.with_nothing_but.get(h.value.as_ref()?)?;
+            Some((h.block.clone(), only.clone()))
+        })
+        .collect()
+}
+
+/// Keeps of what a return hands in, beside a value that stands with nothing but some blocks, those blocks alone, as an
+/// agent that does as its task says hands it in.
+fn alone(flow: &Compiled, handed_in: &mut Vec<Handed>) {
+    let alone = standing_alone(flow, handed_in);
+    handed_in.retain(|h| (alone.iter()).all(|(choice, only)| h.block == *choice || only.contains(&h.block)));
+}
+
+/// Whether a return of the cell at this place that hands these in may ask a question beside them: each value among
+/// them that stands with nothing but some blocks has the cell's questions among them.
+fn may_ask(flow: &Compiled, i: usize, handed_in: &[Handed]) -> bool {
+    let own = engine::asked::questions_of(flow, &flow.cells[i].id);
+    (standing_alone(flow, handed_in).iter()).all(|(_, only)| own.is_some_and(|q| only.contains(q)))
 }
 
 /// A commit on the work's branch, which moves its head.
@@ -981,7 +1008,11 @@ impl Random {
                 next_word(d, run, i, cell, &mut handed_in, 90);
                 let first = !d.work.records.questions.iter().any(|q| !q.engine);
                 let force = self.steer == Steer::FailCheckLeft && first;
-                let questions = self.questions(d, i, cell, &mut handed_in, force);
+                // A value that stands with nothing but some blocks is handed in with no question beside it.
+                let questions = match may_ask(&d.flow, i, &handed_in) {
+                    true => self.questions(d, i, cell, &mut handed_in, force),
+                    false => Vec::new(),
+                };
                 let mut came = hands_in(d, run, i, handed_in);
                 came.said.questions = questions;
                 came

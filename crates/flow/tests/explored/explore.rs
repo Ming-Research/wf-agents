@@ -477,6 +477,9 @@ impl Explorer<'_> {
             answered_by: &m.answered_by[i],
             dialogues: &m.cells()[i].dialogues,
             verdicts: &m.cells()[i].verdicts,
+            nothing_but: &m.nothing_but,
+            questions: m.answered[i].as_ref(),
+            words: m.spoken[i].as_ref(),
         };
         let step = run::next(log, requires, Hold::Nothing);
         let sent_back = variant.as_ref() == Some(&Variant::SentBack);

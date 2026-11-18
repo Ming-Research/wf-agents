@@ -9,6 +9,16 @@ it when the item was made was tried, and almost no item was marked, so all went 
 for fixes and small features was turned down, since being flexible is not one heavy way and one light; and a half-made
 short cut in the flow, since what is in the flow must be as good as it can be.
 
+### decision the-research-hands-over-with-what-it-found-alone
+When the research decides that the deep research is needed, its return holds nothing but what it found: no plan, no
+question and no answer, in a dialogue or to the owner. `deep_needed` declares it (`with_nothing_but`), and a return that
+holds anything else is sent back saying what.
+Why: With yes the research runs no more, and the deep research takes the work, the research's dialogues and questions
+with it (design document `data-and-context`, 27, 28), so what the research hands in beside the hand-over is left with
+no cell that answers for it: a question it asked so, as one of its cases showed, stood while the owner had no cell to
+speak to about it. Its task already said to write only what it found, and it asked all the same, so its words alone
+did not stop it (principle locate-and-price-the-fix).
+
 ### decision acceptance-may-change
 The conditions a work is accepted by may change while the work goes on.
 Why: Fixing them once the first design is made is too strict.
