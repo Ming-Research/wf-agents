@@ -25,7 +25,7 @@ afterEach(() => {
 
 /// The works' fixtures with an engine, and the system's, each read counted; the parts that listen are told of a change
 /// when the test says.
-function sources(engine: Engine = { slots: 2, taken: 1, paused: null }) {
+function sources(engine: Engine = { slots: 2, taken: 1, paused: null, keepWarm: true }) {
   const listening = new Set<{ onChanged: (c: Changed) => void; onOpened: () => void }>();
   const asked: number[][] = [];
   const works: Source = {

@@ -1283,11 +1283,8 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
     const to = el.getBoundingClientRect().height;
     const look = getComputedStyle(el);
     const time = millisecondsOf(look.getPropertyValue('--turn-time'));
-    // Drawn only where the browser draws: a host that has neither, as the tests', turns at once.
-    const drawn =
-      typeof el.animate === 'function' &&
-      (typeof window.matchMedia !== 'function' || !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    if (drawn && time > 0 && Math.round(from) !== Math.round(to)) {
+    // A host with no such drawing, as the tests', turns at once.
+    if (typeof el.animate === 'function' && time > 0 && Math.round(from) !== Math.round(to)) {
       const held = { height: `${from}px`, overflow: 'hidden' };
       el.animate([held, { ...held, height: `${to}px` }], {
         duration: time,
