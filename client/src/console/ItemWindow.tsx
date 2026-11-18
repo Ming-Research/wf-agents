@@ -53,7 +53,7 @@ import {
 import { CHOICE_KEYS, useKept } from '../kept';
 import { LevelMark, LinesChanged } from '../marks';
 import { mocksShown } from '../mock-data';
-import { Button, Coded, Confirm, FoldMark, ListRow, PanelPart, Switch, TICK } from '../parts';
+import { Button, Coded, Confirm, FoldMark, ListRow, PanelPart, Switch, TICK, Tabs } from '../parts';
 import {
   type Act,
   type ChangesPage,
@@ -651,7 +651,7 @@ function ItemView({
       <StopCards work={work} act={send} actEngine={actEngine} />
       <div className="drawer-body">
         <div className="cw-tabs">
-          <Switch
+          <Tabs
             label="What the window shows"
             choices={WINDOW_TABS.map((value) => ({ value, name: TAB_NAMES[value] }))}
             value={tab}

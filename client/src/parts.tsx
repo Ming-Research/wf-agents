@@ -2,7 +2,15 @@
 // label, a list row, a panel, the window that floats over a view and shows it, and the few signs the chart's heads use.
 // Each is drawn by its class in styles/parts.css from the tokens in styles/tokens.css.
 
-import { type PointerEvent as Press, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
+import {
+  type KeyboardEvent,
+  type PointerEvent as Press,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 /// The bar: the page's name, the views as text tabs (the one shown marked), and at its right what belongs to the page
 /// as a whole.
@@ -124,6 +132,43 @@ export function Switch<T extends string>({ label, choices, value, onChange }: {
         </button>
       ))}
     </span>
+  );
+}
+
+/// The tabs of what a window shows, drawn as the bar's views are: each a word, muted, the one shown in the text's
+/// colour over a line in the accent, all on a hairline. The arrows move from one to the next, as tabs do.
+export function Tabs<T extends string>({ label, choices, value, onChange }: {
+  label: string;
+  choices: { value: T; name: ReactNode; title?: string }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  const move = (e: KeyboardEvent<HTMLDivElement>) => {
+    const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    const at = choices.findIndex((c) => c.value === value);
+    if (step === 0 || at < 0) return;
+    e.preventDefault();
+    const to = (at + step + choices.length) % choices.length;
+    onChange(choices[to].value);
+    (e.currentTarget.children[to] as HTMLElement | undefined)?.focus();
+  };
+  return (
+    <div className="tabs" role="tablist" aria-label={label} onKeyDown={move}>
+      {choices.map((c) => (
+        <button
+          key={c.value}
+          type="button"
+          role="tab"
+          className="tab"
+          aria-selected={c.value === value}
+          tabIndex={c.value === value ? 0 : -1}
+          title={c.title}
+          onClick={() => onChange(c.value)}
+        >
+          {c.name}
+        </button>
+      ))}
+    </div>
   );
 }
 

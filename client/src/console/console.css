@@ -124,7 +124,7 @@
   font-size: var(--size-small);
 }
 
-/* The page's switch between the item and its work, over what it shows. */
+/* The window's tabs, over what it shows. */
 .cw-tabs {
   margin-bottom: var(--space-12);
 }
