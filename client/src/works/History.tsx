@@ -3,11 +3,11 @@
 // left of a row, what woke its run, named as the matrix names its rows, with the owner's sign, the outside's or the
 // tool's mark (`placing.ts`). Under the cells, an arrow from the middle of the column of the cell whose run wrote what
 // woke it to the run's own column, drawn as the matrix draws its ways back and in the accent where it runs back
-// to an earlier cell, and in the run's column its mark, how it ended or stands, alone. At the right, its time, the day
-// with it where the day changes. Where the work was paused, let on again, cancelled or reopened, a row half as high
-// lies between the runs it fell between: a dashed line in the accent across the cells, and at the right what was done
-// and when. The table keeps its whole width under the window over its right, as the flow's chart does, and the
-// frame scrolls on past what the window covers. The chart opens scrolled to its end, the newest step, and follows new
+// to an earlier cell, and in the run's column its mark, how it ended or stands, alone. At the right, how long the run
+// took, or has been under way while it is open, and when it began on pointing at it. Where the work was paused, let on
+// again, cancelled or reopened, a row half as high lies between the runs it fell between: a dashed line in the accent
+// across the cells, and at the right what was done, and when on pointing at it. The table keeps its whole width under
+// the window over its right, as the flow's chart does, and the frame scrolls on past what the window covers. The chart opens scrolled to its end, the newest step, and follows new
 // steps while the owner is at the end.
 
 import { type CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -21,7 +21,8 @@ import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
 import type { WorkPage } from '../works-api';
 import { type HistoryRow, type Named } from './placing';
 import { colourOf } from './state-marks';
-import { dayOf, fullTime, minuteOf, partsText } from './words';
+import { useNow } from './marks';
+import { duration, fullTime, isOpen, partsText, runTook } from './words';
 
 /// The marks the history draws, in the order its legend lists them (`Legend` in marks.tsx): the arrow from a write to
 /// the run it woke and the way back; the signs of who wrote what woke a run, and a tool's mark; how a run
@@ -86,6 +87,8 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
   const lines = useMemo(() => matrix(page.flow).lines, [page.flow]);
   // The flow's groups, whose names a row writes with the word `group` after them, as the matrix does.
   const groups = useMemo(() => new Set(page.flow.groups.map((g) => g.name)), [page.flow]);
+  // How long an open run has been under way counts on each second while one is.
+  const now = useNow(rows.some((r) => r.step.kind === 'run' && isOpen(r.step)));
   useWheel(frame);
   const leadWidth = lead ?? NAMES.first;
   const widthOf = (id: string) => widths[id] ?? CELLS.first;
@@ -157,7 +160,7 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
               about={pointed !== null ? (cells[pointed] ?? null) : null}
               saying={null}
               onPoint={unpoint}
-              label="When"
+              label="Took"
             />
           </tr>
           {lines.map((row) => (
@@ -188,6 +191,7 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
                 pointed={pointed}
                 onChoose={() => onChoose(chosen === row.index ? null : row.index)}
                 onPoint={setPointed}
+                now={now}
               />
             ),
           )}
@@ -198,12 +202,10 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
   );
 }
 
-/// A step: what woke it or the act, the dot, the arrow and the run's mark under the cells, and its time. Where the work
-/// was paused, let on again, cancelled or reopened, between two runs: a line across the cells, and at the right what
-/// was done and when.
+/// Where the work was paused, let on again, cancelled or reopened, between two runs: a line across the cells, and at
+/// the right what was done; when, on pointing at it.
 function DividerRow({ row, span }: { row: HistoryRow; span: number }) {
   const { step } = row;
-  const time = `${row.newDay ? `${dayOf(step.time)} ` : ''}${minuteOf(step.time)}`;
   const did = partsText(row.did);
   return (
     <tr className="divider-row" title={`${fullTime(step.time)}: ${did}`}>
@@ -212,14 +214,13 @@ function DividerRow({ row, span }: { row: HistoryRow; span: number }) {
       </th>
       <td className="divider-line" colSpan={span} aria-hidden="true" />
       <td className="words">
-        <span className="divider-words">
-          {row.divider} {time}
-        </span>
+        <span className="divider-words">{row.divider}</span>
       </td>
     </tr>
   );
 }
 
+/// A run: what woke it, the arrow and its mark under the cells, and how long it took.
 function StepRow(props: {
   row: HistoryRow;
   cells: Cell[];
@@ -229,11 +230,13 @@ function StepRow(props: {
   pointed: number | null;
   onChoose: () => void;
   onPoint: (column: number | null) => void;
+  /// The time now, against which an open run's time under way is counted.
+  now: number;
 }) {
-  const { row, cells, groups, chosen, pointed, onChoose, onPoint } = props;
+  const { row, cells, groups, chosen, pointed, onChoose, onPoint, now } = props;
   const { step } = row;
   const did = partsText(row.did);
-  const time = `${row.newDay ? `${dayOf(step.time)} ` : ''}${minuteOf(step.time)}`;
+  const took = step.kind === 'run' ? duration(runTook(step, now)) : '';
   return (
     <tr className={`row step-row ${chosen ? 'chosen' : ''}`} onClick={onChoose}>
       <th
@@ -291,8 +294,8 @@ function StepRow(props: {
           </td>
         );
       })}
-      <td className="words" title={fullTime(step.time)} onMouseEnter={() => onPoint(null)}>
-        <span className="step-time">{time}</span>
+      <td className="words" title={`Began ${fullTime(step.time)}`} onMouseEnter={() => onPoint(null)}>
+        <span className="step-time">{took}</span>
       </td>
     </tr>
   );

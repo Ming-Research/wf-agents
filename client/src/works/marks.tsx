@@ -31,9 +31,9 @@ export function Parts({ parts }: { parts: Part[] }) {
   );
 }
 
-/// The time now, kept current each second while `on`: how long a work has waited for the calls of tools is said where
-/// the work is shown, and would otherwise stand still until something else changed.
-function useNow(on: boolean): number {
+/// The time now, kept current each second while `on`: how long a work has waited for the calls of tools, or a run has
+/// been under way, is said where it is shown, and would otherwise stand still until something else changed.
+export function useNow(on: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!on) return;

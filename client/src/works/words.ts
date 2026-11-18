@@ -52,7 +52,8 @@ export function fullTime(ms: number): string {
   return `${d.getFullYear()}-${clock(ms)}:${two(d.getSeconds())}`;
 }
 
-/// The day of a time, `11-09`, and its minute, `14:02`, apart: the history's rows give the day only where it changes.
+/// The day of a time, `11-09`, and its minute, `14:02`, apart: a check's time gives the day only where it is not the day
+/// the wait began.
 export function dayOf(ms: number): string {
   return clock(ms).slice(0, 5);
 }

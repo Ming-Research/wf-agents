@@ -49,16 +49,9 @@ export interface HistoryRow {
   /// Of a run woken by what a run of another cell the flow has wrote, that cell's column, where the arrow starts, and
   /// what its start says on the pointer's tip.
   from: { column: number; words: string } | null;
-  /// Whether the row's day differs from the day of the row before, so that the day is shown again.
-  newDay: boolean;
   /// What it is, in one line, said on pointing at its names: of a run, everything that woke it; else what was done.
   did: Part[];
 }
-
-const dayKey = (ms: number) => {
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-};
 
 /// The name a datum's row has on the flow's matrix where it runs `cell`: what the cell's `watches` names it by, a
 /// group or itself; else a group a cell watches by its name, on whose row the matrix marks its watchers; else its own.
@@ -288,14 +281,11 @@ export function placeSteps(page: Pick<WorkPage, 'steps' | 'flow' | 'blocks' | 's
     }
   };
   const rows: HistoryRow[] = [];
-  let day: string | null = null;
   steps.forEach((step, index) => {
     const row = rowOf(step);
     // A line before the first run divides nothing: a work is added paused, and let on to begin.
     if (row === null || (row.divider !== null && !rows.some((r) => r.divider === null))) return;
-    const today = dayKey(step.time);
-    rows.push({ key: `${step.kind}:${step.at}`, index, step, newDay: today !== day, ...row });
-    day = today;
+    rows.push({ key: `${step.kind}:${step.at}`, index, step, ...row });
   });
   return rows;
 }
