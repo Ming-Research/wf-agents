@@ -427,10 +427,6 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                         resets,
                     },
                 );
-                let cell = (work.records.started.iter().find(|s| s.run == run)).map(|s| s.cell.clone());
-                if let Some(cell) = cell {
-                    handed_in::tell(flow, work, &cell);
-                }
                 let told = told(&flow.flow, &work.records, run).unwrap_or_default();
                 if let Some(pausing) = run::pausing(&log(flow, work, run, &told)) {
                     let at = work.tick();
