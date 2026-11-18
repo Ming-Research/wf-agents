@@ -173,7 +173,8 @@ export function readerOf(source: Source, work: number): Reader {
     call: (call) => cached(`c:${call}`, async () => (await source.loadCall(work, call)).result),
     system: (line, session) =>
       cached(`s:${line}/${session}`, async () => (await source.loadSystem(work, line, session)).text),
-    doing: (run, number) => cached(`d:${run}/${number}`, async () => (await source.loadDoing(work, run, number)).doing),
+    doing: (run, number) =>
+      cached(`d:${run}/${number}`, async () => (await source.loadDoing(work, run, number)).doing),
     follow: (run, number, following) => source.followDoing(work, run, number, following),
     changes: () => source.loadChanges(work),
     diff: (path) => source.loadDiff(work, path),

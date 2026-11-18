@@ -542,8 +542,10 @@ export function StepTab({ page, row, sessions, reader, shown }: {
   const step = row.step;
   switch (step.kind) {
     case 'run':
+      // Drawn anew for another run, so that nothing opened or followed of one run's rounds stands for another's.
       return (
         <RunStep
+          key={step.run}
           run={step}
           mark={runState(step, page.summary)}
           began={sessions.get(step.run) ?? []}

@@ -152,7 +152,8 @@ export function LevelMark({ level, raise }: { level: string | null; raise: numbe
     );
   }
   const look = levelLook(level, raise);
-  const keys: [string, string][] = [['level', level], ...(raise > 0 ? [['levels_above', String(raise)] as [string, string]] : [])];
+  const keys: [string, string][] = [['level', level]];
+  if (raise > 0) keys.push(['levels_above', String(raise)]);
   return (
     <span
       className="mono"

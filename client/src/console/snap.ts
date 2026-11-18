@@ -545,7 +545,7 @@ type Styles = {
 };
 
 /// The weight of strong words: the page's (`--weight-strong`).
-const STRONG = '600';
+const STRONG = '600' as const;
 
 /// The faces of a node's words: Primer's stacks, which the console on `old-main` drew in, without the face Primer names
 /// first and the page never loaded. A canvas resolves a stack by its own rules (PixiJS quotes every name but the

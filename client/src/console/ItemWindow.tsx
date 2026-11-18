@@ -1,32 +1,30 @@
 // What the window beside the console shows of the item selected: its number, its title, which brings the item into view
 // in the tree, and its project; a line of where the item stands, with the level the work's cell runs at, the works
-// page's strip of the work's cells and where its time went at its right, and a line of what its work does, the lines
-// it changed at its right end; what the owner does to the work (let it on, pause
-// it, cancel it); four tabs, Item, Work, Step and Usage, the same on the console and on a work's page; and under them,
-// while something in the item is new to the owner, a strip that says what changed, with a link to mark the item read.
-// The first tab holds the body (a section for each datum the work's flow's
-// card names, in its order and by its name, with each choice that waits for the owner where it stands in it, and each
-// question put to the owner that stands, once and only there: at the first pointer to it, `{{name}}`, in a passage of
-// the body or in a message an agent wrote, a later pointer to it being a link to it, and after the last section where
-// no text points to it; drawn as they are: what it asks, as it was written, its options with what each does and what
-// follows, and the one it recommends; one the engine's one list of what waits on the owner names on the red tint,
-// framed in red, the look of every stop, an answered one settled, its options words with the one taken marked and
-// nothing to press. Each is picked by a press on an option and let go by another, and at the end of the last section a
-// button as wide as the body confirms them, which counts the picks, waits until each choice has one and sends each
-// question's answer to the engine; once confirmed, the picks stand, settled; and last, each block the owner may write
-// that keeps the work from going on, drawn as such a question is, its values the options, with a button that writes the
-// one picked), each passage changed since the owner read it marked at its left, and under the body the messages: the
-// owner's and the replies, and a box to write one to a line of the work's flow, picked above it among those on which
-// the engine has a cell to give the words to, which a passage selected in the body can be quoted into and which names
-// that cell. Under the work's state line,
-// each other stop of the work, in the same look: one sentence of why and the buttons that end it, from the engine's
-// list, and a fault or a stall, which no one waits on, said as the engine gives it. The second tab holds what of the
-// work the lines do not say, the legend of the strip's marks, and what the work changed, file by file, each opening
-// its diff; the third, Step, everything about the row of the
-// work's history the page chose, else the run the work stands at; the fourth, Usage, what the work used. Each page
-// keeps its own choice of tab. While the window is out, R marks the item read, as its link does, unless a box has the
-// keys. What the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is said
-// under the item it was for, and only there.
+// page's strip of the work's cells and where its time went at its right, and a line of what its work does, the lines it
+// changed at its right end; what the owner does to the work (let it on, pause it, cancel it); four tabs, Item, Work,
+// Step and Usage, the same on the console and on a work's page; and under them, while something in the item is new to
+// the owner, a strip that says what changed, with a link to mark the item read. The first tab holds the body (a section
+// for each datum the work's flow's card names, in its order and by its name, with each choice that waits for the owner
+// where it stands in it, and each question put to the owner that stands, once and only there: at the first pointer to
+// it, `{{name}}`, in a passage of the body or in a message an agent wrote, a later pointer to it being a link to it,
+// and after the last section where no text points to it; drawn as they are: what it asks, as it was written, its
+// options with what each does and what follows, and the one it recommends; one the engine's one list of what waits on
+// the owner names on the red tint, framed in red, the look of every stop, an answered one settled, its options words
+// with the one taken marked and nothing to press. Each is picked by a press on an option and let go by another, and at
+// the end of the last section a button as wide as the body confirms them, which counts the picks, waits until each
+// choice has one and sends each question's answer to the engine; once confirmed, the picks stand, settled; and last,
+// each block the owner may write that keeps the work from going on, drawn as such a question is, its values the
+// options, with a button that writes the one picked), each passage changed since the owner read it marked at its left,
+// and under the body the messages: the owner's and the replies, and a box to write one to a line of the work's flow,
+// picked above it among those on which the engine has a cell to give the words to, which a passage selected in the body
+// can be quoted into and which names that cell. Under the work's state line, each other stop of the work, in the same
+// look: one sentence of why and the buttons that end it, from the engine's list, and a fault or a stall, which no one
+// waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, the legend of the
+// strip's marks, and what the work changed, file by file, each opening its diff; the third, Step, everything about the
+// row of the work's history the page chose, else the run the work stands at; the fourth, Usage, what the work used.
+// Each page keeps its own choice of tab. While the window is out, R marks the item read, as its link does, unless a box
+// has the keys. What the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is
+// said under the item it was for, and only there.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/ItemWindow.tsx`), its layout as it
 // was, its parts the page's own (parts.tsx) where it used Primer's. What the engine does not give yet comes from the
