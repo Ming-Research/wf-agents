@@ -179,11 +179,12 @@ fn settings(compacted: &Compacted, words: &Words) -> String {
 }
 
 /// The arguments of a round's command line, after the program: the engine's own, then the installation's, then the
-/// line's permissions, then the session. The message goes in, and the stream comes out, as stream-json; the stream
-/// carries each message in pieces as it is written, which rebuild an attempt at a return the command line refused. The
-/// schema is the form of return of the round's flow, the same for every round of every cell of it, and the system
-/// prompt is the same for every round of a line, so that they open every request of a session alike and the prompt
-/// cache keeps them. The round runs on the model and at the effort it was given.
+/// line's permissions, then the session, with the context at which the program compacts it (`compact`). The message
+/// goes in, and the stream comes out, as stream-json; the stream carries each message in pieces as it is written,
+/// which rebuild an attempt at a return the command line refused. The schema is the form of return of the round's
+/// flow, the same for every round of every cell of it, and the system prompt is the same for every round of a line, so
+/// that they open every request of a session alike and the prompt cache keeps them. The round runs on the model and at
+/// the effort it was given.
 #[allow(clippy::too_many_arguments)]
 pub fn arguments(
     agents: &Agents,
@@ -193,6 +194,7 @@ pub fn arguments(
     permissions: &Permissions,
     compacted: &Compacted,
     words: &Words,
+    compact: u64,
     session: Uuid,
     begin: Begin,
 ) -> Vec<String> {
@@ -219,6 +221,7 @@ pub fn arguments(
     args.extend(["--settings".to_string(), settings(compacted, words)]);
     args.extend(agents.args.iter().cloned());
     args.extend(permissions.arguments());
+    args.extend(["--autocompact".to_string(), compact.to_string()]);
     let flag = match begin {
         Begin::New => "--session-id",
         Begin::Resume => "--resume",
@@ -1291,6 +1294,7 @@ mod tests {
                 &permissions,
                 &compacted,
                 &words(),
+                500_000,
                 session,
                 begin,
             )
@@ -1322,8 +1326,10 @@ mod tests {
             "--strict-mcp-config",
         ];
         let mut new: Vec<String> = common.iter().map(|a| a.to_string()).collect();
-        // The line's permissions come after the installation's arguments, which they add to.
+        // The line's permissions come after the installation's arguments, which they add to, and the session's own
+        // arguments last: the context the program compacts it at, which the installation gives, then its id.
         new.extend(permissions.arguments());
+        new.extend(["--autocompact".to_string(), "500000".to_string()]);
         let mut resumed = new.clone();
         new.extend(["--session-id".to_string(), session.to_string()]);
         resumed.extend(["--resume".to_string(), session.to_string()]);
@@ -1354,6 +1360,7 @@ mod tests {
             &permissions,
             &compacted,
             &words(),
+            500_000,
             session,
             Begin::New,
         );
@@ -1420,9 +1427,16 @@ mod tests {
             &permissions,
             &compacted,
             &words(),
+            500_000,
             session,
             Begin::Resume,
         );
+        // A fork reads the session from the cache, so it is given the same compaction point as the round.
+        let at = round
+            .iter()
+            .position(|a| a == "--autocompact")
+            .expect("a compaction point");
+        assert_eq!(round[at + 1], "500000");
         let fork = forked(round.clone(), None);
         assert_eq!(fork.len(), round.len() + 1);
         assert_eq!(fork.last().map(String::as_str), Some("--fork-session"));

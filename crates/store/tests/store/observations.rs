@@ -129,8 +129,9 @@ fn said(path: &Path) -> Vec<(String, usize)> {
 fn a_return_sent_back_keeps_its_observations_where_the_return_taken_was_made_in_a_new_session() {
     let mut d = Driver::saved();
     d.wrote("request", Outsider::Person, None);
-    // The first round is sent back, and its context was past the limit: the second runs in a new session, which never
-    // saw what the first returned, and its return taken says nothing of the first's observation.
+    // The first round is sent back, and a new session was recorded for its context, as the records kept before the
+    // program compacted them hold: the second runs in a session that never saw what the first returned, and its return
+    // taken says nothing of the first's observation.
     d.end(Came {
         said: observing(&["Said in the first session."]),
         ..wanting()

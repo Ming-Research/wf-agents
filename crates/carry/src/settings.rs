@@ -169,13 +169,15 @@ impl Backup {
     }
 }
 
-/// How a line's session is kept between its rounds. A session whose context, as a round of its line ends, is past
-/// `context_limit` is replaced at the line's next round, and so is one on another model or account.
+/// How a line's session is kept between its rounds. The agents' program compacts a session at `context_limit`, so that
+/// its line goes on in it; a session on another model or account is replaced at the line's next round.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sessions {
-    /// The most context a line's session holds as a round of it ends, in tokens, before the line begins a new session;
-    /// no line drawn from the line's history lowers it (decision `a-session-is-replaced-past-its-limit`).
+    /// The context at which the agents' program compacts a line's session, in tokens, given it on every round's
+    /// command line; no line drawn from the line's history lowers it, and the engine begins no new session for a
+    /// session's size (decision `a-session-is-compacted-at-its-limit`). Between 100,000 and 1,000,000, the range the
+    /// program takes.
     #[serde(default = "context_limit")]
     pub context_limit: u64,
     /// How long the agents' program keeps a session in its prompt cache after its last call, in minutes: an hour for
@@ -204,6 +206,11 @@ impl Default for Sessions {
         }
     }
 }
+
+/// The least and the most context the agents' program compacts a session at, as its own help gives the range of
+/// `--autocompact` (`claude` 2.1.326: "Auto-compact window size (auto, or 100k-1M tokens)").
+const COMPACTS_AT_LEAST: u64 = 100_000;
+const COMPACTS_AT_MOST: u64 = 1_000_000;
 
 fn context_limit() -> u64 {
     500_000
@@ -474,6 +481,9 @@ impl Agents {
                 "agents.args: --permission-prompt-tool would have a tool approve what no rule refuses".to_string(),
             );
         }
+        if given("--autocompact") {
+            wrong.push("agents.args: --autocompact is set by sessions.context_limit".to_string());
+        }
         if given("--setting-sources") {
             wrong.push("agents.args: --setting-sources is set by agents.setting_sources".to_string());
         }
@@ -701,8 +711,11 @@ impl Settings {
             wrong.push("agents.work_budget_usd: a budget is a number of dollars, none below nothing".to_string());
         }
         let sessions = &settings.sessions;
-        if sessions.context_limit == 0 {
-            wrong.push("sessions.context_limit: a session may hold some context".to_string());
+        if !(COMPACTS_AT_LEAST..=COMPACTS_AT_MOST).contains(&sessions.context_limit) {
+            wrong.push(format!(
+                "sessions.context_limit: the agents' program compacts a session within {COMPACTS_AT_LEAST} and \
+                 {COMPACTS_AT_MOST} tokens"
+            ));
         }
         if sessions.cache_minutes > 0 && sessions.warm_minutes >= sessions.cache_minutes {
             wrong.push(
@@ -823,7 +836,8 @@ impl Settings {
     }
 
     /// When a line begins a new session, where the model or the account its session's rounds ran on is not the one its
-    /// rounds run on now, and past the limit of its context; and how its sessions are kept warm while it waits.
+    /// rounds run on now; and how its sessions are kept warm while it waits. A session past the installation's context
+    /// is compacted by the agents' program, not replaced, so the number is no part of the policy.
     pub fn policy(&self) -> Policy {
         let settings = self.clone();
         let sessions = &self.sessions;
@@ -837,7 +851,6 @@ impl Settings {
         });
         Policy {
             samples: self.history.samples,
-            limit: sessions.context_limit,
             on: Box::new(move |item, cell| settings.ran_on(item.level.as_deref(), cell).ok()),
             warm,
         }
@@ -938,19 +951,28 @@ mod tests {
     }
 
     #[test]
-    fn a_session_is_given_a_context_limit_of_500000_tokens_where_none_is_set_and_a_history_of_nothing_is_refused() {
+    fn a_session_is_compacted_at_500000_tokens_where_none_is_set_and_only_what_the_program_takes_is_read() {
+        let of = |limit: &str| SAMPLE.replace("context_limit = 500000", &format!("context_limit = {limit}"));
         let without = SAMPLE.replace("context_limit = 500000\n", "");
         assert_ne!(without, SAMPLE, "the sample sets it");
         let settings = Settings::read(&without).expect("it reads without");
-        assert_eq!(settings.policy().limit, 500_000);
-        let set = Settings::read(&SAMPLE.replace("context_limit = 500000", "context_limit = 200000")).unwrap();
-        assert_eq!(set.policy().limit, 200_000);
-        let nothing = SAMPLE.replace("context_limit = 500000", "context_limit = 0");
-        assert!(
-            Settings::read(&nothing)
-                .expect_err("refused")
-                .contains("sessions.context_limit")
-        );
+        assert_eq!(settings.sessions.context_limit, 500_000);
+        // The program compacts within 100,000 and 1,000,000 tokens: outside that it is refused, by its key.
+        for (limit, read) in [
+            ("99999", false),
+            ("100000", true),
+            ("1000000", true),
+            ("1000001", false),
+            ("0", false),
+        ] {
+            let result = Settings::read(&of(limit));
+            match result {
+                Ok(settings) if read => assert_eq!(settings.sessions.context_limit.to_string(), limit),
+                Ok(_) => panic!("{limit} is no context the program compacts at"),
+                Err(why) if read => panic!("{limit}: {why}"),
+                Err(why) => assert!(why.contains("sessions.context_limit"), "{limit}: {why}"),
+            }
+        }
         let none = SAMPLE.replace("samples = 19", "samples = 0");
         assert!(Settings::read(&none).expect_err("refused").contains("history.samples"));
     }
@@ -1174,6 +1196,14 @@ mod tests {
             ("\"--permission-prompt-tool\"", "--permission-prompt-tool, last"),
             ("\"--setting-sources\", \"user,project\"", "--setting-sources"),
             ("\"--setting-sources=local\"", "--setting-sources"),
+            (
+                "\"--autocompact\", \"900000\"",
+                "--autocompact is set by sessions.context_limit",
+            ),
+            (
+                "\"--autocompact=900000\"",
+                "--autocompact is set by sessions.context_limit",
+            ),
             (
                 "\"--permission-prompt-tool\", \"mcp__ok__approve\"",
                 "--permission-prompt-tool would",
