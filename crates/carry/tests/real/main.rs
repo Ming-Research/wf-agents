@@ -107,10 +107,6 @@ pub struct Fake {
     /// Whether the build, as it hands in, deletes the reference of the work's branch after it commits, so that the
     /// branch cannot be read as its round ends.
     pub build_loses_its_branch: bool,
-    /// The context each call ends with, in tokens, by the call's number, the first being one: each call then says, as
-    /// its stream begins, that it took its message in, and that its one call to the model was sent this; a call past
-    /// the last given ends with the last. None given, the calls say neither.
-    pub contexts: &'static [u64],
 }
 
 impl Default for Fake {
@@ -139,7 +135,6 @@ impl Default for Fake {
             build_beside_tests: false,
             build_then_asks: false,
             build_loses_its_branch: false,
-            contexts: &[],
         }
     }
 }
@@ -557,15 +552,7 @@ if [ -n "$calls" ]; then
 else
     structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],$protected\"outputs\":{{$out}}}}}}"
 fi
-contexts='{contexts}'
 iterations='{iterations}'
-if [ -n "$contexts" ]; then
-    ctx=$(printf '%s\n' $contexts | sed -n "${{n}}p")
-    [ -z "$ctx" ] && ctx=$(printf '%s\n' $contexts | tail -n 1)
-    printf '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}\n'
-    printf '{{"type":"stream_event","event":{{"type":"message_start","message":{{"usage":{{"input_tokens":%s,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}}}},"parent_tool_use_id":null}}\n' "$ctx"
-    iterations=",\"iterations\":[{{\"input_tokens\":$ctx,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}]"
-fi
 printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$iterations" "$structured"
 if [ '{returned_sleeps}' != 0 ] && [ "$first" = Plan ] && [ ! -f "$log/returned" ]; then
     touch "$log/returned"
@@ -599,7 +586,6 @@ fi
         gave_up = GAVE_UP,
         name = NAMED,
         refused = refused.display(),
-        contexts = (fake.contexts.iter().map(u64::to_string).collect::<Vec<_>>()).join(" "),
         iterations = fake.context.map_or_else(String::new, |context| {
             format!(r#","iterations":[{{"input_tokens":{context},"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}]"#)
         }),

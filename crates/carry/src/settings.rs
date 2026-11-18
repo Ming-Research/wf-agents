@@ -169,14 +169,13 @@ impl Backup {
     }
 }
 
-/// How a line's session is kept between its rounds. A session whose context, as a round of its line ends, is past the
-/// lower of the line its line's history gives (`history`) and `context_limit` is replaced at the line's next round, and
-/// so is one on another model or account.
+/// How a line's session is kept between its rounds. A session whose context, as a round of its line ends, is past
+/// `context_limit` is replaced at the line's next round, and so is one on another model or account.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sessions {
-    /// The most context a line's session holds as a round of it ends, in tokens, before the line begins a new session:
-    /// the limit where the line's history is too short to give one, and above it the line's history only lowers it.
+    /// The most context a line's session holds as a round of it ends, in tokens, before the line begins a new session;
+    /// no line drawn from the line's history lowers it (decision `a-session-is-replaced-past-its-limit`).
     #[serde(default = "context_limit")]
     pub context_limit: u64,
     /// How long the agents' program keeps a session in its prompt cache after its last call, in minutes: an hour for

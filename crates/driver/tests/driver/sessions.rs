@@ -254,7 +254,7 @@ impl S {
         )
         .unwrap();
         // A work before, whose one round, of the line `engineer`, said what its calls came to and failed with a
-        // context of 500 tokens, pausing it: the line's history, whose one value gives a limit of 500 tokens. It
+        // context of 500 tokens, pausing it: the line's history, whose one value gives a line of 500 tokens. It
         // took no tokens, so that its session is not kept warm. The rounds of the work the tests run
         // say nothing of their calls, and so add nothing to it.
         let earlier = NewItem {
@@ -1133,71 +1133,6 @@ fn a_session_is_replaced_past_the_installations_limit_and_never_for_its_lines_hi
 }
 
 #[test]
-fn a_line_whose_history_is_too_short_to_give_a_line_is_limited_by_the_policy() {
-    let mut s = S::with(
-        Policy {
-            samples: 2,
-            ..policy("opus")
-        },
-        None,
-    );
-    s.hands_in(100, true);
-    s.hands_in(5_000, true);
-    let limit = Why::Limit {
-        context: 5_000,
-        limit: 500,
-    };
-    assert_eq!(
-        s.sessions(),
-        [("engineer".to_string(), limit)],
-        "one value of the line's history gives no line, and the policy's limit stands"
-    );
-}
-
-// The line of a line's history lowers its limit, never raises it past the policy's: a history that came near the
-// model's window gives a line past it.
-#[test]
-fn a_line_is_limited_by_the_lower_of_its_historys_line_and_the_policys_limit() {
-    for (most, context, limit) in [(300, 400, 300), (1_000, 600, 500)] {
-        let mut s = S::with(
-            Policy {
-                limit: most,
-                ..policy("opus")
-            },
-            None,
-        );
-        s.hands_in(100, true);
-        s.hands_in(context, true);
-        assert_eq!(
-            s.sessions(),
-            [("engineer".to_string(), Why::Limit { context, limit })],
-            "the history's line is 500 tokens, the policy's limit {most}"
-        );
-    }
-}
-
-// Every round of a session replaced for its size is left out of the history, not only its last: what the session held
-// on its way there is no measure of what is usual either.
-#[test]
-fn every_round_of_a_session_replaced_for_its_size_is_left_out_of_the_history() {
-    let mut s = S::new();
-    measured(&mut s, 0, "a");
-    s.hands_in(100, true);
-    measured(&mut s, 100, "a");
-    s.hands_in(600, true);
-    assert!(matches!(s.sessions().last(), Some((_, Why::Limit { .. }))));
-    // The load runs again in the new session.
-    measured(&mut s, 0, "a");
-    s.hands_in(100, false);
-    let cut: Vec<bool> = s.driver.history("sessions").iter().map(|sample| sample.cut).collect();
-    assert_eq!(
-        cut,
-        [false, true, true, false],
-        "the work before's round, the two of the session replaced, and the round of the new one"
-    );
-}
-
-#[test]
 fn a_round_the_run_guard_stopped_is_tried_again_in_a_new_session_and_a_second_pauses_the_work() {
     let mut s = S::new();
     s.hands_in(100, true);
@@ -1276,14 +1211,7 @@ fn pinged(spent: Spent, failed: Option<&str>) -> Event {
 /// The sessions of the work's lines that are kept warm, as the policy keeps them.
 fn kept_warm(s: &S) -> Vec<driver::warm::Kept> {
     let held = s.driver.work(s.work).expect("the work");
-    driver::warm::kept(
-        held.flow,
-        held.work,
-        held.item,
-        &warm("opus"),
-        &Default::default(),
-        Time(s.clock),
-    )
+    driver::warm::kept(held.flow, held.work, held.item, &warm("opus"), Time(s.clock))
 }
 
 #[test]
@@ -1346,14 +1274,7 @@ fn a_ping_that_failed_is_tried_again_a_minute_after_and_none_past_the_caches_lif
     );
     // Past the cache's life no ping is due: it would write the session whole again, for nothing.
     let held = s.driver.work(s.work).unwrap();
-    let late = driver::warm::due(
-        held.flow,
-        held.work,
-        held.item,
-        &warm("opus"),
-        &Default::default(),
-        kept[0].life,
-    );
+    let late = driver::warm::due(held.flow, held.work, held.item, &warm("opus"), kept[0].life);
     assert!(late.is_empty());
 }
 
