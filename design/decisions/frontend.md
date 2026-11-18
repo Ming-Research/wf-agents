@@ -79,7 +79,9 @@ every-field-has-a-reader); in the file, a look would be saved and committed.
 ### decision a-views-choices-are-kept-in-the-browser
 How each view shows, as the owner left it (a switch's choice, a window's tab, whether a work's window is out, the order
 of the list of works, the span of the system's view, the widths dragged), is kept in the browser and stands when the
-view is left and shown again and when the page is loaded again; a choice the address names wins over it.
+view is left and shown again and when the page is loaded again; a choice the address names wins over it. Each tab of
+the bar leads back to the address it was last at, such as a work open in the works; the tab shown leads to its first
+view, such as the list of works.
 Why: Kept only in the view's memory, every choice went back to its first each time the owner went to another tab or
 loaded the page. In the installation's file it would be a look saved and committed, as for the accent.
 

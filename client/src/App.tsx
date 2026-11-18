@@ -20,7 +20,7 @@ import { usesFixtures } from './mock-data';
 import { useNotifications } from './notify';
 import { ObservationsView } from './observations/ObservationsView';
 import { Bar, Drawer, Panel, Switch } from './parts';
-import { CHOICE_KEYS, useKept } from './kept';
+import { CHOICE_KEYS, read, useKept, write } from './kept';
 import { type Route, hashOf, periodOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
 import { WIDTH_KEYS } from './sizes';
@@ -152,13 +152,21 @@ export function Shell({ route, serves = 'all', children }: {
   // What waits on the owner, told of by the browser as it comes, on the engine's own page only.
   useNotifications(bar.items, serves === 'all' && !usesFixtures(window.location.search));
   const waiting = waitingCount(bar.items?.items.map((i) => i.work) ?? []);
-  const views = TABS.map((t) => (t.href === '#/console' ? { ...t, count: waiting, countTitle: waitCount(waiting) } : t));
+  // Each tab leads back to where it was last, kept in this browser, as a work open in the works or an item selected in
+  // the console; the tab shown leads to its own first view, as the list of works from a work.
+  const here = tabOf(route);
+  const address = hashOf(route);
+  useEffect(() => write(`${CHOICE_KEYS.tabAddress}${here}`, address), [here, address]);
+  const views = TABS.map((t) => {
+    const href = t.href === here ? t.href : (read(`${CHOICE_KEYS.tabAddress}${t.href}`) ?? t.href);
+    return t.href === '#/console' ? { ...t, href, count: waiting, countTitle: waitCount(waiting) } : { ...t, href };
+  });
   return (
     <div className="page">
       <Bar
         name="wf-agents"
         views={views}
-        current={tabOf(route)}
+        current={here}
         end={
           <>
             {serves === 'all' && <BarEngine onRead={setBar} />}

@@ -46,6 +46,8 @@ export const CHOICE_KEYS = {
   worksOrder: 'wf-agents.works-order',
   /// The span the system's view counts over.
   systemPeriod: 'wf-agents.system-period',
+  /// The address each tab of the bar was last at, after this key and the tab's own address.
+  tabAddress: 'wf-agents.tab-address',
 } as const;
 
 /// One of a switch's choices, kept under `key`: `first` until the owner picks another of `allowed`.
