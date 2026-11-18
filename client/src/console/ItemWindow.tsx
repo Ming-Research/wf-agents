@@ -530,10 +530,19 @@ function ItemView({
     setAnswers((was) => ({ ...was, [key]: was[key] === option ? null : option }));
   };
   const writeQuestion = (q: Choice, text: string) => setWritten((was) => ({ ...was, [pickKey(q)]: text }));
+  // The cell that asked a question, and the line that cell runs on, as the work's flow names it; none of a choice of
+  // the plan, which no cell asked.
+  const askedBy = (q: Choice) => {
+    const asks = q.asks;
+    if (asks === undefined) return undefined;
+    const cell = read?.flow.cells.find((c) => c.id === asks.cell);
+    return { cell: asks.cell, line: cell?.line ?? null };
+  };
   // A question's card, wherever it stands.
   const card = (q: Choice) => (
     <ChoiceBox
       p={q}
+      by={askedBy(q)}
       pick={q.confirmed === true ? undefined : (o) => pickQuestion(q, o)}
       write={q.confirmed === true ? undefined : (t) => writeQuestion(q, t)}
       discuss={() => discuss(q)}
@@ -709,6 +718,7 @@ function ItemView({
                   empty={nothingYet}
                   pointers={(i) => pointersOf(partKey(s.title, i))}
                   links={pointersOf(null)}
+                  askedBy={askedBy}
                 />
               ))}
               <Section
@@ -723,6 +733,7 @@ function ItemView({
                 jump={jump}
                 pointers={(i) => pointersOf(last === undefined ? null : partKey(last.title, i))}
                 links={pointersOf(null)}
+                askedBy={askedBy}
                 after={
                   <>
                     {body.choicesWait || toAnswer.length > 0 ? (
@@ -1060,6 +1071,7 @@ function Section({
   empty,
   pointers,
   links,
+  askedBy,
 }: {
   /// Its name, over it; with none, its parts are drawn with no fold.
   title?: string;
@@ -1084,6 +1096,8 @@ function Section({
   pointers?: (at: number) => Pointers;
   /// What a choice's words draw at theirs: links alone.
   links?: Pointers;
+  /// The cell that asked a choice, and the line it is on; none where no cell asked it.
+  askedBy?: (c: Choice) => { cell: string; line: string | null } | undefined;
 }) {
   if (parts.length === 0 && !keep && empty === undefined) return null;
   const drawn = (
@@ -1096,6 +1110,7 @@ function Section({
           ) : (
             <ChoiceBox
               p={p}
+              by={askedBy?.(p)}
               links={links}
               pick={choose === undefined || p.confirmed === true ? undefined : (o) => choose(i, o)}
               write={write === undefined || p.confirmed === true ? undefined : (t) => write(i, t)}
@@ -1228,8 +1243,10 @@ function TickSign() {
 /// brings the first into view. A question with no options is answered in words, in a box in their place. A question
 /// the engine's list names holds the work, at its cell or at the merge: on the red tint, framed in red, the look of
 /// every stop.
-function ChoiceBox({ p, pick, write, discuss, messages, jump, links }: {
+function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
   p: Choice;
+  /// The cell that asked it and the line that cell is on; none of a choice of the plan, which no cell asked.
+  by?: { cell: string; line: string | null };
   pick?: (option: number) => void;
   write?: (text: string) => void;
   discuss?: () => void;
@@ -1239,10 +1256,11 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump, links }: {
   links?: Pointers;
 }) {
   return (
-    <div
+    <fieldset
       className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${p.holds === true ? ' cw-choice-holds' : ''}`}
       data-wait={waitKeyOf(p)}
     >
+      <Asked by={by} />
       <div className="cw-choice-q">
         <Markdown text={p.question} pointers={links} />
       </div>
@@ -1285,7 +1303,20 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump, links }: {
           ) : null}
         </div>
       ) : null}
-    </div>
+    </fieldset>
+  );
+}
+
+/// Who asked a question, on the frame of its card: the cell by its id, and the line it is on after it, so that the
+/// owner sees where a question came from without opening anything. A card no cell asked draws none, and its frame is
+/// unbroken.
+function Asked({ by }: { by?: { cell: string; line: string | null } }) {
+  if (by === undefined) return null;
+  return (
+    <legend className="cw-choice-by">
+      <span className="mono">{by.cell}</span>
+      {by.line !== null && <span className="muted"> {by.line}</span>}
+    </legend>
   );
 }
 

@@ -274,6 +274,17 @@
   padding: var(--space-12);
   border: var(--hairline) solid var(--accent);
   background: var(--accent-tint);
+  /* A fieldset keeps the width of its widest content unless it is told it may shrink. */
+  min-width: 0;
+}
+
+/* Who asked a question, on the frame of its card at its top left, the frame broken around it as a fieldset's legend
+   breaks it: the cell by its id, and the line it runs on after it, so that where a question came from is read without
+   opening anything. A card no cell asked draws none, and its frame is unbroken. */
+.cw-choice-by {
+  margin-inline-start: var(--space-8);
+  padding: 0 var(--space-4);
+  font-size: var(--size-small);
 }
 
 .cw-choice-done {
