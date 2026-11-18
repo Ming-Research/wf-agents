@@ -125,10 +125,18 @@ const FADE = 0.4;
 const DARK = 0.15;
 
 /// The beat of a running cell's mark, as the page's tokens give it.
-function beatOf(): { ms: number; faint: number } {
-  const ms = length('--pulse');
+export function beatOf(): { ms: number; faint: number } {
+  const ms = millisecondsOf('--pulse');
   const faint = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pulse-faint'));
   return { ms: ms > 0 ? ms : PULSE_MS, faint: Number.isFinite(faint) ? faint : DARK };
+}
+
+/// A time the page's tokens give, in milliseconds, in whichever unit the styles write it: the page's build writes
+/// `750ms` as `.75s`. None, as 0, where the token is no time.
+function millisecondsOf(name: string): number {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const m = /^([+-]?(?:\d+\.?\d*|\.\d+))(ms|s)$/.exec(v);
+  return m === null ? 0 : Number.parseFloat(m[1]) * (m[2] === 's' ? 1000 : 1);
 }
 /// The part of the way to where they are going that the columns move sideways each frame, when the scene brings an
 /// item into view.

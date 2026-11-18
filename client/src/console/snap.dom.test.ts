@@ -8,6 +8,7 @@ import type { CellNow, Now } from '../works-api';
 import { stateOf } from '../works/words';
 import { age } from './items';
 import {
+  beatOf,
   dashesAlong,
   DIM,
   eased,
@@ -148,5 +149,18 @@ describe('the ground of the page under the soft lights', () => {
 
   it('lies nowhere while nothing is lit', () => {
     expect(grounded(0, 0, ROW, ROW / 2, true, [])).toBe(false);
+  });
+});
+
+describe("a running cell's beat on its card", () => {
+  // The page's build writes the token's time in seconds (`.75s`), the page's source in milliseconds: the card's mark
+  // beats once in 750 ms either way, as the works page's marks do, never once in 0.75 ms.
+  it.each(['750ms', '.75s', '0.75s'])('is 750 ms when the styles write %s', (written) => {
+    document.documentElement.style.setProperty('--pulse', written);
+    try {
+      expect(beatOf().ms).toBe(750);
+    } finally {
+      document.documentElement.style.removeProperty('--pulse');
+    }
   });
 });
