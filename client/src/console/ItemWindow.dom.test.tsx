@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { levelWords } from '../marks';
 import { cellNowWords } from '../works/marks';
-import { NO_LEVEL, stoppedAt } from '../works/words';
+import { NO_LEVEL, stateOf, stoppedAt } from '../works/words';
 import type { Act, CellNow, Item, Now, Question, Speaking, Wait, WorkPage } from '../works-api';
 import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
@@ -246,6 +246,9 @@ describe('the panel of the item selected', () => {
       // number; a dash where the engine gives none.
       const level = el.querySelector('.cw-item > .status-line > .status-word + .mono');
       expect(level?.textContent).toBe(work.level == null ? NO_LEVEL.shown : levelWords(work.level, work.raise ?? 0));
+      // The cell it stands at, by its id, just before the strip; none where it stands at none.
+      const at = el.querySelector('.cw-item > .status-line .cw-progress .cw-at > .mono');
+      expect(at?.textContent ?? null).toBe(stateOf(work).cell);
       // The bright marks pulse, as on the card.
       expect(marks.map((m) => m.classList.contains('pulses'))).toEqual(
         cells.map((c) => c.state === 'running' || c.state === 'calling'),

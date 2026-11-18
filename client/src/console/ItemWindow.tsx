@@ -828,11 +828,15 @@ function ItemLine({
 }
 
 /// How far the work has come and where its time went, together at the right end of the item's line, which its own
-/// line, holding the cell's title, has no room left for.
+/// line, holding the cell's title, has no room left for: the cell it stands at, by its id, before the strip.
 function Progress({ w, page }: { w: Summary; page: WorkPage | null }) {
+  const { cell } = stateOf(w);
   return (
     <span className="cw-progress">
-      <Strip cells={w.cells} stopped={stoppedAt(w)} />
+      <span className="cw-at">
+        {cell !== null && <span className="mono muted">{cell}</span>}
+        <Strip cells={w.cells} stopped={stoppedAt(w)} />
+      </span>
       <span className="cw-track">
         <TimeTrack spans={barSpans(w.bar ?? (page === null ? '' : barOf(page)))} />
       </span>

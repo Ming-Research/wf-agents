@@ -52,7 +52,8 @@ rests on judgment.
 A console card, under its number, and the item's window, after the item's standing, write the level a work's cell
 runs at as its item's level and how far the cell's line raises it, `L2` or `L2+1`, in the look of the level it really
 runs at, the two added, past the highest level an item may be at too: the first muted, the second the text's colour,
-the third the accent, and every one above the accent and strong. The cell the work stands at is not named there.
+the third the accent, and every one above the accent and strong. The cell the work stands at is not named beside it;
+the window names it by its id before the strip.
 Why: The look says how dear a model the cell runs on, so `L2+1` looks as `L3` does, and `L3+1`, which its line asks to
 run above the third, looks apart from it. Telling the levels apart by hue was turned down: red, yellow, the accent and
 green each mean a state already (principle scarce-emphasis), and no four hues clear of them were found. The strip marks

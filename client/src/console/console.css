@@ -95,6 +95,13 @@
   margin-left: auto;
 }
 
+/* The cell the work stands at, just before its strip. */
+.cw-at {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
 /* The lines the work changed, at the right end of its line. */
 .cw-lines {
   margin-left: auto;
