@@ -1308,9 +1308,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
 }
 
 /// Whose question it is, on the frame of its card: the cell it belongs to, by its id, and the line that cell runs on
-/// after it, so that the owner sees where a question came from without opening anything; whether the cell's agent or
-/// the engine asked it is left out (decision a-question-names-its-cell-on-its-frame). A card that belongs to no cell
-/// draws none, and its frame is unbroken.
+/// after it. A card that belongs to no cell draws none, and its frame is unbroken.
 function Asked({ by }: { by?: { cell: string; line: string | null } }) {
   if (by === undefined) return null;
   return (

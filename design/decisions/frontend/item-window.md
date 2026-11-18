@@ -87,13 +87,3 @@ read as if nothing was said (principles owner-keeps-their-place and nothing-pass
 read begun after it, rather than by matching the words of the body, keeps the engine's record the one that says a
 message stands and compares only times the browser itself took; a read begun before the send but served after the
 engine wrote the words shows the message twice until the next read, taken over losing it.
-
-### decision a-question-names-its-cell-on-its-frame
-A question's card names on its frame, at its top left, the cell the question belongs to and the line that cell runs on,
-the frame broken around the words; it says nothing of whether the cell's agent or the engine itself asked it. A card
-that belongs to no cell — a stop, a limit, a choice of the plan — names none, and its frame is unbroken.
-Why: A question is drawn where the text points to it (decision a-question-stands-where-a-text-points-to-it), among the
-item's own words and away from the cells, so where it came from could be read only by opening the work's steps. On the
-frame the name takes no room inside the card and belongs to it, as a legend belongs to the group of options it heads,
-which is what the card is. Which of the two asked is left out: the owner answers both the same way, and the only word
-for the one, the engine, is read for the other at a glance where a line is named `engineer`.
