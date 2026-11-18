@@ -88,7 +88,8 @@ const DEPENDENCIES_BLOCK: &str = r#"
 "#;
 
 /// A writer that waits for the items its item depends on to have merged, and reads a request and the opinions on what
-/// it wrote; a judge that writes opinions for it and a verdict, a choice; and the merge, the engine's own cell.
+/// it wrote; a judge that writes opinions for it and a verdict, a choice; and the merge, the engine's own cell, which
+/// waits for the verdict's yes.
 /// Returns may be sent back twice, a run may make three calls, and a cell may go round three times.
 pub fn judged() -> Compiled {
     let flow = format!(
@@ -141,10 +142,13 @@ pub fn judged() -> Compiled {
         [kinds]
         text = "last_and_latest"
     "#;
+    // The merge waits for the judge's yes: a gate is reached only by a walk from the start, so a way back the judge's
+    // points make runs before it (design document `data-and-context`, 6).
     let merge = r#"
         title = "Merge"
         kind = "engine"
         act = "merge"
+        requires = { verdict = "yes" }
         watches = ["text", "verdict"]
         outputs = ["merged"]
     "#;

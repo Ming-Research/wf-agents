@@ -1,0 +1,14 @@
+# Whether the cell has handed its work in: a datum of each cell whose condition or preconditions name it, which the
+# engine writes yes as the first run of the cell that deals with something finishes; a round that fails, a return sent
+# back and a run that only asks for calls do not count (design document `data-and-context`, 2). It is written though
+# the records hold it, because a condition reads data alone, as the check's wait reads `asked` (decisions
+# the-merge-gate-is-a-datum-the-engine-writes and the-better-way-is-looked-for-once). No cell watches it.
+name = "{cell}_handed_in"
+what = "Whether the cell has handed its work in: yes once a run of it that dealt with something has finished."
+values = ["no", "yes"]
+default = "no"
+from = "handed_in"
+
+# What the engine writes with the yes.
+[writes]
+text = "The cell has handed its work in."

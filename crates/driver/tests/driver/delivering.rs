@@ -20,6 +20,7 @@ fn engineer() -> Compiled {
         sources: names(&[
             "answer",
             "asked",
+            "handed_in",
             "words",
             DEPENDENCIES,
             "main",

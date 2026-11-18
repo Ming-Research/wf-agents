@@ -1188,11 +1188,16 @@ impl<'a> Walk<'a> {
         // A precondition that does not hold holds the work at its cell whether or not something new runs the cell: a
         // gate guards what comes after it as much as its own cell.
         on.extend(self.unmet(i));
-        if !on.is_empty() {
+        if because.is_empty() {
+            if on.is_empty() {
+                return AtCell::Pass;
+            }
             return AtCell::Decides(self.waiting(i, on));
         }
-        if because.is_empty() {
-            return AtCell::Pass;
+        if !on.is_empty() {
+            // Held by a precondition with something new to it: its limit is waited for at once.
+            on.extend(self.at_limit(cell, &because));
+            return AtCell::Decides(self.waiting(i, on));
         }
         AtCell::Enters(because)
     }
@@ -1203,15 +1208,14 @@ impl<'a> Walk<'a> {
     /// document `data-and-context`, 6). Those between that the walk passes, or would enter for a way back of their own,
     /// are passed over.
     fn pass_goes_on(&self, i: usize) -> bool {
-        let cells = self.flow.cells();
-        for j in i + 1..cells.len() {
-            if !cells[j].requires.is_empty() {
+        for (j, cell) in self.flow.cells().iter().enumerate().skip(i + 1) {
+            if !cell.requires.is_empty() {
                 return false;
             }
             match self.step(j) {
                 AtCell::Pass => {}
                 AtCell::Enters(because) if way_round(&because) => {}
-                AtCell::Enters(because) => return self.at_limit(&cells[j], &because).is_none(),
+                AtCell::Enters(because) => return self.at_limit(cell, &because).is_none(),
                 AtCell::Decides(Decision::GoOn { .. }) => return true,
                 AtCell::Decides(Decision::Wait { on, .. }) => {
                     return on.iter().all(|w| matches!(w, Waited::Call { .. }));

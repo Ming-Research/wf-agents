@@ -70,6 +70,7 @@ pub(crate) fn the_engine_s(_: &flow::Source) -> flow::Has {
             "answer",
             "asked",
             "dependencies",
+            "handed_in",
             "main",
             "session",
             "start",
