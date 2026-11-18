@@ -54,8 +54,9 @@ pub struct RanOn {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Why {
     /// The context of the line's session, as its last round ended, was past the limit the engine held it to, in
-    /// tokens. No session is begun for its size any longer (decision `a-session-is-compacted-at-its-limit`): the
-    /// records kept before hold sessions begun for it, which are read and shown as they were.
+    /// tokens. No session is begun for its size any longer (decision
+    /// `a-session-is-compacted-at-the-installations-number`): the records kept before hold sessions begun for it,
+    /// which are read and shown as they were.
     Limit { context: u64, limit: u64 },
     /// The line's rounds run on another model than the one its session was begun on, whose prompt cache holds
     /// nothing of it.

@@ -1,5 +1,6 @@
-//! The owner's pause of everything, as the store keeps it: set and lifted, the latest saying whether it holds, and
-//! kept across an opening; and a file made before the store kept it opens with none.
+//! What the store keeps of the engine as a whole: the owner's pause of everything, set and lifted, the latest saying
+//! whether it holds, and whether the sessions of works that wait are kept warm, which the owner switches; each kept
+//! across an opening, and a file made before the store kept one opening as if it had never been set.
 
 use store::{EverythingPaused, PauseOfEverything, SCHEMA_VERSION};
 
@@ -59,6 +60,34 @@ fn every_setting_and_lifting_of_the_pause_of_everything_is_given_back_in_order_w
     assert_eq!(store.everything_pauses(), Ok(expected.clone()));
     drop(store);
     assert_eq!(db.open().everything_pauses(), Ok(expected));
+}
+
+#[test]
+fn whether_the_sessions_of_works_that_wait_are_kept_warm_is_switched_and_holds_across_an_opening() {
+    let db = Db::new();
+    let mut store = db.open();
+    assert_eq!(store.keeping_warm(), Ok(true), "kept warm until it is switched off");
+    store.keep_warm(false, Time(START)).expect("it is kept");
+    assert_eq!(store.keeping_warm(), Ok(false));
+    store.keep_warm(true, Time(START + 1000)).expect("it is kept");
+    assert_eq!(store.keeping_warm(), Ok(true));
+    store.keep_warm(false, Time(START + 2000)).expect("it is kept");
+    drop(store);
+    assert_eq!(db.open().keeping_warm(), Ok(false), "the latest switch holds");
+}
+
+#[test]
+fn a_file_made_before_the_switch_of_keeping_sessions_warm_was_kept_opens_keeping_them_warm() {
+    let db = Db::new();
+    {
+        let file = Connection::open(&db.path).expect("the database opens");
+        file.execute_batch(SCHEMA_1).expect("the first schema is made");
+        file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+            .expect("its version is written");
+    }
+    let store = db.open();
+    assert_eq!(store.keeping_warm(), Ok(true));
+    assert_eq!(versions(&db.path), [SCHEMA_VERSION]);
 }
 
 #[test]

@@ -227,6 +227,9 @@ pub struct Driver {
     slots: usize,
     /// The pause of everything, while it holds, as the store keeps it.
     paused: Option<EverythingPaused>,
+    /// Whether the sessions of works that wait are kept warm, as the store keeps it: the engine's own state, which the
+    /// owner switches, and no setting, so that a switch takes effect at once ([`warm`]).
+    keep_warm: bool,
     /// Every stretch the pause of everything held, in order, as the store keeps them.
     spans: Vec<Span>,
     /// What stopped the driver, once something has.
@@ -522,6 +525,7 @@ impl Driver {
             }
         }
         let paused = store.everything_paused().map_err(Fault::Store)?;
+        let keep_warm = store.keeping_warm().map_err(Fault::Store)?;
         let spans = spans_of(&store.everything_pauses().map_err(Fault::Store)?);
         let mut driver = Driver {
             store,
@@ -530,6 +534,7 @@ impl Driver {
             of_item: BTreeMap::new(),
             slots,
             paused,
+            keep_warm,
             spans,
             fault: None,
             policy,
@@ -979,6 +984,27 @@ impl Driver {
         }
     }
 
+    /// Whether the sessions of works that wait are kept warm, as the owner last switched it ([`warm`]).
+    pub fn keeping_warm(&self) -> bool {
+        self.keep_warm
+    }
+
+    /// Keeps the sessions of works that wait warm from the time the caller's clock gives, or stops keeping them. It is
+    /// kept in the store and holds when the driver is opened again, and switching it as it stands changes nothing. No
+    /// ping is given here: one due is given as the driver is told the time next, which it asks for at once
+    /// ([`Driver::wake`]); a ping under way runs to its end whatever the switch says.
+    pub fn keep_warm(&mut self, now: Time, warm: bool) -> Result<(), Failed> {
+        self.going()?;
+        if warm == self.keep_warm {
+            return Ok(());
+        }
+        if let Err(fault) = self.store.keep_warm(warm, now) {
+            return Err(self.stop(Fault::Store(fault), false));
+        }
+        self.keep_warm = warm;
+        Ok(())
+    }
+
     /// The history of the rounds of every work on the flow of this name ([`history`]).
     pub fn history(&self, flow: &str) -> Vec<history::Sample> {
         (self.works.values())
@@ -1221,7 +1247,7 @@ impl Driver {
             if held.standing != Standing::Going {
                 continue;
             }
-            for due in warm::due(&held.flow, &held.work, &held.item, policy, now) {
+            for due in warm::due(&held.flow, &held.work, &held.item, policy, self.keep_warm, now) {
                 if self.pinging.contains(&(*number, due.line.clone())) {
                     continue;
                 }
@@ -1250,7 +1276,7 @@ impl Driver {
         (self.works.iter())
             .filter(|(_, held)| held.standing == Standing::Going)
             .flat_map(|(number, held)| {
-                (warm::kept(&held.flow, &held.work, &held.item, policy, now).into_iter())
+                (warm::kept(&held.flow, &held.work, &held.item, policy, self.keep_warm, now).into_iter())
                     .filter(|kept| !self.pinging.contains(&(*number, kept.due.line.clone())))
                     .map(|kept| (kept.at.max(soonest), kept.life))
                     .filter(|(at, life)| at < life)

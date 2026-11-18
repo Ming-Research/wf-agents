@@ -747,7 +747,7 @@ impl Inner {
 
     /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
     /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, which
-    /// the program compacts at the installation's `sessions.context_limit`.
+    /// the program compacts at the installation's `sessions.compact_at`.
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
@@ -763,7 +763,7 @@ impl Inner {
     ) -> Command {
         let agents = &self.settings.agents;
         let mut command = Command::new(&agents.command);
-        let compact = self.settings.sessions.context_limit;
+        let compact = self.settings.sessions.compact_at;
         let args = cli::arguments(
             agents,
             on,
@@ -1535,7 +1535,7 @@ impl Inner {
             &made.permissions,
             &compacted,
             &words,
-            self.settings.sessions.context_limit,
+            self.settings.sessions.compact_at,
             made.session,
             Begin::Resume,
         );
