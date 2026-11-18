@@ -169,17 +169,18 @@ impl Backup {
     }
 }
 
-/// How a line's session is kept between its rounds. The agents' program compacts a session at `context_limit`, so that
-/// its line goes on in it; a session on another model or account is replaced at the line's next round.
+/// How a line's session is kept between its rounds. The agents' program compacts a session at `compact_at`, so that
+/// its line goes on in it; a session on another model or account is replaced at the line's next round. Whether the
+/// sessions of works that wait are kept warm is no setting: it is the engine's own state, which the owner switches.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sessions {
     /// The context at which the agents' program compacts a line's session, in tokens, given it on every round's
     /// command line; no line drawn from the line's history lowers it, and the engine begins no new session for a
-    /// session's size (decision `a-session-is-compacted-at-its-limit`). Between 100,000 and 1,000,000, the range the
-    /// program takes.
-    #[serde(default = "context_limit")]
-    pub context_limit: u64,
+    /// session's size (decision `a-session-is-compacted-at-the-installations-number`). Between 100,000 and 1,000,000,
+    /// the range the program takes.
+    #[serde(default = "compact_at")]
+    pub compact_at: u64,
     /// How long the agents' program keeps a session in its prompt cache after its last call, in minutes: an hour for
     /// `claude`, whose usage says every write to the cache is one kept an hour (`ephemeral_1h_input_tokens`); 0 for a
     /// program that keeps none, whose sessions are not kept warm. How many keep-warm pings a wait is worth is not set
@@ -190,19 +191,14 @@ pub struct Sessions {
     /// cache lets it go, time for the ping and four tries again a minute apart.
     #[serde(default = "warm_minutes")]
     pub warm_minutes: u64,
-    /// Whether the sessions of works that wait are kept warm at all: with it, a waiting session is pinged whoever holds
-    /// its work, so that it is not written again whole when the work goes on; without it, no ping is ever given.
-    #[serde(default = "keep_warm")]
-    pub keep_warm: bool,
 }
 
 impl Default for Sessions {
     fn default() -> Self {
         Sessions {
-            context_limit: context_limit(),
+            compact_at: compact_at(),
             cache_minutes: cache_minutes(),
             warm_minutes: warm_minutes(),
-            keep_warm: keep_warm(),
         }
     }
 }
@@ -212,7 +208,7 @@ impl Default for Sessions {
 const COMPACTS_AT_LEAST: u64 = 100_000;
 const COMPACTS_AT_MOST: u64 = 1_000_000;
 
-fn context_limit() -> u64 {
+fn compact_at() -> u64 {
     500_000
 }
 
@@ -222,10 +218,6 @@ fn cache_minutes() -> u64 {
 
 fn warm_minutes() -> u64 {
     55
-}
-
-fn keep_warm() -> bool {
-    true
 }
 
 /// What a measured quantity is judged by: the history of its own kind, never a number set by hand (principle
@@ -482,7 +474,7 @@ impl Agents {
             );
         }
         if given("--autocompact") {
-            wrong.push("agents.args: --autocompact is set by sessions.context_limit".to_string());
+            wrong.push("agents.args: --autocompact is set by sessions.compact_at".to_string());
         }
         if given("--setting-sources") {
             wrong.push("agents.args: --setting-sources is set by agents.setting_sources".to_string());
@@ -593,10 +585,16 @@ const HEAVY_MOVED: &str = "agents.permissions.heavy: the heavy commands are a pr
      project declares its own in its flow/project.toml as [heavy] (commands), and what every agent is refused whatever \
      its project is in agents/refused.toml beside the flows; take heavy out of agents.permissions.";
 
-/// What the settings are told where they name `sessions.warm_while_paused`, the switch that once kept a waiting
-/// session warm while the owner held everything and nowhere else.
-const WARM_WHILE_PAUSED: &str = "sessions.warm_while_paused: a waiting session is kept warm whoever holds its work, so \
-     the setting is one switch over keeping sessions warm at all: write it as keep_warm in [sessions].";
+/// What the settings are told where they name `sessions.keep_warm` or `sessions.warm_while_paused`, the keys that once
+/// said whether the sessions of works that wait are kept warm, `{key}` the one they hold.
+const KEEPING_WARM: &str = "sessions.{key}: whether the sessions of works that wait are kept warm is the engine's own \
+     state now, which the owner switches on their page and which takes effect at once, not a setting read as the \
+     engine starts: take the key out of [sessions].";
+
+/// What the settings are told where they name `sessions.context_limit`, where the context at which a session is
+/// compacted once was.
+const CONTEXT_LIMIT: &str = "sessions.context_limit: the number is the context at which the agents' program compacts a \
+     line's session, and nothing is limited by it: write it as compact_at in [sessions].";
 
 /// What the settings are told where they name `agents.owner_language`, where the owner's language once was.
 const OWNER_LANGUAGE: &str = "agents.owner_language: the owner's language is the owner's, not the agents': take it \
@@ -674,12 +672,18 @@ impl Settings {
         if permissions.is_some_and(|permissions| permissions.contains_key("heavy")) {
             return Err(HEAVY_MOVED.to_string());
         }
-        let kept = table
+        let sessions = table
             .as_ref()
             .and_then(|t| t.get("sessions"))
             .and_then(|s| s.as_table());
-        if kept.is_some_and(|sessions| sessions.contains_key("warm_while_paused")) {
-            return Err(WARM_WHILE_PAUSED.to_string());
+        let warm: Vec<&str> = (["keep_warm", "warm_while_paused"].into_iter())
+            .filter(|key| sessions.is_some_and(|sessions| sessions.contains_key(*key)))
+            .collect();
+        if let Some(key) = warm.first() {
+            return Err(KEEPING_WARM.replace("{key}", key));
+        }
+        if sessions.is_some_and(|sessions| sessions.contains_key("context_limit")) {
+            return Err(CONTEXT_LIMIT.to_string());
         }
         // Settings of the one project an installation once had are told where its tables went.
         let moved: Vec<&str> = (["project", "github"].into_iter())
@@ -723,9 +727,9 @@ impl Settings {
             wrong.push("agents.work_budget_usd: a budget is a number of dollars, none below nothing".to_string());
         }
         let sessions = &settings.sessions;
-        if !(COMPACTS_AT_LEAST..=COMPACTS_AT_MOST).contains(&sessions.context_limit) {
+        if !(COMPACTS_AT_LEAST..=COMPACTS_AT_MOST).contains(&sessions.compact_at) {
             wrong.push(format!(
-                "sessions.context_limit: the agents' program compacts a session within {COMPACTS_AT_LEAST} and \
+                "sessions.compact_at: the agents' program compacts a session within {COMPACTS_AT_LEAST} and \
                  {COMPACTS_AT_MOST} tokens"
             ));
         }
@@ -859,7 +863,6 @@ impl Settings {
             most: (self.agents.levels.values())
                 .filter_map(|level| Some((level.model.clone(), crate::cost::pings_worth(&level.model)?)))
                 .collect(),
-            keep_warm: sessions.keep_warm,
             budget: self.budget_micros(),
         });
         Policy {
@@ -934,13 +937,12 @@ mod tests {
         let without = SAMPLE
             .replace("cache_minutes = 60\n", "")
             .replace("warm_minutes = 55\n", "");
-        let without = without.replace("keep_warm = true\n", "");
         assert_ne!(without, SAMPLE, "the sample sets them");
         let settings = Settings::read(&without).expect("it reads without");
         let warm = settings.policy().warm.expect("kept warm");
         assert_eq!(
-            (warm.life_ms, warm.after_ms, warm.keep_warm, warm.budget),
-            (3_600_000, 3_300_000, true, Some(5_000_000))
+            (warm.life_ms, warm.after_ms, warm.budget),
+            (3_600_000, 3_300_000, Some(5_000_000))
         );
         // The sample's levels run on Haiku, Sonnet and Opus 5.5 and on Fable 5.1.
         let most: Vec<(&str, u32)> = warm.most.iter().map(|(m, n)| (m.as_str(), *n)).collect();
@@ -965,25 +967,25 @@ mod tests {
 
     #[test]
     fn a_session_is_compacted_at_500000_tokens_where_none_is_set_and_only_what_the_program_takes_is_read() {
-        let of = |limit: &str| SAMPLE.replace("context_limit = 500000", &format!("context_limit = {limit}"));
-        let without = SAMPLE.replace("context_limit = 500000\n", "");
+        let of = |at: &str| SAMPLE.replace("compact_at = 500000", &format!("compact_at = {at}"));
+        let without = SAMPLE.replace("compact_at = 500000\n", "");
         assert_ne!(without, SAMPLE, "the sample sets it");
         let settings = Settings::read(&without).expect("it reads without");
-        assert_eq!(settings.sessions.context_limit, 500_000);
+        assert_eq!(settings.sessions.compact_at, 500_000);
         // The program compacts within 100,000 and 1,000,000 tokens: outside that it is refused, by its key.
-        for (limit, read) in [
+        for (at, read) in [
             ("99999", false),
             ("100000", true),
             ("1000000", true),
             ("1000001", false),
             ("0", false),
         ] {
-            let result = Settings::read(&of(limit));
+            let result = Settings::read(&of(at));
             match result {
-                Ok(settings) if read => assert_eq!(settings.sessions.context_limit.to_string(), limit),
-                Ok(_) => panic!("{limit} is no context the program compacts at"),
-                Err(why) if read => panic!("{limit}: {why}"),
-                Err(why) => assert!(why.contains("sessions.context_limit"), "{limit}: {why}"),
+                Ok(settings) if read => assert_eq!(settings.sessions.compact_at.to_string(), at),
+                Ok(_) => panic!("{at} is no context the program compacts at"),
+                Err(why) if read => panic!("{at}: {why}"),
+                Err(why) => assert!(why.contains("sessions.compact_at"), "{at}: {why}"),
             }
         }
         let none = SAMPLE.replace("samples = 19", "samples = 0");
@@ -1211,11 +1213,11 @@ mod tests {
             ("\"--setting-sources=local\"", "--setting-sources"),
             (
                 "\"--autocompact\", \"900000\"",
-                "--autocompact is set by sessions.context_limit",
+                "--autocompact is set by sessions.compact_at",
             ),
             (
                 "\"--autocompact=900000\"",
-                "--autocompact is set by sessions.context_limit",
+                "--autocompact is set by sessions.compact_at",
             ),
             (
                 "\"--permission-prompt-tool\", \"mcp__ok__approve\"",

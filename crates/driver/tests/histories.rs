@@ -165,7 +165,6 @@ fn warm() -> driver::Policy {
             life_ms: 3_600_000,
             after_ms: 3_300_000,
             most: [(MODEL.to_string(), 2)].into(),
-            keep_warm: true,
             budget: None,
         }),
     }

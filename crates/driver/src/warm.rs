@@ -18,7 +18,8 @@
 //! not while the wait every work shares holds the agents' rounds, since a ping runs with the command line a round runs
 //! with and would fail as they do ([`crate::Driver::pings`]); and not for a work the engine paused because it spent
 //! more than it may, since a ping counts in the work's spend and the budget is the refusal to let that work spend
-//! more. Whether sessions are kept warm at all is the installation's one switch ([`Warm::keep_warm`]).
+//! more. Whether sessions are kept warm at all is the engine's own state, which the owner switches
+//! ([`crate::Driver::keep_warm`]): switched off, no ping is given, whatever a work's state.
 //!
 //! A ping is a job of its work: none is due while a round of the work is under way, on any line, and the loop holds
 //! back the work's rounds while one of its pings is (crate `service`). What is due is worked out from the work's
@@ -55,12 +56,12 @@ pub struct Kept {
     pub life: Time,
 }
 
-/// Each line's session the work keeps warm as of `now`, in the order of the walk, whoever holds the work: none for a
-/// work that has ended, one with a round under way, one with no policy of keeping sessions warm, or one the engine
-/// paused for spending more than it may; and none whose cache has let it go by `now`, which a ping would write again
-/// whole, for nothing.
-pub fn kept(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, now: Time) -> Vec<Kept> {
-    let Some(warm) = policy.warm.as_ref().filter(|warm| warm.keep_warm) else {
+/// Each line's session the work keeps warm as of `now`, in the order of the walk, whoever holds the work: none where
+/// `keep_warm`, the engine's own state, says sessions are not kept warm; none for a work that has ended, one with a
+/// round under way, one with no policy of keeping sessions warm, or one the engine paused for spending more than it
+/// may; and none whose cache has let it go by `now`, which a ping would write again whole, for nothing.
+pub fn kept(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, keep_warm: bool, now: Time) -> Vec<Kept> {
+    let Some(warm) = policy.warm.as_ref().filter(|_| keep_warm) else {
         return Vec::new();
     };
     let decision = decide(&flow.flow, &work.records);
@@ -81,8 +82,8 @@ pub fn kept(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, now: Tim
 }
 
 /// The pings due for the work at `now`: those [`kept`] whose time has come.
-pub fn due(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, now: Time) -> Vec<Due> {
-    (kept(flow, work, item, policy, now).into_iter())
+pub fn due(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, keep_warm: bool, now: Time) -> Vec<Due> {
+    (kept(flow, work, item, policy, keep_warm, now).into_iter())
         .filter(|kept| kept.at <= now)
         .map(|kept| kept.due)
         .collect()

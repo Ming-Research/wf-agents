@@ -55,7 +55,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 19;
+pub const SCHEMA_VERSION: u32 = 20;
 
 /// A step of the store after a migration's SQL.
 type Step = fn(&Connection) -> Result<(), Fault>;
@@ -129,6 +129,9 @@ const MIGRATIONS: &[Migration] = &[
     },
     Migration::sql(include_str!(
         "../../../db/migrations/202611171900-keep-the-pull-request-of-each-work.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611182200-keep-whether-the-sessions-of-works-that-wait-are-kept-warm.sql"
     )),
 ];
 
@@ -256,6 +259,13 @@ pub trait Storage {
 
     /// Every pause of everything set or lifted, in the order they were kept.
     fn everything_pauses(&self) -> Result<Vec<PauseOfEverything>, Fault>;
+
+    /// Whether the sessions of works that wait are kept warm, as it was last switched; they are where it was never
+    /// switched, as in a store that never kept it.
+    fn keeping_warm(&self) -> Result<bool, Fault>;
+
+    /// Keeps that the sessions of works that wait are kept warm from this time, or are not.
+    fn keep_warm(&mut self, warm: bool, at: Time) -> Result<(), Fault>;
 }
 
 impl Store {
@@ -413,6 +423,23 @@ impl Storage for Store {
         (self.db).execute(
             "INSERT INTO everything_paused (paused, pauser, time) VALUES (?1, ?2, ?3)",
             rusqlite::params![paused, pauser, at.0],
+        )?;
+        Ok(())
+    }
+
+    fn keeping_warm(&self) -> Result<bool, Fault> {
+        let latest = (self.db)
+            .query_row("SELECT warm FROM keep_warm ORDER BY n DESC LIMIT 1", [], |row| {
+                row.get::<_, bool>(0)
+            })
+            .optional()?;
+        Ok(latest.unwrap_or(true))
+    }
+
+    fn keep_warm(&mut self, warm: bool, at: Time) -> Result<(), Fault> {
+        (self.db).execute(
+            "INSERT INTO keep_warm (warm, time) VALUES (?1, ?2)",
+            rusqlite::params![warm, at.0],
         )?;
         Ok(())
     }

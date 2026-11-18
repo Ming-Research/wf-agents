@@ -19,8 +19,8 @@
 //! - [`DoingPage`], [`Done`]: what the agent of a round did, as its carrier keeps it as it comes.
 //! - [`ChangesPage`], [`DiffPage`]: what a work changed, as git in its project's repository says.
 //! - [`Act`], [`NewItem`]: what the owner does on the pages.
-//! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots and the pause of everything, and what the owner
-//!   does to it.
+//! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots, the pause of everything and whether the sessions of
+//!   works that wait are kept warm, and what the owner does to it.
 //!
 //! A work whose records name what it does not hold, which the engine never writes, is not shown as something it is
 //! not: making its view gives [`Broken`], saying what is missing.
@@ -1856,6 +1856,9 @@ pub struct Engine {
     pub taken: u64,
     /// The pause of everything, while it holds; none while works go on.
     pub paused: Option<EverythingPaused>,
+    /// Whether the sessions of works that wait are kept warm: the engine's own state, which the owner switches, on
+    /// until they switch it off.
+    pub keep_warm: bool,
 }
 
 /// The pause of everything: when it began, and who set it, the owner, or the engine as it started with works going on,
@@ -1880,6 +1883,9 @@ pub enum EngineAct {
     Pause {},
     /// Lifts the pause of everything, the owner's or the engine's: every work goes on that its own pause does not hold.
     Resume {},
+    /// Keeps the sessions of works that wait warm, or keeps them so no longer, as `on` says: one act for a switch the
+    /// owner sets either way, so that it says where the switch now stands and not which way it was moved.
+    KeepWarm { on: bool },
 }
 
 /// A block written as an item is added.
@@ -2955,14 +2961,8 @@ impl Engine {
                 since: paused.since.0,
                 by: Pauser::of(paused.by),
             }),
+            keep_warm: driver.keeping_warm(),
         }
-    }
-}
-
-impl EngineAct {
-    /// Whether the act sets the pause of everything, rather than lifting it.
-    pub fn pauses(self) -> bool {
-        matches!(self, EngineAct::Pause {})
     }
 }
 

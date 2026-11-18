@@ -5,8 +5,9 @@
 //! With the installation's [`Policy`], a line begins a new session at its next round when the account or the model its
 //! session's rounds ran on, as the work's records say, is not the one its rounds run on now. No line begins one for the
 //! context its session holds: the agents' program compacts the session at the installation's own number, given it on
-//! every round's command line, and the line goes on in it (decision `a-session-is-compacted-at-its-limit`). A new
-//! session begins at once, and a round whose run ran in the session before is told what the run was doing.
+//! every round's command line, and the line goes on in it (decision
+//! `a-session-is-compacted-at-the-installations-number`). A new session begins at once, and a round whose run ran in
+//! the session before is told what the run was doing.
 //!
 //! Whatever the policy, a line a round of whose session the service's safety check flagged, the run guard stopped, or
 //! whose prompt was too long for the model, begins a new session, in which that round is tried again, so that none is
@@ -53,9 +54,6 @@ pub struct Warm {
     /// the session, no more than writing it to the cache again would beyond reading it. A session on a model not here
     /// is not pinged, its worth not being known.
     pub most: BTreeMap<String, u32>,
-    /// Whether a line's session is kept warm at all, as the installation says (`sessions.keep_warm`): where it is not,
-    /// no ping is given, whatever holds the work.
-    pub keep_warm: bool,
     /// The most a work may spend, in millionths of a dollar, as the installation says (`agents.work_budget_usd`); none
     /// where it sets none. A work the engine paused past it is pinged no more, a ping counting in its spend.
     pub budget: Option<u64>,
@@ -176,7 +174,7 @@ fn line_of_run<'a>(flow: &'a Compiled, work: &Work, run: RunId) -> Option<&'a st
 
 /// The new session the line begins at its next round, as the policy says: where its session's rounds ran under
 /// another account or on another model than the line's rounds run on now. A session past the installation's context is
-/// compacted by the agents' program and goes on (decision `a-session-is-compacted-at-its-limit`).
+/// compacted by the agents' program and goes on (decision `a-session-is-compacted-at-the-installations-number`).
 pub fn due(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy) -> Option<Event> {
     let on_line = |run: RunId| line_of_run(flow, work, run) == Some(line);
     let session = number_at(work, line, work.tick());

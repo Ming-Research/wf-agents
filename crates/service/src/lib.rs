@@ -119,6 +119,11 @@ pub enum Message {
         paused: bool,
         reply: oneshot::Sender<Result<(), Refusal>>,
     },
+    /// The owner has the sessions of works that wait kept warm, or has them kept no longer.
+    KeepWarm {
+        warm: bool,
+        reply: oneshot::Sender<Result<(), Refusal>>,
+    },
     /// An item is added, with its work.
     Add {
         item: NewItem,
@@ -438,6 +443,30 @@ impl Service {
                         self.tell_paused(works.clone());
                         let _ = self.changed.send(Changed {
                             works,
+                            items: false,
+                            copies: false,
+                        });
+                        return Ok(());
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
+            }
+            Message::KeepWarm { warm, reply } => {
+                let now = self.now()?;
+                match self.driver.keep_warm(now, warm) {
+                    Ok(()) => {
+                        let _ = reply.send(Ok(()));
+                        // No record of a work grew: the notice says only that something happened, on which the pages
+                        // read the engine again. A ping that has come due is given at the wake the driver asks for.
+                        let _ = self.changed.send(Changed {
+                            works: Vec::new(),
                             items: false,
                             copies: false,
                         });
@@ -884,6 +913,16 @@ impl Handle {
         let (reply, answer) = oneshot::channel();
         (self.to)
             .send(Message::Everything { paused, reply })
+            .map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
+    /// Has the sessions of works that wait kept warm, or has them kept no longer: the engine's own state, which holds
+    /// when it starts again.
+    pub async fn keep_warm(&self, warm: bool) -> Result<(), Refusal> {
+        let (reply, answer) = oneshot::channel();
+        (self.to)
+            .send(Message::KeepWarm { warm, reply })
             .map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
     }
