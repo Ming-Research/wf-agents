@@ -7,6 +7,7 @@
 
 import { useCallback, useState } from 'react';
 
+import { Legend, UnreadMark } from '../marks';
 import { usesFixtures } from '../mock-data';
 import {
   type Observation,
@@ -55,11 +56,6 @@ export function ObservationsView({ source = sourceOfPage() }: { source?: Observa
   return <ObservationsList page={page} failed={failed} source={source} onRead={read} />;
 }
 
-/// The mark of an observation not yet read: a dot in the text's colour.
-function UnreadMark() {
-  return <span className="dot dot-unread" role="img" aria-label="unread" title="unread" />;
-}
-
 export function ObservationsList({ page, failed = null, source, onRead }: {
   page: ObservationsPage;
   /// Why the last read of the observations failed, where it did: what is shown is from before.
@@ -94,11 +90,7 @@ export function ObservationsList({ page, failed = null, source, onRead }: {
         <span className="view-name">Observations</span>
         <span className="view-facts">{observations.length} observations</span>
         <span className="view-end">
-          <ul className="legend" aria-label="What the marks of an observation mean">
-            <li>
-              <UnreadMark /> unread
-            </li>
-          </ul>
+          <Legend marks={['unread']} />
         </span>
       </div>
       {failed !== null && (

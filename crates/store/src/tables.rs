@@ -10,7 +10,7 @@ use decide::{
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use work::{Filled, Measured, Measures, Moment, Observed, Pinged, Ran, RanOn, Session, Spent, Time, Work};
+use work::{Filled, Measured, Measures, Moment, Observed, Pinged, Pulled, Ran, RanOn, Session, Spent, Time, Work};
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
 
@@ -448,6 +448,18 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             })
         },
     )?;
+    out.pulls = rows(
+        db,
+        "SELECT at, number, url FROM pulls WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(Pulled {
+                at: Seq(row.get(0)?),
+                number: row.get(1)?,
+                url: row.get(2)?,
+            })
+        },
+    )?;
 
     out.moments = rows(
         db,
@@ -532,6 +544,7 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     })?;
     let measured = grown("measured", &held.measured, &given.measured, |m| Entry::At(m.at))?;
     let pinged = grown("pinged", &held.pinged, &given.pinged, |p| Entry::At(p.at))?;
+    let pulls = grown("pulls", &held.pulls, &given.pulls, |p| Entry::At(p.at))?;
 
     // Each table after those its rows name.
     for s in started {
@@ -795,6 +808,12 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 s.compactions,
                 p.failed
             ],
+        )?;
+    }
+    for p in pulls {
+        db.execute(
+            "INSERT INTO pulls (work, at, number, url) VALUES (?1, ?2, ?3, ?4)",
+            params![w, p.at.0, p.number, p.url],
         )?;
     }
     for m in moments {

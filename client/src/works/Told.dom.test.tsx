@@ -45,6 +45,9 @@ function sourceOf(told?: () => ToldPage): Source & { reads: number } {
       return told ? told() : fixtureTold(n, run, round);
     },
     loadDoing: async (n: number, run: number, round: number) => fixtureDoing(n, run, round),
+    followDoing: () => () => undefined,
+    loadChanges: () => Promise.reject(new Error('not read here')),
+    loadDiff: () => Promise.reject(new Error('not read here')),
     loadSystem: async (n: number, line: string, session: number) => fixtureSystem(n, line, session),
     loadCall: async (n: number, call: number) => fixtureCall(n, call),
     act: async () => null,
@@ -53,9 +56,9 @@ function sourceOf(told?: () => ToldPage): Source & { reads: number } {
   return s;
 }
 
-/// Draws the work as this page gives it, chooses the run of its step at this place, and gives the panel and the way
-/// to draw the work again as another page gives it.
-async function runPanel(page: WorkPage, step: number, source: Source) {
+/// Draws the work as this page gives it, its item read, chooses the run of the row at this place among the runs' rows,
+/// and gives the item's window, whose Step then shows it, and the way to draw the work again as another page gives it.
+async function runPanel(page: WorkPage, run: number, source: Source) {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
@@ -69,7 +72,8 @@ async function runPanel(page: WorkPage, step: number, source: Source) {
     );
   draw(page);
   unmounts.push(() => act(() => root.unmount()));
-  await click(container.querySelectorAll('tbody tr.step-row')[step]?.querySelector('.step-lead button'));
+  await settle();
+  await click(container.querySelectorAll('tbody tr.step-row')[run]?.querySelector('.step-lead button'));
   return { panel: container.querySelector('aside') as HTMLElement, draw };
 }
 
@@ -108,7 +112,7 @@ describe('what a round was told and returned', () => {
   it('is folded at first, read when first opened, a structured return that is the closing words shown once', async () => {
     const source = sourceOf();
     // The long history's plan, whose second round handed in the plan.
-    const { panel } = await runPanel(fixtureWork(41), 1, source);
+    const { panel } = await runPanel(fixtureWork(41), 0, source);
     const round = roundPart(panel, 2);
     expect(button(round, 'Show what it was told')?.getAttribute('aria-expanded')).toBe('false');
     expect(button(round, 'Show what it returned')?.getAttribute('aria-expanded')).toBe('false');
@@ -153,7 +157,7 @@ describe('what a round was told and returned', () => {
       ],
       leftOut: 2,
     };
-    const { panel } = await runPanel(fixtureWork(41), 1, sourceOf(() => told));
+    const { panel } = await runPanel(fixtureWork(41), 0, sourceOf(() => told));
     const round = roundPart(panel, 1);
     await click(button(round, 'Show what it was told'));
     expect(texts(round, '.label')).toEqual(['try 1', 'try 2', 'try 3']);
@@ -176,7 +180,7 @@ describe('what a round was told and returned', () => {
 
   it('says in one muted line that nothing was kept of a round that ended', async () => {
     // The plan's first round asked for two reads; the fixtures kept nothing of it, as a script keeps nothing.
-    const { panel } = await runPanel(fixtureWork(41), 1, sourceOf());
+    const { panel } = await runPanel(fixtureWork(41), 0, sourceOf());
     const round = roundPart(panel, 1);
     await click(button(round, 'Show what it was told'));
     expect(texts(round, 'p.muted')).toContain('Nothing was kept of this round');
@@ -185,7 +189,7 @@ describe('what a round was told and returned', () => {
 
   it('says of a round under way with no try yet that it is under way', async () => {
     // Work 42's implementation has its second round under way, waiting for its turn.
-    const { panel } = await runPanel(fixtureWork(42), 2, sourceOf(() => ({ tries: [], leftOut: 0 })));
+    const { panel } = await runPanel(fixtureWork(42), 1, sourceOf(() => ({ tries: [], leftOut: 0 })));
     const round = roundPart(panel, 2);
     await click(button(round, 'Show what it returned'));
     expect(texts(round, 'p.muted')).toContain('Nothing yet: it is under way');
@@ -206,7 +210,7 @@ describe('what a round was told and returned', () => {
     }));
     // Work 42's implementation has its second round under way.
     const underWay = fixtureWork(42);
-    const { panel, draw } = await runPanel(underWay, 2, source);
+    const { panel, draw } = await runPanel(underWay, 1, source);
     await click(button(roundPart(panel, 2), 'Show what it returned'));
     expect(roundPart(panel, 2).textContent).toContain('Nothing yet: it is under way');
     expect(source.reads).toBe(1);

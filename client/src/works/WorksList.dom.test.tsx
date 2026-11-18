@@ -11,16 +11,16 @@ import { fixtureCopies, fixtureItems } from './fixtures';
 import { keptSame, type Source, SourceContext } from './source';
 import { WorksList } from './WorksList';
 
-/// How many rows of works were drawn: each row's drawing says once what its work has taken, and nothing else of the list
-/// does, so the words of what was taken count the rows drawn.
+/// How many rows of works were drawn: each row's drawing says once what its work cost, and nothing else of the list
+/// does, so the words of what it cost count the rows drawn.
 const drawn = vi.hoisted(() => ({ rows: 0 }));
 vi.mock('./words', async (original) => {
   const words = await original<typeof import('./words')>();
   return {
     ...words,
-    spentWords: (...args: Parameters<typeof words.spentWords>) => {
+    dollars: (...args: Parameters<typeof words.dollars>) => {
       drawn.rows += 1;
-      return words.spentWords(...args);
+      return words.dollars(...args);
     },
   };
 });
@@ -85,6 +85,13 @@ function manySource(n: number): ManySource {
       loadDoing: async () => {
         throw new Error('not read here');
       },
+      followDoing: () => () => undefined,
+      loadChanges: async () => {
+        throw new Error('not read here');
+      },
+      loadDiff: async () => {
+        throw new Error('not read here');
+      },
       loadSystem: async () => {
         throw new Error('not read here');
       },
@@ -142,7 +149,7 @@ describe('the list of works with several hundred works', () => {
     s.changedWork = changed;
     act(() => s.changed({ works: [changed], items: false, copies: false }));
     await settle();
-    expect(page.querySelector(`tr[data-work="${changed}"] .work-now`)?.textContent).toContain('Running · review');
+    expect(page.querySelector(`tr[data-work="${changed}"] .now-words`)?.textContent).toBe('Running · review');
     expect(drawn.rows).toBe(1);
     // Read again with nothing changed, no row is drawn again.
     drawn.rows = 0;

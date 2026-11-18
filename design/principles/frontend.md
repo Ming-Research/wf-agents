@@ -22,6 +22,10 @@ Why: The primary button tells the owner what the view is for; the owner must kno
 Room on the screen goes to content: a control or fact shares a row rather than taking one, and at every width the page fits the window, the least needed part giving way first.
 Why: The chart and the lists need the height and the width; each extra row was taken from what it shows, a page that scrolled sideways hid its edge, and cells squeezed to one letter a line could not be read. (Article 8)
 
+### principle a-column-holds-what-is-alike
+Each cell of a column holds the same kind of thing, about as long in every row, and holds it in every row. What is long in some rows and absent in others has no column: it goes where it can take the room it needs, such as the item's window.
+Why: A column is as wide in every row. The works list's "Now" held a state's word in most rows and a sentence of why in a few: wide, it stood empty; narrow, it could not hold the sentence. (Article 8)
+
 ### principle owner-keeps-their-place
 What the owner reads and acts on stays put: a control stands with what it governs, and nothing in view moves or changes unless the owner did it or the thing shown really changed.
 Why: A control pressed from a view about something else did what the owner could not see; a list should not move under the owner's hand, and one that changes under the eyes cannot be read. (Article 8)

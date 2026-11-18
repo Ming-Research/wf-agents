@@ -1,11 +1,14 @@
 //! The routes of the items and the works, as `client/src/works-api.ts` reads them, and the reads of the plan that
 //! whoever plans the work makes with the commands (module `plan`). Each read and each act goes to the engine's loop
 //! through its [`Handle`], which takes them in order with everything else that happens; what a round was told and
-//! returned is read off the loop, from its carrier.
+//! returned, and what git says a work changed, are read off the loop, from their carriers.
 //!
 //! A refusal answers with a status of 4xx and [`Refusal`]: 404 for a work, version, round or call there is none of,
 //! 400 for what cannot be read, and 422 for what the engine refused. A work that cannot be shown, which the engine never
 //! makes, and what was kept of a round that cannot be read answer 500, and an engine that stopped 503, each saying why.
+
+use std::collections::VecDeque;
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::Bytes;
@@ -18,24 +21,27 @@ use axum::routing::{get, post};
 use decide::RunId;
 use driver::Failed;
 use serde::{Deserialize, Serialize};
-use service::{Handle, Levels, Projects};
+use service::{Handle, Levels, Mark, Projects};
 use store::WorkNumber;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::plan::{Candidates, Graph, HITS, Hits, PlanChanges, PlanMark, Tags, Way};
 use crate::works::{
-    Act, Added, Broken, CallPage, Changed, DoingPage, Engine, EngineAct, ForkAsked, ForkPage, ItemChanges, Items,
-    ItemsChanged, LevelsPage, NewItem, ProjectsPage, Refusal, RoundPage, Said, SystemPage, ToldPage, VersionPage,
-    WorkPage,
+    Act, Added, Broken, CallPage, Changed, ChangesPage, DiffPage, DoingPage, Done, Engine, EngineAct, ForkAsked,
+    ForkPage, ItemChanges, Items, ItemsChanged, LevelsPage, NewItem, ProjectsPage, Refusal, RoundPage, Said, Summary,
+    SystemPage, ToldPage, VersionPage, WorkPage,
 };
 
 /// The routes of the items and the works, over the engine's loop; an item is added at one of these levels, to one of
-/// these projects.
+/// these projects, and a work's rounds run at them.
 pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
     let levels = std::sync::Arc::new(levels);
     let shown = LevelsPage::of(&levels);
     let named = ProjectsPage::of(&projects);
     let (to_add, projects) = (levels.clone(), std::sync::Arc::new(projects));
+    let (to_list, to_show) = (levels.clone(), levels.clone());
+    let items = move |handle: State<Handle>| items(handle, to_list.clone());
+    let work = move |handle: State<Handle>, path: Result<Path<u64>, PathRejection>| work(handle, to_show.clone(), path);
     let add = move |handle: State<Handle>, body: Bytes| add(handle, to_add.clone(), projects.clone(), body);
     let change = move |handle: State<Handle>, body: Bytes| change(handle, levels.clone(), body);
     Router::new()
@@ -53,6 +59,12 @@ pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}", get(round))
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}/told", get(told))
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}/doing", get(doing))
+        .route(
+            "/api/v1/works/{work}/runs/{run}/rounds/{number}/doing/stream",
+            get(following),
+        )
+        .route("/api/v1/works/{work}/changes", get(changes_of))
+        .route("/api/v1/works/{work}/changes/diff", get(diff))
         .route(
             "/api/v1/works/{work}/lines/{line}/sessions/{session}/system",
             get(system),
@@ -86,9 +98,25 @@ async fn engine_act(State(handle): State<Handle>, body: Bytes) -> Response {
     }
 }
 
-async fn items(State(handle): State<Handle>) -> Response {
-    match handle.read_at(Items::of).await {
-        Ok(Ok(items)) => Json(items).into_response(),
+async fn items(State(handle): State<Handle>, levels: std::sync::Arc<Levels>) -> Response {
+    let read = handle.read_at(move |driver, now| {
+        Items::of(driver, &levels, now).map(|items| {
+            let asked: Vec<Option<service::OfWork>> = (items.items.iter())
+                .map(|item| crate::works::asked(driver, &item.work))
+                .collect();
+            (items, asked)
+        })
+    });
+    match read.await {
+        Ok(Ok((mut items, asked))) => {
+            saw(
+                &handle,
+                asked,
+                items.items.iter_mut().map(|item| &mut item.work).collect(),
+            )
+            .await;
+            Json(items).into_response()
+        }
         Ok(Err(broken)) => fail(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("The items cannot be shown: {}.", broken.0),
@@ -267,16 +295,56 @@ async fn graph(
     }
 }
 
-async fn work(State(handle): State<Handle>, path: Result<Path<u64>, PathRejection>) -> Response {
+async fn work(
+    State(handle): State<Handle>,
+    levels: std::sync::Arc<Levels>,
+    path: Result<Path<u64>, PathRejection>,
+) -> Response {
     let number = match path {
         Ok(Path(number)) => WorkNumber(number),
         Err(rejection) => return unreadable(&rejection),
     };
     let missing = format!("There is no work {}.", number.0);
     let page = handle
-        .read_at(move |driver, now| driver.work(number).map(|_| WorkPage::of(driver, number, now)))
+        .read_at(move |driver, now| {
+            driver.work(number).map(|_| {
+                let page = WorkPage::of(driver, &levels, number, now)?;
+                let asked = page
+                    .as_ref()
+                    .and_then(|page| crate::works::asked(driver, &page.summary));
+                Ok::<_, Broken>(page.map(|page| (page, asked)))
+            })
+        })
         .await;
+    let page = match page {
+        Ok(Some(Ok(Some((mut page, asked))))) => {
+            saw(&handle, vec![asked], vec![&mut page.summary]).await;
+            Ok(Some(Ok(Some(page))))
+        }
+        other => other.map(|work| work.map(|page| page.map(|page| page.map(|(page, _)| page)))),
+    };
     found(page, number, missing)
+}
+
+/// Gives each summary what the repository of its work's project says of the work beside its records, as the carrier
+/// of the engine's acts works it out off the loop, `asked` being each summary's work as it is asked of; what could not
+/// be worked out of a work is said on the standard error, and its summary keeps what its records give.
+async fn saw(handle: &Handle, asked: Vec<Option<service::OfWork>>, mut summaries: Vec<&mut Summary>) {
+    let (at, asked): (Vec<usize>, Vec<service::OfWork>) = (asked.into_iter().enumerate())
+        .filter_map(|(at, of)| Some((at, of?)))
+        .unzip();
+    for (at, seen) in at.into_iter().zip(handle.seen(asked).await) {
+        let Some(summary) = summaries.get_mut(at) else {
+            continue;
+        };
+        match seen {
+            Ok(seen) => summary.saw(seen),
+            Err(why) => eprintln!(
+                "what git says of work {} could not be worked out: {why}",
+                summary.number
+            ),
+        }
+    }
 }
 
 /// The content of a version of a block, the version by its number among the block's versions.
@@ -315,17 +383,154 @@ async fn told(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)>
     found(page, number, missing)
 }
 
-/// What the agent of a round was last seen doing, read off the loop from its carrier as [`told`] is: the page asks
-/// again every few seconds while the round is under way, since the stream it is read from grows with nothing that
-/// happens to the work.
+/// What the agent of a round did from its start, every try in order, read off the loop from its carrier as [`told`]
+/// is: the whole of a round's history, as against [`following`], which sends it as it comes.
 async fn doing(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)>, PathRejection>) -> Response {
     let (number, run, round) = match path {
         Ok(Path((number, run, round))) => (WorkNumber(number), run, round),
         Err(rejection) => return unreadable(&rejection),
     };
     let missing = format!("Work {} has no round {round} of run {run}.", number.0);
-    let doing = handle.doing(number, RunId(run), round).await;
-    let page = doing.map(|work| work.map(|doing| doing.map(|round| round.map(DoingPage::of)).map_err(Broken)));
+    let doing = handle.doing((number, RunId(run), round), Mark::default()).await;
+    let page = doing.map(|work| {
+        work.map(|doing| (doing.map(|round| round.map(|(doings, _)| DoingPage::of(doings.done)))).map_err(Broken))
+    });
+    found(page, number, missing)
+}
+
+/// How often a round followed is read again for what its agent did since: its program writes a line for each thing as
+/// it does it, and a read that finds nothing new looks at the length of a file or two and asks the loop whether the
+/// round has ended, which takes well under a millisecond, so a page sees each thing within half a second.
+const FOLLOW: Duration = Duration::from_millis(500);
+
+/// What the agent of a round does, as it comes, to the page that has the round open alone, as server-sent events: one
+/// `done` for each thing, every try in order, from the round's start; then, once the round has ended and all it did was
+/// sent, one `end`, and the stream ends. Where what was kept of the round cannot be read, one `failed` says why, and the
+/// stream ends. The engine's stream of changes says nothing of it: the round's stream is followed, by a read every
+/// [`FOLLOW`], only while a page has it open.
+async fn following(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)>, PathRejection>) -> Response {
+    let key = match path {
+        Ok(Path((number, run, round))) => (WorkNumber(number), RunId(run), round),
+        Err(rejection) => return unreadable(&rejection),
+    };
+    let (number, run, round) = key;
+    let (doings, ended) = match handle.doing(key, Mark::default()).await {
+        Ok(Some(Ok(Some(found)))) => found,
+        Ok(None) => return fail(StatusCode::NOT_FOUND, format!("There is no work {}.", number.0)),
+        Ok(Some(Ok(None))) => {
+            let missing = format!("Work {} has no round {round} of run {}.", number.0, run.0);
+            return fail(StatusCode::NOT_FOUND, missing);
+        }
+        Ok(Some(Err(why))) => {
+            return fail(StatusCode::INTERNAL_SERVER_ERROR, format!("It cannot be shown: {why}."));
+        }
+        Err(refusal) => return refused(&refusal),
+    };
+    let mut first = Follow {
+        handle,
+        key,
+        next: doings.next,
+        queue: VecDeque::new(),
+        over: false,
+    };
+    first.took(doings.done, ended);
+    let stream = futures_util::stream::unfold(first, |mut follow| async move {
+        loop {
+            if let Some(event) = follow.queue.pop_front() {
+                return Some((event, follow));
+            }
+            if follow.over {
+                return None;
+            }
+            tokio::time::sleep(FOLLOW).await;
+            match follow.handle.doing(follow.key, follow.next).await {
+                Ok(Some(Ok(Some((doings, ended))))) => {
+                    follow.next = doings.next;
+                    follow.took(doings.done, ended);
+                }
+                Ok(Some(Err(why))) => follow.failed(why),
+                Err(refusal) => follow.failed(refusal.to_string()),
+                // The work and its round were there as the stream opened, and records are only added to.
+                Ok(None | Some(Ok(None))) => follow.failed("the round is no longer there".to_string()),
+            }
+        }
+    });
+    Sse::new(stream).keep_alive(KeepAlive::default()).into_response()
+}
+
+/// A round followed, as [`following`] sends it: where the next read of it goes on from, and the events read and not
+/// yet sent.
+struct Follow {
+    handle: Handle,
+    key: (WorkNumber, RunId, usize),
+    next: Mark,
+    queue: VecDeque<Result<Event, axum::Error>>,
+    /// Whether nothing more is to be read: the round ended and all it did was read, or a read failed.
+    over: bool,
+}
+
+impl Follow {
+    /// Takes what a read found the agent did, and, where the round had ended before it was read, the end.
+    fn took(&mut self, done: Vec<(usize, service::Doing)>, ended: bool) {
+        for done in done {
+            self.queue
+                .push_back(Event::default().event("done").json_data(Done::of(done)));
+        }
+        if ended {
+            self.queue
+                .push_back(Event::default().event("end").json_data(serde_json::json!({})));
+            self.over = true;
+        }
+    }
+
+    /// Takes why a read failed, after which nothing more is read.
+    fn failed(&mut self, why: String) {
+        let error = serde_json::json!({ "error": why });
+        self.queue.push_back(Event::default().event("failed").json_data(error));
+        self.over = true;
+    }
+}
+
+/// The query of a read of one file's diff: the file's path, as the work's changes give it.
+#[derive(Deserialize)]
+struct Of {
+    path: String,
+}
+
+/// Each file a work changed, as git in its project's repository says, worked out off the loop.
+async fn changes_of(State(handle): State<Handle>, path: Result<Path<u64>, PathRejection>) -> Response {
+    let number = match path {
+        Ok(Path(number)) => WorkNumber(number),
+        Err(rejection) => return unreadable(&rejection),
+    };
+    let missing = format!("Work {} has no change to tell yet: its branch is not made.", number.0);
+    let changes = handle.changes_of(number).await;
+    let page = changes.map(|work| work.map(|changes| changes.map(|c| c.map(ChangesPage::of)).map_err(Broken)));
+    found(page, number, missing)
+}
+
+/// The unified diff of one file a work changed, worked out off the loop.
+async fn diff(
+    State(handle): State<Handle>,
+    path: Result<Path<u64>, PathRejection>,
+    query: Result<Query<Of>, QueryRejection>,
+) -> Response {
+    let number = match path {
+        Ok(Path(number)) => WorkNumber(number),
+        Err(rejection) => return unreadable(&rejection),
+    };
+    let Query(Of { path: file }) = match query {
+        Ok(query) => query,
+        Err(rejection) => {
+            return fail(
+                StatusCode::BAD_REQUEST,
+                format!("The file cannot be read: {}.", rejection.body_text()),
+            );
+        }
+    };
+    let missing = format!("Work {} changed no file {file}.", number.0);
+    let diff = handle.diff(number, file).await;
+    let page = diff.map(|work| work.map(|diff| diff.map(|d| d.map(DiffPage::of)).map_err(Broken)));
     found(page, number, missing)
 }
 

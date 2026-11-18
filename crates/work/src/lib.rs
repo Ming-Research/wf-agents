@@ -54,6 +54,9 @@ pub struct Work {
     pub measured: Vec<Measured>,
     /// Each keep-warm ping of a line's session, in order.
     pub pinged: Vec<Pinged>,
+    /// Each pull request the host of the work's repository found the work checked through, in order, where it is
+    /// another than the one before: the latest is the work's.
+    pub pulls: Vec<Pulled>,
     /// Why the work's item was cancelled, by the place of each cancel, as whoever cancelled it said; none for a cancel
     /// where nothing was said, as one kept before a cancel said why.
     pub why_cancelled: BTreeMap<Seq, String>,
@@ -86,7 +89,8 @@ impl Work {
             .chain(self.filled.iter().map(|f| f.at))
             .chain(self.ran.iter().map(|r| r.at))
             .chain(self.measured.iter().map(|m| m.at))
-            .chain(self.pinged.iter().map(|p| p.at));
+            .chain(self.pinged.iter().map(|p| p.at))
+            .chain(self.pulls.iter().map(|p| p.at));
         Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
     }
 
@@ -109,6 +113,16 @@ impl Work {
 /// `stored-content-is-kept-small`).
 pub fn digest(text: &str) -> String {
     sha1_smol::Sha1::from(text).digest().to_string()
+}
+
+/// A pull request the host of the work's repository found the work checked through, opening it where the work had
+/// none, at a place of its own in the order of what happened to the work: its number on the host, and its address.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Pulled {
+    /// The place of the entry in the order of what happened to the work.
+    pub at: Seq,
+    pub number: u64,
+    pub url: String,
 }
 
 /// A time, as whatever drives the engine reads its clock: milliseconds since the start of 1970. The engine reads no

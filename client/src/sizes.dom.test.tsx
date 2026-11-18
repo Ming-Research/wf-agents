@@ -5,7 +5,6 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { tableWidth } from './Chart';
 import { useKeptWidth, useKeptWidths } from './sizes';
 
 afterEach(() => {
@@ -49,12 +48,5 @@ describe('a width the owner drags', () => {
     act(() => a.now()[1]('R1', null));
     expect(JSON.parse(localStorage.getItem('cells') ?? '{}')).toEqual({ D2: 64 });
     a.unmount();
-  });
-});
-
-describe('the width of the chart', () => {
-  it('takes the whole frame, the cells sharing it evenly up to 160px each, and no less than each at its least', () => {
-    expect(tableWidth(200, ['a', 'b', 'c'], {})).toEqual({ width: 'min(100%, 680px)', minWidth: '464px' });
-    expect(tableWidth(200, ['a', 'b', 'c'], { b: 300 })).toEqual({ width: 'min(100%, 820px)', minWidth: '676px' });
   });
 });

@@ -18,13 +18,15 @@
 // pulses, while its card stands still. The way from each item whose work runs up to its root is dashed in the colour of
 // a running card's edge, its dashes moving from the root's side to the item's. Every column fades out into the page
 // near the top and the bottom of the screen; at those two edges the column under the pointer has a line of blue, faded
-// in as the pointer comes. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`. A call
-// the engine carries out for a cell, a tool's or an act of its own, keeps its card running as a round does, and its
-// cell's mark, in the yellow of a call, pulses as a running cell's does.
+// in as the pointer comes. Only what is on the screen is drawn. What it draws and how fast is kept in `stats`. An act
+// of the engine's own under way keeps its card running as a round does; a work that waits for the calls of tools the
+// engine carries out is a work that waits. Either way its cell's mark, in the yellow of a call, pulses as a running
+// cell's does.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
-// every constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where
-// it drew the stages; what the new interface has nothing for
+// every constant as they were. What changed: a card's second row draws the level the work's cell runs at, the works
+// page's strip of the work's cells where it drew the stages, and the lines the work changed; an ended item's one row,
+// the lines its work changed; what the new interface has nothing for
 // yet (an item new to the owner, messages unread) is read from the console's made-up data (`mock.ts`); the colours the
 // page's tokens came from are read from the tokens, so that the canvas follows light and dark; the canvas follows the
 // size of what holds it, besides the window's; the links dim with the items they join while an item is lit
@@ -34,11 +36,11 @@
 import { Application, BitmapText, BlurFilter, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
 import { accentNow, onAccent, turning } from '../accent';
-import { MARK, MARKS, pulsing } from '../works/state-marks';
+import { LINES_LOOKS, levelLook, levelWords } from '../marks';
+import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
-import { STATE, standingCell, stateOf, stoppedAt } from '../works/words';
-import { type Shown, type ShownWork } from './items';
-import { BAR_KINDS, TRACK_WORDS } from './track';
+import { NO_LEVEL, STATE, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
+import { type Shown, type ShownWork, age } from './items';
 import { indexTree, type Tree } from './tree';
 
 export const NODE_W = 300;
@@ -69,11 +71,10 @@ const EDGE_LINE = 6;
 const GLOW_IN = 30;
 /// How bright the items not in focus are drawn while an item is in focus or selected; the least of the links' own
 /// strength they could be drawn at, were the items drawn at no brightness ([`linksStrength`]); and how long an item
-/// takes to fade down and to come back up, in milliseconds.
+/// takes to fade, down and back up alike, in milliseconds.
 export const DIM = 0.35;
 const DIM_LINKS = 0.4;
-const FADE_DOWN = 220;
-const FADE_UP = 110;
+const FADE_MS = 220;
 /// The way from each item whose work runs up to its root, dashed in the colour of a running card's edge and moving
 /// from the root's side to the item's: a dash's length and the gap after it, in pixels; how fast the dashes move, in
 /// pixels a second; and the line's width.
@@ -184,7 +185,7 @@ const LIGHT = {
   paused: '#8b93a1',
   halted: '#e5484d',
   waiting: '#e8cc6a',
-  amber: '#d97706',
+  amber: '#b45309',
   red: '#e5484d',
   green: '#2f9e6e',
   /// The pointer's blue: the lines at the edges of the column under it, and the own colour of an item with no work of
@@ -195,14 +196,6 @@ const LIGHT = {
   /// What is new to the owner: the line inside a card's left edge, and its mark on the map.
   unseen: '#3673f5',
   accent: '#3673f5',
-  /// Where a work's time went, in the colours of the track in the item's window (styles/parts.css): a model's, the
-  /// tools', idle, and the ground they lie on with how far it lets the card through. An idle stretch takes the colour
-  /// of what the work waited for: the owner's red, a pause's muted grey, or idle.
-  model: '#3673f5',
-  tools: '#eab308',
-  idle: '#e8ecf2',
-  track: '#818b98',
-  trackAlpha: 0x1f / 255,
   /// What joins an item to those under it: Primer's neutral muted, `#818b981f` in light and `#656c7633` in dark, as
   /// the console on `old-main` read it, a little lighter.
   other: '#818b98',
@@ -250,9 +243,9 @@ export function wayAims(ways: Iterable<number>, parent: ArrayLike<number>, lit: 
 }
 
 /// One frame's step, `step` milliseconds long, of a brightness from `was` towards `to`: about two thirds of the way in
-/// [`FADE_DOWN`] going down and in [`FADE_UP`] going up, so that nothing lit jumps as the light moves or goes out.
+/// [`FADE_MS`], going down or up alike, so that nothing lit jumps as the light moves or goes out.
 export function eased(was: number, to: number, step: number): number {
-  return was + (to - was) * (1 - Math.exp(-step / (to < was ? FADE_DOWN : FADE_UP)));
+  return was + (to - was) * (1 - Math.exp(-step / FADE_MS));
 }
 
 /// A soft light: the item it is behind, where its card stands (`gx`, and `gy` with `gh` half its height), and how far
@@ -309,10 +302,8 @@ export function themed(): typeof LIGHT {
     halted: token('--red', LIGHT.halted),
     red: token('--red', LIGHT.red),
     green: token('--green', LIGHT.green),
+    amber: token('--orange-text', LIGHT.amber),
     onTag: token('--on-colour', LIGHT.onTag),
-    model: token('--track-model', LIGHT.model),
-    tools: token('--track-tool', LIGHT.tools),
-    idle: token('--track-gap', LIGHT.idle),
   };
   if (getComputedStyle(document.documentElement).colorScheme !== 'dark') return { ...LIGHT, ...own, ...t };
   return {
@@ -328,12 +319,8 @@ export function themed(): typeof LIGHT {
     chosenRibbon: between(t.card, t.chosen, 0.3),
     mapBar: between(t.card, own.over, 0.6),
     paused: t.muted,
-    amber: token('--orange-text', LIGHT.amber),
     other: '#656c76',
     otherAlpha: 0.85 * (0x33 / 255),
-    // The ground of where a work's time went, as the track in the item's window has it in dark.
-    track: '#656c76',
-    trackAlpha: 0x33 / 255,
   };
 }
 
@@ -389,23 +376,6 @@ function vertical(colour: string, from: number, to: number): FillGradient {
 /// A node's height in pixels, of `rows` rows.
 const high = (rows: number) => rows * ROW - (ROW - NODE_H);
 
-/// How long a work has gone on, as a short label and the tone of its age: under half an hour, under an hour, or an
-/// hour and more, however much more.
-export function age(ms: number): {
-  label: string;
-  tone: 'success' | 'attention' | 'danger';
-} {
-  const minutes = ms / 60000;
-  if (minutes < 60)
-    return {
-      label: `${Math.max(1, Math.round(minutes))}m`,
-      tone: minutes < 30 ? 'success' : 'attention',
-    };
-  const hours = minutes / 60;
-  if (hours < 24) return { label: `${Math.round(hours * 10) / 10}h`, tone: 'danger' };
-  return { label: `${Math.round((hours / 24) * 10) / 10}d`, tone: 'danger' };
-}
-
 /// The colour of a work's age, three and no more: grey under half an hour, amber from half an hour to an hour, and red
 /// past an hour, however long, since a work not done within an hour is a problem, which red says (decision
 /// a-works-age-is-red-past-an-hour).
@@ -415,23 +385,21 @@ const TONE = () => ({
   danger: PALETTE.red,
 });
 
-/// Where a card draws its work's time: how wide the line is, where it begins from the card's left, and how far above
-/// or below it the pointer may be to point at it.
-const BAR_W = 70;
-const BAR_X = NODE_W - 8 - 36 - BAR_W;
-const BAR_REACH = 6;
+/// Where a card's second row writes the lines its work added and removed, from the card's left: past the strip, before
+/// how long the work has gone on.
+const LINES_X = NODE_W - 8 - 36 - 70;
 
 /// The middle of a card's second row, the work's, from the card's middle, for a card `h` high.
-const workRow = (h: number) => -h / 2 + h - (WORK_ROW * ROW) / 2 - 3;
+const workRow = (h: number) => -h / 2 + high(1 + WORK_ROW) - (WORK_ROW * ROW) / 2 - 3;
 
 /// What a work's state is to its node: running, waiting for the owner, paused, stopped by the engine for a problem, or
 /// waiting for something else.
 export type Mood = 'running' | 'owner' | 'paused' | 'halted' | 'waiting';
 
 /// A work's mood, from its state as every view names it (`stateOf`): one that waits for the owner, as the engine's one
-/// list of it says, waits for the owner; one running, a call the engine carries out for its cell among it, runs; a
-/// halted one, at a fault or stalled, is halted; one paused, by the owner's pause or the owner's pause of everything,
-/// is paused; any other waits.
+/// list of it says, waits for the owner; one running, an act of the engine's own among it, runs; a halted one, at a
+/// fault or stalled, is halted; one paused, by the owner's pause or the owner's pause of everything, is paused; any
+/// other waits, one that waits for the calls of tools among it.
 export function moodOf(w: Pick<ShownWork, 'now' | 'cells' | 'waits'>): Mood {
   const { tone, word } = stateOf(w);
   if (tone === 'owner') return 'owner';
@@ -476,7 +444,7 @@ function cellLooks(): { measures: { side: number; gap: number }; looks: Record<C
   const corner = length(MARK.corner);
   const colour = (name: string) => token(name, PALETTE.muted);
   const looks = Object.fromEntries(
-    Object.entries(MARKS).map(([state, look]): [string, CellLook] => [
+    Object.entries(CELL_LOOKS).map(([state, look]): [string, CellLook] => [
       state,
       look.shape === 'dash'
         ? { fill: colour(look.fill), edge: null, ring: 0, height: length(MARK.dash), corner: 0 }
@@ -510,13 +478,13 @@ export type DrawnMark = {
   pulses: boolean;
 };
 
-/// A card's strip as it was drawn: its marks, how many cells did not fit, and where its room ends; and the name of the
-/// cell its work stands at, under the card's number, with its colour, or none.
+/// A card's strip as it was drawn: its marks, how many cells did not fit, and where its room ends; and the level its
+/// work's cell runs at, under the card's number, with its colour and whether it is strong.
 export type DrawnStrip = {
   marks: DrawnMark[];
   more: number;
   end: number;
-  name: { text: string; colour: string } | null;
+  level: { text: string; colour: string; strong: boolean } | null;
 };
 
 /// How much of its work's colour a card in work takes, the rest white, and its edge, a deeper shade of it.
@@ -543,18 +511,19 @@ const NUMBER = () => ({
   cancelled: PALETTE.pale,
 });
 
-/// What a work has taken, in dollars.
-export const dollars = (usdMicros: number) => `$${(usdMicros / 1e6).toFixed(2)}`;
-
 /// The size of a node's title: the page's body text (`--size-body`).
 const TITLE_SIZE = 13;
 
 /// The styles of a node's words, by their colour: its title in the sans-serif face, and its numbers in the page's
-/// monospace, smaller. Each is made from plain values once: one made by spreading another keeps the other's fill.
+/// monospace, smaller, strong where asked. Each is made from plain values once: one made by spreading another keeps
+/// the other's fill.
 type Styles = {
   title: (fill: string) => TextStyle;
-  mono: (fill: string) => TextStyle;
+  mono: (fill: string, strong?: boolean) => TextStyle;
 };
+
+/// The weight of strong words: the page's (`--weight-strong`).
+const STRONG = '600' as const;
 
 /// The faces of a node's words: Primer's stacks, which the console on `old-main` drew in, without the face Primer names
 /// first and the page never loaded. A canvas resolves a stack by its own rules (PixiJS quotes every name but the
@@ -567,18 +536,18 @@ function makeStyles(): Styles {
   const mono = MONO;
   const size = TITLE_SIZE;
   const made = new Map<string, TextStyle>();
-  const style = (fontFamily: string, fontSize: number, fill: string) => {
-    const key = `${fontFamily}|${fontSize}|${fill}`;
+  const style = (fontFamily: string, fontSize: number, fill: string, strong = false) => {
+    const key = `${fontFamily}|${fontSize}|${fill}|${strong}`;
     let s = made.get(key);
     if (s === undefined) {
-      s = new TextStyle({ fontFamily, fontSize, fill });
+      s = new TextStyle({ fontFamily, fontSize, fill, ...(strong ? { fontWeight: STRONG } : {}) });
       made.set(key, s);
     }
     return s;
   };
   return {
     title: (fill) => style(sans, size, fill),
-    mono: (fill) => style(mono, Math.round(size * 0.8), fill),
+    mono: (fill, strong) => style(mono, Math.round(size * 0.8), fill, strong),
   };
 }
 
@@ -764,6 +733,16 @@ export class SnapScene {
     this.ready = true;
   }
 
+  /// Draws while the view is shown, and stops while another view hides it; shown again, it draws at the size of what
+  /// holds it, which its observer follows.
+  setShown(shown: boolean): void {
+    if (!this.ready) return;
+    if (shown) {
+      this.app.queueResize();
+      this.app.ticker.start();
+    } else this.app.ticker.stop();
+  }
+
   destroy(): void {
     this.gone = true;
     window.removeEventListener('pointermove', this.drag);
@@ -824,7 +803,9 @@ export class SnapScene {
       else this.shadowsOf.set(it.id, [...(this.shadowsOf.get(it.id) ?? []), k]);
     });
     this.under = -1;
-    this.rows = Float64Array.from(items, (i) => (i.work !== null ? 1 + WORK_ROW : 1));
+    this.rows = Float64Array.from(items, (i) =>
+      i.work === null ? 1 : 1 + WORK_ROW,
+    );
     this.pre = tree.columns.map((col) => {
       const p = new Float64Array(col.length + 1);
       for (let r = 0; r < col.length; r += 1) p[r + 1] = p[r] + this.rows[col[r]];
@@ -909,8 +890,9 @@ export class SnapScene {
   /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does
   /// with an edge of a deeper shade of it; its edge the accent's tint above a work. On its first row its number in its
   /// state's colour, its title, and at the right how many things its work waits for from the owner, white on red; on
-  /// the second row, for an item whose work goes on, the strip of the work's cells as the works page draws it, where
-  /// its time went, and how long it has gone on.
+  /// the second row, for an item whose work goes on, under the number the level its cell runs at, the strip of the
+  /// work's cells as the works page draws it, the lines the work added and removed where it changed any, and how long
+  /// it has gone on. An item whose work has ended has its one row, with the lines its work changed at its right.
   private node(item: Shown, k: number): Container {
     const s = this.styles as Styles;
     const view = new Container();
@@ -1006,62 +988,66 @@ export class SnapScene {
     if (item.unread > 0) tag(String(item.unread), PALETTE.unseen, null, true);
     if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, 'back', false);
     if (item.work === null && item.blocked > 0) tag(String(item.blocked), PALETTE.muted, 'lock', false);
+    // Of an item whose work has ended, the lines that work added and removed, at the right of its one row, each in its
+    // colour (`LINES_LOOKS`), as the item's window says them.
+    const ended = item.work === null ? item.endedLines : null;
+    if (ended != null) {
+      const removed = new BitmapText({
+        text: linesRemoved(ended.removed),
+        style: s.mono(token(LINES_LOOKS.removed, PALETTE.red)),
+      });
+      const added = new BitmapText({
+        text: linesAdded(ended.added),
+        style: s.mono(token(LINES_LOOKS.added, PALETTE.green)),
+      });
+      const gap = added.width / Math.max(1, added.text.length);
+      removed.position.set(right - removed.width, row1 - removed.height / 2);
+      added.position.set(right - removed.width - gap - added.width, row1 - added.height / 2);
+      view.addChild(added, removed);
+      right -= removed.width + gap + added.width + 8;
+    }
     // The title ends where the badges begin.
     fit(title, right - title.x);
     if (item.work === null || mood === null) return view;
     const w = item.work;
     const row2 = workRow(h);
-    // Where its time went, on a thin line: a model's, the tools', or idle in the colour of what the work waited for
-    // (`track.tsx`); nothing where the engine does not say. Each stretch says what it was on pointing at it.
-    const barW = BAR_W;
-    const barX = BAR_X;
-    const cells = [...w.bar];
-    const kind: Record<string, string> = {
-      m: PALETTE.model,
-      t: PALETTE.tools,
-      o: PALETTE.red,
-      p: PALETTE.muted,
-      w: PALETTE.idle,
-      '.': PALETTE.idle,
-    };
-    const cw = barW / Math.max(1, cells.length);
-    const track = new Graphics();
-    // Drawn as the track in the item's window is, a little lower: a rounded ground, and on it a rounded block for
-    // each stretch of one kind.
-    const trackH = 4;
-    if (cells.length > 0) {
-      track
-        .roundRect(barX, row2 - trackH / 2, barW, trackH, trackH / 2)
-        .fill({ color: PALETTE.track, alpha: PALETTE.trackAlpha });
-      for (let i = 0; i < cells.length; ) {
-        let j = i;
-        while (j < cells.length && cells[j] === cells[i]) j += 1;
-        track
-          .roundRect(barX + i * cw, row2 - trackH / 2, Math.max(2, (j - i) * cw), trackH, 2)
-          .fill(kind[cells[i]] ?? kind['.']);
-        i = j;
-      }
-    }
+    // Under the number, the level the work's cell runs at, in its look (`levelLook`), as the item's window writes it
+    // before its strip; a dash, muted, where the engine gives none.
+    const look = w.level === null ? null : levelLook(w.level, w.raise);
+    const colour = look === null ? PALETTE.muted : token(look.colour, PALETTE.ink);
+    const strong = look?.strong ?? false;
+    const level = new BitmapText({
+      text: w.level === null ? NO_LEVEL.shown : levelWords(w.level, w.raise),
+      style: s.mono(colour, strong),
+    });
+    level.position.set(x, row2 - level.height / 2);
+    view.addChild(level);
     // The second row: the work's strip, as the works page draws it, from under the title, so that the number stands
-    // alone in a column at the card's left, ending short of where its time went.
+    // alone in a column at the card's left, or from past the level where it is wider than that column; ending short of
+    // the lines the work changed.
     const at = here(w);
-    this.strip(view, item.id, k, w.cells, title.x, row2, barX - 8, at);
-    // Under the number, the name of the cell the work stands at, in the colour [`standingCell`] gives it, as the item's
-    // window names it before its strip. A name wider than the room under the number is cut.
-    const standing = standingCell(w);
-    if (standing !== null) {
-      const colour = token(standing.colour, PALETTE.muted);
-      const name = new BitmapText({ text: standing.cell, style: s.mono(colour) });
-      const room = title.x - x - 4;
-      while (name.text.length > 1 && name.width > room) name.text = name.text.slice(0, -1);
-      name.position.set(x, row2 - name.height / 2);
-      view.addChild(name);
-      const drawn = this.drawnStrips.get(item.id);
-      if (drawn !== undefined) drawn.name = { text: name.text, colour };
+    this.strip(view, item.id, k, w.cells, Math.max(title.x, x + level.width + 4), row2, LINES_X - 8, at);
+    const drawn = this.drawnStrips.get(item.id);
+    if (drawn !== undefined) drawn.level = { text: level.text, colour, strong };
+    // Past the strip, where the work changed lines, those it added and removed, `+210 −40`, each in its colour
+    // (`LINES_LOOKS`), a blank of the monospace apart, as the item's window says them.
+    if (w.lines !== null) {
+      const middle = row2;
+      const added = new BitmapText({
+        text: linesAdded(w.lines.added),
+        style: s.mono(token(LINES_LOOKS.added, PALETTE.green)),
+      });
+      const removed = new BitmapText({
+        text: linesRemoved(w.lines.removed),
+        style: s.mono(token(LINES_LOOKS.removed, PALETTE.red)),
+      });
+      added.position.set(LINES_X, middle - added.height / 2);
+      removed.position.set(LINES_X + added.width + added.width / added.text.length, middle - removed.height / 2);
+      view.addChild(added, removed);
     }
     // How long it has gone on, at the right, its colour by its age; the label is kept up as time passes.
     const label = new BitmapText({ text: '', style: s.mono(PALETTE.muted) });
-    view.addChild(track, label);
+    view.addChild(label);
     this.ages.set(k, { from: w.from, label, shown: '', row: row2 });
     this.age(k);
     return view;
@@ -1132,12 +1118,12 @@ export class SnapScene {
     view.addChild(still, running);
     if (more !== null) view.addChild(more);
     if (marks.some((m) => m.pulses)) this.pulses.set(k, running);
-    this.drawnStrips.set(id, { marks, more: cells.length - shown, end, name: null });
+    this.drawnStrips.set(id, { marks, more: cells.length - shown, end, level: null });
   }
 
   /// What the card of item `id` drew for its work's cells, for the tests: each mark, where it stands from the card's
-  /// left and its middle, its measures and colours, and whether it pulses; how many cells did not fit; and where the
-  /// room for the strip ends. None for an item whose card has no work.
+  /// left and its middle, its measures and colours, and whether it pulses; how many cells did not fit; where the room
+  /// for the strip ends; and the level under the number. None for an item whose card has no work.
   drawnStrip(id: number): DrawnStrip | null {
     return this.drawnStrips.get(id) ?? null;
   }
@@ -1501,23 +1487,6 @@ export class SnapScene {
     return Math.abs(p.y - y(d, rank)) <= h ? t.columns[d][rank] : -1;
   }
 
-  /// What the stretch of the bar under the pointer was, where the pointer is on the bar of the card under it: the kind
-  /// of the character of the engine's bar at that place, in the words of the item window's track; nothing elsewhere.
-  private trackTip(t: Tree, x: (d: number) => number, y: (d: number, rank: number) => number): string {
-    const p = this.pointer;
-    const i = this.under;
-    if (p === null || i < 0) return '';
-    const work = this.shownItems[i].work;
-    if (work === null || work.bar === '') return '';
-    const d = t.depth[i];
-    const dx = p.x - x(d) - BAR_X;
-    const dy = p.y - y(d, t.rank[i]) - workRow(high(this.rows[i]));
-    if (dx < 0 || dx > BAR_W || Math.abs(dy) > BAR_REACH) return '';
-    const cells = [...work.bar];
-    const kind = BAR_KINDS[cells[Math.min(cells.length - 1, Math.floor((dx / BAR_W) * cells.length))]];
-    return kind === undefined ? '' : TRACK_WORDS[kind];
-  }
-
   private drag = (e: PointerEvent) => {
     if (this.dragging === null) return;
     this.leftGoal = null;
@@ -1700,10 +1669,6 @@ export class SnapScene {
       return set;
     };
     this.under = this.pointed(t, x, y);
-    // On pointing at where an item's work's time went, what the stretch under the pointer was, in the words of the
-    // track in the item's window, as every mark says what it is.
-    const tip = this.trackTip(t, x, y);
-    if (this.app.canvas.title !== tip) this.app.canvas.title = tip;
     const chain = lit(this.under);
     // The item selected, the same way, in the accent; only the item itself glows, those lit with it are only ringed,
     // so that it stands out among them.

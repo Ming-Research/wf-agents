@@ -3,7 +3,11 @@
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::{START, get_json, greeted, post, post_text, running};
+use flow::Source;
+use service::Scripted;
+use store::Store;
+
+use crate::{START, get_json, greeted, pass, post, post_text, running, running_flow, trial_flow, trial_script};
 
 #[tokio::test(start_paused = true)]
 async fn the_items_are_given_each_with_its_work_in_brief() {
@@ -240,4 +244,103 @@ async fn an_item_that_cannot_be_added_is_refused_with_why() {
         get_json(router, "/api/v1/items").await,
         json!({ "items": [], "outage": null })
     );
+}
+
+/// The summary of the first item's work in the list of items once this holds of it, the paused clock let on a quarter
+/// of a second at a time; it fails where it does not hold within a minute.
+async fn listed_until(router: &axum::Router, holds: impl Fn(&Value) -> bool) -> Value {
+    for _ in 0..240 {
+        let summary = get_json(router, "/api/v1/items").await["items"][0]["work"].clone();
+        if holds(&summary) {
+            return summary;
+        }
+        pass(250).await;
+    }
+    panic!("the work did not come to it within a minute");
+}
+
+/// The trial flow with the reviewer's line one level up, its merge's act taking four seconds so that a work is seen
+/// standing at it, an item at this level added and let on.
+async fn raised_at(level: &str) -> crate::Running {
+    let trial = trial_flow();
+    let raised = trial
+        .flow
+        .replacen("[lines.reviewer]\n", "[lines.reviewer]\nlevels_above = 1\n", 1);
+    assert_ne!(raised, trial.flow, "the trial flow has the reviewer's line");
+    let source = Source { flow: raised, ..trial };
+    let mut script = trial_script();
+    let rounds = &mut script.flows.get_mut("trial").unwrap().rounds;
+    rounds.iter_mut().find(|r| r.cell == "merge").unwrap().took.ms = Some(4000);
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let running = running_flow(Box::new(store), dir, Scripted::new(script).carriers(), &source);
+    let router = &running.router;
+    let item = json!({
+        "title": "Greet the user",
+        "level": level,
+        "dependsOn": [],
+        "project": "trial",
+        "flow": "trial",
+        "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
+    });
+    assert_eq!(post(router, "/api/v1/items", &item).await.0, StatusCode::OK);
+    let resumed = post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" })).await;
+    assert_eq!(resumed, (StatusCode::NO_CONTENT, Value::Null));
+    running
+}
+
+/// A summary's level, the level of the cell it stands at, and how far that cell's line raises it.
+fn levels(s: &Value) -> (Value, Value, Value) {
+    (s["level"].clone(), s["cellLevel"].clone(), s["raise"].clone())
+}
+
+/// Whether the summary stands at the cell.
+fn at(s: &Value, cell: &str) -> bool {
+    s["now"]["cell"] == cell || s["now"]["at"] == cell
+}
+
+/// The plan's question, which waits for the owner at the plan, answered.
+async fn answered(router: &axum::Router) -> Value {
+    let asked = listed_until(router, |s| s["waits"].as_array().is_some_and(|w| !w.is_empty())).await;
+    assert!(at(&asked, "plan"), "{asked}");
+    let answer = json!({ "kind": "result", "call": 2, "result": "Yes." });
+    assert_eq!(
+        post(router, "/api/v1/works/1/acts", &answer).await.0,
+        StatusCode::NO_CONTENT
+    );
+    asked
+}
+
+// A work's summary gives the level its rounds run at, its item's, the level of the cell it stands at, which its line
+// raises above the item's, by the engine's one rule, and how far the line raises it: here a reviewer's line one level
+// up, an item at level 1. An engine cell's act runs on no level, and a work that ended stands at no cell.
+#[tokio::test(start_paused = true)]
+async fn a_works_summary_gives_its_level_and_that_of_the_cell_it_stands_at() {
+    let running = raised_at("1").await;
+    let router = &running.router;
+    // The plan's line runs at the item's level.
+    let asked = answered(router).await;
+    assert_eq!(levels(&asked), (json!("1"), json!("1"), json!(0)));
+    let reviewed = listed_until(router, |s| at(s, "review")).await;
+    assert_eq!(levels(&reviewed), (json!("1"), json!("2"), json!(1)), "{reviewed}");
+    let merging = listed_until(router, |s| at(s, "merge")).await;
+    assert_eq!(levels(&merging), (json!("1"), Value::Null, Value::Null), "{merging}");
+    let merged = listed_until(router, |s| s["now"]["kind"] == "merged").await;
+    assert_eq!(levels(&merged), (json!("1"), Value::Null, Value::Null));
+    // A work's page gives the same summary.
+    let page = get_json(router, "/api/v1/works/1").await;
+    assert_eq!(levels(&page["summary"]), (json!("1"), Value::Null, Value::Null));
+}
+
+// A cell its line raises above the highest level an item may be at runs at that highest level, and its summary still
+// says how far its line raises it, so that it is told from a cell its line does not raise: an item at level 2, the
+// highest here, stands at the review at level 2, raised one level.
+#[tokio::test(start_paused = true)]
+async fn a_cell_held_at_the_highest_level_is_still_said_to_be_raised_by_its_line() {
+    let running = raised_at("2").await;
+    let router = &running.router;
+    let asked = answered(router).await;
+    assert_eq!(levels(&asked), (json!("2"), json!("2"), json!(0)));
+    let reviewed = listed_until(router, |s| at(s, "review")).await;
+    assert_eq!(levels(&reviewed), (json!("2"), json!("2"), json!(1)), "{reviewed}");
 }

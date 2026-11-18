@@ -1,9 +1,11 @@
 // What the window beside the console shows of an item beyond what the interface gives: its body (a section for each
-// datum its flow's card names, with the choices that wait for the owner where they stand in it, and the questions a
-// cell asked while working at the end of the last), and the messages under it, the owner's and the replies. Pure, so
-// that the window draws made-up items as it will draw real ones.
+// datum its flow's card names, with the choices that wait for the owner where they stand in it), the messages under
+// it, the owner's and the replies, and where the questions put to the owner stand among them. Pure, so that the window
+// draws made-up items as it will draw real ones.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/window.ts`).
+
+import { pointersIn } from './markdown';
 
 /// Who writes a message, or is named in one to receive it, besides a cell or a line of the flow.
 export type Who = 'owner' | 'architect' | 'assistant';
@@ -68,4 +70,17 @@ export const messagesAbout = (messages: Message[], c: Choice): number[] =>
 export function picks(b: Body): { picked: number; all: number } {
   const choices = (b.sections.at(-1)?.parts ?? []).filter((p) => p.kind === 'choice');
   return { picked: choices.filter((p) => p.chosen !== null).length, all: choices.length };
+}
+
+/// A text of the window that may hold a question it points to: by a key of where it stands, and what it says.
+export type Pointing = { key: string; text: string };
+
+/// Where each question that a text points to is drawn: at the first pointer to it, the texts read in the order given;
+/// by the question's name, the key of the text that holds it. A pointer to none of `names` holds nothing.
+export function heldAt(texts: Pointing[], names: ReadonlySet<string>): Map<string, string> {
+  const at = new Map<string, string>();
+  for (const t of texts) {
+    for (const name of pointersIn(t.text)) if (names.has(name) && !at.has(name)) at.set(name, t.key);
+  }
+  return at;
 }

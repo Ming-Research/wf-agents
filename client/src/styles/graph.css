@@ -365,30 +365,7 @@ button.graph-node:hover {
   font-size: var(--size-label);
 }
 
-/* The legend's samples of the flowchart's lines, and the switch of the arrows a write runs before it. */
-.legend-arrow {
-  display: inline-block;
-  width: var(--space-12);
-  height: var(--chart-line);
-  background: var(--chart-data);
-}
-
-.legend-arrow.main {
-  height: var(--chart-main);
-  background: var(--text);
-}
-
-.legend-arrow.back {
-  height: var(--chart-back);
-  background: var(--accent);
-}
-
-.legend-arrow.outside {
-  height: 0;
-  border-top: var(--chart-line) dashed var(--chart-data);
-  background: none;
-}
-
+/* The switch of the arrows a write runs, in the view's line. */
 .view-toggle {
   display: inline-flex;
   align-items: center;
@@ -402,19 +379,6 @@ button.graph-node:hover {
   margin: 0;
   accent-color: var(--accent);
   cursor: pointer;
-}
-
-.legend-node {
-  display: inline-block;
-  width: var(--space-12);
-  height: var(--space-8);
-  border: var(--hairline) solid var(--line);
-  border-radius: var(--corner);
-  background: var(--card);
-}
-
-.legend-node.lit {
-  border-color: var(--accent);
 }
 
 /* The flowchart's place in the flow view, beside the panel. */

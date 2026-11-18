@@ -1,7 +1,7 @@
-/* The console: the canvas of the tree, and over its right the window with the item selected. Brought over from the
-   console of the engine on `old-main` (`client/src/styles/console.css`), its Primer values the page's tokens or, where
-   the page has none, Primer's values as they were. Every value is a token (styles/tokens.css), but for the console's
-   own colours named below. */
+/* The console: the canvas of the tree, and over its right the window with the item selected, which a work's page shows
+   too. Brought over from the console of the engine on `old-main` (`client/src/styles/console.css`), its Primer values
+   the page's tokens or, where the page has none, Primer's values as they were. Every value is a token
+   (styles/tokens.css), but for the console's own colours named below. */
 
 .console {
   /* A work waiting for something that is not the owner: the console's pale yellow, which asks nothing of them. It has
@@ -10,8 +10,6 @@
   /* What is new to the owner: the page's accent's tint as a wash behind a strip; the canvas draws it so too. The window
      (its tab, its edge, its shadow) is the page's part (`.cw`, styles/parts.css). */
   --console-accent-wash: var(--accent-tint);
-  /* The head of a section of the item's window, its name and the line after it: the page's (styles/tokens.css). */
-  --console-head: var(--head);
 
   position: relative;
   display: flex;
@@ -36,10 +34,22 @@
   display: block;
 }
 
-.console-message {
+/* Over the tree's top left corner, under the map of the tree the canvas draws there (12px in, 72px high: `MAP_INSET`
+   and `MAP_HIGH` in snap.ts): the switch of which items the tree shows, and under it what went wrong reading or
+   drawing the items. */
+.console-over {
   position: absolute;
-  top: var(--space-16);
-  left: var(--space-16);
+  top: calc(var(--space-12) + 72px + var(--space-8));
+  left: var(--space-12);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-8);
+}
+
+.console-message {
+  margin: 0;
   color: var(--red-text);
 }
 
@@ -60,7 +70,8 @@
   padding: var(--space-16);
 }
 
-/* The title, which brings the item into view in the tree: a title still, underlined under the pointer. */
+/* The title, which brings the item into view in the tree, or on a work's page leads to it in the console: a title
+   still, underlined under the pointer. */
 .cw-title-link {
   padding: 0;
   border: 0;
@@ -68,6 +79,7 @@
   color: inherit;
   font: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 
@@ -83,8 +95,13 @@
   margin-left: auto;
 }
 
-/* The name of the cell the work stands at, just before its strip. */
-.cw-standing {
+/* The lines the work changed, at the right end of its line. */
+.cw-lines {
+  margin-left: auto;
+}
+
+/* The level the work's cell runs at, just before its strip. */
+.cw-level {
   display: inline-flex;
   align-items: center;
   gap: var(--space-4);
@@ -107,7 +124,7 @@
   font-size: var(--size-small);
 }
 
-/* The page's switch between the item and its work, over what it shows. */
+/* The window's tabs, over what it shows. */
 .cw-tabs {
   margin-bottom: var(--space-12);
 }
@@ -133,14 +150,60 @@
   border-left-color: var(--accent);
 }
 
-/* A text written in Markdown: its paragraphs and its code (`.content`) a small step apart. */
-.cw-md > p,
-.cw-md > .content {
+/* A text written in Markdown, drawn with the page's own parts: its blocks a small step apart, in an item of a list and
+   in a quote as in the text itself; a heading of any level small, semibold in the body's size, a step further from
+   what stands over it (principle an-agents-heading-is-small); every list numbered; a quote as a passage quoted is
+   anywhere in the window (`.cw-quote`); a rule a hairline; a table the page's (`.table`), as wide as the text, its
+   cells wrapping; a picture no wider than the text. */
+.cw-md :is(p, .content, ol, blockquote, hr, table) {
   margin: 0 0 var(--space-8);
 }
 
-.cw-md > :last-child {
+.cw-md .cw-md-head {
+  margin: var(--space-12) 0 var(--space-4);
+  font-weight: var(--weight-strong);
+}
+
+.cw-md .cw-md-head:first-child {
+  margin-top: 0;
+}
+
+.cw-md > :last-child,
+.cw-md li > :last-child,
+.cw-md blockquote > :last-child {
   margin-bottom: 0;
+}
+
+.cw-md ol {
+  padding-left: calc(var(--space-16) + var(--space-8));
+  list-style: decimal;
+}
+
+.cw-md li + li {
+  margin-top: var(--space-4);
+}
+
+.cw-md hr {
+  border: 0;
+  border-top: var(--hairline) solid var(--line);
+}
+
+.cw-md .cw-md-table {
+  width: 100%;
+}
+
+.cw-md-table th,
+.cw-md-table td {
+  overflow-wrap: anywhere;
+}
+
+.cw-md img {
+  max-width: 100%;
+  height: auto;
+}
+
+.cw-md strong {
+  font-weight: var(--weight-strong);
 }
 
 .cw-md code {
@@ -148,8 +211,67 @@
   font-size: var(--size-small);
 }
 
-/* A choice that waits for the owner: a frame in the accent on its tint; once confirmed, a hairline on the ground. Its
-   options are buttons: the one picked ringed in the accent, the one under the pointer on the accent's tint. */
+/* A change of files (diff.tsx): in the look of code (`.content`), the text it changes as it reads after the change,
+   each passage removed struck through in red on the red tint and each passage added on the green tint, so that the
+   colour of its words stays their kind's; what the diff says of a file beside its lines, and its path where it changes
+   several, muted; the parts of a file, and the files, a hairline apart. */
+.cw-removed {
+  background: var(--red-tint);
+  text-decoration: line-through var(--red-text);
+}
+
+.cw-added {
+  background: var(--green-tint);
+  text-decoration: none;
+}
+
+/* The words of code by their kind (code.ts). */
+.code-keyword {
+  color: var(--code-keyword);
+}
+
+.code-literal {
+  color: var(--code-literal);
+}
+
+.code-comment {
+  color: var(--muted);
+}
+
+.cw-diff-file {
+  color: var(--muted);
+}
+
+/* A line of a part of a file: its number in the file after the change, muted, in a column of its own that copying
+   leaves out, and its text, which wraps under itself. */
+.cw-diff-line {
+  display: flex;
+}
+
+.cw-diff-number {
+  flex: none;
+  width: 5ch;
+  padding-right: 1ch;
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+}
+
+.cw-diff-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+}
+
+.cw-diff-apart {
+  margin-top: var(--space-8);
+  padding-top: var(--space-8);
+  border-top: var(--hairline) solid var(--line);
+}
+
+/* A choice that waits for the owner: a frame in the accent on its tint; once confirmed, settled, a hairline on the
+   ground. While it waits its options are buttons: the one picked ringed in the accent, the one under the pointer on the
+   accent's tint. */
 .cw-choice {
   margin: var(--space-8) 0;
   padding: var(--space-12);
@@ -278,17 +400,68 @@
   font-size: var(--size-small);
 }
 
+/* The options of a question answered, settled: no frame, no radio mark and nothing under the pointer, each its words
+   alone, muted; the one taken in the text's colour and semibold, marked at its left by a tick, as wide as a radio mark,
+   in the green of what the owner did, taken. */
+.cw-settled {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  color: var(--muted);
+}
+
+.cw-settled + .cw-settled {
+  margin-top: var(--space-4);
+}
+
+.cw-settled .cw-option-label {
+  font-weight: var(--weight);
+}
+
+.cw-settled-taken {
+  color: var(--text);
+}
+
+.cw-settled-taken .cw-option-label {
+  font-weight: var(--weight-strong);
+}
+
+.cw-tick {
+  flex: none;
+  width: var(--space-12);
+  height: var(--space-12);
+  margin-top: var(--space-2);
+  color: var(--green);
+}
+
 /* The option recommended: the page's tag, muted, since it is no state. */
 .cw-tag {
   background: var(--muted);
   font-weight: var(--weight);
 }
 
-/* The words of a question and of its options can be selected, to copy or to quote: a browser selects no words of a
-   button otherwise. */
+/* The words of a question and of its options, a pointer to a question in a text, and the path of a file the work
+   changed, which opens its diff, can be selected, to copy or to quote: a browser selects no words of a button
+   otherwise. */
 .cw-choice-q,
-.cw-option {
+.cw-option,
+.cw-pointer,
+.cw-file {
   user-select: text;
+}
+
+/* The path of a file the work changed: in the text's colour, a button with nothing of one but the pointer, wrapping
+   anywhere, as a long path has no blank to wrap at. */
+.cw-file {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
 }
 
 /* Under a choice's options: how many messages are about it, a muted link at the left, and Discuss at the right. */
@@ -422,7 +595,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--console-head);
+  color: var(--head);
   font-size: var(--size-body);
   font-weight: var(--weight-strong);
   text-align: left;
@@ -438,7 +611,7 @@
   content: '';
   flex: 1;
   height: var(--hairline);
-  background: var(--console-head);
+  background: var(--head);
 }
 
 .cw-fold-sign {
@@ -448,4 +621,17 @@
 .cw-fold-count {
   color: var(--muted);
   font-weight: var(--weight);
+}
+
+/* The boxes that tick which kinds of item the tree shows, one under another in the frame a switch has (`.switch`), on
+   the page's ground, so that the cards under them do not show through. */
+.console-shows {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--space-4) var(--space-8);
+  gap: var(--space-4);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: var(--ground);
 }

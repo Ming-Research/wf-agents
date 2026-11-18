@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Now, Round, Summary, Wait, Waited } from '../works-api';
+import type { Now, RanOn, Round, Summary, Wait, Waited } from '../works-api';
 import {
-  RUN_WORDS,
   STATE,
   callState,
   causeWords,
@@ -15,12 +14,12 @@ import {
   nowTone,
   nowWords,
   outageWords,
-  pauseWords,
   plain,
-  runState,
+  ranLast,
+  runTook,
   sentence,
-  standingCell,
   stateOf,
+  stateWords,
   stoppedAt,
   tokens,
   unmetWords,
@@ -121,37 +120,6 @@ describe('what a work does now, in words', () => {
     expect(stoppedAt(doing({ kind: 'next', cell: 'plan' }))).toBeNull();
   });
 
-  it("names the cell a work stands at in the stop's red, the running mark's colour or grey, or none", () => {
-    expect(standingCell(doing({ kind: 'paused', at: 'plan', by: 'engine', why: 'x' }, [limit]))).toEqual({
-      cell: 'plan',
-      colour: '--red-text',
-    });
-    expect(standingCell(doing({ kind: 'waits', at: 'merge', on: [precondition] }, [limit]))).toEqual({
-      cell: 'merge',
-      colour: '--red-text',
-    });
-    const running = { cell: 'plan', state: 'running' as const, finished: 0, record: null, open: 3 };
-    expect(standingCell({ now: { kind: 'next', cell: 'plan' }, cells: [running], waits: [] })).toEqual({
-      cell: 'plan',
-      colour: '--running-text',
-    });
-    const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } };
-    const call = { cell: 'M1', state: 'calling' as const, finished: 0, record: null, open: 1 };
-    expect(standingCell({ now: { kind: 'waits', at: 'M1', on: [tool] }, cells: [call], waits: [] })).toEqual({
-      cell: 'M1',
-      colour: '--yellow-text',
-    });
-    expect(standingCell(doing({ kind: 'waits', at: 'plan', on: [precondition] }))).toEqual({
-      cell: 'plan',
-      colour: '--muted',
-    });
-    expect(standingCell(doing({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toEqual({
-      cell: 'plan',
-      colour: '--muted',
-    });
-    expect(standingCell(doing({ kind: 'fault', words: 'x' }))).toBeNull();
-  });
-
   it('says the state word of the catalogue, and the cell only where the state names one', () => {
     expect(stateOf(doing({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toEqual({
       tone: 'quiet',
@@ -170,10 +138,17 @@ describe('what a work does now, in words', () => {
       word: 'Waiting for the architect',
       cell: 'plan',
     });
-    // A call the engine carries out for a cell is running: the cell's yellow says it is a call.
+    // A work that waits for the calls of tools the engine carries out is neither running nor done: it waits for each
+    // tool by its name, where it runs, in the yellow of a call (decision a-call-waited-for-is-no-run).
     const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } };
     const calling = { now: { kind: 'waits', at: 'M1', on: [tool] } as Now, cells: [{ cell: 'M1', state: 'calling' as const, finished: 0, record: null, open: 1 }], waits: [] };
-    expect(stateOf(calling)).toEqual({ tone: 'running', word: STATE.running, cell: 'M1' });
+    expect(stateOf(calling)).toEqual({ tone: 'calling', word: 'Waiting for ci by the engine', cell: 'M1' });
+    // An act of the engine's own under way is a round, and runs.
+    expect(stateOf({ ...calling, now: { kind: 'round', cell: 'M1', run: 3, round: 1, since: 0 } })).toEqual({
+      tone: 'running',
+      word: STATE.running,
+      cell: 'M1',
+    });
     expect(stateOf(doing({ kind: 'waits', at: 'merge', on: [precondition] }, [limit]))).toEqual({
       tone: 'owner',
       word: STATE.owner,
@@ -227,8 +202,29 @@ describe('what a work does now, in words', () => {
     expect(nowTone(doing({ kind: 'stalled', at: 'M2', on: [], by: [], why: 'x' }))).toBe('failed');
     expect(nowTone(doing({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toBe('quiet');
     expect(nowTone(doing({ kind: 'everything', at: 'plan', by: 'owner' }))).toBe('quiet');
-    expect(pauseWords('engine', 'The agent could not start.')).toBe('The engine paused the work. The agent could not start.');
-    expect(pauseWords('owner', null)).toBe('The owner paused the work.');
+  });
+
+  it('says a work that waits for the calls of tools by each tool and where it runs, and how long it has waited, the same wherever its state is said', () => {
+    const made = Date.UTC(2026, 10, 9, 14, 2);
+    const ci: Waited = {
+      kind: 'call',
+      call: 7,
+      who: null,
+      what: { kind: 'tool', name: 'run_tests', input: '' },
+      made,
+      at: 'https://github.com/o/r/actions/runs/1',
+    };
+    const engine: Waited = { kind: 'call', call: 8, who: null, what: { kind: 'tool', name: 'push', input: '' } };
+    const work = doing({ kind: 'waits', at: 'I1', on: [ci] });
+    expect(nowTone(work)).toBe('calling');
+    expect(stateWords(work, made + 252_000)).toBe('Waiting for run_tests in CI · 4m 12s · I1');
+    // The calls are said by the state's words alone, never again as what it waits for.
+    expect(nowWords(work, made + 252_000)).toBe('Waiting for run_tests in CI · 4m 12s · I1');
+    // A call the engine does not say when it made has no time waited, and one it runs itself is said so.
+    expect(stateWords(doing({ kind: 'waits', at: 'I1', on: [engine] }))).toBe('Waiting for push by the engine · I1');
+    expect(stateOf(doing({ kind: 'waits', at: 'I1', on: [ci, engine] })).word).toBe(
+      'Waiting for run_tests in CI and push by the engine',
+    );
   });
 
   it('says the one count one way', () => {
@@ -258,31 +254,39 @@ describe('what a work does now, in words', () => {
   });
 });
 
-describe('how a run stands', () => {
-  const round = (ended: number | null, back: Round['back']): Round => ({
+describe("a run in the last column of a work's history", () => {
+  const round = (tries: RanOn[]): Round => ({
     number: 1,
     began: 0,
-    ended,
+    ended: 10,
     given: { kind: 'task' },
-    back,
+    back: null,
     spent: null,
     context: null,
     compactions: 0,
     session: null,
-    tries: [],
+    tries: tries.map((ran) => ({ attempt: 1, filled: [], ran })),
     missed: null,
     estimated: false,
     judged: { cost: null, time: null },
   });
+  const sonnet: RanOn = { level: '2', model: 'claude-sonnet-5-5', effort: 'high' };
+  const opus: RanOn = { level: '3', model: 'claude-opus-5-5', effort: null };
 
-  it('says a run whose last round failed failed, neither under way nor at rest, and open', () => {
-    const failed = round(10, { kind: 'failed', why: 'The agent could not start.', failure: 'other', resets: null });
-    expect(runState({ end: null, rounds: [failed] })).toBe('failed');
-    expect(RUN_WORDS.failed).toBe('round failed');
-    expect(isOpen('failed')).toBe(true);
-    // Given again once the work is let on, the round is under way.
-    expect(runState({ end: null, rounds: [failed, round(null, null)] })).toBe('running');
-    expect(runState({ end: null, rounds: [round(10, { kind: 'asked', asks: [] })] })).toBe('resting');
+  it('says how long a run took to its end, and an open one until now', () => {
+    const end = { kind: 'finished' as const, at: 9, time: 70_000, writes: [] };
+    expect(runTook({ time: 10_000, end }, 999_999)).toBe(60_000);
+    expect(runTook({ time: 10_000, end: null }, 25_000)).toBe(15_000);
+    expect(isOpen({ end: null })).toBe(true);
+    expect(isOpen({ end })).toBe(false);
+  });
+
+  it("says what a run ran on by its latest round's last try that kept it, and nothing of a run no round of which kept it", () => {
+    expect(ranLast({ rounds: [round([sonnet]), round([sonnet, opus])] })).toEqual(opus);
+    // A round whose records keep no try, as an act of the engine's own, is passed over for the round before it.
+    expect(ranLast({ rounds: [round([sonnet]), round([])] })).toEqual(sonnet);
+    expect(ranLast({ rounds: [round([])] })).toBeNull();
+    expect(ranLast({ rounds: [] })).toBeNull();
   });
 });
 
@@ -382,11 +386,6 @@ describe('reasons said one after another', () => {
     expect(sentence('先做这个。')).toBe('先做这个。');
     expect(sentence('快！')).toBe('快！');
     expect(plain('`merge` requires `verdict = yes`.')).toBe('merge requires verdict = yes.');
-  });
-
-  it("say the history's pause of the engine's with its reason as a sentence of its own", () => {
-    expect(pauseWords('engine', 'The agent could not start')).toBe('The engine paused the work. The agent could not start.');
-    expect(pauseWords('engine', null)).toBe('The engine paused the work. It gave no reason.');
   });
 
   it('count what waits for the owner after its number, one way', () => {

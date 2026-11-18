@@ -56,4 +56,6 @@ none = "This cell writes no block."
 choice = ", a choice, one of {values}"
 shown = " (the owner reads it)"
 must_write = " (hand it in every time)"
-owner_reads = "Write what the owner reads in `owner.language`, with technical terms in their English original."
+owner_reads = '''
+Write what the owner reads in `owner.language`, with technical terms in their English original. Where a diagram says
+it more plainly than words, draw it in a small ```mermaid or ```dot fence, and do not say it again in words.'''

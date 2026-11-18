@@ -13,7 +13,7 @@ use flow::{Compiled, Kind};
 use crate::asked;
 use crate::event::{Effect, Event, Gate, Refused};
 use crate::spoken;
-use work::{Ask, Back, Call, Filled, Given, Measured, Moment, Pinged, Ran, Session, Time, Work};
+use work::{Ask, Back, Call, Filled, Given, Measured, Moment, Pinged, Pulled, Ran, Session, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
 /// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`], [`Gate::Open`]). Where the
@@ -546,6 +546,14 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                     why: work::Why::Compacted,
                 });
             }
+        }
+        Event::Pulled { number, url } => {
+            // Found again at each check, the same pull request is kept once.
+            if (work.pulls.last()).is_some_and(|last| last.number == number && last.url == url) {
+                return Ok(());
+            }
+            let at = work.tick();
+            work.pulls.push(Pulled { at, number, url });
         }
         Event::NotReleased { why } => {
             // The engine's pause of the ended work, with why: the owner sees it where the engine's other reasons are,

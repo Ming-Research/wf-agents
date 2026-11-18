@@ -1,20 +1,20 @@
 // The works page's words for what the interface gives as data: what a work does now, what it waits for, why a run
-// ran, why a return was sent back, what a call is, who wrote a version, and what was taken. Each is worded here once,
-// and every part of the page that shows one takes its words from here.
+// ran, why a return was sent back, what a call is, who wrote a version, and what was taken; and the pieces a line of
+// words is made of. Each is worded here once, and every part of the page that shows one takes its words from here; the
+// names of the marks are the table's (`marks.tsx`).
 
 import type {
   Ask,
   Call,
   CallRow,
   Cause,
-  CellState,
   Failure,
   Given,
   Limit,
   Maker,
   Outage,
-  Pauser,
   Person,
+  RanOn,
   Run,
   SessionWhy,
   Spent,
@@ -23,7 +23,16 @@ import type {
   Waited,
   Writer,
 } from '../works-api';
+import type { OrderBy, Way } from './placing';
 import { waitsOf } from './waiting';
+
+/// A piece of a line of words: the page's own words, a name or a value as the files write it, drawn in monospace, or a
+/// link out of the page, by its words.
+export type Part = string | { name: string } | { link: string; href: string };
+
+/// A line of pieces as one text, for the pointer's tip.
+export const partsText = (parts: Part[]): string =>
+  parts.map((p) => (typeof p === 'string' ? p : 'name' in p ? p.name : p.link)).join('');
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -44,7 +53,8 @@ export function fullTime(ms: number): string {
   return `${d.getFullYear()}-${clock(ms)}:${two(d.getSeconds())}`;
 }
 
-/// The day of a time, `11-09`, and its minute, `14:02`, apart: the history's rows give the day only where it changes.
+/// The day of a time, `11-09`, and its minute, `14:02`, apart: a check's time gives the day only where it is not the day
+/// the wait began.
 export function dayOf(ms: number): string {
   return clock(ms).slice(0, 5);
 }
@@ -79,6 +89,10 @@ export function tokens(n: number): string {
 export function count(n: number): string {
   return n.toLocaleString('en');
 }
+
+/// Lines added and removed, as a diff counts them: `+210`, `−40`.
+export const linesAdded = (n: number): string => `+${count(n)}`;
+export const linesRemoved = (n: number): string => `−${count(n)}`;
 
 /// What share of a whole a part is, in whole percent: `89%`; a dash where the whole is nothing.
 export function share(part: number, whole: number): string {
@@ -349,6 +363,13 @@ export const WRITE_WORDS = {
   writes: (block: string, value: string): string => `Write ${block} = ${value}`,
 } as const;
 
+/// What a pointer to a question does, said on pointing at it: the pointer stands in a text, and the question's card
+/// elsewhere in the item's window.
+export const SHOW_QUESTION = 'Show the question this points to';
+
+/// The mark on the option the owner took in a question answered, said on pointing at it.
+export const TAKEN = 'The option you took';
+
 /// Why what the owner pressed to act on the engine as a whole was not sent: the page was drawn with no engine to send
 /// it to.
 export const NO_ENGINE = 'The page has no engine to send it to';
@@ -396,8 +417,60 @@ function whoGives(w: Waited): string | null {
   }
 }
 
-/// The tone a work's state takes: red for a work that waits for the owner and for one halted, a stop either way.
-export type Tone = 'running' | 'owner' | 'failed' | 'quiet' | 'done';
+/// The tone a work's state takes: red for a work that waits for the owner and for one halted, a stop either way; the
+/// yellow of a call for one that waits for the calls of tools the engine carries out.
+export type Tone = 'running' | 'calling' | 'owner' | 'failed' | 'quiet' | 'done';
+
+/// A call of a tool a work waits for the result of, which the engine carries out: the tool, by its name; the link of
+/// the CI run it runs as, where the engine gives one; and when it was made, none where the engine does not say.
+export interface CallWaited {
+  tool: string;
+  ci: string | null;
+  made: number | null;
+}
+
+/// The calls of tools a work waits at its cell for the results of, which the engine carries out, in the order it waits
+/// for them; none where it waits for none. Its cell is then the one the engine marks as carrying out a call
+/// (`calling`).
+export function callsWaited(s: Pick<Summary, 'now'>): CallWaited[] {
+  const now = s.now;
+  if (now.kind !== 'waits') return [];
+  return now.on.flatMap((w) =>
+    engineToolCall(w) ? [{ tool: w.what.name, ci: w.at ?? null, made: w.made ? w.made : null }] : [],
+  );
+}
+
+/// Whether a wait is for the result of a tool's call the engine carries out.
+const engineToolCall = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { what: { kind: 'tool' } } =>
+  w.kind === 'call' && w.who === null && w.what.kind === 'tool';
+
+/// What a work that waits for calls of tools waits for, the word of its state, in pieces: each tool by its name, and
+/// where it runs: in CI, a link to its run, where the engine gives the run's link, else by the engine. `Waiting for
+/// run_tests in CI`.
+export function callWaitParts(calls: CallWaited[]): Part[] {
+  return [
+    'Waiting for ',
+    ...calls.flatMap((c, i): Part[] => [
+      ...(i === 0 ? [] : [' and ']),
+      { name: c.tool },
+      ...(c.ci !== null ? [' in ', { link: 'CI', href: c.ci }] : [' by the engine']),
+    ]),
+  ];
+}
+
+/// How long a work has waited for the calls of tools it waits for, from the earliest made, at `time`; none where it
+/// waits for none, or the engine does not say when they were made.
+export function callsTook(calls: CallWaited[], time: number): string | null {
+  const made = calls.flatMap((c) => (c.made === null ? [] : [c.made]));
+  return made.length === 0 ? null : duration(time - Math.min(...made));
+}
+
+/// The word of a work's state in pieces, as a line that can hold a link draws it: the calls of tools it waits for
+/// with where they run (`callWaitParts`), else the word alone.
+export function stateParts(s: Pick<Summary, 'now' | 'cells' | 'waits'>): Part[] {
+  const state = stateOf(s);
+  return state.tone === 'calling' ? callWaitParts(callsWaited(s)) : [state.word];
+}
 
 /// What a work's state line says: the tone of its dot, the word of its state from the catalogue, and the cell it
 /// stands at where the engine's state names one.
@@ -408,9 +481,10 @@ export interface WorkState {
 }
 
 /// The state of a work. Whatever the engine's list of what waits on the owner holds waits for you; a fault and a stalled
-/// work are halted; the owner's own pause, and the owner's pause of everything, are a pause; a round under way, and a
-/// call or an act the engine carries out for a cell, which the cell's yellow says, are running; anything else waits for
-/// whoever gives it.
+/// work are halted; the owner's own pause, and the owner's pause of everything, are a pause; a round under way, an act
+/// of the engine's own among them, is running; the calls of tools the engine carries out for a cell are waited for,
+/// each by its tool and where it runs, in the yellow of a call, and are neither running nor done; anything else waits
+/// for whoever gives it.
 export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState {
   const now = s.now;
   const at =
@@ -425,8 +499,8 @@ export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState 
     case 'next':
       return { tone: 'running', word: STATE.running, cell: at };
     case 'waits': {
-      if (s.cells.some((c) => c.cell === now.at && c.state === 'calling'))
-        return { tone: 'running', word: STATE.running, cell: at };
+      const calls = callsWaited(s);
+      if (calls.length > 0) return { tone: 'calling', word: partsText(callWaitParts(calls)), cell: at };
       if (now.on.length > 0 && now.on.every((w) => w.kind === 'items')) return { tone: 'quiet', word: STATE.items, cell: at };
       const who = [...new Set(now.on.flatMap((w) => whoGives(w) ?? []))];
       return { tone: 'quiet', word: who.length > 0 ? waitingFor(who.join(' and ')) : STATE.waiting, cell: at };
@@ -445,9 +519,9 @@ export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState 
   }
 }
 
-/// The cell a work is stopped at, for the owner or by the engine, whose mark is filled in the stop's red wherever the
-/// work's cells are drawn (`STOPPED` in state-marks.ts); none while it is not so stopped. Where the engine names no
-/// cell, the cell with a run open.
+/// The cell a work is stopped at, for the owner or by the engine, whose mark is drawn as `stopped` wherever the work's
+/// cells are drawn (state-marks.ts); none while it is not so stopped. Where the engine names no cell, the cell with a
+/// run open.
 export function stoppedAt(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string | null {
   const { tone } = stateOf(s);
   if (tone !== 'owner' && tone !== 'failed') return null;
@@ -457,20 +531,6 @@ export function stoppedAt(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string |
     return now.at;
   }
   return s.cells.find((c) => c.open !== null)?.cell ?? null;
-}
-
-/// The cell a work stands at, named under its card's number and before its strip in the item's window, with the token
-/// of the colour it is named in, as small text takes its colour's text step: the stop's red where the work is stopped
-/// there; while it runs, the yellow of a call where its cell carries one out, else the running colour; else the muted
-/// grey; none where it stands at no cell.
-export function standingCell(s: Pick<Summary, 'now' | 'cells' | 'waits'>): { cell: string; colour: string } | null {
-  const stopped = stoppedAt(s);
-  if (stopped !== null) return { cell: stopped, colour: '--red-text' };
-  const { tone, cell } = stateOf(s);
-  if (cell === null) return null;
-  if (tone !== 'running') return { cell, colour: '--muted' };
-  const calling = s.cells.some((c) => c.cell === cell && c.state === 'calling');
-  return { cell, colour: calling ? '--yellow-text' : '--running-text' };
 }
 
 /// The first line of a text, for a line of a list or a notification.
@@ -487,11 +547,54 @@ export function sentence(text: string): string {
 /// backticks that mark them (a card draws them in the monospace, by `Coded` in `parts.tsx`).
 export const plain = (text: string): string => text.replace(/`([^`\n]+)`/g, '$1');
 
-/// What a work does now, in a line of the Works list: its state's word, the cell where the state names one, once, and
-/// why: for what waits on the owner, the engine's reasons, each a sentence; for a fault or a stall, what is wrong, a
-/// stall as the engine says it; for what waits on another, what it waits for.
-export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
-  const { word, cell } = stateOf(s);
+/// What the head of a column of the Works list that orders it says on pointing at it: the order a press gives it, by
+/// the way it would run.
+export const ORDER_WORDS: Record<OrderBy, Record<Way, string>> = {
+  item: { descending: 'Order by item, the newest first', ascending: 'Order by item, the oldest first' },
+  title: { ascending: 'Order by title, from A to Z', descending: 'Order by title, from Z to A' },
+  state: {
+    ascending: 'Order by state: waiting for you, halted, running, waiting, paused, merged, cancelled',
+    descending: 'Order by state: cancelled, merged, paused, waiting, running, halted, waiting for you',
+  },
+  level: {
+    descending: 'Order by level, the highest first, those with none last',
+    ascending: 'Order by level, the lowest first, those with none last',
+  },
+  cellLevel: {
+    descending: "Order by the cell's level, the highest first, those with none last",
+    ascending: "Order by the cell's level, the lowest first, those with none last",
+  },
+  cost: { descending: 'Order by cost, the dearest first', ascending: 'Order by cost, the cheapest first' },
+  time: {
+    descending: 'Order by the time its rounds took, the longest first',
+    ascending: 'Order by the time its rounds took, the shortest first',
+  },
+  last: {
+    descending: 'Order by when something last happened, the latest first',
+    ascending: 'Order by when something last happened, the earliest first',
+  },
+};
+
+/// What a column of levels holds where the engine gives no level, and why, on pointing at it.
+export const NO_LEVEL = {
+  shown: '–',
+  level: 'The engine cannot say the level its rounds run at',
+  cellLevel: 'It stands at no cell an agent runs at, or the engine cannot say its level',
+} as const;
+
+/// A work's state in a line: its state's word; how long it has waited, at `time`, for the calls of tools it waits for;
+/// and the cell where the state names one; as the Works list's column of states says it, `Paused · R0`, `Merged`,
+/// `Waiting for run_tests in CI · 4m 12s · I1`.
+export function stateWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>, time = Date.now()): string {
+  const { tone, word, cell } = stateOf(s);
+  const took = tone === 'calling' ? callsTook(callsWaited(s), time) : null;
+  return [word, took, cell].filter((x) => x !== null && x !== '').join(' · ');
+}
+
+/// What a work does now, in its view's line: its state's words, and why: for what waits on the owner, the engine's
+/// reasons, each a sentence; for a fault or a stall, what is wrong, a stall as the engine says it; for what waits on
+/// another, what it waits for, but the calls of tools, which its state's words say.
+export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>, time = Date.now()): string {
   const now = s.now;
   const waits = waitsOf(s);
   const why =
@@ -501,10 +604,10 @@ export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>): string {
         ? now.words
         : now.kind === 'stalled'
           ? now.why
-          : now.kind === 'waits' && word !== STATE.running
-            ? now.on.map(waitedWords).join('; ')
+          : now.kind === 'waits'
+            ? now.on.filter((w) => !engineToolCall(w)).map(waitedWords).join('; ')
             : null;
-  return [word, cell, why === null ? null : plain(why)].filter((x) => x !== null && x !== '').join(' · ');
+  return [stateWords(s, time), why === null ? null : plain(why)].filter((x) => x !== null && x !== '').join(' · ');
 }
 
 /// The tone of what a work does now, as its state takes it (`stateOf`).
@@ -618,54 +721,22 @@ export function writerWords(writer: Writer): string {
   }
 }
 
-export const STATE_WORDS: Record<CellState, string> = {
-  running: 'running',
-  calling: 'call under way',
-  resting: 'at rest',
-  failed: 'failed',
-  skipped: 'skipped',
-  notYet: 'not run yet',
-  again: 'runs again',
-  done: 'done',
-};
-
-/// The words of the deep filled mark in a legend of the marks, which stands for a run under way whether a round of it
-/// runs (which pulses), it is at rest between two rounds, or its last round failed and is to be given again.
-export const UNDER_WAY_WORDS = 'under way: between rounds, or failed and to be given again';
-
-/// The words of the mark of the cell a work is stopped at, in a legend of the marks.
-export const STOPPED_WORDS = 'stopped here, for you or by the engine';
-
-/// How a run stands: it finished, it was abandoned, a round of it is under way, its last round failed, or it is at
-/// rest between rounds.
-export type RunState = 'finished' | 'abandoned' | 'running' | 'failed' | 'resting';
-
-export function runState(run: Pick<Run, 'end' | 'rounds'>): RunState {
-  if (run.end) return run.end.kind;
-  const last = run.rounds[run.rounds.length - 1];
-  if (last && last.ended === null) return 'running';
-  return last?.back?.kind === 'failed' ? 'failed' : 'resting';
-}
-
-export const RUN_WORDS: Record<RunState, string> = {
-  finished: 'finished',
-  abandoned: 'abandoned',
-  running: 'under way',
-  failed: 'round failed',
-  resting: 'at rest',
-};
-
 /// Whether a run is open: neither finished nor abandoned.
-export const isOpen = (state: RunState): boolean => state !== 'finished' && state !== 'abandoned';
-
-/// Who paused a work, and why, in a line.
-export function pauseWords(by: Pauser, why: string | null): string {
-  return by === 'engine' ? `The engine paused the work. ${plain(sentence(why ?? 'It gave no reason'))}` : 'The owner paused the work.';
-}
+export const isOpen = (run: Pick<Run, 'end'>): boolean => run.end === null;
 
 /// How long a run took from its start: to its end, or until now while it is open.
 export function runTook(run: Pick<Run, 'time' | 'end'>, now: number): number {
   return (run.end?.time ?? now) - run.time;
+}
+
+/// What a run's latest round ran on, as the records of its latest try say; none of a run no agent's round of which
+/// kept it, as an engine cell's.
+export function ranLast(run: Pick<Run, 'rounds'>): RanOn | null {
+  for (const round of [...run.rounds].reverse()) {
+    const ran = round.tries[round.tries.length - 1]?.ran;
+    if (ran) return ran;
+  }
+  return null;
 }
 
 /// A call's state in words: when it was made and, once it has one, when its result came; a call with no result of a

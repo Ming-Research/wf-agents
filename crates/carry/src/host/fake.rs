@@ -1,7 +1,7 @@
 //! A host for the tests of the acts: it gives the head of main it is set to and the verdicts it is given, in order,
 //! merges by saying main is where it is, and keeps what it was asked, the title of each branch it was given, and what
 //! asked for each verdict and each run of the tests. It runs no test for the agents' tool, and keeps what it was asked
-//! to run, giving the words it is set to.
+//! to run, giving the words it is set to. Its pull requests are at addresses of its own.
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -153,6 +153,10 @@ impl Host for Fake {
         self.given(branch);
         lock(&self.asked).push(Asked::Reopen(branch.place.branch.clone()));
         Ok(())
+    }
+
+    fn pull_at(&self, number: u64) -> Option<String> {
+        Some(format!("https://host.example/pull/{number}"))
     }
 }
 

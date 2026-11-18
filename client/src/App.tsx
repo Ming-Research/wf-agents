@@ -7,19 +7,20 @@
 import { Fragment, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { type Definition, type Flow, type Given, load } from './api';
-import { Chart, type Chosen, Legend } from './Chart';
+import { Chart, type Chosen, MATRIX_MARKS } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type BarItems, Engine, useBarItems } from './Engine';
 import { waitingCount } from './works/waiting';
 import { waitCount } from './works/words';
 import { LazyFlowChart } from './graph/lazy';
-import { GraphLegend } from './graph/legend';
-import { chartOf } from './graph/model';
+import { FLOWCHART_MARKS, chartOf } from './graph/model';
+import { Legend } from './marks';
 import { matrix } from './matrix';
 import { usesFixtures } from './mock-data';
 import { useNotifications } from './notify';
 import { ObservationsView } from './observations/ObservationsView';
 import { Bar, Drawer, Panel, Switch } from './parts';
+import { CHOICE_KEYS, read, useKept, write } from './kept';
 import { type Route, hashOf, periodOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
 import { WIDTH_KEYS } from './sizes';
@@ -61,8 +62,16 @@ export function Views({
   /// What the server gives (serves.ts); nothing while it is being asked.
   serves?: Serves | null;
 }) {
-  const [flowShown, setFlowShown] = useState(route.view === 'flow');
-  if (route.view === 'flow' && !flowShown) setFlowShown(true);
+  // Every view, once shown, is kept while another is shown, as a tab is: what it shows, where it is scrolled, what is
+  // chosen and its window stand as the owner left them. Of the works' pages, the last one shown is kept; the system's
+  // view keeps the span it was last shown over.
+  const [seen, setSeen] = useState<ReadonlySet<Route['view']>>(() => new Set([route.view]));
+  if (!seen.has(route.view)) setSeen(new Set([...seen, route.view]));
+  const [lastWork, setLastWork] = useState(route.view === 'work' ? route : null);
+  if (route.view === 'work' && (lastWork?.work !== route.work || lastWork.run !== route.run)) setLastWork(route);
+  const [period, setPeriod] = useState(periodOf(route));
+  if (route.view === 'system' && periodOf(route) !== period) setPeriod(periodOf(route));
+  const kept = (view: Route['view']) => serves === 'all' && seen.has(view);
   return (
     <>
       {route.view !== 'flow' && serves !== 'all' && (
@@ -70,24 +79,49 @@ export function Views({
           {serves === null ? <p className="message muted">Reading</p> : <FlowAlone route={route} />}
         </div>
       )}
-      {route.view !== 'flow' && serves === 'all' && (
-        <div className="view">
-          {route.view === 'console' && (
-            // The console's drawing library is large: it is read only once the console is first shown.
-            <Suspense fallback={<p className="message muted">Reading the console</p>}>
-              <LazyConsolePage named={'item' in route ? route.item : undefined} wait={'item' in route ? route.wait : undefined} />
-            </Suspense>
-          )}
-          {route.view === 'works' && <WorksList />}
-          {route.view === 'work' && (
-            <WorkView key={`${route.work}/${route.run ?? ''}`} work={route.work} run={route.run} />
-          )}
-          {route.view === 'observations' && <ObservationsView />}
-          {route.view === 'system' && <SystemView period={periodOf(route)} />}
-          {route.view === 'settings' && <SettingsView />}
+      {kept('console') && (
+        <div className="view" hidden={route.view !== 'console'}>
+          {/* The console's drawing library is large: it is read only once the console is first shown. */}
+          <Suspense fallback={<p className="message muted">Reading the console</p>}>
+            <LazyConsolePage
+              active={route.view === 'console'}
+              named={'item' in route ? route.item : undefined}
+              wait={'item' in route ? route.wait : undefined}
+            />
+          </Suspense>
         </div>
       )}
-      {flowShown && (
+      {kept('works') && (
+        <div className="view" hidden={route.view !== 'works'}>
+          <WorksList />
+        </div>
+      )}
+      {serves === 'all' && lastWork !== null && (
+        <div className="view" hidden={route.view !== 'work'}>
+          <WorkView
+            key={`${lastWork.work}/${lastWork.run ?? ''}`}
+            work={lastWork.work}
+            run={lastWork.run}
+            active={route.view === 'work'}
+          />
+        </div>
+      )}
+      {kept('observations') && (
+        <div className="view" hidden={route.view !== 'observations'}>
+          <ObservationsView />
+        </div>
+      )}
+      {kept('system') && (
+        <div className="view" hidden={route.view !== 'system'}>
+          <SystemView period={period} />
+        </div>
+      )}
+      {kept('settings') && (
+        <div className="view" hidden={route.view !== 'settings'}>
+          <SettingsView />
+        </div>
+      )}
+      {seen.has('flow') && (
         <div className="view" hidden={route.view !== 'flow'}>
           <FlowView active={route.view === 'flow'} loadFlow={loadFlow} />
         </div>
@@ -151,13 +185,21 @@ export function Shell({ route, serves = 'all', children }: {
   // What waits on the owner, told of by the browser as it comes, on the engine's own page only.
   useNotifications(bar.items, serves === 'all' && !usesFixtures(window.location.search));
   const waiting = waitingCount(bar.items?.items.map((i) => i.work) ?? []);
-  const views = TABS.map((t) => (t.href === '#/console' ? { ...t, count: waiting, countTitle: waitCount(waiting) } : t));
+  // Each tab leads back to where it was last, kept in this browser, as a work open in the works or an item selected in
+  // the console; the tab shown leads to its own first view, as the list of works from a work.
+  const here = tabOf(route);
+  const address = hashOf(route);
+  useEffect(() => write(`${CHOICE_KEYS.tabAddress}${here}`, address), [here, address]);
+  const views = TABS.map((t) => {
+    const href = t.href === here ? t.href : (read(`${CHOICE_KEYS.tabAddress}${t.href}`) ?? t.href);
+    return t.href === '#/console' ? { ...t, href, count: waiting, countTitle: waitCount(waiting) } : { ...t, href };
+  });
   return (
     <div className="page">
       <Bar
         name="wf-agents"
         views={views}
-        current={tabOf(route)}
+        current={here}
         end={
           <>
             {serves === 'all' && <BarEngine onRead={setBar} />}
@@ -209,11 +251,14 @@ export function FlowPage({ definition, given, active = true }: {
   active?: boolean;
 }) {
   const [chosen, setChosen] = useState<Chosen>(null);
-  // The flowchart first; each, once shown, is kept as the owner left it while the other is shown.
-  const [chartView, setChartView] = useState<ChartView>('flowchart');
+  // The flowchart, until the owner picks the matrix, kept in this browser; each, once shown, is kept as the owner left
+  // it while the other is shown.
+  const [chartView, setChartView] = useKept<ChartView>(CHOICE_KEYS.flowView, 'flowchart', ['matrix', 'flowchart']);
   const [graphShown, setGraphShown] = useState(false);
-  // Whether the flowchart draws every arrow a write runs; else only the chosen cell's, as what it is given.
-  const [dataArrows, setDataArrows] = useState(false);
+  // Whether the flowchart draws every arrow a write runs; else only the chosen cell's, as what it is given. Kept too.
+  const [arrows, setArrows] = useKept(CHOICE_KEYS.flowDataArrows, 'off', ['on', 'off']);
+  const dataArrows = arrows === 'on';
+  const setDataArrows = (on: boolean) => setArrows(on ? 'on' : 'off');
   if (chartView === 'flowchart' && !graphShown) setGraphShown(true);
   // The window with what is chosen, the console's: whether it is out, and whether its tab brought it out, which keeps
   // it out once what is chosen is let go.
@@ -399,7 +444,11 @@ export function FlowPage({ definition, given, active = true }: {
           </span>
         </div>
         <div className="view-row">
-          {chartView === 'matrix' ? <Legend waysBack={drawn.waysBack} /> : <GraphLegend waysBack={graphWaysBack} />}
+          {chartView === 'matrix' ? (
+            <Legend marks={MATRIX_MARKS} counts={{ wayBack: drawn.waysBack }} />
+          ) : (
+            <Legend marks={FLOWCHART_MARKS} counts={{ wayBack: graphWaysBack }} />
+          )}
         </div>
       </div>
       {given?.state === 'unread' && (

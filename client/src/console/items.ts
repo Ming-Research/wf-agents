@@ -1,8 +1,9 @@
 // The items as the console shows them: a tree by their dependencies, each item under the item whose dependency on it is
 // its main one, at the top the items nothing depends on; under each other item that depends on it, after the items
 // standing there, a shadow of it that points to its place. Done and cancelled items are left out, unless something
-// under them is still open. Each item carries its own state, its work while it goes on, whether the work has begun, and
-// how many of the things its work waits for wait for the owner. Pure, so that it is tested on its own.
+// under them is still open or the owner asked to see every item. Each item carries its own state, its work while it
+// goes on, whether the work has begun, and how many of the things its work waits for wait for the owner; and a work's
+// age and what it has taken, as a card and the item's window say them. Pure, so that it is tested on its own.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/items.ts`), reading the items as
 // `works-api.ts` gives them. The interface does not say which of an item's dependents is its main one: the first of
@@ -16,8 +17,11 @@ import { itemOf } from './real';
 /// What the item is to deliver: not yet, delivered, or given up.
 export type ItemStanding = 'open' | 'done' | 'cancelled';
 
+/// The kinds of item by how they stand, in the order the console lists them: every item is one of them.
+export const STANDINGS: readonly ItemStanding[] = ['open', 'done', 'cancelled'];
+
 /// The work going on on an item, as its node shows it: what it does now, how each cell of its flow stands, when it was
-/// added, what it has taken, and when something last happened to it.
+/// added, what it has taken, when something last happened to it, the level its cell runs at, and the lines it changed.
 export type ShownWork = {
   number: number;
   now: Now;
@@ -35,12 +39,31 @@ export type ShownWork = {
   sentBack: number;
   usdMicros: number;
   last: number | null;
+  /// The level its rounds run at, none where the engine gives none; and how many levels above it the line of the cell
+  /// it stands at runs that cell, none counted as nought.
+  level: string | null;
+  raise: number;
+  /// The lines it added and removed, none where it changed none (`linesOf`).
+  lines: Lines | null;
 };
+
+/// The lines a work added and removed, and in how many files.
+export type Lines = { added: number; removed: number; files: number };
+
+/// The lines a work added and removed, as its summary counts them; none where it changed no line, or the engine has
+/// nothing to tell.
+export function linesOf(w: Pick<Summary, 'changed'>): Lines | null {
+  const c = w.changed;
+  return c == null || c.added + c.removed === 0 ? null : { added: c.added, removed: c.removed, files: c.files };
+}
 
 export type Shown = {
   id: number;
   title: string;
   standing: ItemStanding;
+  /// Of an item whose work has ended, the lines that work added and removed; none where it changed none, or the item's
+  /// work goes on, whose own `lines` say them.
+  endedLines?: Lines | null;
   /// How many things its work waits on the owner for, as the engine's one list of it counts them.
   asks: number;
   /// It is a deliverable: an item that says what is to be delivered and is made of the items under it, with no work
@@ -89,7 +112,8 @@ const drawn = (w: Summary) =>
     w.now.kind === 'waits' ||
     w.now.kind === 'stalled');
 
-export function shownTree(data: Items): Shown[] {
+/// The tree of the items that stand as one of `shown` stands, and what stands over them.
+export function shownTree(data: Items, shown: ReadonlySet<ItemStanding> = new Set(['open'])): Shown[] {
   const byId = new Map(data.items.map((i) => [i.number, i]));
   const standing = (id: number): ItemStanding => standingOf(byId.get(id));
   // Each item's main dependent: the first by number of the items that depend on it.
@@ -109,15 +133,16 @@ export function shownTree(data: Items): Shown[] {
       under.set(i.number, [...(under.get(i.number) ?? []), d]);
       above.add(d);
     }
-  // An item is kept when it or something under it is open. An item met again on its own way down, which only a cycle of
-  // dependencies does, is not gone down again.
+  // An item is kept when it or something under it stands as one of those shown. An item met again on its own way down,
+  // which only a cycle of dependencies does, is not gone down again.
   const kept = new Map<number, boolean>();
   const keep = (id: number): boolean => {
     const known = kept.get(id);
     if (known !== undefined) return known;
-    kept.set(id, standing(id) === 'open');
+    const own = shown.has(standing(id));
+    kept.set(id, own);
     const children = (under.get(id) ?? []).map(keep);
-    const k = standing(id) === 'open' || children.some((c) => c);
+    const k = own || children.some((c) => c);
     kept.set(id, k);
     return k;
   };
@@ -161,8 +186,12 @@ export function shownTree(data: Items): Shown[] {
               sentBack: w.sentBack ?? 0,
               usdMicros: w.spent.usdMicros,
               last: w.last,
+              level: w.level ?? null,
+              raise: w.raise ?? 0,
+              lines: linesOf(w),
             }
           : null,
+      endedLines: w !== undefined && !drawn(w) ? linesOf(w) : null,
       children: [
         ...[...(under.get(id) ?? [])]
           .filter((c) => keep(c) && !making.has(c))
@@ -196,3 +225,23 @@ export function shownTree(data: Items): Shown[] {
     .sort((a, b) => a.number - b.number)
     .map((i) => make(i.number));
 }
+
+/// How long a work has gone on, as a short label and the tone of its age: under half an hour, under an hour, or an
+/// hour and more, however much more.
+export function age(ms: number): {
+  label: string;
+  tone: 'success' | 'attention' | 'danger';
+} {
+  const minutes = ms / 60000;
+  if (minutes < 60)
+    return {
+      label: `${Math.max(1, Math.round(minutes))}m`,
+      tone: minutes < 30 ? 'success' : 'attention',
+    };
+  const hours = minutes / 60;
+  if (hours < 24) return { label: `${Math.round(hours * 10) / 10}h`, tone: 'danger' };
+  return { label: `${Math.round((hours / 24) * 10) / 10}d`, tone: 'danger' };
+}
+
+/// What a work has taken, in dollars.
+export const dollars = (usdMicros: number) => `$${(usdMicros / 1e6).toFixed(2)}`;

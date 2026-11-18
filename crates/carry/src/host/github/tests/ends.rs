@@ -59,6 +59,43 @@ async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follo
     );
 }
 
+/// What was said to the loop through the channel, as it was said: the events of the work.
+pub(super) fn heard(heard: &mut tokio::sync::mpsc::UnboundedReceiver<service::Message>) -> Vec<engine::Event> {
+    let mut events = Vec::new();
+    while let Ok(message) = heard.try_recv() {
+        if let service::Message::Happened { event, .. } = message {
+            events.push(event);
+        }
+    }
+    events
+}
+
+#[tokio::test]
+async fn each_check_says_the_pull_request_it_checks_the_work_through_for_the_work_to_keep() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.green(&head);
+    let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+    let reply = service::RoundReply::new(WORK, RunId(1), to);
+    let mut stop = Stop::never().hosting(reply.hosting());
+    let place = hub.place();
+    // Opened by the first check and found again by the second, it is said by each: the loop keeps it once.
+    for _ in 0..2 {
+        let main = hub.main_on_github();
+        (hub.host
+            .verdict(&branch(&place), &head, &main, hub.round(), &mut stop)
+            .await)
+            .expect("checked")
+            .expect("nothing stopped it");
+    }
+    let pull = hub.github().pull_requests()[0].clone();
+    let pulled = engine::Event::Pulled {
+        number: pull.number,
+        url: pull.url,
+    };
+    assert_eq!(heard(&mut said), [pulled.clone(), pulled]);
+}
+
 /// The work's branch, its merge named so.
 fn named<'a>(place: &'a Place, title: &'a str) -> Branch<'a> {
     Branch { title, ..branch(place) }

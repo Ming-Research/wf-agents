@@ -635,6 +635,11 @@ impl GitHub {
     pub fn url(&self) -> String {
         format!("https://github.com/{}.git", self.repository)
     }
+
+    /// The address where a person sees the repository's pull request of this number.
+    pub fn pull_at(&self, number: u64) -> String {
+        format!("https://github.com/{}/pull/{number}", self.repository)
+    }
 }
 
 impl Settings {

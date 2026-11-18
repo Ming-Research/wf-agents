@@ -85,12 +85,42 @@ pub trait Rounds: Send + Sync {
         Ok(None)
     }
 
-    /// What the agent of the round of this number of the run was last seen doing, as this carrier keeps it as it
-    /// comes: the last few things its latest try did, the latest last; nothing where it keeps none, as by default. It
-    /// is called off the loop, as [`Rounds::told`] is.
-    fn doing(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Vec<Doing>, String> {
+    /// What the agent of the round of this number of the run did from the mark on, as this carrier keeps it as it
+    /// comes: each thing whole in the order done, every try in order, and the mark the next read goes on from; nothing
+    /// where it keeps none, as by default. It is called off the loop, as [`Rounds::told`] is.
+    fn doing(&self, work: WorkNumber, run: RunId, round: usize, from: Mark) -> Result<Doings, String> {
         let _ = (work, run, round);
-        Ok(Vec::new())
+        Ok(Doings {
+            done: Vec::new(),
+            next: from,
+        })
+    }
+
+    /// What the repository of the work's project says of the work beside its records, as this carrier works it out
+    /// with git: what the work changed, and, of a work that merged with no pull request kept, the pull request its
+    /// merge names; nothing, as by default, for rounds that keep no repository. It is called off the loop, as
+    /// [`Rounds::fork`] is.
+    fn seen(&self, of: OfWork) -> Pin<Box<dyn Future<Output = Result<Seen, String>> + Send + '_>> {
+        let _ = of;
+        Box::pin(async { Ok(Seen::default()) })
+    }
+
+    /// Each file the work changed, as [`Rounds::seen`] counts them; none, as by default, where nothing tells what it
+    /// changed. It is called off the loop.
+    fn changes(&self, of: OfWork) -> Pin<Box<dyn Future<Output = Result<Option<Changes>, String>> + Send + '_>> {
+        let _ = of;
+        Box::pin(async { Ok(None) })
+    }
+
+    /// The unified diff of one file the work changed, between the base and the head [`Rounds::changes`] gives; none,
+    /// as by default, where the work changed no file of that path. It is called off the loop.
+    fn diff(
+        &self,
+        of: OfWork,
+        path: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Diff>, String>> + Send + '_>> {
+        let _ = (of, path);
+        Box::pin(async { Ok(None) })
     }
 
     /// When a line begins a new session, for rounds carried out in sessions: what they run on, and how far a session
@@ -331,6 +361,93 @@ pub enum Doing {
     Compacting,
 }
 
+/// Where a read of what the agent of a round did goes on from: the try, the first being one, and how far into what
+/// that try kept of its program's stream, in bytes. A round is read from its start at [`Mark::default`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mark {
+    pub attempt: usize,
+    pub at: u64,
+}
+
+impl Default for Mark {
+    fn default() -> Self {
+        Mark { attempt: 1, at: 0 }
+    }
+}
+
+/// What the agent of a round did from a mark on: each thing with the try it was done in, the first being one, in the
+/// order done; and the mark a later read goes on from.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Doings {
+    pub done: Vec<(usize, Doing)>,
+    pub next: Mark,
+}
+
+/// A work as the carrier of its project's repository is asked of it, off the loop: its number; its item, whose
+/// project says which repository; and, where it merged and no pull request of it is kept, what its merge wrote, which
+/// names the commit its merge made.
+#[derive(Clone, Debug)]
+pub struct OfWork {
+    pub work: WorkNumber,
+    pub item: Item,
+    pub merged: Option<String>,
+}
+
+/// What the repository of a work's project says of the work beside its records.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Seen {
+    /// What the work changed; none where nothing of it is there to tell, as before its branch is made.
+    pub changed: Option<Diffstat>,
+    /// The pull request the commit its merge made names, where it was asked for one and the commit names one.
+    pub pull: Option<Pull>,
+}
+
+/// What a work changed, between where its branch left main and its latest head, together with what its worktree holds
+/// that is not committed while the worktree is there: how many files, and how many lines added and removed in them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Diffstat {
+    pub files: u64,
+    pub added: u64,
+    pub removed: u64,
+}
+
+/// A pull request on the host of a work's repository: its number, and its address.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pull {
+    pub number: u64,
+    pub url: String,
+}
+
+/// Each file a work changed, as [`Diffstat`] counts them, in the order of their paths; the commit where its branch left
+/// main and its latest head they are between; and whether what its worktree holds was counted, the worktree being
+/// there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Changes {
+    pub base: String,
+    pub head: String,
+    pub worktree: bool,
+    pub files: Vec<FileChanged>,
+}
+
+/// A file a work changed: its path; the lines added and removed, none of a binary file; and whether the work's head
+/// holds a change of it, or only its worktree does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileChanged {
+    pub path: String,
+    pub added: u64,
+    pub removed: u64,
+    pub binary: bool,
+    pub committed: bool,
+}
+
+/// The unified diff of one file a work changed, up to where it was cut, with its whole length in bytes where it was.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Diff {
+    pub path: String,
+    pub text: String,
+    pub cut: Option<u64>,
+}
+
 /// What runs the tools that agents ask for.
 ///
 /// Both methods are called inside the loop, between two things it takes: each returns at once, and does its work
@@ -414,21 +531,45 @@ impl Carriers {
         self.agents.system(work, line, session)
     }
 
-    /// What the agent of the round was last seen doing, as the carrier of its cell's kind keeps it, or, for a cell of
-    /// no kind known, as the first carrier that keeps anything of it. It waits on the disk.
-    pub fn doing(&self, kind: Option<Kind>, work: WorkNumber, run: RunId, round: usize) -> Result<Vec<Doing>, String> {
+    /// What the agent of the round did from the mark on, as the carrier of its cell's kind keeps it, or, for a cell of
+    /// no kind known, as the first carrier that keeps anything of it from there. It waits on the disk.
+    pub fn doing(
+        &self,
+        kind: Option<Kind>,
+        (work, run, round): (WorkNumber, RunId, usize),
+        from: Mark,
+    ) -> Result<Doings, String> {
         let carriers = match kind {
             Some(kind) => vec![self.rounds(kind)],
             None => vec![&self.agents, &self.acts],
         };
-        let mut doing = Vec::new();
+        let mut doings = Doings {
+            done: Vec::new(),
+            next: from,
+        };
         for rounds in carriers {
-            doing = rounds.doing(work, run, round)?;
-            if !doing.is_empty() {
+            doings = rounds.doing(work, run, round, from)?;
+            if !doings.done.is_empty() || doings.next != from {
                 break;
             }
         }
-        Ok(doing)
+        Ok(doings)
+    }
+
+    /// What the repository of the work's project says of it beside its records, as the carrier of the engine's acts,
+    /// which keeps that repository, works it out.
+    pub async fn seen(&self, of: OfWork) -> Result<Seen, String> {
+        self.acts.seen(of).await
+    }
+
+    /// Each file the work changed, as the carrier of the engine's acts works it out.
+    pub async fn changes(&self, of: OfWork) -> Result<Option<Changes>, String> {
+        self.acts.changes(of).await
+    }
+
+    /// The unified diff of one file the work changed, as the carrier of the engine's acts works it out.
+    pub async fn diff(&self, of: OfWork, path: String) -> Result<Option<Diff>, String> {
+        self.acts.diff(of, path).await
     }
 }
 
@@ -508,6 +649,14 @@ impl RoundReply {
         Saying {
             work: self.work,
             under: Under::Round { run: self.run, round },
+            to: self.to.clone(),
+        }
+    }
+
+    /// The way to say what the host found of the work while the round is under way.
+    pub fn hosting(&self) -> Hosting {
+        Hosting {
+            work: self.work,
             to: self.to.clone(),
         }
     }
@@ -596,6 +745,24 @@ pub struct Saying {
     work: WorkNumber,
     under: Under,
     to: mpsc::UnboundedSender<Message>,
+}
+
+/// The way to say what the host of a work's repository found of the work while a round or a call of it is carried
+/// out, which is kept with the work: the pull request the work is checked through.
+#[derive(Clone, Debug)]
+pub struct Hosting {
+    work: WorkNumber,
+    to: mpsc::UnboundedSender<Message>,
+}
+
+impl Hosting {
+    /// The work is checked through the pull request of this number, at this address; said again at each check, it is
+    /// kept once.
+    pub fn pulled(&self, number: u64, url: String) {
+        let event = Event::Pulled { number, url };
+        // Where the loop has ended, the process is stopping: what is given again finds the pull request again.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
+    }
 }
 
 impl Saying {
@@ -706,6 +873,14 @@ impl CallReply {
         Saying {
             work: self.work,
             under: Under::Call(self.call),
+            to: self.to.clone(),
+        }
+    }
+
+    /// The way to say what the host found of the work while the call has no result.
+    pub fn hosting(&self) -> Hosting {
+        Hosting {
+            work: self.work,
             to: self.to.clone(),
         }
     }

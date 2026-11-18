@@ -1,6 +1,7 @@
 // The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`snap.ts`), as they stand, drawn
 // again as they change; with `?fixtures` in the page's address, made-up items that show every state the drawing has
-// (`fixtures.ts`). Beside the tree, a window shows the item selected (`ItemWindow.tsx`). Selecting an item slides the
+// (`fixtures.ts`): those that stand as the boxes over the tree's corner tick, open, done or cancelled, and what stands
+// over them. Beside the tree, a window shows the item selected (`ItemWindow.tsx`). Selecting an item slides the
 // window out; letting it go slides the window back, unless the tab stuck to its left edge brought it out, in which case
 // it stays until the tab takes it back. The tab takes it back without letting the item go, and the next item selected
 // brings it out again. The window coming out over the item selected, or an item selected half under it or half off the
@@ -12,23 +13,44 @@
 // (`lazy.tsx`).
 //
 // Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
-// the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel is too).
+// the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel and a
+// work's item on its page are in too).
 
 import './console.css';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Drawer } from '../parts';
+import { CHOICE_KEYS, useKeptTicks } from '../kept';
+import { WIDTH_KEYS } from '../sizes';
 import type { Items, WorkPage } from '../works-api';
 import { oneAtATime, useSource } from '../works/source';
 import { goalMock } from './mock';
 import { fakeShown } from './fake';
-import { type Shown, shownTree } from './items';
+import { type ItemStanding, STANDINGS, type Shown, shownTree } from './items';
 import { ItemPanel, type PageState } from './ItemWindow';
 import { SnapScene } from './snap';
 import { type Heard, type Source, inOrder, pageSource } from './source';
 
-export function ConsolePage({ source: given, named, wait }: { source?: Source; named?: number; wait?: string } = {}) {
+/// Each kind of item as its box over the tree names it, and what pointing at the box says.
+const SHOWS: Record<ItemStanding, { name: string; title: string }> = {
+  open: { name: 'Open', title: 'The items not done or cancelled: running, paused or waiting' },
+  done: { name: 'Done', title: 'The items whose work merged' },
+  cancelled: { name: 'Cancelled', title: 'The items whose work was cancelled' },
+};
+
+export function ConsolePage({
+  source: given,
+  named,
+  wait,
+  active = true,
+}: {
+  source?: Source;
+  named?: number;
+  wait?: string;
+  /// Whether the console is the view shown: kept while another is, it stops drawing and takes no keys.
+  active?: boolean;
+} = {}) {
   const works = useSource();
   const source = useMemo(() => given ?? pageSource(), [given]);
   const panel = useRef<HTMLElement>(null);
@@ -41,6 +63,9 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
   // The panel: whether it is out, and whether its handle brought it out, which keeps it out once the item is let go.
   const [win, setWin] = useState({ open: false, byHand: false });
   const open = win.open;
+  // Which kinds of item the tree shows, open, done and cancelled each ticked or not, and what stands over them.
+  const [shows, tick] = useKeptTicks(CHOICE_KEYS.consoleShows, ['open'], STANDINGS);
+  const showsNow = useRef(shows);
 
   // The items, read at first and again each time something happened, at most one read at a time.
   const heard = useRef<(h: Heard) => void>(() => undefined);
@@ -89,10 +114,11 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
             return w.byHand ? w : { open: false, byHand: false };
           });
         };
-        if (latestData.current !== undefined) s.show(shownTree(latestData.current));
+        if (latestData.current !== undefined) s.show(shownTree(latestData.current, showsNow.current));
         selectNamed();
-        // To try the drawing from the browser's console: `consoleScene.show(consoleFake(2000))` draws a made-up tree.
-        Object.assign(window, { consoleScene: s, consoleFake: fakeShown });
+        // To try the drawing from the browser's console on the dev server: `consoleScene.show(consoleFake(2000))` draws
+        // a made-up tree.
+        if (import.meta.env.DEV) Object.assign(window, { consoleScene: s, consoleFake: fakeShown });
       },
       // A browser that cannot draw the tree (no WebGL) says so in its place.
       (e: unknown) => alive && setUndrawn(e instanceof Error ? e.message : String(e)),
@@ -117,9 +143,10 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
   };
   useEffect(() => {
     latestData.current = data;
-    if (data !== undefined) scene.current?.show(shownTree(data));
+    showsNow.current = shows;
+    if (data !== undefined) scene.current?.show(shownTree(data, shows));
     selectNamed();
-  }, [data]);
+  }, [data, shows]);
   useEffect(() => {
     toSelect.current = named;
     selectNamed();
@@ -136,6 +163,11 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
   }, [open, selectedId]);
 
   useEffect(() => {
+    scene.current?.setShown(active);
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
     const key = (e: KeyboardEvent) => {
       // Escape answers a question the page asks, and nothing else.
       if (e.key !== 'Escape' || document.querySelector('dialog[open]') !== null) return;
@@ -147,7 +179,7 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [open]);
+  }, [open, active]);
 
   // The item selected as the interface gives it, and its work's page, read when another is selected and again when
   // something happened to that work; an answer older than the one shown is dropped, and a read that failed says so.
@@ -183,8 +215,18 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
         ref={host}
         onPointerDown={() => (document.activeElement as HTMLElement | null)?.blur()}
       >
-        {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
-        {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}
+        <div className="console-over">
+          <div className="console-shows" role="group" aria-label="Which items the tree shows">
+            {STANDINGS.map((s) => (
+              <label key={s} className="view-toggle" title={SHOWS[s].title}>
+                <input type="checkbox" checked={shows.has(s)} onChange={(e) => tick(s, e.target.checked)} />
+                {SHOWS[s].name}
+              </label>
+            ))}
+          </div>
+          {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
+          {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}
+        </div>
       </div>
       <Drawer
         open={open}
@@ -193,7 +235,7 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
         label="The item selected"
         hide="Put the item away"
         show="Show the item selected"
-        widthKey="console-window-width"
+        widthKey={WIDTH_KEYS.itemWindow}
       >
         {item === undefined ? (
           <p className="cw-empty">Click an item on the left to see it here.</p>
@@ -206,8 +248,10 @@ export function ConsolePage({ source: given, named, wait }: { source?: Source; n
             wait={wait}
             actEngine={works.actOnEngine}
             goal={selected !== null && goalMock(selected.work !== null, selected.children.length)}
-            open={open}
-            onRead={() => latestData.current !== undefined && scene.current?.show(shownTree(latestData.current))}
+            open={open && active}
+            onRead={() =>
+              latestData.current !== undefined && scene.current?.show(shownTree(latestData.current, showsNow.current))
+            }
             onTitle={() => scene.current?.reveal(item.number, room(open))}
           />
         )}

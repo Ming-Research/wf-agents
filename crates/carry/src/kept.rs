@@ -13,8 +13,8 @@
 //! where they are not the structured return itself, the structured return, how many turns it took, how long, by
 //! which models and how many tokens it wrote to the prompt cache; or, where the program said the try failed, why. The
 //! rest, ids of sessions and of credentials among it, is never read out of the file. A result that is empty is no
-//! result: the program printed none. While a round is under way, the end of its latest try's stream says what its
-//! agent was last seen doing ([`doing`]).
+//! result: the program printed none. What a round's agent did is read from the stream of each of its tries as it
+//! comes, from a mark on, so that whoever follows a round reads each line once ([`doing`]).
 //!
 //! What is read is bounded, so that a round kept large neither holds the page up nor fills it: a file's length is
 //! looked at before it is read, a message is read up to [`BOUNDS`]' `message` and said to be cut, a result longer than
@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use decide::RunId;
 use serde::Deserialize;
 use serde::de::IgnoredAny;
-use service::{Back, Doing, Returned, Told, Try};
+use service::{Back, Doing, Doings, Mark, Returned, Told, Try};
 use store::WorkNumber;
 use work::RanOn;
 
@@ -288,59 +288,74 @@ fn back(printed: &[u8]) -> Back {
     })
 }
 
-/// How much of the end of a try's stream is read for what its agent was last seen doing, in bytes: past it, a line is
-/// a tool's long result or the agent's long words, and what is before it is not what the agent does now.
-const DOING_BOUND: u64 = 256 << 10;
-
-/// How many of the latest things an agent did are given.
-const DOING: usize = 8;
-
-/// What the agent of the round of this number of the run of the work was last seen doing, as the stream of its latest
-/// try says as it comes: up to the last [`DOING`] things, the latest last, read from no more than [`DOING_BOUND`] bytes
-/// of its end; nothing where no try of it was kept, or its stream says nothing yet. A file that cannot be read is
-/// named from the data directory.
-pub(crate) fn doing(data: &Path, work: WorkNumber, run: RunId, number: usize) -> Result<Vec<Doing>, String> {
+/// What the agent of the round of this number of the run of the work did from the mark on, as the stream of each of
+/// its tries, in order, says as it comes: each thing with the try it was done in, the first being one, in the order
+/// done; and the mark a later read goes on from. A line is taken once it is whole, one the program is still writing
+/// being left for a later read; once a later try has begun, the try before it has ended, and the read goes on into the
+/// later one. Nothing is given where no try of the round was kept, or its stream says nothing yet. A file that cannot
+/// be read is named from the data directory.
+pub(crate) fn doing(data: &Path, work: WorkNumber, run: RunId, number: usize, from: Mark) -> Result<Doings, String> {
     let base = base(data, work, run, number);
     let named = |path: &Path| path.strip_prefix(data).unwrap_or(path).display().to_string();
-    // The latest try is the last whose message was kept.
-    let mut latest = None;
-    for n in 1.. {
-        let (message, _) = at(&base, n);
-        match length(&message).map_err(|e| format!("{}: {e}", named(&message)))? {
-            Some(_) => latest = Some(n),
-            None => break,
+    let kept = |path: &Path| length(path).map_err(|e| format!("{}: {e}", named(path)));
+    let mut doings = Doings {
+        done: Vec::new(),
+        next: from,
+    };
+    // A try is there once its message was kept.
+    while kept(&at(&base, doings.next.attempt).0)?.is_some() {
+        let Mark { attempt, at: read } = doings.next;
+        // Asked before its stream is read, so that a try that had ended is read to its end.
+        let later = kept(&at(&base, attempt + 1).0)?.is_some();
+        let stream = stream_at(&base, attempt);
+        if kept(&stream)?.is_some() {
+            let (things, upto) = done_from(&stream, read, later).map_err(|e| format!("{}: {e}", named(&stream)))?;
+            doings.done.extend(things.into_iter().map(|thing| (attempt, thing)));
+            doings.next.at = upto;
         }
+        if !later {
+            break;
+        }
+        doings.next = Mark {
+            attempt: attempt + 1,
+            at: 0,
+        };
     }
-    let Some(n) = latest else {
-        return Ok(Vec::new());
-    };
-    let stream = stream_at(&base, n);
-    let Some(long) = length(&stream).map_err(|e| format!("{}: {e}", named(&stream)))? else {
-        return Ok(Vec::new());
-    };
-    let end = read_end(&stream, long, DOING_BOUND).map_err(|e| format!("{}: {e}", named(&stream)))?;
-    let mut lines: Vec<&[u8]> = end.split(|b| *b == b'\n').collect();
-    // The first line read may have begun before what was read.
-    if long > DOING_BOUND && !lines.is_empty() {
-        lines.remove(0);
-    }
-    let mut done: Vec<Doing> = lines.into_iter().flat_map(things_done).collect();
-    let from = done.len().saturating_sub(DOING);
-    Ok(done.split_off(from))
+    Ok(doings)
 }
 
-/// The last bytes of the file this long, up to this many.
-fn read_end(path: &Path, long: u64, most: u64) -> std::io::Result<Vec<u8>> {
-    let mut file = std::fs::File::open(path)?;
-    file.seek(SeekFrom::Start(long.saturating_sub(most)))?;
-    let mut end = Vec::new();
-    file.take(most).read_to_end(&mut end)?;
-    Ok(end)
+/// What the lines of the stream from the byte `from` on say the agent did, and how far they were read: to the end of
+/// the last whole line, or, where `ended`, as its try has, to the end of the file.
+fn done_from(path: &Path, from: u64, ended: bool) -> std::io::Result<(Vec<Doing>, u64)> {
+    let mut file = std::io::BufReader::new(std::fs::File::open(path)?);
+    file.seek(SeekFrom::Start(from))?;
+    let (mut done, mut upto, mut line) = (Vec::new(), from, Vec::new());
+    loop {
+        line.clear();
+        let read = std::io::BufRead::read_until(&mut file, b'\n', &mut line)?;
+        if read == 0 || (line.last() != Some(&b'\n') && !ended) {
+            break;
+        }
+        done.extend(things_done(&line));
+        upto += read as u64;
+    }
+    Ok((done, upto))
 }
+
+/// How much of the start of a line is looked at for its type, in bytes: the program writes the type first.
+const TYPE_AT: usize = 64;
+
+/// The type of a line of what a tool or the owner gave the agent, as the program writes it.
+const GIVEN: &[u8] = br#""type":"user""#;
 
 /// What a line of the command line's stream says the agent did: each tool it used, with what its input names, and
-/// what it said; or that its session was compacted. Anything else says nothing.
+/// what it said; or that its session was compacted. Anything else says nothing. A line that begins as what a tool or
+/// the owner gave the agent, as a tool's long result, is not read further.
 fn things_done(line: &[u8]) -> Vec<Doing> {
+    let start = &line[..line.len().min(TYPE_AT)];
+    if start.windows(GIVEN.len()).any(|w| w == GIVEN) {
+        return Vec::new();
+    }
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) else {
         return Vec::new();
     };
@@ -493,16 +508,30 @@ mod tests {
         serde_json::json!({ "type": "assistant", "message": { "content": content } }).to_string()
     }
 
-    fn doing_at(dir: &tempfile::TempDir) -> Vec<Doing> {
-        doing(dir.path(), WorkNumber(3), RunId(7), 2).unwrap()
+    /// What the round kept in the directory did from the mark on.
+    fn doing_from(dir: &tempfile::TempDir, from: Mark) -> Doings {
+        doing(dir.path(), WorkNumber(3), RunId(7), 2, from).unwrap()
+    }
+
+    fn mark(attempt: usize, at: usize) -> Mark {
+        Mark { attempt, at: at as u64 }
     }
 
     #[test]
-    fn what_an_agent_does_is_read_from_its_latest_try_s_stream_as_it_comes() {
+    fn what_an_agent_did_is_read_from_every_try_s_stream_in_order_from_a_mark_on() {
         let (dir, base) = kept();
-        assert_eq!(doing_at(&dir), [], "no try was kept");
+        let nothing = |next| Doings { done: Vec::new(), next };
+        assert_eq!(
+            doing_from(&dir, Mark::default()),
+            nothing(mark(1, 0)),
+            "no try was kept"
+        );
         std::fs::write(at(&base, 1).0, "Greet the user.").unwrap();
-        assert_eq!(doing_at(&dir), [], "its stream has not begun");
+        assert_eq!(
+            doing_from(&dir, Mark::default()),
+            nothing(mark(1, 0)),
+            "its stream has not begun"
+        );
         // The first try's stream: a tool used, with what its input names, then the return, whose tool names nothing.
         std::fs::write(stream_at(&base, 1), STREAM).unwrap();
         let bash = Doing::Tool {
@@ -513,9 +542,16 @@ mod tests {
             name: "StructuredOutput".to_string(),
             on: None,
         };
-        assert_eq!(doing_at(&dir), [bash, returned]);
-        // A second try under way: what it said, long words cut, a compaction; a line that is not one of these, or not
-        // whole, says nothing.
+        let first = doing_from(&dir, Mark::default());
+        assert_eq!(first.done, [(1, bash.clone()), (1, returned.clone())]);
+        assert_eq!(first.next, mark(1, STREAM.len()));
+        assert_eq!(
+            doing_from(&dir, first.next),
+            nothing(first.next),
+            "read again, nothing more"
+        );
+        // A second try under way: what it said, long words cut, a compaction, a tool; and a line still being written,
+        // which is left for a later read. A line that is not one of these says nothing.
         std::fs::write(at(&base, 2).0, "Again.").unwrap();
         let said = format!("Reading   the\nplan {}", "a".repeat(200));
         let lines = [
@@ -523,19 +559,48 @@ mod tests {
             r#"{"type":"user","message":{"content":[]}}"#.to_string(),
             r#"{"type":"system","subtype":"compact_boundary"}"#.to_string(),
             assistant(serde_json::json!([{ "type": "tool_use", "name": "Read", "input": { "file_path": "/w/a.rs" } }])),
-            r#"{"type":"assistant","message":{"con"#.to_string(),
         ];
-        std::fs::write(stream_at(&base, 2), lines.join("\n")).unwrap();
+        let whole = format!("{}\n", lines.join("\n"));
+        let edit =
+            assistant(serde_json::json!([{ "type": "tool_use", "name": "Edit", "input": { "file_path": "/w/b.rs" } }]));
+        let (begun, rest) = edit.split_at(20);
+        std::fs::write(stream_at(&base, 2), format!("{whole}{begun}")).unwrap();
         let cut = format!("Reading the plan {}…", "a".repeat(160 - "Reading the plan ".len()));
         let read = Doing::Tool {
             name: "Read".to_string(),
             on: Some("/w/a.rs".to_string()),
         };
-        assert_eq!(doing_at(&dir), [Doing::Said(cut), Doing::Compacting, read]);
+        let second = doing_from(&dir, first.next);
+        assert_eq!(
+            second.done,
+            [(2, Doing::Said(cut.clone())), (2, Doing::Compacting), (2, read.clone())]
+        );
+        assert_eq!(second.next, mark(2, whole.len()), "the line being written is not taken");
+        // Once written whole, it is read from where the read before stopped.
+        std::fs::write(stream_at(&base, 2), format!("{whole}{begun}{rest}\n")).unwrap();
+        let edited = Doing::Tool {
+            name: "Edit".to_string(),
+            on: Some("/w/b.rs".to_string()),
+        };
+        let third = doing_from(&dir, second.next);
+        assert_eq!(third.done, [(2, edited.clone())]);
+        // From the start, every try in order.
+        let all: Vec<(usize, Doing)> = doing_from(&dir, Mark::default()).done;
+        assert_eq!(
+            all,
+            [
+                (1, bash),
+                (1, returned),
+                (2, Doing::Said(cut)),
+                (2, Doing::Compacting),
+                (2, read),
+                (2, edited)
+            ]
+        );
     }
 
     #[test]
-    fn only_the_last_things_an_agent_did_are_read_from_the_end_of_its_stream() {
+    fn every_thing_an_agent_did_is_given_however_many_and_however_long_a_tool_s_result_between() {
         let (dir, base) = kept();
         std::fs::write(at(&base, 1).0, "Count.").unwrap();
         let echo = |n: usize| {
@@ -543,28 +608,20 @@ mod tests {
             assistant(serde_json::json!([{ "type": "tool_use", "name": "Bash", "input": input }]))
         };
         let used = |from: usize, to: usize| (from..to).map(echo).collect::<Vec<_>>().join("\n");
-        let seen = |dir: &tempfile::TempDir| -> Vec<Option<String>> {
-            (doing_at(dir).into_iter())
-                .map(|d| match d {
-                    Doing::Tool { on, .. } => on,
-                    _ => None,
-                })
-                .collect()
-        };
-        let echoed =
-            |from: usize, to: usize| -> Vec<Option<String>> { (from..to).map(|n| Some(format!("echo {n}"))).collect() };
-        // Of many, the last few.
-        std::fs::write(stream_at(&base, 1), used(0, 12)).unwrap();
-        assert_eq!(seen(&dir), echoed(4, 12));
-        // A tool's long result after the first uses puts them past what is read of the stream's end: fewer than the
-        // last few are given, those after it.
         let long = format!(
             r#"{{"type":"user","message":{{"content":"{}"}}}}"#,
             "x".repeat(300 << 10)
         );
-        let stream = [used(0, 5), long, used(5, 8)].join("\n");
+        let stream = format!("{}\n{long}\n{}\n", used(0, 12), used(12, 15));
         std::fs::write(stream_at(&base, 1), stream).unwrap();
-        assert_eq!(seen(&dir), echoed(5, 8));
+        let seen: Vec<Option<String>> = (doing_from(&dir, Mark::default()).done.into_iter())
+            .map(|(_, d)| match d {
+                Doing::Tool { on, .. } => on,
+                _ => None,
+            })
+            .collect();
+        let echoed: Vec<Option<String>> = (0..15).map(|n| Some(format!("echo {n}"))).collect();
+        assert_eq!(seen, echoed);
     }
 
     #[test]

@@ -234,6 +234,10 @@ pub trait Host: Send + Sync + 'static {
     /// again on the branch it kept: its pull request into main, which its cancel closed, is opened again, where it has
     /// one closed and not merged and none open.
     fn reopen(&self, branch: &Branch<'_>) -> impl Future<Output = Result<(), String>> + Send;
+
+    /// The address of the pull request of this number on the host, worked out without asking it; none where the host
+    /// has no pull requests, as the local repository.
+    fn pull_at(&self, number: u64) -> Option<String>;
 }
 
 /// The tests and the checks an agent names to `run_tests`, each as it wrote it.
@@ -305,5 +309,9 @@ impl<H: Host> Host for Arc<H> {
 
     async fn reopen(&self, branch: &Branch<'_>) -> Result<(), String> {
         (**self).reopen(branch).await
+    }
+
+    fn pull_at(&self, number: u64) -> Option<String> {
+        (**self).pull_at(number)
     }
 }

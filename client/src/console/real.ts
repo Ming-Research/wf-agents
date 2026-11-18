@@ -5,7 +5,7 @@
 // From the engine, with the mocks off:
 // - The body, from the work's blocks: a section for each datum the flow's card names, in its order and by its name,
 //   with its current version. The questions put to the owner are not read from each cell's questions: the panel draws
-//   each from the work's page, once, at the end of the last section.
+//   each from the work's page, once, where a text points to it or else at the end of the last section.
 // - The messages: of each cell's own words (a block among its outputs the engine's source of the owner's words
 //   writes), each version the engine wrote is the owner's, to that cell, and each the cell's run wrote is its answer,
 //   to the owner; each with the words alone, read back out of the version by the block's `owner` or `reply` text; of a

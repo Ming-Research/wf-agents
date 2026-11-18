@@ -93,7 +93,7 @@ use decide::{BlockId, Pauser, RunId, Seq};
 use driver::Policy;
 use engine::Came;
 use service::{
-    Clock, Doing, Fork, Forked, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Telling, Told,
+    Clock, Doings, Fork, Forked, Mark, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Telling, Told,
 };
 use store::WorkNumber;
 use tokio::process::Command;
@@ -323,8 +323,8 @@ impl Rounds for Agents {
         }
     }
 
-    fn doing(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Vec<Doing>, String> {
-        kept::doing(&self.inner.data, work, run, round)
+    fn doing(&self, work: WorkNumber, run: RunId, round: usize, from: Mark) -> Result<Doings, String> {
+        kept::doing(&self.inner.data, work, run, round, from)
     }
 
     fn policy(&self) -> Option<Policy> {

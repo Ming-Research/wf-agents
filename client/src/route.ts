@@ -5,6 +5,8 @@
 
 import { useEffect, useState } from 'react';
 
+import { CHOICE_KEYS, keptChoice } from './kept';
+
 /// The views that are one page each, in the order of the bar's tabs.
 export const PLAIN = ['console', 'works', 'flow', 'observations', 'system', 'settings'] as const;
 export type Plain = (typeof PLAIN)[number];
@@ -79,9 +81,10 @@ export function hashOf(route: Route): string {
   return `#/${route.view}`;
 }
 
-/// The span the system's view counts over: the week under way unless the address names another.
+/// The span the system's view counts over: the one the address names, else the one the owner last picked, kept in this
+/// browser, else the week under way.
 export function periodOf(route: Route): Period {
-  return 'period' in route ? route.period : 'week';
+  return 'period' in route ? route.period : keptChoice(CHOICE_KEYS.systemPeriod, 'week', PERIODS);
 }
 
 /// The tab of the bar a view belongs to: a work belongs to the works, and the system over any span to the system.

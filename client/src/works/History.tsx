@@ -1,124 +1,111 @@
-// A work's history as a chart, drawn as the flow's chart is: the cells across in the order of the walk, each head with
-// how the cell stands now; the steps down, one to a row in the order they happened, each with its time and why at the
-// left. A run is in its cell's column, saying how it stands, how many rounds it had, how long it took, what it cost
-// and what it wrote; what is not a run is a row of its own, its words at the left and, for a write, under each cell
-// that takes the block the flow's chart's mark of that cell for it: the ring of `watches`, or the ring of `reads` with
-// its kind. The oldest step is at the top, as the walk goes down the flow's chart, and the chart opens scrolled to its
-// end, the newest step.
+// A work's history, drawn as the flow's matrix is: the cells of the work's flow across in the order of the walk, each
+// head the matrix's own; down the side the runs, one to a row in the order they happened, the oldest at the top. At the
+// left of a row, what woke its run, named as the matrix names its rows, with the owner's sign, the outside's or the
+// tool's mark (`placing.ts`). Under the cells, an arrow from the middle of the column of the cell whose run wrote what
+// woke it to the run's own column, drawn as the matrix draws its ways back and in the accent where it runs back
+// to an earlier cell, and in the run's column its mark, how it ended or stands, alone. At the right, how long the run
+// took, or has been under way while it is open, in the colour a console card gives a work's age, and when it began on
+// pointing at it; then what its latest round ran on, as the records of its try kept it: the level, in the look a level
+// has, the reasoning effort and the model, none of a run of the engine's own cell. A run whose rounds ran on more than
+// one says them all in the step's window. Where the work was paused, let on
+// again, cancelled or reopened, a row half as high lies between the runs it fell between: a dashed line in the accent
+// across the cells, and at the right what was done, and when on pointing at it. The table keeps its whole width under
+// the window over its right, as the flow's chart does, and the frame scrolls on past what the window covers. The chart opens scrolled to its end, the newest step, and follows new
+// steps while the owner is at the end.
 
-import { type CSSProperties, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import type { Flow } from '../api';
-import { Breakable, ConditionMark, DataGlyphs, WIDTHS, tableWidth, useWheel } from '../Chart';
-import { markOf } from '../matrix';
-import { markWords } from '../words';
-import { Arrow, Edge, Sign } from '../parts';
+import type { Cell } from '../api';
+import { CellHead, LineLine, RowArrow, WIDTHS, WordsHead, useWheel } from '../Chart';
+import { matrix } from '../matrix';
+import { LevelMark, MARKS, type MarkKey, markName } from '../marks';
+import { age } from '../console/items';
+import { Arrow, Edge } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
-import type { Block, CellNow, Step, WorkPage } from '../works-api';
-import { type HistoryRow, placeSteps } from './placing';
-import { StateMark, cellNowWords } from './marks';
-import {
-  RUN_WORDS,
-  STATE_WORDS,
-  dayOf,
-  dollars,
-  duration,
-  fullTime,
-  isWayRound,
-  minuteOf,
-  pauseWords,
-  runState,
-  runTook,
-  sessionWords,
-  stoppedAt,
-} from './words';
+import type { WorkPage } from '../works-api';
+import { type HistoryRow, type Named } from './placing';
+import { colourOf } from './state-marks';
+import { useNow } from './marks';
+import { duration, fullTime, isOpen, partsText, ranLast, runTook } from './words';
 
-/// What the owner chose: on the chart, a step by its place among the steps or a cell; in the view's line, what the work
-/// used; or nothing.
-export type Chosen = { step: number } | { cell: string } | { usage: true } | null;
+/// The marks the history draws, in the order its legend lists them (`Legend` in marks.tsx): the arrow from a write to
+/// the run it woke and the way back; the signs of who wrote what woke a run, and a tool's mark; how a run
+/// ended, then how an open one stands.
+export const HISTORY_MARKS: MarkKey[] = [
+  'wakes',
+  'wayBack',
+  'people',
+  'outside',
+  'tools',
+  'handedIn',
+  'running',
+  'waiting',
+  'atRest',
+  'failed',
+  'again',
+  'stopped',
+];
 
-/// The width of the column of times and words at first, and the least and most it is dragged to.
-const STEPS = { first: 260, min: 160, max: 520 };
+/// The width of a cell's column at first, which holds one mark and the arrows through it, and the least it is dragged
+/// to.
+const CELLS = { first: 36, min: 28 };
 
-/// A piece of a row's words: the page's own words, or a name or a value from the flow, drawn in monospace.
-type Part = string | { name: string };
+/// The least width of the column at the right, which holds how long each run took and what it ran on.
+const FACTS_MIN = 360;
 
-/// Names joined by commas, each a name.
-const names = (all: string[]): Part[] => all.flatMap((name, i) => (i === 0 ? [{ name }] : [', ', { name }]));
+/// The heads of what the column at the right holds, in the order its rows give them.
+const FACTS = ['Took', 'Level', 'Effort', 'Model'];
 
-/// The words of a row at its left, in pieces: why a run ran, or what was done. A run of a cell the flow no longer has,
-/// which stands in no column, says which cell it was; a write, whether it changed the block's meaning, where the
-/// block's versions are given, that the block has said nothing yet.
-export function stepParts(step: Step, flow: Flow, blocks: Block[]): Part[] {
-  switch (step.kind) {
-    case 'run': {
-      const changed = step.because.flatMap((c) => (c.kind === 'changed' ? [c.block] : []));
-      const why: Part[] = isWayRound(step)
-        ? ['way round for ', ...names(changed)]
-        : changed.length > 0
-          ? ['for ', ...names(changed)]
-          : [{ name: step.cell }, ' had no record'];
-      const gone = flow && !flow.cells.some((c) => c.id === step.cell);
-      return gone ? [{ name: step.cell }, ', which the flow no longer has: ', ...why] : why;
-    }
-    case 'wrote': {
-      const who = step.by.kind === 'owner' ? 'the owner' : step.by.kind === 'outside' ? 'the outside' : `run ${step.by.run}`;
-      return [
-        `${who} wrote `,
-        { name: step.block },
-        ...(step.value !== null ? [' = ', { name: step.value }] : []),
-        saidNothing(blocks, step.block, step.at) ? ', said nothing yet' : step.changed ? '' : ', same meaning',
-      ];
-    }
-    case 'letGo':
-      return ['the owner let ', { name: step.cell }, ' go on'];
-    case 'paused':
-      return [pauseWords(step.by, step.why)];
-    case 'resumed':
-      return ['the owner let the work on'];
-    case 'cancelled':
-      return ['the owner cancelled the work'];
-    case 'reopened':
-      return ['the work was reopened'];
-    case 'session':
-      return step.why.kind === 'compacted'
-        ? ['the session of the line ', { name: step.line }, ` was compacted: ${sessionWords(step.why)}`]
-        : ['the line ', { name: step.line }, ` began a session: ${sessionWords(step.why)}`];
-  }
+/// The width of the column of names at first, and the least and most it is dragged to.
+const NAMES = { first: 240, min: WIDTHS.namesMin, max: WIDTHS.namesMax };
+
+/// How far a run's mark reaches from its middle, in the units of a glyph's box: half its side (`--space-8`) where the
+/// box is `--chart-mark` wide in 24 units.
+const RUN_REACH = 6;
+
+/// What a name's mark says on pointing at it: who wrote it or acted.
+const WHO: Record<NonNullable<Named['mark']>, string | undefined> = {
+  people: 'the owner',
+  outside: 'the outside',
+  tools: undefined,
+};
+
+/// How the arrow of a run's row runs through a cell's column: out of the writer's column's middle, through, or into the
+/// run's mark, along the side it comes from; and whether it is a way back, to an earlier cell.
+function lineAt(row: HistoryRow, column: number): { left: boolean; right: boolean; back: boolean } | null {
+  if (row.run === null || row.from === null) return null;
+  const [low, high] = [Math.min(row.from.column, row.run.column), Math.max(row.from.column, row.run.column)];
+  if (column < low || column > high) return null;
+  return { left: column > low, right: column < high, back: row.from.column > row.run.column };
 }
 
-/// Whether the version of the block written at this place has said nothing yet: its meaning is none, as of a first
-/// version handed in as changing nothing.
-export function saidNothing(blocks: Block[], block: string, at: number): boolean {
-  return blocks.find((b) => b.name === block)?.versions.find((v) => v.at === at)?.meaning === null;
-}
-
-/// The words of a row at its left, as one text.
-export function stepWords(step: Step, flow: Flow, blocks: Block[]): string {
-  return stepParts(step, flow, blocks)
-    .map((p) => (typeof p === 'string' ? p : p.name))
-    .join('');
-}
-
-export function HistoryChart({ page, chosen, onChoose }: {
+export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
   page: WorkPage;
-  chosen: Chosen;
-  onChoose: (chosen: Chosen) => void;
+  rows: HistoryRow[];
+  /// The place among the steps of the step chosen; none where nothing is.
+  chosen: number | null;
+  onChoose: (step: number | null) => void;
+  /// How much of the frame's right the window over it covers, in pixels; none while it is away.
+  covered: number;
 }) {
-  const { flow, steps } = page;
-  const rows = useMemo(() => placeSteps(steps, flow, page.blocks), [steps, flow, page.blocks]);
+  const cells = page.flow.cells;
   const frame = useRef<HTMLDivElement>(null);
-  const [lead, setLead] = useKeptWidth(WIDTH_KEYS.steps, STEPS.min, STEPS.max);
-  const [widths, setWidth] = useKeptWidths(WIDTH_KEYS.historyCells, WIDTHS.cellMin, WIDTHS.cellMax);
+  const [lead, setLead] = useKeptWidth(WIDTH_KEYS.historyNames, NAMES.min, NAMES.max);
+  const [widths, setWidth] = useKeptWidths(WIDTH_KEYS.historyCells, CELLS.min, WIDTHS.cellMax);
   const [pointed, setPointed] = useState<number | null>(null);
+  // The flow's lines, each the matrix's own row of it, under the cells' heads.
+  const lines = useMemo(() => matrix(page.flow).lines, [page.flow]);
+  // The flow's groups, whose names a row writes with the word `group` after them, as the matrix does.
+  const groups = useMemo(() => new Set(page.flow.groups.map((g) => g.name)), [page.flow]);
+  // How long an open run has been under way counts on each second while one is.
+  const now = useNow(rows.some((r) => r.step.kind === 'run' && isOpen(r.step)));
   useWheel(frame);
-  const leadWidth = lead ?? STEPS.first;
-  const size = tableWidth(
-    leadWidth,
-    flow.cells.map((c) => c.id),
-    widths,
-  );
-  const now = Date.now();
+  const leadWidth = lead ?? NAMES.first;
+  const widthOf = (id: string) => widths[id] ?? CELLS.first;
+  const taken = cells.reduce((sum, cell) => sum + widthOf(cell.id), leadWidth);
+  // Under the window the table keeps its whole width, as the flow's chart does (styles/chart.css).
+  const size = { width: 'calc(100% + var(--window-covers, 0px))', minWidth: taken + FACTS_MIN };
+  const unpoint = () => setPointed(null);
 
   // The chart opens at its end, the newest step; it follows new steps while the owner is at the end, and stays where
   // the owner scrolled to otherwise.
@@ -131,69 +118,99 @@ export function HistoryChart({ page, chosen, onChoose }: {
     const el = frame.current;
     if (el) atEnd.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
   };
-
-  const chosenCell = chosen && 'cell' in chosen ? chosen.cell : null;
-  const chosenStep = chosen && 'step' in chosen ? chosen.step : null;
-  const states = new Map(page.summary.cells.map((c) => [c.cell, c]));
-  const stopped = stoppedAt(page.summary);
+  // The step chosen, here, from the address or in the window, is brought into view.
+  useEffect(() => {
+    if (chosen === null) return;
+    frame.current?.querySelector(`[data-key="step:${chosen}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [chosen]);
 
   return (
-    <div className="frame" ref={frame} onScroll={scrolled} onMouseLeave={() => setPointed(null)}>
-      <table className="matrix history" style={size as CSSProperties}>
+    <div
+      className="frame"
+      ref={frame}
+      onScroll={scrolled}
+      onMouseLeave={unpoint}
+      style={covered > 0 ? ({ '--window-covers': `${covered}px` } as CSSProperties) : undefined}
+    >
+      <table className="matrix flow history" style={size as CSSProperties}>
         <colgroup>
           <col style={{ width: leadWidth }} />
-          {flow.cells.map((c) => (
-            <col key={c.id} style={widths[c.id] !== undefined ? { width: widths[c.id] } : undefined} />
+          {cells.map((cell) => (
+            <col key={cell.id} style={{ width: widthOf(cell.id) }} />
           ))}
+          <col />
         </colgroup>
         <thead>
           <tr>
-            <th className="lead corner" scope="col" aria-label="Steps down the side, cells across">
+            <th className="lead corner" scope="col" aria-label="Steps down the side, cells across" onMouseEnter={unpoint}>
               <span className="label corner-cells">
                 Cells <Arrow to="right" />
               </span>
-              <span className="label corner-blocks">
-                Steps <Arrow to="down" />
-              </span>
               <Edge
                 side="right"
-                label="Drag the width of the steps' column"
+                label="Drag the width of the names' column"
                 start={() => leadWidth}
                 onDrag={setLead}
                 onReset={() => setLead(null)}
               />
             </th>
-            {flow.cells.map((c, i) => (
-              <HistoryHead
-                key={c.id}
-                flow={flow}
-                cell={c.id}
-                now={states.get(c.id)}
-                stopped={stopped === c.id}
-                chosen={chosenCell === c.id}
-                pointed={pointed === i}
-                onChoose={() => onChoose(chosenCell === c.id ? null : { cell: c.id })}
-                onPoint={() => setPointed(i)}
-                onWidth={(w) => setWidth(c.id, w)}
+            {cells.map((cell, c) => (
+              <CellHead
+                key={cell.id}
+                cell={cell}
+                chosen={false}
+                pointed={pointed === c}
+                onPoint={() => setPointed(c)}
+                onUnpoint={unpoint}
+                width={widthOf(cell.id)}
+                onWidth={(w) => setWidth(cell.id, w)}
               />
             ))}
+            <WordsHead
+              about={pointed !== null ? (cells[pointed] ?? null) : null}
+              saying={null}
+              onPoint={unpoint}
+              label={
+                <span className="run-facts">
+                  {FACTS.map((f) => (
+                    <span key={f}>{f}</span>
+                  ))}
+                </span>
+              }
+            />
           </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <StepRow
-              key={row.key}
+          {lines.map((row) => (
+            <LineLine
+              key={row.name}
               row={row}
-              flow={flow}
-              blocks={page.blocks}
-              now={now}
-              chosen={chosenStep === row.index}
-              chosenCell={chosenCell}
+              chosen={false}
+              onChoose={() => undefined}
+              cells={cells}
+              chosenCell={null}
+              saying={null}
               pointed={pointed}
-              onChoose={() => onChoose(chosenStep === row.index ? null : { step: row.index })}
               onPoint={setPointed}
             />
           ))}
+        </thead>
+        <tbody>
+          {rows.map((row) =>
+            row.divider !== null ? (
+              <DividerRow key={row.key} row={row} span={cells.length} />
+            ) : (
+              <StepRow
+                key={row.key}
+                row={row}
+                cells={cells}
+                groups={groups}
+                chosen={chosen === row.index}
+                pointed={pointed}
+                onChoose={() => onChoose(chosen === row.index ? null : row.index)}
+                onPoint={setPointed}
+                now={now}
+              />
+            ),
+          )}
         </tbody>
       </table>
       {rows.length === 0 && <p className="message muted">Nothing has happened to the work yet</p>}
@@ -201,176 +218,112 @@ export function HistoryChart({ page, chosen, onChoose }: {
   );
 }
 
-/// The head of a cell's column: its id, its title, and how it stands for the work now, its mark filled red where the
-/// work is `stopped` at it.
-function HistoryHead(props: {
-  flow: Flow;
-  cell: string;
-  now: CellNow | undefined;
-  stopped: boolean;
-  chosen: boolean;
-  pointed: boolean;
-  onChoose: () => void;
-  onPoint: () => void;
-  onWidth: (width: number | null) => void;
-}) {
-  const { flow, cell, now, stopped, chosen, pointed, onChoose, onPoint, onWidth } = props;
-  const head = useRef<HTMLTableCellElement>(null);
-  const c = flow.cells.find((x) => x.id === cell);
+/// Where the work was paused, let on again, cancelled or reopened, between two runs: a line across the cells, and at
+/// the right what was done; when, on pointing at it.
+function DividerRow({ row, span }: { row: HistoryRow; span: number }) {
+  const { step } = row;
+  const did = partsText(row.did);
   return (
-    <th
-      scope="col"
-      ref={head}
-      className={`cell-head ${chosen ? 'chosen' : ''} ${pointed ? 'pointed' : ''}`}
-      data-key={`cell:${cell}`}
-      onMouseEnter={onPoint}
-    >
-      <button type="button" className="head-button" aria-pressed={chosen} onClick={onChoose}>
-        <span className="cell-id">
-          <Breakable name={cell} />
-        </span>
-        <span className="cell-title" title={c?.title ?? cell}>
-          {c?.title ?? cell}
-        </span>
-        {now && (
-          <span className={`cell-state state-text-${now.state}`} title={cellNowWords(now)}>
-            <StateMark state={now.state} stopped={stopped} /> {STATE_WORDS[now.state]}
-            {now.finished > 0 && <span className="muted"> · {now.finished}</span>}
-          </span>
-        )}
-      </button>
-      <Edge
-        side="right"
-        label={`Drag the width of ${cell}'s column`}
-        start={() => head.current?.getBoundingClientRect().width ?? WIDTHS.cellShare}
-        onDrag={onWidth}
-        onReset={() => onWidth(null)}
-      />
-    </th>
+    <tr className="divider-row" title={`${fullTime(step.time)}: ${did}`}>
+      <th scope="row" className="lead">
+        <span className="visually-hidden">{did}</span>
+      </th>
+      <td className="divider-line" colSpan={span} aria-hidden="true" />
+      <td className="words">
+        <span className="divider-words">{row.divider}</span>
+      </td>
+    </tr>
   );
 }
 
+/// A run: what woke it, the arrow and its mark under the cells, how long it took, coloured as a card colours a work's
+/// age (decision a-works-age-is-red-past-an-hour), and what it ran on.
 function StepRow(props: {
   row: HistoryRow;
-  flow: Flow;
-  /// The work's blocks, with their versions.
-  blocks: Block[];
-  now: number;
+  cells: Cell[];
+  /// The names of the flow's groups.
+  groups: ReadonlySet<string>;
   chosen: boolean;
-  chosenCell: string | null;
   pointed: number | null;
   onChoose: () => void;
-  onPoint: (column: number) => void;
+  onPoint: (column: number | null) => void;
+  /// The time now, against which an open run's time under way is counted.
+  now: number;
 }) {
-  const { row, flow, blocks, now, chosen, chosenCell, pointed, onChoose, onPoint } = props;
+  const { row, cells, groups, chosen, pointed, onChoose, onPoint, now } = props;
   const { step } = row;
-  const words = stepWords(step, flow, blocks);
-  const wayRound = step.kind === 'run' && isWayRound(step);
-  const sign = step.kind === 'wrote' && step.by.kind !== 'run' ? (step.by.kind === 'owner' ? 'people' : 'outside') : null;
+  const did = partsText(row.did);
+  const ms = step.kind === 'run' ? runTook(step, now) : null;
+  const ran = step.kind === 'run' ? ranLast(step) : null;
   return (
-    <tr className={`row step-row step-${step.kind} ${chosen ? 'chosen' : ''}`} onClick={onChoose}>
-      <th scope="row" className="lead step-lead">
+    <tr className={`row step-row ${chosen ? 'chosen' : ''}`} onClick={onChoose}>
+      <th
+        scope="row"
+        className="lead step-lead"
+        data-key={`step:${row.index}`}
+        title={did || undefined}
+        onMouseEnter={() => onPoint(null)}
+      >
         <button
           type="button"
           className="head-button"
           aria-pressed={chosen}
+          aria-label={`${fullTime(step.time)}: ${did}`}
           onClick={(e) => {
             e.stopPropagation();
             onChoose();
           }}
         >
-          <span className="step-time" title={fullTime(step.time)}>
-            {row.newDay ? `${dayOf(step.time)} ` : ''}
-            {minuteOf(step.time)}
-          </span>
-          {sign && <Sign name={sign} />}
-          <span className={`step-words ${wayRound ? 'way-back' : ''}`} title={words}>
-            {step.kind === 'run' && <span className="mono muted">{step.run} </span>}
-            {stepParts(step, flow, blocks).map((p, i) =>
-              typeof p === 'string' ? (
-                p
-              ) : (
-                <span key={i} className="mono">
-                  {p.name}
-                </span>
-              ),
-            )}
-          </span>
+          {row.names.map((n) => (
+            <span key={`${n.name} ${n.mark}`} className="step-name">
+              <span className="block-name">{n.name}</span>
+              {groups.has(n.name) && <span className="row-label">group</span>}
+              {n.mark !== null && MARKS[n.mark].draw(WHO[n.mark])}
+            </span>
+          ))}
         </button>
       </th>
-      {flow.cells.map((c, i) => {
-        const furthest = row.backFrom.at(-1);
-        const back =
-          furthest !== undefined && row.column !== null && i > row.column && i <= furthest
-            ? row.backFrom.includes(i)
-              ? i === furthest
-                ? 'back-from'
-                : 'back-from back-through'
-              : 'back-through'
-            : '';
-        const mark = row.marks.get(i);
-        // Of a write, what the cell takes of the block by any list, as the flow's chart marks it: a new version of it
-        // runs the cell, or the cell is given it; nothing where it does neither, as of a block an act only reads.
-        const taken = step.kind === 'wrote' && mark === 'read' ? markOf(c, step.block) : null;
-        const takes = taken && (taken.watch || taken.read) ? { ...taken, write: false } : null;
-        const said = takes && step.kind === 'wrote' ? markWords(c, step.block, takes) : '';
+      {cells.map((cell, c) => {
+        const line = lineAt(row, c);
+        const runHere = row.run !== null && row.run.column === c ? row.run : null;
+        const fromHere = row.from !== null && row.from.column === c ? row.from : null;
+        const words = runHere ? `${runHere.words}: ${markName(runHere.state)}` : (fromHere?.words ?? '');
+        const kind = line?.back ? 'back' : 'wakes';
         return (
           <td
-            key={c.id}
-            className={`spot step-spot ${back} ${chosenCell === c.id ? 'chosen' : ''} ${pointed === i ? 'pointed' : ''} ${
-              takes || (mark && mark !== 'read') ? 'has-mark' : ''
-            }`}
-            title={said || undefined}
-            onMouseEnter={() => onPoint(i)}
+            key={cell.id}
+            className={[
+              'spot',
+              pointed === c ? 'pointed' : '',
+              runHere || fromHere ? 'has-mark' : '',
+              runHere ? 'ran' : '',
+            ].join(' ')}
+            style={runHere ? ({ '--ran': colourOf(runHere.state) } as CSSProperties) : undefined}
+            title={words || undefined}
+            onMouseEnter={() => onPoint(c)}
           >
-            {row.column === i && step.kind === 'run' && <RunBox run={step} now={now} back={row.backFrom.length > 0} />}
-            {takes && (
-              <>
-                <DataGlyphs mark={takes} />
-                <span className="visually-hidden">{said}</span>
-              </>
+            {line?.left && <span className={`seg seg-left ${kind}`} aria-hidden="true" />}
+            {line?.right && <span className={`seg seg-right ${kind}`} aria-hidden="true" />}
+            {runHere && <span className="glyphs">{MARKS[runHere.state].draw(words)}</span>}
+            {runHere && row.from !== null && (
+              <RowArrow reach={RUN_REACH} from={row.from.column > runHere.column ? 'right' : 'left'} />
             )}
-            {mark === 'condition' && (
-              <>
-                <ConditionMark />
-                <span className="visually-hidden">
-                  {`${c.id}'s condition reads it`}
-                </span>
-              </>
-            )}
-            {mark === 'letGo' && <span className="let-go-mark">let go</span>}
-            {back && <span className="seg-back" aria-hidden="true" />}
+            {words && <span className="visually-hidden">{words}</span>}
           </td>
         );
       })}
-    </tr>
-  );
-}
-
-/// A run in its cell's column, on one line cut at the column's edge and whole on the pointer's tip: how it stands and
-/// how many rounds it had; how long it took and what it cost; what it wrote.
-function RunBox({ run, now, back }: { run: Step & { kind: 'run' }; now: number; back: boolean }) {
-  const state = runState(run);
-  const writes = run.end?.kind === 'finished' ? run.end.writes.map((w) => w.block) : [];
-  const facts = `${duration(runTook(run, now))} · ${dollars(run.spent.usdMicros)}`;
-  const title = [
-    `run ${run.run} of ${run.cell}: ${RUN_WORDS[state]}, ${run.rounds.length} rounds`,
-    facts,
-    writes.length > 0 ? `wrote ${writes.join(', ')}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
-  return (
-    <span className={`run run-${state}`} title={title}>
-      {back && <span className="run-arrow" aria-hidden="true" />}
-      <span className="run-line">
-        <span className="run-word">{RUN_WORDS[state]}</span>
-        <span className="muted">
-          {' '}
-          {run.rounds.length} round{run.rounds.length === 1 ? '' : 's'} · {facts}
+      <td className="words" title={`Began ${fullTime(step.time)}`} onMouseEnter={() => onPoint(null)}>
+        <span className="run-facts">
+          <span className={ms === null ? '' : `step-time ${age(ms).tone}`}>{ms !== null && duration(ms)}</span>
+          <span>{ran !== null && <LevelMark level={ran.level} raise={0} />}</span>
+          <span className="muted" title={ran?.effort ? `effort ${ran.effort}` : undefined}>
+            {ran?.effort}
+          </span>
+          <span className="mono muted" title={ran ? `model ${ran.model}` : undefined}>
+            {ran?.model}
+          </span>
         </span>
-        {writes.length > 0 && <span className="mono run-writes"> {writes.join(' ')}</span>}
-      </span>
-    </span>
+      </td>
+    </tr>
   );
 }

@@ -13,6 +13,8 @@ afterEach(() => {
   unmount?.();
   unmount = undefined;
   document.body.innerHTML = '';
+  // The choice of the matrix or the flowchart is kept in the browser: each test opens the page as it is first shown.
+  localStorage.clear();
 });
 
 function draw(): HTMLElement {
@@ -71,6 +73,14 @@ describe('the switch between the matrix and the flowchart', () => {
     click(button(page, 'Flowchart'));
     expect(matrix.hidden).toBe(true);
     expect((page.querySelector('.graph-place') as HTMLElement).hidden).toBe(false);
+  });
+
+  it('opens on the one the owner last chose, kept in the browser', () => {
+    click(button(draw(), 'Matrix'));
+    unmount?.();
+    const again = draw();
+    expect((again.querySelector('.frame') as HTMLElement).hidden).toBe(false);
+    expect(button(again, 'Matrix')?.getAttribute('aria-pressed')).toBe('true');
   });
 
   it("lays its line out in two rows: the flow's name, its facts and the switches, and under them the legend alone", async () => {

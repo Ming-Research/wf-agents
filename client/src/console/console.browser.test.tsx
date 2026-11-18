@@ -385,7 +385,7 @@ describe('the tree in columns', () => {
           others.map((k) => before[k as keyof typeof before]),
         );
         const accent = theme === 'light' ? t.light.accent : t.dark.accent;
-        expect(after).toMatchObject({ chosen: accent, running: accent, model: accent });
+        expect(after).toMatchObject({ chosen: accent, running: accent });
       }
     } finally {
       pickAccent(null);
@@ -457,6 +457,30 @@ describe('the console page', () => {
   const folded = () => container.querySelector('aside.cw')?.classList.contains('cw-open') === false;
   const button = (words: string) =>
     [...container.querySelectorAll('button')].find((b) => b.textContent === words) ?? null;
+
+  it('shows the open items at first, and the done and the cancelled as their boxes are ticked, keeping the boxes ticked in the browser', async () => {
+    const scene = await drawn();
+    const boxes = () => [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')];
+    const box = (name: string) => boxes().find((l) => l.textContent === name)?.querySelector('input') as HTMLInputElement;
+    expect(container.querySelector('.console-shows')?.getAttribute('aria-label')).toBe('Which items the tree shows');
+    expect(boxes().map((l) => l.textContent)).toEqual(['Open', 'Done', 'Cancelled']);
+    expect(boxes().map((l) => l.title)).toEqual([
+      'The items not done or cancelled: running, paused or waiting',
+      'The items whose work merged',
+      'The items whose work was cancelled',
+    ]);
+    expect(['Open', 'Done', 'Cancelled'].map((n) => box(n).checked)).toEqual([true, false, false]);
+    // Of the made-up items, 25 are open or stand over an open one; 3 more are done and 1 more cancelled; and 9 are done
+    // or cancelled or stand over one that is.
+    expect(scene.stats.items).toBe(25);
+    box('Done').click();
+    await expect.poll(() => scene.stats.items).toBe(27);
+    box('Cancelled').click();
+    await expect.poll(() => scene.stats.items).toBe(28);
+    box('Open').click();
+    await expect.poll(() => scene.stats.items).toBe(9);
+    expect(localStorage.getItem('wf-agents.console-shows')).toBe('done,cancelled');
+  });
 
   it('brings the panel out with the item selected, and on Escape lets the item go and folds the panel', async () => {
     const scene = await drawn();

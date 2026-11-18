@@ -1,6 +1,17 @@
 # The item's window
 
-What the console opens for an item: what its flow's card names, the questions in it and the owner's words to each cell.
+What the console, and a work's page for the work's item, open for an item: its tabs, what its flow's card names, the
+questions in it and the owner's words to each cell.
+
+### decision one-window-on-the-console-and-a-works-page
+The window has the same four tabs on the console and on a work's page, Item, Work, Step and Usage, each page keeping
+its own choice of tab; Step shows the row of the work's history the owner chose, where the page draws the history and
+one is chosen, and else the run the work stands at: the run whose round is under way, or else the latest run of the
+cell it stands at.
+Why: The console holds the items and the works going on under them, and is where the owner works (principle
+the-console-is-where-the-owner-works); Step and Usage on a work's page alone left the owner no way to see from the
+console what a work does now and what it used, and one window drawn from one set of parts shows each thing one way
+(Article 8).
 
 ### decision the-card-is-the-flows
 What the item's card shows the owner is named by the work's flow in its own `flow.toml` (`card`), data of the flow in
@@ -13,11 +24,35 @@ down: the order is the flow's, and is said once there. A key saying a flow deliv
 no agent's cell does no work of its own and delivers what its item is made of, which its cells already say, and a key
 beside them could only repeat them or contradict them.
 
+### decision a-question-stands-where-a-text-points-to-it
+A question of the work is drawn at the first pointer to it, `{{name}}` as the words of a cell's questions tell its
+agent, in the passages of the card's sections and then in the messages an agent wrote, in the order the window draws
+them; a later pointer to it is a link to it, a pointer in code is text, and a question no text points to stands after
+the body (principle asked-where-it-arises).
+Why: The form is said in the agents' words and read by the page, and neither shows the other: changed in one alone,
+every question falls back to the body's end and every pointer shows as its raw marks. A name is the work's, the engine
+reading each question by its name, so a pointer means one question whoever wrote the text: reading it as the writer's
+own was turned down, as a plan the cell that looks for a better way wrote pointed to the initial research's question
+(work 10).
+
+### decision a-diff-is-drawn-as-the-text-it-changes
+A ```diff block in the window is drawn as the text it changes reads after the change, each change in its place: the
+words removed, struck through in red on a red tint, then the words added, on a green tint, so that the colour of the
+words is left to their kind (decision code-is-coloured-from-prisms-words). The two sides' words are compared, their
+blanks only where nothing else differs, and two changes fewer than four words apart are drawn as one. The diff's signs,
+its numbers and what git keeps of a file are not drawn, a file's path only where the block changes several, and a
+block that is no unified diff is drawn as code.
+Why: Drawn as written, the diff's long lines folded away from their signs, and shown word by word ("the ~~cell~~
+**flow**") changes close together could not be read either (work 11). Compared with their blanks, a paragraph wrapped
+again would read as rewritten whole. How far apart two changes stay apart rests on judgment.
+
 ### decision an-option-is-picked-by-pressing-it
-An option of a question is a button: pressing it picks it, and pressing the one picked lets it go. It carries its radio
-mark inside it, at its left.
+An option of a question that waits for its answer is a button: pressing it picks it, and pressing the one picked lets
+it go. It carries its radio mark inside it, at its left. Once the question is answered its options are words alone,
+with no frame and no radio mark, the one taken marked by a tick.
 Why: A row of short labels under the options, each to be matched to its option, was turned down as easy to press
-wrongly, and radio buttons under the options as saying each option twice.
+wrongly, and radio buttons under the options as saying each option twice. Drawn as the buttons they were, with the one
+taken still framed in the accent, the options of an answered question read as a question still open (work 11).
 
 ### decision every-stop-is-one-card
 Every stop of a work is one card, in the one look of a stop: the engine's one sentence of why, a stall's among them,
@@ -27,6 +62,14 @@ Why: Drawn as a card and again as a line with "Try again" beside it, the engine'
 failed read as two stops; a line of the page's own over each card ("The work waits for you", "Still to confirm") was
 turned down as saying again what the card's look says, and a line under a question saying the merge waits for it
 likewise: the red card and the line's cell say it.
+
+### decision only-a-line-that-takes-words-is-picked
+Of the lines over the message box, one on which the engine has no cell to give the owner's words to is grey, cannot be
+picked and says why on pointing at it; of the others, the line the work stands at is picked first, else the one it
+reached last. Where none takes the words, none is picked, no box is drawn, and why is said once, under the lines.
+Why: Offered and picked though no cell of it could take the words, a line of a work that had not run was picked first,
+and the box under it then said the words would go nowhere (W11); the engine decides which cell a line's words
+reach (design document `data-and-context`, 35), and the page only shows it.
 
 ### decision the-pause-switch-is-the-owners-own
 The switch that pauses a work is named the owner's own pause and shows only that; the engine's pause is lifted from

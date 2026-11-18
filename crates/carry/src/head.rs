@@ -5,7 +5,8 @@
 //! agent amended to slip in a change of its own is the work's, and moves the head. A version is the commit; between two
 //! versions a round is given the command that shows what the work itself changed, without main's code ([`between`]),
 //! the diff from the base it chooses ([`base`]), whose files the look at the run of a line that changes only the
-//! project's tests takes too (`crate::tests_only`).
+//! project's tests takes too (`crate::tests_only`). Each new version is kept under a reference of the engine's own as
+//! it is read ([`keep`]).
 
 use std::path::Path;
 
@@ -43,6 +44,19 @@ pub(crate) async fn read(place: &Place, main: &str, last: Option<&str>) -> Resul
         None => !on_main,
     };
     Ok(new.then_some(head))
+}
+
+/// The reference of the engine's own the work's latest head is kept under, beside the work's branch and named after
+/// it: no branch, so that nobody's look at the branches lists it, and git collects no commit it holds.
+pub(crate) fn kept(place: &Place) -> String {
+    format!("refs/wf-agents/{}", place.branch)
+}
+
+/// Keeps the head, a new version of the work's head, under the work's reference ([`kept`]), as it is read: what the
+/// work committed outlives its worktree and its branch, which a person or the host may take away.
+pub(crate) async fn keep(place: &Place, head: &str) -> Result<(), String> {
+    git::git(&place.dir, &["update-ref", &kept(place), head]).await?;
+    Ok(())
 }
 
 /// Whether the commit is `of`, or under it: on main, where `of` is main.

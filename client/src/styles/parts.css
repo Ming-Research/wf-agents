@@ -1,5 +1,5 @@
 /* The page's base and its parts (parts.tsx): the bar, the view's line, a button, a segmented switch, a tag, a label, a
-   list row and the docked panel. Every value is a token (tokens.css). */
+   list row, a panel and the window that shows it. Every value is a token (tokens.css). */
 
 *,
 *::before,
@@ -119,7 +119,10 @@ button {
   gap: var(--space-12);
 }
 
-.bar-tab {
+/* A view of the bar, and a tab of what a window shows (`Tabs`), drawn alike: muted, the one shown in the text's colour
+   over a line in the accent. */
+.bar-tab,
+.tab {
   display: flex;
   align-items: center;
   border-bottom: var(--focus) solid transparent;
@@ -127,9 +130,31 @@ button {
   text-decoration: none;
 }
 
-.bar-tab[aria-current='page'] {
+.bar-tab[aria-current='page'],
+.tab[aria-selected='true'] {
   border-bottom-color: var(--accent);
   color: var(--text);
+}
+
+/* The tabs of a window stand on a hairline, the line under the one shown over it. */
+.tabs {
+  display: flex;
+  gap: var(--space-12);
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+.tab {
+  margin-bottom: calc(-1 * var(--hairline));
+  padding: var(--space-4) 0;
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tab[aria-selected='true'] {
+  cursor: default;
 }
 
 .bar-end {
@@ -224,6 +249,15 @@ button {
 
 .view-name {
   font-weight: var(--weight-strong);
+}
+
+/* A view's name with what leads to it and its number, on one baseline: the number's monospace, smaller and centred
+   alone, would stand higher than the words beside it. */
+.view-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0 var(--space-12);
+  min-width: 0;
 }
 
 .view-facts {
@@ -405,72 +439,14 @@ textarea:disabled {
   text-decoration: underline;
 }
 
-/* The docked panel, laid out as the console's drawer: at the right of the view, divided from it by a hairline, with
-   a handle on its edge that folds it away and brings it back; its head, its status lines, its sections, and room at
-   its bottom for a box that answers. */
-.drawer {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  border-left: var(--hairline) solid var(--line);
-  background: var(--card);
-}
-
-.drawer-folded {
-  border-left: 0;
-}
-
-/* The panel's left edge: a thin line in the accent from top to bottom, which the handle grows out of; it stays at the
-   window's edge with the handle while the panel is folded away. The console's window has the same. */
-.drawer::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: calc(-1 * var(--focus));
-  z-index: 5;
-  width: var(--focus);
-  background: var(--accent);
-  pointer-events: none;
-}
-
-/* The handle: a narrow tab on the panel's left edge, in the accent, which stays at the window's edge while the panel
-   is folded away. */
-.drawer-tab {
-  position: absolute;
-  top: var(--space-16);
-  left: calc(-1 * var(--space-16));
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--space-16);
-  height: var(--chart-tab);
-  padding: 0;
-  border: 0;
-  border-radius: var(--corner) 0 0 var(--corner);
-  background: var(--accent);
-  color: var(--on-colour);
-  cursor: pointer;
-  transition: background-color var(--hover-time);
-}
-
-.drawer-tab:hover {
-  background-image: linear-gradient(var(--step), var(--step));
-}
-
+/* A panel, as a window shows it: its head, its status lines, its sections, and room at its bottom for a box that
+   answers. */
 .drawer-inner {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
   padding: var(--space-16) var(--space-16) 0;
-}
-
-.drawer-inner[hidden] {
-  display: none;
 }
 
 .drawer-head {
@@ -537,6 +513,11 @@ textarea:disabled {
   background: var(--running);
 }
 
+/* A work that waits for the calls of tools the engine carries out: the yellow of a call under way. */
+.dot-calling {
+  background: var(--yellow);
+}
+
 .drawer-body {
   flex: 1;
   min-height: 0;
@@ -587,8 +568,8 @@ textarea:disabled {
   background: var(--accent-text);
 }
 
-/* The tab: the handle every panel of the page has (`.drawer-tab`), a narrow tab in the accent on the window's left
-   edge, which stays at the screen's edge while the window is put away. */
+/* The tab: a narrow tab in the accent on the window's left edge, which stays at the screen's edge while the window is
+   put away. */
 .cw .cw-tab {
   position: absolute;
   top: var(--space-16);
@@ -782,6 +763,116 @@ textarea:disabled {
   padding: 0 var(--space-12);
   border-radius: 6px;
   font-size: 14px;
+}
+
+/* A diagram in a passage (diagram.tsx), at its own size, or as narrow as its place when wider (never larger, never
+   scrolling, never widening the page), as the drawing's own style says in its shadow root: the width and height of
+   its drawing and its viewBox keep its proportions. Made narrower, a click on it opens it larger. The buttons that
+   open it larger and that show its source sit in its top right corner, on the card, seen under the pointer or the
+   keyboard's focus, and always where there is no pointer to hover with. */
+.diagram {
+  position: relative;
+  min-width: 0;
+  margin: var(--space-4) 0 0;
+}
+
+.diagram-drawing-scaled {
+  cursor: zoom-in;
+}
+
+.diagram-tools {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: var(--space-8);
+  padding: 0 var(--space-4);
+  background: var(--card);
+  font-size: var(--size-small);
+}
+
+.diagram-tool {
+  opacity: 0;
+}
+
+.diagram:hover .diagram-tool,
+.diagram:focus-within .diagram-tool,
+.diagram-tool[aria-pressed='true'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .diagram-tool {
+    opacity: 1;
+  }
+}
+
+.diagram-note {
+  margin: var(--space-4) 0 0;
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+/* The window a diagram opens larger in: a card over the page, as the page's question is, nearly as large as the
+   window; its name and a button that closes it on a head with a line under it, the viewer filling the rest on the
+   card the diagram was drawn for, and how it is moved and scaled under it. */
+.diagram-window {
+  width: calc(100vw - var(--space-16) * 4);
+  max-width: none;
+  height: calc(100vh - var(--space-16) * 4);
+  max-height: none;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow:
+    0 0 0 var(--hairline) var(--line),
+    0 8px 16px rgb(0 0 0 / 8%),
+    0 24px 48px rgb(0 0 0 / 16%);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--size-body);
+}
+
+.diagram-window[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.diagram-window::backdrop {
+  background: rgb(31 35 40 / 35%);
+}
+
+.diagram-window-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--space-12) var(--space-16);
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+.diagram-window-title {
+  font-size: var(--size-title);
+  font-weight: var(--weight-strong);
+}
+
+.diagram-window-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  user-select: none;
+}
+
+.diagram-window-stage .viewer {
+  background: var(--card);
+}
+
+.diagram-window-hint {
+  margin: 0;
+  padding: var(--space-8) var(--space-16);
+  border-top: var(--hairline) solid var(--line);
+  color: var(--muted);
+  font-size: var(--size-small);
 }
 
 /* The form of a return as a tree (FormTree.tsx): each property on a line, its type after it, muted, a required one

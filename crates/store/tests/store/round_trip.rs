@@ -43,6 +43,12 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     );
 
     assert_eq!(w.sessions.len(), 2, "the sessions begun");
+    let pulls: Vec<(u64, &str)> = w.pulls.iter().map(|p| (p.number, p.url.as_str())).collect();
+    assert_eq!(
+        pulls,
+        [(41, "https://github.com/o/r/pull/41")],
+        "the pull request found"
+    );
     assert_eq!(w.ran.len(), 2, "the tries and what they ran on");
     assert!(
         w.spent

@@ -1,7 +1,7 @@
 // Where the works page reads the items and the works from, and sends what the owner does: the interface
 // (works-api.ts), or, when the page's address has `?fixtures`, the fixtures (fixtures.ts), so that the page can be
 // looked at before the interface serves the works. The page reaches it through a context, which a test sets to its
-// own source.
+// own source. The item's window reads a work's contents through it, each that does not change read once (`Reader`).
 //
 // The page is to stay quick with several hundred works, each change of any of them read again. So the interface's
 // changes come on the page's one stream (changes.ts); a part reads again at most once at a time, and once more after
@@ -18,8 +18,12 @@ import type {
   Act,
   CallPage,
   Changed,
+  ChangesPage,
   Copies,
+  DiffPage,
   DoingPage,
+  Done,
+  Following,
   Engine,
   EngineAct,
   Items,
@@ -43,6 +47,11 @@ export interface Source {
   loadRound(work: number, run: number, round: number): Promise<RoundPage>;
   loadTold(work: number, run: number, round: number): Promise<ToldPage>;
   loadDoing(work: number, run: number, round: number): Promise<DoingPage>;
+  /// Follows what the round's agent does, from the round's start, as it comes; gives the way to stop following.
+  followDoing(work: number, run: number, round: number, following: Following): () => void;
+  /// Each file the work changed, and the diff of one of them.
+  loadChanges(work: number): Promise<ChangesPage>;
+  loadDiff(work: number, path: string): Promise<DiffPage>;
   loadSystem(work: number, line: string, session: number): Promise<SystemPage>;
   loadCall(work: number, call: number): Promise<CallPage>;
   /// What the owner does to a work: words said answer with the cell the engine gave them to, every other act with
@@ -66,6 +75,9 @@ export const INTERFACE: Source = {
   loadRound: api.loadRound,
   loadTold: api.loadTold,
   loadDoing: api.loadDoing,
+  followDoing: api.followDoing,
+  loadChanges: api.loadChanges,
+  loadDiff: api.loadDiff,
   loadSystem: api.loadSystem,
   loadCall: api.loadCall,
   act: api.act,
@@ -87,6 +99,23 @@ export const FIXTURES: Source = {
   loadRound: async (work, run, round) => (await import('./fixtures')).fixtureRound(work, run, round),
   loadTold: async (work, run, round) => (await import('./fixtures')).fixtureTold(work, run, round),
   loadDoing: async (work, run, round) => (await import('./fixtures')).fixtureDoing(work, run, round),
+  // What the round did is told at once, and no more comes: the fixtures stand still.
+  followDoing: (work, run, round, following) => {
+    let stopped = false;
+    void import('./fixtures').then((f) => {
+      if (stopped) return;
+      try {
+        f.fixtureDoing(work, run, round).doing.forEach((d) => following.done(d));
+      } catch (e) {
+        following.failed(message(e));
+      }
+    });
+    return () => {
+      stopped = true;
+    };
+  },
+  loadChanges: (work) => Promise.reject(new Error(`The made-up work ${work} changed no files`)),
+  loadDiff: (work) => Promise.reject(new Error(`The made-up work ${work} changed no files`)),
   loadSystem: async (work, line, session) => (await import('./fixtures')).fixtureSystem(work, line, session),
   loadCall: async (work, call) => (await import('./fixtures')).fixtureCall(work, call),
   act: async (work, what) => {
@@ -95,6 +124,62 @@ export const FIXTURES: Source = {
   },
   changes: () => () => undefined,
 };
+
+/// What the item's window reads a work's contents through, each read once.
+export interface Reader {
+  /// The content of the block's version of this number.
+  version(block: string, number: number): Promise<string>;
+  /// A round in full; kept once read only where the round had ended, since one under way has more to come.
+  round(run: number, number: number, ended: boolean): Promise<RoundPage>;
+  /// What a round was told and returned, as its carrier kept them; kept once read only where the round had ended.
+  told(run: number, number: number, ended: boolean): Promise<ToldPage>;
+  call(call: number): Promise<string | null>;
+  /// The system prompt the line's session of this number, the line's first being none, began with; kept once read.
+  system(line: string, session: number): Promise<string>;
+  /// What the agent of a round that ended did, from its start, every try in order; kept once read.
+  doing(run: number, number: number): Promise<Done[]>;
+  /// Follows what the agent of a round does, from its start, as it comes; gives the way to stop following.
+  follow(run: number, number: number, following: Following): () => void;
+  /// Each file the work changed, and the diff of one of them; read anew each time, as the work's head moves.
+  changes(): Promise<ChangesPage>;
+  diff(path: string): Promise<DiffPage>;
+}
+
+/// The reads of a work's contents, each made once: a version, an ended round, what it was told and returned and what
+/// its agent did, and a call's result do not change once there. A round under way is read again each time, since it
+/// has more to come, and what its agent does is followed as it comes.
+export function readerOf(source: Source, work: number): Reader {
+  const once = new Map<string, Promise<unknown>>();
+  const cached = <T,>(key: string, load: () => Promise<T>): Promise<T> => {
+    let p = once.get(key) as Promise<T> | undefined;
+    if (!p) {
+      p = load();
+      once.set(key, p);
+      p.catch(() => once.delete(key));
+    }
+    return p;
+  };
+  return {
+    version: (block, number) =>
+      cached(`v:${block}/${number}`, async () => (await source.loadVersion(work, block, number)).content),
+    round: (run, number, ended) =>
+      ended
+        ? cached<RoundPage>(`r:${run}/${number}`, () => source.loadRound(work, run, number))
+        : source.loadRound(work, run, number),
+    told: (run, number, ended) =>
+      ended
+        ? cached<ToldPage>(`t:${run}/${number}`, () => source.loadTold(work, run, number))
+        : source.loadTold(work, run, number),
+    call: (call) => cached(`c:${call}`, async () => (await source.loadCall(work, call)).result),
+    system: (line, session) =>
+      cached(`s:${line}/${session}`, async () => (await source.loadSystem(work, line, session)).text),
+    doing: (run, number) =>
+      cached(`d:${run}/${number}`, async () => (await source.loadDoing(work, run, number)).doing),
+    follow: (run, number, following) => source.followDoing(work, run, number, following),
+    changes: () => source.loadChanges(work),
+    diff: (path) => source.loadDiff(work, path),
+  };
+}
 
 /// The source the page's address names.
 export function sourceOf(search: string): Source {

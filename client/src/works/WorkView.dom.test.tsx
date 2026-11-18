@@ -5,22 +5,26 @@ import { type ReactNode, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { age } from '../console/items';
+import { levelWords } from '../marks';
 import type { Act, Changed, Now, Pauser, Wait, WorkPage } from '../works-api';
 import {
   fixtureCall,
   fixtureCopies,
+  fixtureDoing,
   fixtureItems,
   fixtureProjects,
   fixtureRound,
-  fixtureTold,
-  fixtureDoing,
   fixtureSystem,
+  fixtureTold,
   fixtureVersion,
   fixtureWork,
 } from './fixtures';
 import { pauseDiffers } from './marks';
-import { type Source, SourceContext } from './source';
-import { WorkScreen, WorkView, readerOf } from './WorkView';
+import { placeSteps } from './placing';
+import { type Source, SourceContext, readerOf } from './source';
+import { duration, ranLast, runTook } from './words';
+import { WorkScreen, WorkView } from './WorkView';
 import { WorksList, WorksTable } from './WorksList';
 
 let unmounts: (() => void)[] = [];
@@ -82,6 +86,9 @@ function fixtureSource(over: Partial<Source> = {}): TestSource {
     },
     loadTold: async (n, run, round) => fixtureTold(n, run, round),
     loadDoing: async (n, run, round) => fixtureDoing(n, run, round),
+    followDoing: () => () => undefined,
+    loadChanges: (n) => Promise.reject(new Error(`work ${n} changed no files`)),
+    loadDiff: (n) => Promise.reject(new Error(`work ${n} changed no files`)),
     loadSystem: async (n, line, session) => fixtureSystem(n, line, session),
     loadCall: async (n, call) => fixtureCall(n, call),
     act: async (work, what) => {
@@ -114,9 +121,15 @@ function draw(element: ReactNode, source: Source): HTMLElement {
   return container;
 }
 
-function drawWork(work: number, source = fixtureSource()) {
-  const page = draw(<WorkScreen page={fixtureWork(work)} onActed={() => undefined} />, source);
-  return { page, source };
+/// Draws the work as the fixtures give it, its item read, and counts how often what the owner did had it read again.
+async function drawWork(work: number | WorkPage, source = fixtureSource()) {
+  const acted = { times: 0 };
+  const page = draw(
+    <WorkScreen page={typeof work === 'number' ? fixtureWork(work) : work} onActed={() => (acted.times += 1)} />,
+    source,
+  );
+  await settle();
+  return { page, source, acted };
 }
 
 /// Why the round of the fixtures' work 50 failed.
@@ -145,43 +158,70 @@ function pick(select: Element | null, value: string) {
   });
 }
 
-/// Types into a field as the browser would, so that React hears it.
-function type(field: Element | null, words: string) {
-  const f = field as HTMLInputElement;
-  act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(f, words);
-    f.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-}
-
 /// The works the list shows, by their numbers, in its order.
 const listed = (page: HTMLElement) =>
   [...page.querySelectorAll<HTMLElement>('tbody tr.work-row')].map((r) => Number(r.dataset.work));
 
-/// Chooses the step at this place by its row's words at the left.
-async function chooseStep(page: HTMLElement, index: number) {
-  await click(page.querySelectorAll('tbody tr.step-row')[index]?.querySelector('.step-lead button'));
+/// The rows of the work's history: a run's, and the lines between them.
+const runRows = (page: HTMLElement) => [...page.querySelectorAll<HTMLElement>('tbody tr.step-row')];
+
+/// Chooses the run of the row at this place among the runs' rows, by its names at the left.
+async function chooseRun(page: HTMLElement, index: number) {
+  await click(runRows(page)[index]?.querySelector('.step-lead button'));
 }
 
-async function chooseCell(page: HTMLElement, cell: string) {
-  await click(page.querySelector(`thead [data-key="cell:${cell}"] .head-button`));
-}
+/// What the item's window shows under its tabs: the Step, once a run is chosen.
+const step = (page: HTMLElement) => page.querySelector('aside .drawer-body') as HTMLElement;
 
+/// A part of the Step by its label's first words.
+const part = (root: ParentNode, label: string) =>
+  [...root.querySelectorAll<HTMLElement>('section.panel-part')].find((p) =>
+    p.querySelector('.panel-part-label')?.textContent?.startsWith(label),
+  ) as HTMLElement;
 
 describe('the list of works', () => {
-  it('lists the work of every item, those waiting for the owner first and edged, and a row opens its work', async () => {
+  it('lists the work of every item, what happened last first, those waiting for the owner edged, and a row opens its work', async () => {
     const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
     const rows = [...page.querySelectorAll('tbody tr.work-row')] as HTMLElement[];
-    // The work the engine paused waits for the owner, as the engine's list says, and the fault comes after.
-    expect(rows.map((r) => Number(r.dataset.work))).toEqual([50, 43, 44, 45, 41, 49, 42, 46, 47, 48]);
-    expect(rows.map((r) => r.classList.contains('for-owner'))).toEqual([true, true, true, true, true, false, false, false, false, false]);
-    // The cell it waits at, once, in its place, then what it asks.
-    expect(rows[1].querySelector('.now-words')?.textContent).toBe(
-      'Waiting for you · plan · Should the list show the works of cancelled items, or leave them out?',
-    );
-    expect(rows[1].querySelectorAll('.strip .state-mark')).toHaveLength(6);
-    await click(rows[4]);
+    // The list is the record of every work, ordered by when something last happened; a work's state orders it only by
+    // its own column (decision the-list-is-ordered-by-a-column).
+    expect(rows.map((r) => Number(r.dataset.work))).toEqual([42, 50, 43, 44, 45, 46, 49, 41, 47, 48]);
+    expect(rows.map((r) => r.classList.contains('for-owner'))).toEqual([
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+    ]);
+    // The column of states holds the state and the cell alone, never why (principle a-column-holds-what-is-alike).
+    expect(rows[2].querySelector('.now-words')?.textContent).toBe('Waiting for you · plan');
+    expect(rows[2].querySelectorAll('.strip .state-mark')).toHaveLength(6);
+    await click(rows[7]);
     expect(window.location.hash).toBe('#/works/41');
+  });
+
+  it('orders the list by the column whose head is pressed, a second press turning it, and keeps the order in the browser', async () => {
+    const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
+    const head = (name: string) => button(page, name) as HTMLButtonElement;
+    await click(head('#'));
+    expect(listed(page)).toEqual([50, 49, 48, 47, 46, 45, 44, 43, 42, 41]);
+    expect(head('#').closest('th')?.getAttribute('aria-sort')).toBe('descending');
+    await click(head('#'));
+    expect(listed(page)).toEqual([41, 42, 43, 44, 45, 46, 47, 48, 49, 50]);
+    expect(head('#').closest('th')?.getAttribute('aria-sort')).toBe('ascending');
+    // By state: what waits for the owner first, then the halted, what runs, what waits for another, what is paused,
+    // what merged and what was cancelled; works of one state as the list's first order has them.
+    await click(head('State'));
+    expect(listed(page)).toEqual([50, 43, 44, 45, 41, 49, 42, 46, 47, 48]);
+    // Drawn anew, the list keeps the order last pressed.
+    expect(listed(draw(<WorksTable items={fixtureItems()} />, fixtureSource()))).toEqual([
+      50, 43, 44, 45, 41, 49, 42, 46, 47, 48,
+    ]);
   });
 
   it("shows, with a project chosen, that project's works and every work waiting for the owner, and every work with none chosen", () => {
@@ -199,7 +239,7 @@ describe('the list of works', () => {
     expect(facts()).toBe('10 works, 5 things wait for you, 6 shown');
     // An item added before items had projects is shown only with none chosen, as it waits for nobody.
     pick(select, 'wf-agents');
-    expect(listed(page)).toEqual([50, 43, 44, 45, 41, 42, 46, 48]);
+    expect(listed(page)).toEqual([42, 50, 43, 44, 45, 46, 41, 48]);
     pick(select, '');
     expect(listed(page)).toHaveLength(10);
     expect(facts()).toBe('10 works, 5 things wait for you');
@@ -224,17 +264,19 @@ describe('the list of works', () => {
     expect(listed(page)).toHaveLength(10);
   });
 
-  it("says that a work the engine paused waits for you, and why, in the owner's tone, and a fault in the tone of what failed", () => {
+  it("says that a work the engine paused waits for you in the owner's tone, its stop's cell in red, and a fault in the tone of what failed", () => {
     const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
     const row = page.querySelector('[data-work="50"]') as HTMLElement;
-    expect(row.querySelector('.now-words')?.textContent).toBe(
-      `Waiting for you · implement · The engine paused the work. ${FAILED}`,
-    );
+    expect(row.querySelector('.now-words')?.textContent).toBe('Waiting for you · implement');
     expect(row.querySelector('.now')?.className).toContain('now-owner');
     expect(row.querySelector('.now-paused')).toBeNull();
-    expect(row.querySelectorAll('.strip .state-failed')).toHaveLength(1);
+    // The cell the work is stopped at is filled in the stop's red, and no other.
+    const marks = [...row.querySelectorAll<HTMLElement>('.strip .state-mark')];
+    expect(marks.filter((m) => m.style.background === 'var(--red)').map((m) => m.title)).toEqual([
+      'implement: failed, 0 runs finished',
+    ]);
     const fault = page.querySelector('[data-work="49"]') as HTMLElement;
-    expect(fault.querySelector('.now-words')?.textContent).toBe('Halted · Two entries of the work at place 3');
+    expect(fault.querySelector('.now-words')?.textContent).toBe('Halted');
     expect(fault.querySelector('.now')?.className).toContain('now-failed');
   });
 
@@ -281,13 +323,18 @@ describe('the list of works', () => {
 });
 
 describe("a work's line", () => {
-  it("names its item's project by key and value after its title, and nothing for an item of no project", () => {
-    const named = drawWork(43).page.querySelector('.view-line .view-name')?.nextElementSibling as HTMLElement;
-    expect(named.textContent).toBe('project Whitefoot');
-    expect(texts(named, '.muted.mono')).toEqual(['project']);
-    expect(texts(named, '.mono:not(.muted)')).toEqual(['Whitefoot']);
-    const none = drawWork(49).page.querySelector('.view-line .view-name')?.nextElementSibling;
-    expect(none?.className).toBe('view-facts');
+  it('leads back to the works and names the item by its number and its title, with the legend of the history at its right, and nothing the window says', async () => {
+    const { page } = await drawWork(41);
+    const line = page.querySelector('.view-line') as HTMLElement;
+    expect(line.querySelector('a.link')?.getAttribute('href')).toBe('#/works');
+    expect(texts(line, '.view-title > *')).toEqual(['Works', '#141', 'Show the cost of each round on the works page']);
+    expect(texts(line, '.legend li').slice(0, 2)).toEqual(['wakes', 'way back']);
+    // What the item's window says, the state, the cost and the owner's buttons, is not said again here.
+    expect(line.querySelector('.now-words')).toBeNull();
+    expect(button(line, 'Pause')).toBeUndefined();
+    expect(button(line, 'New session')).toBeDefined();
+    // A work that has ended begins no new session.
+    expect(button((await drawWork(47)).page.querySelector('.view-line') as HTMLElement, 'New session')).toBeUndefined();
   });
 });
 
@@ -320,7 +367,7 @@ describe('a work as it is read', () => {
     expect(page.querySelector('.read-failed')?.textContent).toBe(
       'The work could not be read again: the server went away. What is shown is from before.',
     );
-    expect(page.querySelectorAll('tbody tr.step-row')).toHaveLength(fixtureWork(41).steps.length);
+    expect(runRows(page)).toHaveLength(placeSteps(fixtureWork(41)).filter((r) => r.divider === null).length);
     fail = false;
     act(() => source.opened());
     await settle();
@@ -365,290 +412,196 @@ describe('a work as it is read', () => {
 });
 
 describe('the history of a work', () => {
-  it('has a column for each cell with how it stands now, and a row for each step', () => {
-    const { page } = drawWork(41);
-    expect(texts(page, 'thead .cell-title')).toEqual(['Plan', 'Deep research', 'Implement', 'Review the code', 'Check with the latest main', 'Merge']);
-    expect(texts(page, 'thead .cell-state').at(-1)).toBe('not run yet');
-    const rows = [...page.querySelectorAll('tbody tr.step-row')];
-    expect(rows).toHaveLength(fixtureWork(41).steps.length);
-    // The run abandoned is in the implementation's column, and says so.
-    expect(rows[3].querySelectorAll('td')[2].querySelector('.run')?.className).toContain('run-abandoned');
-    expect(texts(page, '.step-lead .step-words')[3]).toBe('3 implement had no record');
-    // The ways round are drawn as the flow chart draws a way back, from the review to the implementation.
-    expect(page.querySelectorAll('.run-arrow')).toHaveLength(2);
-    expect(texts(page, '.step-words.way-back')).toEqual(['8 way round for opinions_implement', '10 way round for opinions_implement']);
-    expect(texts(page, '.step-lead .step-words')[13]).toBe('the outside wrote main');
-    // Under each cell the write reaches, the flow's mark for that cell and that datum: the check watches main.
-    const check = rows[13].querySelectorAll('td')[4];
-    expect(check.querySelector('.part.watch')).not.toBeNull();
-    expect(check.querySelector('.part.read')).toBeNull();
-    expect(check.querySelector('.visually-hidden')?.textContent).toBe('check watches main');
-    expect(check.getAttribute('title')).toBe('check watches main');
+  it("has a column for each cell, headed by its id, and a row for each run, named by what woke it, its mark in its cell's column", async () => {
+    const { page } = await drawWork(41);
+    expect(texts(page, 'thead .cell-id')).toEqual(['plan', 'deep_research', 'implement', 'review', 'check', 'merge']);
+    // A head chooses nothing on the history: it says the cell's title on pointing at it.
+    expect(page.querySelector('thead [data-key="cell:plan"] .head-still')?.getAttribute('title')).toContain('plan Plan');
+    const rows = runRows(page);
+    // A run is a row, and a write is none: the owner's request and words and what the outside wrote woke the runs
+    // whose rows name them (decision a-row-is-a-run).
+    expect(rows).toHaveLength(12);
+    expect(rows.map((r) => texts(r, '.step-lead .block-name').join(' '))).toEqual([
+      'request',
+      'plan',
+      'solution',
+      'opinions_plan',
+      'plan',
+      'plan',
+      'code',
+      'opinions_implement',
+      'code',
+      'opinions_implement',
+      'code',
+      'main',
+    ]);
+    // Who wrote what woke a run, where it is not a run: the owner's sign and the outside's.
+    expect(rows[0].querySelector('.step-lead svg')?.getAttribute('aria-label')).toBe('the owner');
+    expect(rows[11].querySelector('.step-lead svg')?.getAttribute('aria-label')).toBe('the outside');
+    // The run abandoned stands in the implementation's column, marked as one that runs again.
+    const abandoned = rows[2].querySelectorAll('td')[2];
+    expect(abandoned.querySelector('.state-mark')?.getAttribute('title')).toBe('implement run 3: runs again');
+    expect(rows[2].querySelectorAll('.state-mark')).toHaveLength(1);
   });
-});
 
-describe('a work whose round failed', () => {
-  it("draws the run as failed in its cell's column, its cell's head as failed, and the engine's pause with the reason", () => {
-    const { page } = drawWork(50);
-    expect(texts(page, 'thead .cell-state')[2]).toBe('failed');
-    const rows = [...page.querySelectorAll('tbody tr.step-row')];
-    const run = rows[2].querySelectorAll('td')[2].querySelector('.run');
-    expect(run?.className).toContain('run-failed');
-    expect(run?.querySelector('.run-word')?.textContent).toBe('round failed');
-    expect(texts(page, '.step-lead .step-words')[3]).toBe(`The engine paused the work. ${FAILED}`);
+  it('draws an arrow from the column of the cell whose run wrote what woke a run to its mark, in the accent where it runs back', async () => {
+    const { page } = await drawWork(41);
+    const rows = runRows(page);
+    // The review's opinions sent the implementation round twice: those two arrows run back.
+    expect(rows.map((r, i) => (r.querySelector('.row-arrow.back') ? i : -1)).filter((i) => i >= 0)).toEqual([7, 9]);
+    // Every other run woken by another cell's run has an arrow a write runs; those the owner and the outside woke, and
+    // the plan's first run, none.
+    expect(rows.map((r, i) => (r.querySelector('.row-arrow.wakes') ? i : -1)).filter((i) => i >= 0)).toEqual([
+      1, 2, 4, 5, 6, 8, 10,
+    ]);
+    // The arrow's start says the run that wrote, on pointing at it.
+    expect(rows[7].querySelectorAll('td')[3].getAttribute('title')).toBe('review run 7: outputs opinions_implement v1');
   });
 
-  it('shows in the panel of the run the round that failed, why, and that it is given again once the work is let on', async () => {
-    const { page } = drawWork(50);
-    await chooseStep(page, 2);
-    const panel = page.querySelector('aside[aria-label="Run 2 of implement"]') as HTMLElement;
-    expect(panel.querySelector('.status-line')?.textContent).toContain('Round failed');
-    expect(panel.querySelector('.round .failed')?.textContent).toBe(`nothing; the round failed: ${FAILED}`);
-    expect(panel.textContent).toContain('the results of 1 call');
-    expect(panel.textContent).toContain('its last round failed, and the round is given again once the work is let on');
-    await chooseStep(page, 3);
-    const pause = page.querySelector('aside[aria-label="Paused"]') as HTMLElement;
-    expect(pause.textContent).toContain(
-      `The engine paused the work. Only a note to a cell is answered until the owner lets it on. ${FAILED}`,
+  it('says at the right how long each run took, coloured as a card colours its age, and its level, effort and model', async () => {
+    const work = structuredClone(fixtureWork(41));
+    // The plan's first run made to take two hours, past the hour after which a run is red.
+    const first = work.steps.find((s) => s.kind === 'run');
+    if (first?.kind !== 'run' || first.end === null) throw new Error('not the fixture');
+    first.end = { ...first.end, time: first.time + 2 * 3_600_000 };
+    const { page } = await drawWork(work);
+    const runs = work.steps.flatMap((s) => (s.kind === 'run' ? [s] : []));
+    const rows = runRows(page);
+    const facts = rows.map((r) => [...r.querySelectorAll('td.words .run-facts > span')].map((s) => s.textContent));
+    expect(facts).toEqual(
+      runs.map((run) => {
+        const ran = ranLast(run);
+        return [
+          duration(runTook(run, 0)),
+          ran === null ? '' : levelWords(ran.level, 0),
+          ran?.effort ?? '',
+          ran?.model ?? '',
+        ];
+      }),
     );
+    // Grey under half an hour, amber to an hour, red past it (decision a-works-age-is-red-past-an-hour): the
+    // implementation's first run took 31m 36s, and the plan's two hours.
+    const tones = rows.map((r) => r.querySelector('.step-time')?.className.split(' ').at(-1));
+    expect(tones).toEqual(runs.map((run) => age(runTook(run, 0)).tone));
+    expect(tones.slice(0, 3)).toEqual(['danger', 'success', 'attention']);
+    // The check, an engine's cell, ran on no model.
+    expect(facts[11].slice(1)).toEqual(['', '', '']);
+    expect(rows[11].querySelector('td.words')?.getAttribute('title')).toMatch(/^Began \d{4}-/);
+  });
+
+  it("draws a line between the runs where the work was paused, saying what was done at the right", async () => {
+    const { page } = await drawWork(50);
+    expect(page.querySelectorAll('tbody tr.divider-row')).toHaveLength(1);
+    const divider = page.querySelector('tbody tr.divider-row') as HTMLElement;
+    expect(divider.querySelector('.divider-words')?.textContent).toBe('paused');
+    expect(divider.title).toContain(`the engine paused: ${FAILED}`);
+    // The run the work is stopped at is marked so.
+    expect(runRows(page)[1].querySelector('.state-mark')?.getAttribute('title')).toBe('implement run 2: stopped');
+    expect((await drawWork(41)).page.querySelectorAll('tbody tr.divider-row')).toHaveLength(0);
   });
 });
 
-describe('the panel of a step', () => {
-  it('shows a run: why it ran, what it started from, each round with what it was given and gave back, its calls and its end', async () => {
-    const { page } = drawWork(41);
-    await chooseStep(page, 3);
-    const panel = page.querySelector('aside[aria-label="Run 3 of implement"]') as HTMLElement;
-    expect(panel.querySelector('.status-line')?.textContent).toContain('Abandoned');
-    expect(panel.textContent).toContain('the cell had no record');
+describe("the Step of the work's item window", () => {
+  it('shows the run chosen: how it stands, why it ran, what it started from, what it handed in, its rounds and its calls', async () => {
+    const { page } = await drawWork(41);
+    await chooseRun(page, 2);
+    const panel = step(page);
+    expect(page.querySelector('aside [role="tab"][aria-selected="true"]')?.textContent).toBe('Step');
+    expect(panel.querySelector('.status-line')?.textContent).toContain('Runs again');
+    expect(panel.querySelector('.status-line')?.textContent).toContain('run 3');
+    expect(part(panel, 'Why it ran').textContent).toContain('the cell had no record');
     expect(texts(panel, '.panel-part-label')).toEqual(
-      expect.arrayContaining(['Why it ran 1', 'Started from 5', 'Calls 2', 'How it ended']),
+      expect.arrayContaining(['Why it ran 1', 'Started from 5', 'Handed in', 'Calls 2']),
     );
     expect(panel.textContent).toContain('the results of 1 call');
     expect(panel.textContent).toContain('Should the cached tokens be shown apart from the others?');
     // The question it rested at was withdrawn with it.
-    expect(panel.textContent).toContain('withdrawn with its run');
-    expect(panel.textContent).toContain('it wrote nothing');
+    expect(part(panel, 'Calls').textContent).toContain('withdrawn with its run');
+    expect(part(panel, 'Handed in').textContent).toContain('it wrote nothing');
     // A result is read only when it is opened.
-    await click(button(panel, 'Show result'));
-    expect(panel.querySelector('pre.content')?.textContent).toBe('Found 0 errors.');
+    const calls = part(panel, 'Calls');
+    expect(calls.querySelector('pre.content')).toBeNull();
+    await click(button(calls, 'Show result'));
+    expect(calls.querySelector('pre.content')?.textContent).toBe('Found 0 errors.');
   });
 
-  it('shows the run the address names, chosen as the work is first shown', () => {
-    const page = draw(<WorkScreen page={fixtureWork(41)} onActed={() => undefined} run={3} />, fixtureSource());
-    expect(page.querySelector('aside[aria-label="Run 3 of implement"]')).not.toBeNull();
+  it('shows the run the address names, chosen as the work is first shown, and with nothing chosen the run the work stands at', async () => {
+    const named = draw(<WorkScreen page={fixtureWork(41)} onActed={() => undefined} run={3} />, fixtureSource());
+    await settle();
+    expect(named.querySelector('aside [role="tab"][aria-selected="true"]')?.textContent).toBe('Step');
+    expect(step(named).querySelector('.status-line')?.textContent).toContain('run 3');
+    expect(runRows(named)[2].classList.contains('chosen')).toBe(true);
+    // Work 42 stands at its implementation's second run, which its Step shows with no row chosen.
+    const { page } = await drawWork(42);
+    await click(button(page.querySelector('aside') as HTMLElement, 'Step'));
+    expect(step(page).querySelector('.status-line')?.textContent).toContain('run 2');
   });
 
   it('shows why a return was sent back, and a way round', async () => {
-    const { page } = drawWork(41);
-    await chooseStep(page, 2);
-    const panel = page.querySelector('aside[aria-label="Run 2 of deep_research"]') as HTMLElement;
-    expect(panel.textContent).toContain('it handed in code, which the cell may not write');
-    await chooseStep(page, 9);
-    const way = page.querySelector('aside[aria-label="Run 8 of implement"]') as HTMLElement;
-    expect(way.querySelector('.way-back')?.textContent).toContain('by a cell after it: a way round');
-    // The way back is drawn on the chart beside it; the run's panel says nothing more of it.
-    expect(way.textContent).not.toContain('Way round');
-    const lines = [...way.querySelectorAll('.status-line')];
-    expect(lines.map((l) => l.querySelector('.dot') !== null)).toEqual([true, false]);
+    const { page } = await drawWork(41);
+    await chooseRun(page, 1);
+    expect(step(page).textContent).toContain('it handed in code, which the cell may not write');
+    await chooseRun(page, 7);
+    expect(step(page).querySelector('.way-back')?.textContent).toContain('by a cell after it: a way round');
   });
 
   it('says what a run said of each change, and what the engine made of each block it wrote', async () => {
-    const { page } = drawWork(41);
+    const { page } = await drawWork(41);
     // The deep research's second run said its change did not matter, and the solution kept its meaning.
-    await chooseStep(page, 6);
-    const deep = page.querySelector('aside[aria-label="Run 5 of deep_research"]') as HTMLElement;
-    expect(deep.textContent).toContain('said not to matter');
-    expect(deep.textContent).toMatch(/kept the meaning of v\d+/);
+    await chooseRun(page, 4);
+    expect(step(page).textContent).toContain('said not to matter');
+    expect(step(page).textContent).toMatch(/kept the meaning of v\d+/);
     // The plan's second run wrote needs_deep_research as it was: a choice keeps its meaning while its value does.
-    await chooseStep(page, 5);
-    const plan = page.querySelector('aside[aria-label="Run 4 of plan"]') as HTMLElement;
-    const ended = [...plan.querySelectorAll('.panel-part')].find((p) => p.querySelector('h3')?.textContent === 'How it ended');
-    const written = [...(ended?.querySelectorAll('.list-row') ?? [])];
+    await chooseRun(page, 3);
+    const written = [...part(step(page), 'Handed in').querySelectorAll('.list-row')];
     expect(written.map((r) => [r.querySelector('.mono')?.textContent, r.textContent?.includes('changed its meaning')])).toEqual([
       ['plan', true],
       ['needs_deep_research', false],
     ]);
   });
 
-  // A version whose meaning is none, a block's first version handed in as changing nothing, has said nothing yet: so it
-  // is said wherever a version's meaning is, in the history's row, the panel of the write, the run's end and the blocks.
-  it('says of a version that has said nothing yet just that, wherever a version’s meaning is said', async () => {
+  // A version whose meaning is none, a block's first version handed in as changing nothing, has said nothing yet.
+  it('says of a version a run wrote that has said nothing yet just that', async () => {
     const work = structuredClone(fixtureWork(41));
-    const version = (block: string, at: number) => {
-      const found = work.blocks.find((b) => b.name === block)?.versions.find((v) => v.at === at);
-      if (!found) throw new Error(`no version ${block}@${at}`);
-      return found;
-    };
-    const write = work.steps[4];
-    const run = work.steps[5];
-    if (write.kind !== 'wrote' || run.kind !== 'run' || run.end?.kind !== 'finished') throw new Error('not the fixture');
-    version(write.block, write.at).meaning = null;
-    work.steps[4] = { ...write, changed: false };
-    version('needs_deep_research', run.end.at).meaning = null;
-    const page = draw(<WorkScreen page={work} onActed={() => undefined} />, fixtureSource());
-    expect(texts(page, '.step-lead .step-words')[4]).toBe(`the owner wrote ${write.block}, said nothing yet`);
-    const blocks = page.querySelector('aside[aria-label="Blocks"]') as HTMLElement;
-    // The row of the version among its own block's: every block numbers its versions from one.
-    const number = version(write.block, write.at).number;
-    const part = [...blocks.querySelectorAll('.panel-part')].find(
-      (p) => p.querySelector('.panel-part-label')?.firstChild?.textContent === write.block,
-    );
-    const row = [...(part?.querySelectorAll('.list-row') ?? [])].find((r) => r.textContent?.startsWith(`v${number}`) ?? false);
-    expect(row?.textContent).toContain('said nothing yet');
-    await chooseStep(page, 4);
-    const panel = page.querySelector(`aside[aria-label="Write of ${write.block}"]`) as HTMLElement;
-    expect(texts(panel, '.status-word')).toContain('Said nothing yet');
-    await chooseStep(page, 5);
-    const plan = page.querySelector('aside[aria-label="Run 4 of plan"]') as HTMLElement;
-    const ended = [...plan.querySelectorAll('.panel-part')].find((p) => p.querySelector('h3')?.textContent === 'How it ended');
-    const written = [...(ended?.querySelectorAll('.list-row') ?? [])].find(
+    const run = work.steps.find((s) => s.kind === 'run' && s.run === 4);
+    if (run?.kind !== 'run' || run.end?.kind !== 'finished') throw new Error('not the fixture');
+    const at = run.end.at;
+    const version = work.blocks.find((b) => b.name === 'needs_deep_research')?.versions.find((v) => v.at === at);
+    if (!version) throw new Error('not the fixture');
+    version.meaning = null;
+    const { page } = await drawWork(work);
+    await chooseRun(page, 3);
+    const written = [...part(step(page), 'Handed in').querySelectorAll('.list-row')].find(
       (r) => r.querySelector('.mono')?.textContent === 'needs_deep_research',
     );
     expect(written?.textContent).toContain('said nothing yet');
   });
 
-  it('shows a write: the block, who, whether it changed the meaning, who reads it, and its content', async () => {
-    const { page } = drawWork(41);
-    await chooseStep(page, 4);
-    const panel = page.querySelector('aside[aria-label="Write of opinions_plan"]') as HTMLElement;
-    expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('written by the owner');
-    expect(panel.textContent).toContain('Changed its meaning');
-    expect(panel.textContent).toContain('Read by plan');
-    await click(button(panel, 'Show content'));
-    expect(panel.querySelector('pre.content')?.textContent).toBe(
-      'The plan must say where the totals of a whole item are shown too.',
-    );
-  });
-
-  it('shows a cell: why it would run, or the true reason it would not', async () => {
-    const at = drawWork(45);
-    await chooseCell(at.page, 'implement');
-    const implement = at.page.querySelector('aside[aria-label="Cell implement"]') as HTMLElement;
-    expect(implement.querySelector('.status-word')?.textContent).toContain('Runs again');
-    expect(implement.querySelector('.way-back')?.textContent).toContain('by a cell after it: a way round');
-    await chooseCell(at.page, 'deep_research');
-    expect(at.page.querySelector('aside[aria-label="Cell deep_research"]')?.textContent).toContain(
-      'It does not run: its condition is not met, so it is skipped',
-    );
-    await chooseCell(at.page, 'plan');
-    expect(at.page.querySelector('aside[aria-label="Cell plan"]')?.textContent).toContain(
-      'It would not: its record knows the current meaning of every block it reads',
-    );
-    const open = drawWork(42);
-    await chooseCell(open.page, 'implement');
-    expect(open.page.querySelector('aside[aria-label="Cell implement"]')?.textContent).toContain(
-      'It starts no other run: run 2 of it is open',
-    );
-  });
-
-  it('shows, with nothing chosen, every block with its versions, each opening its content', async () => {
-    const { page } = drawWork(43);
-    const panel = page.querySelector('aside[aria-label="Blocks"]') as HTMLElement;
-    expect(panel.querySelector('.status-word')?.textContent).toBe('1 block');
-    expect(texts(panel, '.panel-part-label')).toEqual(['request 1']);
-    expect(panel.querySelector('.list-row')?.textContent).toContain('the owner');
-    await click(button(panel, 'Show content'));
-    expect(panel.querySelector('pre.content')?.textContent).toContain('List the works of every item');
-  });
-
-  // A version is shown by `v` and its number among its block's versions, never by its place among the work's steps: a
-  // block whose second version came after other writes is shown as v1 and v2 all the same.
-  it('shows each version by v and its number among its block’s versions, never by its place', () => {
-    const work = fixtureWork(41);
-    const block = work.blocks.find((b) => b.versions.length >= 2 && b.versions[1].at > b.versions[0].at + 1);
-    if (block === undefined) throw new Error('no block of the fixture has a second version after other steps');
-    const { page } = drawWork(41);
-    const panel = page.querySelector('aside[aria-label="Blocks"]') as HTMLElement;
-    const label = `${block.name} ${block.versions.length}`;
-    const part = [...panel.querySelectorAll('.panel-part')].find(
-      (p) => p.querySelector('.panel-part-label')?.textContent === label,
-    );
-    const marks = [...(part?.querySelectorAll('.list-row') ?? [])].map((r) => r.querySelector('.mono')?.textContent);
-    expect(marks).toEqual(block.versions.map((_, i) => `v${i + 1}`));
-    expect(panel.textContent).not.toContain('@');
+  // A version is shown by `v` and its number among its block's versions, never by its place among the work's steps.
+  it('names each version a run started from by v and its number among its block’s versions, those new to it first', async () => {
+    const { page } = await drawWork(41);
+    // The review's second run, woken by the code and the answer the implementation wrote again.
+    await chooseRun(page, 8);
+    const started = part(step(page), 'Started from');
+    const rows = [...started.querySelectorAll('.list-row')];
+    expect(rows.map((r) => r.querySelector('.mono')?.textContent)).toEqual([
+      'code v2',
+      'answer_review v2',
+      'opinions_implement v1',
+      'content v1',
+    ]);
+    expect(rows.map((r) => r.textContent?.includes('new to it'))).toEqual([true, true, false, false]);
+    expect(started.textContent).not.toContain('@');
   });
 });
 
 describe('what the owner does', () => {
-  it("leaves what the work waits for, and writing to it, to the console's item window", () => {
-    for (const n of [41, 43, 44, 45]) {
-      const { page } = drawWork(n);
-      expect(page.querySelector('.waits')).toBeNull();
-      expect(page.querySelector('form')).toBeNull();
-      expect(page.querySelector('textarea')).toBeNull();
-    }
-  });
-
-  it('sends an act once, its control disabled until the answer comes', async () => {
-    const answer = deferred<null>();
-    const source = fixtureSource();
-    source.act = (work, what) => {
-      source.acts.push({ work, what });
-      return answer.promise;
-    };
-    const { page } = drawWork(42, source);
-    const pause = button(page, 'Pause');
-    await click(pause);
-    await click(pause);
-    expect(source.acts).toHaveLength(1);
-    expect(button(page, 'Pause')?.disabled).toBe(true);
-    answer.resolve(null);
-    await settle();
-    expect(button(page, 'Pause')?.disabled).toBe(false);
-  });
-
-  it('shows why the interface refused an act', async () => {
-    const source = fixtureSource({ act: () => Promise.reject(new Error('the work has ended')) });
-    const { page } = drawWork(42, source);
-    await click(button(page, 'Pause'));
-    expect(page.querySelector('.acts [role="alert"]')?.textContent).toBe('Refused: the work has ended');
-  });
-
-  it('pauses, and cancels only once asked again and told why', async () => {
-    const { page, source } = drawWork(42);
-    await click(button(page, 'Pause'));
-    await click(button(page, 'Cancel'));
-    expect(source.acts.map((a) => a.what.kind)).toEqual(['pause']);
-    expect(page.textContent).toContain('Cancel the work? Nothing of it goes on until its item is reopened');
-    // A cancel says why: until it does, it is not made.
-    expect(button(page, 'Yes, cancel it')?.disabled).toBe(true);
-    type(page.querySelector('input[aria-label="Why it is cancelled"]'), '  ');
-    expect(button(page, 'Yes, cancel it')?.disabled).toBe(true);
-    type(page.querySelector('input[aria-label="Why it is cancelled"]'), ' Joined into #3 ');
-    await click(button(page, 'Yes, cancel it'));
-    expect(source.acts.map((a) => a.what)).toEqual([{ kind: 'pause' }, { kind: 'cancel', why: 'Joined into #3' }]);
-  });
-
-  it("says the engine's pause of an ended work whose letting go failed in one place, and lets it on from one button", async () => {
-    const merged = fixtureWork(47);
-    const last = merged.steps.reduce((at, s) => Math.max(at, 'at' in s ? s.at : 0), 0);
-    const why = 'GitHub did not close the pull request: HTTP 502.';
-    const said = `The engine paused the work. Letting go of what the work held failed. ${why}`;
-    const failed: WorkPage = {
-      ...merged,
-      summary: { ...merged.summary, paused: 'engine', waits: [{ key: 'pause', why: said, ends: { kind: 'resume' } }] },
-      steps: [...merged.steps, { kind: 'paused', at: last + 1, time: Date.now(), by: 'engine', why }],
-    };
-    const source = fixtureSource();
-    const page = draw(<WorkScreen page={failed} onActed={() => undefined} />, source);
-    // The state line says why, and nothing beside it says it again.
-    expect(page.querySelector('.view-line .now-words')?.textContent).toBe(`Waiting for you · ${said}`);
-    expect(page.querySelector('.view-line')?.textContent?.split('Letting go').length).toBe(2);
-    expect(button(page, 'Try again')).toBeUndefined();
-    expect(button(page, 'Pause')).toBeUndefined();
-    expect(button(page, 'Cancel')).toBeUndefined();
-    expect(button(page, 'Resume')?.title).not.toBe('');
-    await click(button(page, 'Resume'));
-    expect(source.acts.map((a) => a.what)).toEqual([{ kind: 'resume' }]);
-    // A merged work that let go of what it held has no act at all.
-    const done = drawWork(47).page;
-    expect(button(done, 'Resume')).toBeUndefined();
-  });
-
-  it("lets the engine's pause of a work going on from the button every card of it has, not from Start", () => {
-    const engine = drawWork(50).page;
-    expect(button(engine, 'Resume')).toBeDefined();
-    expect(button(engine, 'Start')).toBeUndefined();
+  it("does it in the work's item window, and reads the work again once it is taken", async () => {
+    const { page, source, acted } = await drawWork(42);
+    const window = page.querySelector('aside') as HTMLElement;
+    expect(window.querySelector('.cw-acts .switch')?.getAttribute('aria-label')).toBe('Your own pause of the work');
+    await click(button(window, 'Pause'));
+    expect(source.acts).toEqual([{ work: 42, what: { kind: 'pause' } }]);
+    expect(acted.times).toBe(1);
   });
 });

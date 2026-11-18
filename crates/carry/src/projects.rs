@@ -12,11 +12,15 @@
 //! engine knows of now, and is let go of as it ends.
 
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use flow::agents::{NoProject, fill};
-use service::{CallReply, Release, ReleaseReply, Round, RoundReply, Rounds, ToolCall, Tools};
+use service::{
+    CallReply, Changes, Diff, OfWork, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, ToolCall, Tools,
+};
 use store::{Item, WorkNumber};
 use work::Spent;
 
@@ -163,6 +167,33 @@ impl Rounds for ByProject<dyn Rounds> {
             // An item of no project had its work carried out in no repository: there is nothing to let go of.
             Err(_) if release.item.project.is_none() => reply.released(),
             Err(why) => reply.failed(why),
+        }
+    }
+
+    // A work whose item belongs to no project these settings name was carried out in no repository they name: there
+    // is nothing of it to tell.
+    fn seen(&self, asked: OfWork) -> Pin<Box<dyn Future<Output = Result<Seen, String>> + Send + '_>> {
+        match of(&self.of, &asked.item) {
+            Ok(rounds) => rounds.seen(asked),
+            Err(_) => Box::pin(async { Ok(Seen::default()) }),
+        }
+    }
+
+    fn changes(&self, asked: OfWork) -> Pin<Box<dyn Future<Output = Result<Option<Changes>, String>> + Send + '_>> {
+        match of(&self.of, &asked.item) {
+            Ok(rounds) => rounds.changes(asked),
+            Err(_) => Box::pin(async { Ok(None) }),
+        }
+    }
+
+    fn diff(
+        &self,
+        asked: OfWork,
+        path: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Diff>, String>> + Send + '_>> {
+        match of(&self.of, &asked.item) {
+            Ok(rounds) => rounds.diff(asked, path),
+            Err(_) => Box::pin(async { Ok(None) }),
         }
     }
 }

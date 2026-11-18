@@ -437,6 +437,17 @@ CREATE TABLE pinged (
     PRIMARY KEY (work, at)
 );
 
+-- A pull request the host of the work's repository found the work checked through, opening it where the work had
+-- none: its number on the host and its address, kept where it is another than the one kept before; the latest is the
+-- work's.
+CREATE TABLE pulls (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    number INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    PRIMARY KEY (work, at)
+);
+
 -- A thing that happened to the work was taken at `time`, and its entries begin at the place `place`.
 CREATE TABLE moments (
     work INTEGER NOT NULL REFERENCES works (number),

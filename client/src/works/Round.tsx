@@ -1,20 +1,17 @@
 // What a round's part of a run's panel shows of the round beside what it was given and what came back, each by its key
 // as the flow's files and the work's records write it, and what the page works out from them said plainly: what it
 // ran on and in which session of its line; what it took; the context it ended with; how it missed its session's prompt
-// cache, where it did; what was filled into its session, which is what was new to the round; while it is under way and
-// its panel is open, what its agent is doing, read again every few seconds; and the system prompt of its session, which
-// each of its rounds is given.
+// cache, where it did; what was filled into its session, which is what was new to the round; what its agent did, the
+// latest two and the rest folded, followed as it comes while the round is under way and read once after; and the
+// system prompt of its session, which each of its rounds is given.
 
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 
+import { REOPEN_MS } from '../changes';
 import { Attr, ListRow } from '../parts';
-import type { Doing, Fill, Missed, Round, RoundTry, Spent } from '../works-api';
+import type { Doing, Done, Fill, Following, Missed, Round, RoundTry, Spent } from '../works-api';
 import { Content, Unfold } from './marks';
 import { type Key, count, spentKeys } from './words';
-
-/// How often what a round's agent is doing is read again while the round is under way: the stream it is read from grows
-/// with nothing the engine says has happened, so the page asks.
-export const DOING_MS = 3000;
 
 /// Keys and their values in a row, wrapping where the row is narrow.
 export function Keys({ keys }: { keys: [string, ReactNode][] }) {
@@ -174,53 +171,105 @@ function DoingRow({ doing }: { doing: Doing }) {
   }
 }
 
-/// What the agent of a round under way is doing, the latest last: read at once and again every few seconds while it is
-/// shown (`shown`) and the page is in sight; a read that fails keeps what was shown and says why.
-export function DoingNow({ load, shown }: { load: () => Promise<Doing[]>; shown: boolean }) {
-  const [seen, setSeen] = useState<{ doing: Doing[] | null; failed: string | null }>({ doing: null, failed: null });
+/// How many of the latest things an agent did stand open; those before them are folded behind one line.
+const OPEN_DONE = 2;
+
+/// What the agent of a round did, in the order done, every try in order, the latest last: the latest two, and those
+/// before them folded behind one line that says how many and opens them all. Of a round under way as the list is first
+/// shown, each thing is added as the round's stream tells it, until the stream says all was told; a stream lost is
+/// followed anew a few seconds later, passing over as many things as the list holds, which it tells again first. Of a
+/// round that had ended, the whole is read once. Either is done only while the Step is `shown`, and what was shown
+/// stands meanwhile; a read that fails says why.
+export function DoneList({ underWay, follow, load, shown }: {
+  underWay: boolean;
+  follow: (following: Following) => () => void;
+  load: () => Promise<Done[]>;
+  shown: boolean;
+}) {
+  const [done, setDone] = useState<Done[] | null>(underWay ? [] : null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  // Whether the round was under way as the list was first shown, which keeps it followed until its stream ends, though
+  // the work's page says meanwhile that it ended; how many things the list holds; and whether all was told.
+  const following = useRef(underWay);
+  const held = useRef(0);
+  const told = useRef(false);
+  const latest = useRef({ follow, load });
   useEffect(() => {
-    if (!shown) return;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const again = () => {
-      if (!stopped) timer = setTimeout(look, DOING_MS);
-    };
-    const look = () => {
-      if (typeof document !== 'undefined' && document.hidden) {
-        again();
-        return;
-      }
-      load().then(
-        (doing) => {
-          if (!stopped) setSeen({ doing, failed: null });
-          again();
+    latest.current = { follow, load };
+  });
+  useEffect(() => {
+    if (!shown || told.current) return;
+    if (!following.current) {
+      let alive = true;
+      latest.current.load().then(
+        (all) => {
+          if (!alive) return;
+          told.current = true;
+          held.current = all.length;
+          setDone(all);
+          setFailed(null);
         },
-        (e: unknown) => {
-          if (!stopped) setSeen((s) => ({ doing: s.doing, failed: e instanceof Error ? e.message : String(e) }));
-          again();
-        },
+        (e: unknown) => alive && setFailed(e instanceof Error ? e.message : String(e)),
       );
+      return () => {
+        alive = false;
+      };
+    }
+    let stop: (() => void) | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const start = () => {
+      timer = null;
+      let pass = held.current;
+      stop = latest.current.follow({
+        done: (d) => {
+          if (pass > 0) {
+            pass -= 1;
+            return;
+          }
+          held.current += 1;
+          setDone((was) => [...(was ?? []), d]);
+        },
+        end: () => {
+          stop = null;
+          told.current = true;
+        },
+        failed: (why) => {
+          stop = null;
+          told.current = true;
+          setFailed(why);
+        },
+        lost: () => {
+          stop = null;
+          timer = setTimeout(start, REOPEN_MS);
+        },
+      });
     };
-    look();
+    start();
     return () => {
-      stopped = true;
-      if (timer !== undefined) clearTimeout(timer);
+      stop?.();
+      if (timer !== null) clearTimeout(timer);
     };
-  }, [load, shown]);
-  const { doing, failed } = seen;
+  }, [shown]);
+  const all = done ?? [];
+  const before = Math.max(0, all.length - OPEN_DONE);
+  const from = open ? 0 : before;
   return (
     <>
-      {doing === null && failed === null && <span className="muted small">Reading</span>}
-      {doing !== null &&
-        (doing.length === 0 ? (
-          <span className="muted mono">[]</span>
-        ) : (
-          <ul className="doing">
-            {doing.map((d, i) => (
-              <DoingRow key={i} doing={d} />
-            ))}
-          </ul>
-        ))}
+      {done === null && failed === null && <span className="muted small">Reading</span>}
+      {done !== null && all.length === 0 && failed === null && <span className="muted mono">[]</span>}
+      {before > 0 && (
+        <button type="button" className="link small" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Hide' : 'Show'} {before} earlier
+        </button>
+      )}
+      {all.length > 0 && (
+        <ul className="doing">
+          {all.slice(from).map((d, i) => (
+            <DoingRow key={from + i} doing={d} />
+          ))}
+        </ul>
+      )}
       {failed !== null && <p className="small failed">It could not be read: {failed}</p>}
     </>
   );

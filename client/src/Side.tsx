@@ -33,9 +33,6 @@ import {
   writersBesideCells,
 } from './words';
 
-/// Whether the panel is folded away, and the way to fold it or bring it back.
-export type Fold = { folded: boolean; onFold: () => void; edge?: ReactNode };
-
 /// What the named tests among these keys say, each as its file writes it; none where no key is a test.
 function testsSay(keys: Condition[]): string | undefined {
   const says = keys.flatMap((k) => (k.on === 'test' ? [k.test.words] : []));

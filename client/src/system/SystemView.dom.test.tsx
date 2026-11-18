@@ -45,6 +45,13 @@ function sources(engine: Engine = { slots: 2, taken: 1, paused: null }) {
     loadDoing: async () => {
       throw new Error('not read here');
     },
+    followDoing: () => () => undefined,
+    loadChanges: async () => {
+      throw new Error('not read here');
+    },
+    loadDiff: async () => {
+      throw new Error('not read here');
+    },
     loadSystem: async () => {
       throw new Error('not read here');
     },

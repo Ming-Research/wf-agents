@@ -486,6 +486,15 @@ class History {
     const blocks: Block[] = [...this.versions.entries()]
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .map(([name, versions]) => ({ name, versions }));
+    // The cell it stands at, where what it does now names one; its item's level 2 is the level of its rounds, and of the
+    // cell it stands at where an agent runs there, no line of the flow raising it.
+    const standing =
+      now.kind === 'round' || now.kind === 'next'
+        ? now.cell
+        : now.kind === 'waits' || now.kind === 'stalled' || now.kind === 'paused' || now.kind === 'everything'
+          ? now.at
+          : null;
+    const agentAt = FLOW.cells.find((c) => c.id === standing)?.kind === 'agent';
     return {
       summary: {
         number,
@@ -498,6 +507,8 @@ class History {
         waits: o.waits ?? [],
         spent: runs.reduce((s, r) => add(s, r.spent), nothing()),
         last: this.steps.length > 0 ? this.time : null,
+        level: '2',
+        cellLevel: agentAt ? '2' : null,
       },
       title,
       level: '2',

@@ -119,6 +119,9 @@ export function fakeShown(count: number): Shown[] {
           from: Date.now() - 3600000,
           usdMicros: 1_250_000,
           last: Date.now(),
+          level: '2',
+          raise: i.id % 5 === 0 ? 1 : 0,
+          lines: i.id % 3 === 0 ? { added: 210, removed: 40, files: 4 } : null,
         };
   const shown = (i: FakeItem): Shown => ({
     id: i.id,

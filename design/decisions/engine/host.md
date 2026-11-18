@@ -7,8 +7,12 @@ GitHub is asked through its own command line, by its REST API and by GraphQL onl
 Why: The command line handles authentication and paging and adds no network stack to the build (principle tech-mainstream). An agent can write the clone's configuration, so an address or proxy taken from there could send the token elsewhere.
 
 ### decision found-again-on-the-host
-Nothing of a check on the host is kept by the engine: the pull request is found again by its branch, a run of a workflow by its request (decision a-run-is-found-again-by-its-request). A pull request a person closed, merged or pointed elsewhere fails the round, and no second one is opened.
-Why: A restart between opening a pull request and recording it would open a second one (principle effects-known-as-done), and opening another past a person's close would act against them.
+What a check does on the host is found again there, never by what the engine kept: the pull request by its branch, a run of a workflow by its request (decision a-run-is-found-again-by-its-request). A pull request a person closed, merged or pointed elsewhere fails the round, and no second one is opened. The number and address of the pull request each check finds are kept with the work, for its page alone.
+Why: A restart between opening a pull request and recording it would open a second one were it found by what was recorded (principle effects-known-as-done), and opening another past a person's close would act against them. The owner reads a work's pull request after its branch and its round are gone, and asking the host again for every work at each read of the list would wait on the network.
+
+### decision a-pull-request-before-works-kept-theirs-is-read-from-the-merges-title
+A work that merged before works kept their pull requests is given the one the title of the commit its merge made names at its end, `(#N)`, as GitHub titles a merge's commit: the commit read back from what the merge wrote, by its words, and the address made from the repository's name in the settings.
+Why: Its records hold none, and the commit says it already; asking GitHub for each such work would wait on the network at every read of the list.
 
 ### decision a-run-is-found-again-by-its-request
 A run of a workflow is found by a value its name holds, worked out from the work, the call of `run_tests` or the round of the check that asks, the workflow and the commit, in the installation's namespace; given again after the engine started again, the request waits for its run or reads it where it has ended, and asks for another only where it finds none of its own but cancelled ones.

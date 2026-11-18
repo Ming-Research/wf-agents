@@ -305,7 +305,9 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
         json!({ "added": line(100, 3, "flow"), "rate": line(50, 3, "flow"), "cost": line(98_000, 3, "flow") })
     );
     // A work's page gives each of its rounds the same.
-    let page = web::works::WorkPage::of(&driver, third, now).unwrap().unwrap();
+    let page = web::works::WorkPage::of(&driver, &crate::levels(), third, now)
+        .unwrap()
+        .unwrap();
     let page = serde_json::to_value(page).unwrap();
     let plan = (page["steps"].as_array().unwrap().iter())
         .find(|step| step["kind"] == "run" && step["cell"] == "plan")

@@ -13,6 +13,7 @@
 //!   repository's own main branch.
 //! - `host`: where the project's repository is hosted: the head of main, the verdict on a work's commit, the merge.
 //! - `acts`: the engine's acts, as the rounds of the cells they carry out on the host.
+//! - `changed`: what a work changed, worked out with git for its page.
 //! - [`returns`]: what came back, read in the form of return of its flow against the cell it was entered for.
 //! - [`cli`]: the command line of a round, and what it printed read into what came back and what it took.
 //! - [`permissions`]: what the agents of a line may run, and what they are told of it.
@@ -35,6 +36,7 @@ mod acts;
 mod agents;
 mod branch;
 pub mod catch_up;
+mod changed;
 pub mod cli;
 mod cost;
 pub mod failure;

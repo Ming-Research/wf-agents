@@ -1,8 +1,10 @@
 // The way back in every view, in a real browser (Chromium), in light and in dark: on the flowchart its line, thicker
-// than an arrow a write runs, its head and its sample in the legend, and in a work's history a way round's line, its
-// dot and its arrow, are each drawn in the accent, as the matrix's way back is (decision the-way-back-is-in-the-accent).
+// than an arrow a write runs, its head and its sample in the legend, and in a work's history the line and the arrow
+// from a later cell's column to the run it woke, are each drawn in the accent, as the matrix's way back is (decision
+// the-way-back-is-in-the-accent); the history's arrow a write runs to a later cell is not.
 
 import './styles/tokens.css';
+import './styles/chart.css';
 import './styles/graph.css';
 import './styles/works.css';
 
@@ -37,7 +39,7 @@ describe('the way back in every view', () => {
   });
 
   for (const theme of ['light', 'dark']) {
-    it(`is in the accent in ${theme}: the flowchart's line, head and legend, and the history's line, dot and arrow`, () => {
+    it(`is in the accent in ${theme}: the flowchart's line, head and legend, and the history's line and arrow`, () => {
       document.documentElement.setAttribute('data-theme', theme);
       host = document.createElement('div');
       // The flowchart's way back, as the drawing gives it: its line and the head its marker draws, and an arrow a
@@ -49,11 +51,13 @@ describe('the way back in every view', () => {
             <path class="graph-edge graph-edge-back" d="M 0 0 L 10 10" />
             <path class="graph-edge graph-edge-data" d="M 0 0 L 10 10" />
           </svg>
-          <span class="legend-arrow back"></span>
+          <span class="legend-line back"></span>
         </div>
-        <table><tbody><tr>
-          <td class="step-spot back-from"><span class="seg-back"></span></td>
-          <td class="step-spot"><span class="run-arrow"></span></td>
+        <table class="matrix flow history"><tbody><tr>
+          <td class="spot back"><span class="seg seg-left back"></span>
+            <svg class="glyph row-arrow back"><polygon class="part arrow" points="0,0 1,1 0,1" /></svg></td>
+          <td class="spot wakes"><span class="seg seg-left wakes"></span>
+            <svg class="glyph row-arrow wakes"><polygon class="part arrow" points="0,0 1,1 0,1" /></svg></td>
         </tr></tbody></table>`;
       document.body.append(host);
       const accent = drawnIn('--accent');
@@ -62,10 +66,16 @@ describe('the way back in every view', () => {
       expect(look('.graph-edge-back').strokeWidth).toBe(sizeOf('--chart-back'));
       expect(look('.graph-edge-data').strokeWidth).toBe(sizeOf('--chart-line'));
       expect(look('.graph-head-back path').fill).toBe(accent);
-      expect(look('.legend-arrow.back').backgroundColor).toBe(accent);
-      expect(look('.seg-back').backgroundColor).toBe(accent);
-      expect(getComputedStyle(host.querySelector('.back-from') as Element, '::after').backgroundColor).toBe(accent);
-      expect(look('.run-arrow').borderRightColor).toBe(accent);
+      expect(look('.legend-line.back').backgroundColor).toBe(accent);
+      expect(look('.legend-line.back').height).toBe(sizeOf('--chart-back'));
+      expect(look('.seg.back').backgroundColor).toBe(accent);
+      expect(look('.seg.back').height).toBe(sizeOf('--chart-back'));
+      expect(look('.row-arrow.back .part.arrow').fill).toBe(accent);
+      // An arrow a write runs to a later cell is in the colour of the data's lines.
+      const data = drawnIn('--chart-data');
+      expect(data).not.toBe(accent);
+      expect(look('.seg.wakes').backgroundColor).toBe(data);
+      expect(look('.row-arrow.wakes .part.arrow').fill).toBe(data);
     });
   }
 });
