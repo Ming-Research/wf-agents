@@ -263,7 +263,7 @@ function RunningRow({ item }: { item: Item }) {
       </td>
       <td className="mono">{now.cell}</td>
       <td className="mono">
-        run {now.run}, round {now.round}
+        round {now.round}
       </td>
       <td title={fullTime(now.since)}>{clock(now.since)}</td>
     </tr>
@@ -535,7 +535,7 @@ function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
               </td>
               <td className="mono">{r.cell}</td>
               <td className="mono">
-                run {r.run}, round {r.round}
+                round {r.round}
               </td>
               <td className="num">{r.spent === null ? 'under way' : dollars(r.spent.usdMicros)}</td>
             </tr>
@@ -560,7 +560,7 @@ function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
                 </td>
                 <td className="mono">{f.cell}</td>
                 <td className="mono">
-                  run {f.run}, round {f.round}
+                  round {f.round}
                 </td>
                 <td title={f.failure}>{failureWords(f.failure)}</td>
                 <td className="view-cell-wide failed" title={f.why}>

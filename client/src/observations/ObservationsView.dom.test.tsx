@@ -106,7 +106,7 @@ describe('the observations', () => {
     // Its source opens its work with its run chosen.
     const source = two.querySelector('a.link');
     expect(source?.getAttribute('href')).toBe('#/works/1/runs/7');
-    expect(source?.textContent).toBe('W1 run 7 round 1');
+    expect(source?.textContent).toBe('W1');
     const facts = two.querySelector('.observation-facts')?.textContent ?? '';
     expect(facts).toContain('O2');
     expect(facts).toContain('cell I1');

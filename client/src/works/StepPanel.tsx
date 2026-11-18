@@ -331,7 +331,6 @@ function RunStep({ run, mark, began, page, reader, shown }: {
         {calls.length > 0 && <CallsTook work={page.summary} />}
         <span className="mono">{run.cell}</span>
         {cell !== undefined && <span>{cell.title}</span>}
-        <span className="mono muted">run {run.run}</span>
       </div>
       <StatusLine word="When" dot={false}>
         began {clock(run.time)}, {isOpen(run) ? 'open for' : 'took'} {duration(runTook(run, now))}

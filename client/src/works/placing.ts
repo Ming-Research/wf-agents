@@ -163,11 +163,11 @@ function runRow(
   return {
     names,
     divider: null,
-    run: at === undefined ? null : { column: at, state, words: `${run.cell} run ${run.run}` },
+    run: at === undefined ? null : { column: at, state, words: run.cell },
     from:
       by === null || fromAt === undefined || at === undefined || fromAt === at
         ? null
-        : { column: fromAt, words: `${by.cell} run ${by.run}: outputs ${by.version}` },
+        : { column: fromAt, words: `${by.cell}: outputs ${by.version}` },
     did: at === undefined ? [{ name: run.cell }, ', which the flow no longer has · ', ...why] : why,
   };
 }

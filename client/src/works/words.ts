@@ -717,7 +717,7 @@ export function writerWords(writer: Writer): string {
     case 'outside':
       return 'the outside';
     case 'run':
-      return `run ${writer.run} of ${writer.cell}`;
+      return writer.cell;
   }
 }
 

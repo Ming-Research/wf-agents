@@ -23,7 +23,7 @@ import {
 import { pauseDiffers } from './marks';
 import { placeSteps } from './placing';
 import { type Source, SourceContext, readerOf } from './source';
-import { duration, ranLast, runTook } from './words';
+import { clock, duration, ranLast, runTook } from './words';
 import { WorkScreen, WorkView } from './WorkView';
 import { WorksList, WorksTable } from './WorksList';
 
@@ -440,7 +440,7 @@ describe('the history of a work', () => {
     expect(rows[11].querySelector('.step-lead svg')?.getAttribute('aria-label')).toBe('the outside');
     // The run abandoned stands in the implementation's column, marked as one that runs again.
     const abandoned = rows[2].querySelectorAll('td')[2];
-    expect(abandoned.querySelector('.state-mark')?.getAttribute('title')).toBe('implement run 3: runs again');
+    expect(abandoned.querySelector('.state-mark')?.getAttribute('title')).toBe('implement: runs again');
     expect(rows[2].querySelectorAll('.state-mark')).toHaveLength(1);
   });
 
@@ -455,7 +455,7 @@ describe('the history of a work', () => {
       1, 2, 4, 5, 6, 8, 10,
     ]);
     // The arrow's start says the run that wrote, on pointing at it.
-    expect(rows[7].querySelectorAll('td')[3].getAttribute('title')).toBe('review run 7: outputs opinions_implement v1');
+    expect(rows[7].querySelectorAll('td')[3].getAttribute('title')).toBe('review: outputs opinions_implement v1');
   });
 
   it('says at the right how long each run took, coloured as a card colours its age, and its level, effort and model', async () => {
@@ -496,19 +496,27 @@ describe('the history of a work', () => {
     expect(divider.querySelector('.divider-words')?.textContent).toBe('paused');
     expect(divider.title).toContain(`the engine paused: ${FAILED}`);
     // The run the work is stopped at is marked so.
-    expect(runRows(page)[1].querySelector('.state-mark')?.getAttribute('title')).toBe('implement run 2: stopped');
+    expect(runRows(page)[1].querySelector('.state-mark')?.getAttribute('title')).toBe('implement: stopped');
     expect((await drawWork(41)).page.querySelectorAll('tbody tr.divider-row')).toHaveLength(0);
   });
 });
 
 describe("the Step of the work's item window", () => {
+  /// The words of the Step that say when a run of a made-up work began, which tell that run from the cell's others.
+  const began = (work: number, run: number) => {
+    const s = fixtureWork(work).steps.find((x) => x.kind === 'run' && x.run === run);
+    return `began ${clock(s?.time ?? 0)}`;
+  };
+
   it('shows the run chosen: how it stands, why it ran, what it started from, what it handed in, its rounds and its calls', async () => {
     const { page } = await drawWork(41);
     await chooseRun(page, 2);
     const panel = step(page);
     expect(page.querySelector('aside [role="tab"][aria-selected="true"]')?.textContent).toBe('Step');
     expect(panel.querySelector('.status-line')?.textContent).toContain('Runs again');
-    expect(panel.querySelector('.status-line')?.textContent).toContain('run 3');
+    // A run is told by its cell and its time, never by the number the engine keeps it by.
+    expect(panel.querySelector('.status-line')?.textContent).not.toMatch(/run \d/);
+    expect(panel.textContent).toContain(began(41, 3));
     expect(part(panel, 'Why it ran').textContent).toContain('the cell had no record');
     expect(texts(panel, '.panel-part-label')).toEqual(
       expect.arrayContaining(['Why it ran 1', 'Started from 5', 'Handed in', 'Calls 2']),
@@ -529,12 +537,12 @@ describe("the Step of the work's item window", () => {
     const named = draw(<WorkScreen page={fixtureWork(41)} onActed={() => undefined} run={3} />, fixtureSource());
     await settle();
     expect(named.querySelector('aside [role="tab"][aria-selected="true"]')?.textContent).toBe('Step');
-    expect(step(named).querySelector('.status-line')?.textContent).toContain('run 3');
+    expect(step(named).textContent).toContain(began(41, 3));
     expect(runRows(named)[2].classList.contains('chosen')).toBe(true);
     // Work 42 stands at its implementation's second run, which its Step shows with no row chosen.
     const { page } = await drawWork(42);
     await click(button(page.querySelector('aside') as HTMLElement, 'Step'));
-    expect(step(page).querySelector('.status-line')?.textContent).toContain('run 2');
+    expect(step(page).textContent).toContain(began(42, 2));
   });
 
   it('shows why a return was sent back, and a way round', async () => {
