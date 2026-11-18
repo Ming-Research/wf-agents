@@ -5,7 +5,7 @@
 // context after each round; and how long each tool ran. Every mark says what it is on pointing at it. It is the Usage
 // of the item's window on the work's page.
 
-import type { ReactNode } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { Attr, ListRow, PanelPart } from '../parts';
 import type { SessionWhy, WorkPage } from '../works-api';
@@ -129,38 +129,61 @@ function WhyKeys({ why }: { why: SessionWhy | null }) {
 /// A session as the usage names it: its line, and its number among the line's as the records count them.
 const sessionName = (s: SessionRow) => `${s.line} ${s.number}`;
 
-/// Each session's context after each of its rounds, a line for each session, its name in a column at the right at the
-/// height its line ends, the names kept a line apart where the lines end close; the most any reached at the top left;
-/// a compaction marked by a larger point; each point says its round and its context on pointing at it.
-function ContextChart({ sessions, rounds }: { sessions: SessionRow[]; rounds: number }) {
+/// The colours the flow's lines are told apart by in a chart, in the order the flow lists them (`--flow-line-*`).
+const LINE_COLOURS = 5;
+
+/// The colour of a line of the flow, by its place among the flow's lines; a line past the colours, or one the flow does
+/// not list, takes the muted grey, its name beside it still saying which it is.
+function lineColour(lines: readonly string[], line: string): string {
+  const at = lines.indexOf(line);
+  return at >= 0 && at < LINE_COLOURS ? `var(--flow-line-${at + 1})` : 'var(--muted)';
+}
+
+/// Each session's context after each of its rounds, a line for each session in the colour of the flow's line it is of,
+/// labelled at its end with its name after a dash of that colour, a compaction marked by a larger point; each point says
+/// its round and its context on pointing at it. Drawn in the pixels it is shown at, so that its words are the page's
+/// size however wide it is; a name that would lie over one already placed goes down a line, and the chart grows to
+/// hold it.
+function ContextChart({ sessions, rounds, lines }: { sessions: SessionRow[]; rounds: number; lines: readonly string[] }) {
+  const box = useRef<SVGSVGElement>(null);
+  const [W, setW] = useState(320);
+  useEffect(() => {
+    const el = box.current;
+    if (el === null) return;
+    setW(el.clientWidth || 320);
+    if (typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(() => setW(el.clientWidth || 320));
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
   const points = sessions.flatMap((s) => s.points);
   if (points.length === 0) return <p className="muted small">No round recorded its context</p>;
-  // The chart's units, and what a character and a line of its words take in them, at the size of its text.
-  const [W, H, left, top, bottom] = [320, 120, 4, 16, 6];
-  const [char, line] = [6.6, 12];
-  const right = 12 + Math.max(...sessions.map((s) => sessionName(s).length)) * char;
+  // What a character and a line of the chart's words take, and the dash before a name.
+  const [H, left, top, bottom, char, line, dash] = [120, 4, 6, 6, 6.6, 13, 12];
   const most = Math.max(...points.map((p) => p.context));
+  const right = 12 + dash + Math.max(...sessions.map((s) => sessionName(s).length), tokens(most).length) * char;
   const x = (at: number) => left + ((W - left - right) * at) / Math.max(rounds - 1, 1);
   const y = (context: number) => top + (H - top - bottom) * (1 - context / most);
-  // Each name at the height its line ends, those that would touch pushed down a line apart, then all of them up as
-  // far as the last runs past the chart's foot.
-  const named = sessions
-    .filter((s) => s.points.length > 0)
-    .map((s) => ({ name: sessionName(s), at: y(s.points[s.points.length - 1].context) + 4 }))
-    .sort((a, b) => a.at - b.at);
-  named.forEach((n, i) => {
-    if (i > 0) n.at = Math.max(n.at, named[i - 1].at + line);
-  });
-  const over = named.length > 0 ? Math.max(0, named[named.length - 1].at - (H - 2)) : 0;
+  // Each name at the end of its line; one that would lie over a name placed before it goes down a line at a time.
+  const placed: { name: string; colour: string; x: number; y: number; width: number }[] = [];
+  for (const s of sessions) {
+    const last = s.points[s.points.length - 1];
+    if (last === undefined) continue;
+    const name = sessionName(s);
+    const at = { name, colour: lineColour(lines, s.line), x: x(last.at) + 6, y: y(last.context) + 4, width: dash + name.length * char };
+    while (placed.some((p) => at.x < p.x + p.width && p.x < at.x + at.width && Math.abs(at.y - p.y) < line)) at.y += line;
+    placed.push(at);
+  }
+  const height = Math.max(H, ...placed.map((p) => p.y + bottom));
   return (
-    <svg className="usage-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="The context after each round">
+    <svg ref={box} className="usage-chart" viewBox={`0 0 ${W} ${height}`} role="img" aria-label="The context after each round">
       <line className="usage-grid" x1={left} x2={W - right} y1={y(most)} y2={y(most)} />
       <line className="usage-grid" x1={left} x2={W - right} y1={y(0)} y2={y(0)} />
-      <text className="usage-chart-text" x={left} y={top - 5}>
+      <text className="usage-chart-text" x={W - right + 4} y={y(most) + 4}>
         {tokens(most)}
       </text>
       {sessions.map((s) => (
-        <g key={sessionName(s)}>
+        <g key={sessionName(s)} style={{ '--usage-line': lineColour(lines, s.line) } as CSSProperties}>
           {s.points.length > 1 && (
             <polyline className="usage-line" points={s.points.map((p) => `${x(p.at)},${y(p.context)}`).join(' ')} />
           )}
@@ -179,10 +202,13 @@ function ContextChart({ sessions, rounds }: { sessions: SessionRow[]; rounds: nu
           ))}
         </g>
       ))}
-      {named.map((n) => (
-        <text key={n.name} className="usage-chart-text" x={W - right + 8} y={n.at - over}>
-          {n.name}
-        </text>
+      {placed.map((p) => (
+        <g key={p.name}>
+          <line className="usage-key" x1={p.x} x2={p.x + dash - 4} y1={p.y - 4} y2={p.y - 4} style={{ stroke: p.colour }} />
+          <text className="usage-chart-text" x={p.x + dash} y={p.y}>
+            {p.name}
+          </text>
+        </g>
       ))}
     </svg>
   );
@@ -285,7 +311,7 @@ export function UsageTab({ page }: { page: WorkPage }) {
           ))}
         </ul>
         <p className="usage-sub">Context after each round</p>
-        <ContextChart sessions={u.sessions} rounds={u.rounds.length} />
+        <ContextChart sessions={u.sessions} rounds={u.rounds.length} lines={page.flow.lines.map((l) => l.name)} />
       </PanelPart>
       {u.tools.length > 0 && (
         <PanelPart label="Tools" count={u.tools.length}>

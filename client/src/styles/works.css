@@ -402,6 +402,22 @@
   font-size: var(--size-small);
 }
 
+/* At the right of a run's row and in its head: how long it took, its level, its effort and its model, each in a
+   column of its own, the model taking what is left and cut short where it is longer. */
+.run-facts {
+  display: grid;
+  grid-template-columns: 6em 3em 4em minmax(0, 1fr);
+  column-gap: var(--space-8);
+  align-items: baseline;
+  font-size: var(--size-small);
+}
+
+.run-facts > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* How long a run took, in the colours a console card gives a work's age: grey, amber from half an hour, red past an
    hour. */
 .step-time.attention {
@@ -573,14 +589,21 @@
   stroke-width: var(--hairline);
 }
 
+/* A session's line and points in the colour of the flow's line it is of, which the chart sets on each. */
 .usage-line {
   fill: none;
-  stroke: var(--track-model);
+  stroke: var(--usage-line, var(--track-model));
   stroke-width: var(--chart-back);
 }
 
 .usage-point {
-  fill: var(--track-model);
+  fill: var(--usage-line, var(--track-model));
+}
+
+/* The dash of a line's colour before its name. */
+.usage-key {
+  stroke-width: var(--chart-back);
+  stroke-linecap: round;
 }
 
 .usage-chart-text {

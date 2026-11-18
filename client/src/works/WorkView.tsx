@@ -156,11 +156,13 @@ export function WorkScreen({ page, failed = null, onActed, run, active = true }:
   return (
     <>
       <div className="view-line">
-        <a className="link" href="#/works">
-          Works
-        </a>
-        <span className="mono muted">#{summary.item}</span>
-        <span className="view-name">{page.title}</span>
+        <span className="view-title">
+          <a className="link" href="#/works">
+            Works
+          </a>
+          <span className="mono muted">#{summary.item}</span>
+          <span className="view-name">{page.title}</span>
+        </span>
         <span className="view-end">
           <Legend marks={HISTORY_MARKS} />
           {!hasEnded(summary) && <NewSession lines={page.flow.lines.map((l) => l.name)} send={send} />}

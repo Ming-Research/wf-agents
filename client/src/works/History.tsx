@@ -5,7 +5,9 @@
 // woke it to the run's own column, drawn as the matrix draws its ways back and in the accent where it runs back
 // to an earlier cell, and in the run's column its mark, how it ended or stands, alone. At the right, how long the run
 // took, or has been under way while it is open, in the colour a console card gives a work's age, and when it began on
-// pointing at it. Where the work was paused, let on
+// pointing at it; then what its latest round ran on, as the records of its try kept it: the level, in the look a level
+// has, the reasoning effort and the model, none of a run of the engine's own cell. A run whose rounds ran on more than
+// one says them all in the step's window. Where the work was paused, let on
 // again, cancelled or reopened, a row half as high lies between the runs it fell between: a dashed line in the accent
 // across the cells, and at the right what was done, and when on pointing at it. The table keeps its whole width under
 // the window over its right, as the flow's chart does, and the frame scrolls on past what the window covers. The chart opens scrolled to its end, the newest step, and follows new
@@ -14,9 +16,9 @@
 import { type CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Cell } from '../api';
-import { CellHead, FLOW_WIDTHS, LineLine, RowArrow, WIDTHS, WordsHead, useWheel } from '../Chart';
+import { CellHead, LineLine, RowArrow, WIDTHS, WordsHead, useWheel } from '../Chart';
 import { matrix } from '../matrix';
-import { MARKS, type MarkKey, markName } from '../marks';
+import { LevelMark, MARKS, type MarkKey, markName } from '../marks';
 import { age } from '../console/items';
 import { Arrow, Edge } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
@@ -24,7 +26,7 @@ import type { WorkPage } from '../works-api';
 import { type HistoryRow, type Named } from './placing';
 import { colourOf } from './state-marks';
 import { useNow } from './marks';
-import { duration, fullTime, isOpen, partsText, runTook } from './words';
+import { duration, fullTime, isOpen, partsText, ranLast, runTook } from './words';
 
 /// The marks the history draws, in the order its legend lists them (`Legend` in marks.tsx): the arrow from a write to
 /// the run it woke and the way back; the signs of who wrote what woke a run, and a tool's mark; how a run
@@ -47,6 +49,12 @@ export const HISTORY_MARKS: MarkKey[] = [
 /// The width of a cell's column at first, which holds one mark and the arrows through it, and the least it is dragged
 /// to.
 const CELLS = { first: 36, min: 28 };
+
+/// The least width of the column at the right, which holds how long each run took and what it ran on.
+const FACTS_MIN = 360;
+
+/// The heads of what the column at the right holds, in the order its rows give them.
+const FACTS = ['Took', 'Level', 'Effort', 'Model'];
 
 /// The width of the column of names at first, and the least and most it is dragged to.
 const NAMES = { first: 240, min: WIDTHS.namesMin, max: WIDTHS.namesMax };
@@ -96,7 +104,7 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
   const widthOf = (id: string) => widths[id] ?? CELLS.first;
   const taken = cells.reduce((sum, cell) => sum + widthOf(cell.id), leadWidth);
   // Under the window the table keeps its whole width, as the flow's chart does (styles/chart.css).
-  const size = { width: 'calc(100% + var(--window-covers, 0px))', minWidth: taken + FLOW_WIDTHS.words };
+  const size = { width: 'calc(100% + var(--window-covers, 0px))', minWidth: taken + FACTS_MIN };
   const unpoint = () => setPointed(null);
 
   // The chart opens at its end, the newest step; it follows new steps while the owner is at the end, and stays where
@@ -162,7 +170,13 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
               about={pointed !== null ? (cells[pointed] ?? null) : null}
               saying={null}
               onPoint={unpoint}
-              label="Took"
+              label={
+                <span className="run-facts">
+                  {FACTS.map((f) => (
+                    <span key={f}>{f}</span>
+                  ))}
+                </span>
+              }
             />
           </tr>
           {lines.map((row) => (
@@ -222,8 +236,8 @@ function DividerRow({ row, span }: { row: HistoryRow; span: number }) {
   );
 }
 
-/// A run: what woke it, the arrow and its mark under the cells, and how long it took, coloured as a card colours a
-/// work's age (decision a-works-age-is-red-past-an-hour).
+/// A run: what woke it, the arrow and its mark under the cells, how long it took, coloured as a card colours a work's
+/// age (decision a-works-age-is-red-past-an-hour), and what it ran on.
 function StepRow(props: {
   row: HistoryRow;
   cells: Cell[];
@@ -240,6 +254,7 @@ function StepRow(props: {
   const { step } = row;
   const did = partsText(row.did);
   const ms = step.kind === 'run' ? runTook(step, now) : null;
+  const ran = step.kind === 'run' ? ranLast(step) : null;
   return (
     <tr className={`row step-row ${chosen ? 'chosen' : ''}`} onClick={onChoose}>
       <th
@@ -298,7 +313,16 @@ function StepRow(props: {
         );
       })}
       <td className="words" title={`Began ${fullTime(step.time)}`} onMouseEnter={() => onPoint(null)}>
-        {ms !== null && <span className={`step-time ${age(ms).tone}`}>{duration(ms)}</span>}
+        <span className="run-facts">
+          <span className={ms === null ? '' : `step-time ${age(ms).tone}`}>{ms !== null && duration(ms)}</span>
+          <span>{ran !== null && <LevelMark level={ran.level} raise={0} />}</span>
+          <span className="muted" title={ran?.effort ? `effort ${ran.effort}` : undefined}>
+            {ran?.effort}
+          </span>
+          <span className="mono muted" title={ran ? `model ${ran.model}` : undefined}>
+            {ran?.model}
+          </span>
+        </span>
       </td>
     </tr>
   );

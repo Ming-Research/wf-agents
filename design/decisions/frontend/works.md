@@ -71,8 +71,9 @@ it read as said again each time.
 
 ### decision the-history-goes-under-the-window
 A work's history keeps its whole width under the window over its right, as the flow's chart does, so that the window
-may cover its last column, how long each run took, while it is out; the frame scrolls on past what the window covers.
-Why: What woke each run and the marks are what a row is, and how long it took is read least (judgment); drawn alike, the
+may cover its last column, how long each run took and what it ran on, while it is out; the frame scrolls on past what the window covers.
+Why: What woke each run and the marks are what a row is, and how long it took and what it ran on are read least
+(judgment); drawn alike, the
 history and the flow's chart behave alike under the window (Article 8).
 
 ### decision a-version-is-shown-by-who-wrote-it

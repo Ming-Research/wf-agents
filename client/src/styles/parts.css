@@ -226,6 +226,15 @@ button {
   font-weight: var(--weight-strong);
 }
 
+/* A view's name with what leads to it and its number, on one baseline: the number's monospace, smaller and centred
+   alone, would stand higher than the words beside it. */
+.view-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0 var(--space-12);
+  min-width: 0;
+}
+
 .view-facts {
   flex: 1 1 0;
   min-width: 0;

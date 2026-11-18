@@ -14,6 +14,7 @@ import type {
   Maker,
   Outage,
   Person,
+  RanOn,
   Run,
   SessionWhy,
   Spent,
@@ -726,6 +727,16 @@ export const isOpen = (run: Pick<Run, 'end'>): boolean => run.end === null;
 /// How long a run took from its start: to its end, or until now while it is open.
 export function runTook(run: Pick<Run, 'time' | 'end'>, now: number): number {
   return (run.end?.time ?? now) - run.time;
+}
+
+/// What a run's latest round ran on, as the records of its latest try say; none of a run no agent's round of which
+/// kept it, as an engine cell's.
+export function ranLast(run: Pick<Run, 'rounds'>): RanOn | null {
+  for (const round of [...run.rounds].reverse()) {
+    const ran = round.tries[round.tries.length - 1]?.ran;
+    if (ran) return ran;
+  }
+  return null;
 }
 
 /// A call's state in words: when it was made and, once it has one, when its result came; a call with no result of a

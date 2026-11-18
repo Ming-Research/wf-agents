@@ -523,7 +523,7 @@ export function CellHead(props: {
 /// runs it, when it runs and what it waits for; and under that what the column holds, which is what each row's thing is
 /// until a cell is chosen, and then what that cell says of each it has to do with; or, where the column holds something
 /// else, as on a work's history, what `label` says.
-export function WordsHead(props: { about: Cell | null; saying: Cell | null; onPoint: () => void; label?: string }) {
+export function WordsHead(props: { about: Cell | null; saying: Cell | null; onPoint: () => void; label?: ReactNode }) {
   const { about: cell, saying, onPoint, label } = props;
   const facts = cell ? headFacts(cell) : null;
   const whole =

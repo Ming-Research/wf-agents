@@ -126,6 +126,15 @@
   --track-tool: var(--yellow);
   --track-gap: #e8ecf2;
 
+  /* The lines of the flow told apart in a chart of them, each in its colour, in the order the flow lists its lines: who
+     a mark is, never how it stands. Five in a fixed order, checked apart for readers who see colours less well; each
+     drawn with its name beside it, which some of them are too light to be read without. */
+  --flow-line-1: #2a78d6;
+  --flow-line-2: #eb6834;
+  --flow-line-3: #1baf7a;
+  --flow-line-4: #eda100;
+  --flow-line-5: #e87ba4;
+
   color-scheme: light;
 }
 
@@ -160,6 +169,11 @@
     --track-ground: #656c7633;
     --track-tool: var(--yellow);
     --track-gap: #2a2d33;
+    --flow-line-1: #3987e5;
+    --flow-line-2: #d95926;
+    --flow-line-3: #199e70;
+    --flow-line-4: #c98500;
+    --flow-line-5: #d55181;
     color-scheme: dark;
   }
 }
@@ -190,6 +204,11 @@
   --track-ground: #656c7633;
   --track-tool: var(--yellow);
   --track-gap: #2a2d33;
+  --flow-line-1: #3987e5;
+  --flow-line-2: #d95926;
+  --flow-line-3: #199e70;
+  --flow-line-4: #c98500;
+  --flow-line-5: #d55181;
   color-scheme: dark;
 }
 
