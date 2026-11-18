@@ -780,6 +780,8 @@ textarea:disabled {
   cursor: zoom-in;
 }
 
+/* The buttons stand on the card, so that the drawing's lines do not run through them; hidden, with their ground, while
+   no pointer or focus is on the diagram, so that the ground covers nothing of the drawing. */
 .diagram-tools {
   position: absolute;
   top: 0;
@@ -789,20 +791,17 @@ textarea:disabled {
   padding: 0 var(--space-4);
   background: var(--card);
   font-size: var(--size-small);
-}
-
-.diagram-tool {
   opacity: 0;
 }
 
-.diagram:hover .diagram-tool,
-.diagram:focus-within .diagram-tool,
-.diagram-tool[aria-pressed='true'] {
+.diagram:hover .diagram-tools,
+.diagram:focus-within .diagram-tools,
+.diagram-tools:has([aria-pressed='true']) {
   opacity: 1;
 }
 
 @media (hover: none) {
-  .diagram-tool {
+  .diagram-tools {
     opacity: 1;
   }
 }
