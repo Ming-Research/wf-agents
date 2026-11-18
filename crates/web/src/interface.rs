@@ -504,7 +504,7 @@ async fn changes_of(State(handle): State<Handle>, path: Result<Path<u64>, PathRe
         Err(rejection) => return unreadable(&rejection),
     };
     let missing = format!("Work {} has no change to tell yet: its branch is not made.", number.0);
-    let changes = handle.changes(number).await;
+    let changes = handle.changes_of(number).await;
     let page = changes.map(|work| work.map(|changes| changes.map(|c| c.map(ChangesPage::of)).map_err(Broken)));
     found(page, number, missing)
 }

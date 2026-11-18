@@ -1096,7 +1096,7 @@ impl Handle {
 
     /// Each file the work changed, as the carrier of the engine's acts works it out off the loop: none where there is
     /// no such work, and inside, none where nothing tells what it changed, or why it could not be worked out.
-    pub async fn changes(&self, work: WorkNumber) -> Result<Option<Result<Option<Changes>, String>>, Refusal> {
+    pub async fn changes_of(&self, work: WorkNumber) -> Result<Option<Result<Option<Changes>, String>>, Refusal> {
         let Some(of) = self.of_work(work).await? else {
             return Ok(None);
         };
