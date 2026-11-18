@@ -67,10 +67,10 @@
 //!
 //! The driver alone sees every work, so it is also what judges by history (principle `judged-by-own-history`): it
 //! gathers what the rounds of every work on a flow came to ([`history`]), and gives each round the lines it is judged
-//! by as it runs, and each line of a work the context past which its session begins anew. It gives the keep-warm pings
-//! of the sessions of lines that wait as their time comes, the time being among what it asks to be told ([`warm`]);
-//! it tells a round that missed its session's prompt cache from the records ([`cache`]); and it tells how each round
-//! and each call of a tool went against the lines of its history, which stops nothing ([`judged`]).
+//! by as it runs. It gives the keep-warm pings of the sessions of lines that wait as their time comes, the time being
+//! among what it asks to be told ([`warm`]); it tells a round that missed its session's prompt cache from the records
+//! ([`cache`]); and it tells how each round and each call of a tool went against the lines of its history, which stops
+//! nothing ([`judged`]).
 //!
 //! It keeps, while a round or a call is under way, where it stands as what carries it out says as it goes ([`along`]).
 
@@ -108,7 +108,7 @@ use store::{Change, EverythingPaused, First, Item, ItemChange, ItemNumber, Stora
 use work::{Time, Work};
 
 pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
-pub use sessions::{Limits, Policy, SESSION, Warm};
+pub use sessions::{Policy, SESSION, Warm};
 
 /// The source of the blocks the driver writes: whether the items the work's item depends on have merged. Such a block
 /// is a choice of [`WAITING`] and [`MERGED`].
@@ -594,14 +594,13 @@ impl Driver {
         for (number, write) in wanted {
             for event in write.into_iter().chain([Event::Look]) {
                 let (room, gate) = (driver.room(Some(number), false), driver.gate_of(number));
-                let limits = driver.limits(number);
                 let Driver {
                     store, works, policy, ..
                 } = &mut driver;
                 let Some(held) = works.get_mut(&number).filter(|held| held.standing == Standing::Going) else {
                     continue;
                 };
-                match step(store.as_mut(), held, policy.as_ref(), &limits, now, event, room, gate) {
+                match step(store.as_mut(), held, policy.as_ref(), now, event, room, gate) {
                     Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
                     Err(Halt::Store(fault)) => return Err(Fault::Store(fault)),
                     Err(Halt::Refused(refused)) => return Err(Fault::Refused { work: number, refused }),
@@ -764,11 +763,10 @@ impl Driver {
                 },
             };
             let (room, gate) = (self.room(Some(work), true), self.gate_of(work));
-            let limits = self.limits(work);
             let held = works.entry(work).or_insert_with(|| self.works[&work].clone());
             let (item, policy) = (&held.item, self.policy.as_ref());
             let then = |flow: &Compiled, work: &Work| {
-                let mut events = sessions::follow(flow, work, item, policy, &limits);
+                let mut events = sessions::follow(flow, work, item, policy);
                 events.extend(start(flow, work));
                 events
             };
@@ -882,23 +880,13 @@ impl Driver {
             Some(held) => self.gate_of(work).and(held),
             None => self.gate_of(work),
         };
-        let limits = self.limits(work);
         let Some(held) = self.works.get_mut(&work) else {
             return Err(Failed::NoSuchWork(work));
         };
         let was = held.standing;
         let item = held.head.item;
         let mut todos = Vec::new();
-        match step(
-            self.store.as_mut(),
-            held,
-            self.policy.as_ref(),
-            &limits,
-            now,
-            event,
-            room,
-            gate,
-        ) {
+        match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
             Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
             Err(Halt::Refused(refused)) => return Err(Failed::Refused(refused)),
             Err(Halt::Store(fault)) => return Err(self.stop(Fault::Store(fault), false)),
@@ -1047,33 +1035,6 @@ impl Driver {
         lines.work_spent = history::works_line(&spent, policy.samples);
         lines.work_time = history::works_line(&time, policy.samples);
         lines
-    }
-
-    /// The line of the context each line of the work's flow ends its rounds with, where the history gives one: past it,
-    /// the line's session begins anew ([`sessions`]). The rounds of the session judged, the line's in the work now, are
-    /// no part of the history it is judged by, so that a session growing as it goes does not set its own line. None
-    /// for a work the driver does not hold.
-    fn limits(&self, work: WorkNumber) -> Limits {
-        let Some(held) = self.works.get(&work) else {
-            return Limits::new();
-        };
-        let (Some(policy), Some(compiled)) = (&self.policy, self.flows.get(&held.head.flow)) else {
-            return Limits::new();
-        };
-        let mut limits = Limits::new();
-        for line in compiled.cells.iter().filter_map(|cell| cell.line.as_deref()) {
-            let judged = work::sessions::number_at(&held.work, line, held.work.tick());
-            let others = (self.works.iter())
-                .filter(|(_, other)| other.head.flow == held.head.flow)
-                .flat_map(|(number, other)| {
-                    let own = *number == work;
-                    (other.samples.iter()).filter(move |s| !(own && s.session == Some(judged)))
-                });
-            if let Some(found) = history::context_line(others, line, policy.samples) {
-                limits.insert(line.to_string(), found);
-            }
-        }
-        limits
     }
 
     /// The wait every work shares for the agents' service, if one stands: worked out from the records of every work
@@ -1257,8 +1218,7 @@ impl Driver {
             if held.standing != Standing::Going {
                 continue;
             }
-            let limits = self.limits(*number);
-            for due in warm::due(&held.flow, &held.work, &held.item, policy, &limits, now) {
+            for due in warm::due(&held.flow, &held.work, &held.item, policy, now) {
                 if self.pinging.contains(&(*number, due.line.clone())) {
                     continue;
                 }
@@ -1300,8 +1260,7 @@ impl Driver {
         (self.works.iter())
             .filter(|(_, held)| held.standing == Standing::Going)
             .flat_map(|(number, held)| {
-                let limits = self.limits(*number);
-                (warm::kept(&held.flow, &held.work, &held.item, policy, &limits, now).into_iter())
+                (warm::kept(&held.flow, &held.work, &held.item, policy, now).into_iter())
                     .filter(|kept| !self.pinging.contains(&(*number, kept.due.line.clone())))
                     .map(|kept| (kept.at.max(soonest), kept.life))
                     .filter(|(at, life)| at < life)
@@ -1357,7 +1316,6 @@ impl Driver {
         todos: &mut Vec<Todo>,
     ) -> Result<(), Fault> {
         let (room, gate) = (self.room(Some(number), slot), self.gate_of(number));
-        let limits = self.limits(number);
         let Some(held) = self
             .works
             .get_mut(&number)
@@ -1365,16 +1323,7 @@ impl Driver {
         else {
             return Ok(());
         };
-        match step(
-            self.store.as_mut(),
-            held,
-            self.policy.as_ref(),
-            &limits,
-            now,
-            event,
-            room,
-            gate,
-        ) {
+        match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
             Ok(effects) => {
                 todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
                 Ok(())
@@ -1401,13 +1350,11 @@ impl Driver {
         let (mut failed, mut written) = (None, false);
         let room = self.room(None, false);
         let gates: BTreeMap<WorkNumber, Gate> = (self.works.keys()).map(|n| (*n, self.gate_of(*n))).collect();
-        let limits: BTreeMap<WorkNumber, Limits> = (self.works.keys()).map(|n| (*n, self.limits(*n))).collect();
         for (number, held) in &mut self.works {
             let gate = gates.get(number).copied().unwrap_or_default();
             if held.standing != Standing::Going || held.item.project.as_deref() != Some(project) {
                 continue;
             }
-            let limits = limits.get(number).cloned().unwrap_or_default();
             let ours = (held.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(source));
             let Some((block, _)) = ours else {
                 continue;
@@ -1426,16 +1373,7 @@ impl Driver {
                 matters: true,
                 value: None,
             };
-            match step(
-                self.store.as_mut(),
-                held,
-                self.policy.as_ref(),
-                &limits,
-                now,
-                event,
-                room,
-                gate,
-            ) {
+            match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
                 Ok(effects) => {
                     written = true;
                     todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
@@ -1686,7 +1624,6 @@ impl Driver {
             };
             looked.insert(number);
             let (room, gate) = (self.room(Some(number), true), self.gate_of(number));
-            let limits = self.limits(number);
             let Some(held) = self.works.get_mut(&number) else {
                 break;
             };
@@ -1694,7 +1631,6 @@ impl Driver {
                 self.store.as_mut(),
                 held,
                 self.policy.as_ref(),
-                &limits,
                 now,
                 Event::Look,
                 room,
@@ -1783,12 +1719,10 @@ impl Held {
 /// Gives one thing that happened to the engine's loop for the work, in the room the engine leaves it and with the gate
 /// of the wait every work shares, with what follows from it for the sessions of its lines, and keeps what the loop
 /// added before giving back what is to be done.
-#[allow(clippy::too_many_arguments)]
 fn step(
     store: &mut dyn Storage,
     held: &mut Held,
     policy: Option<&Policy>,
-    limits: &Limits,
     now: Time,
     event: Event,
     room: Room,
@@ -1797,7 +1731,7 @@ fn step(
     let before = held.work.tick();
     let item = &held.item;
     let then = |flow: &Compiled, work: &Work| {
-        let mut events = sessions::follow(flow, work, item, policy, limits);
+        let mut events = sessions::follow(flow, work, item, policy);
         events.extend(start(flow, work));
         events
     };

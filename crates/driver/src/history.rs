@@ -8,8 +8,8 @@
 //! with a median above nothing, since a history with no scale gives no line; otherwise against every round of the
 //! flow, where a median of nothing is usual and only a history of nothing at all gives no line; and with fewer there
 //! too, it is not judged. A round that went past the lines of a signal that stops a round, stopped or let run, never
-//! enters the history, nor does one whose session was replaced for its size: what nothing explained never becomes the
-//! measure of what is usual, which it would raise for good.
+//! enters the history: what nothing explained never becomes the measure of what is usual, which it would raise for
+//! good.
 
 use decide::run::Failure;
 use decide::{CellId, RunId};
@@ -114,25 +114,11 @@ pub struct Sample {
     pub ended: Option<work::Time>,
     pub cell: CellId,
     pub line: Option<String>,
-    /// Which of its line's sessions it ran in, counted from none.
-    pub session: Option<u32>,
-    /// Whether the session it ran in was replaced for the context a round of it ended with: a session past the limit
-    /// of its time is no measure of what is usual, in any of its rounds.
-    pub cut: bool,
     pub measures: Measures,
     pub spent: Spent,
     pub model: Option<String>,
     pub ms: Option<u64>,
     pub before: Option<u64>,
-}
-
-/// Whether the line's session of this number, counted from none, was replaced for the context a round of it ended
-/// with: the session after it began for that.
-fn cut(work: &Work, line: &str, session: u32) -> bool {
-    let next = (work::sessions::of_line(work, line))
-        .filter(|s| s.why.own_id())
-        .nth(session as usize);
-    next.is_some_and(|s| matches!(s.why, work::Why::Limit { .. }))
 }
 
 /// The rounds of a work that are history: those that ended and whose carrier said what their calls came to, at least
@@ -182,16 +168,11 @@ pub fn samples(flow: &Compiled, work: &Work) -> Vec<Sample> {
         let Some(ended) = ended else {
             continue;
         };
-        let on_line = |run: RunId| line_of_run(flow, work, run) == line.as_deref();
-        let session = (line.as_deref()).map(|l| work::sessions::of_round(work, l, on_line, round.run, number).0);
-        let cut = (line.as_deref().zip(session)).is_some_and(|(l, n)| cut(work, l, n));
         out.push(Sample {
             at: ended.at,
             ended: work.time_of(ended.at),
             cell: started.cell.clone(),
             line,
-            session,
-            cut,
             measures: measures.clone(),
             spent: *spent,
             model,
@@ -391,17 +372,6 @@ fn line_of_run<'a>(flow: &'a Compiled, work: &Work, run: RunId) -> Option<&'a st
         .and_then(|c| c.line.as_deref())
 }
 
-/// The line of the context the rounds of a line end with, from the history: where a line's session is past it as its
-/// last round ends, its next round begins a new one. The rounds of a session replaced for its size are no part of it,
-/// and the caller leaves out those of the session judged. None where fewer than `least` of the line's rounds tell it.
-pub fn context_line<'a>(history: impl IntoIterator<Item = &'a Sample>, line: &str, least: usize) -> Option<Line> {
-    let values: Vec<f64> = (history.into_iter())
-        .filter(|s| s.line.as_deref() == Some(line) && !s.cut)
-        .filter_map(|s| s.spent.context_tokens.map(|c| c as f64))
-        .collect();
-    judged(&values, &[], least, Scope::Line, Scope::Line)
-}
-
 /// The line of what works of a flow come to, from what each of the others came to: none where fewer than `least`
 /// tell it.
 pub fn works_line(others: &[f64], least: usize) -> Option<Line> {
@@ -445,8 +415,6 @@ mod tests {
             ended: Some(work::Time(1)),
             cell: CellId::from(cell),
             line: Some("engineer".to_string()),
-            session: Some(0),
-            cut: false,
             measures: Measures {
                 calls,
                 added,
@@ -488,10 +456,5 @@ mod tests {
         // A cell with too few rounds of its own is judged by the flow's.
         let build = Lines::of(&history, &CellId::from("build"), "opus", 3);
         assert_eq!(build.added.expect("the flow's line").scope, Scope::Flow);
-        assert_eq!(
-            context_line(&history, "engineer", 3).map(|l| l.value),
-            Some(2.0 * 10_000.0 - 1_250.0)
-        );
-        assert_eq!(context_line(&history, "reviewer", 1), None);
     }
 }

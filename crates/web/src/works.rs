@@ -897,7 +897,7 @@ pub enum Step {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SessionWhy {
-    /// The context of the line's session, as its last round ended, was past the limit of its line, in tokens.
+    /// The context of the line's session, as its last round ended, was past the limit the engine held it to, in tokens.
     Limit { context: u64, limit: u64 },
     /// The line's rounds run on another model than this one, which the session was begun on.
     Model { was: String },
