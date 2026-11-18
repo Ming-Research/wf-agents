@@ -1638,7 +1638,7 @@ function FileRow({ file, reader, of }: { file: FileChange; reader: Reader; of: s
 function FileDiff({ page }: { page: DiffPage }) {
   return (
     <>
-      <Diff text={page.diff} />
+      <Diff text={page.diff} path={page.path} />
       {page.cut !== null && <p className="muted small">Cut short of its whole {count(page.cut)} bytes</p>}
     </>
   );

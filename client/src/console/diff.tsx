@@ -1,14 +1,18 @@
 // A change of files as the item window draws a passage's ```diff block (decision
 // a-diff-is-drawn-as-the-text-it-changes): the block read as a unified diff, as git and the engine write one, and each
 // part of a file it changes drawn as the text reads after the change, in the look of code, with each change in its
-// place: the words removed struck through in red, then the words added in green; each line it draws with its number
-// in the file after the change at its left, where the diff gives the numbers and the line is in that file. The words of the two sides are
-// compared, and blanks are not: a passage wrapped again changes nothing. Two changes fewer than `CLOSE` words apart are
-// one change, so that no change is read word by word. The lines of the diff that say what git keeps of a file (its
-// modes, its blobs, the numbers of its lines) are not drawn, and a file's path is drawn only where the block changes
-// several files; a block that is no unified diff is drawn as the code it is.
+// place: the words removed struck through on a red tint, then the words added on a green tint; each line it draws with
+// its number in the file after the change at its left, where the diff gives the numbers and the line is in that file.
+// The words of the two sides are compared, and blanks are not: a passage wrapped again changes nothing. Two changes
+// fewer than `CLOSE` words apart are one change, so that no change is read word by word. The lines of the diff that say
+// what git keeps of a file (its modes, its blobs, the numbers of its lines) are not drawn, and a file's path is drawn
+// only where the block changes several files; a block that is no unified diff is drawn as the code it is. Where the
+// page knows a file's language, the words of its code are coloured by their kind (decision
+// code-is-coloured-from-prisms-words), each side of a part of it read whole, so that a comment or a string over
+// several of its lines is read as one.
 
 import { useMemo } from 'react';
+import { codeKinds, codeParts, grammarOf, type CodeKind, type Grammar } from '../code';
 
 /// A line of a part of a file a diff changes: kept, removed or added, and its text without its sign.
 type Line = { sign: ' ' | '-' | '+'; text: string };
@@ -21,8 +25,9 @@ type Hunk = { from: number | null; lines: Line[] };
 /// it is binary; and the parts of it that changed.
 type FileChange = { path: string | null; notes: string[]; hunks: Hunk[] };
 
-/// A piece of what a part of a file is drawn as: text as it reads after the change, words removed, or words added.
-type Piece = { kind: 'same' | 'removed' | 'added'; text: string };
+/// A piece of what a part of a file is drawn as: text as it reads after the change, words removed, or words added; and
+/// the side it is taken from and where on it it starts, none for the blank put between words removed and words added.
+type Piece = { kind: 'same' | 'removed' | 'added'; text: string; side: 'before' | 'after' | null; at: number };
 
 /// Whether a character is the sign a line of a part of a file begins with.
 const isSign = (c: string): c is Line['sign'] => c === ' ' || c === '-' || c === '+';
@@ -179,9 +184,9 @@ function compare(before: string, after: string): Piece[] {
   if (before !== after && a.length === b.length && a.every((w, i) => w.text === b[i].text)) {
     // The two sides differ in their blanks alone, which drawing the text after the change would not show.
     return [
-      { kind: 'removed', text: before },
-      { kind: 'same', text: '\n' },
-      { kind: 'added', text: after },
+      { kind: 'removed', text: before, side: 'before', at: 0 },
+      { kind: 'same', text: '\n', side: null, at: 0 },
+      { kind: 'added', text: after, side: 'after', at: 0 },
     ];
   }
   const runs: Run[] = [];
@@ -204,7 +209,9 @@ function compare(before: string, after: string): Piece[] {
       r.aEnd - r.a >= CLOSE || (k === 0 && !changedBefore) || (k === runs.length - 1 && !changedAfter),
   );
   const out: Piece[] = [];
-  const same = (text: string) => text !== '' && out.push({ kind: 'same', text });
+  const piece = (kind: Piece['kind'], side: 'before' | 'after', start: number, end: number) => {
+    if (end > start) out.push({ kind, text: (side === 'before' ? before : after).slice(start, end), side, at: start });
+  };
   // Where the text after the change has been drawn to, and where each side's words have been drawn to.
   let drawn = 0;
   let aAt = 0;
@@ -218,75 +225,106 @@ function compare(before: string, after: string): Piece[] {
       const removed = aNext > aAt ? before.slice(a[aAt].start, a[aNext - 1].end) : '';
       if (bNext > bAt) {
         const added = after.slice(b[bAt].start, b[bNext - 1].end);
-        same(after.slice(drawn, b[bAt].start));
+        piece('same', 'after', drawn, b[bAt].start);
         if (removed !== '') {
-          out.push({ kind: 'removed', text: removed });
-          same(removed.includes('\n') || added.includes('\n') ? '\n' : ' ');
+          piece('removed', 'before', a[aAt].start, a[aNext - 1].end);
+          const blank = removed.includes('\n') || added.includes('\n') ? '\n' : ' ';
+          out.push({ kind: 'same', text: blank, side: null, at: 0 });
         }
-        out.push({ kind: 'added', text: added });
+        piece('added', 'after', b[bAt].start, b[bNext - 1].end);
         drawn = b[bNext - 1].end;
       } else {
         // Words removed with none added in their place stand where the blanks between the words kept are, as they
         // stood before, with the blanks that followed them then.
-        const between = after.slice(drawn, nextStart);
-        same(between !== '' ? between : before.slice(aAt === 0 ? 0 : a[aAt - 1].end, a[aAt].start));
-        out.push({ kind: 'removed', text: removed });
-        if (next !== undefined) same(before.slice(a[aNext - 1].end, a[aNext].start));
+        if (nextStart > drawn) piece('same', 'after', drawn, nextStart);
+        else piece('same', 'before', aAt === 0 ? 0 : a[aAt - 1].end, a[aAt].start);
+        piece('removed', 'before', a[aAt].start, a[aNext - 1].end);
+        if (next !== undefined) piece('same', 'before', a[aNext - 1].end, a[aNext].start);
         drawn = nextStart;
       }
     }
     if (next === undefined) break;
-    same(after.slice(drawn, b[next.bEnd - 1].end));
+    piece('same', 'after', drawn, b[next.bEnd - 1].end);
     drawn = b[next.bEnd - 1].end;
     aAt = next.aEnd;
     bAt = next.bEnd;
   }
-  same(after.slice(drawn));
+  piece('same', 'after', drawn, after.length);
   return out;
 }
 
+/// A piece of a line drawn: words kept, removed or added, cut where the kind of their words changes.
+type Shown = { kind: Piece['kind']; parts: { text: string; kind: CodeKind | null }[] };
+
 /// A line a part of a file is drawn as: the pieces on it, and its number in the file after the change, none where the
 /// line is only in the file before it or the diff gives no numbers.
-type Drawn = { number: number | null; pieces: Piece[] };
+type Drawn = { number: number | null; pieces: Shown[] };
 
 /// What a part of a file is drawn as, from its lines: the pieces compared, cut at each line break into the lines drawn,
-/// each numbered as the file after the change counts it where any of it, or the break that ends it, is in that file.
-function compareHunk(hunk: Hunk): Drawn[] {
-  const pieces = compare(
-    hunk.lines.flatMap((l) => (l.sign === '+' ? [] : [l.text])).join('\n'),
-    hunk.lines.flatMap((l) => (l.sign === '-' ? [] : [l.text])).join('\n'),
-  );
+/// each numbered as the file after the change counts it where any of it, or the break that ends it, is in that file;
+/// the words of each side coloured by the file's grammar, where the page has one.
+function compareHunk(hunk: Hunk, grammar: Grammar | null): Drawn[] {
+  const before = hunk.lines.flatMap((l) => (l.sign === '+' ? [] : [l.text])).join('\n');
+  const after = hunk.lines.flatMap((l) => (l.sign === '-' ? [] : [l.text])).join('\n');
+  const pieces = compare(before, after);
+  const kinds = {
+    before: grammar === null ? null : codeKinds(before, grammar),
+    after: grammar === null ? null : codeKinds(after, grammar),
+  };
   const drawn: Drawn[] = [];
   let next = hunk.from;
-  let on: Piece[] = [];
-  let after = false;
+  let on: Shown[] = [];
+  // Whether any of the line being drawn is in the file after the change.
+  let inAfter = false;
   const end = (breakAfter: boolean) => {
-    const inAfter = after || breakAfter;
-    drawn.push({ number: inAfter && next !== null ? next : null, pieces: on });
-    if (inAfter && next !== null) next += 1;
+    const numbered = inAfter || breakAfter;
+    drawn.push({ number: numbered && next !== null ? next : null, pieces: on });
+    if (numbered && next !== null) next += 1;
     on = [];
-    after = false;
+    inAfter = false;
   };
   for (const p of pieces) {
-    const parts = p.text.split('\n');
-    parts.forEach((text, i) => {
+    let at = p.at;
+    p.text.split('\n').forEach((text, i) => {
       if (i > 0) end(p.kind !== 'removed');
       if (text !== '') {
-        on.push({ kind: p.kind, text });
-        if (p.kind !== 'removed') after = true;
+        const parts =
+          p.side === null
+            ? [{ text, kind: null }]
+            : codeParts(p.side === 'before' ? before : after, kinds[p.side], at, at + text.length);
+        on.push({ kind: p.kind, parts });
+        if (p.kind !== 'removed') inAfter = true;
       }
+      at += text.length + 1;
     });
   }
   if (on.length > 0 || drawn.length === 0) end(false);
   return drawn;
 }
 
-/// A ```diff block of a passage: each file it changes, named where it changes several, what it says of each beside
-/// its lines, and each part of it that changed, a hairline between two.
-export function Diff({ text }: { text: string }) {
+/// The words of a stretch of code, each kind in its colour.
+const coloured = (parts: Shown['parts']) =>
+  parts.map((p, k) =>
+    p.kind === null ? (
+      p.text
+    ) : (
+      <span key={k} className={`code-${p.kind}`}>
+        {p.text}
+      </span>
+    ),
+  );
+
+/// A ```diff block of a passage, or the diff of a file a work changed, whose path is `path`: each file it changes,
+/// named where it changes several, what it says of each beside its lines, and each part of it that changed, a hairline
+/// between two.
+export function Diff({ text, path = null }: { text: string; path?: string | null }) {
   const files = useMemo(
-    () => readDiff(text)?.map((f) => ({ path: f.path, notes: f.notes, hunks: f.hunks.map(compareHunk) })) ?? null,
-    [text],
+    () =>
+      readDiff(text)?.map((f) => {
+        const grammar = grammarOf(f.path ?? path);
+        return { path: f.path, notes: f.notes, hunks: f.hunks.map((h) => compareHunk(h, grammar)) };
+      }) ?? null,
+    [text, path],
   );
   if (files === null) {
     return (
@@ -317,14 +355,14 @@ export function Diff({ text }: { text: string }) {
                     {line.pieces.map((p, k) =>
                       p.kind === 'removed' ? (
                         <del key={k} className="cw-removed">
-                          {p.text}
+                          {coloured(p.parts)}
                         </del>
                       ) : p.kind === 'added' ? (
                         <ins key={k} className="cw-added">
-                          {p.text}
+                          {coloured(p.parts)}
                         </ins>
                       ) : (
-                        p.text
+                        <span key={k}>{coloured(p.parts)}</span>
                       ),
                     )}
                   </span>

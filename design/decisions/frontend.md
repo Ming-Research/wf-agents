@@ -7,6 +7,14 @@ The page draws what agents write with a renderer of its own, for the Markdown th
 Why: Nothing an agent writes may become markup the page did not mean (principle agent-writing-is-data), and the page
 draws Markdown with its own parts; a library was turned down for that.
 
+### decision code-is-coloured-from-prisms-words
+The words of code the page draws are coloured by their kind, keyword, literal or comment, as Prism reads them in the
+language the file's name says; the page draws the words with its own parts, and each side of a part of a file a diff
+changes is read whole.
+Why: Prism's markup, and its plugin that colours a diff, which works only on that markup, were turned down: what an
+agent writes would become markup the page did not mean (principle agent-writing-is-data). Read line by line, a comment
+or a string over several lines would be read wrong past its first.
+
 ### decision the-page-uses-no-component-library
 The page is drawn with a small set of parts of its own (`client/src/parts.tsx`), and uses no component library.
 Why: A library's parts spend room on padding and chrome the owner does not read, and one small set of our own is

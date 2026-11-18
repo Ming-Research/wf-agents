@@ -135,6 +135,12 @@
   --flow-line-4: #eda100;
   --flow-line-5: #e87ba4;
 
+  /* The words of code told apart by their kind: a keyword, a literal; a comment is muted. What kind of word it is,
+     never how anything stands, so none is in a colour that has a meaning; checked apart for readers who see colours
+     less well, and each read on the card and on the tints of a change of files. */
+  --code-keyword: #7a45d6;
+  --code-literal: #0a3069;
+
   color-scheme: light;
 }
 
@@ -174,6 +180,8 @@
     --flow-line-3: #199e70;
     --flow-line-4: #c98500;
     --flow-line-5: #d55181;
+    --code-keyword: #b48cff;
+    --code-literal: #b6e0ff;
     color-scheme: dark;
   }
 }
@@ -209,6 +217,8 @@
   --flow-line-3: #199e70;
   --flow-line-4: #c98500;
   --flow-line-5: #d55181;
+  --code-keyword: #b48cff;
+  --code-literal: #b6e0ff;
   color-scheme: dark;
 }
 

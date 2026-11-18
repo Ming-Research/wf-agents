@@ -212,16 +212,30 @@
 }
 
 /* A change of files (diff.tsx): in the look of code (`.content`), the text it changes as it reads after the change,
-   each passage removed in red and struck through and each passage added in green; what the diff says of a file beside
-   its lines, and its path where it changes several, muted; the parts of a file, and the files, a hairline apart. */
+   each passage removed struck through in red on the red tint and each passage added on the green tint, so that the
+   colour of its words stays their kind's; what the diff says of a file beside its lines, and its path where it changes
+   several, muted; the parts of a file, and the files, a hairline apart. */
 .cw-removed {
-  color: var(--red-text);
-  text-decoration: line-through;
+  background: var(--red-tint);
+  text-decoration: line-through var(--red-text);
 }
 
 .cw-added {
-  color: var(--green-text);
+  background: var(--green-tint);
   text-decoration: none;
+}
+
+/* The words of code by their kind (code.ts). */
+.code-keyword {
+  color: var(--code-keyword);
+}
+
+.code-literal {
+  color: var(--code-literal);
+}
+
+.code-comment {
+  color: var(--muted);
 }
 
 .cw-diff-file {
