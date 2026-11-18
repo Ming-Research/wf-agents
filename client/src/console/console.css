@@ -287,6 +287,36 @@
   font-size: var(--size-small);
 }
 
+/* A question folded shows the first lines of what it asks and nothing else, cut off into the card's ground so that the
+   last line reads as cut and not as the end. Three lines are enough to tell one question from another. */
+.cw-choice-few {
+  max-height: calc(3 * var(--line-height) * 1em);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
+  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+}
+
+/* What folds a card and unfolds it: one button across the card, under what it holds, in the muted text, with a
+   hairline over it so that it belongs to the card and takes no room of its own. */
+.cw-choice-turn {
+  display: block;
+  width: 100%;
+  margin: var(--space-8) 0 0;
+  padding: var(--space-4) 0 0;
+  border: 0;
+  border-top: var(--hairline) solid var(--line);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--size-small);
+  text-align: center;
+  cursor: pointer;
+}
+
+.cw-choice-turn:hover {
+  color: var(--text);
+}
+
 .cw-choice-done {
   border-color: var(--line);
   background: var(--ground);

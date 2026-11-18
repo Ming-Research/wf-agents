@@ -1255,16 +1255,25 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
   /// What its words draw at a pointer to another question: a link.
   links?: Pointers;
 }) {
+  // A question the owner has answered opens folded, down to the first lines of what it asks; every other card, a stop
+  // and a question that waits among them, opens whole. Answering one here leaves it open: what was just done stays in
+  // view, and it is folded when the window is read again.
+  const [open, setOpen] = useState(p.confirmed !== true);
   return (
     <fieldset
       className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${p.holds === true ? ' cw-choice-holds' : ''}`}
       data-wait={waitKeyOf(p)}
     >
       <Asked by={by} />
-      <div className="cw-choice-q">
+      <div className={open ? 'cw-choice-q' : 'cw-choice-q cw-choice-few'}>
         <Markdown text={p.question} pointers={links} />
       </div>
-      {p.options.length === 0 && p.asks !== undefined && p.confirmed !== true ? (
+      {!open ? (
+        <button type="button" className="cw-choice-turn" onClick={() => setOpen(true)}>
+          Show it all
+        </button>
+      ) : null}
+      {open && p.options.length === 0 && p.asks !== undefined && p.confirmed !== true ? (
         <textarea
           rows={3}
           value={p.answer ?? ''}
@@ -1274,13 +1283,14 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
           onChange={(e) => write?.(e.target.value)}
         />
       ) : null}
-      {p.options.length > 0 &&
+      {open &&
+        p.options.length > 0 &&
         (p.confirmed === true ? (
           <Settled options={p.options} chosen={p.chosen} recommended={p.recommended} />
         ) : (
           <Options options={p.options} chosen={p.chosen} recommended={p.recommended} pick={pick} />
         ))}
-      {messages.length > 0 || discuss !== undefined ? (
+      {open && (messages.length > 0 || discuss !== undefined) ? (
         <div className="cw-choice-foot">
           {messages.length > 0 ? (
             <button type="button" className="link muted small" onClick={() => jump?.(messages[0])}>
@@ -1302,6 +1312,11 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
             </Button>
           ) : null}
         </div>
+      ) : null}
+      {open ? (
+        <button type="button" className="cw-choice-turn" onClick={() => setOpen(false)}>
+          Fold it
+        </button>
       ) : null}
     </fieldset>
   );
