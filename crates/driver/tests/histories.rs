@@ -148,8 +148,8 @@ struct Seen {
 /// The model every agent's round of the histories runs on.
 const MODEL: &str = "the model";
 
-/// The policy the histories' driver is opened with: each line's session kept warm, at most twice in a wait, and while
-/// the owner holds everything too.
+/// The policy the histories' driver is opened with: each line's session kept warm, at most twice in a wait, whoever
+/// holds the work.
 fn warm() -> driver::Policy {
     driver::Policy {
         samples: 3,
@@ -166,7 +166,8 @@ fn warm() -> driver::Policy {
             life_ms: 3_600_000,
             after_ms: 3_300_000,
             most: [(MODEL.to_string(), 2)].into(),
-            while_paused: true,
+            keep_warm: true,
+            budget: None,
         }),
     }
 }

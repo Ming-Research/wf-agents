@@ -1238,11 +1238,11 @@ impl Driver {
 
     /// Whether sessions are kept warm now: not while the engine holds everything as it opened on works going on, which
     /// spends nothing before the owner has seen how things stand (principle `no-unseen-spending-loop`); while the owner
-    /// holds everything, as the settings say (`sessions.warm_while_paused`).
+    /// holds everything, as the settings say (`sessions.keep_warm`).
     fn warming(&self) -> bool {
         let keeps = (self.policy.as_ref())
             .and_then(|p| p.warm.as_ref())
-            .is_some_and(|w| w.while_paused);
+            .is_some_and(|w| w.keep_warm);
         match &self.paused {
             None => true,
             Some(paused) => paused.by == Pauser::Owner && keeps,

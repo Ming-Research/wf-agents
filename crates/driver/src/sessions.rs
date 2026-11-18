@@ -61,8 +61,12 @@ pub struct Warm {
     /// the session, no more than writing it to the cache again would beyond reading it. A session on a model not here
     /// is not pinged, its worth not being known.
     pub most: BTreeMap<String, u32>,
-    /// Whether sessions are kept warm while the owner holds everything.
-    pub while_paused: bool,
+    /// Whether a line's session is kept warm at all, as the installation says (`sessions.keep_warm`): where it is not,
+    /// no ping is given, whatever holds the work.
+    pub keep_warm: bool,
+    /// The most a work may spend, in millionths of a dollar, as the installation says (`agents.work_budget_usd`); none
+    /// where it sets none. A work the engine paused past it is pinged no more, a ping counting in its spend.
+    pub budget: Option<u64>,
 }
 
 /// The source of the blocks the driver writes as a line begins a new session: each a block a cell reads that loads
