@@ -11,6 +11,7 @@ import {
   beatOf,
   DIM,
   eased,
+  gatherAt,
   grounded,
   headAt,
   type Light,
@@ -21,6 +22,7 @@ import {
   PITCH,
   ROW,
   sparkAt,
+  strandOf,
   wayAims,
   waysUp,
 } from './snap';
@@ -140,6 +142,28 @@ describe('the lit ways of the items whose work runs', () => {
     expect(sparkAt(300, 100)).toBeLessThan(1);
     expect(sparkAt(300, 100)).toBe(sparkAt(300, 600));
     expect(sparkAt(300, 300)).toBeGreaterThan(sparkAt(300, 240));
+  });
+
+  it('gather the strands into the line where the way meets a card, and run them beside it between', () => {
+    expect(gatherAt(0)).toBe(0);
+    expect(gatherAt(1)).toBeCloseTo(0, 6);
+    expect(gatherAt(0.5)).toBe(1);
+    expect(gatherAt(0.3)).toBeCloseTo(gatherAt(0.7), 9);
+    // Nearly level along the middle, so that they do not swell and narrow between the ends.
+    expect(gatherAt(0.25)).toBeGreaterThan(0.8);
+  });
+
+  it('scatter the strands across both sides of the line, none together, the outer ones fainter', () => {
+    const strands = Array.from({ length: 14 }, (_, s) => strandOf(s));
+    const sides = strands.map(({ side }) => side).sort((a, b) => a - b);
+    expect(sides[0]).toBeLessThan(0);
+    expect(sides.at(-1)).toBeGreaterThan(0);
+    for (let n = 1; n < sides.length; n += 1) expect(sides[n] - sides[n - 1]).toBeGreaterThan(0.01);
+    for (const { side, own } of strands) {
+      expect(Math.abs(side)).toBeLessThan(1);
+      expect(own).toBeGreaterThan(0);
+      expect(own).toBeLessThanOrEqual(1 - 0.5 * Math.abs(side));
+    }
   });
 });
 

@@ -31,11 +31,16 @@ Green for what was added and red for what was removed is how a diff draws them e
 prices are drawn, was turned down as one meaning in two colours (Article 8).
 
 ### decision a-card-stands-still
-No card is lit or moved for its work's state: one that waits for the owner has no rings round it, and a running one no
-light going round its edge. What runs is shown by the pulse of its running cell's mark, and by the way from its item up
-to its root, dashed in the colour of a running card's edge, its dashes moving from the root's side to the item's.
-Why: Red rings round the cards that wait for the owner, and a light going round a running card's edge, were tried and
-turned down as too strong; this rests on the owner's judgment of the page (principle owner-taste-judges).
+No card is ringed or moved for its work's state: one that waits for the owner has no rings round it, and a running one
+no light going round its edge of its own. What runs is shown by the pulse of its running cell's mark, and by the way
+from its item up to its root, lit in the colour of a running card's edge, with a light running down it from the root
+to the item, violet where it is brightest; the cards on the way are lit only as part of it, at the edge where it meets
+them and along their top and bottom as the light crosses them, and keep one colour of border at rest.
+Why: Red rings round the cards that wait for the owner, a light going round a running card's edge, and a card's border
+dark in its middle and lit at its ends were tried and turned down as too strong; the light on the way, crossing the
+cards on it, was chosen over dashes moving along it, and its violet, which only the light passing takes while the way
+at rest keeps the accent's colour, over the accent alone; all rest on the owner's judgment of the page (principle
+owner-taste-judges).
 
 ### decision what-the-owner-points-at-stands-in-a-soft-light
 The item selected and the item under the pointer stand in a soft light, a blurred fill behind the card, the selected
