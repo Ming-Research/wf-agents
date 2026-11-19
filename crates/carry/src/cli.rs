@@ -637,7 +637,8 @@ impl Stream {
     }
 
     /// Reads the stream, for a round that began its session or went on in it with the session having cost `before`:
-    /// the return the command line took, or, where it gave up on the return, its last attempt at it, rebuilt; or says
+    /// the return the command line took, or, where it gave up on the return or the agent stopped trying and the result
+    /// holds none, its last attempt at it, rebuilt; or says
     /// why there is no return to take, with what the round took where the result could be read. A round that began
     /// its session cost the session's total; one that went on in it, that total less what the line's earlier rounds
     /// cost, or the whole total where that is less (measured: the total is the whole session's, even where two lines
@@ -666,7 +667,13 @@ impl Stream {
         };
         let spent = spent(&result, begin, before);
         if !result.is_error {
-            return match result.structured_output {
+            // The agent may stop trying after the command line refused its attempts, and end its turn: its last
+            // attempt is read as one the command line gave up on is. One that is no JSON, or none at all, is no return.
+            let structured = (result.structured_output).or_else(|| {
+                let (_, raw) = self.attempts.last()?;
+                serde_json::from_str::<Value>(&raw).ok()
+            });
+            return match structured {
                 Some(structured) => Ok(Read { structured, spent }),
                 None => Err(NoResult {
                     why: "the command line's result holds no structured return".to_string(),
@@ -1057,6 +1064,33 @@ mod tests {
         only.push(gave_up(first_refused));
         let read = super::read(only.join("\n").as_bytes(), Begin::New, 0).expect("it is taken");
         assert_eq!(read.structured, serde_json::from_str::<Value>(&first).unwrap());
+    }
+
+    #[test]
+    fn the_last_attempt_is_read_where_the_agent_stopped_trying_and_the_result_holds_no_return() {
+        // Work 21's run 35: the outcome sent as a string, refused each time, then the agent ended its turn in prose.
+        let attempted = json!({ "outcome": json!({ "verdict": "pass" }).to_string() }).to_string();
+        let refused = "Output does not match required schema: /outcome: must be object";
+        let init = json!({ "type": "system", "subtype": "init", "session_id": "s" }).to_string();
+        let ended = json!({ "type": "result", "subtype": "success", "is_error": false, "result": "My review.",
+            "total_cost_usd": 0.4, "usage": { "input_tokens": 10, "output_tokens": 300 } })
+        .to_string();
+        let mut lines = vec![init];
+        for id in ["so-1", "so-2", "so-3"] {
+            lines.extend(attempt(id, &[&attempted], Some(refused)));
+        }
+        lines.push(ended.clone());
+        let read = read(lines.join("\n").as_bytes(), Begin::New, 0).expect("the last attempt is taken");
+        assert_eq!(read.structured, serde_json::from_str::<Value>(&attempted).unwrap());
+        assert_eq!(read.spent.usd_micros, 400_000, "what the call cost");
+
+        // No attempt in the stream: no return, as before; and an attempt that is no JSON is none either.
+        let no = super::read(ended.as_bytes(), Begin::New, 0).expect_err("no return");
+        assert_eq!(no.why, "the command line's result holds no structured return");
+        let mut cut = attempt("so-1", &[r#"{"outcome": "#], None);
+        cut.push(ended);
+        let no = super::read(cut.join("\n").as_bytes(), Begin::New, 0).expect_err("no return");
+        assert_eq!(no.why, "the command line's result holds no structured return");
     }
 
     #[test]
