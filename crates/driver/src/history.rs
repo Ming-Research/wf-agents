@@ -112,7 +112,10 @@ pub struct Sample {
     pub at: decide::Seq,
     /// When it ended, where the records tell.
     pub ended: Option<work::Time>,
-    pub cell: CellId,
+    /// Its cell, as the flow installed names it: none where it has no id there, as a cell taken out, or where the
+    /// version its work ran on was not kept; such a round is history of the flow's alone (decision
+    /// `a-work-that-ended-stays-on-its-version`).
+    pub cell: Option<CellId>,
     pub line: Option<String>,
     pub measures: Measures,
     pub spent: Spent,
@@ -124,6 +127,17 @@ pub struct Sample {
 /// The rounds of a work that are history: those that ended and whose carrier said what their calls came to, at least
 /// one, but for those the run guard stopped.
 pub fn samples(flow: &Compiled, work: &Work) -> Vec<Sample> {
+    let line_of = |cell: &CellId| (flow.cells.iter()).find(|c| c.id == *cell).and_then(|c| c.line.clone());
+    samples_read(work, &line_of, &|cell| Some(cell.clone()))
+}
+
+/// The rounds of a work that are history ([`samples`]), the line of each round's cell as `line_of` tells it, of the
+/// version the work ran on, and its cell as `now` reads it on the flow installed.
+pub fn samples_read(
+    work: &Work,
+    line_of: &dyn Fn(&CellId) -> Option<String>,
+    now: &dyn Fn(&CellId) -> Option<CellId>,
+) -> Vec<Sample> {
     let mut out = Vec::new();
     let mut counted: Vec<RunId> = Vec::new();
     let r = &work.records;
@@ -151,9 +165,7 @@ pub fn samples(flow: &Compiled, work: &Work) -> Vec<Sample> {
         let Some(started) = r.started.iter().find(|s| s.run == round.run) else {
             continue;
         };
-        let line = (flow.cells.iter())
-            .find(|c| c.id == started.cell)
-            .and_then(|c| c.line.clone());
+        let line = line_of(&started.cell);
         let ended = (r.returned.iter()).filter(|e| e.run == round.run).nth(number - 1);
         let ms = ended.and_then(|ended| {
             let (from, to) = (work.time_of(round.at)?, work.time_of(ended.at)?);
@@ -164,14 +176,14 @@ pub fn samples(flow: &Compiled, work: &Work) -> Vec<Sample> {
             .map(|t| t.on.model.clone());
         let before = line
             .as_deref()
-            .and_then(|line| last_prompt(flow, work, line, round.run, number));
+            .and_then(|line| last_prompt_by(line_of, work, line, round.run, number));
         let Some(ended) = ended else {
             continue;
         };
         out.push(Sample {
             at: ended.at,
             ended: work.time_of(ended.at),
-            cell: started.cell.clone(),
+            cell: now(&started.cell),
             line,
             measures: measures.clone(),
             spent: *spent,
@@ -223,7 +235,11 @@ impl Lines {
 
     /// [`Lines::of`] a history held by reference.
     pub fn of_refs(history: &[&Sample], cell: &CellId, model: &str, least: usize) -> Lines {
-        let own: Vec<&Sample> = history.iter().copied().filter(|s| s.cell == *cell).collect();
+        let own: Vec<&Sample> = history
+            .iter()
+            .copied()
+            .filter(|s| s.cell.as_ref() == Some(cell))
+            .collect();
         let every: Vec<&Sample> = history.to_vec();
         let values = |of: &[&Sample], f: &dyn Fn(&Sample) -> Option<f64>| -> Vec<f64> {
             of.iter().filter_map(|s| f(s)).collect()
@@ -289,7 +305,23 @@ impl Sample {
 /// in tokens: the context of the latest of the session's earlier rounds and keep-warm pings that tells one. None where
 /// the round begins its session, or nothing before it in the session tells its context.
 pub fn last_prompt(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize) -> Option<u64> {
-    let on_line = |r: RunId| line_of_run(flow, work, r) == Some(line);
+    let line_of = |cell: &CellId| (flow.cells.iter()).find(|c| c.id == *cell).and_then(|c| c.line.clone());
+    last_prompt_by(&line_of, work, line, run, number)
+}
+
+/// The prompt the session of the round had last before it ([`last_prompt`]), the line of each run's cell as `line_of`
+/// tells it, of the version the work ran on.
+pub(crate) fn last_prompt_by(
+    line_of: &dyn Fn(&CellId) -> Option<String>,
+    work: &Work,
+    line: &str,
+    run: RunId,
+    number: usize,
+) -> Option<u64> {
+    let on_line = |r: RunId| {
+        let cell = work.records.started.iter().find(|s| s.run == r).map(|s| &s.cell);
+        cell.and_then(line_of).as_deref() == Some(line)
+    };
     let (session, begins) = work::sessions::of_round(work, line, on_line, run, number);
     if begins {
         return None;
@@ -413,7 +445,7 @@ mod tests {
         Sample {
             at: decide::Seq(1),
             ended: Some(work::Time(1)),
-            cell: CellId::from(cell),
+            cell: Some(CellId::from(cell)),
             line: Some("engineer".to_string()),
             measures: Measures {
                 calls,

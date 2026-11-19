@@ -15,7 +15,7 @@ use std::path::Path;
 use std::{fs, io};
 
 use decide::TestKind;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::agents;
 
@@ -177,6 +177,25 @@ impl Source {
         Some(source)
     }
 
+    /// The flow's files, each by its path from the flow's directory and its text, in the order of the paths: the files
+    /// [`Source::of_files`] takes this flow back from.
+    pub fn files(&self) -> Vec<(String, String)> {
+        let cell = |id: &str| {
+            if self.laid_out {
+                format!("{CELLS_DIR}/{id}.toml")
+            } else {
+                format!("{id}.toml")
+            }
+        };
+        let mut files: Vec<(String, String)> = std::iter::once((FLOW_FILE.to_string(), self.flow.clone()))
+            .chain(self.cells.iter().map(|(id, text)| (cell(id), text.clone())))
+            .chain((self.rules.iter()).map(|(name, text)| (format!("{RULES_DIR}/{name}.md"), text.clone())))
+            .chain(self.files.iter().map(|(path, text)| (path.clone(), text.clone())))
+            .collect();
+        files.sort();
+        files
+    }
+
     /// Keeps a file, by its path from the flow's directory, where it is one that a flow of its layout is made of.
     fn add(&mut self, path: &str, text: String) {
         let kept = if self.laid_out {
@@ -306,6 +325,21 @@ pub struct LaidOutFlowFile {
     /// What every agent cell of the flow reads beside what its own file names, given it first.
     #[serde(default)]
     pub every_agent: EveryAgentFile,
+    /// The table of earlier ids: each time cells were numbered anew, oldest first (principle `cell-numbering`). Only
+    /// added to.
+    #[serde(default)]
+    pub earlier_ids: Vec<RenumberingFile>,
+}
+
+/// A renumbering of the table of earlier ids, as `flow.toml` writes it: each cell whose id changed, by the id it had,
+/// with the id it took, and each cell taken out, by the id it had.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenumberingFile {
+    #[serde(default)]
+    pub ids: BTreeMap<String, String>,
+    #[serde(default)]
+    pub taken_out: Vec<String>,
 }
 
 /// What every agent cell of a flow reads, as its `flow.toml` writes it: each the engine's datum the flow names in
@@ -582,7 +616,7 @@ pub struct CellFile {
 }
 
 /// What the context of a cell's session must hold of a block it is given when the cell runs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InputKind {
     /// Only the latest version.
@@ -606,7 +640,7 @@ impl InputKind {
 
 /// Where the flow's definition gives a cell a datum, as the `context` part of the message orders what a round is given
 /// (design document `data-and-context`, 14, 15, 21).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Listed {
     /// What the flow gives every agent cell (`[every_agent]` of `flow.toml`).

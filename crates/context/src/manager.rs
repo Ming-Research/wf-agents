@@ -562,6 +562,18 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
     let hold = |held: &mut Held, block: &BlockId, at: Seq| {
         held.versions.entry(block.clone()).or_default().insert(at);
     };
+    // What the session took in at a place before a move it holds only where each move since left the datum's name as it
+    // was: a datum a move renamed, or whose name it gave another's, is given again whole (decision
+    // a-datum-a-move-renamed-is-given-again-whole). What was filled keeps the name it was filled under; what was put in
+    // and handed in is read through the moves, by the name it has now.
+    let since = |at: Seq| {
+        (work.readings.iter())
+            .filter(move |read| at < read.at)
+            .map(|read| &read.reading)
+    };
+    let given_to = |reading: &decide::Reading, block: &BlockId| reading.blocks.values().any(|b| b == block);
+    let filled_kept = |block: &BlockId, at: Seq| since(at).all(|r| !r.renames(block) && !given_to(r, block));
+    let read_kept = |block: &BlockId, at: Seq| since(at).all(|r| !given_to(r, block));
     for f in &work.filled {
         let in_it = rounds.iter().any(|(r, k, ..)| *r == f.run && *k == f.round);
         if !in_it || f.at <= top || f.at >= began || !reached(f.run, f.round) {
@@ -570,7 +582,9 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
         for fill in &f.fills {
             match fill {
                 Fill::Whole { block, version } | Fill::Change { block, version, .. } => {
-                    hold(&mut held, block, *version);
+                    if filled_kept(block, f.at) {
+                        hold(&mut held, block, *version);
+                    }
                 }
                 Fill::Part { .. } => held.parts.push(fill.clone()),
                 Fill::Results(calls) => held.results.extend(calls.iter().copied()),
@@ -587,7 +601,7 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
     for (r, k, from, ended) in &rounds {
         let into = |p: &&decide::PutIn| p.run == *r && p.at > *from && p.at < *ended && p.at > top;
         if reached(*r, *k) {
-            for p in records.put_in.iter().filter(into) {
+            for p in records.put_in.iter().filter(into).filter(|p| read_kept(&p.block, p.at)) {
                 hold(&mut held, &p.block, p.version);
             }
         }
@@ -595,7 +609,7 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
         let finished = (records.finished.iter()).find(|f| f.run == *r && *k == begun && f.at > *ended);
         let mut taken = Vec::new();
         if let Some(f) = finished.filter(|f| f.at > top && f.at < began) {
-            for w in &f.writes {
+            for w in f.writes.iter().filter(|w| read_kept(&w.block, f.at)) {
                 hold(&mut held, &w.block, f.at);
                 taken.push((w.block.clone(), f.at));
             }

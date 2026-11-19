@@ -401,10 +401,12 @@ mod tests {
 
     fn of_with(work: &Work, decision: &Decision, held: Option<Holder>, shared: Shared<'_>) -> Vec<Waiting> {
         let (flow, head, item) = (flow(), head(), item());
+        let on = crate::On::installed_flow(&flow);
         let kept = Kept {
             head: &head,
             item: &item,
             flow: &flow,
+            on: &on,
             work,
         };
         waits(&kept, &work.records, decision, held, shared)

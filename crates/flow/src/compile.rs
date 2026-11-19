@@ -12,10 +12,11 @@ use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test,
 use serde::de::DeserializeOwned;
 
 use crate::agents::{RuleSetFile, Waits};
+use crate::outline::Renumbering;
 use crate::source::{
     BLOCKS_DIR, BlockFile, CELLS_DIR, CellFile, ChangedBy, DATA_DIR, Effort, EveryAgentFile, FLOW_FILE, FlowFile,
     InputKind, Keys, Kind, LINES_DIR, LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, Listed, OF_A_CELL,
-    OF_A_LINE, RULES_DIR, Source, TESTS_DIR, Task, TestFile, Texts, WHEN_TEST, rules_file, waits_file,
+    OF_A_LINE, RULES_DIR, RenumberingFile, Source, TESTS_DIR, Task, TestFile, Texts, WHEN_TEST, rules_file, waits_file,
 };
 
 /// A flow's definition compiled.
@@ -56,6 +57,13 @@ pub struct Compiled {
     /// What every agent cell of the flow reads beside what its own file names, as `flow.toml` writes it
     /// (`[every_agent]`), for the page to show as written.
     pub every_agent: EveryAgent,
+    /// The table of earlier ids, oldest first, as `flow.toml` writes it; none where it writes none.
+    pub earlier_ids: Vec<Renumbering>,
+    /// The name each file of `../data/of_a_cell/` writes, `{cell}` in it, in the order of the names.
+    pub own: Vec<String>,
+    /// The files it was compiled from, each by its path from the flow's directory with its text ([`Source::files`]):
+    /// what the version the engine starts with is kept as (decision `a-version-is-kept-as-its-files-and-its-outline`).
+    pub files: Vec<(String, String)>,
 }
 
 /// What every agent cell of a flow reads, as its `flow.toml` writes it (`[every_agent]`): each name as written, with
@@ -541,6 +549,18 @@ pub enum FaultKind {
     /// A test of what stands reads a block that this cell writes as well as another before it. Such a test reads the
     /// current version alone, and a skipped cell's write would hide the other's word.
     StandingWrittenByTwo { test: String, block: String, cell: String },
+    /// A renumbering of the table of earlier ids names what is no cell's id: its stage's initials and a number.
+    NotACellId { id: String },
+    /// A renumbering gives this id to two cells.
+    IdGivenTwice { id: String },
+    /// A renumbering gives a cell the id it had.
+    IdToItself { id: String },
+    /// A renumbering both gives the cell of this id another and takes it out.
+    MovedAndTakenOut { id: String },
+    /// A renumbering gives this id, which a cell still had: its stage numbers its cells with no gap, and the
+    /// renumbering moves or takes out a cell of the stage numbered as high or higher, without moving or taking out the
+    /// cell that had the id, which would then read as the one given it.
+    IdStillHeld { id: String },
     /// The deciding code refuses the cells as a flow.
     Flow(FlowFault),
 }
@@ -580,6 +600,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
     def.check_every_agent(&mut faults);
     def.check_card(&mut faults);
     def.check_engine_asks_in(&mut faults);
+    check_earlier_ids(&parsed.earlier_ids, &mut faults);
 
     let mut cells = Vec::new();
     let mut specs = Vec::new();
@@ -659,7 +680,80 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         card: parsed.card.iter().map(|b| BlockId(b.clone())).collect(),
         engine_asks_in: parsed.engine_asks_in.as_ref().map(|c| CellId(c.clone())),
         every_agent: def.every_agent(),
+        earlier_ids: (parsed.earlier_ids.iter())
+            .map(|r| Renumbering {
+                ids: (r.ids.iter())
+                    .map(|(was, now)| (CellId(was.clone()), CellId(now.clone())))
+                    .collect(),
+                taken_out: r.taken_out.iter().map(|id| CellId(id.clone())).collect(),
+            })
+            .collect(),
+        own: parsed.own.made.keys().cloned().collect(),
+        files: source.files(),
     })
+}
+
+/// A cell's id read as its stage's initials and its number; none where it is not written so.
+fn stage_and_number(id: &str) -> Option<(&str, u64)> {
+    let digits = id.find(|c: char| c.is_ascii_digit())?;
+    let (stage, number) = id.split_at(digits);
+    if stage.is_empty() || !stage.chars().all(|c| c.is_ascii_uppercase()) {
+        return None;
+    }
+    if !number.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    number.parse().ok().map(|n| (stage, n))
+}
+
+/// The faults of the table of earlier ids, each within one renumbering: what is no cell's id, an id given twice, a
+/// cell given its own id, one both moved and taken out, a cell taken out twice, and an id given that a cell of its
+/// stage still had (decision `the-table-of-earlier-ids-is-a-list-of-renumberings`).
+fn check_earlier_ids(table: &[RenumberingFile], faults: &mut Vec<Fault>) {
+    for (i, r) in table.iter().enumerate() {
+        let mut at =
+            |field: String, what: FaultKind| faults.push(fault(FLOW_FILE, format!("earlier_ids[{i}].{field}"), what));
+        let not_an_id = |id: &str| FaultKind::NotACellId { id: id.to_string() };
+        // The highest number the renumbering moves or takes out in each stage.
+        let mut highest: BTreeMap<&str, u64> = BTreeMap::new();
+        for id in r.ids.keys().chain(&r.taken_out) {
+            if let Some((stage, n)) = stage_and_number(id) {
+                let high = highest.entry(stage).or_insert(n);
+                *high = (*high).max(n);
+            }
+        }
+        let leaves = |id: &str| r.ids.contains_key(id) || r.taken_out.iter().any(|t| t == id);
+        let mut given: BTreeSet<&str> = BTreeSet::new();
+        for (was, now) in &r.ids {
+            let field = format!("ids.{was}");
+            let what = if stage_and_number(was).is_none() {
+                Some(not_an_id(was))
+            } else if stage_and_number(now).is_none() {
+                Some(not_an_id(now))
+            } else if was == now {
+                Some(FaultKind::IdToItself { id: was.clone() })
+            } else if r.taken_out.contains(was) {
+                Some(FaultKind::MovedAndTakenOut { id: was.clone() })
+            } else if !given.insert(now) {
+                Some(FaultKind::IdGivenTwice { id: now.clone() })
+            } else {
+                let held =
+                    stage_and_number(now).is_some_and(|(stage, n)| highest.get(stage).is_some_and(|high| n <= *high));
+                (held && !leaves(now)).then(|| FaultKind::IdStillHeld { id: now.clone() })
+            };
+            if let Some(what) = what {
+                at(field, what);
+            }
+        }
+        for (j, id) in r.taken_out.iter().enumerate() {
+            let field = format!("taken_out[{j}]");
+            if stage_and_number(id).is_none() {
+                at(field, not_an_id(id));
+            } else if r.taken_out[..j].contains(id) {
+                at(field, FaultKind::Twice { name: id.clone() });
+            }
+        }
+    }
 }
 
 /// The files read into their shapes, those of a flow laid out one thing to a file gathered into the shape of one
@@ -690,11 +784,13 @@ struct Parsed {
     every_agent: EveryAgentFile,
     /// The data each cell or each line has its own of that the flow's cells name.
     own: Own,
+    /// Of a flow laid out one thing to a file, the table of earlier ids, as `flow.toml` writes it.
+    earlier_ids: Vec<RenumberingFile>,
 }
 
 /// What `flow.toml` says of the flow as a whole beside its order, limits and groups: of a flow laid out one thing to a
-/// file, the engine's data it uses, the tools of every agent cell, what the item's card shows and what every agent
-/// cell reads; and of any flow, the cell the engine asks in.
+/// file, the engine's data it uses, the tools of every agent cell, what the item's card shows, what every agent cell
+/// reads and the table of earlier ids; and of any flow, the cell the engine asks in.
 #[derive(Default)]
 struct Whole {
     data: Vec<String>,
@@ -702,6 +798,7 @@ struct Whole {
     card: Vec<String>,
     engine_asks_in: Option<String>,
     every_agent: EveryAgentFile,
+    earlier_ids: Vec<RenumberingFile>,
 }
 
 /// The data each cell or each line has its own of that the flow's cells name, each made from its file beside the flows
@@ -800,6 +897,7 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
                 card: flow.card.clone(),
                 engine_asks_in: flow.engine_asks_in.clone(),
                 every_agent: flow.every_agent.clone(),
+                earlier_ids: flow.earlier_ids.clone(),
             };
             (whole, FlowFile::from(flow), files)
         })
@@ -835,6 +933,7 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
                 engine_asks_in: whole.engine_asks_in,
                 every_agent: whole.every_agent,
                 own,
+                earlier_ids: whole.earlier_ids,
             })
         }
         parsed => {

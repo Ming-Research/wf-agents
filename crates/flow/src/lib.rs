@@ -16,10 +16,13 @@
 //! - [`form`](mod@form): the one form of a return of a line, made of the flow and of what is written beside it.
 //! - [`system`]: the system prompt of a line's session, made from those files, which the engine sends and the page
 //!   shows.
+//! - [`outline`]: what is kept of a version of a flow for reading a work on it later, and how a work's records read
+//!   on a later version, through the table of earlier ids.
 
 pub mod agents;
 pub mod compile;
 pub mod form;
+pub mod outline;
 pub mod source;
 pub mod system;
 
@@ -28,6 +31,7 @@ pub use compile::{
     Taken, WORDS, Watched, Writers, compile,
 };
 pub use decide::{Test, TestKind};
+pub use outline::{Outline, Renumbering, reading};
 pub use source::{
     BLOCKS_DIR, CELLS_DIR, ChangedBy, DATA_DIR, Effort, FLOW_FILE, InputKind, Keys, Kind, LINES_DIR, Listed, OF_A_CELL,
     OF_A_LINE, OWNER, RULES_DIR, Source, TESTS_DIR, Task, Texts, WHEN_TEST, read, rules_file, waits_file,

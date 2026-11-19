@@ -952,6 +952,14 @@ fn words(what: &FaultKind, field: &str) -> String {
             "the test {test}, of what stands, reads {block}, which {cell} writes as well as a cell before it: a \
              skipped cell's write would hide the other's word"
         ),
+        F::NotACellId { id } => format!("{id} is no cell's id, its stage's initials and a number"),
+        F::IdGivenTwice { id } => format!("the renumbering gives {id} to two cells"),
+        F::IdToItself { id } => format!("the renumbering gives {id} the id it had"),
+        F::MovedAndTakenOut { id } => format!("the renumbering both moves {id} and takes it out"),
+        F::IdStillHeld { id } => format!(
+            "the renumbering gives {id}, which a cell of its stage still had: the same renumbering moves or takes out \
+             that cell"
+        ),
         F::Flow(fault) => format!("the deciding code refuses the cells as a flow: {fault:?}"),
     }
 }

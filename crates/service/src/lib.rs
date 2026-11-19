@@ -1044,10 +1044,7 @@ impl Handle {
                         work.0, run.0
                     )));
                 }
-                let ended = matches!(
-                    decide::decide(&kept.flow.flow, &kept.work.records),
-                    decide::Decision::Ended(_)
-                );
+                let ended = matches!(kept.decision(), decide::Decision::Ended(_));
                 Some(Ok(Fork {
                     work,
                     flow: Arc::new(kept.flow.clone()),

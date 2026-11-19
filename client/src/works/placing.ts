@@ -2,7 +2,8 @@
 // alone so that they can be tested without drawing.
 //
 // The history is the chain of what woke what: a datum written woke a cell, whose run wrote data that woke the next. Its
-// columns are the cells of the work's flow in the order of the walk, and its rows, in the order they happened, the runs
+// columns are the cells of the version of its flow the work runs on, as its outline has them (`Outline`): in the order
+// of the walk, then each cell a run names that the version has not. Its rows, in the order they happened, are the runs
 // of the cells. A run's row names what woke it: of the writes among its causes, the one written last, by the name its
 // row has on the flow's matrix, an answer of the owner's by the question it answered, with the owner's sign or the
 // outside's where either wrote it, or the tool whose results came in, with the tool's mark; and after it each other
@@ -12,14 +13,14 @@
 // fell between, said with its time at the right; one before the first run is none. A write of the owner's or the
 // outside's that woke no run, and an act of the owner's on a cell, is no row: the item's window holds what the owner
 // did. A write of a run is no row: it is where the arrows of the rows of the runs it woke start. A new session of a
-// line is no row: the run's Step says it. A run of a cell the flow no longer has keeps its row, in no column.
+// line is no row: the run's Step says it. A run of a cell the outline has no column for keeps its row, in no column.
 //
 // A write woke a run where the run has a change of the block among its causes and the version of the block it started
 // from has, as its meaning, the version the write wrote: the records name a run's cause by its block, and the run's
 // basis names the version it started from, whose meaning names the version that last changed it.
 
-import type { Cell, Flow } from '../api';
-import type { CallRow, Item, Run, Step, Summary, WorkPage, Writer } from '../works-api';
+import type { Watch } from '../api';
+import type { CallRow, Item, Outline, Run, Step, Summary, WorkPage, Writer } from '../works-api';
 import { type RunState } from './state-marks';
 import { type Part, STATE, callWords, causeWords, plain, sentence, stateOf, stoppedAt, writerWords } from './words';
 
@@ -55,7 +56,11 @@ export interface HistoryRow {
 
 /// The name a datum's row has on the flow's matrix where it runs `cell`: what the cell's `watches` names it by, a
 /// group or itself; else a group a cell watches by its name, on whose row the matrix marks its watchers; else its own.
-export function rowName(flow: Pick<Flow, 'groups' | 'cells'>, block: string, cell?: Cell): string {
+export function rowName(
+  flow: { groups: Outline['groups']; cells: { watches: Watch[] }[] },
+  block: string,
+  cell?: { watches: Watch[] },
+): string {
   const own = cell?.watches.find((w) => w.blocks.includes(block));
   if (own !== undefined) return own.name;
   const watched = (group: string) => flow.cells.some((c) => c.watches.some((w) => w.name === group));
@@ -82,11 +87,11 @@ interface Waking {
 /// and the results of the calls its cell asked for, which came in as the last of them did.
 function wakings(
   run: Run,
-  page: Pick<WorkPage, 'flow' | 'blocks'>,
+  page: Pick<WorkPage, 'outline' | 'blocks'>,
   calls: Map<number, CallRow>,
   answered: Map<number, { question: string; option: number }>,
 ): Waking[] {
-  const cell = page.flow.cells.find((c) => c.id === run.cell);
+  const cell = page.outline.cells.find((c) => c.id === run.cell);
   const versions = new Map(page.blocks.map((b) => [b.name, b.versions]));
   const changed = new Set(run.because.flatMap((c) => (c.kind === 'changed' ? [c.block] : [])));
   const first = run.because.some((c) => c.kind === 'noRecord') ? (cell?.watches.flatMap((w) => w.blocks) ?? []) : [];
@@ -96,7 +101,7 @@ function wakings(
     const started = run.basis.find((b) => b.block === block)?.version ?? null;
     const meaning = all.find((v) => v.number === started)?.meaning ?? null;
     const wrote = all.find((v) => v.number === meaning);
-    const name = rowName(page.flow, block, cell);
+    const name = rowName(page.outline, block, cell);
     if (wrote === undefined) {
       // A change whose write the work does not show is named still, as the oldest, with no one who wrote it.
       if (changed.has(block)) {
@@ -136,11 +141,11 @@ function wakings(
 }
 
 /// A run's row: what woke it, the latest and then each other write of the owner's made since the cell's run before,
-/// each name once; the column of the cell whose run wrote the latest, where the flow has it and it is another than the
-/// run's; and the run's own column and mark.
+/// each name once; the column of the cell whose run wrote the latest, where the outline has it and it is another than
+/// the run's; and the run's own column and mark.
 function runRow(
   run: Run,
-  page: Pick<WorkPage, 'flow' | 'blocks' | 'summary'>,
+  page: Pick<WorkPage, 'outline' | 'blocks' | 'summary'>,
   column: Map<string, number>,
   calls: Map<number, CallRow>,
   /// When the cell's run before this one began; none where this is its first.
@@ -168,7 +173,7 @@ function runRow(
       by === null || fromAt === undefined || at === undefined || fromAt === at
         ? null
         : { column: fromAt, words: `${by.cell}: outputs ${by.version}` },
-    did: at === undefined ? [{ name: run.cell }, ', which the flow no longer has · ', ...why] : why,
+    did: at === undefined ? [{ name: run.cell }, ', which the outline does not have · ', ...why] : why,
   };
 }
 
@@ -243,9 +248,9 @@ const divide = (
 ): Pick<HistoryRow, 'names' | 'divider' | 'run' | 'from' | 'did'> => ({ names: [], divider, run: null, from: null, did });
 
 /// The rows of the history, in the order the steps happened.
-export function placeSteps(page: Pick<WorkPage, 'steps' | 'flow' | 'blocks' | 'summary' | 'questions'>): HistoryRow[] {
-  const { steps, flow } = page;
-  const column = new Map(flow.cells.map((c, i) => [c.id, i]));
+export function placeSteps(page: Pick<WorkPage, 'steps' | 'outline' | 'blocks' | 'summary' | 'questions'>): HistoryRow[] {
+  const { steps, outline } = page;
+  const column = new Map(outline.cells.map((c, i) => [c.id, i]));
   const calls = new Map(steps.flatMap((s) => (s.kind === 'run' ? s.calls.map((c) => [c.call, c] as const) : [])));
   const answered = answers(page);
   // When each cell's latest run so far began.

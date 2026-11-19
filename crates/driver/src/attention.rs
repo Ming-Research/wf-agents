@@ -281,7 +281,12 @@ impl Standing {
     /// How the work stands on these records, which are its own or as they were at a moment. What holds every work at
     /// once is its own line, and is not read here.
     fn of(kept: &Kept<'_>, records: &Records) -> Standing {
-        let decision = decide(&kept.flow.flow, records);
+        // A work no flow decides now ended on a version that is not installed, and is read so at every moment the
+        // installed flow could be asked of.
+        let decision = match kept.on.end() {
+            Some(end) => Decision::Ended(end),
+            None => decide(&kept.flow.flow, records),
+        };
         let waits = owner::waits(kept, records, &decision, None, Shared::default());
         if !waits.is_empty() {
             return Standing::Owner {

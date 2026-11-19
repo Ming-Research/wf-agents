@@ -80,8 +80,8 @@ pub fn handle_then(
         _ => None,
     };
     let from = work.tick();
-    let releasing = release(flow, work).is_some();
-    let ended = matches!(decide(&flow.flow, &work.records), Decision::Ended(_));
+    let releasing = release(end_of(flow, work), work).is_some();
+    let ended = end_of(flow, work).is_some();
     let mut effects = Vec::new();
     take(flow, work, event, &mut effects)?;
     // What a round returned is taken as the round ends: where it meets everything the flow requires, the run finishes
@@ -110,16 +110,17 @@ pub fn handle_then(
     advance(flow, work, at, &mut effects)?;
     // A work that has just ended withdraws the calls its cells were waiting on: no cell is entered for their results.
     // Those of a run abandoned were withdrawn as it was.
-    if !ended && matches!(decide(&flow.flow, &work.records), Decision::Ended(_)) {
+    let end = end_of(flow, work);
+    if !ended && end.is_some() {
         let finished = |call: &CallId| {
             (work.records.called.iter())
                 .any(|c| c.call == *call && work.records.finished.iter().any(|f| f.run == c.run))
         };
-        let calls: Vec<CallId> = unwanted(flow, work).into_iter().filter(finished).collect();
+        let calls: Vec<CallId> = unwanted(true, work).into_iter().filter(finished).collect();
         effects.extend(calls.into_iter().map(|call| Effect::Withdraw { call }));
     }
     // The work's end lets go of what it holds outside once, as the last of it comes to rest.
-    if !releasing && let Some(end) = release(flow, work) {
+    if !releasing && let Some(end) = release(end, work) {
         effects.push(Effect::Release { end });
     }
     // Everything added for this thing that happened was added now.
@@ -129,6 +130,48 @@ pub fn handle_then(
     Ok(effects)
 }
 
+/// Takes one thing that happened to a work that has ended, so, and that no flow decides now: one that ended on a
+/// version of its flow that is not installed, or on none that was kept (decision a-work-that-ended-stays-on-its-version).
+/// What its records keep with no flow is taken: what a round under way of a run abandoned came to, the results of its
+/// calls, its pauses, its pull requests and the letting go of what it holds outside, which `let_go` words where it
+/// failed, as the engine's pause of the work. Anything else would be decided by a flow, and is refused.
+pub fn handle_ended(end: End, let_go: &str, work: &mut Work, now: Time, event: Event) -> Result<Vec<Effect>, Refused> {
+    let from = work.tick();
+    let releasing = release(Some(end), work).is_some();
+    match event {
+        // What a round of a run abandoned came to is dropped, as [`take`] drops it; what it took is kept.
+        Event::Returned { run, spent, .. } | Event::Failed { run, spent, .. } => {
+            if began(work, run) == ended(work, run) {
+                return Err(Refused::NoRoundUnderWay(run));
+            }
+            if open(work, run) {
+                return Err(Refused::NotInstalled);
+            }
+            let at = work.tick();
+            work.records.returned.push(Returned { run, at });
+            let number = ended(work, run);
+            work.spent.insert((run, number), spent);
+        }
+        event => take_kept(&|_| Some(end), let_go, work, event)?,
+    }
+    let mut effects = Vec::new();
+    if !releasing && let Some(end) = release(Some(end), work) {
+        effects.push(Effect::Release { end });
+    }
+    if work.tick() > from {
+        work.moments.push(Moment { from, at: now });
+    }
+    Ok(effects)
+}
+
+/// How the work has ended on the flow, where it has.
+fn end_of(flow: &Compiled, work: &Work) -> Option<End> {
+    match decide(&flow.flow, &work.records) {
+        Decision::Ended(end) => Some(end),
+        _ => None,
+    }
+}
+
 /// What was to be done for the work and is not yet known as done. Of a run that goes on: its round under way, and
 /// its calls that have no result. Of a run that finished: the calls its return asked for that have no result, while
 /// the work has not ended. Of a run that was abandoned: the stopping of its round under way, and the withdrawing of its
@@ -136,8 +179,14 @@ pub fn handle_then(
 /// nothing under way: letting go of what it holds outside, until it is said to be let go. A driver that starts anew
 /// asks for these again.
 pub fn pending(flow: &Compiled, work: &Work) -> Vec<Effect> {
+    pending_after(end_of(flow, work), work)
+}
+
+/// What was to be done for the work and is not yet known as done, as [`pending`] says, the work having ended so where
+/// `end` says it has: for a work no flow decides now ([`handle_ended`]).
+pub fn pending_after(end: Option<End>, work: &Work) -> Vec<Effect> {
     let mut effects = Vec::new();
-    let unwanted = unwanted(flow, work);
+    let unwanted = unwanted(end.is_some(), work);
     for started in &work.records.started {
         let run = started.run;
         let number = began(work, run);
@@ -168,14 +217,13 @@ pub fn pending(flow: &Compiled, work: &Work) -> Vec<Effect> {
             }
         }
     }
-    effects.extend(release(flow, work).map(|end| Effect::Release { end }));
+    effects.extend(release(end, work).map(|end| Effect::Release { end }));
     effects
 }
 
 /// The calls that have no result and are no longer wanted: those of a run that was abandoned, and, once the work has
 /// ended, every one.
-fn unwanted(flow: &Compiled, work: &Work) -> Vec<CallId> {
-    let ended = matches!(decide(&flow.flow, &work.records), Decision::Ended(_));
+fn unwanted(ended: bool, work: &Work) -> Vec<CallId> {
     (work.records.called.iter())
         .filter(|c| done(work, c.call).is_none() && (ended || abandoned(work, c.run)))
         .map(|c| c.call)
@@ -185,21 +233,25 @@ fn unwanted(flow: &Compiled, work: &Work) -> Vec<CallId> {
 /// Whether what the work holds outside is being let go: it has ended, and the letting go is to be done or under way,
 /// and has not been said to be done or to have failed.
 pub fn letting_go(flow: &Compiled, work: &Work) -> bool {
-    release(flow, work).is_some()
+    letting_go_after(end_of(flow, work), work)
 }
 
-/// How the work ended, where it has and what it holds outside is to be let go: nothing of it is under way, no round
-/// and no call, since a round or a tool may be working in its worktree; it is not let go already since the work was
-/// last reopened; and no failure to let go waits for the owner, as the engine's pause of the work after its end that
-/// the owner has not let on from.
-fn release(flow: &Compiled, work: &Work) -> Option<End> {
+/// Whether what the work holds outside is being let go, as [`letting_go`] says, the work having ended so where `end`
+/// says it has.
+pub fn letting_go_after(end: Option<End>, work: &Work) -> bool {
+    release(end, work).is_some()
+}
+
+/// How the work ended, where it has (`end`) and what it holds outside is to be let go: nothing of it is under way, no
+/// round and no call, since a round or a tool may be working in its worktree; it is not let go already since the work
+/// was last reopened; and no failure to let go waits for the owner, as the engine's pause of the work after its end
+/// that the owner has not let on from.
+fn release(end: Option<End>, work: &Work) -> Option<End> {
     let r = &work.records;
     if r.released().is_some() {
         return None;
     }
-    let Decision::Ended(end) = decide(&flow.flow, r) else {
-        return None;
-    };
+    let end = end?;
     // Where the work ended: its cancel that stands, or its merge's finish, the last of all.
     let end_at = match end {
         End::Cancelled => r.cancelled(),
@@ -221,7 +273,18 @@ fn release(flow: &Compiled, work: &Work) -> Option<End> {
 /// happened to this work.
 fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect>) -> Result<(), Refused> {
     match event {
-        Event::Look => {}
+        event @ (Event::Look
+        | Event::Paused { .. }
+        | Event::Resumed
+        | Event::Done { .. }
+        | Event::Ran { .. }
+        | Event::Filled { .. }
+        | Event::Measured { .. }
+        | Event::Pulled { .. }
+        | Event::NotReleased { .. }
+        | Event::Released) => {
+            take_kept(&|work| end_of(flow, work), &flow.waits.paused.let_go, work, event)?;
+        }
         Event::Wrote {
             block,
             by,
@@ -301,29 +364,6 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
             }
             let at = work.tick();
             work.records.let_go.push(LetGo { cell, at });
-        }
-        Event::Paused { by, why } => {
-            // The engine's pause of a work that has ended, as one a carrier asks for as a round of a cancelled work
-            // ends, would hold back nothing and say what is not so: it adds nothing.
-            if by == Pauser::Engine && matches!(decide(&flow.flow, &work.records), Decision::Ended(_)) {
-                return Ok(());
-            }
-            let at = work.tick();
-            work.records.pauses.push(Pause {
-                paused: true,
-                at,
-                by,
-                why,
-            });
-        }
-        Event::Resumed => {
-            let at = work.tick();
-            work.records.pauses.push(Pause {
-                paused: false,
-                at,
-                by: Pauser::Owner,
-                why: None,
-            });
         }
         Event::Cancelled { why } => {
             if work.records.cancelled().is_none() {
@@ -439,19 +479,6 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 }
             }
         }
-        Event::Done { call, result } => {
-            if !work.records.called.iter().any(|c| c.call == call) {
-                return Err(Refused::NoSuchCall(call));
-            }
-            if done(work, call).is_some() {
-                return Err(Refused::AlreadyDone(call));
-            }
-            // The call of a run that was abandoned has its result too: that it was withdrawn, or what came back
-            // before it could be.
-            let at = work.tick();
-            work.records.done.push(Done { call, at });
-            work.results.insert(call, result);
-        }
         Event::Answer {
             question,
             version,
@@ -472,6 +499,85 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
             }
             let at = work.tick();
             work.sessions.push(Session { at, line, why });
+        }
+        Event::Pinged {
+            line,
+            session,
+            spent,
+            failed,
+        } => {
+            if !flow
+                .cells
+                .iter()
+                .any(|cell| cell.line.as_deref() == Some(line.as_str()))
+            {
+                return Err(Refused::NoSuchLine(line));
+            }
+            let at = work.tick();
+            let compactions = spent.compactions;
+            work.pinged.push(Pinged {
+                at,
+                line: line.clone(),
+                session,
+                spent,
+                failed,
+            });
+            // A ping that compacted its session reopened it, as a round's compaction does: the line's next round is
+            // filled from the top, and the cell that loads the session runs again.
+            for _ in 0..compactions {
+                let at = work.tick();
+                work.sessions.push(Session {
+                    at,
+                    line: line.clone(),
+                    why: work::Why::Compacted,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Adds to the records what happened that no flow decides, as [`take`] does, the work having ended so where `end`
+/// says it has as its records stand, and `let_go` being the words of the engine's pause where letting go failed; refuses
+/// any other thing as decided by a flow that no longer decides the work ([`handle_ended`]).
+fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, event: Event) -> Result<(), Refused> {
+    match event {
+        Event::Look => {}
+        Event::Paused { by, why } => {
+            // The engine's pause of a work that has ended, as one a carrier asks for as a round of a cancelled work
+            // ends, would hold back nothing and say what is not so: it adds nothing.
+            if by == Pauser::Engine && end(work).is_some() {
+                return Ok(());
+            }
+            let at = work.tick();
+            work.records.pauses.push(Pause {
+                paused: true,
+                at,
+                by,
+                why,
+            });
+        }
+        Event::Resumed => {
+            let at = work.tick();
+            work.records.pauses.push(Pause {
+                paused: false,
+                at,
+                by: Pauser::Owner,
+                why: None,
+            });
+        }
+        Event::Done { call, result } => {
+            if !work.records.called.iter().any(|c| c.call == call) {
+                return Err(Refused::NoSuchCall(call));
+            }
+            if done(work, call).is_some() {
+                return Err(Refused::AlreadyDone(call));
+            }
+            // The call of a run that was abandoned has its result too: that it was withdrawn, or what came back
+            // before it could be.
+            let at = work.tick();
+            work.records.done.push(Done { call, at });
+            work.results.insert(call, result);
         }
         Event::Ran { run, attempt, on } => {
             let number = began(work, run);
@@ -515,39 +621,6 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 measures,
             });
         }
-        Event::Pinged {
-            line,
-            session,
-            spent,
-            failed,
-        } => {
-            if !flow
-                .cells
-                .iter()
-                .any(|cell| cell.line.as_deref() == Some(line.as_str()))
-            {
-                return Err(Refused::NoSuchLine(line));
-            }
-            let at = work.tick();
-            let compactions = spent.compactions;
-            work.pinged.push(Pinged {
-                at,
-                line: line.clone(),
-                session,
-                spent,
-                failed,
-            });
-            // A ping that compacted its session reopened it, as a round's compaction does: the line's next round is
-            // filled from the top, and the cell that loads the session runs again.
-            for _ in 0..compactions {
-                let at = work.tick();
-                work.sessions.push(Session {
-                    at,
-                    line: line.clone(),
-                    why: work::Why::Compacted,
-                });
-            }
-        }
         Event::Pulled { number, url } => {
             // Found again at each check, the same pull request is kept once.
             if (work.pulls.last()).is_some_and(|last| last.number == number && last.url == url) {
@@ -559,7 +632,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
         Event::NotReleased { why } => {
             // The engine's pause of the ended work, with why: the owner sees it where the engine's other reasons are,
             // and letting the work on tries again.
-            if release(flow, work).is_none() {
+            if release(end(work), work).is_none() {
                 return reopened_since(work);
             }
             let at = work.tick();
@@ -567,10 +640,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 paused: true,
                 at,
                 by: Pauser::Engine,
-                why: Some(flow::agents::fill(
-                    &flow.waits.paused.let_go,
-                    &[("why", &flow::agents::sentence(&why))],
-                )),
+                why: Some(flow::agents::fill(let_go, &[("why", &flow::agents::sentence(&why))])),
             });
         }
         Event::Released => {
@@ -578,12 +648,13 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
             if work.records.released().is_some() {
                 return Ok(());
             }
-            if release(flow, work).is_none() {
+            if release(end(work), work).is_none() {
                 return reopened_since(work);
             }
             let at = work.tick();
             work.records.releases.push(at);
         }
+        _ => return Err(Refused::NotInstalled),
     }
     Ok(())
 }

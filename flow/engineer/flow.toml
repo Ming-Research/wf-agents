@@ -21,6 +21,13 @@ engine_asks_in = "I1"
 # return holds them, the same for every line of the flow (`../agents/return/return.toml`).
 tools = ["query", "run_tests"]
 
+# The table of earlier ids: each time cells are numbered anew, a renumbering added at the end, oldest first, naming each
+# cell whose id changed by the id it had, with the id it takes, and each cell taken out by the id it had, a stage's last
+# among them, as `{ ids = { T2 = "T4" } }` or `{ ids = { T4 = "T3" }, taken_out = ["T3"] }`. What a work recorded on an
+# earlier version reads through the renumberings after that version's own, a datum made for a cell following its cell
+# (decision the-table-of-earlier-ids-is-a-list-of-renumberings). Only added to.
+earlier_ids = []
+
 # What every agent cell of the flow reads beside what its own file names, given first: every cell's questions and every
 # cell's words, so that what was asked, answered and said is known to the whole work (design document
 # `data-and-context`, 15, 33, 35). `{each}_` names each cell's own datum.

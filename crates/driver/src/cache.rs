@@ -11,11 +11,11 @@
 //! happening while a line waits ([`crate::warm`]). Everything is worked out from the records alone (principle
 //! `state-from-records`).
 
-use decide::RunId;
+use decide::{CellId, RunId};
 use flow::Compiled;
 use work::Work;
 
-use crate::history::last_prompt;
+use crate::history::last_prompt_by;
 
 /// A round's miss of its session's prompt cache.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,25 +49,34 @@ impl Miss {
 /// Each round of the work that missed its session's prompt cache, which keeps a session `life_ms` after its last call,
 /// in the order the rounds began.
 pub fn misses(flow: &Compiled, work: &Work, life_ms: u64) -> Vec<Miss> {
+    let line_of = |cell: &CellId| (flow.cells.iter()).find(|c| c.id == *cell).and_then(|c| c.line.clone());
+    misses_by(&line_of, work, life_ms)
+}
+
+/// Each round of the work that missed its session's prompt cache ([`misses`]), the line of each run's cell as
+/// `line_of` tells it, of the version the work ran on.
+pub fn misses_by(line_of: &dyn Fn(&CellId) -> Option<String>, work: &Work, life_ms: u64) -> Vec<Miss> {
     let r = &work.records;
     let mut out = Vec::new();
     let mut counted: Vec<RunId> = Vec::new();
     for round in &r.rounds {
         counted.push(round.run);
         let number = counted.iter().filter(|x| **x == round.run).count();
-        let Some(line) = line_of_run(flow, work, round.run) else {
+        let Some(line) = line_of_run(line_of, work, round.run) else {
             continue;
         };
+        let line = line.as_str();
         let Some(measures) = work::measured::of_round(&work.measured, round.run, number) else {
             continue;
         };
-        let (Some(read), Some(held)) = (measures.first_read, last_prompt(flow, work, line, round.run, number)) else {
+        let held = last_prompt_by(line_of, work, line, round.run, number);
+        let (Some(read), Some(held)) = (measures.first_read, held) else {
             continue;
         };
         if held == 0 || read.saturating_mul(2) >= held {
             continue;
         }
-        let Some((last, before)) = last_call(flow, work, line, round.run, number) else {
+        let Some((last, before)) = last_call(line_of, work, line, round.run, number) else {
             continue;
         };
         let begun = work::sessions::start(work, round.run, number);
@@ -108,13 +117,13 @@ pub fn misses(flow: &Compiled, work: &Work, life_ms: u64) -> Vec<Miss> {
 /// what came before the messages in that round's prompt, where it said. None where the round begins its session.
 #[allow(clippy::type_complexity)]
 fn last_call(
-    flow: &Compiled,
+    line_of: &dyn Fn(&CellId) -> Option<String>,
     work: &Work,
     line: &str,
     run: RunId,
     number: usize,
 ) -> Option<(decide::Seq, Option<std::collections::BTreeMap<String, String>>)> {
-    let on_line = |r: RunId| line_of_run(flow, work, r) == Some(line);
+    let on_line = |r: RunId| line_of_run(line_of, work, r).as_deref() == Some(line);
     let (session, begins) = work::sessions::of_round(work, line, on_line, run, number);
     if begins {
         return None;
@@ -148,10 +157,8 @@ fn last_call(
     Some((pinged.unwrap_or(ended), before))
 }
 
-/// The line of the run's cell.
-fn line_of_run<'a>(flow: &'a Compiled, work: &Work, run: RunId) -> Option<&'a str> {
+/// The line of the run's cell, as `line_of` tells it.
+fn line_of_run(line_of: &dyn Fn(&CellId) -> Option<String>, work: &Work, run: RunId) -> Option<String> {
     let started = work.records.started.iter().find(|s| s.run == run)?;
-    (flow.cells.iter())
-        .find(|c| c.id == started.cell)
-        .and_then(|c| c.line.as_deref())
+    line_of(&started.cell)
 }

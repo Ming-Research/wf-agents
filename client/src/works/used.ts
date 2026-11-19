@@ -3,8 +3,7 @@
 // recorded they ran at, the cost by cell, each session of a line with why it began and its context round by round,
 // and how long each tool ran. A round under way counts to `now`. Pure, so that it is tested on its own.
 
-import type { Flow } from '../api';
-import type { CallRow, RanOn, RoundSession, SessionWhy, Spent, Step, WorkPage } from '../works-api';
+import type { CallRow, Outline, RanOn, RoundSession, SessionWhy, Spent, Step, WorkPage } from '../works-api';
 
 /// A round of the work, with what the usage reads of it.
 export interface RoundOf {
@@ -110,11 +109,11 @@ function add(a: Spent, b: Spent): Spent {
   };
 }
 
-/// Whether a cell is an agent's, by the flow the work runs on; a cell the flow no longer has is taken for one where a
-/// try of its rounds was recorded.
-function agentCell(flow: Flow, cell: string, tried: boolean): boolean {
-  const c = flow.cells.find((x) => x.id === cell);
-  return c ? c.kind === 'agent' : tried;
+/// Whether a cell is an agent's, by the version of the flow the work runs on; a cell the version does not have, or a
+/// version not kept, is taken for one where a try of its rounds was recorded.
+function agentCell(outline: Outline, cell: string, tried: boolean): boolean {
+  const c = outline.cells.find((x) => x.id === cell);
+  return c !== undefined && c.title !== null ? c.agent : tried;
 }
 
 /// Every round of the work, in the order they began.
@@ -127,7 +126,7 @@ export function roundsOf(page: WorkPage, now: number): RoundOf[] {
         run: s.run,
         cell: s.cell,
         number: r.number,
-        agent: agentCell(page.flow, s.cell, r.tries.length > 0),
+        agent: agentCell(page.outline, s.cell, r.tries.length > 0),
         began: r.began,
         ended: Math.max(r.began, r.ended ?? now),
         underWay: r.ended === null,

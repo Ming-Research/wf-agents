@@ -74,6 +74,14 @@ impl Storage for Failing {
         self.store.keep_warm(warm, at)
     }
 
+    fn keep_flow(&mut self, kept: &store::KeptFlow) -> Result<(), store::Fault> {
+        self.store.keep_flow(kept)
+    }
+
+    fn outlines(&self) -> Result<Vec<store::KeptOutline>, store::Fault> {
+        self.store.outlines()
+    }
+
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), store::Fault> {
         let mut saves = self.saves.lock().expect("the count of saves");
         match saves.as_mut() {

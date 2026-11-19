@@ -11,7 +11,7 @@
 // write by the outside. The items belong to two projects, and one, added before items had projects, to none.
 
 import type { Flow } from '../api';
-import { cell, flowOf, named, test, tested } from '../testing';
+import { cell, flowOf, named, outlineOf, test, tested } from '../testing';
 import type {
   Ask,
   Block,
@@ -514,6 +514,7 @@ class History {
       level: '2',
       project: projectOf(number),
       history: { first: { title, level: '2', dependsOn: [] }, changes: [] },
+      outline: outlineOf(FLOW),
       flow: FLOW,
       cells: details,
       blocks,

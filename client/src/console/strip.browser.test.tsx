@@ -17,7 +17,7 @@ import type { CellNow, CellState } from '../works-api';
 import type { Shown } from './items';
 import { type DrawnStrip, SnapScene } from './snap';
 
-const STATES: CellState[] = ['done', 'running', 'calling', 'resting', 'failed', 'again', 'notYet', 'skipped'];
+const STATES: CellState[] = ['done', 'running', 'calling', 'resting', 'failed', 'again', 'notYet', 'skipped', 'notRun'];
 
 const cellsOf = (states: CellState[]): CellNow[] =>
   states.map((state, i) => ({
@@ -135,13 +135,13 @@ describe("a card's strip", () => {
     expect(light.more).toBe(0);
     expect(drawn(light)).toEqual(laidOut(cells));
     // Only the marks of the cell running and of the cell with a call under way pulse.
-    expect(light.marks.map((m) => m.pulses)).toEqual([false, true, true, false, false, false, false, false]);
+    expect(light.marks.map((m) => m.pulses)).toEqual([false, true, true, false, false, false, false, false, false]);
     // Under the number, the level the work's cell runs at, in the look of that level: the second in the text's colour
     // (decision a-level-looks-as-the-level-it-runs-at).
     const text = getComputedStyle(document.documentElement).getPropertyValue('--text').trim();
     expect(light.level).toEqual({ text: 'L2', colour: text, strong: false });
     // A filled mark is not ringed in its own colour, which would show as a border on a dimmed card; a hollow one is.
-    expect(light.marks.map((m) => m.ringed)).toEqual([false, false, false, false, true, true, true, false]);
+    expect(light.marks.map((m) => m.ringed)).toEqual([false, false, false, false, true, true, true, false, false]);
     // Under the title, so that the number stands alone at the card's left, and short of where the work's time went.
     expect(light.marks[0].x).toBe(36);
     const last = light.marks[light.marks.length - 1];

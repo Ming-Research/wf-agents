@@ -270,13 +270,13 @@ export function UsageTab({ page }: { page: WorkPage }) {
       <Fold title="Where the cost went" count={u.cells.length}>
         <Bars
           rows={u.cells.map((c) => {
-            const title = page.flow.cells.find((x) => x.id === c.cell)?.title;
+            const title = page.outline.cells.find((x) => x.id === c.cell)?.title ?? null;
             return {
               key: c.cell,
               name: (
                 <>
                   <span className="mono">{c.cell}</span>
-                  {title !== undefined && title !== c.cell && <span className="muted"> {title}</span>}
+                  {title !== null && title !== c.cell && <span className="muted"> {title}</span>}
                 </>
               ),
               value: c.usdMicros,
@@ -313,7 +313,7 @@ export function UsageTab({ page }: { page: WorkPage }) {
           ))}
         </ul>
         <p className="usage-sub">Context after each round</p>
-        <ContextChart sessions={u.sessions} rounds={u.rounds.length} lines={page.flow.lines.map((l) => l.name)} />
+        <ContextChart sessions={u.sessions} rounds={u.rounds.length} lines={page.outline.lines.map((l) => l.name)} />
       </Fold>
       {u.tools.length > 0 && (
         <Fold title="Tools" count={u.tools.length}>

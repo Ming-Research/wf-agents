@@ -1037,3 +1037,9 @@ textarea:disabled {
 .us-paused {
   background: var(--muted);
 }
+
+/* A stretch nothing ran in whose wait is not known, of a work whose flow's version was not kept: hatched, so that it
+   reads as no wait at all rather than as one of the colours a wait is known by. */
+.us-unknown {
+  background: repeating-linear-gradient(45deg, var(--track-gap) 0 2px, transparent 2px 5px);
+}

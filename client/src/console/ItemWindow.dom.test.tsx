@@ -6,6 +6,7 @@ import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { levelWords } from '../marks';
+import { outlineOf } from '../testing';
 import { cellNowWords } from '../works/marks';
 import { NO_LEVEL, stateOf, stoppedAt } from '../works/words';
 import type { Act, CellNow, Item, Now, Question, Speaking, Wait, WorkPage } from '../works-api';
@@ -365,7 +366,7 @@ describe('the panel of the item selected', () => {
     const page = pageOf(i);
     if (page === null || !('page' in page)) throw new Error('no page');
     const flow: Flow = { ...ASKING, card: ['outline', 'request'] };
-    const el = draw(i, answered([]), { page: { ...page.page, flow } });
+    const el = draw(i, answered([]), { page: { ...page.page, flow, outline: outlineOf(flow) } });
     await act(async () => undefined);
     expect(text(el, '.cw-body > .cw-fold > .cw-fold-head > span:last-child')).toEqual(['outline', 'request']);
     expect(text(el, '.cw-body > .cw-fold > .cw-fold-body > p.muted')).toEqual([

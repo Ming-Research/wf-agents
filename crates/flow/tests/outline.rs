@@ -1,0 +1,193 @@
+//! What is kept of a version of a flow for reading a work on it later: its outline, made from the compiled flow, read
+//! back as kept, a part an outline kept before lacks reading as absent; and how a work's records read on a later
+//! version, through the renumberings after the one it was recorded on (decisions
+//! `a-version-is-kept-as-its-files-and-its-outline` and `a-datum-made-for-a-cell-follows-its-cell`).
+
+// The compile's tests use all of the support; these use what builds a definition and compiles it.
+#[allow(dead_code)]
+#[path = "support/mod.rs"]
+mod support;
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use decide::{BlockId, CellId};
+use flow::outline::{Outline, OutlinedCell, taken_out};
+use flow::{Compiled, Has, Renumbering, form, reading};
+
+use support::{compiled, laid_out, set};
+
+/// The engineer's flow as the repository defines it, compiled against what the engine has for it.
+fn engineer() -> Compiled {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
+    let source = flow::read(&dir).expect("the engineer's flow is read");
+    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    let has = Has {
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "handed_in",
+            "main",
+            "session",
+            "start",
+            "head",
+            "tree",
+            "words",
+        ]),
+        acts: names(&["start", "check", "merge", "deliver"]),
+        tools: names(&["query", "run_tests"]),
+        system: names(&["guide", "constitution", "tree_rules", "how_you_work_here"]),
+    };
+    flow::compile(&source, &has).expect("the engineer's flow compiles")
+}
+
+/// An outline of no cells, with this table of earlier ids and the data each cell has its own of the engineer's flow
+/// makes.
+fn tabled(earlier_ids: Vec<Renumbering>) -> Outline {
+    Outline {
+        name: "engineer".into(),
+        cells: Vec::new(),
+        lines: Vec::new(),
+        groups: Vec::new(),
+        card: Vec::new(),
+        earlier_ids,
+        own: vec!["{cell}_questions".into(), "{cell}_words".into()],
+    }
+}
+
+fn renumbering(ids: &[(&str, &str)], taken: &[&str]) -> Renumbering {
+    Renumbering {
+        ids: (ids.iter())
+            .map(|(a, b)| (CellId::from(*a), CellId::from(*b)))
+            .collect(),
+        taken_out: taken.iter().map(|id| CellId::from(*id)).collect(),
+    }
+}
+
+fn pairs<T: From<&'static str> + Ord>(pairs: &[(&'static str, &'static str)]) -> BTreeMap<T, T> {
+    pairs.iter().map(|(a, b)| (T::from(*a), T::from(*b))).collect()
+}
+
+#[test]
+fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_it_needs() {
+    let flow = engineer();
+    // The digest of a line's form stands as the text itself, so that what it is made of is seen.
+    let outline = Outline::of(&flow, str::to_string);
+    let ids: Vec<&str> = outline.cells.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "S1", "R0", "R1", "R2", "D1", "D2", "P1", "P2", "I1", "T1", "T2", "T3", "T4", "M1", "M2"
+        ]
+    );
+    let cell = |id: &str| outline.cell(&CellId::from(id)).expect("the cell is outlined");
+    assert_eq!(cell("T2").title, "Test review");
+    assert_eq!(cell("T4").title, "Adversarial testing");
+    assert!(cell("I1").agent && cell("I1").line.as_deref() == Some("engineer"));
+    assert!(!cell("M1").agent && cell("M1").line.is_none());
+    // What a cell is given, watches and reads is the compiled flow's.
+    let spec = flow.cells.iter().find(|s| s.id.as_str() == "T2").expect("T2");
+    let t2: &OutlinedCell = cell("T2");
+    assert_eq!(t2.given.len(), spec.given.len());
+    assert_eq!(
+        t2.watches.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(),
+        ["change", "test_review"]
+    );
+    assert_eq!(
+        t2.reads.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+        ["plan", "background", "tree"]
+    );
+    // A cell that may ask is spoken to in its own words, whose texts the page reads the talk by.
+    let words = cell("I1").words.as_ref().expect("I1 has words of its own");
+    assert_eq!(words.block, BlockId::from("i1_words"));
+    let texts: Vec<&str> = words.writes.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(texts, ["owner", "reply"]);
+    assert!(
+        cell("T1").words.is_none(),
+        "a review asks nothing and is spoken to in nothing"
+    );
+    // Each line with what the flow decides of its form; the groups, the card, the table and the data made for a cell.
+    let lines: Vec<&str> = outline.lines.iter().map(|l| l.name.as_str()).collect();
+    assert_eq!(
+        lines,
+        [
+            "code_reviewer",
+            "deep_researcher",
+            "engineer",
+            "plan_reviewer",
+            "tester"
+        ]
+    );
+    let engineer_line = outline.line("engineer").expect("the engineer's line");
+    assert_eq!(engineer_line.form, form::decided(&flow, "engineer"));
+    let groups: Vec<&str> = outline.groups.iter().map(|g| g.name.as_str()).collect();
+    assert_eq!(groups, ["change", "plan"]);
+    assert_eq!(outline.card, [BlockId::from("background"), BlockId::from("plan_owner")]);
+    assert_eq!(outline.earlier_ids, Vec::new());
+    assert_eq!(outline.own, ["{cell}_handed_in", "{cell}_questions", "{cell}_words"]);
+    assert_eq!(outline.last(), Some(&CellId::from("M2")));
+    // Kept as JSON, it reads back as it was.
+    let kept = serde_json::to_string(&outline).expect("the outline is written");
+    assert_eq!(serde_json::from_str::<Outline>(&kept).expect("and read"), outline);
+}
+
+#[test]
+fn what_a_version_decides_of_a_line_s_form_changes_with_a_block_s_shape_and_with_nothing_beside_the_flow() {
+    let before = compiled(&laid_out());
+    let shaped = compiled(&set(laid_out(), "blocks/plan.toml", "shape = { type = \"array\" }"));
+    assert_ne!(form::decided(&before, "engineer"), form::decided(&shaped, "engineer"));
+    // The review's line writes none of the plan, and what is decided of its form stays.
+    assert_eq!(form::decided(&before, "review"), form::decided(&shaped, "review"));
+    // It names the blocks and the tools alone: nothing of the engine's fields, which `agents/return/` gives every form.
+    let decided: serde_json::Value = serde_json::from_str(&form::decided(&before, "engineer")).expect("JSON");
+    let keys: Vec<&String> = decided.as_object().expect("an object").keys().collect();
+    assert_eq!(keys, ["blocks", "tools"]);
+    assert!(decided["blocks"].get("plan").is_some());
+}
+
+#[test]
+fn a_work_s_records_read_through_each_renumbering_after_the_one_they_were_recorded_on_in_turn() {
+    // T2 moved to T4, a new T2 standing where it was; then T4 moved to T5 and T3 was taken out.
+    let to = tabled(vec![
+        renumbering(&[("T2", "T4")], &[]),
+        renumbering(&[("T4", "T5")], &["T3"]),
+    ]);
+    // Recorded before both: T2 reads as T5, T3 as the cell taken out at the second, and their data follow.
+    let read = reading(&to, 0);
+    assert_eq!(read.cells, pairs(&[("T2", "T5"), ("T3", "T3@2"), ("T4", "T5")]));
+    assert_eq!(read.cell(&CellId::from("T3")), taken_out(&CellId::from("T3"), 2));
+    assert_eq!(read.block(&BlockId::from("t2_words")), BlockId::from("t5_words"));
+    assert_eq!(
+        read.block(&BlockId::from("t3_questions")),
+        BlockId::from("t3@2_questions")
+    );
+    assert!(read.renames(&BlockId::from("t2_questions")));
+    // A datum made for no cell, and a cell no renumbering moved, read as recorded.
+    assert!(!read.renames(&BlockId::from("plan_owner")));
+    assert_eq!(read.cell(&CellId::from("I1")), CellId::from("I1"));
+    // Recorded on the version that held the first renumbering already: only the second is read through.
+    let read = reading(&to, 1);
+    assert_eq!(read.cells, pairs(&[("T3", "T3@2"), ("T4", "T5")]));
+    assert_eq!(read.blocks.get(&BlockId::from("t2_words")), None);
+    // Recorded on the version installed: nothing reads otherwise.
+    assert!(reading(&to, 2).is_empty());
+}
+
+#[test]
+fn an_outline_kept_before_a_part_was_added_reads_with_that_part_absent() {
+    // The outline kept as the first version of its form, checked in so that a change of the form that would not read it
+    // fails here.
+    let kept = include_str!("outline/kept.json");
+    let outline: Outline = serde_json::from_str(kept).expect("the outline kept reads with today's reader");
+    assert_eq!(outline.last(), Some(&CellId::from("M1")));
+    let cell = outline.cell(&CellId::from("R1")).expect("R1");
+    assert_eq!(cell.title, "Initial research");
+    assert_eq!(cell.words.as_ref().map(|w| w.block.as_str()), Some("r1_words"));
+    // A cell with no part but its id, title, line and whether an agent runs it reads with each other part absent.
+    let bare: OutlinedCell =
+        serde_json::from_str(r#"{"id": "M1", "title": "Merge", "line": null, "agent": false}"#).expect("it reads");
+    assert!(bare.given.is_empty() && bare.watches.is_empty() && bare.reads.is_empty() && bare.words.is_none());
+    let bare: Outline = serde_json::from_str(r#"{"name": "engineer", "cells": []}"#).expect("it reads");
+    assert!(bare.lines.is_empty() && bare.earlier_ids.is_empty() && bare.own.is_empty() && bare.card.is_empty());
+}

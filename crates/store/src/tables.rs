@@ -10,7 +10,10 @@ use decide::{
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use work::{Filled, Measured, Measures, Moment, Observed, Pinged, Pulled, Ran, RanOn, Session, Spent, Time, Work};
+use work::{
+    Filled, KeptTime, Measured, Measures, Moment, Observed, OnFlow, Pinged, Pulled, Ran, RanOn, Session, Spent, Time,
+    Work,
+};
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
 
@@ -460,6 +463,29 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             })
         },
     )?;
+    out.flows = rows(
+        db,
+        "SELECT at, version FROM on_flow WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(OnFlow {
+                at: Seq(row.get(0)?),
+                version: row.get(1)?,
+            })
+        },
+    )?;
+    let kept_time = rows(
+        db,
+        "SELECT at, stretches FROM kept_time WHERE work = ?1 ORDER BY at",
+        w,
+        |row| Ok((Seq(row.get(0)?), row.get::<_, String>(1)?)),
+    )?;
+    for (at, stretches) in kept_time {
+        out.kept_time.push(KeptTime {
+            at,
+            stretches: parse("kept_time", &stretches)?,
+        });
+    }
 
     out.moments = rows(
         db,
@@ -492,7 +518,10 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
 /// given work begins, keeps nothing and says where. Everything is checked before anything is written.
 pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<(), Fault> {
     let w = work.0;
-    let held = load(db, work)?;
+    // What the store holds is read as the given work was, through the readings of its moves, so that like is compared
+    // with like: the store keeps every name as it was recorded.
+    let mut held = load(db, work)?;
+    held.read_through(&given.readings);
     let (h, g) = (&held.records, &given.records);
 
     let started = grown("started", &h.started, &g.started, |e| Entry::At(e.at))?;
@@ -545,6 +574,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let measured = grown("measured", &held.measured, &given.measured, |m| Entry::At(m.at))?;
     let pinged = grown("pinged", &held.pinged, &given.pinged, |p| Entry::At(p.at))?;
     let pulls = grown("pulls", &held.pulls, &given.pulls, |p| Entry::At(p.at))?;
+    let on_flow = grown("on_flow", &held.flows, &given.flows, |f| Entry::At(f.at))?;
+    let kept_time = grown("kept_time", &held.kept_time, &given.kept_time, |k| Entry::At(k.at))?;
 
     // Each table after those its rows name.
     for s in started {
@@ -814,6 +845,18 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         db.execute(
             "INSERT INTO pulls (work, at, number, url) VALUES (?1, ?2, ?3, ?4)",
             params![w, p.at.0, p.number, p.url],
+        )?;
+    }
+    for f in on_flow {
+        db.execute(
+            "INSERT INTO on_flow (work, at, version) VALUES (?1, ?2, ?3)",
+            params![w, f.at.0, f.version],
+        )?;
+    }
+    for k in kept_time {
+        db.execute(
+            "INSERT INTO kept_time (work, at, stretches) VALUES (?1, ?2, ?3)",
+            params![w, k.at.0, json("kept_time", &k.stretches)?],
         )?;
     }
     for m in moments {

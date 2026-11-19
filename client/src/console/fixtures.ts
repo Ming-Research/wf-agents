@@ -23,6 +23,7 @@ import type {
   Waited,
   WorkPage,
 } from '../works-api';
+import { outlineOf } from '../testing';
 import type { Source } from './source';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
@@ -633,6 +634,7 @@ function pageOf(item: Item, summary: Summary, questions: Record<number, Question
     level: item.level,
     project: item.project,
     history: item.history,
+    outline: outlineOf(FLOW),
     flow: FLOW,
     cells,
     blocks: [],

@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 45);
+    assert_eq!(tables.len(), 49);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -154,7 +154,7 @@ fn kept_before() -> Work {
 
 /// The work as a file made with this earlier version of the schema holds it, and a file of this version that holds
 /// it: the rows a store of this version keeps, each copied into the earlier file in the columns its table has there.
-fn kept_in(version: u32, work: &Work) -> (Db, Db) {
+pub(crate) fn kept_in(version: u32, work: &Work) -> (Db, Db) {
     kept_in_works(version, &[work])
 }
 
