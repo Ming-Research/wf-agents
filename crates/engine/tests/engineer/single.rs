@@ -153,17 +153,25 @@ impl W {
         w
     }
 
-    /// The work from its start to the review's yes on the implementation's code: planned ([`W::planned`]), and the
+    /// The work from its start to the reviews' yes on the implementation's code: planned ([`W::planned`]), and the test
     /// review asks for no testing.
     pub(super) fn reviewed() -> W {
         let mut w = W::planned();
         w.hands_in("I1", &[("code", None), ("evidence", None)], Vec::new());
-        w.hands_in(
-            "T1",
-            &[("review_ok", Some("yes")), ("needs_testing", Some("no"))],
+        w.reviews_pass();
+        w
+    }
+
+    /// The three reviews of the change, in their order, each find nothing to change, the test review asking for no
+    /// testing.
+    pub(super) fn reviews_pass(&mut self) {
+        self.hands_in("T1", &[("review_ok", Some("yes"))], Vec::new());
+        self.hands_in(
+            "T2",
+            &[("test_ok", Some("yes")), ("needs_testing", Some("no"))],
             Vec::new(),
         );
-        w
+        self.hands_in("T3", &[("design_ok", Some("yes"))], Vec::new());
     }
 }
 
@@ -230,7 +238,8 @@ fn both_reviews_of_the_plan_run_on_a_plan_the_research_wrote_whether_or_not_it_e
 }
 
 // The design review's points on a plan the research wrote go to the research, which answers them in the dialogue the
-// two hold, and its answer runs the review again (design document `data-and-context`, 36).
+// two hold once the review against the tree has judged the same plan, and its answer runs the review again (design
+// document `data-and-context`, 6, 36).
 #[test]
 fn the_design_review_s_points_on_the_research_s_plan_run_the_research_and_its_answer_runs_the_review_again() {
     let mut w = W::started();
@@ -248,6 +257,12 @@ fn the_design_review_s_points_on_the_research_s_plan_run_the_research_and_its_an
     );
     w.hands_in("R2", &[], Vec::new());
     w.hands_in("P1", &[("plan_ok", Some("no")), ("plan_review", None)], Vec::new());
+    assert_eq!(
+        w.round().1,
+        "P2",
+        "the review against the tree judges the same plan first"
+    );
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
     let (run, cell) = w.round();
     assert_eq!(cell, "R1", "the research takes the review's points");
     assert_eq!(w.told(run, "R1"), ["plan_review"]);
@@ -256,7 +271,7 @@ fn the_design_review_s_points_on_the_research_s_plan_run_the_research_and_its_an
     assert_eq!(cell, "P1", "the review takes the answer");
     assert_eq!(w.told(run, "P1"), ["plan_review"]);
     w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
-    assert_eq!(w.round().1, "P2");
+    assert_eq!(w.round().1, "I1", "both reviews passed the plan");
 }
 
 #[test]
@@ -300,4 +315,156 @@ fn a_write_of_a_cell_s_words_holds_nothing_by_the_answer_kept_not_by_the_words_h
         .find(|x| x.block.as_str() == "r1_words")
         .expect("written");
     assert!(!write.empty, "the entry kept holds something");
+}
+
+// The cells a change reaches run in one pass, and the plan's writer answers what they send back at once (design document
+// `data-and-context`, 6): both reviews of the plan judge its first version, each failing it, before the research
+// answers them, and the better-way cell, having handed in once, looks no more (decision
+// the-better-way-is-looked-for-once). With the walk taking the first cell with anything new, the plan stage ran R1, R2,
+// P1, R1, R2, P1, P2, R1, R2, P1, P2.
+#[test]
+fn the_plans_reviews_judge_one_version_in_one_pass_and_the_research_answers_both_at_once() {
+    let mut w = W::started();
+    w.hands_in("S1", &[("place", None)], Vec::new());
+    w.hands_in("R0", &[], Vec::new());
+    let mut ran: Vec<String> = Vec::new();
+    let mut step = |w: &mut W, cell: &str, blocks: &[(&str, Option<&str>)]| {
+        ran.push(w.round().1);
+        w.hands_in(cell, blocks, Vec::new());
+    };
+    let plan = [
+        ("deep_needed", Some("no")),
+        ("plan_owner", None),
+        ("plan_agent", None),
+        ("acceptance", None),
+    ];
+    step(&mut w, "R1", &plan);
+    step(&mut w, "R2", &[]);
+    step(&mut w, "P1", &[("plan_ok", Some("no")), ("plan_review", None)]);
+    step(&mut w, "P2", &[("tree_ok", Some("no")), ("tree_review", None)]);
+    let (run, _) = w.round();
+    assert_eq!(w.told(run, "R1"), ["plan_review", "tree_review"]);
+    let answer = [
+        ("deep_needed", Some("no")),
+        ("plan_agent", None),
+        ("plan_review", None),
+        ("tree_review", None),
+    ];
+    step(&mut w, "R1", &answer);
+    step(&mut w, "P1", &[("plan_ok", Some("yes"))]);
+    step(&mut w, "P2", &[("tree_ok", Some("yes"))]);
+    assert_eq!(ran, ["R1", "R2", "P1", "P2", "R1", "P1", "P2"]);
+    assert_eq!(w.round().1, "I1");
+}
+
+// The better-way cell runs once a work: the engine writes that it handed in as its first run that dealt with something
+// finishes, and the cell is skipped from then on, though the plan changes (decision the-better-way-is-looked-for-once).
+// A round that failed and a run that only asked for a tool dealt with nothing, and do not count.
+#[test]
+fn the_better_way_cell_runs_until_it_has_handed_in_once() {
+    let handed_in = |w: &W| {
+        let yes = |x: &decide::Written| x.block.as_str() == "r2_handed_in" && x.value.as_deref() == Some("yes");
+        w.work.records.written.iter().filter(|x| yes(x)).count()
+    };
+    let mut w = W::started();
+    w.hands_in("S1", &[("place", None)], Vec::new());
+    w.hands_in("R0", &[], Vec::new());
+    let plan = [
+        ("deep_needed", Some("no")),
+        ("plan_owner", None),
+        ("plan_agent", None),
+        ("acceptance", None),
+    ];
+    w.hands_in("R1", &plan, Vec::new());
+    // The cell's first round fails: nothing came back, and the engine pauses the work until the owner lets it on.
+    let (run, cell) = w.round();
+    assert_eq!(cell, "R2");
+    w.on(Event::Failed {
+        run,
+        why: "The agent's program could not start.".to_string(),
+        failure: decide::run::Failure::Other,
+        resets: None,
+        spent: Spent::default(),
+    });
+    assert_eq!(handed_in(&w), 0, "a round that failed hands in nothing");
+    w.on(Event::Resumed);
+    // Its next round asks for a tool: its run finishes, having dealt with nothing.
+    let (again, cell) = w.round();
+    assert_eq!(
+        (again, cell.as_str()),
+        (run, "R2"),
+        "the run whose round failed has its next round"
+    );
+    let asks = Came::asks(vec![engine::Ask::Tool {
+        name: "query".to_string(),
+        input: "{}".to_string(),
+    }]);
+    let effects = w.on(Event::Returned {
+        run,
+        came: asks,
+        spent: Spent::default(),
+    });
+    assert_eq!(handed_in(&w), 0, "a run that only asked for a tool hands in nothing");
+    for effect in effects {
+        if let Effect::Call { call, .. } = effect {
+            w.on(Event::Done {
+                call,
+                result: "no rows".to_string(),
+            });
+        }
+    }
+    // Entered again for the result, it hands in what it found: nothing better.
+    w.hands_in("R2", &[], Vec::new());
+    assert_eq!(handed_in(&w), 1);
+    w.hands_in("P1", &[("plan_ok", Some("no")), ("plan_review", None)], Vec::new());
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
+    w.hands_in(
+        "R1",
+        &[("deep_needed", Some("no")), ("plan_agent", None), ("plan_review", None)],
+        Vec::new(),
+    );
+    // The plan changed, and the better-way cell is skipped: the review judges it next, and nothing writes the flag again.
+    assert_eq!(w.round().1, "P1");
+    assert!(!decide::applies(&w.flow.flow, &w.work.records, &"R2".into()));
+    assert_eq!(handed_in(&w), 1);
+}
+
+// What the better-way cell finds is said to the plan's writer in the dialogue of the two (design document
+// `data-and-context`, 28, 36): the writer, woken by it, owes its answer, and a return that neither changes the plan nor
+// answers in the dialogue is sent back (42). An answer runs nothing, the cell that looked having handed in.
+#[test]
+fn the_research_woken_by_a_better_way_owes_its_answer() {
+    let mut w = W::started();
+    w.hands_in("S1", &[("place", None)], Vec::new());
+    w.hands_in("R0", &[], Vec::new());
+    let plan = [
+        ("deep_needed", Some("no")),
+        ("plan_owner", None),
+        ("plan_agent", None),
+        ("acceptance", None),
+    ];
+    w.hands_in("R1", &plan, Vec::new());
+    w.hands_in("R2", &[("better_found", None)], Vec::new());
+    // The reviews judge the same plan in the pass before the research answers.
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
+    let (run, cell) = w.round();
+    assert_eq!(cell, "R1");
+    assert_eq!(w.told(run, "R1"), ["better_found"]);
+    w.returns("R1", &["better_found"], &[("deep_needed", Some("no"))]);
+    assert_eq!(
+        w.round(),
+        (run, "R1".to_string()),
+        "a return that answers nothing is sent back"
+    );
+    w.returns(
+        "R1",
+        &["better_found"],
+        &[("deep_needed", Some("no")), ("better_found", None)],
+    );
+    assert_eq!(
+        w.round().1,
+        "I1",
+        "the answer runs nothing, and both reviews passed the plan"
+    );
 }

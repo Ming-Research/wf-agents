@@ -735,6 +735,11 @@ fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_in_
 /// questions' standing run, that alone says whether the work passed, and that is skipped where a person turns
 /// `checking` off; and a merge that waits for its yes.
 fn asking_then_checked() -> Compiled {
+    checked_flow("")
+}
+
+/// The flow of [`asking_then_checked`], its check with these preconditions, written as a key of its file.
+fn checked_flow(check_requires: &str) -> Compiled {
     let flow = format!(
         r#"
         name = "asking_then_checked"
@@ -790,15 +795,18 @@ fn asking_then_checked() -> Compiled {
         &["code"],
         "implement",
     );
-    let check = r#"
+    let check = format!(
+        r#"
         title = "Check"
         kind = "engine"
         act = "check"
-        when = { checking = "on" }
+        when = {{ checking = "on" }}
+        {check_requires}
         watches = ["head", "main", "asked"]
         outputs = ["passed", "failures"]
         describes = ["code"]
-    "#;
+    "#
+    );
     let merge = r#"
         title = "Merge"
         kind = "engine"
@@ -812,7 +820,7 @@ fn asking_then_checked() -> Compiled {
         cells: [
             ("research", research.as_str()),
             ("implement", implement.as_str()),
-            ("check", check),
+            ("check", check.as_str()),
             ("merge", merge),
         ]
         .iter()
@@ -1062,10 +1070,16 @@ fn main_moved_since_the_check_ran_answers_what_the_check_found() {
 }
 
 // A head moved while the check judged the one before, by a commit no round made, is new to the check, and runs it
-// again whatever the return leaves.
+// again whatever the return leaves. The check has preconditions, as the one before a merge has, so it is reached only
+// from the start and the implementation answers first; one with none would take the moved head first, in the pass
+// (design document `data-and-context`, 6).
 #[test]
 fn a_head_moved_while_the_check_judged_answers_what_the_check_found() {
-    let mut w = checking();
+    let mut w = W {
+        flow: checked_flow(r#"requires = { asked = "answered" }"#),
+        work: Work::default(),
+        clock: START,
+    };
     let (effects, _) = w.person_writes("request");
     let (research, ..) = round(&effects);
     let effects = w.returns(research, plans(Vec::new()));

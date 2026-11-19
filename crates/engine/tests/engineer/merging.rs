@@ -1,6 +1,6 @@
 //! Single works on the engineer's flow taken through `handle` step by step, each to what its merge rests on: the check
-//! waits for the review's yes, whatever main does, so that no branch the review has not seen is checked or merged; the
-//! work's head, which the review takes and which runs the check, holds the merge to the head the review saw; the
+//! waits for the reviews' yes, whatever main does, so that no branch the reviews have not seen is checked or merged; the
+//! work's head, which the reviews take and which runs the check, holds the merge to the head the reviews saw; the
 //! implementation answers a red check by what runs the check again, a commit or a question, and a return that answers
 //! it with neither is sent back; the owner's answer to a question the check asked, which only the implementation is
 //! told, runs the check again by itself, so that the answer alone leads to the merge; and a question of a protected
@@ -30,17 +30,20 @@ fn seen(w: &W) -> Vec<(String, Option<String>)> {
         .collect()
 }
 
-/// The work from its start to the review's yes on the implementation's code, which its round committed at the head
-/// `c1`: planned ([`W::planned`]), and the review asks for no testing.
+/// Each of the three reviews of the change, the judges the work's head runs, having dealt last with this head.
+fn all_saw(head: &str) -> Vec<(String, Option<String>)> {
+    (["T1", "T2", "T3"].iter())
+        .map(|judge| (judge.to_string(), Some(head.to_string())))
+        .collect()
+}
+
+/// The work from its start to the reviews' yes on the implementation's code, which its round committed at the head
+/// `c1`: planned ([`W::planned`]), and the test review asks for no testing.
 fn reviewed_at_c1() -> W {
     let mut w = W::planned();
     w.commits("I1", &[("code", None), ("evidence", None)], &[("head", "c1")]);
-    w.hands_in(
-        "T1",
-        &[("review_ok", Some("yes")), ("needs_testing", Some("no"))],
-        Vec::new(),
-    );
-    assert_eq!(seen(&w), [("T1".to_string(), Some("c1".to_string()))]);
+    w.reviews_pass();
+    assert_eq!(seen(&w), all_saw("c1"));
     w
 }
 
@@ -53,15 +56,11 @@ fn a_fix_run_by_a_red_check_reaches_the_review_and_the_check_through_the_head() 
     let mut w = reviewed_at_c1();
     w.hands_in("M1", &[("checked", Some("no")), ("check", None)], Vec::new());
     w.commits("I1", &[], &[("head", "c2")]);
-    assert_eq!(w.round().1, "T1", "the review runs before the check");
-    assert_eq!(seen(&w), [("T1".to_string(), Some("c1".to_string()))]);
-    w.hands_in(
-        "T1",
-        &[("review_ok", Some("yes")), ("needs_testing", Some("no"))],
-        Vec::new(),
-    );
-    assert_eq!(seen(&w), [("T1".to_string(), Some("c2".to_string()))]);
-    assert_eq!(w.round().1, "M1", "the check runs on the head the review saw");
+    assert_eq!(w.round().1, "T1", "the reviews run before the check");
+    assert_eq!(seen(&w), all_saw("c1"));
+    w.reviews_pass();
+    assert_eq!(seen(&w), all_saw("c2"));
+    assert_eq!(w.round().1, "M1", "the check runs on the head the reviews saw");
     w.hands_in("M1", &[("checked", Some("yes"))], Vec::new());
     w.hands_in("M2", &[("merged", None)], Vec::new());
     assert_eq!(w.decision(), Decision::Ended(End::Merged));
@@ -109,13 +108,9 @@ fn a_head_the_check_reads_that_the_review_has_not_seen_runs_the_review_before_th
         resets: None,
         spent: Spent::default(),
     });
-    assert_eq!(w.round().1, "T1", "the review runs first, on the head the check read");
-    w.hands_in(
-        "T1",
-        &[("review_ok", Some("yes")), ("needs_testing", Some("no"))],
-        Vec::new(),
-    );
-    assert_eq!(seen(&w), [("T1".to_string(), Some("c3".to_string()))]);
+    assert_eq!(w.round().1, "T1", "the reviews run first, on the head the check read");
+    w.reviews_pass();
+    assert_eq!(seen(&w), all_saw("c3"));
     let wait = (pending(&w.flow, &w.work).into_iter())
         .find_map(|effect| match effect {
             Effect::Call {
@@ -207,12 +202,8 @@ fn an_early_protected_question_answered_as_it_recommends_stops_nothing_and_taken
         if option == words.merges {
             assert!(!stopped, "the option it recommends stops no round: {effects:?}");
             assert_eq!(w.round(), (review, "T1".to_string()), "the review goes on");
-            w.hands_in(
-                "T1",
-                &[("review_ok", Some("yes")), ("needs_testing", Some("no"))],
-                Vec::new(),
-            );
-            assert_eq!(w.round().1, "M1", "the check follows the review");
+            w.reviews_pass();
+            assert_eq!(w.round().1, "M1", "the check follows the reviews");
             assert_eq!(
                 (runs(&w, "I1"), runs(&w, "T1")),
                 (implementing, 1),
@@ -239,11 +230,7 @@ fn the_check_waits_for_the_answer_to_an_early_protected_question() {
     let words = protected_words();
     let mut w = W::planned();
     w.hands_in("I1", &[("code", None), ("evidence", None)], vec![protected(false)]);
-    w.hands_in(
-        "T1",
-        &[("review_ok", Some("yes")), ("needs_testing", Some("no"))],
-        Vec::new(),
-    );
+    w.reviews_pass();
     let Decision::Wait { at, on } = w.decision() else {
         panic!("the work does not wait: {:?}", w.decision());
     };
@@ -267,23 +254,25 @@ fn the_check_waits_for_the_answer_to_an_early_protected_question() {
     assert_eq!(runs(&w, "I1"), implementing, "the implementation does not run again");
 }
 
+// The research hands in its choices alone: no plan is judged, so nothing is built, and the reviews of the change never
+// run. The work waits before the implementation for the plan's verdicts (decision
+// the-implementation-waits-for-the-plans-verdicts), and the check, behind it, runs on no move of main.
 #[test]
 fn the_check_waits_for_the_reviews_yes_whatever_main_does() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
     w.hands_in("R0", &[], Vec::new());
-    // The research hands in its choices alone: nothing is built, and the review never runs.
     w.hands_in("R1", &[("deep_needed", Some("no"))], Vec::new());
     for _ in 0..3 {
         let Decision::Wait { at, on } = w.decision() else {
             panic!("the work does not wait: {:?}", w.decision());
         };
-        assert_eq!(at.as_str(), "M1");
+        assert_eq!(at.as_str(), "I1");
         assert!(
             on.iter().any(|waited| matches!(
                 waited,
                 Waited::Precondition { on, .. } if *on == decide::Condition::Is {
-                    block: "review_ok".into(),
+                    block: "plan_ok".into(),
                     value: "yes".into(),
                 }
             )),

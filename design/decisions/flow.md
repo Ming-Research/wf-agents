@@ -12,8 +12,8 @@ in each cell's file it would be one thing in many places, and held in the engine
 
 ### decision a-datum-of-a-cell-s-own-is-made-where-a-cell-names-it
 A datum each cell or each line has its own of, such as a cell's questions, is made from its file beside the flows only
-for a cell or a line whose name a cell names it by, among what that cell watches, reads or writes; `{each}_` in what
-every agent cell takes stands for those made.
+for a cell or a line whose name a cell names it by, among what that cell watches, reads or writes or in its condition or
+preconditions; `{each}_` in what every agent cell takes stands for those made.
 Why: Made for every cell, a cell that may not ask would have questions of its own that no cell writes and that run
 nothing, each a block with no writer (principle every-field-has-a-reader).
 

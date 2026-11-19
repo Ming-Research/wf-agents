@@ -69,7 +69,9 @@
 //!   option, in six of a hundred; cancels in one in a hundred; looks otherwise.
 //!
 //! Seven histories of ten are steered, drawn by a generator of their own so that the other draws keep their order, each
-//! taking every random step it may. In three of ten, the work is paused while the check's round is under way; once
+//! taking every random step it may; in them a judge's verdict, where a return hands one in, is its refusal in one of
+//! ten only, so that they reach the check past the five judges before it. In three of ten, the work is paused while the
+//! check's round is under way; once
 //! the check passed, a person writes, while the pause holds the merge back, for a judge that applies, who then refuses,
 //! or writes a verdict as its refusal, a coin of its own deciding; then the work is let on. In one of ten the check
 //! fails the first time it runs and the random steps end there; in two of ten, they end only once the cell told of
@@ -289,6 +291,7 @@ fn engineer() -> Compiled {
             "asked",
             "words",
             "dependencies",
+            "handed_in",
             "main",
             "session",
             "start",
@@ -767,10 +770,16 @@ impl Random {
         for b in &outputs {
             if let Some(values) = d.flow.blocks[b].values.clone() {
                 if d.rng.chance(90) {
-                    let value = if values.len() == 1 || d.rng.chance(55) {
-                        values[0].clone()
-                    } else {
-                        values[1 + d.rng.below(values.len() - 1)].clone()
+                    // A steered history's judges pass in nine of ten, so that it reaches the check past the judges
+                    // before it, the plan's and the change's.
+                    let refusal = self.roles.refusals.get(b).filter(|_| self.steer != Steer::Not);
+                    let value = match refusal {
+                        Some(refusal) if d.rng.chance(90) => {
+                            values.iter().find(|v| *v != refusal).unwrap_or(refusal).clone()
+                        }
+                        Some(refusal) => refusal.clone(),
+                        None if values.len() == 1 || d.rng.chance(55) => values[0].clone(),
+                        None => values[1 + d.rng.below(values.len() - 1)].clone(),
                     };
                     handed_in.push(handed(b, cell, true, Some(value)));
                 }

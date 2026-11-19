@@ -1,0 +1,4 @@
+# The dialogue of the review of the change against the design tree with the implementation (design document
+# `data-and-context`, 36): it writes its points and the implementation its answers, each a version of it, and both
+# watch it, so that each version is new to the other side alone.
+what = "What the review of the change against the design tree and the implementation say to each other, in English: each point, where, what must change and why, what it rests on; and the implementation's answer to each, fixed, with its commit, or why not."

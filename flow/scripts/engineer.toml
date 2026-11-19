@@ -1,9 +1,10 @@
 # What the agents, the engine's acts and the tools do when the engineer's flow is tried with no agent behind it
 # (`wf-agents run --script`). One work goes through every cell: the research asks the owner a question, answers it and
-# sends the work to deep research; a better way is looked for and none found, the plan's review objects to the plan
-# once, and the review against the tree is content; the implementation records a decision of its own; the review objects once and then asks for adversarial testing, which finds a fault; after the fix the
-# review keeps asking for it and the testing is content; the check before the merge fails once, and after the fix the
-# review, the testing and the check look again and pass.
+# sends the work to deep research; a better way is looked for once and none found, the plan's review objects to the plan
+# once, and the review against the tree is content; the implementation records a decision of its own; the code review
+# objects once, the test review then asks for adversarial testing, which finds a fault, and the review of the change
+# against the tree is content; after the fix the test review keeps asking for it and the testing is content; the check
+# before the merge fails once, and after the fix the reviews, the testing and the check look again and pass.
 
 [took]
 ms = 4000
@@ -53,14 +54,9 @@ hands_in = [
     { block = "plan_review", content = "Agreed: a withdrawn call takes nothing, and the plan now says so." },
 ]
 
-# Is there a better way: finds none, on the plan and on its revision, and changes nothing.
+# Is there a better way: looks once, finds none, and hands in nothing.
 [[flows.engineer.rounds]]
 cell = "D2"
-hands_in = []
-
-[[flows.engineer.rounds]]
-cell = "D2"
-run = 2
 hands_in = []
 
 # The plan's review: one objection to the plan, then content.
@@ -122,43 +118,70 @@ hands_in = [
 ]
 commits = [{ block = "head", content = "4b8e2d1" }]
 
-# The review: objects once, then asks for adversarial testing, and keeps asking for it while the summing that made it
-# ask is in the change.
+# The code review: objects once, then is content.
 [[flows.engineer.rounds]]
 cell = "T1"
 hands_in = [
     { block = "review", content = "The acceptance says the cost shows on the page; the page does not show it per call." },
     { block = "review_ok", value = "no" },
-    { block = "needs_testing", value = "no" },
 ]
 
 [[flows.engineer.rounds]]
 cell = "T1"
 run = 2
-hands_in = [
-    { block = "review_ok", value = "yes" },
-    { block = "needs_testing", value = "yes" },
-]
+hands_in = [{ block = "review_ok", value = "yes" }]
 
 [[flows.engineer.rounds]]
 cell = "T1"
 run = 3
-hands_in = [
-    { block = "review_ok", value = "yes" },
-    { block = "needs_testing", value = "yes" },
-]
+hands_in = [{ block = "review_ok", value = "yes" }]
 
 [[flows.engineer.rounds]]
 cell = "T1"
 run = 4
+hands_in = [{ block = "review_ok", value = "yes" }]
+
+# The test review: content, then asks for adversarial testing, and keeps asking for it while the summing that made it
+# ask is in the change.
+[[flows.engineer.rounds]]
+cell = "T2"
 hands_in = [
-    { block = "review_ok", value = "yes" },
+    { block = "test_ok", value = "yes" },
+    { block = "needs_testing", value = "no" },
+]
+
+[[flows.engineer.rounds]]
+cell = "T2"
+run = 2
+hands_in = [
+    { block = "test_ok", value = "yes" },
     { block = "needs_testing", value = "yes" },
 ]
 
-# Adversarial testing: finds one fault, then none on its fix and none on the fix for the check.
 [[flows.engineer.rounds]]
 cell = "T2"
+run = 3
+hands_in = [
+    { block = "test_ok", value = "yes" },
+    { block = "needs_testing", value = "yes" },
+]
+
+[[flows.engineer.rounds]]
+cell = "T2"
+run = 4
+hands_in = [
+    { block = "test_ok", value = "yes" },
+    { block = "needs_testing", value = "yes" },
+]
+
+# The review of the change against the tree: content each time.
+[[flows.engineer.rounds]]
+cell = "T3"
+hands_in = [{ block = "design_ok", value = "yes" }]
+
+# Adversarial testing: finds one fault, then none on its fix and none on the fix for the check.
+[[flows.engineer.rounds]]
+cell = "T4"
 hands_in = [
     { block = "tests", content = "Four tests; one fails: the sum of a run with a call that has no result." },
     { block = "testing", content = "Summing a run fails when one of its calls has no result yet." },
@@ -166,7 +189,7 @@ hands_in = [
 ]
 
 [[flows.engineer.rounds]]
-cell = "T2"
+cell = "T4"
 run = 2
 hands_in = [
     { block = "tests", content = "Four tests, all passing on the fix; the one that failed fails on the commit before it." },
@@ -174,7 +197,7 @@ hands_in = [
 ]
 
 [[flows.engineer.rounds]]
-cell = "T2"
+cell = "T4"
 run = 3
 hands_in = [
     { block = "tests", content = "The same four tests, all passing with the latest main taken in." },

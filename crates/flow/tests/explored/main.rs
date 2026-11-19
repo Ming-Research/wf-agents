@@ -70,6 +70,7 @@ fn engineer() -> Compiled {
             "answer",
             "asked",
             "dependencies",
+            "handed_in",
             "main",
             "session",
             "start",
@@ -253,11 +254,23 @@ const NEVER: &[(&str, &str)] = &[
          (crates/engine/tests/loop/stalling.rs).",
     ),
     (
-        "D2 ran on r2_questions",
-        "R2 asks the owner only where the research wrote the plan, deep_needed = no, and D2 runs only where it is \
-         yes: an answer to R2's question reaches D2 only once the research has written yes since R2 asked, which takes \
-         R2's question, a write from outside that runs the research again and a return of it with yes, past the bound. \
-         That D2 then takes the answer is the context test's (crates/context/tests/engineer.rs).",
+        "R2 ran back on better_found, written by a cell after it",
+        "The cells after R2 that write better_found are D1 and D2, which run only where deep_needed is yes, and R2 runs \
+         only where it is no.",
+    ),
+    (
+        "R2 ran back on plan, written by a cell after it",
+        "R2 runs until it has handed in, r2_handed_in = no in its condition (decision \
+         the-better-way-is-looked-for-once). The research's first plan runs it before any cell after it, whose \
+         plan-writing cells, the deep research and the implementation, come only past it, and its first run that deals \
+         with that plan has the engine write r2_handed_in = yes: no later version of the plan runs it.",
+    ),
+    (
+        "D2 ran back on plan, written by a cell after it",
+        "D2 runs until it has handed in, d2_handed_in = no in its condition (decision \
+         the-better-way-is-looked-for-once). The deep research's first plan runs it before the implementation, the one \
+         cell after it that writes the plan, can run, and its first run that deals with that plan has the engine write \
+         d2_handed_in = yes: no later version of the plan runs it.",
     ),
     (
         "D1 ran on r1_questions",

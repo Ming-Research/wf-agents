@@ -12,6 +12,7 @@ use flow::{Compiled, Kind};
 
 use crate::asked;
 use crate::event::{Effect, Event, Gate, Refused};
+use crate::handed_in;
 use crate::spoken;
 use work::{Ask, Back, Call, Filled, Given, Measured, Moment, Pinged, Pulled, Ran, Session, Time, Work};
 
@@ -784,7 +785,8 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
 /// before a return that asks ended its run made all its calls at once as it was taken, and its run rested at them,
 /// unless the owner's word at the limit of calls was asked for first: such a run finishes making none again, or all it
 /// asked for where it made none, and its cell is owed those it made. The run keeps, as it finishes, the observations
-/// its returns said that it keeps (crate `work`, module `observations`).
+/// its returns said that it keeps (crate `work`, module `observations`). A run that dealt with something writes that
+/// its cell has handed its work in, where the cell has a datum of that ([`handed_in`]).
 fn finish(
     flow: &Compiled,
     work: &mut Work,
@@ -844,6 +846,7 @@ fn finish(
     let cell = (work.records.started.iter())
         .find(|s| s.run == run)
         .map(|s| s.cell.clone());
+    let handed_in = !dealt_with.is_empty();
     work.records.finished.push(Finished {
         run,
         at,
@@ -856,6 +859,9 @@ fn finish(
         .and_then(|c| c.line.as_deref());
     let observed = work::observations::kept(work, run, line);
     work.observed.extend(observed);
+    if handed_in && let Some(cell) = &cell {
+        handed_in::tell(flow, work, cell);
+    }
     if !questions.is_empty()
         && let Some(cell) = cell
     {

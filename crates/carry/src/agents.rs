@@ -2193,6 +2193,7 @@ mod tests {
                 "answer",
                 "asked",
                 "dependencies",
+                "handed_in",
                 "main",
                 "session",
                 "start",

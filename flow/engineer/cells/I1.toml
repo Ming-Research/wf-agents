@@ -24,10 +24,15 @@ there is one, and `acceptance` only when a condition must change, the whole list
 Where main does not merge into the branch, merge it in yourself and run the check again. A point its judge insists on,
 fix or have the owner rule. If what the item asks needs no change, ask the owner.
 '''
+# Run only on a plan its reviews passed: the pass runs every cell after a way back that something else runs, and the
+# order alone no longer keeps it from building a plan just failed (decision the-implementation-waits-for-the-plans-verdicts).
+requires = { plan_ok = "yes", tree_ok = "yes" }
 watches = [
   "plan",
   "plan_doubts",
   "review",
+  "test_review",
+  "design_review",
   "testing",
   "check",
   "i1_questions",
@@ -41,6 +46,8 @@ outputs = [
   "evidence",
   "acceptance",
   "review",
+  "test_review",
+  "design_review",
   "testing",
   "plan_doubts",
   "i1_questions",
@@ -53,6 +60,8 @@ plan = """See what changed in the plan since the version you last built from, th
 i1_words = """The owner has said something to you in `i1_words`: that comes first. Do what it says, and answer it in `i1_words`: what you changed for it, or why not."""
 i1_questions = """The owner has answered one of your questions in `i1_questions` with another option than yours, or one you wait for: follow the option the owner took."""
 review = """Answer each point of `review` there: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
+test_review = """Answer each point of `test_review` there: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
+design_review = """Answer each point of `design_review` there: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 testing = """Answer each point of `testing` there: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 check = """Fix what `check` found and commit; where you judge it not this change's to fix, ask the owner."""
 
@@ -68,5 +77,7 @@ plan_agent = "last_and_latest"
 acceptance = "last_and_latest"
 tree_edits = "last_and_latest"
 review = "all"
+test_review = "all"
+design_review = "all"
 testing = "all"
 check = "latest"

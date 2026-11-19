@@ -290,6 +290,8 @@ pub struct Block {
     pub writers: Writers,
     /// Who reads it.
     pub readers: Readers,
+    /// Of a datum each cell has its own of (`../data/of_a_cell/`), the cell whose own it is; none of any other.
+    pub of_cell: Option<CellId>,
 }
 
 /// The shape a return holds a block to, as its file gives it. Two are the same where they are written the same.
@@ -1113,15 +1115,20 @@ impl LaidOut {
     }
 
     /// Makes each datum each cell or each line has its own of that a cell of the order names among what it watches,
-    /// reads or writes, and that the flow does not define otherwise: a name a file of `../data/of_a_cell/` makes of the
-    /// id of a cell of the order, in small letters, or one of `../data/of_a_line/` makes of a line of the flow. Each is
-    /// declared in the file that makes it.
+    /// reads or writes, or as a key of its condition or its preconditions, and that the flow does not define otherwise:
+    /// a name a file of `../data/of_a_cell/` makes of the id of a cell of the order, in small letters, or one of
+    /// `../data/of_a_line/` makes of a line of the flow (decision a-datum-of-a-cell-s-own-is-made-where-a-cell-names-it).
+    /// Each is declared in the file that makes it.
     fn own(&self, cells: &BTreeMap<String, CellFile>, flow: &mut FlowFile, places: &mut Places) -> Own {
         let mut own = Own::default();
         let order = flow.order.clone();
-        let named = (order.iter().filter_map(|id| cells.get(id)))
-            .flat_map(|file| file.watches.iter().chain(&file.reads).chain(&file.outputs));
+        let named = (order.iter().filter_map(|id| cells.get(id))).flat_map(|file| {
+            let keys = keys_of(file).map(|(key, _)| key).filter(|key| *key != WHEN_TEST);
+            let listed = file.watches.iter().chain(&file.reads).chain(&file.outputs);
+            listed.map(String::as_str).chain(keys)
+        });
         for name in named {
+            let name = &name.to_string();
             if flow.blocks.contains_key(name) {
                 continue;
             }
@@ -2522,6 +2529,7 @@ impl<'a> Definition<'a> {
                         tests: uses.tests.iter().map(|t| TestName(t.to_string())).collect(),
                         shown: declared.shown,
                     },
+                    of_cell: self.own.cells.get(name).map(|id| CellId(id.clone())),
                 };
                 (BlockId(name.clone()), block)
             })

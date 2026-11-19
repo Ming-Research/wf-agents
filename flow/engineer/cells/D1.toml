@@ -23,6 +23,7 @@ when = { deep_needed = "yes" }
 watches = [
   "background",
   "found",
+  "better_found",
   "plan_review",
   "tree_review",
   "plan_doubts",
@@ -37,6 +38,7 @@ outputs = [
   "d1_questions",
   "acceptance",
   "tree_edits",
+  "better_found",
   "plan_review",
   "tree_review",
   "plan_doubts",
@@ -47,6 +49,7 @@ outputs = [
 # the task has the cell read the tree where its session has not.
 [do]
 background = """See what changed from the version you last worked from, the whole of it where you worked from none, and bring the research and the plan up to date for it."""
+better_found = """Take the way in `better_found`: change the plan to it, or say why not, and answer it in `better_found`."""
 plan_review = """Take each point of `plan_review`: change the plan where it touches, only there, or say why not, and answer it in `plan_review`."""
 tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `tree_review`."""
 plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `plan_doubts`."""
@@ -61,6 +64,7 @@ d1_words = """The owner has said something to you in `d1_words`: that comes firs
 tree = "last_and_latest"
 background = "last_and_latest"
 found = "latest"
+better_found = "all"
 plan_review = "all"
 tree_review = "all"
 plan_doubts = "all"
