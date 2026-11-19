@@ -74,16 +74,25 @@ export function Engine({ items, failed }: { items: Items | null; failed: string 
     );
   }
   const running = items.items.filter((i) => i.work.now.kind === 'round').length;
+  // Who holds every work is said here, where the pause of everything is: the engine takes one as it starts again on
+  // works that were going on, which is not the owner's doing and is read as it otherwise would be.
+  const byEngine = !mocks && real?.paused?.by === 'engine';
   const [dot, words] = !paused
     ? ['run', running === 0 ? 'Running' : `Running: ${running} ${running === 1 ? 'round' : 'rounds'}`]
     : running > 0
       ? ['pausing', `Pausing: ${running} ${running === 1 ? 'round' : 'rounds'} finishing`]
-      : ['paused', 'Paused'];
+      : ['paused', byEngine ? 'Paused by the engine' : 'Paused by you'];
   return (
     <div className="engine">
       <span
         className="engine-state"
-        title={paused ? 'Every work is paused: no work goes on by itself and no new work starts.' : undefined}
+        title={
+          !paused
+            ? undefined
+            : byEngine
+              ? 'The engine paused every work as it started again on works that were going on: no work goes on by itself until you start them.'
+              : 'Every work is paused: no work goes on by itself and no new work starts.'
+        }
       >
         <span className={`engine-dot engine-dot-${dot}`} />
         <span className="engine-words">{words}</span>
