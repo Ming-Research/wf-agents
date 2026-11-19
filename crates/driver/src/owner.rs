@@ -663,25 +663,21 @@ mod tests {
     }
 
     #[test]
-    fn the_engines_pause_of_every_work_as_it_started_again_is_the_owners_where_it_holds_the_work() {
+    fn the_pause_of_every_work_is_no_wait_of_a_works_own() {
+        // The pause of everything is one thing, said and lifted where it is set: a work it holds waits on the owner
+        // for nothing of it, whoever set it, so that one pause of five works is one thing waiting and not five, and
+        // no work carries the button that lifts it over every work.
         let work = Work::default();
         let by = |pauser: Pauser| Shared {
             everything: Some(pauser),
             cannot_run: None,
         };
-        let held = of_with(&work, &going("write"), Some(Holder::Everything), by(Pauser::Engine));
-        assert_eq!(keys(&held), [HELD]);
-        assert_eq!(held[0].ends, Ends::ResumeEverything);
-        assert_eq!(held[0].why, "The engine paused every work as it started again.");
-        // The owner's own pause of everything is not; nor the engine's where it does not hold the work.
-        assert_eq!(
-            of_with(&work, &going("write"), Some(Holder::Everything), by(Pauser::Owner)),
-            []
-        );
-        assert_eq!(
-            of_with(&work, &at("write", vec![Waited::Slot]), None, by(Pauser::Engine)),
-            []
-        );
+        for pauser in [Pauser::Engine, Pauser::Owner] {
+            let held = of_with(&work, &going("write"), Some(Holder::Everything), by(pauser));
+            assert_eq!(held, [], "{pauser:?}");
+            let waits_for_a_slot = of_with(&work, &at("write", vec![Waited::Slot]), None, by(pauser));
+            assert_eq!(waits_for_a_slot, [], "{pauser:?}");
+        }
     }
 
     #[test]

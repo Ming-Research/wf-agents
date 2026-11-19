@@ -179,6 +179,27 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
         json!({ "kind": "everything", "since": START, "by": "engine" }),
         "{attention}"
     );
+    // The round handed out again asks the owner, whose answer leaves the work nothing of its own to wait for.
+    pass(2000).await;
+    let work = &get_json(router, "/api/v1/items").await["items"][0]["work"];
+    let call = work["waits"][0]["ends"]["call"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("the call it waits on: {work}"));
+    let answer = json!({ "kind": "result", "call": call, "result": "Yes, by name." });
+    assert_eq!(
+        post(router, "/api/v1/works/1/acts", &answer).await.0,
+        StatusCode::NO_CONTENT
+    );
+    pass(500).await;
+    // Held by the pause of everything alone, the work says so in what it does now and waits on the owner for nothing:
+    // the pause is one thing, counted and lifted where it is set and not work by work.
+    let work = &get_json(router, "/api/v1/items").await["items"][0]["work"];
+    assert_eq!(
+        work["summary"]["now"],
+        json!({ "kind": "everything", "at": "plan", "by": "engine" }),
+        "{work}"
+    );
+    assert_eq!(work["waits"], json!([]), "{work}");
     assert_eq!(
         post(router, "/api/v1/engine/acts", &json!({ "kind": "resume" })).await,
         (StatusCode::NO_CONTENT, Value::Null)
