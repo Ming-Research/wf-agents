@@ -1,6 +1,5 @@
-// One work: the view's line, with the link back to the works, the item's number and its title, and at its right the
-// legend of the history's marks and the button that has a line begin a new session, which the item's window does not
-// hold; the work's history as a chart; and over its right the console's window (`Drawer`) with the console's item
+// One work: the view's line, with the way back to the works, the item's number and its title, and at its right the
+// legend of the history's marks; the work's history as a chart; and over its right the console's window (`Drawer`) with the console's item
 // window for the work's item (`ItemPanel`), its tabs the console's, whose Step shows the row of the history chosen.
 // What the window shows (the item's state, the work's cost and time, the owner's buttons) is not said again in the
 // view's line. Choosing a row slides the window out on Step; letting the row go slides it back, unless its tab brought
@@ -19,11 +18,9 @@ import { CHOICE_KEYS, keptChoice, useKept, write } from '../kept';
 import { hashOf } from '../route';
 import { WIDTH_KEYS } from '../sizes';
 import type { Act, WorkPage } from '../works-api';
-import { NewSession, type Send } from './Boxes';
 import { HISTORY_MARKS, HistoryChart } from './History';
 import { placeSteps } from './placing';
 import { useChanges, useItems, useReading, useSource } from './source';
-import { hasEnded } from './words';
 
 export function WorkView({ work, run, active = true }: {
   work: number;
@@ -140,32 +137,19 @@ export function WorkScreen({ page, failed = null, onActed, run, active = true }:
     },
     [source, onActed],
   );
-  const send: Send = useCallback(
-    async (what: Act) => {
-      try {
-        await act(work, what);
-        return null;
-      } catch (e) {
-        return e instanceof Error ? e.message : String(e);
-      }
-    },
-    [act, work],
-  );
-
   const row = chosen === null ? undefined : rows.find((r) => r.index === chosen);
   return (
     <>
       <div className="view-line">
         <span className="view-title">
           <a className="link" href="#/works">
-            Works
+            ← Works
           </a>
           <span className="mono muted">#{summary.item}</span>
           <span className="view-name">{page.title}</span>
         </span>
         <span className="view-end">
           <Legend marks={HISTORY_MARKS} />
-          {!hasEnded(summary) && <NewSession lines={page.flow.lines.map((l) => l.name)} send={send} />}
         </span>
       </div>
       {failed !== null && (

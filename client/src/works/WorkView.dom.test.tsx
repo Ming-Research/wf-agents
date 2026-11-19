@@ -327,14 +327,15 @@ describe("a work's line", () => {
     const { page } = await drawWork(41);
     const line = page.querySelector('.view-line') as HTMLElement;
     expect(line.querySelector('a.link')?.getAttribute('href')).toBe('#/works');
-    expect(texts(line, '.view-title > *')).toEqual(['Works', '#141', 'Show the cost of each round on the works page']);
+    expect(texts(line, '.view-title > *')).toEqual([
+      '← Works',
+      '#141',
+      'Show the cost of each round on the works page',
+    ]);
     expect(texts(line, '.legend li').slice(0, 2)).toEqual(['wakes', 'way back']);
     // What the item's window says, the state, the cost and the owner's buttons, is not said again here.
     expect(line.querySelector('.now-words')).toBeNull();
     expect(button(line, 'Pause')).toBeUndefined();
-    expect(button(line, 'New session')).toBeDefined();
-    // A work that has ended begins no new session.
-    expect(button((await drawWork(47)).page.querySelector('.view-line') as HTMLElement, 'New session')).toBeUndefined();
   });
 });
 

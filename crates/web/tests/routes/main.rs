@@ -19,7 +19,6 @@ mod observations;
 mod other_sites;
 mod page;
 mod planning;
-mod sessions;
 mod stopped;
 mod stream;
 mod system;

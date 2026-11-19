@@ -309,12 +309,6 @@
   }
 }
 
-.acts {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-
 .confirm {
   display: inline-flex;
   align-items: center;
