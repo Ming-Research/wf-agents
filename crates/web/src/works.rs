@@ -380,8 +380,6 @@ pub enum Ends {
     Write { block: String, value: Option<String> },
     /// Lets the work go on, lifting the engine's pause.
     Resume {},
-    /// Lets every work go on, lifting the pause of everything the engine set.
-    ResumeEverything {},
     /// Does what this says, which no control of the page does.
     Outside { what: String },
 }
@@ -402,7 +400,6 @@ impl Wait {
                     value,
                 },
                 EndsOf::Resume => Ends::Resume {},
-                EndsOf::ResumeEverything => Ends::ResumeEverything {},
                 EndsOf::Outside { what } => Ends::Outside { what },
             },
         }
