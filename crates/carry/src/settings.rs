@@ -963,9 +963,13 @@ mod tests {
         assert_ne!(without, SAMPLE, "the sample sets them");
         let settings = Settings::read(&without).expect("it reads without");
         let warm = settings.policy().warm.expect("kept warm");
+        let budget = Budget {
+            work: 5_000_000,
+            let_on: 2_000_000,
+        };
         assert_eq!(
             (warm.life_ms, warm.after_ms, warm.budget),
-            (3_600_000, 3_300_000, Some(5_000_000))
+            (3_600_000, 3_300_000, Some(budget))
         );
         // The sample's levels run on Haiku, Sonnet and Opus 5.5 and on Fable 5.1.
         let most: Vec<(&str, u32)> = warm.most.iter().map(|(m, n)| (m.as_str(), *n)).collect();
