@@ -195,7 +195,7 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
     // the pause is one thing, counted and lifted where it is set and not work by work.
     let work = &get_json(router, "/api/v1/items").await["items"][0]["work"];
     assert_eq!(
-        work["summary"]["now"],
+        work["now"],
         json!({ "kind": "everything", "at": "plan", "by": "engine" }),
         "{work}"
     );
