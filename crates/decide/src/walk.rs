@@ -13,9 +13,8 @@
 //! entered meanwhile only for the owner turning to it and no later cell run (design document `data-and-context`, 32);
 //! at the first whose preconditions do not hold, or that something new runs and that has reached a limit, the work
 //! waits; the first that something new runs is otherwise entered; the rest are passed. A cell run only by what cells
-//! after it wrote, a way back, and not by the results of its own calls, is passed too while a cell after it, short of
-//! the next cell with preconditions, is to be entered for something that is no way back of its own, its results among
-//! them, has a run at rest, or waits for the results of its calls: so
+//! after it wrote, a way back, is passed too while a cell after it, short of the next cell with preconditions, is to be
+//! entered for something that is no way back of its own, has a run at rest, or waits for the results of its calls: so
 //! the cells a change reaches run in one pass, and what they send back is answered after it, all at once. A cell with
 //! preconditions ends that look, and is reached only by walking from the first cell, so that no verdict it reads is
 //! taken while its judge has something new (design document `data-and-context`, 6). A work that waits only for what
@@ -243,7 +242,7 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
         };
         // A way back waits for the pass: the cells after it that are to run for something else run first (design
         // document `data-and-context`, 6).
-        if way_back(&because) && walk.pass_goes_on(i) {
+        if way_round(&because) && walk.pass_goes_on(i) {
             continue;
         }
         if let Some(limit) = walk.at_limit(cell, &because) {
@@ -1215,7 +1214,7 @@ impl<'a> Walk<'a> {
             }
             match self.step(j) {
                 AtCell::Pass => {}
-                AtCell::Enters(because) if way_back(&because) => {}
+                AtCell::Enters(because) if way_round(&because) => {}
                 AtCell::Enters(because) => return self.at_limit(cell, &because).is_none(),
                 AtCell::Decides(Decision::GoOn { .. }) => return true,
                 AtCell::Decides(Decision::Wait { on, .. }) => {
@@ -1388,14 +1387,6 @@ enum AtCell {
 /// after it.
 fn way_round(because: &[Cause]) -> bool {
     because.iter().any(|c| matches!(c, Cause::Changed { .. })) && !because.iter().any(Cause::forward)
-}
-
-/// Whether a run for these reasons is a way back that waits for the pass: a way round not run by the results of its own
-/// calls as well, which are a reason of its own, as the design document `data-and-context`, 6, waits only for a cell run
-/// by what cells after it wrote. How a way round counts against the cell's limit is another matter (decision
-/// every-way-round-has-a-limit).
-fn way_back(because: &[Cause]) -> bool {
-    way_round(because) && !because.iter().any(|c| matches!(c, Cause::Results { .. }))
 }
 
 /// The runs of the records, each as the walk reads it.
