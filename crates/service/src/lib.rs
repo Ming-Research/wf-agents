@@ -58,7 +58,7 @@ use engine::{Effect, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{ItemNumber, Storage, WorkNumber};
 use tokio::sync::{broadcast, mpsc, oneshot};
-use work::{Ask, Call, RanOn, Time, Why};
+use work::{Ask, Call, RanOn, Time};
 
 pub use carriers::{
     Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, Forked, Hosting, Mark,
@@ -200,10 +200,6 @@ pub enum Act {
         question: String,
         version: u64,
         option: u64,
-    },
-    /// Has the line begin a new session at its next round.
-    NewSession {
-        line: String,
     },
 }
 
@@ -606,7 +602,6 @@ impl Service {
                 let (_, todos) = (self.driver.change(now, why.as_deref(), asked)).map_err(Refusal::Failed)?;
                 return Ok((todos, acted));
             }
-            Act::NewSession { line } => Event::Anew { line, why: Why::Owner },
             Act::Say { to, words } => {
                 let kept = (self.driver.work(work)).ok_or(Refusal::Failed(Failed::NoSuchWork(work)))?;
                 acted.reached = engine::spoken::receiver(kept.flow, kept.work, &to).ok();

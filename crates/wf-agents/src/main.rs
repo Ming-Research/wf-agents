@@ -382,13 +382,6 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Has a line of a work begin a new session at its next round.
-    NewSession {
-        work: u64,
-        line: String,
-        #[command(flatten)]
-        at: At,
-    },
     /// Shows how the system ran over the last days: what its rounds took; the rounds whose cost or time, and the calls
     /// of tools whose time, went past the lines of their history, the latest first; and the rounds and calls under way,
     /// the oldest first, each against its own lines. At most so many of each are listed, and how many more there are
@@ -664,7 +657,6 @@ fn main() -> ExitCode {
         }
         Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
         Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
-        Command::NewSession { work, line, at } => talk::ask(at.port, Asked::Act(work, Act::NewSession { line })),
         Command::System { days, limit, at } => talk::ask(at.port, Asked::System { days, limit }),
     }
 }

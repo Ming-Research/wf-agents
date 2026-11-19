@@ -1756,8 +1756,6 @@ pub enum Act {
         version: u64,
         option: u64,
     },
-    /// Has the line begin a new session at its next round.
-    NewSession { line: String },
     /// Says words to a cell of the work's flow, or to a line of it: to the cell the engine chooses, which the work's
     /// page shows (`speaking`), and which the act answers with ([`Said`]).
     Say { to: SpokenTo, words: String },
@@ -2910,7 +2908,6 @@ impl Act {
                 version,
                 option,
             },
-            Act::NewSession { line } => service::Act::NewSession { line },
             Act::Say { to, words } => service::Act::Say { to: to.taken(), words },
         }
     }

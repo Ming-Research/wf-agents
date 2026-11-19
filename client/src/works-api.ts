@@ -862,7 +862,6 @@ export type Act =
   /// Answers a version of a question, by its number, taking an option counted from one, and nothing else.
   | { kind: 'answer'; question: string; version: number; option: number }
   /// Has the line begin a new session at its next round.
-  | { kind: 'newSession'; line: string }
   /// Says words to a cell of the work's flow, or to a line of it: to the cell the engine chooses, which the work's page
   /// shows (`speaking`).
   | { kind: 'say'; to: SpokenTo; words: string };
