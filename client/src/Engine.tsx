@@ -1,8 +1,7 @@
 // The engine's part of the bar, at its right: how the engine stands, in a dot and a few words; the switch of every
 // work, "Pause all" while works go on and "Start all" while they are paused; the switch that keeps waiting sessions
-// warm; and the slots in use. The pause of everything and the slots are the engine's own. What the engine does not give
-// yet (keeping sessions warm) comes from engine-mock.ts, and is drawn only when the page shows the mocks
-// (`mock-data.ts`), which then also stand in for the pause and the slots.
+// warm; and the slots in use. All of them are the engine's own, and with the mocks shown (`mock-data.ts`) the made-up
+// ones of engine-mock.ts stand in for them.
 
 import { useCallback, useState } from 'react';
 
@@ -34,8 +33,21 @@ export function Engine({ items, failed }: { items: Items | null; failed: string 
   useChanges(readEngine, readEngine);
   const [sending, setSending] = useState(false);
   const lost = useStreamLost();
-  // The engine's own pause of everything; with the mocks, the made-up one.
+  // The engine's own pause of everything and its keep-warm; with the mocks, the made-up ones.
   const paused = mocks ? mock.paused : real !== null && real.paused !== null;
+  const warm = mocks ? mock.keepWarm : real !== null && real.keepWarm;
+  const setWarm = (on: boolean) => {
+    if (mocks) {
+      change({ keepWarm: on });
+      return;
+    }
+    if (sending || source.actOnEngine === undefined) return;
+    setSending(true);
+    void source
+      .actOnEngine({ kind: 'keepWarm', on })
+      .then(readEngine, readEngine)
+      .finally(() => setSending(false));
+  };
   const toggle = () => {
     if (mocks) {
       change({ paused: !mock.paused });
@@ -88,13 +100,13 @@ export function Engine({ items, failed }: { items: Items | null; failed: string 
           >
             {paused ? 'Start all' : 'Pause all'}
           </Button>
-          {mocks && (
+          {(mocks || real !== null) && (
             <span className="engine-warm">
               <span className="muted">Keep warm</span>
               <Switch<'on' | 'off'>
                 label="Keep warm"
-                value={mock.keepWarm ? 'on' : 'off'}
-                onChange={(v) => change({ keepWarm: v === 'on' })}
+                value={warm ? 'on' : 'off'}
+                onChange={(v) => setWarm(v === 'on')}
                 choices={[
                   {
                     value: 'on',

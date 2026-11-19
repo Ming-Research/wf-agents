@@ -25,7 +25,7 @@ afterEach(() => {
 
 /// The works' fixtures with an engine, and the system's, each read counted; the parts that listen are told of a change
 /// when the test says.
-function sources(engine: Engine = { slots: 2, taken: 1, paused: null }) {
+function sources(engine: Engine = { slots: 2, taken: 1, paused: null, keepWarm: true }) {
   const listening = new Set<{ onChanged: (c: Changed) => void; onOpened: () => void }>();
   const asked: number[][] = [];
   const works: Source = {
@@ -124,7 +124,7 @@ describe('the System view', () => {
   });
 
   it('says how the engine stands now: its pause, its slots, the copies, the works by where they stand, the rounds under way', async () => {
-    const s = sources({ slots: 3, taken: 1, paused: { since: Date.now(), by: 'owner' } });
+    const s = sources({ slots: 3, taken: 1, paused: { since: Date.now(), by: 'owner' }, keepWarm: true });
     const { container } = draw(<SystemView period="week" />, s);
     await settle();
     expect(container.querySelector('.view-facts')).toBeNull();

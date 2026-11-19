@@ -276,6 +276,9 @@
   background: var(--accent-tint);
   /* A fieldset keeps the width of its widest content unless it is told it may shrink. */
   min-width: 0;
+  /* How a card is folded and unfolded: the window's own motion as it slides in, so that the panel moves one way. */
+  --turn-time: 240ms;
+  --turn-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 /* Who asked a question, on the frame of its card at its top left, the frame broken around it as a fieldset's legend
@@ -285,6 +288,36 @@
   margin-inline-start: var(--space-8);
   padding: 0 var(--space-4);
   font-size: var(--size-small);
+}
+
+/* A question folded shows the first lines of what it asks and nothing else, cut off into the card's ground so that the
+   last line reads as cut and not as the end. Three lines are enough to tell one question from another. */
+.cw-choice-few {
+  max-height: calc(3 * var(--line-height) * 1em);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
+  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+}
+
+/* What folds a card and unfolds it: one button across the card, under what it holds, in the muted text, with a
+   hairline over it so that it belongs to the card and takes no room of its own. */
+.cw-choice-turn {
+  display: block;
+  width: 100%;
+  margin: var(--space-8) 0 0;
+  padding: var(--space-4) 0 0;
+  border: 0;
+  border-top: var(--hairline) solid var(--line);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--size-small);
+  text-align: center;
+  cursor: pointer;
+}
+
+.cw-choice-turn:hover {
+  color: var(--text);
 }
 
 .cw-choice-done {
