@@ -124,7 +124,7 @@ describe('the System view', () => {
   });
 
   it('says how the engine stands now: its pause, its slots, the copies, the works by where they stand, the rounds under way', async () => {
-    const s = sources({ slots: 3, taken: 1, paused: { since: Date.now(), by: 'owner' } });
+    const s = sources({ slots: 3, taken: 1, paused: { since: Date.now(), by: 'owner' }, keepWarm: true });
     const { container } = draw(<SystemView period="week" />, s);
     await settle();
     expect(container.querySelector('.view-facts')).toBeNull();
