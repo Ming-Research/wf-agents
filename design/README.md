@@ -30,7 +30,7 @@ relies on, and the document in `docs/` of a design it works on.
 
 ```
 ### decision <a-short-name>
-<What is wanted, or what is given>, so <what holds>.
+Because <what is wanted, or what is given>, <what holds>.
 Not knowing this, an agent would <do what, what leads it there, and what would then go wrong>.
 ```
 
