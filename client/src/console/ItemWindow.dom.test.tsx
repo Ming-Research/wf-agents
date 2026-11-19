@@ -715,6 +715,11 @@ const diffLines = (root: ParentNode) =>
       .join(''),
   );
 
+/// Opens each diff in the questions' words, which is drawn folded away under a row until the owner opens it.
+const openDiffs = (root: ParentNode) => {
+  for (const row of root.querySelectorAll('.cw-choice-q .cw-file')) act(() => (row as HTMLButtonElement).click());
+};
+
 describe('the questions put to the owner, in the panel of the item selected', () => {
   it('shows a question the work waits for at its cell where it arises, with its options, and sends the answer picked', async () => {
     const sent: Sent = [];
@@ -808,6 +813,10 @@ describe('the questions put to the owner, in the panel of the item selected', ()
     await act(async () => undefined);
     // A list is drawn as every list is, each item a paragraph; a diff as the text it changes.
     expect(text(el, '.cw-choice-q p')).toEqual(['Whether the change may merge.', 'flow/agents/tools/run_tests.toml: changed']);
+    // The diff stands folded under a row that says it is the diff, the words above naming its file.
+    expect(text(el, '.cw-choice-q .cw-file')).toEqual(['The diff']);
+    expect(diffLines(el)).toEqual([]);
+    openDiffs(el);
     expect(diffLines(el)).toEqual(['a = -[1] +[2]']);
   });
 
@@ -977,6 +986,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
       'flow/agents/tools/run_tests.toml: The tool needs a longer timeout.',
       'flow/project.toml: it gives none.',
     ]);
+    openDiffs(card);
     expect(diffLines(card)).toEqual(['ms = -[1000] +[2000]', '+[name = "x"]']);
     expect(options(el)).toEqual([['Let it mergeRecommended', 'Take it back']]);
     pick(el, 0, 0);

@@ -60,7 +60,6 @@ import {
   type Act,
   type ChangesPage,
   type DiffPage,
-  type EngineAct,
   type FileChange,
   type Item,
   loadVersion as loadVersionOf,
@@ -76,12 +75,11 @@ import { type HistoryRow, placeSteps, sessionsBegun, standingRun } from '../work
 import { type Reader, readerOf, useSource } from '../works/source';
 import { StepTab } from '../works/StepPanel';
 import { UsageTab } from '../works/Usage';
-import { type Wait, type WaitAct, actOf, drawnInBody, waitsOf } from '../works/waiting';
+import { type Wait, actOf, drawnInBody, waitsOf } from '../works/waiting';
 import {
   CANCEL_DOES,
   CANCEL_WHY,
   ENDS_WORDS,
-  NO_ENGINE,
   OWN_PAUSE,
   SHOW_QUESTION,
   TAKEN,
@@ -346,8 +344,6 @@ export type ItemPanelProps = {
   /// The card of what the work waits for that the window is to show, by its key (`Wait.key`), where the address names
   /// one.
   wait?: string;
-  /// What the owner does to the engine as a whole, where the page has an engine.
-  actEngine?: (what: EngineAct) => Promise<unknown>;
 };
 
 /// The window's item. Its lines and its body are the item's own: what one item was sending, or was refused, is not
@@ -370,7 +366,6 @@ function ItemView({
   tab: chosenTab,
   onTab,
   wait,
-  actEngine,
 }: ItemPanelProps) {
   const work = item.work;
   const read = pageIn(page);
@@ -673,7 +668,7 @@ function ItemView({
       </ItemLine>
       <WorkLine w={work} page={read} />
       {!ended(work) && <Acts paused={work.paused === 'owner'} act={send} />}
-      <StopCards work={work} act={send} actEngine={actEngine} />
+      <StopCards work={work} act={send} />
       <div className="drawer-body">
         <div className="cw-tabs">
           <Tabs
@@ -967,19 +962,14 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
 /// The work's stops that are not drawn in its body, each a card under the state line in the look of every stop: what
 /// the engine's list says it waits on the owner for, one sentence of why and the button that ends it, each saying on
 /// pointing at it what it does; and a fault or a stall, which no one waits on, with what is wrong.
-function StopCards({ work, act, actEngine }: {
-  work: Summary;
-  act: (what: Act) => Promise<unknown>;
-  actEngine?: (what: EngineAct) => Promise<unknown>;
-}) {
+function StopCards({ work, act }: { work: Summary; act: (what: Act) => Promise<unknown> }) {
   const [waiting, setWaiting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
-  const send = (w: WaitAct) => {
+  const send = (what: Act) => {
     if (waiting) return;
     setWaiting(true);
     setRefused(null);
-    const sent = w.on === 'work' ? act(w.act) : (actEngine?.(w.act) ?? Promise.reject(new Error(NO_ENGINE)));
-    sent.then(
+    act(what).then(
       () => setWaiting(false),
       (e: unknown) => {
         setWaiting(false);
@@ -1024,7 +1014,7 @@ function StopCard({ wait, why, children }: { wait?: string; why: string; childre
 
 /// The button that ends a wait, inside its card, saying on pointing at it what it does; for what no control of the
 /// page does, what the owner does, in the engine's words.
-function WaitButton({ wait, waiting, send }: { wait: Wait; waiting: boolean; send: (w: WaitAct) => void }) {
+function WaitButton({ wait, waiting, send }: { wait: Wait; waiting: boolean; send: (what: Act) => void }) {
   const ends = wait.ends;
   if (ends.kind === 'outside') return <p className="cw-stop-do">{ends.what}</p>;
   const todo = actOf(ends);

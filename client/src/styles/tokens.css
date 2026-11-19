@@ -225,6 +225,10 @@
 /* Tints: a colour at about a tenth over the card, for a fill that says the colour's meaning. Worked out from the
    colours above, so that they follow the theme. */
 :root {
+  /* A colour over the card for a mark inside a line, as a word added or removed in a diff: stronger than a tint,
+     because a few words wide it carries far less of the colour to the eye than a card's whole fill does. */
+  --green-mark: color-mix(in srgb, var(--green) 30%, var(--card));
+  --red-mark: color-mix(in srgb, var(--red) 30%, var(--card));
   --green-tint: color-mix(in srgb, var(--green) 10%, var(--card));
   --orange-tint: color-mix(in srgb, var(--orange) 10%, var(--card));
   --red-tint: color-mix(in srgb, var(--red) 10%, var(--card));

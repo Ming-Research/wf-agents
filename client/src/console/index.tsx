@@ -24,7 +24,7 @@ import { Drawer } from '../parts';
 import { CHOICE_KEYS, useKeptTicks } from '../kept';
 import { WIDTH_KEYS } from '../sizes';
 import type { Items, WorkPage } from '../works-api';
-import { oneAtATime, useSource } from '../works/source';
+import { oneAtATime } from '../works/source';
 import { goalMock } from './mock';
 import { fakeShown } from './fake';
 import { type ItemStanding, STANDINGS, type Shown, shownTree } from './items';
@@ -51,7 +51,6 @@ export function ConsolePage({
   /// Whether the console is the view shown: kept while another is, it stops drawing and takes no keys.
   active?: boolean;
 } = {}) {
-  const works = useSource();
   const source = useMemo(() => given ?? pageSource(), [given]);
   const panel = useRef<HTMLElement>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -256,7 +255,6 @@ export function ConsolePage({
             act={source.act}
             loadVersion={source.loadVersion}
             wait={wait}
-            actEngine={works.actOnEngine}
             goal={selected !== null && goalMock(selected.work !== null, selected.children.length)}
             open={open && active}
             onRead={() =>

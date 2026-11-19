@@ -2,7 +2,7 @@
 // the bar's count, the browser's notifications, the mark of an item's card, the cards of its panel and the Works list's
 // order read it from here, and work out none of their own (principle one-count-of-what-waits).
 
-import type { Act, EngineAct, Ends, Item, Summary, Wait } from '../works-api';
+import type { Act, Ends, Item, Summary, Wait } from '../works-api';
 
 export type { Ends, Wait };
 
@@ -22,21 +22,16 @@ export const waitingCount = (summaries: Pick<Summary, 'waits'>[]): number =>
 export const drawnInBody = (w: Wait): boolean =>
   w.ends.kind === 'answer' || w.ends.kind === 'reply' || w.ends.kind === 'write';
 
-/// What the owner presses on a card that ends a wait, as an act on the work or on the engine as a whole; none where the
-/// card's options say it (a question, a ruling), or where nothing on the page does it.
-export type WaitAct = { on: 'work'; act: Act } | { on: 'engine'; act: EngineAct };
-
-/// The act a card's button sends, by what ends the wait.
-export function actOf(ends: Ends): WaitAct | null {
+/// The act on the work a card's button sends, by what ends the wait; none where the card's options say it (a question,
+/// a ruling), or where nothing on the page does it.
+export function actOf(ends: Ends): Act | null {
   switch (ends.kind) {
     case 'goOn':
-      return { on: 'work', act: { kind: 'result', call: ends.call, result: 'go on' } };
+      return { kind: 'result', call: ends.call, result: 'go on' };
     case 'letGo':
-      return { on: 'work', act: { kind: 'letGo', cell: ends.cell } };
+      return { kind: 'letGo', cell: ends.cell };
     case 'resume':
-      return { on: 'work', act: { kind: 'resume' } };
-    case 'resumeEverything':
-      return { on: 'engine', act: { kind: 'resume' } };
+      return { kind: 'resume' };
     case 'answer':
     case 'reply':
     case 'write':

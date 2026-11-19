@@ -16,10 +16,10 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-function draw(text: string, path: string | null = null): HTMLElement {
+function draw(text: string, path: string | null = null, folded = false): HTMLElement {
   const container = document.body.appendChild(document.createElement('div'));
   const root = createRoot(container);
-  act(() => root.render(<Diff text={text} path={path} />));
+  act(() => root.render(<Diff text={text} path={path} folded={folded} />));
   return container;
 }
 
@@ -115,5 +115,32 @@ describe("a diff in the item's window", () => {
     const code = draw('hello\nworld');
     expect(code.querySelector('pre.content code')?.textContent).toBe('hello\nworld');
     expect(code.querySelector('.cw-diff-line')).toBeNull();
+  });
+
+  it('folds each file of a diff away in a row that opens it, as a file the work changed is', () => {
+    const two = [
+      'diff --git a/a.md b/a.md',
+      '--- a/a.md',
+      '+++ b/a.md',
+      '@@ -1 +1 @@',
+      '-one',
+      '+two',
+      'diff --git a/b.md b/b.md',
+      '--- a/b.md',
+      '+++ b/b.md',
+      '@@ -1 +1 @@',
+      '-three',
+      '+four',
+    ].join('\n');
+    const el = draw(two, null, true);
+    // One row for each file, named by its path where the diff holds several, and nothing drawn until one is opened.
+    expect(texts(el, '.cw-file')).toEqual(['a.md', 'b.md']);
+    expect(lines(el)).toEqual([]);
+    act(() => (el.querySelectorAll('.cw-file')[1] as HTMLButtonElement).click());
+    expect(lines(el)).toEqual(['1|-[three] +[four]']);
+    // A diff of one file says only that it is the diff: the words it stands under name the file already.
+    const one = ['diff --git a/a.md b/a.md', '--- a/a.md', '+++ b/a.md', '@@ -1 +1 @@', '-one', '+two'].join('\n');
+    expect(texts(draw(one, null, true), '.cw-file')).toEqual(['The diff']);
+    expect(texts(draw('@@ -1 +1 @@\n-one\n+two', null, true), '.cw-file')).toEqual(['The diff']);
   });
 });
