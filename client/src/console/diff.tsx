@@ -11,9 +11,9 @@
 // code-is-coloured-from-prisms-words), each side of a part of it read whole, so that a comment or a string over
 // several of its lines is read as one.
 
-import { type ReactNode, useMemo } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { CodeWords, codeKinds, codeParts, grammarOf, type CodeKind, type Grammar } from '../code';
-import { Fold } from '../parts';
+import { ListRow } from '../parts';
 
 /// A line of a part of a file a diff changes: kept, removed or added, and its text without its sign.
 type Line = { sign: ' ' | '-' | '+'; text: string };
@@ -307,6 +307,26 @@ function compareHunk(hunk: Hunk, grammar: Grammar | null): Drawn[] {
 /// A ```diff block of a passage, or the diff of a file a work changed, whose path is `path`: each file it changes,
 /// named where it changes several, what it says of each beside its lines, and each part of it that changed, a hairline
 /// between two.
+/// A file of a diff drawn in a text, folded away until the owner opens it, as a file the work changed is in the
+/// window's own tab: a row with its path, or with words that say it is the diff where the text above names the file.
+function Folded({ path, children }: { path: string | null; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <ListRow>
+      <button
+        type="button"
+        className={path === null ? 'cw-file' : 'mono cw-file'}
+        aria-expanded={open}
+        title={open ? 'Hide its diff' : 'Show its diff'}
+        onClick={() => setOpen(!open)}
+      >
+        {path ?? 'The diff'}
+      </button>
+      {open && <div className="opener">{children}</div>}
+    </ListRow>
+  );
+}
+
 export function Diff({ text, path = null, folded = false }: {
   text: string;
   path?: string | null;
@@ -330,13 +350,11 @@ export function Diff({ text, path = null, folded = false }: {
     );
   }
   const named = files.length > 1;
-  // A path names the fold only where the diff holds more than one file, as it is drawn only there when the diff is
-  // drawn whole: in a text the words above the diff name the one file already, and the fold would say it again.
+  // A path names the row only where the diff holds more than one file, as it is drawn only there when the diff is
+  // drawn whole: in a text the words above the diff name the one file already, and the row would say it again.
   const file = (f: (typeof files)[number], drawn: ReactNode) =>
     folded ? (
-      <Fold title={named && f.path !== null ? f.path : 'The diff'} shut>
-        {drawn}
-      </Fold>
+      <Folded path={named ? f.path : null}>{drawn}</Folded>
     ) : (
       <>
         {named && f.path !== null && <div className="cw-diff-file">{f.path}</div>}
