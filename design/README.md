@@ -60,8 +60,8 @@ is one of three things: a way that was considered and turned down, which leaves 
 agent would take up again; something done on purpose that looks like a fault or an omission, which a later agent would
 mend; a relation between two places that neither of them shows.
 
-A decision is never ahead of the code: it says what the code does, and what is yet to be built is an item's work, not
-the tree's.
+A decision is never ahead of the code: it says what the code does, and what is yet to be built is said in `docs/`,
+outside the tree.
 
 ## Writing an entry
 
