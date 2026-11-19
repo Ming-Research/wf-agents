@@ -304,9 +304,6 @@ function compareHunk(hunk: Hunk, grammar: Grammar | null): Drawn[] {
   return drawn;
 }
 
-/// A ```diff block of a passage, or the diff of a file a work changed, whose path is `path`: each file it changes,
-/// named where it changes several, what it says of each beside its lines, and each part of it that changed, a hairline
-/// between two.
 /// A file of a diff drawn in a text, folded away until the owner opens it, as a file the work changed is in the
 /// window's own tab: a row with its path, or with words that say it is the diff where the text above names the file.
 function Folded({ path, children }: { path: string | null; children: ReactNode }) {
@@ -327,6 +324,9 @@ function Folded({ path, children }: { path: string | null; children: ReactNode }
   );
 }
 
+/// A ```diff block of a passage, or the diff of a file a work changed, whose path is `path`: each file it changes,
+/// named where it changes several, what it says of each beside its lines, and each part of it that changed, a hairline
+/// between two.
 export function Diff({ text, path = null, folded = false }: {
   text: string;
   path?: string | null;
@@ -368,39 +368,39 @@ export function Diff({ text, path = null, folded = false }: {
           {file(
             f,
             <>
-          {f.notes.map((note, k) => (
-            <div key={k} className="cw-diff-file">
-              {note}
-            </div>
-          ))}
-          {f.hunks.map((lines, j) => (
-            <div key={j} className={j > 0 ? 'cw-diff-apart' : undefined}>
-              {lines.map((line, n) => (
-                <div key={n} className="cw-diff-line">
-                  <span className="cw-diff-number" aria-hidden="true">
-                    {line.number ?? ''}
-                  </span>
-                  <span className="cw-diff-text">
-                    {line.pieces.map((p, k) =>
-                      p.kind === 'removed' ? (
-                        <del key={k} className="cw-removed">
-                          <CodeWords parts={p.parts} />
-                        </del>
-                      ) : p.kind === 'added' ? (
-                        <ins key={k} className="cw-added">
-                          <CodeWords parts={p.parts} />
-                        </ins>
-                      ) : (
-                        <span key={k}>
-                          <CodeWords parts={p.parts} />
-                        </span>
-                      ),
-                    )}
-                  </span>
+              {f.notes.map((note, k) => (
+                <div key={k} className="cw-diff-file">
+                  {note}
                 </div>
               ))}
-            </div>
-          ))}
+              {f.hunks.map((lines, j) => (
+                <div key={j} className={j > 0 ? 'cw-diff-apart' : undefined}>
+                  {lines.map((line, n) => (
+                    <div key={n} className="cw-diff-line">
+                      <span className="cw-diff-number" aria-hidden="true">
+                        {line.number ?? ''}
+                      </span>
+                      <span className="cw-diff-text">
+                        {line.pieces.map((p, k) =>
+                          p.kind === 'removed' ? (
+                            <del key={k} className="cw-removed">
+                              <CodeWords parts={p.parts} />
+                            </del>
+                          ) : p.kind === 'added' ? (
+                            <ins key={k} className="cw-added">
+                              <CodeWords parts={p.parts} />
+                            </ins>
+                          ) : (
+                            <span key={k}>
+                              <CodeWords parts={p.parts} />
+                            </span>
+                          ),
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ))}
             </>,
           )}
         </div>

@@ -137,7 +137,7 @@ describe("a diff in the item's window", () => {
     expect(texts(el, '.cw-file')).toEqual(['a.md', 'b.md']);
     expect(lines(el)).toEqual([]);
     act(() => (el.querySelectorAll('.cw-file')[1] as HTMLButtonElement).click());
-    expect(lines(el)).toEqual(['|-[three]', '1|+[four]']);
+    expect(lines(el)).toEqual(['1|-[three] +[four]']);
     // A diff of one file says only that it is the diff: the words it stands under name the file already.
     const one = ['diff --git a/a.md b/a.md', '--- a/a.md', '+++ b/a.md', '@@ -1 +1 @@', '-one', '+two'].join('\n');
     expect(texts(draw(one, null, true), '.cw-file')).toEqual(['The diff']);
