@@ -5,11 +5,11 @@
 //! A work waits on the owner for: a question put to them that holds it, at its cell, as a call, or at a precondition
 //! that only their answers make hold, as the check before the merge does; a cell at its limit, or its run; a
 //! precondition the owner makes hold by writing a block, as a review's verdict for them to rule on; a pause the engine
-//! made; the pause of every work the engine set as it started again, where it holds the work; and the agents' command
-//! line where it cannot run, which only the owner mends. Who can make a precondition hold is what the flow declares of
-//! each block, as the deciding code reads it ([`Maker::Owner`]). Nothing else is the owner's to end: a fault, a stalled
-//! work, the owner's own pause, a slot, a source outside the work, the project's turn, and the wait every work shares
-//! for any other cause, which the engine lifts by itself.
+//! made; and the agents' command line where it cannot run, which only the owner mends. Who can make a precondition
+//! hold is what the flow declares of each block, as the deciding code reads it ([`Maker::Owner`]). Nothing else is the
+//! owner's to end: a fault, a stalled work, the owner's own pause, a slot, a source outside the work, the project's
+//! turn, the wait every work shares for any other cause, which the engine lifts by itself, and the pause of every
+//! work, which is one thing wherever it holds and is said and lifted where it is set, not work by work.
 //!
 //! Each is said in a sentence in the words beside the flows ([`flow::agents::OwnerWords`]), of the flow the work runs
 //! on, with what the owner does that ends it.
@@ -27,8 +27,6 @@ use crate::Kept;
 
 /// The key of the engine's pause.
 pub const PAUSE: &str = "pause";
-/// The key of the pause of every work the engine set as it started again.
-pub const HELD: &str = "held";
 /// The key of a cell, or its run, at its limit.
 pub const LIMIT: &str = "limit";
 /// The key of the agents' command line that cannot run.
@@ -64,14 +62,13 @@ pub enum Ends {
     Write { block: BlockId, value: Option<String> },
     /// Lets the work go on, lifting the engine's pause.
     Resume,
-    /// Lets every work go on, lifting the pause of everything the engine set.
-    ResumeEverything,
     /// Does what this says, which no control of the page does; the engine sees it done by itself.
     Outside { what: String },
 }
 
-/// What holds every work at once at a moment, as far as the owner ends it: who set the pause of everything, while it
-/// holds; and what the agents' command line said, where it cannot run and their wait holds their rounds.
+/// What holds every work at once at a moment: who set the pause of everything, while it holds, which no work waits on
+/// the owner for and which whoever reads a work's stretches reads; and what the agents' command line said, where it
+/// cannot run and their wait holds their rounds, which the owner mends.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Shared<'a> {
     pub everything: Option<Pauser>,
@@ -79,8 +76,9 @@ pub struct Shared<'a> {
 }
 
 /// Everything the work, on these records and so decided, waits on the owner for, in the order it waits for them: the
-/// engine's pause, then the pause of everything, then what it waits for at its cell, then the agents' command line.
-/// `held` is what holds back the round it would begin next, where anything does.
+/// engine's pause, then what it waits for at its cell, then the agents' command line. `held` is what holds back the
+/// round it would begin next, where anything does: the pause of everything is none of the work's own waits, and is
+/// read here only to tell whether the wait every work shares holds a round the work would otherwise begin.
 pub fn waits(
     kept: &Kept<'_>,
     records: &Records,
@@ -113,9 +111,6 @@ pub fn waits(
     }
     if ended.is_some() {
         return waits;
-    }
-    if held == Some(Holder::Everything) && shared.everything == Some(Pauser::Engine) {
-        push(&mut waits, HELD.to_string(), words.held.clone(), Ends::ResumeEverything);
     }
     let agent = |cell: &CellId| (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent);
     // The cell whose agent's next round the wait every work shares holds, where it holds one: one that would run or go
@@ -663,25 +658,21 @@ mod tests {
     }
 
     #[test]
-    fn the_engines_pause_of_every_work_as_it_started_again_is_the_owners_where_it_holds_the_work() {
+    fn the_pause_of_every_work_is_no_wait_of_a_works_own() {
+        // The pause of everything is one thing, said and lifted where it is set: a work it holds waits on the owner
+        // for nothing of it, whoever set it, so that one pause of five works is one thing waiting and not five, and
+        // no work carries the button that lifts it over every work.
         let work = Work::default();
         let by = |pauser: Pauser| Shared {
             everything: Some(pauser),
             cannot_run: None,
         };
-        let held = of_with(&work, &going("write"), Some(Holder::Everything), by(Pauser::Engine));
-        assert_eq!(keys(&held), [HELD]);
-        assert_eq!(held[0].ends, Ends::ResumeEverything);
-        assert_eq!(held[0].why, "The engine paused every work as it started again.");
-        // The owner's own pause of everything is not; nor the engine's where it does not hold the work.
-        assert_eq!(
-            of_with(&work, &going("write"), Some(Holder::Everything), by(Pauser::Owner)),
-            []
-        );
-        assert_eq!(
-            of_with(&work, &at("write", vec![Waited::Slot]), None, by(Pauser::Engine)),
-            []
-        );
+        for pauser in [Pauser::Engine, Pauser::Owner] {
+            let held = of_with(&work, &going("write"), Some(Holder::Everything), by(pauser));
+            assert_eq!(held, [], "{pauser:?}");
+            let waits_for_a_slot = of_with(&work, &at("write", vec![Waited::Slot]), None, by(pauser));
+            assert_eq!(waits_for_a_slot, [], "{pauser:?}");
+        }
     }
 
     #[test]
