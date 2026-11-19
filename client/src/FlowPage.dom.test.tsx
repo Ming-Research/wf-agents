@@ -888,7 +888,9 @@ describe('a definition that does not compile', () => {
 });
 
 describe('the page round the view', () => {
-  it('shows the views in the bar, the one shown marked, and switches light and dark, following the system at first', () => {
+  afterEach(() => localStorage.clear());
+
+  it('shows the views in the bar, the one shown marked, and switches light and dark, drawn dark until it is picked', () => {
     const container = document.createElement('div');
     document.body.append(container);
     const root = createRoot(container);
@@ -902,11 +904,13 @@ describe('the page round the view', () => {
     unmount = () => act(() => root.unmount());
     expect(texts(container, '.bar-tab')).toEqual(['Console', 'Works', 'Flow', 'Observations', 'System', 'Settings']);
     expect(texts(container, '.bar-tab[aria-current="page"]')).toEqual(['Works']);
-    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
-    click([...container.querySelectorAll('.switch-choice')].find((b) => b.textContent === 'Dark'));
+    // The page is dark while the owner has picked nothing; `auto`, the system's, is a pick of its own.
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    click([...container.querySelectorAll('.switch-choice')].find((b) => b.textContent === 'Light'));
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
     click([...container.querySelectorAll('.switch-choice')].find((b) => b.textContent === 'Auto'));
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+    expect(localStorage.getItem('wf-agents.theme')).toBe('auto');
   });
 });
 

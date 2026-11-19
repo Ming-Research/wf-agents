@@ -92,13 +92,28 @@ export function tabOf(route: Route): string {
   return route.view === 'work' ? '#/works' : `#/${route.view}`;
 }
 
+/// Whether the page itself brought the owner to the view it shows: true once the address has changed while the page
+/// has been open, which is when going back lands on another of its views and not on whatever stood before the page.
+let brought = false;
+
 /// The view the address names now, followed as it changes.
 export function useRoute(): Route {
   const [route, setRoute] = useState<Route>(() => routeOf(window.location.hash));
   useEffect(() => {
-    const changed = () => setRoute(routeOf(window.location.hash));
+    const changed = () => {
+      brought = true;
+      setRoute(routeOf(window.location.hash));
+    };
     window.addEventListener('hashchange', changed);
     return () => window.removeEventListener('hashchange', changed);
   }, []);
   return route;
+}
+
+/// Goes back where the owner came from, where the page itself brought them to the view they are on, so that a work
+/// opened from the console leads back to the console and one opened from the works to the works; and to `to`, the
+/// view the way back names, where the page was opened on this view and there is nothing of it to go back to.
+export function goBack(to: string) {
+  if (brought) window.history.back();
+  else window.location.hash = to;
 }

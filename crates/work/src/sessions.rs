@@ -63,7 +63,8 @@ pub enum Why {
     Model { was: String },
     /// The line's rounds run under another account than its session's, whose directory does not hold the session.
     Account { was: Option<String> },
-    /// The owner asked for one.
+    /// The owner asked for one. No session is begun at the owner's asking any longer, the act having been taken off
+    /// the work's page: the records kept before hold sessions begun so, which are read and shown as they were.
     Owner,
     /// The service's safety check flagged the line's last round, which is tried again in a session that does not give
     /// the check the same context.

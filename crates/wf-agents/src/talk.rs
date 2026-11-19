@@ -526,7 +526,6 @@ fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
             option,
             ..
         } => format!("Version {version} of the question {question} of work {work} is answered with option {option}."),
-        Act::NewSession { line } => format!("The line {line} of work {work} begins a new session at its next round."),
         Act::Say { to, .. } => {
             let cell = said.map_or("the cell the engine chose", |s| s.reached.as_str());
             match to {
