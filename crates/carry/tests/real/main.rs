@@ -710,6 +710,9 @@ impl Real {
                 },
                 subagents: Default::default(),
                 work_budget_usd: budget,
+                // What a letting-on of a work the engine paused for its budget allows it beyond that budget: the
+                // number the settings give where an installation names none.
+                let_on_allowance_usd: 20.0,
             },
             items: Items {
                 default_level: "1".to_string(),

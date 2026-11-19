@@ -1086,19 +1086,27 @@ impl Inner {
         vec![spent_past, time_past]
     }
 
-    /// Why the work is to wait for the owner, where the round took it over its budget: everything its rounds have
-    /// spent, this one with them, is more than the settings let a work spend; in the project's words, which a work
-    /// whose project the settings no longer have, and whose rounds do not run, has none of.
+    /// Why the work is to wait for the owner, where the round took it over what it may spend: everything its rounds
+    /// have spent, this one with them, is more than the bar its budget sets it, which each letting-on after a pause
+    /// for the budget raises (`driver::budget`); in the project's words, which a work whose project the settings no
+    /// longer have, and whose rounds do not run, has none of. The words say the bar, which is what the work may spend
+    /// and what the owner reads beside what it has spent, and what letting the work on allows it beyond the bar, which
+    /// is what the owner's button buys.
     fn over_budget(&self, round: &Round, spent: &Spent) -> Option<String> {
-        let budget = self.settings.budget_micros()?;
+        let budget = self.settings.budget()?;
+        let bar = budget.bar(&round.kept);
         // No other round of the work ended while this one was under way: a work has one round under way at a time.
         let pinged = round.kept.pinged.iter().map(|p| p.spent.usd_micros).sum::<u64>();
         let total = round.kept.spent.values().map(|s| s.usd_micros).sum::<u64>() + spent.usd_micros + pinged;
         let dollars = |micros: u64| format!("{:.2}", micros as f64 / 1_000_000.0);
         let of = crate::projects::of(&self.projects, &round.item).ok()?;
-        (total > budget).then(|| {
-            let (value, budget) = (dollars(total), dollars(budget));
-            let places = [("value", value.as_str()), ("budget", budget.as_str())];
+        (total > bar).then(|| {
+            let (value, bar, more) = (dollars(total), dollars(bar), dollars(budget.let_on));
+            let places = [
+                ("value", value.as_str()),
+                ("budget", bar.as_str()),
+                ("more", more.as_str()),
+            ];
             flow::agents::fill(&of.beside.cost.work.budget, &places)
         })
     }
