@@ -3632,9 +3632,12 @@ mod tests {
     }
 
     #[test]
-    fn the_pause_of_every_work_the_engine_set_is_the_owners_and_the_owners_own_is_a_pause() {
-        assert_eq!(waited_on(&requested(None), Some(PauserOf::Engine)), 'o');
-        assert_eq!(waited_on(&requested(None), Some(PauserOf::Owner)), 'p');
+    fn the_pause_of_every_work_is_a_pause_whoever_set_it() {
+        // A pause held the work, which is what it is, whether the owner set it over every work or the engine did as it
+        // started again: a work it holds waits on the owner for nothing of its own (crate `driver`, module `owner`).
+        for by in [PauserOf::Engine, PauserOf::Owner] {
+            assert_eq!(waited_on(&requested(None), Some(by)), 'p', "{by:?}");
+        }
         assert_eq!(waited_on(&requested(None), None), '.');
     }
 
