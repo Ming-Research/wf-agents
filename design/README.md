@@ -55,17 +55,10 @@ Principles are the owner's and may come before the code. No decision excuses a b
 ### A decision
 
 A decision is about one thing, an ability or a component: what holds there and why, where the code does not show the
-why. It enters only if an agent going by the code and the principles alone would do wrong there, the code being
-silent in one of three ways:
-
-- what is not there: a way that was tried or weighed and turned down, or a thing left out on purpose, which leaves no
-  trace in the code, so that a later agent would try it or add it;
-- what is there and does not look meant: something done on purpose that looks like a fault or like something not
-  needed, so that a later agent would mend it or take it out;
-- what lies between: a relation between two places, or between a place and how something outside the code behaves,
-  that neither of them shows, so that a later agent changing one would break the other.
-
-What the code already shows a reader rightly does not enter, however much would go wrong were it changed.
+why. It enters only if an agent that has read the code and the principles would still change the code wrongly, which
+is one of three things: a way that was considered and turned down, which leaves no trace in the code and which a later
+agent would take up again; something done on purpose that looks like a fault or an omission, which a later agent would
+mend; a relation between two places that neither of them shows.
 
 A decision is never ahead of the code: it says what the code does, and what is yet to be built is an item's work, not
 the tree's.
@@ -77,10 +70,7 @@ A principle and a decision are each a few lines, in one form, a principle under 
 ```
 ### decision <a-short-name>
 <What holds, in one or two sentences.>
-Why: <the reason, in one or two sentences; where the point is a way turned down, which way and why it lost. For a
-decision, the reason is what an agent going by the code alone would do, as the code there shows nothing of it,
-makes it look like a fault or like something not needed, or shows no tie between two places, and what would then
-go wrong, which the code does not show either.>
+Why: <the reason, in one or two sentences; where the point is a way turned down, which way and why it lost.>
 ```
 
 - A decision is written at the concept an agent would be working on when it changed the code wrongly; where that
