@@ -887,6 +887,7 @@ mod tests {
             permissions: Default::default(),
             subagents: Default::default(),
             work_budget_usd: None,
+            let_on_allowance_usd: 20.0,
         }
     }
 

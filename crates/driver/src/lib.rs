@@ -78,6 +78,8 @@ pub mod along;
 
 pub mod attention;
 
+pub mod budget;
+
 pub mod cache;
 
 pub mod changes;
@@ -107,6 +109,7 @@ pub use outage::{Checked, Found, Outage, Service, Until};
 use store::{Change, EverythingPaused, First, Item, ItemChange, ItemNumber, Storage, WorkHead, WorkNumber};
 use work::{Time, Work};
 
+pub use budget::Budget;
 pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
 pub use sessions::{Policy, SESSION, Warm};
 

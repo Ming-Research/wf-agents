@@ -6,7 +6,7 @@
 use std::sync::{Arc, Mutex};
 
 use decide::BlockId;
-use driver::Policy;
+use driver::{Budget, Policy};
 use driver::{FirstWrite, Found, NewItem, SESSION};
 use engine::RanOn;
 use engine::{Ask, Handed, Session, Why};
@@ -1090,8 +1090,8 @@ fn warm(model: &str) -> Policy {
     }
 }
 
-/// The policy of [`warm`] with this budget of a work, in millionths of a dollar.
-fn warm_within(model: &str, budget: Option<u64>) -> Policy {
+/// The policy of [`warm`] with this much of what a work may spend.
+fn warm_within(model: &str, budget: Option<Budget>) -> Policy {
     let mut policy = warm(model);
     (policy.warm.as_mut().expect("the sessions are kept warm")).budget = budget;
     policy
@@ -1396,9 +1396,15 @@ fn a_session_is_pinged_while_the_owners_pause_holds_everything_or_the_work_alone
     }
 }
 
+/// A budget of a dollar for a work, where each letting-on of one the engine paused for it allows fifty cents more.
+const BUDGET: Budget = Budget {
+    work: 1_000_000,
+    let_on: 500_000,
+};
+
 #[test]
 fn no_session_of_a_work_the_engine_paused_for_spending_more_than_it_may_is_pinged() {
-    let budget = Some(1_000_000);
+    let budget = Some(BUDGET);
     let mut s = S::with(warm_within("opus", budget), None);
     s.usd = 600_000;
     s.hands_in(100, true);
@@ -1419,6 +1425,35 @@ fn no_session_of_a_work_the_engine_paused_for_spending_more_than_it_may_is_pinge
     assert!(s.driver.wake().is_none(), "nothing to wake for while it stands so");
     // Let on by the owner, who alone lets a work on, it is kept warm as any other.
     s.on(Event::Resumed);
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
+    assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
+}
+
+#[test]
+fn a_session_of_a_work_the_engine_paused_within_what_a_letting_on_allowed_is_pinged() {
+    let budget = Some(BUDGET);
+    let mut s = S::with(warm_within("opus", budget), None);
+    s.usd = 600_000;
+    s.hands_in(100, true);
+    s.asks(100);
+    let at = kept_warm_on(&s, &warm_within("opus", budget))
+        .first()
+        .expect("a session kept warm")
+        .at
+        .0;
+    // Its two rounds spent $1.20, past the dollar of its budget: the engine paused it for that, and the owner let it
+    // on, which allows it fifty cents more.
+    s.on(Event::Paused {
+        by: Pauser::Engine,
+        why: Some("it spent $1.20 of the $1.00 a work may spend".to_string()),
+    });
+    s.on(Event::Resumed);
+    // Paused by the engine again, for a round of it that failed, it is under the $1.50 it may now spend: its session
+    // is kept warm, the pause being no refusal to let it spend more.
+    s.on(Event::Paused {
+        by: Pauser::Engine,
+        why: Some("a round of it failed".to_string()),
+    });
     let todos = s.driver.tick(Time(at), None, None).unwrap();
     assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
 }
