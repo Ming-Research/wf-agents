@@ -357,10 +357,6 @@ export const SHOW_QUESTION = 'Show the question this points to';
 /// The mark on the option the owner took in a question answered, said on pointing at it.
 export const TAKEN = 'The option you took';
 
-/// Why what the owner pressed to act on the engine as a whole was not sent: the page was drawn with no engine to send
-/// it to.
-export const NO_ENGINE = 'The page has no engine to send it to';
-
 /// What the switch that pauses a work is: the owner's own pause of it, which the engine's pause is not.
 export const OWN_PAUSE = {
   label: 'Your own pause of the work',

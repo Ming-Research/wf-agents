@@ -329,7 +329,6 @@ export type Ends =
   | { kind: 'write'; block: string; value: string | null }
   /// Lets the work go on, lifting the engine's pause.
   | { kind: 'resume' }
-  /// Lets every work go on, lifting the pause of everything the engine set.
   /// Does what this says, which no control of the page does.
   | { kind: 'outside'; what: string };
 

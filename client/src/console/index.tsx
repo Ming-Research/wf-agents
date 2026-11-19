@@ -256,7 +256,6 @@ export function ConsolePage({
             act={source.act}
             loadVersion={source.loadVersion}
             wait={wait}
-            actEngine={works.actOnEngine}
             goal={selected !== null && goalMock(selected.work !== null, selected.children.length)}
             open={open && active}
             onRead={() =>

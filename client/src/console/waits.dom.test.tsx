@@ -11,7 +11,7 @@ import { orderWorks } from '../works/placing';
 import { waitingCount, waitsOf, waitsOnOwner } from '../works/waiting';
 import { STATE, nowTone, stateOf } from '../works/words';
 import type { Flow } from '../api';
-import type { Act, Block, EngineAct, Failure, Item, Now, Outage, Pauser, Question, Step, Summary, Wait, WorkPage } from '../works-api';
+import type { Act, Block, Failure, Item, Now, Outage, Pauser, Question, Step, Summary, Wait, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { asksOf } from './items';
 import { ItemPanel } from './ItemWindow';
@@ -205,7 +205,6 @@ function draw(
   opens: string | undefined,
   send: (w: number, a: Act) => Promise<unknown>,
   o: {
-    engine?: (a: EngineAct) => Promise<unknown>;
     paused?: Pauser;
     steps?: Step[];
     read?: { flow: Flow; blocks: Block[]; load?: LoadVersion };
@@ -237,7 +236,6 @@ function draw(
         act={send}
         onTitle={() => undefined}
         wait={opens}
-        actEngine={o.engine}
         loadVersion={read.load}
       />,
     ),
@@ -369,7 +367,7 @@ describe('a stop that no one waits on', () => {
 
 describe('the cards of what waits for the owner', () => {
   it("say the agents' command line's reason and what the owner does, each once, inside the card", () => {
-    const [, now, w] = OWNERS[8];
+    const [, now, w] = OWNERS[7];
     const container = draw(now, [w], undefined, none);
     const card = container.querySelector('[data-wait="agents"]');
     expect(card?.textContent).toBe(`The agents' command line cannot run. Not logged in.${MEND}`);
@@ -378,7 +376,6 @@ describe('the cards of what waits for the owner', () => {
 
   it('end it from a button inside the card, which says on pointing at it what it does', () => {
     const sent: Act[] = [];
-    const engine: EngineAct[] = [];
     const send = (_: number, a: Act) => {
       sent.push(a);
       return Promise.resolve(null);
@@ -403,22 +400,10 @@ describe('the cards of what waits for the owner', () => {
       { kind: 'letGo', cell: 'plan' },
       { kind: 'resume' },
     ]);
-    const [, held, w] = OWNERS[4];
-    press(
-      draw(held, [w], 'held', send, {
-        engine: (a) => {
-          engine.push(a);
-          return Promise.resolve(null);
-        },
-      }),
-      'held',
-    );
-    expect(engine).toEqual([{ kind: 'resume' }]);
-    expect(document.querySelector('[data-wait="held"] button')?.textContent).toBe('Resume all');
   });
 
   it('say a question the merge waits for by what it asks and nothing more, as at its cell', async () => {
-    const [, now, w] = OWNERS[6];
+    const [, now, w] = OWNERS[5];
     const container = draw(now, [w], undefined, none);
     // A question is drawn once the texts that may point to it are read.
     await act(async () => undefined);
@@ -429,7 +414,7 @@ describe('the cards of what waits for the owner', () => {
   });
 
   it("set a reason's names and values in the monospace, as the engine marks them, and a ruling's values as keys", async () => {
-    const [, now, w] = OWNERS[7];
+    const [, now, w] = OWNERS[6];
     const container = draw(now, [w], undefined, none, { read: { flow: RULED, blocks: [SAID_NO] } });
     await act(async () => undefined);
     const card = container.querySelector('[data-wait="write-content"]') as HTMLElement;
@@ -494,7 +479,7 @@ describe('the cards of what waits for the owner', () => {
 
   it('offer a ruling\'s values as options drawn as choices, the one that makes it hold picked, and write the one picked', async () => {
     const sent: Act[] = [];
-    const [, now, w] = OWNERS[7];
+    const [, now, w] = OWNERS[6];
     const container = draw(
       now,
       [w],
