@@ -483,8 +483,8 @@ describe('the history of a work', () => {
         ];
       }),
     );
-    // Grey under half an hour, amber to an hour, red past it (decision a-works-age-is-red-past-an-hour): the
-    // implementation's first run took 31m 36s, and the plan's two hours.
+    // Grey under half an hour, amber to an hour, red past it: the implementation's first run took 31m 36s, and the
+    // plan's two hours.
     const tones = rows.map((r) => r.querySelector('.step-time')?.className.split(' ').at(-1));
     expect(tones).toEqual(runs.map((run) => age(runTook(run, 0)).tone));
     expect(tones.slice(0, 3)).toEqual(['danger', 'success', 'attention']);
