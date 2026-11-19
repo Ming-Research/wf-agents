@@ -213,12 +213,12 @@
    colour of its words stays their kind's; what the diff says of a file beside its lines, and its path where it changes
    several, muted; the parts of a file, and the files, a hairline apart. */
 .cw-removed {
-  background: var(--red-tint);
+  background: var(--red-mark);
   text-decoration: line-through var(--red-text);
 }
 
 .cw-added {
-  background: var(--green-tint);
+  background: var(--green-mark);
   text-decoration: none;
 }
 
