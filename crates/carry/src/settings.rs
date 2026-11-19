@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use driver::{Policy, Warm};
+use driver::{Budget, Policy, Warm};
 use flow::CellSpec;
 use serde::{Deserialize, Serialize};
 use service::{Levels, LevelsFault};
@@ -374,6 +374,15 @@ pub struct Agents {
     pub subagents: Subagents,
     /// What a work's rounds may spend in all, in dollars, before the work waits for the owner; with none, no limit.
     pub work_budget_usd: Option<f64>,
+    /// What each letting-on of a work the engine paused for its budget allows it beyond that budget, in dollars, so
+    /// that a work let on has room to go on and does not wait for the owner again at its next round.
+    #[serde(default = "let_on_allowance")]
+    pub let_on_allowance_usd: f64,
+}
+
+/// What a letting-on allows a work beyond its budget where the settings name no number, in dollars.
+fn let_on_allowance() -> f64 {
+    20.0
 }
 
 fn user() -> String {
@@ -726,6 +735,13 @@ impl Settings {
         {
             wrong.push("agents.work_budget_usd: a budget is a number of dollars, none below nothing".to_string());
         }
+        let allowance = settings.agents.let_on_allowance_usd;
+        if !(allowance.is_finite() && allowance >= 0.0) {
+            wrong.push(
+                "agents.let_on_allowance_usd: what a letting-on allows is a number of dollars, none below nothing"
+                    .to_string(),
+            );
+        }
         let sessions = &settings.sessions;
         if !(COMPACTS_AT_LEAST..=COMPACTS_AT_MOST).contains(&sessions.compact_at) {
             wrong.push(format!(
@@ -863,7 +879,7 @@ impl Settings {
             most: (self.agents.levels.values())
                 .filter_map(|level| Some((level.model.clone(), crate::cost::pings_worth(&level.model)?)))
                 .collect(),
-            budget: self.budget_micros(),
+            budget: self.budget(),
         });
         Policy {
             samples: self.history.samples,
@@ -899,10 +915,16 @@ impl Settings {
         self.projects.get(name)
     }
 
-    /// The budget of a work in millionths of a dollar, where there is one.
-    pub fn budget_micros(&self) -> Option<u64> {
-        // The budget was checked to be a finite number of no less than nothing; a larger one than a u64 holds is none.
-        (self.agents.work_budget_usd).map(|usd| (usd * 1_000_000.0).round() as u64)
+    /// The most a work may spend, where the installation gives a work a budget: that budget and what each letting-on
+    /// of a work the engine paused for it allows beyond it, in millionths of a dollar ([`Budget::bar`]).
+    pub fn budget(&self) -> Option<Budget> {
+        // Each was checked to be a finite number of no less than nothing; a larger one than a u64 holds is none.
+        let micros = |usd: f64| (usd * 1_000_000.0).round() as u64;
+        let work = (self.agents.work_budget_usd).map(micros)?;
+        Some(Budget {
+            work,
+            let_on: micros(self.agents.let_on_allowance_usd),
+        })
     }
 }
 
@@ -920,7 +942,8 @@ mod tests {
         assert_eq!(settings.agents.command, "claude");
         assert_eq!(settings.agents.slots, 2);
         assert_eq!(settings.agents.config_dir, None);
-        assert_eq!(settings.budget_micros(), Some(5_000_000));
+        let budget = settings.budget().expect("a budget");
+        assert_eq!((budget.work, budget.let_on), (5_000_000, 2_000_000));
         assert!(
             !settings.agents.args.iter().any(|a| a == "--setting-sources"),
             "the code gives it"

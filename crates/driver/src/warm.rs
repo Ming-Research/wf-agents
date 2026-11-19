@@ -95,15 +95,16 @@ fn under_way(work: &Work) -> bool {
 }
 
 /// Whether the engine paused the work because it spent more than it may: the pause that holds the work is the
-/// engine's, and what the work has spent in all, its pings with its rounds, is past the budget a work has
-/// ([`Warm::budget`]). A ping counts in that spend, and the budget is the refusal to let the work spend more; let on
-/// by the owner, who alone lets a work on, the work is kept warm as any other.
+/// engine's, and what the work has spent in all, its pings with its rounds, is past the bar its budget sets
+/// ([`Warm::budget`]). A ping counts in that spend, and the bar its budget sets is the refusal to let the work spend
+/// more; let on by the owner, who alone lets a work on, the work is kept warm as any other, to the bar that
+/// letting-on raised ([`crate::budget`]).
 fn over_budget(work: &Work, warm: &Warm) -> bool {
     let Some(budget) = warm.budget else {
         return false;
     };
     let engine = (decide::pause(&work.records)).is_some_and(|pause| pause.by == Pauser::Engine);
-    engine && crate::history::totals(work).0 > budget as f64
+    engine && crate::history::totals(work).0 > budget.bar(work) as f64
 }
 
 /// How a line's session stands for keeping it warm: the session, when its next ping is due, whether or not that time

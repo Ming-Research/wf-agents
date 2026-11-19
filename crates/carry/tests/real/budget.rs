@@ -37,9 +37,9 @@ async fn a_work_let_on_after_its_budget_paused_it_is_held_to_what_the_letting_on
     real.until(|real| real.finished(work) == ["plan"] && matches!(real.decision(work), Decision::Paused { .. }))
         .await;
     assert_eq!((real.holds, real.calls().len()), (1, 1));
-    // Let on after that pause, the work is held to twenty dollars beyond its budget, which the settings allow a
-    // letting-on where they name no other number: its rounds after it, at eight dollars and at twelve, are under the
-    // twenty-three it may now spend, and it goes on round after round rather than stopping at each.
+    // Let on after that pause, the work is held to the twenty dollars beyond its budget that these settings allow a
+    // letting-on: its rounds after it, at eight dollars and at twelve, are under the twenty-three it may now spend,
+    // and it goes on round after round rather than stopping at each.
     real.act(work, Act::Resume);
     real.until(|real| real.calls().len() == 3 || real.paused(work)).await;
     assert!(

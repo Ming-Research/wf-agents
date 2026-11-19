@@ -32,6 +32,8 @@ use store::Item;
 use work::sessions::{began_on, number_at, of_line, start};
 use work::{Back, RanOn, Why, Work};
 
+use crate::budget::Budget;
+
 /// When a line begins a new session, and how its sessions are kept, as the installation sets it.
 pub struct Policy {
     /// How many values of a history a line is worked out from at least ([`crate::history`]).
@@ -54,9 +56,9 @@ pub struct Warm {
     /// the session, no more than writing it to the cache again would beyond reading it. A session on a model not here
     /// is not pinged, its worth not being known.
     pub most: BTreeMap<String, u32>,
-    /// The most a work may spend, in millionths of a dollar, as the installation says (`agents.work_budget_usd`); none
-    /// where it sets none. A work the engine paused past it is pinged no more, a ping counting in its spend.
-    pub budget: Option<u64>,
+    /// The most a work may spend, as the installation says ([`crate::budget`]); none where it sets no budget. A work
+    /// the engine paused past the bar its budget sets is pinged no more, a ping counting in its spend.
+    pub budget: Option<Budget>,
 }
 
 /// The source of the blocks the driver writes as a line begins a new session: each a block a cell reads that loads
