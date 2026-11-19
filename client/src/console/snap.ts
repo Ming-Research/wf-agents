@@ -202,10 +202,18 @@ const FADE = 0.4;
 const DARK = 0.15;
 
 /// The beat of a running cell's mark, as the page's tokens give it.
-function beatOf(): { ms: number; faint: number } {
-  const ms = length('--pulse');
+export function beatOf(): { ms: number; faint: number } {
+  const ms = millisecondsOf('--pulse');
   const faint = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pulse-faint'));
   return { ms: ms > 0 ? ms : PULSE_MS, faint: Number.isFinite(faint) ? faint : DARK };
+}
+
+/// A time the page's tokens give, in milliseconds, in whichever unit the styles write it: the page's build writes
+/// `750ms` as `.75s`. None, as 0, where the token is no time.
+function millisecondsOf(name: string): number {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const m = /^([+-]?(?:\d+\.?\d*|\.\d+))(ms|s)$/.exec(v);
+  return m === null ? 0 : Number.parseFloat(m[1]) * (m[2] === 's' ? 1000 : 1);
 }
 /// The part of the way to where they are going that the columns move sideways each frame, when the scene brings an
 /// item into view.
@@ -260,12 +268,13 @@ const LIGHT = {
   chosenRibbon: '#d0ddff',
   /// A column's bar on the map, light, so that the marks across it show.
   mapBar: '#7cc0fd',
-  /// The colours of works, which tint their cards: running in the accent, green being kept for what is done; paused, and
+  /// The colours of works, which tint their cards: running in the accent, green being kept for what is done; waiting
+  /// for the calls of tools, in the yellow of a call under way, as the page says that state everywhere; paused, and
   /// waiting for something else, grey; stopped, for the owner or by the engine, red.
   running: '#3673f5',
+  calling: '#eab308',
   paused: '#8b93a1',
   halted: '#e5484d',
-  waiting: '#e8cc6a',
   amber: '#b45309',
   red: '#e5484d',
   green: '#2f9e6e',
@@ -413,6 +422,7 @@ export function themed(): typeof LIGHT {
     page: token('--ground', LIGHT.page),
     chosen: token('--accent', LIGHT.chosen),
     running: token('--running', LIGHT.running),
+    calling: token('--yellow', LIGHT.calling),
     halted: token('--red', LIGHT.halted),
     red: token('--red', LIGHT.red),
     green: token('--green', LIGHT.green),
@@ -506,18 +516,19 @@ const LINES_X = NODE_W - 8 - 36 - 70;
 /// The middle of a card's second row, the work's, from the card's middle, for a card `h` high.
 const workRow = (h: number) => -h / 2 + high(1 + WORK_ROW) - (WORK_ROW * ROW) / 2 - 3;
 
-/// What a work's state is to its node: running, waiting for the owner, paused, stopped by the engine for a problem, or
-/// waiting for something else.
-export type Mood = 'running' | 'owner' | 'paused' | 'halted' | 'waiting';
+/// What a work's state is to its node: running, waiting for the owner, waiting for the calls of tools, paused, stopped
+/// by the engine for a problem, or waiting for something else.
+export type Mood = 'running' | 'owner' | 'calling' | 'paused' | 'halted' | 'waiting';
 
 /// A work's mood, from its state as every view names it (`stateOf`): one that waits for the owner, as the engine's one
-/// list of it says, waits for the owner; one running, an act of the engine's own among it, runs; a halted one, at a
-/// fault or stalled, is halted; one paused, by the owner's pause or the owner's pause of everything, is paused; any
-/// other waits, one that waits for the calls of tools among it.
+/// list of it says, waits for the owner; one running, an act of the engine's own among it, runs; one that waits at its
+/// cell for the calls of tools waits for them; a halted one, at a fault or stalled, is halted; one paused, by the
+/// owner's pause or the owner's pause of everything, is paused; any other waits.
 export function moodOf(w: Pick<ShownWork, 'now' | 'cells' | 'waits'>): Mood {
   const { tone, word } = stateOf(w);
   if (tone === 'owner') return 'owner';
   if (tone === 'running') return 'running';
+  if (tone === 'calling') return 'calling';
   if (tone === 'failed') return 'halted';
   return word === STATE.paused ? 'paused' : 'waiting';
 }
@@ -535,6 +546,8 @@ const WORK = (): Record<Mood, string> => ({
   running: PALETTE.running,
   // A work is running or stopped. One stopped for the owner is red, as one the engine stopped: both need the owner.
   owner: PALETTE.halted,
+  // Waiting for its calls: not for the owner, so its card is not filled, but in the yellow every view says it in.
+  calling: PALETTE.calling,
   paused: PALETTE.paused,
   halted: PALETTE.halted,
   // Stopped and not for the owner, as paused: one grey for both, since neither needs the owner.

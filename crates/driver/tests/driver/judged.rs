@@ -12,7 +12,6 @@ use super::*;
 fn policy() -> driver::Policy {
     driver::Policy {
         samples: 2,
-        limit: 1_000_000,
         on: Box::new(|_, _| Some(on())),
         warm: None,
     }

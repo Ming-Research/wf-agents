@@ -561,13 +561,12 @@ impl Rounds for Warm {
     fn policy(&self) -> Option<driver::Policy> {
         Some(driver::Policy {
             samples: 19,
-            limit: 500_000,
             on: Box::new(|_, _| Some(ran_on())),
             warm: Some(driver::Warm {
                 life_ms: 3_600_000,
                 after_ms: 3_300_000,
                 most: [(MODEL.to_string(), 2)].into(),
-                while_paused: false,
+                budget: None,
             }),
         })
     }

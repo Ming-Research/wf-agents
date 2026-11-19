@@ -656,21 +656,52 @@ textarea:disabled {
   font-weight: var(--weight);
 }
 
-/* The console is settled: its window keeps its sections as they were drawn before the panel's heads were made to stand
-   out, a small semibold label over what it holds, in the colour of the text round it. */
-.console .panel-part-label {
-  display: block;
-  margin: 0 0 var(--space-4);
-  color: inherit;
+/* A section of the item's window, in every tab of it: its head is its name in the accent, strong, with a line after it
+   to the window's edge, which folds the section away at a press; under it, what the section holds. */
+.cw-fold {
+  margin-bottom: var(--space-12);
+}
+
+.cw-fold-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  margin: var(--space-16) 0 var(--space-8);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--head);
+  font-size: var(--size-body);
+  font-weight: var(--weight-strong);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cw-fold:first-child .cw-fold-head {
+  margin-top: 0;
+}
+
+/* The line after the name, to the edge. */
+.cw-fold-head::after {
+  content: '';
+  flex: 1;
+  height: var(--hairline);
+  background: var(--head);
+}
+
+.cw-fold-sign {
+  width: var(--space-12);
+}
+
+.cw-fold-count,
+.cw-fold-note {
+  color: var(--muted);
+  font-weight: var(--weight);
+}
+
+.cw-fold-note {
   font-size: var(--size-small);
-}
-
-.console .panel-part-label::after {
-  content: none;
-}
-
-.console .panel-part-label .muted {
-  font-weight: inherit;
 }
 
 /* Label and value pairs. */
@@ -780,6 +811,8 @@ textarea:disabled {
   cursor: zoom-in;
 }
 
+/* The buttons stand on the card, so that the drawing's lines do not run through them; hidden, with their ground, while
+   no pointer or focus is on the diagram, so that the ground covers nothing of the drawing. */
 .diagram-tools {
   position: absolute;
   top: 0;
@@ -789,20 +822,17 @@ textarea:disabled {
   padding: 0 var(--space-4);
   background: var(--card);
   font-size: var(--size-small);
-}
-
-.diagram-tool {
   opacity: 0;
 }
 
-.diagram:hover .diagram-tool,
-.diagram:focus-within .diagram-tool,
-.diagram-tool[aria-pressed='true'] {
+.diagram:hover .diagram-tools,
+.diagram:focus-within .diagram-tools,
+.diagram-tools:has([aria-pressed='true']) {
   opacity: 1;
 }
 
 @media (hover: none) {
-  .diagram-tool {
+  .diagram-tools {
     opacity: 1;
   }
 }

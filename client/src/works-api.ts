@@ -887,11 +887,14 @@ export interface NewItem {
   writes: { block: string; content: string; value: string | null }[];
 }
 
-/// The engine as a whole: its slots, and the pause of everything, while it holds.
+/// The engine as a whole: its slots, the pause of everything, while it holds, and whether it keeps waiting sessions
+/// warm.
 export interface Engine {
   slots: number;
   taken: number;
   paused: EverythingPaused | null;
+  /// Whether the sessions of works that wait are kept warm: the engine's own state, which the owner switches.
+  keepWarm: boolean;
 }
 
 /// The pause of everything: when it began, and who set it, the owner, or the engine as it started with works going on,
@@ -901,9 +904,10 @@ export interface EverythingPaused {
   by: Pauser;
 }
 
-/// What the owner does to the engine as a whole: pauses everything, or lifts the pause of everything, theirs or the
-/// engine's.
-export type EngineAct = { kind: 'pause' } | { kind: 'resume' };
+/// What the owner does to the engine as a whole: pauses everything, lifts the pause of everything, theirs or the
+/// engine's, or sets whether waiting sessions are kept warm. The keep-warm act says where the switch now stands, not
+/// which way it was moved.
+export type EngineAct = { kind: 'pause' } | { kind: 'resume' } | { kind: 'keepWarm'; on: boolean };
 
 export interface Added {
   item: number;

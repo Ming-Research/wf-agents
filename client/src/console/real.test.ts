@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Block as FlowBlock, Flow } from '../api';
-import type { Version, VersionPage, Wait, WorkPage } from '../works-api';
+import type { Step, Version, VersionPage, Wait, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { readBody, readRulings } from './real';
 
@@ -135,8 +135,50 @@ describe("the messages of a work, read from each cell's own words", () => {
       Promise.resolve({ block, number, content: contents[`${block}/${number}`] ?? '' });
     const body = await readBody(page, load);
     expect(body.messages).toEqual([
-      { who: 'owner', at: 5000, to: ['implement'], quote: 'Greet them.', text: 'By the first name.' },
+      { who: 'owner', at: 5000, to: ['implement'], quote: 'Greet them.', text: 'By the first name.', taken: false },
       { who: 'implement', at: 9000, to: ['owner'], quote: null, text: 'Done.' },
+    ]);
+  });
+
+  it("say of the owner's words whether a run of their cell has begun with them, or with a later version", async () => {
+    const item = fixtureItems().items[0];
+    const ran = (run: number, version: number): Step =>
+      ({
+        kind: 'run',
+        run,
+        cell: 'implement',
+        at: run,
+        time: run * 1000,
+        because: [],
+        basis: [{ block: 'implement_words', version }],
+        rounds: [],
+        calls: [],
+        end: null,
+        spent: { usdMicros: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 0 },
+      }) as Step;
+    const page: WorkPage = {
+      summary: { ...item.work, number: item.work.number + 2 },
+      title: item.title,
+      level: item.level,
+      project: item.project,
+      history: item.history,
+      flow: SPOKEN,
+      cells: [],
+      blocks: [
+        {
+          name: 'implement_words',
+          versions: [version(5, 1, { kind: 'owner' }, 25), version(8, 2, { kind: 'owner' }, 25)],
+        },
+      ],
+      // A run began with the first version, and none yet with the second.
+      steps: [ran(6, 1)],
+    };
+    const load = (_: number, block: string, number: number): Promise<VersionPage> =>
+      Promise.resolve({ block, number, content: `The owner:\n\nSaid ${number}.` });
+    const body = await readBody(page, load);
+    expect(body.messages.map((m) => [m.text, m.taken])).toEqual([
+      ['Said 1.', true],
+      ['Said 2.', false],
     ]);
   });
 
@@ -161,8 +203,8 @@ describe("the messages of a work, read from each cell's own words", () => {
       Promise.resolve({ block, number, content: 'The owner:\n\nOne table.' });
     const body = await readBody(page, load);
     expect(body.messages).toEqual([
-      { who: 'owner', at: 12000, to: ['implement'], quote: null, text: 'One table.' },
-      { who: 'owner', at: 14000, to: ['research'], quote: null, text: 'One table.' },
+      { who: 'owner', at: 12000, to: ['implement'], quote: null, text: 'One table.', taken: false },
+      { who: 'owner', at: 14000, to: ['research'], quote: null, text: 'One table.', taken: false },
     ]);
   });
 });

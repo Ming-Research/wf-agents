@@ -169,15 +169,18 @@ impl Backup {
     }
 }
 
-/// How a line's session is kept between its rounds. A session whose context, as a round of its line ends, is past
-/// `context_limit` is replaced at the line's next round, and so is one on another model or account.
+/// How a line's session is kept between its rounds. The agents' program compacts a session at `compact_at`, so that
+/// its line goes on in it; a session on another model or account is replaced at the line's next round. Whether the
+/// sessions of works that wait are kept warm is no setting: it is the engine's own state, which the owner switches.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sessions {
-    /// The most context a line's session holds as a round of it ends, in tokens, before the line begins a new session;
-    /// no line drawn from the line's history lowers it (decision `a-session-is-replaced-past-its-limit`).
-    #[serde(default = "context_limit")]
-    pub context_limit: u64,
+    /// The context at which the agents' program compacts a line's session, in tokens, given it on every round's
+    /// command line; no line drawn from the line's history lowers it, and the engine begins no new session for a
+    /// session's size (decision `a-session-is-compacted-at-the-installations-number`). Between 100,000 and 1,000,000,
+    /// the range the program takes.
+    #[serde(default = "compact_at")]
+    pub compact_at: u64,
     /// How long the agents' program keeps a session in its prompt cache after its last call, in minutes: an hour for
     /// `claude`, whose usage says every write to the cache is one kept an hour (`ephemeral_1h_input_tokens`); 0 for a
     /// program that keeps none, whose sessions are not kept warm. How many keep-warm pings a wait is worth is not set
@@ -188,24 +191,24 @@ pub struct Sessions {
     /// cache lets it go, time for the ping and four tries again a minute apart.
     #[serde(default = "warm_minutes")]
     pub warm_minutes: u64,
-    /// Whether the sessions of works are kept warm while the owner holds everything: a session waits out the pause
-    /// warm, at a ping an hour, and is not written again whole when the owner lets everything on.
-    #[serde(default = "warm_while_paused")]
-    pub warm_while_paused: bool,
 }
 
 impl Default for Sessions {
     fn default() -> Self {
         Sessions {
-            context_limit: context_limit(),
+            compact_at: compact_at(),
             cache_minutes: cache_minutes(),
             warm_minutes: warm_minutes(),
-            warm_while_paused: warm_while_paused(),
         }
     }
 }
 
-fn context_limit() -> u64 {
+/// The least and the most context the agents' program compacts a session at, as its own help gives the range of
+/// `--autocompact` (`claude` 2.1.326: "Auto-compact window size (auto, or 100k–1M tokens)").
+const COMPACTS_AT_LEAST: u64 = 100_000;
+const COMPACTS_AT_MOST: u64 = 1_000_000;
+
+fn compact_at() -> u64 {
     500_000
 }
 
@@ -215,10 +218,6 @@ fn cache_minutes() -> u64 {
 
 fn warm_minutes() -> u64 {
     55
-}
-
-fn warm_while_paused() -> bool {
-    true
 }
 
 /// What a measured quantity is judged by: the history of its own kind, never a number set by hand (principle
@@ -474,6 +473,9 @@ impl Agents {
                 "agents.args: --permission-prompt-tool would have a tool approve what no rule refuses".to_string(),
             );
         }
+        if given("--autocompact") {
+            wrong.push("agents.args: --autocompact is set by sessions.compact_at".to_string());
+        }
         if given("--setting-sources") {
             wrong.push("agents.args: --setting-sources is set by agents.setting_sources".to_string());
         }
@@ -583,6 +585,17 @@ const HEAVY_MOVED: &str = "agents.permissions.heavy: the heavy commands are a pr
      project declares its own in its flow/project.toml as [heavy] (commands), and what every agent is refused whatever \
      its project is in agents/refused.toml beside the flows; take heavy out of agents.permissions.";
 
+/// What the settings are told where they name `sessions.keep_warm` or `sessions.warm_while_paused`, the keys that once
+/// said whether the sessions of works that wait are kept warm, `{key}` the one they hold.
+const KEEPING_WARM: &str = "sessions.{key}: whether the sessions of works that wait are kept warm is the engine's own \
+     state now, which the owner switches on their page and which takes effect at once, not a setting read as the \
+     engine starts: take the key out of [sessions].";
+
+/// What the settings are told where they name `sessions.context_limit`, where the context at which a session is
+/// compacted once was.
+const CONTEXT_LIMIT: &str = "sessions.context_limit: the number is the context at which the agents' program compacts a \
+     line's session, and nothing is limited by it: write it as compact_at in [sessions].";
+
 /// What the settings are told where they name `agents.owner_language`, where the owner's language once was.
 const OWNER_LANGUAGE: &str = "agents.owner_language: the owner's language is the owner's, not the agents': take it \
      out of [agents] and write it as language in a table [owner], as install.sample.toml shows.";
@@ -659,6 +672,19 @@ impl Settings {
         if permissions.is_some_and(|permissions| permissions.contains_key("heavy")) {
             return Err(HEAVY_MOVED.to_string());
         }
+        let sessions = table
+            .as_ref()
+            .and_then(|t| t.get("sessions"))
+            .and_then(|s| s.as_table());
+        let warm: Vec<&str> = (["keep_warm", "warm_while_paused"].into_iter())
+            .filter(|key| sessions.is_some_and(|sessions| sessions.contains_key(*key)))
+            .collect();
+        if let Some(key) = warm.first() {
+            return Err(KEEPING_WARM.replace("{key}", key));
+        }
+        if sessions.is_some_and(|sessions| sessions.contains_key("context_limit")) {
+            return Err(CONTEXT_LIMIT.to_string());
+        }
         // Settings of the one project an installation once had are told where its tables went.
         let moved: Vec<&str> = (["project", "github"].into_iter())
             .filter(|key| table.as_ref().is_some_and(|t| t.contains_key(*key)))
@@ -701,8 +727,11 @@ impl Settings {
             wrong.push("agents.work_budget_usd: a budget is a number of dollars, none below nothing".to_string());
         }
         let sessions = &settings.sessions;
-        if sessions.context_limit == 0 {
-            wrong.push("sessions.context_limit: a session may hold some context".to_string());
+        if !(COMPACTS_AT_LEAST..=COMPACTS_AT_MOST).contains(&sessions.compact_at) {
+            wrong.push(format!(
+                "sessions.compact_at: the agents' program compacts a session within {COMPACTS_AT_LEAST} and \
+                 {COMPACTS_AT_MOST} tokens"
+            ));
         }
         if sessions.cache_minutes > 0 && sessions.warm_minutes >= sessions.cache_minutes {
             wrong.push(
@@ -823,7 +852,8 @@ impl Settings {
     }
 
     /// When a line begins a new session, where the model or the account its session's rounds ran on is not the one its
-    /// rounds run on now, and past the limit of its context; and how its sessions are kept warm while it waits.
+    /// rounds run on now; and how its sessions are kept warm while it waits. A session past the installation's context
+    /// is compacted by the agents' program, not replaced, so the number is no part of the policy.
     pub fn policy(&self) -> Policy {
         let settings = self.clone();
         let sessions = &self.sessions;
@@ -833,11 +863,10 @@ impl Settings {
             most: (self.agents.levels.values())
                 .filter_map(|level| Some((level.model.clone(), crate::cost::pings_worth(&level.model)?)))
                 .collect(),
-            while_paused: sessions.warm_while_paused,
+            budget: self.budget_micros(),
         });
         Policy {
             samples: self.history.samples,
-            limit: sessions.context_limit,
             on: Box::new(move |item, cell| settings.ran_on(item.level.as_deref(), cell).ok()),
             warm,
         }
@@ -908,13 +937,12 @@ mod tests {
         let without = SAMPLE
             .replace("cache_minutes = 60\n", "")
             .replace("warm_minutes = 55\n", "");
-        let without = without.replace("warm_while_paused = true\n", "");
         assert_ne!(without, SAMPLE, "the sample sets them");
         let settings = Settings::read(&without).expect("it reads without");
         let warm = settings.policy().warm.expect("kept warm");
         assert_eq!(
-            (warm.life_ms, warm.after_ms, warm.while_paused),
-            (3_600_000, 3_300_000, true)
+            (warm.life_ms, warm.after_ms, warm.budget),
+            (3_600_000, 3_300_000, Some(5_000_000))
         );
         // The sample's levels run on Haiku, Sonnet and Opus 5.5 and on Fable 5.1.
         let most: Vec<(&str, u32)> = warm.most.iter().map(|(m, n)| (m.as_str(), *n)).collect();
@@ -938,19 +966,28 @@ mod tests {
     }
 
     #[test]
-    fn a_session_is_given_a_context_limit_of_500000_tokens_where_none_is_set_and_a_history_of_nothing_is_refused() {
-        let without = SAMPLE.replace("context_limit = 500000\n", "");
+    fn a_session_is_compacted_at_500000_tokens_where_none_is_set_and_only_what_the_program_takes_is_read() {
+        let of = |at: &str| SAMPLE.replace("compact_at = 500000", &format!("compact_at = {at}"));
+        let without = SAMPLE.replace("compact_at = 500000\n", "");
         assert_ne!(without, SAMPLE, "the sample sets it");
         let settings = Settings::read(&without).expect("it reads without");
-        assert_eq!(settings.policy().limit, 500_000);
-        let set = Settings::read(&SAMPLE.replace("context_limit = 500000", "context_limit = 200000")).unwrap();
-        assert_eq!(set.policy().limit, 200_000);
-        let nothing = SAMPLE.replace("context_limit = 500000", "context_limit = 0");
-        assert!(
-            Settings::read(&nothing)
-                .expect_err("refused")
-                .contains("sessions.context_limit")
-        );
+        assert_eq!(settings.sessions.compact_at, 500_000);
+        // The program compacts within 100,000 and 1,000,000 tokens: outside that it is refused, by its key.
+        for (at, read) in [
+            ("99999", false),
+            ("100000", true),
+            ("1000000", true),
+            ("1000001", false),
+            ("0", false),
+        ] {
+            let result = Settings::read(&of(at));
+            match result {
+                Ok(settings) if read => assert_eq!(settings.sessions.compact_at.to_string(), at),
+                Ok(_) => panic!("{at} is no context the program compacts at"),
+                Err(why) if read => panic!("{at}: {why}"),
+                Err(why) => assert!(why.contains("sessions.compact_at"), "{at}: {why}"),
+            }
+        }
         let none = SAMPLE.replace("samples = 19", "samples = 0");
         assert!(Settings::read(&none).expect_err("refused").contains("history.samples"));
     }
@@ -1174,6 +1211,14 @@ mod tests {
             ("\"--permission-prompt-tool\"", "--permission-prompt-tool, last"),
             ("\"--setting-sources\", \"user,project\"", "--setting-sources"),
             ("\"--setting-sources=local\"", "--setting-sources"),
+            (
+                "\"--autocompact\", \"900000\"",
+                "--autocompact is set by sessions.compact_at",
+            ),
+            (
+                "\"--autocompact=900000\"",
+                "--autocompact is set by sessions.compact_at",
+            ),
             (
                 "\"--permission-prompt-tool\", \"mcp__ok__approve\"",
                 "--permission-prompt-tool would",
@@ -1502,6 +1547,30 @@ mod tests {
             "work_budget_usd = 5.0\nsubagents = { most = 1 }",
         );
         assert_eq!(Settings::read(&given).unwrap().agents.subagents.most, 1);
+    }
+
+    // Keeping sessions warm was a key of these settings, under two names: settings that still name either are told
+    // that it is the engine's own state now, which the owner switches on their page.
+    #[test]
+    fn the_keys_that_once_said_whether_sessions_are_kept_warm_are_told_where_it_went() {
+        for key in ["keep_warm", "warm_while_paused"] {
+            let old = SAMPLE.replace("warm_minutes = 55", &format!("warm_minutes = 55\n{key} = true"));
+            assert_ne!(old, SAMPLE, "the sample sets the minutes");
+            let refused = Settings::read(&old).expect_err("refused");
+            assert!(refused.contains(&format!("sessions.{key}")), "{refused}");
+            assert!(refused.contains("page"), "{refused}");
+        }
+    }
+
+    // The context at which the agents' program compacts a session was `context_limit`, which said "limit" of a number
+    // that ends no session: settings that still name it are told where it went.
+    #[test]
+    fn the_context_a_session_is_compacted_at_where_it_once_was_is_told_where_it_moved() {
+        let old = SAMPLE.replace("compact_at = 500000", "context_limit = 500000");
+        assert_ne!(old, SAMPLE, "the sample sets it");
+        let refused = Settings::read(&old).expect_err("refused");
+        assert!(refused.contains("sessions.context_limit"), "{refused}");
+        assert!(refused.contains("compact_at"), "{refused}");
     }
 
     // The owner's language was once a setting of the agents: settings that still say it there are told where it went.

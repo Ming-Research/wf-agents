@@ -240,7 +240,7 @@ function NowPart({ items, engine, copies, copiesFailed }: {
       {running.length === 0 ? (
         <p className="muted">No round is under way</p>
       ) : (
-        <ViewTable heads={['Work', 'Item', 'Cell', 'Round', 'Since']}>
+        <ViewTable heads={['Work', 'Item', 'Cell', 'Since']}>
           {running.map((item) => (
             <RunningRow key={item.work.number} item={item} />
           ))}
@@ -262,9 +262,6 @@ function RunningRow({ item }: { item: Item }) {
         <ItemName item={item.number} title={item.title} />
       </td>
       <td className="mono">{now.cell}</td>
-      <td className="mono">
-        run {now.run}, round {now.round}
-      </td>
       <td title={fullTime(now.since)}>{clock(now.since)}</td>
     </tr>
   );
@@ -523,7 +520,7 @@ function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
         />
       </Tiles>
       {openSent && (
-        <ViewTable heads={['Began', 'Work', 'Item', 'Cell', 'Round', 'Cost']} numbers={[5]}>
+        <ViewTable heads={['Began', 'Work', 'Item', 'Cell', 'Cost']} numbers={[4]}>
           {s.sentBack.slice(0, ROWS).map((r) => (
             <tr key={`${r.work}/${r.run}/${r.round}`}>
               <td title={fullTime(r.began)}>{clock(r.began)}</td>
@@ -534,9 +531,6 @@ function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
                 <ItemName item={r.item} title={items.get(r.item)?.title} />
               </td>
               <td className="mono">{r.cell}</td>
-              <td className="mono">
-                run {r.run}, round {r.round}
-              </td>
               <td className="num">{r.spent === null ? 'under way' : dollars(r.spent.usdMicros)}</td>
             </tr>
           ))}
@@ -548,7 +542,7 @@ function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
         <p className="muted">No round failed in the span</p>
       ) : (
         <>
-          <ViewTable heads={['Ended', 'Work', 'Item', 'Cell', 'Round', 'Cause', 'Why']}>
+          <ViewTable heads={['Ended', 'Work', 'Item', 'Cell', 'Cause', 'Why']}>
             {s.failed.slice(0, ROWS).map((f) => (
               <tr key={`${f.work}/${f.run}/${f.round}`}>
                 <td title={fullTime(f.ended)}>{clock(f.ended)}</td>
@@ -559,9 +553,6 @@ function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
                   <ItemName item={f.item} title={items.get(f.item)?.title} />
                 </td>
                 <td className="mono">{f.cell}</td>
-                <td className="mono">
-                  run {f.run}, round {f.round}
-                </td>
                 <td title={f.failure}>{failureWords(f.failure)}</td>
                 <td className="view-cell-wide failed" title={f.why}>
                   {f.why}

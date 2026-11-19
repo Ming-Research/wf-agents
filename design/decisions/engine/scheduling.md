@@ -20,7 +20,7 @@ Why: With no slot, a work could not answer the owner's note to one of its cells,
 
 ### decision a-start-pauses-everything-only-over-works-going-on
 An engine that starts while a work is going on, one that has not ended and that its own pause does not hold, and while nothing pauses everything, pauses everything itself, kept with the engine as who paused it, until the owner lifts it as they lift their own pause; an engine that starts with no work going on pauses nothing.
-Why: Only a work going on could spend before the owner has seen how things stand (principle no-unseen-spending-loop): works are added paused and the owner's pause outlives a stop, so pausing at every start would guard nothing and make every start wait for a lift. Kept in memory alone, the hold would be lost by a second stop before the owner looked.
+Why: Only a work going on could go on before the owner has seen how things stand (principle no-unseen-spending-loop): works are added paused and the owner's pause outlives a stop, so pausing at every start would guard nothing and make every start wait for a lift. Kept in memory alone, the hold would be lost by a second stop before the owner looked.
 
 ### decision stops-from-outside-are-no-cells
 Cancelling, pausing and how many rounds go on side by side are neither cells nor blocks. Cancelling stops all of a work (its round under way, the calls it waits for, its runs); a pause holds back only what would begin a round and a check's taking of the project's turn to check and merge (decision one-work-checks-and-merges-at-a-time), so that what a round returned is still taken, the calls it asked for are made, and a run whose cell no longer applies is abandoned.

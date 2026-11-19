@@ -8,13 +8,13 @@
 //! - `POST /api/v1/settings/accounts`: the owner's choice of another of them ([`AccountChoice`]), answered as a change.
 //!
 //! The owner changes on the page what is tuned while works go on: the language the agents write in for the owner, the
-//! model of each level, the highest level an item may be at, the context past which a line begins a new session, how
-//! many rounds run at once, and the account the agents' program runs under. The rest only the file changes. A value
-//! is checked here only for its kind; what the engine refuses of it, the engine's own reading of the file refuses. A
-//! change is written into the file with its comments and its layout kept, only where the file it makes reads as
-//! settings, holds each value as asked, and has not changed since the page read it; where the directory the file is in
-//! keeps it in git, the change is committed there, saying what changed, and nothing is written onto a file whose
-//! changes are not committed. The engine reads the file as it starts: until it starts again, each key it runs at
+//! model of each level, the highest level an item may be at, the context at which the agents' program compacts a
+//! line's session, how many rounds run at once, and the account the agents' program runs under. The rest only the file
+//! changes. A value is checked here only for its kind; what the engine refuses of it, the engine's own reading of the
+//! file refuses. A change is written into the file with its comments and its layout kept, only where the file it makes
+//! reads as settings, holds each value as asked, and has not changed since the page read it; where the directory the
+//! file is in keeps it in git, the change is committed there, saying what changed, and nothing is written onto a file
+//! whose changes are not committed. The engine reads the file as it starts: until it starts again, each key it runs at
 //! another value than the file gives, as the engine reads the file, is shown with that value beside it.
 //!
 //! The settings hold no secret: a token is given to the engine in a variable of its environment, which the file names.
@@ -197,7 +197,7 @@ fn change_of(path: &[String]) -> Option<Change> {
     let parts: Vec<&str> = path.iter().map(String::as_str).collect();
     match parts.as_slice() {
         ["owner", "language"] | ["agents", "levels", _, "model"] => Some(Change::Name),
-        ["agents", "slots"] | ["sessions", "context_limit"] => Some(Change::Count),
+        ["agents", "slots"] | ["sessions", "compact_at"] => Some(Change::Count),
         ["items", "highest_level"] => Some(Change::Level),
         _ => None,
     }

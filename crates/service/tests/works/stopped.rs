@@ -66,6 +66,14 @@ impl Storage for Failing {
         self.store.everything_pauses()
     }
 
+    fn keeping_warm(&self) -> Result<bool, store::Fault> {
+        self.store.keeping_warm()
+    }
+
+    fn keep_warm(&mut self, warm: bool, at: Time) -> Result<(), store::Fault> {
+        self.store.keep_warm(warm, at)
+    }
+
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), store::Fault> {
         let mut saves = self.saves.lock().expect("the count of saves");
         match saves.as_mut() {

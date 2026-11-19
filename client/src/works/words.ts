@@ -4,12 +4,10 @@
 // names of the marks are the table's (`marks.tsx`).
 
 import type {
-  Ask,
   Call,
   CallRow,
   Cause,
   Failure,
-  Given,
   Limit,
   Maker,
   Outage,
@@ -132,14 +130,9 @@ export function allTokens(spent: Spent): number {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/// What was taken, in one line: `$0.42 · 14k tokens · 4m 12s · 7 rounds`.
+/// What was taken, in one line: `$0.42 · 14k tokens`; how long it took is said where it began.
 export function spentWords(spent: Spent): string {
-  return [
-    dollars(spent.usdMicros),
-    `${tokens(allTokens(spent))} tokens`,
-    duration(spent.workingMs),
-    plural(spent.rounds, 'round'),
-  ].join(' · ');
+  return [dollars(spent.usdMicros), `${tokens(allTokens(spent))} tokens`].join(' · ');
 }
 
 /// The tokens apart, for a panel: `12k in, 8.1k from the cache, 2.1k out`.
@@ -273,11 +266,6 @@ export function outageWords(outage: Outage): string | null {
   const at = (ms: number) => (dayOf(ms) === dayOf(outage.since) ? minuteOf(ms) : clock(ms));
   const why = outage.checked && found?.kind === 'down' ? ` At ${at(outage.checked.at)} the check found: ${sentence(found.why)}` : '';
   return `${capital(failureWords(down.failure))} since ${clock(outage.since)}.${why} ${heldWords(outage.service, down.failure)}`;
-}
-
-/// What a round asked for.
-export function askWords(ask: Ask): string {
-  return ask.kind === 'tool' ? `the tool ${ask.name}` : `a question to ${personWords(ask.who)}`;
 }
 
 /// What a work waits for, in words; a question's own words are shown beside them, in full.
@@ -616,11 +604,11 @@ export const nowTone = (s: Pick<Summary, 'now' | 'cells' | 'waits'>): Tone => st
 /// Why a cell ran or would run, after the block's name where the cause has one. A change a cell after it made is said
 /// to be one; the run is a way round only when every one of its causes is (`wayRound`).
 export function causeRest(cause: Cause, wayRound = false): string {
-  if (cause.kind === 'noRecord') return 'the cell had no record';
-  if (cause.kind === 'results') return `the results of ${plural(cause.calls.length, 'call')} it asked for are in`;
-  const since = cause.was === null ? ', which its record knew no version of' : ` since v${cause.was}`;
-  const behind = cause.behind ? `, by a cell after it${wayRound ? ': a way round' : ''}` : '';
-  return `changed in meaning${since}${behind}`;
+  if (cause.kind === 'noRecord') return 'it had not run before';
+  if (cause.kind === 'results') return `the results of the ${plural(cause.calls.length, 'call')} it asked for came back`;
+  const how = cause.was === null ? 'new to it' : `changed since the v${cause.was} it last saw`;
+  const behind = cause.behind ? `, written by a cell after it${wayRound ? ': a way round' : ''}` : '';
+  return `${how}${behind}`;
 }
 
 export function causeWords(cause: Cause, wayRound = false): string {
@@ -697,18 +685,6 @@ export function unmetWords(unmet: Unmet): string {
   }
 }
 
-/// What a round was given.
-export function givenWords(given: Given): string {
-  switch (given.kind) {
-    case 'task':
-      return 'its task';
-    case 'results':
-      return `the results of ${plural(given.calls.length, 'call')}`;
-    case 'sentBack':
-      return `its return sent back: ${given.unmet.map(unmetWords).join('; ')}`;
-  }
-}
-
 /// Who wrote a version.
 export function writerWords(writer: Writer): string {
   switch (writer.kind) {
@@ -717,7 +693,7 @@ export function writerWords(writer: Writer): string {
     case 'outside':
       return 'the outside';
     case 'run':
-      return `run ${writer.run} of ${writer.cell}`;
+      return writer.cell;
   }
 }
 

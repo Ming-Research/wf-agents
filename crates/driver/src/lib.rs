@@ -224,6 +224,9 @@ pub struct Driver {
     slots: usize,
     /// The pause of everything, while it holds, as the store keeps it.
     paused: Option<EverythingPaused>,
+    /// Whether the sessions of works that wait are kept warm, as the store keeps it: the engine's own state, which the
+    /// owner switches, and no setting, so that a switch takes effect at once ([`warm`]).
+    keep_warm: bool,
     /// Every stretch the pause of everything held, in order, as the store keeps them.
     spans: Vec<Span>,
     /// What stopped the driver, once something has.
@@ -519,6 +522,7 @@ impl Driver {
             }
         }
         let paused = store.everything_paused().map_err(Fault::Store)?;
+        let keep_warm = store.keeping_warm().map_err(Fault::Store)?;
         let spans = spans_of(&store.everything_pauses().map_err(Fault::Store)?);
         let mut driver = Driver {
             store,
@@ -527,6 +531,7 @@ impl Driver {
             of_item: BTreeMap::new(),
             slots,
             paused,
+            keep_warm,
             spans,
             fault: None,
             policy,
@@ -976,6 +981,27 @@ impl Driver {
         }
     }
 
+    /// Whether the sessions of works that wait are kept warm, as the owner last switched it ([`warm`]).
+    pub fn keeping_warm(&self) -> bool {
+        self.keep_warm
+    }
+
+    /// Keeps the sessions of works that wait warm from the time the caller's clock gives, or stops keeping them. It is
+    /// kept in the store and holds when the driver is opened again, and switching it as it stands changes nothing. No
+    /// ping is given here: one due is given as the driver is told the time next, which it asks for at once
+    /// ([`Driver::wake`]); a ping under way runs to its end whatever the switch says.
+    pub fn keep_warm(&mut self, now: Time, warm: bool) -> Result<(), Failed> {
+        self.going()?;
+        if warm == self.keep_warm {
+            return Ok(());
+        }
+        if let Err(fault) = self.store.keep_warm(warm, now) {
+            return Err(self.stop(Fault::Store(fault), false));
+        }
+        self.keep_warm = warm;
+        Ok(())
+    }
+
     /// The history of the rounds of every work on the flow of this name ([`history`]).
     pub fn history(&self, flow: &str) -> Vec<history::Sample> {
         (self.works.values())
@@ -1206,11 +1232,11 @@ impl Driver {
         }
     }
 
-    /// The keep-warm pings due at `now` and not under way, each given once: none while the wait every work shares
-    /// holds the agents' rounds, whose pings would fail as they do, nor while the engine holds everything as it
-    /// opened, until the owner has seen how things stand ([`warm`]).
+    /// The keep-warm pings due at `now` and not under way, each given once: of every work that has not ended, whoever
+    /// holds it, and none while the wait every work shares holds the agents' rounds, whose pings would fail as their
+    /// rounds do ([`warm`]).
     fn pings(&mut self, now: Time) -> Vec<Todo> {
-        let Some(policy) = (self.policy.as_ref()).filter(|_| !self.gate().holds_agents() && self.warming()) else {
+        let Some(policy) = (self.policy.as_ref()).filter(|_| !self.gate().holds_agents()) else {
             return Vec::new();
         };
         let mut todos = Vec::new();
@@ -1218,7 +1244,7 @@ impl Driver {
             if held.standing != Standing::Going {
                 continue;
             }
-            for due in warm::due(&held.flow, &held.work, &held.item, policy, now) {
+            for due in warm::due(&held.flow, &held.work, &held.item, policy, self.keep_warm, now) {
                 if self.pinging.contains(&(*number, due.line.clone())) {
                     continue;
                 }
@@ -1236,31 +1262,18 @@ impl Driver {
         todos
     }
 
-    /// Whether sessions are kept warm now: not while the engine holds everything as it opened on works going on, which
-    /// spends nothing before the owner has seen how things stand (principle `no-unseen-spending-loop`); while the owner
-    /// holds everything, as the settings say (`sessions.warm_while_paused`).
-    fn warming(&self) -> bool {
-        let keeps = (self.policy.as_ref())
-            .and_then(|p| p.warm.as_ref())
-            .is_some_and(|w| w.while_paused);
-        match &self.paused {
-            None => true,
-            Some(paused) => paused.by == Pauser::Owner && keeps,
-        }
-    }
-
     /// When the next keep-warm ping not under way is due, of every work that has not ended, as of the time the driver
     /// was last told: a ping due then and not given waits for no later time than the next moment, and one whose
     /// session's cache will have let it go by then is due at no time, so that the driver is never woken for a ping it
     /// will not give.
     fn next_ping(&self) -> Option<Time> {
-        let policy = self.policy.as_ref().filter(|_| self.warming())?;
+        let policy = self.policy.as_ref()?;
         let now = self.ticked.unwrap_or(Time(0));
         let soonest = Time(now.0.saturating_add(1));
         (self.works.iter())
             .filter(|(_, held)| held.standing == Standing::Going)
             .flat_map(|(number, held)| {
-                (warm::kept(&held.flow, &held.work, &held.item, policy, now).into_iter())
+                (warm::kept(&held.flow, &held.work, &held.item, policy, self.keep_warm, now).into_iter())
                     .filter(|kept| !self.pinging.contains(&(*number, kept.due.line.clone())))
                     .map(|kept| (kept.at.max(soonest), kept.life))
                     .filter(|(at, life)| at < life)
