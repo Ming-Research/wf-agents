@@ -330,7 +330,8 @@ const LIGHT = {
   /// drawn dark there ([`RUN.inkLine`]), as a glint on a dark thing does.
   glowTo: '#ffffff',
   /// The colour of the light running down a way where it is brightest ([`RUN.hue`]): a violet beside the running
-  /// colour, apart from the red of what waits for the owner.
+  /// colour, apart from the red of what waits for the owner. Not of the default accent's hue, it is not turned to the
+  /// accent picked, as the console's other colours of no accent's hue are not.
   pulse: '#b46cff',
   /// The accent: the mark on the map of where the item selected stands.
   chosen: '#3673f5',
@@ -500,7 +501,6 @@ export function themed(): typeof LIGHT {
     mapBar: turn(LIGHT.mapBar, 'read'),
     hoverRibbon: turn(LIGHT.hoverRibbon, 'tint'),
     chosenRibbon: turn(LIGHT.chosenRibbon, 'tint'),
-    pulse: turn(LIGHT.pulse, 'read'),
   };
   const t = {
     ink: token('--text', LIGHT.ink),
