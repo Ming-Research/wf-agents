@@ -330,11 +330,11 @@ export function Diff({ text, path = null, folded = false }: {
     );
   }
   const named = files.length > 1;
-  // Folded, each file stands under its path, which names the fold; drawn whole, a path is named only where the diff
-  // holds more than one.
+  // A path names the fold only where the diff holds more than one file, as it is drawn only there when the diff is
+  // drawn whole: in a text the words above the diff name the one file already, and the fold would say it again.
   const file = (f: (typeof files)[number], drawn: ReactNode) =>
     folded ? (
-      <Fold title={f.path ?? 'The change'} shut>
+      <Fold title={named && f.path !== null ? f.path : 'The diff'} shut>
         {drawn}
       </Fold>
     ) : (

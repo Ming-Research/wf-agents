@@ -133,12 +133,14 @@ describe("a diff in the item's window", () => {
       '+four',
     ].join('\n');
     const el = draw(two, null, true);
-    // One fold for each file, named by its path, and nothing of the diff drawn until one is opened.
+    // One fold for each file, named by its path where the diff holds several, and nothing drawn until one is opened.
     expect(texts(el, '.cw-fold-head')).toEqual(['a.md', 'b.md']);
     expect(lines(el)).toEqual([]);
     act(() => (el.querySelectorAll('.cw-fold-head')[1] as HTMLButtonElement).click());
     expect(lines(el)).toEqual(['|-[three]', '1|+[four]']);
-    // A diff that names no file is folded under words that say it is the change.
-    expect(texts(draw('@@ -1 +1 @@\n-one\n+two', null, true), '.cw-fold-head')).toEqual(['The change']);
+    // A diff of one file says only that it is the diff: the words it stands under name the file already.
+    const one = ['diff --git a/a.md b/a.md', '--- a/a.md', '+++ b/a.md', '@@ -1 +1 @@', '-one', '+two'].join('\n');
+    expect(texts(draw(one, null, true), '.cw-fold-head')).toEqual(['The diff']);
+    expect(texts(draw('@@ -1 +1 @@\n-one\n+two', null, true), '.cw-fold-head')).toEqual(['The diff']);
   });
 });
