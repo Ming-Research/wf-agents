@@ -60,15 +60,6 @@ run above the third, looks apart from it. Telling the levels apart by hue was tu
 green each mean a state already (principle scarce-emphasis), and no four hues clear of them were found. The strip marks
 the cell the work stands at, so naming it as well said one thing twice (Article 8).
 
-### decision a-works-age-is-red-past-an-hour
-A console card gives its work's age, and a work's history how long each run took, in three colours and no more: grey
-under half an hour, amber from half an hour to an hour, and red past an hour, however long; amber and red as the
-page's orange text and red.
-Why: Red says a problem, and a work not done within an hour is one, so it stands out as one; a run that goes on past an
-hour holds its work as long, and the same time drawn alike is learnt once (Article 8). A fourth colour past a day would
-be one more meaning to learn. A line from the work's own history loses: it says nothing until the history holds enough
-works, and among works that all run long, a long one does not stand out.
-
 ### decision a-cancelled-work-is-grey
 The mark of a cancelled work, in the list of works and on the console, is grey and never red.
 Why: The owner reads a red mark as a fault.

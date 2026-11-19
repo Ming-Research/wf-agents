@@ -237,7 +237,7 @@ function DividerRow({ row, span }: { row: HistoryRow; span: number }) {
 }
 
 /// A run: what woke it, the arrow and its mark under the cells, how long it took, coloured as a card colours a work's
-/// age (decision a-works-age-is-red-past-an-hour), and what it ran on.
+/// age, and what it ran on.
 function StepRow(props: {
   row: HistoryRow;
   cells: Cell[];
