@@ -340,7 +340,6 @@ export const ENDS_WORDS = {
   goOn: { label: 'Let it go on', title: 'Give the run its next round past its limit' },
   letGo: { label: 'Let it go on', title: 'Run the cell again past its limit' },
   resume: { label: 'Resume', title: "Lift the engine's pause and let the work go on" },
-  resumeEverything: { label: 'Resume all', title: "Lift the engine's pause of every work and let every work go on" },
 } as const;
 
 /// What the card of a block the owner may write says on its button, which writes the value picked, and on pointing at
@@ -357,10 +356,6 @@ export const SHOW_QUESTION = 'Show the question this points to';
 
 /// The mark on the option the owner took in a question answered, said on pointing at it.
 export const TAKEN = 'The option you took';
-
-/// Why what the owner pressed to act on the engine as a whole was not sent: the page was drawn with no engine to send
-/// it to.
-export const NO_ENGINE = 'The page has no engine to send it to';
 
 /// What the switch that pauses a work is: the owner's own pause of it, which the engine's pause is not.
 export const OWN_PAUSE = {

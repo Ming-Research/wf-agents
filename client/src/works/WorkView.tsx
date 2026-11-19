@@ -190,7 +190,6 @@ export function WorkScreen({ page, failed = null, onActed, run, active = true }:
               page={{ page }}
               act={act}
               loadVersion={source.loadVersion}
-              actEngine={source.actOnEngine}
               open={win.open && active}
               titleHref={hashOf({ view: 'console', item: item.number })}
               row={row}

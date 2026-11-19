@@ -491,7 +491,7 @@ function drawBlocks(blocks: Block[], pointers: Pointers | undefined, held: Set<s
         const diagram = diagramKind(block.lang);
         drawn.push(
           block.lang === 'diff' ? (
-            <Diff key={key} text={block.text} />
+            <Diff key={key} text={block.text} folded />
           ) : diagram !== null ? (
             <Diagram key={key} kind={diagram} source={block.text} />
           ) : (

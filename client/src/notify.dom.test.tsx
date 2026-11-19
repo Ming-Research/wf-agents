@@ -86,7 +86,6 @@ const KINDS: Wait[] = [
   wait('answer-scope', 'What of scope?', { kind: 'answer', question: 'scope', version: 4 }),
   wait('limit', "The cell's run had 2 returns sent back, its limit.", { kind: 'goOn', call: 4 }),
   wait('pause', 'The engine paused the work. A round failed.'),
-  wait('held', 'The engine paused every work as it started again.', { kind: 'resumeEverything' }),
   wait('write-content', '`content` keeps `test = may_merge` from holding.', {
     kind: 'write',
     block: 'content',
@@ -142,7 +141,9 @@ describe("the browser's notifications", () => {
     // After the cell the work stands at, as a line names it: a name or a value in backticks is said bare, as a
     // notification has no monospace.
     const bare = KINDS.map((w) => `implement · ${w.why.replace(/`/g, '')}`);
-    expect(bare[5]).toBe('implement · content keeps test = may_merge from holding.');
+    expect(bare[KINDS.findIndex((w) => w.key === 'write-content')]).toBe(
+      'implement · content keeps test = may_merge from holding.',
+    );
     expect(Told.made.map((n) => n.options.body)).toEqual([...bare, 'implement · Which way?']);
     for (const n of Told.made) {
       expect(n.title).toBe("Waiting for you: #142 Keep the panel's width");
