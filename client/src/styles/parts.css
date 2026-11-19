@@ -213,6 +213,13 @@ button {
   background: var(--muted);
 }
 
+/* The engine's own pause of every work, which it takes as it starts again on works that were going on: in the red of
+   what waits for the owner, since nothing goes on until they say so and nobody but them can say it. The owner's own
+   pause is theirs to lift when they mean to, and stays in the muted colour. */
+.engine-dot-held {
+  background: var(--red);
+}
+
 .engine-dot-off {
   background: var(--red);
 }

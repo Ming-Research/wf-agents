@@ -81,7 +81,7 @@ export function Engine({ items, failed }: { items: Items | null; failed: string 
     ? ['run', running === 0 ? 'Running' : `Running: ${running} ${running === 1 ? 'round' : 'rounds'}`]
     : running > 0
       ? ['pausing', `Pausing: ${running} ${running === 1 ? 'round' : 'rounds'} finishing`]
-      : ['paused', byEngine ? 'Paused by the engine' : 'Paused by you'];
+      : [byEngine ? 'held' : 'paused', byEngine ? 'Paused by the engine' : 'Paused by you'];
   return (
     <div className="engine">
       <span
