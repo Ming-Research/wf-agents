@@ -46,8 +46,11 @@ impl Budget {
     }
 }
 
-/// What the work had spent by this place, in millionths of a dollar: every round of it that had ended by then and
-/// every keep-warm ping of it, which count in its spend as its rounds do.
+/// What the work had spent by this place, in millionths of a dollar: every round of it that had begun by then, with
+/// every keep-warm ping of it that had ended, which count in its spend as its rounds do. The rounds are counted from
+/// where each began, not from where it ended: the engine records the pause of a work before the return of the round
+/// whose end pauses it (crate `service`), so the round that took the work over what it might spend ends after that
+/// pause, and counted from its end it would be left out of what the pause was for.
 fn spent_by(work: &Work, at: Seq) -> u64 {
     let r = &work.records;
     let mut counted: Vec<RunId> = Vec::new();
@@ -55,8 +58,7 @@ fn spent_by(work: &Work, at: Seq) -> u64 {
     for round in &r.rounds {
         counted.push(round.run);
         let k = counted.iter().filter(|x| **x == round.run).count();
-        let ended = (r.returned.iter()).filter(|e| e.run == round.run).nth(k - 1);
-        if ended.is_some_and(|ended| ended.at <= at) {
+        if round.at < at {
             usd += work.spent.get(&(round.run, k)).map_or(0, |spent| spent.usd_micros);
         }
     }
@@ -137,6 +139,33 @@ mod tests {
         // Its pause holding, the bar is the one the pause was judged by: the letting-on that lifts it raises it.
         let holding = [once[0], once[1], (41, Pauser::Engine, true)];
         assert_eq!(BUDGET.bar(&work(&rounds, &holding)), 1_500_000);
+    }
+
+    #[test]
+    fn the_round_whose_end_pauses_the_work_counts_in_what_it_had_spent_at_that_pause() {
+        // The engine records the pause of a work before the return of the round whose end pauses it, so that round's
+        // spend is recorded after the pause: counted from where the round began, it is what the pause was for.
+        let mut work = Work::default();
+        let run = RunId(1);
+        let pause = |paused, at, by| Pause {
+            paused,
+            at: Seq(at),
+            by,
+            why: None,
+        };
+        work.records.rounds.push(Round { run, at: Seq(1) });
+        work.records.pauses.push(pause(true, 2, Pauser::Engine));
+        work.records.returned.push(Returned { run, at: Seq(3) });
+        work.spent.insert(
+            (run, 1),
+            Spent {
+                usd_micros: 1_200_000,
+                ..Spent::default()
+            },
+        );
+        assert_eq!(BUDGET.bar(&work), 1_000_000, "its pause holding");
+        work.records.pauses.push(pause(false, 4, Pauser::Owner));
+        assert_eq!(BUDGET.bar(&work), 1_500_000);
     }
 
     #[test]
