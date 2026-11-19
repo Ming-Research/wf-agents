@@ -3,90 +3,40 @@
 Read these rules as an engineer who knows the system and has common sense: judge by what each rule is for, and do
 not pick at its words.
 
-## What the tree is
-
 The code is the result: it shows how a thing is done. The design tree holds what an agent going by the code would get
-wrong; that the code shows what an entry says to do is no ground for leaving the entry out.
+wrong: what was wanted, and what holds because of it. That the code shows what an entry says to do is no ground for
+leaving the entry out. Comments are not the code, and where a comment and an entry differ, the entry holds.
 
-Comments are not the code: what the code shows does not include what a comment says. Comments never go against the
-tree: where a comment and an entry differ, the entry holds and the comment is put right.
+## What is in it
 
-The tree is `design/`. It holds three kinds of thing:
+- `constitution.md`: what the project is for and its lasting values. The owner sets it, and it decides where two
+  entries pull apart.
+- `principles/`: the owner's rules for whatever is made later. A principle may come before the code, and no decision
+  excuses a breach of one. An agent that finds one missing or wrong proposes the change to the owner.
+- `decisions/`: what holds at one thing, written by the work that makes it true. A decision says only what the code
+  does on the branch the works merge into: a work that makes one untrue rewrites or deletes it, and deletes one it
+  finds not to belong here.
 
-- the constitution, `constitution.md`;
-- the principles, in `principles/`;
-- the decisions, in `decisions/`.
+Each directory is a tree of concepts and does not follow the layout of the code. An entry is written once, in the
+file of the lowest concept that holds everything it concerns; what is common to several is in the file of the concept
+above them. Decisions in several files that rest on one want are one principle, to be proposed.
 
-`principles/` and `decisions/` are each a tree of concepts: a concept, its narrower concepts under it, as deep as is
-useful. The tree follows the concepts of the design and not the layout of the code. An entry is written once, at the
-lowest concept that holds everything it concerns: what concerns one concept is in that concept's file, and what is
-common to several is in the file of the concept that holds them, up to the whole system. A concept's file is named
-for it, and its narrower concepts are in a directory of the same name beside it.
+A design written as a whole, and what is yet to be built, is in `docs/`, outside the tree.
 
-## How it is used
+An agent reads the constitution whole, then both directories from the top down to each concept its work changes or
+relies on, and the document in `docs/` of a design it works on.
 
-An agent taking the work up in another session reads the code for how, and the tree for what it would otherwise get
-wrong. It reads the constitution whole; then the principles and the decisions from the top of each tree down to each
-concept its work changes or relies on, whole.
-
-Where the right solution needs a decision changed, the work changes it. An agent that finds the constitution or a
-principle missing or wrong, or whose right solution breaks one, says so and proposes the change.
-
-## The three kinds
-
-### The constitution
-
-The constitution holds what the project is for and its lasting values. No principle or decision goes against it, and it
-decides where two of them pull apart. An entry may rest on one of its articles by naming it. The owner sets it and
-changes it.
-
-### A principle
-
-A principle is a rule that whatever is made later must follow, with its reason. It speaks of every thing of a kind,
-those not yet made included, or of every time a kind of work is done; the kind may be wide or narrow. A rule for
-everything in one part of the system, what is added to that part later included, speaks of a kind and is a principle.
-
-It is not a principle where it speaks of one thing that is there and binds nothing made later: that is a decision.
-Nor where the constitution already says it: one that adds to an article says only what is new, and names what it
-rests on.
-
-Principles are the owner's and may come before the code. No decision excuses a breach of a principle.
-
-### A decision
-
-A decision is about one thing, an ability or a component. It enters only if an agent that has read the code and the
-principles would still change the code wrongly there, which is one of three things: a way that was considered and
-turned down, which leaves no trace in the code and which a later agent would take up again; something done on purpose
-that looks like a fault or an omission, which a later agent would mend; a relation between two places that neither of
-them shows.
-
-A decision is never ahead of the code: it says what the code does, and what is yet to be built is said in `docs/`,
-outside the tree.
-
-## Writing an entry
-
-A principle and a decision are each a few lines, in one form, a principle under `### principle <name>`:
+## An entry
 
 ```
 ### decision <a-short-name>
-<What holds, in one or two sentences.>
+<What is wanted, or what is given>, so <what holds>.
 Not knowing this, an agent would <do what, what leads it there, and what would then go wrong>.
 ```
 
-- A decision is written at the concept an agent would be working on when it changed the code wrongly; where that
-  could be more than one, at the concept that holds them.
-- No identifier from the code (a function, a type, a file). The system's own terms, a field or a value of a format an
-  agent meets, a setting's key, and the names of principles and decisions may be used.
-- No word that dates the entry. What stands behind it (when it was settled, what was tried) is in the pull request of
-  the work; the case or the number that shows what would go wrong may be a clause of the entry.
-- Where what would go wrong rests on judgment, with no measurement or case behind it, the entry says so.
+A principle is written the same, under `### principle <name>`. What an article or an entry above already says is
+named, as `(Article 3)` or `(principle <its-name>)`, and not said again; what rests on judgment, with no case or
+measurement behind it, says so.
 
-## Changing the tree
-
-A decision is added by the work that makes it true. A change that makes a decision untrue rewrites or deletes it in the
-same work, and an entry found not to belong here is deleted by the work that finds it. The files of decisions hold only
-what the code on the branch the works merge into does.
-
-A principle and a decision, or two decisions, that cannot both hold are a fault of the tree. A file of decisions that
-grows long is itself a sign: what no longer belongs here is deleted from it, and decisions in more than one file that
-rest on one reason are one principle, to be proposed as such.
+An entry is these two lines and nothing more. CI refuses a file whose entries are not: two lines with these opening
+words, at most 80 words each, no date, no path into the code, and every entry it names being in the tree.
