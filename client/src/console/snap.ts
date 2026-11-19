@@ -83,40 +83,44 @@ export const RUN = {
   /// would be read as a link like the funnels under it; the light is what says the work on it is running now, as the
   /// dashes that moved along it said before, and it says it standing still, where a dash said it only by moving.
   ///
-  /// It is drawn as a cord of light, in coats one over another: a wide bloom on the ground, a softer light within it, a
-  /// glow round the line, and the line itself; each a width in pixels and a strength. Where the page is dark the coats
-  /// are added to the ground ([`adding`]), as light is, so that they tell on it.
-  bloom: 18,
-  bloomAlpha: 0.04,
-  soft: 9,
-  softAlpha: 0.08,
-  glow: 5,
-  glowAlpha: 0.13,
+  /// It is drawn as a cord of light: its line, sharp, and the glow round it, which is the same line drawn wider and
+  /// blurred, once close round it and once further out. Blurred, the glow falls away smoothly with the distance from
+  /// the line, as light does; lines of fixed widths laid one over another for it read as bands with edges, not as a
+  /// glow. Each is a width in pixels and a strength, and each glow how far it is blurred. Where the page is dark all
+  /// of it is added to the ground ([`adding`]), as light is, so that it tells on it.
   line: 1.4,
   lineAlpha: 0.8,
+  near: 4,
+  nearAlpha: 0.9,
+  nearBlur: 4,
+  far: 10,
+  farAlpha: 0.3,
+  farBlur: 14,
   /// Where the page is light the way cannot be lit, a light added to a light ground telling nothing. There the way is
   /// drawn as a line of the running colour, darker than the page, and the light running down it as a near white glint
-  /// within that line and narrower than it, which is how a light reads on a dark thing; its bloom and the coats under
-  /// the line, which are laid as ink there and tell far more strongly than light on a dark ground, are drawn fainter.
-  /// These are how much wider the way's line is drawn there, how strongly, how much of the light's own width its
-  /// glint takes, and how much fainter the coats go.
+  /// within that line and narrower than it, which is how a light reads on a dark thing; the glow round the line, which
+  /// is laid as ink there and tells far more strongly than light on a dark ground, is drawn fainter. These are how much
+  /// wider the way's line is drawn there, how strongly, how much of the light's own width its glint takes, and how much
+  /// fainter the glow goes.
   inkLine: 2.1,
   inkAlpha: 0.95,
   inkGlint: 1,
-  inkRest: 0.5,
+  inkRest: 0.3,
   /// The line is thinner at its ends than in the middle, as a cord drawn tight between two cards is: how thin, as a
   /// part of its width, and in how many lengths it is drawn, each at the width of its own middle.
   ends: 0.35,
   wide: 8,
   /// One light runs the whole way down from each root, over every card and way under it, to the item whose work runs:
-  /// how long the light is, in pixels, and how long one run takes, in milliseconds. A run is a time and not a speed:
-  /// the ways move while the columns glide, so the length of a run changes under the light, and a speed would then
-  /// put its head at a new place each frame, which reads as a flicker. A card counts for its own width ([`NODE_W`]),
-  /// as a way counts for its length, so that the light goes over a card no faster than over a way. Everything is
-  /// measured from the left side of a root's card, so that the light goes on from one way to the next without a
-  /// break, and where the ways under a root fork it goes down both. Every root's light begins at one moment and they
-  /// begin again together, once the furthest item of all has been reached, so that what runs across the page is read
-  /// as one sweep and no two roots drift apart.
+  /// how long the light is, in pixels across the page, and how long one run takes, in milliseconds. A run is a time
+  /// and not a speed: the ways move while the columns glide, so the length of a run changes under the light, and a
+  /// speed would then put its head at a new place each frame, which reads as a flicker. Everything is measured across
+  /// the page, from the left side of the roots' cards: the light's head is a place across the page, where it stands
+  /// on every way and every card at once, so that it goes on from one way to the next without a break, goes down
+  /// both where the ways under a root fork, and stands level on ways of every steepness: a steep way's curve is longer
+  /// than a shallow one's over the same distance across, so that measured along each way the heads on the longer
+  /// curves would fall behind. A way counts for how far it goes across, and a card for its width. Every root's light
+  /// begins at one moment and they begin again together, once the furthest item of all has been reached, so that what
+  /// runs across the page is read as one sweep and no two roots drift apart.
   light: 140,
   beat: 1500,
   /// Between one run and the next the ways are dark for a moment: how long, in milliseconds. Without it a run begins
@@ -128,49 +132,72 @@ export const RUN = {
   /// power its distance goes by with the part of the run gone, 1 being one speed throughout and more than 1 starting
   /// slower and ending faster.
   ease: 1.8,
-  card: NODE_W,
   /// The light running down the way is the way's own line, brighter and wider where the light is, as a wire is where
-  /// the current is in it: its bloom, the softer light within it and its line, each a width in pixels and a strength;
-  /// and how many lengths it is drawn in, each brighter than the one behind it, so that it fades out behind its head.
-  lightBloom: 28,
-  lightBloomAlpha: 0.09,
-  lightSoft: 12,
-  lightSoftAlpha: 0.16,
+  /// the current is in it: its line and its glow close in and further out, blurred as the way's are, each a width in
+  /// pixels and a strength; and how many lengths it is drawn in, each brighter than the one behind it, so that it
+  /// fades out behind its head.
   lightLine: 2.8,
   lightAlpha: 0.95,
+  lightNear: 6,
+  lightNearAlpha: 0.7,
+  lightFar: 16,
+  lightFarAlpha: 0.45,
   lightPieces: 16,
+  /// The way's line is a cord of strands: hairs of light beside the line, each at its own distance out from it and its
+  /// own strength, gathered close round it and faint at rest, and parted where the light is, as a cord of fibres is
+  /// where the current in it is strong; parted, each runs beside the line at its own distance, level with the others
+  /// and not narrowing towards the light's head, and at either end of the way they gather into the line, where it
+  /// meets a card. How many strands, how wide each is (a whole pixel at least, a thinner line being drawn broken), how
+  /// strong at the light's head and, as a part of that, at rest, and how far out the outermost stands at rest and
+  /// where the light is, in pixels.
+  strands: 14,
+  strand: 1,
+  strandAlpha: 0.4,
+  strandRest: 0.35,
+  spreadRest: 2.5,
+  spread: 9,
+  /// Parted, the strands come in from nothing over this part of the light's length behind its head, so that they do
+  /// not stop short at the head, which the light's own line and glow hold.
+  strandIn: 0.2,
+  /// The light is the colour of a light (`pulse`) where it is brightest and the running colour where it fades, so that
+  /// what runs is seen as a light passing and not as the way itself brightening; the way at rest is the running colour
+  /// alone, which the accent picked gives. How far the glow, the strands and the cards' edges the light lights go from
+  /// the running colour towards it at the light's head.
+  hue: 0.8,
   /// How far the line of the way, of the light and of the spark is taken towards `glowTo`, which is what makes it read
   /// as a light and not as a line of the accent.
   core: 0.55,
   /// Two lights are drawn over the cards, where the ways run under them: the one where a way meets a card, which
   /// stands at both ends of every way lit, and a card's edge as a light crosses it, which comes and goes with the
-  /// light. Both are laid in the same coats as a way's line ([`RUN.bloom`] and the rest), so that each reaches past
+  /// light. Both are laid as a way's line is, with its glow ([`RUN.near`] and the rest), so that each reaches past
   /// the line it lies along and falls away with the distance from it, as the light on a way does; these are the parts
   /// of a way's widths they take, a card's edge being thinner than a way and a way's end a little wider, so that the
   /// way is seen to go on into the card.
   edgeWide: 0.8,
   portWide: 1.2,
-  /// The light at a way's end lies along the card's border, as the way's own line carries it along the way: from where
-  /// the way meets the card it goes both ways along that edge, round the corner and on along the card's top and
-  /// bottom towards its middle, fading as it goes, so that a card on a way is lit at both its ends and dark between
-  /// them. How far it reaches along the border each way, and in how many lengths it is drawn, each fainter than the
-  /// one before.
-  portReach: 90,
+  /// The light at a way's end is a flare along the card's edge the way meets, burning white where the way meets it,
+  /// as the way's own line carries the light along the way: the way's line turns into the edge both ways in a short
+  /// curve, so that the light is seen to flow from one into the other and not to stop against it, and goes on along
+  /// the edge, falling away from the point, so that the point reads as the hottest place. It lies along the card's
+  /// own edge alone and never goes round the corner, so that the card's border elsewhere stays one colour, its own.
+  /// How far the flare reaches along the edge each way, as a part of the edge from the point to the corner; in how
+  /// many lengths it is drawn; how steeply it falls away along them (1 falling evenly, more falling faster near the
+  /// point); and how far along the way and the edge the curve between them begins and ends, in pixels.
+  portHold: 1,
   portPieces: 8,
+  portFall: 0.7,
+  fillet: 5,
+  /// At the point a glare, drawn out along the edge as the flare is, which is most of what is seen of the point: a
+  /// point read as hot, and not as a dot, is a small core in a wide glow. How wide its core is, in pixels, how many
+  /// times taller than wide it is drawn, and how strong the glow round it is.
+  spot: 1.1,
+  spotTall: 4,
+  spotGlow: 1,
   /// It burns at this much of its strength while the light is elsewhere on the way, and up to the full as the light's
-  /// head goes through it, which is also how much further it reaches along the edge; it takes the light's brightness
-  /// from this far along the way to either side of it, so that it burns up as the head comes and falls away as it
-  /// goes.
-  portRest: 0.6,
-  portWidens: 0.35,
+  /// head goes through it; it takes the light's brightness from this far along the way to either side of it, so that
+  /// it burns up as the head comes and falls away as it goes.
+  portRest: 0.8,
   portNear: 24,
-  /// Where the light does not reach it, the card's own edge is faded towards the page, so that the two ends of a card
-  /// on a way, which the light stands at, tell against its middle: how far it is faded at the middle of the card,
-  /// where the fade is strongest, and in how many lengths it is drawn, the fade coming in from nothing at either end
-  /// and strongest between them. It is laid as ink in both themes, where the lights are added on a dark page: a light
-  /// cannot take light away, and it is light the card's middle is to lose.
-  fade: 0.55,
-  fadePieces: 8,
   /// How many straight pieces a way's curve is drawn in: enough that its bend reads as curved; and how near two places
   /// along a way count as one, in pixels, which tells the head of a light from a light the way has cut short.
   pieces: 32,
@@ -208,6 +235,30 @@ function softBlur(strength: number): BlurFilter {
   blur.padding = BLUR_ROOM * strength;
   return blur;
 }
+
+/// A layer of light: its lines, drawn sharp, and the glow round them close in and further out, the same lines drawn
+/// wider on layers of their own and blurred ([`RUN.near`], [`RUN.far`]).
+type Lit = { line: Graphics; near: Graphics; far: Graphics; nearBlur: BlurFilter; farBlur: BlurFilter };
+
+function litLayer(): Lit {
+  const nearBlur = softBlur(RUN.nearBlur);
+  const farBlur = softBlur(RUN.farBlur);
+  return {
+    line: new Graphics(),
+    near: new Graphics({ filters: [nearBlur] }),
+    far: new Graphics({ filters: [farBlur] }),
+    nearBlur,
+    farBlur,
+  };
+}
+
+/// Blurs `blur` `strength` strong, with its room, where it is not already.
+function blurTo(blur: BlurFilter, strength: number) {
+  if (blur.strength === strength) return;
+  blur.strength = strength;
+  blur.padding = BLUR_ROOM * strength;
+}
+
 /// The mark of a cell running pulses: lit most of each beat, it fades out and back in during the last part of it, the
 /// part the works page's marks fade in too (styles/works.css, `mark-pulse`). How long a beat is, in milliseconds, and
 /// how faint the mark goes at its faintest are the page's tokens (`--pulse`, `--pulse-faint`), read as the scene is
@@ -278,6 +329,9 @@ const LIGHT = {
   /// the page is dark it reads against the ground; where it is light it reads against the way's own line, which is
   /// drawn dark there ([`RUN.inkLine`]), as a glint on a dark thing does.
   glowTo: '#ffffff',
+  /// The colour of the light running down a way where it is brightest ([`RUN.hue`]): a violet beside the running
+  /// colour, apart from the red of what waits for the owner.
+  pulse: '#b46cff',
   /// The accent: the mark on the map of where the item selected stands.
   chosen: '#3673f5',
   chosenRibbon: '#d0ddff',
@@ -367,8 +421,9 @@ export function grounded(item: number, x: number, y: number, h: number, boxed: b
   );
 }
 
-/// A way's curve: the points it is drawn in, and how far along it each of them stands.
-type Way = { points: [number, number][]; along: number[] };
+/// A way's curve: the points it is drawn in, how far along it each of them stands, and the way square to it at each,
+/// one pixel long, to which a strand beside it is moved out.
+type Way = { points: [number, number][]; along: number[]; across: [number, number][] };
 
 /// The light on a stretch `length` long that begins `dist` down from the left side of its root's card, the light's
 /// head `head` down from it now: the pieces the light is drawn in, each from and to how far along the stretch it
@@ -406,8 +461,25 @@ export function thickAt(u: number): number {
   return RUN.ends + (1 - RUN.ends) * Math.sin(Math.PI * u);
 }
 
-/// Whether what is drawn as light is added to the ground: on the dark ground it is, as light is, so that a bloom
-/// tells on it and the coats of a cord of light build up; on the light ground adding it would wipe it out, and it is
+/// How far out from the line the strands stand `u` along the way, from 0 to 1, as a part of how far they stand at the
+/// most: none at either end, where the way meets a card and they gather into its line, rising steeply from there and
+/// nearly level along the middle, so that between the ends they run beside the line and do not swell and narrow.
+export function gatherAt(u: number): number {
+  return Math.sqrt(Math.sin(Math.PI * Math.min(1, Math.max(0, u))));
+}
+
+/// Where strand `s` stands beside the line, from -1 to 1 across it, and how strongly it is drawn, as a part of the
+/// light. The strands are scattered across the line and in strength by two sequences that never repeat, the golden
+/// ratio's and the plastic number's, so that no two stand together and none follows its neighbour in order; the
+/// outer ones are fainter, as the light thins out from the line.
+export function strandOf(s: number): { side: number; own: number } {
+  const side = 2 * (((s + 0.5) * 0.6180339887) % 1) - 1;
+  const own = (0.35 + 0.65 * (((s + 0.5) * 0.7548776662) % 1)) * (1 - 0.5 * Math.abs(side));
+  return { side, own };
+}
+
+/// Whether what is drawn as light is added to the ground: on the dark ground it is, as light is, so that its glow tells
+/// on it and the line, its glow and its strands build up; on the light ground adding it would wipe it out, and it is
 /// drawn as ink is.
 export function adding(): boolean {
   return getComputedStyle(document.documentElement).colorScheme === 'dark';
@@ -428,6 +500,7 @@ export function themed(): typeof LIGHT {
     mapBar: turn(LIGHT.mapBar, 'read'),
     hoverRibbon: turn(LIGHT.hoverRibbon, 'tint'),
     chosenRibbon: turn(LIGHT.chosenRibbon, 'tint'),
+    pulse: turn(LIGHT.pulse, 'read'),
   };
   const t = {
     ink: token('--text', LIGHT.ink),
@@ -711,11 +784,9 @@ export class SnapScene {
   private links = new Graphics();
   /// The lit ways from the items whose work runs up to their roots, drawn anew each frame over the funnels; and what
   /// of them is drawn over the cards instead: the spark where a way meets a card, and a card's edge as a light crosses
-  /// it, which the cards, drawn over the ways, would else hide.
-  private runLines = new Graphics();
-  private runEdges = new Graphics();
-  /// The middle of each card on a way, its own edge faded towards the page, under the lights over the cards.
-  private runDim = new Graphics();
+  /// it, which the cards, drawn over the ways, would else hide. Each is lines and their glow ([`Lit`]).
+  private runLines = litLayer();
+  private runEdges = litLayer();
   /// Whether what they draw is added to the ground, as the theme has it ([`adding`]).
   private adds = false;
   /// The soft lights behind the item selected and the item under the pointer, drawn anew each frame where they stand,
@@ -856,13 +927,16 @@ export class SnapScene {
     this.themes = { media, root, accent: onAccent(this.retheme) };
     this.world.addChild(
       this.links,
-      this.runLines,
+      this.runLines.far,
+      this.runLines.near,
+      this.runLines.line,
       this.hoverGlow,
       this.chosenGlow,
       this.glowGround,
       this.layer,
-      this.runDim,
-      this.runEdges,
+      this.runEdges.far,
+      this.runEdges.near,
+      this.runEdges.line,
       this.marks,
     );
     this.app.stage.addChild(this.world, this.edges, this.map);
@@ -1469,7 +1543,12 @@ export class SnapScene {
     for (let n = 1; n <= RUN.pieces; n += 1) {
       along.push(along[n - 1] + Math.hypot(points[n][0] - points[n - 1][0], points[n][1] - points[n - 1][1]));
     }
-    return { points, along };
+    const across = points.map((_, n): [number, number] => {
+      const [a, b] = [points[Math.max(0, n - 1)], points[Math.min(RUN.pieces, n + 1)]];
+      const run = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      return [-(b[1] - a[1]) / run, (b[0] - a[0]) / run];
+    });
+    return { points, along, across };
   }
 
   /// How wide a lit line is drawn, wherever it runs: as it is where the page is dark, and wider where the page is
@@ -1490,81 +1569,72 @@ export class SnapScene {
   private lighting() {
     this.adds = adding();
     const how = this.adds ? 'add' : 'normal';
-    this.runLines.blendMode = how;
-    this.runEdges.blendMode = how;
-  }
-
-  /// Lays a light over the cards in the coats a way's line is drawn in: the bloom, the softer light within it, the
-  /// glow round the line and the line itself, each narrower than the one under it and brighter, so that the light
-  /// reaches past the line it lies along and falls away with the distance from it. `lay` draws that line, once for
-  /// each coat; `wide` is the part of a way's widths the coats take, and `alpha` the strength of all of them.
-  private coats(lay: () => void, colour: number, core: number, alpha: number, wide: number, nose = false) {
-    const coat = (width: number, strength: number, paint: number) => {
-      lay();
-      const cap = nose ? 'round' : 'butt';
-      this.runEdges.stroke({ color: paint, width: width * wide, alpha: alpha * strength, cap });
-    };
-    coat(RUN.bloom, RUN.bloomAlpha, colour);
-    coat(RUN.soft, RUN.softAlpha, colour);
-    coat(RUN.glow, RUN.glowAlpha, colour);
-    coat(this.lineWidth, RUN.lineAlpha, core);
-  }
-
-  /// The middle of a card on a way, its own edge faded towards the page from nothing at either end to [`RUN.fade`]
-  /// between them, so that the ends the light stands at tell against it. The card stands at `x`, its middle at `y`
-  /// with `half` its height.
-  private fade(x: number, y: number, half: number, strength: number) {
-    for (let n = 0; n < RUN.fadePieces; n += 1) {
-      const [from, to] = [(NODE_W * n) / RUN.fadePieces, (NODE_W * (n + 1)) / RUN.fadePieces];
-      this.runDim.moveTo(x + from, y - half).lineTo(x + to, y - half);
-      this.runDim.moveTo(x + from, y + half).lineTo(x + to, y + half);
-      this.runDim.stroke({
-        color: PALETTE.page,
-        width: EDGE_WIDTH,
-        alpha: strength * RUN.fade * Math.sin((Math.PI * (n + 0.5)) / RUN.fadePieces),
-        cap: 'butt',
-      });
+    for (const lit of [this.runLines, this.runEdges]) {
+      lit.line.blendMode = how;
+      // A layer blurred is laid on the page by its blur, which takes the blend from its filter and not its own.
+      lit.nearBlur.blendMode = how;
+      lit.farBlur.blendMode = how;
     }
   }
 
-  /// The light where a way meets a card, at `(x, y)` on the card's edge, at `strength`, `burn` from 0 to 1 as the
-  /// light goes through it: it lies along the edge the way meets, reaching further and burning brighter as the light
-  /// comes and fading out as it goes each way along it. Along the way itself the way's own line carries it.
+  /// Lays a light over the cards as a way's line is laid, with its glow: the line itself, and the glow close round it
+  /// and further out, so that the light reaches past the line it lies along and falls away with the distance from it.
+  /// `lay` draws that line on the layer it is given, once for the line and once for each glow; `wide` is the part of a
+  /// way's widths they take, and `alpha` the strength of all of them. The glow is fainter where the page is light, as
+  /// a way's is ([`RUN.inkRest`]).
+  private coats(lay: (g: Graphics) => void, colour: number, core: number, alpha: number, wide: number, nose = false) {
+    const coat = (g: Graphics, width: number, strength: number, paint: number) => {
+      lay(g);
+      const cap = nose ? 'round' : 'butt';
+      g.stroke({ color: paint, width: width * wide, alpha: alpha * strength, cap });
+    };
+    const rest = this.adds ? 1 : RUN.inkRest;
+    coat(this.runEdges.far, RUN.far, RUN.farAlpha * rest, colour);
+    coat(this.runEdges.near, RUN.near, RUN.nearAlpha * rest, colour);
+    coat(this.runEdges.line, this.lineWidth, RUN.lineAlpha, core);
+  }
+
+  /// The light where a way meets a card, at `(x, y)` on the card's edge, `half` its height, the way coming in against
+  /// `inward`, at `strength`, `burn` from 0 to 1 as the light goes through it: it lies along the edge the way meets,
+  /// burning brighter as the light comes and fading out as it goes each way along it, in the light's colour as it goes
+  /// through (`tint`). Along the way itself the way's own line carries it.
   private spark(
     x: number,
     y: number,
     half: number,
     inward: number,
-    colour: number,
+    tint: (bright: number) => number,
     line: number,
     glint: number,
     strength: number,
     burn: number,
   ) {
-    const reach = RUN.portReach * (1 - RUN.portWidens + RUN.portWidens * burn);
     // The glint comes only with the light itself: at rest the way's end is lit, not glinting.
     const going = Math.max(0, (burn - RUN.portRest) / (1 - RUN.portRest));
-    // Where the border stands `d` from the way's end, going `side` up or down it: along the card's own edge while
-    // it lasts, then round the corner and along its top or bottom, `inward` towards the card's middle.
-    const at = (side: number, d: number): [number, number] =>
-      d <= half ? [x, y + side * d] : [x + inward * (d - half), y + side * half];
+    const reach = RUN.portHold * half;
+    // The flare's own line is white where the page is dark, the hottest of the light; where it is light, the way's
+    // ink line, which the glint reads within.
+    const white = Number.parseInt(PALETTE.glowTo.slice(1), 16);
+    const core = this.adds ? white : line;
+    // The way's line turning into the edge, up and down it, from where the way comes in from outside the card.
+    const turn = (g: Graphics) => {
+      for (const side of [-1, 1]) {
+        g.moveTo(x - inward * RUN.fillet, y).quadraticCurveTo(x, y, x, y + side * RUN.fillet);
+      }
+    };
+    this.coats(turn, tint(going), core, strength * burn, RUN.portWide);
     for (let n = 0; n < RUN.portPieces; n += 1) {
       const [near, far] = [(reach * n) / RUN.portPieces, (reach * (n + 1)) / RUN.portPieces];
-      const fade = 1 - (n + 0.5) / RUN.portPieces;
-      const lay = () => {
-        for (const side of [-1, 1]) {
-          this.runEdges.moveTo(...at(side, near));
-          // A length that goes round the corner is drawn as the two sides of it.
-          if (near < half && far > half) this.runEdges.lineTo(x, y + side * half);
-          this.runEdges.lineTo(...at(side, far));
-        }
+      const fade = (1 - (n + 0.5) / RUN.portPieces) ** RUN.portFall;
+      const lay = (g: Graphics) => {
+        for (const side of [-1, 1]) g.moveTo(x, y + side * near).lineTo(x, y + side * far);
       };
-      this.coats(lay, colour, line, strength * burn * fade, RUN.portWide);
-      // The glint is laid only where the page is light: where it is dark the line of the coats is the light's own
-      // near white already, and a glint over it would only burn the card's end out.
+      this.coats(lay, tint(going), core, strength * burn * fade, RUN.portWide);
+      // The glint is laid only where the page is light: where it is dark the line under it is the light's own near
+      // white already, and a glint over it would only burn the card's end out.
       if (going > 0 && !this.adds) {
-        lay();
-        this.runEdges.stroke({
+        lay(this.runEdges.line);
+        this.runEdges.line.stroke({
           color: glint,
           width: RUN.lightLine * RUN.portWide * this.glint,
           alpha: strength * going * fade * RUN.lightAlpha,
@@ -1572,37 +1642,48 @@ export class SnapScene {
         });
       }
     }
+    // The point itself, white, with its glow close in and further out, wider as the light goes through it. Only where
+    // the page is dark: on a light page a white point is no light, and the way's ink line holds the point there.
+    if (this.adds) {
+      const wide = RUN.spot * (1 + going);
+      const glow = strength * burn * RUN.spotGlow;
+      const tall = RUN.spotTall;
+      const out = { color: tint(going), alpha: Math.min(1, glow / 2) };
+      this.runEdges.far.ellipse(x, y, wide * 3, wide * 3 * tall).fill(out);
+      this.runEdges.near.ellipse(x, y, wide * 1.5, wide * 1.5 * tall).fill({ color: white, alpha: Math.min(1, glow) });
+      this.runEdges.line.ellipse(x, y, wide, wide * Math.min(2, tall)).fill({ color: white, alpha: strength * burn });
+    }
   }
 
   /// A card's edge as the light crosses it, from the card's left side to its right: the card at `x` with its middle
   /// at `y` and `half` its height, and the pieces of the light `over` its crossing, each where it stands along the
   /// crossing. Each piece lights the card's top and bottom edges between the two places it stands at, and the card's
-  /// own left or right edge where it is at that side.
+  /// own left or right edge where it is at that side, in the light's colour at that piece (`tint`).
   private across(
     x: number,
     y: number,
     half: number,
     over: { from: number; to: number; bright: number }[],
-    colour: number,
+    tint: (bright: number) => number,
     line: number,
     glint: number,
     strength: number,
   ) {
     over.forEach(({ from, to, bright }, n) => {
-      const [x0, x1] = [x + (from / RUN.card) * NODE_W, x + (to / RUN.card) * NODE_W];
-      const nose = n === over.length - 1 && to < RUN.card - NEAR;
-      const lay = () => {
-        this.runEdges.moveTo(x0, y - half).lineTo(x1, y - half);
-        this.runEdges.moveTo(x0, y + half).lineTo(x1, y + half);
-        if (from <= 0) this.runEdges.moveTo(x, y - half).lineTo(x, y + half);
-        if (to >= RUN.card) this.runEdges.moveTo(x + NODE_W, y - half).lineTo(x + NODE_W, y + half);
+      const [x0, x1] = [x + from, x + to];
+      const nose = n === over.length - 1 && to < NODE_W - NEAR;
+      const lay = (g: Graphics) => {
+        g.moveTo(x0, y - half).lineTo(x1, y - half);
+        g.moveTo(x0, y + half).lineTo(x1, y + half);
+        if (from <= 0) g.moveTo(x, y - half).lineTo(x, y + half);
+        if (to >= NODE_W) g.moveTo(x + NODE_W, y - half).lineTo(x + NODE_W, y + half);
       };
-      this.coats(lay, colour, line, strength * bright, RUN.edgeWide, nose);
-      // The glint within that line, as on a way, and only where the page is light: where it is dark the line of the
-      // coats is the light's own near white already.
+      this.coats(lay, tint(bright), line, strength * bright, RUN.edgeWide, nose);
+      // The glint within that line, as on a way, and only where the page is light: where it is dark the line under it
+      // is the light's own near white already.
       if (!this.adds) {
-        lay();
-        this.runEdges.stroke({
+        lay(this.runEdges.line);
+        this.runEdges.line.stroke({
           color: glint,
           width: RUN.lightLine * RUN.edgeWide * this.glint,
           alpha: strength * bright * RUN.lightAlpha,
@@ -1612,26 +1693,39 @@ export class SnapScene {
     });
   }
 
-  /// Adds to the running ways the length of `way` from `from` to `to` along it, to be stroked after.
-  private alongWay(way: Way, from: number, to: number) {
+  /// How far along `way` the place stands that is `across` pixels across the page from where it begins: its curve
+  /// goes rightwards all the way, so that each place across the page is at one place along it.
+  private arcAt(way: Way, across: number): number {
     const { points, along } = way;
-    // The point that stands `at` along the curve, in the piece from point `n`.
+    const at = points[0][0] + across;
+    let n = 0;
+    while (n < RUN.pieces - 1 && points[n + 1][0] < at) n += 1;
+    const span = points[n + 1][0] - points[n][0];
+    const k = span > 0 ? Math.min(1, Math.max(0, (at - points[n][0]) / span)) : 0;
+    return along[n] + (along[n + 1] - along[n]) * k;
+  }
+
+  /// Adds to `g` the length of `way` from `from` to `to` along it, to be stroked after: on the way itself, or, where
+  /// `out` is given, beside it, each place moved square to the way as many pixels as `out` gives for how far along
+  /// the way it stands.
+  private alongWay(g: Graphics, way: Way, from: number, to: number, out?: (at: number) => number) {
+    const { points, along, across } = way;
+    // The place that stands `at` along the curve, in the piece from point `n`.
     const point = (n: number, at: number): [number, number] => {
       const len = along[n + 1] - along[n];
       const k = len > 0 ? (at - along[n]) / len : 0;
-      return [
-        points[n][0] + (points[n + 1][0] - points[n][0]) * k,
-        points[n][1] + (points[n + 1][1] - points[n][1]) * k,
-      ];
+      const on = (i: number, of: [number, number][]) => of[n][i] + (of[n + 1][i] - of[n][i]) * k;
+      const by = out === undefined ? 0 : out(at);
+      return [on(0, points) + on(0, across) * by, on(1, points) + on(1, across) * by];
     };
     let n = 0;
     while (n < RUN.pieces - 1 && along[n + 1] <= from) n += 1;
-    this.runLines.moveTo(...point(n, from));
+    g.moveTo(...point(n, from));
     while (n < RUN.pieces - 1 && along[n + 1] < to) {
       n += 1;
-      this.runLines.lineTo(points[n][0], points[n][1]);
+      g.lineTo(...point(n, along[n]));
     }
-    this.runLines.lineTo(...point(n, to));
+    g.lineTo(...point(n, to));
   }
 
   /// The rank of the item of column `d` at `place` rows from its top, the first whose place is not above it.
@@ -2009,33 +2103,37 @@ export class SnapScene {
     for (const [i, to] of wayAims(this.runWays, t.parent, shining)) {
       this.runStrength.set(i, eased(this.runStrength.get(i) ?? to, to, step));
     }
-    this.runLines.clear();
-    this.runEdges.clear();
-    this.runDim.clear();
+    for (const lit of [this.runLines, this.runEdges]) {
+      for (const g of [lit.line, lit.near, lit.far]) g.clear();
+      blurTo(lit.nearBlur, RUN.nearBlur);
+      blurTo(lit.farBlur, RUN.farBlur);
+    }
     const runColour = mix(PALETTE.card, WORK().running, EDGE_RUNNING);
     const glintColour = mix(between(PALETTE.card, WORK().running, EDGE_RUNNING), PALETTE.glowTo, RUN.core);
-    // What the bloom and the light round the line are drawn in: the running colour whole, with none of the card in
-    // it, so that what is added to a dark ground is the colour itself and not a wash of the card, which reads grey.
-    const bloomColour = mix(PALETTE.card, WORK().running, 1);
+    // The colour the way's glow and strands are drawn in where the light is `bright`, from the way at rest to the
+    // light's head: the running colour, going towards the light's own as it brightens ([`RUN.hue`]); the running
+    // colour whole, with none of the card in it, so that what is added to a dark ground is the colour itself and not a
+    // wash of the card, which reads grey. Taken once for each of the lengths the light is drawn in.
+    const tints = Array.from({ length: RUN.lightPieces + 1 }, (_, k) =>
+      mix(WORK().running, PALETTE.pulse, (RUN.hue * k) / RUN.lightPieces),
+    );
+    const tint = (bright: number) => tints[Math.round(Math.min(1, Math.max(0, bright)) * RUN.lightPieces)];
     // The way's own line: the light's near white where the page is dark, where the line is itself a light; the
     // running colour where it is light, where the line is what the glint reads against.
     const lineColour = this.adds ? glintColour : runColour;
     const lineWide = this.lineWidth;
     const lineAlpha = this.adds ? RUN.lineAlpha : RUN.inkAlpha;
     const glintWide = this.glint;
-    // Each way's curve, its length, and how far it begins from the left side of its root's card: the cards on the
-    // way down count their own width each, the root's own first of all. A link lies under one root only, however
-    // many running items it is on, so it has one such distance.
+    // Each way's curve, how far it goes across the page, and how far across from the left side of the roots' cards
+    // it begins ([`RUN.light`]).
     const ways = new Map<number, { way: Way; len: number; dist: number }>();
     const wayDown = (i: number): { way: Way; len: number; dist: number } => {
       const had = ways.get(i);
       if (had !== undefined) return had;
       const p = t.parent[i];
       const d = t.depth[i];
-      const way = this.wayOf(x(d - 1) + NODE_W, y(d - 1, t.rank[p]), x(d), y(d, t.rank[i]));
-      const len = way.along[RUN.pieces];
-      const above = t.parent[p] >= 0 ? wayDown(p) : null;
-      const at = { way, len, dist: above === null ? RUN.card : above.dist + above.len + RUN.card };
+      const [px, cx] = [x(d - 1) + NODE_W, x(d)];
+      const at = { way: this.wayOf(px, y(d - 1, t.rank[p]), cx, y(d, t.rank[i])), len: cx - px, dist: px - x(0) };
       ways.set(i, at);
       return at;
     };
@@ -2045,7 +2143,7 @@ export class SnapScene {
     let far = 0;
     for (const i of this.runStrength.keys()) {
       const { len, dist } = wayDown(i);
-      far = Math.max(far, dist + len + RUN.card);
+      far = Math.max(far, dist + len + NODE_W);
     }
     const rest = this.adds ? 1 : RUN.inkRest;
     const whole = far + RUN.light;
@@ -2057,7 +2155,6 @@ export class SnapScene {
     // it, however many ways it stands on.
     const crossed = new Set<number>();
     const sparked = new Set<number>();
-    const faded = new Set<number>();
     for (const [i, strength] of this.runStrength) {
       const p = t.parent[i];
       const d = t.depth[i];
@@ -2066,19 +2163,22 @@ export class SnapScene {
       const [py, iy] = [y(d - 1, t.rank[p]), y(d, t.rank[i])];
       if (Math.max(py, iy) < 0 || Math.min(py, iy) > height) continue;
       const { way, len, dist } = wayDown(i);
-      const lit = (from: number, to: number, w: number, alpha: number, paint: number, end = false) => {
-        this.alongWay(way, from, to);
-        this.runLines.stroke({ color: paint, width: w, alpha: strength * alpha, cap: end ? 'round' : 'butt' });
+      // How long the way's curve is, and how far along it the place stands that is `across` the page from its start.
+      const curve = way.along[RUN.pieces];
+      const on = (across: number) => this.arcAt(way, across);
+      const lit = (g: Graphics, from: number, to: number, w: number, alpha: number, paint: number, end = false) => {
+        this.alongWay(g, way, from, to);
+        g.stroke({ color: paint, width: w, alpha: strength * alpha, cap: end ? 'round' : 'butt' });
       };
-      // The way itself, as a wire of light: its bloom on the ground, the softer light within it and the glow round
-      // its line, then the line, drawn in lengths each at the width of its own middle so that it is thinner where it
-      // meets the cards. All of it is fainter where the page is light ([`RUN.inkRest`]).
-      lit(0, len, RUN.bloom, RUN.bloomAlpha * rest, bloomColour, true);
-      lit(0, len, RUN.soft, RUN.softAlpha * rest, bloomColour, true);
-      lit(0, len, RUN.glow, RUN.glowAlpha * rest, bloomColour, true);
+      const shine = this.runLines;
+      // The way itself, as a wire of light: its glow further out and close in, then the line, drawn in lengths each
+      // at the width of its own middle so that it is thinner where it meets the cards. The glow is fainter where the
+      // page is light ([`RUN.inkRest`]).
+      lit(shine.far, 0, curve, RUN.far, RUN.farAlpha * rest, tint(0), true);
+      lit(shine.near, 0, curve, RUN.near, RUN.nearAlpha * rest, tint(0), true);
       for (let n = 0; n < RUN.wide; n += 1) {
-        const wide = lineWide * thickAt((n + 0.5) / RUN.wide);
-        lit((len * n) / RUN.wide, (len * (n + 1)) / RUN.wide, wide, lineAlpha, lineColour);
+        const thick = lineWide * thickAt((n + 0.5) / RUN.wide);
+        lit(shine.line, (curve * n) / RUN.wide, (curve * (n + 1)) / RUN.wide, thick, lineAlpha, lineColour);
       }
       // The light running down the way: the same line, brighter and wider where the light is, as a wire is where the
       // current is in it. It is a drop drawn out along the way, its head round and widest, thinning away behind it;
@@ -2086,11 +2186,28 @@ export class SnapScene {
       const drop = lightOn(dist, len, head);
       drop.forEach(({ from, to, bright }, n) => {
         const nose = n === drop.length - 1 && to < len - NEAR;
-        const wide = RUN.lightLine * (RUN.ends + (1 - RUN.ends) * bright) * glintWide;
-        lit(from, to, RUN.lightBloom * bright, bright * RUN.lightBloomAlpha * rest, bloomColour, nose);
-        lit(from, to, RUN.lightSoft * bright, bright * RUN.lightSoftAlpha * rest, bloomColour, nose);
-        lit(from, to, wide, bright * RUN.lightAlpha, glintColour, nose);
+        const thick = RUN.lightLine * (RUN.ends + (1 - RUN.ends) * bright) * glintWide;
+        const [a, b] = [on(from), on(to)];
+        lit(shine.far, a, b, RUN.lightFar * bright, bright * RUN.lightFarAlpha * rest, tint(bright), nose);
+        lit(shine.near, a, b, RUN.lightNear * bright, bright * RUN.lightNearAlpha * rest, tint(bright), nose);
+        lit(shine.line, a, b, thick, bright * RUN.lightAlpha, glintColour, nose);
       });
+      // The strands the line is made of: each gathered close round the line along the whole way, faint, and parted
+      // from it where the light is, as strong as the light is there and in its colour there; parted, each runs beside
+      // the line at its own distance, and both gather into it at the way's ends ([`gatherAt`]).
+      for (let s = 0; s < RUN.strands; s += 1) {
+        const { side, own } = strandOf(s);
+        const strand = (from: number, to: number, by: number, bright: number, colour: number) => {
+          this.alongWay(shine.line, way, from, to, (at) => side * by * gatherAt(at / curve));
+          const alpha = strength * RUN.strandAlpha * own * bright * rest;
+          shine.line.stroke({ color: colour, width: RUN.strand, alpha, cap: 'butt' });
+        };
+        strand(0, curve, RUN.spreadRest, RUN.strandRest, tint(0));
+        for (const { from, to, bright } of drop) {
+          const comes = Math.min(1, (1 - bright + 1 / RUN.lightPieces) / Math.max(RUN.strandIn, 1e-6));
+          strand(on(from), on(to), RUN.spread, bright * comes, tint(bright));
+        }
+      }
       // The spark at both ends of the way, which burns up as the light's head goes through it; and the edge of the
       // card the way ends at, lit from its left side to its right as the light crosses it. Where the way comes from
       // a root, the root's own card is crossed before any way.
@@ -2099,30 +2216,22 @@ export class SnapScene {
       if (!sparked.has(p * 2)) {
         sparked.add(p * 2);
         const ph = half(d - 1, t.rank[p]);
-        this.spark(px, py, ph, -1, bloomColour, lineColour, glintColour, strength, sparkAt(dist, head));
-        if (!faded.has(p)) {
-          faded.add(p);
-          this.fade(x(d - 1), py, ph, strength);
-        }
+        this.spark(px, py, ph, -1, tint, lineColour, glintColour, strength, sparkAt(dist, head));
       }
       if (!sparked.has(i * 2 + 1)) {
         sparked.add(i * 2 + 1);
         const ih = half(d, t.rank[i]);
-        this.spark(cx, iy, ih, 1, bloomColour, lineColour, glintColour, strength, sparkAt(dist + len, head));
-        if (!faded.has(i)) {
-          faded.add(i);
-          this.fade(cx, iy, ih, strength);
-        }
+        this.spark(cx, iy, ih, 1, tint, lineColour, glintColour, strength, sparkAt(dist + len, head));
       }
       if (t.parent[p] < 0 && !crossed.has(p)) {
         crossed.add(p);
-        const over = lightOn(0, RUN.card, head);
-        this.across(x(d - 1), py, half(d - 1, t.rank[p]), over, bloomColour, lineColour, glintColour, strength);
+        const over = lightOn(0, NODE_W, head);
+        this.across(x(d - 1), py, half(d - 1, t.rank[p]), over, tint, lineColour, glintColour, strength);
       }
       if (!crossed.has(i)) {
         crossed.add(i);
-        const over = lightOn(dist + len, RUN.card, head);
-        this.across(x(d), iy, half(d, t.rank[i]), over, bloomColour, lineColour, glintColour, strength);
+        const over = lightOn(dist + len, NODE_W, head);
+        this.across(x(d), iy, half(d, t.rank[i]), over, tint, lineColour, glintColour, strength);
       }
     }
     for (const i of chosen) {
