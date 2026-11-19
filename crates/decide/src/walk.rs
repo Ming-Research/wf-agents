@@ -1214,6 +1214,7 @@ impl<'a> Walk<'a> {
             }
             match self.step(j) {
                 AtCell::Pass => {}
+                AtCell::Enters(because) if way_round(&because) => {}
                 AtCell::Enters(because) => return self.at_limit(cell, &because).is_none(),
                 AtCell::Decides(Decision::GoOn { .. }) => return true,
                 AtCell::Decides(Decision::Wait { on, .. }) => {
