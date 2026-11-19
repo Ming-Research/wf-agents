@@ -732,6 +732,12 @@ fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision)
     }
 }
 
+/// Whether the cell at place `i`, entered for these reasons, is a way back that waits for the pass: a way round, by
+/// the histories' reading, not run by the results of its own calls as well (design document `data-and-context`, 6).
+fn waits_for_the_pass(flow: &Flow, reading: &Reading, i: usize, reasons: &[Reason], now: Seq) -> bool {
+    reading.way_round(flow, i, reasons, now) && !reasons.iter().any(|r| matches!(r, Reason::Results { .. }))
+}
+
 /// Property entered-only-for-what-is-new, the order: where the walk enters a cell, goes on with its run or waits at it,
 /// no cell before it that applies has a run of its own at rest, anything to be entered for, calls it waits for, or a
 /// precondition that does not hold, by the histories' own reading.
@@ -751,7 +757,7 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, ente
         let way_back = !at_rest
             && !owed_open
             && !unmet
-            && reading.way_round(flow, j, &entering, now)
+            && waits_for_the_pass(flow, reading, j, &entering, now)
             && cells[j + 1..=i].iter().all(|c| c.requires.is_empty());
         if way_back {
             v.count(WAY_BACK_WAITS);
@@ -771,7 +777,7 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, ente
     // Where the walk enters a way back, no cell after it, short of the next cell with preconditions and of one the walk
     // would stop at, is to be entered for something that is no way back of its own and at no limit of calls, has a run
     // at rest, or waits only for the results of its calls.
-    if !entered || !reading.way_round(flow, i, &reading.entering(flow, &cells[i], now), now) {
+    if !entered || !waits_for_the_pass(flow, reading, i, &reading.entering(flow, &cells[i], now), now) {
         return;
     }
     for (k, cell) in cells.iter().enumerate().skip(i + 1) {
@@ -789,7 +795,7 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, ente
         let entering = reading.entering(flow, cell, now);
         let results = entering.iter().any(|r| matches!(r, Reason::Results { .. }));
         let at_calls_limit = results && asked_in_a_row(reading, &cell.id, now) >= cell.calls as usize;
-        let forward = !entering.is_empty() && !reading.way_round(flow, k, &entering, now) && !at_calls_limit;
+        let forward = !entering.is_empty() && !waits_for_the_pass(flow, reading, k, &entering, now) && !at_calls_limit;
         let passed_for = at_rest(reading, &cell.id) || (owed_open && !held) || (forward && !held);
         if passed_for {
             v.fail(

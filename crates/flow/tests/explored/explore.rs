@@ -1070,10 +1070,11 @@ impl Explorer<'_> {
             }
         }
         // The cell entered is the first that something new runs: none before it that applies has something new, or a
-        // precondition that does not hold; but a way back, one run only by what cells after it wrote, waits while a cell
-        // after it runs for something that is not a way back of its own, the results of its calls included, none
-        // between them, that cell included, having preconditions (design document `data-and-context`, 6). A cell that
-        // goes on with a run at rest is no cell entered, and is not checked here.
+        // precondition that does not hold; but a way back, one run only by what cells after it wrote and not by the
+        // results of its own calls, waits while a cell after it runs for something that is not a way back of its own,
+        // the results of its calls included, none between them, that cell included, having preconditions (design
+        // document `data-and-context`, 6). A cell that goes on with a run at rest is no cell entered, and is not checked
+        // here.
         let own_reason = (because.iter()).any(|c| c.forward() || matches!(c, Cause::Results { .. }));
         for (j, before) in m.cells().iter().enumerate().take(i) {
             if !r.applies(flow, j) {
@@ -1084,7 +1085,8 @@ impl Explorer<'_> {
             }
             let entering = r.entering(flow, before, NOW);
             let no_gate = m.cells()[j + 1..=i].iter().all(|c| c.requires.is_empty());
-            if own_reason && no_gate && r.way_round(flow, j, &entering, NOW) {
+            let results = entering.iter().any(|x| matches!(x, Reason::Results { .. }));
+            if own_reason && no_gate && !results && r.way_round(flow, j, &entering, NOW) {
                 self.reach(format!("{} waited for the pass while {cell} ran", before.id));
             } else if !entering.is_empty() {
                 let name = format!("{cell} ran while {} before it had something new", before.id);
