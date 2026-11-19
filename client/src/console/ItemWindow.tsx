@@ -46,6 +46,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1237,6 +1238,12 @@ function TickSign() {
   );
 }
 
+/// A time as a style gives it, in milliseconds: `240ms` or `0.24s`; none where it says neither.
+function millisecondsOf(value: string): number {
+  const said = /^([+-]?(?:\d+\.?\d*|\.\d+))(ms|s)$/.exec(value.trim());
+  return said === null ? 0 : Number.parseFloat(said[1]) * (said[2] === 's' ? 1000 : 1);
+}
+
 /// A choice of the plan: a press on an option picks it, on another changes the pick, and on the one picked lets it go,
 /// until it is confirmed; once confirmed, it is settled, and its options are words with the one taken marked.
 /// Discuss takes it to the discussion, confirmed or not; under its options, how many messages are about it, which
@@ -1255,16 +1262,53 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
   /// What its words draw at a pointer to another question: a link.
   links?: Pointers;
 }) {
+  // A question the owner has answered opens folded, down to the first lines of what it asks; every other card, a stop
+  // and a question that waits among them, opens whole. Answering one here leaves it open: what was just done stays in
+  // view, and it is folded when the window is read again.
+  const [open, setOpen] = useState(p.confirmed !== true);
+  const box = useRef<HTMLFieldSetElement>(null);
+  // The card's height before the press, which the turn is drawn from.
+  const was = useRef<number | null>(null);
+  const turn = () => {
+    was.current = box.current?.getBoundingClientRect().height ?? null;
+    setOpen((now) => !now);
+  };
+  // The card's height is drawn from what it was to what it now is, so that the cards under it rise or give way with
+  // it, and the card is brought into view: folded from above the panel's top, it would otherwise be left off-screen.
+  useLayoutEffect(() => {
+    const el = box.current;
+    const from = was.current;
+    was.current = null;
+    if (el === null || from === null) return;
+    const to = el.getBoundingClientRect().height;
+    const look = getComputedStyle(el);
+    const time = millisecondsOf(look.getPropertyValue('--turn-time'));
+    // A host with no such drawing, as the tests', turns at once.
+    if (typeof el.animate === 'function' && time > 0 && Math.round(from) !== Math.round(to)) {
+      const held = { height: `${from}px`, overflow: 'hidden' };
+      el.animate([held, { ...held, height: `${to}px` }], {
+        duration: time,
+        easing: look.getPropertyValue('--turn-ease').trim() || 'ease',
+      });
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [open]);
   return (
     <fieldset
+      ref={box}
       className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${p.holds === true ? ' cw-choice-holds' : ''}`}
       data-wait={waitKeyOf(p)}
     >
       <Asked by={by} />
-      <div className="cw-choice-q">
+      <div className={open ? 'cw-choice-q' : 'cw-choice-q cw-choice-few'}>
         <Markdown text={p.question} pointers={links} />
       </div>
-      {p.options.length === 0 && p.asks !== undefined && p.confirmed !== true ? (
+      {!open ? (
+        <button type="button" className="cw-choice-turn" onClick={turn}>
+          Show it all
+        </button>
+      ) : null}
+      {open && p.options.length === 0 && p.asks !== undefined && p.confirmed !== true ? (
         <textarea
           rows={3}
           value={p.answer ?? ''}
@@ -1274,13 +1318,14 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
           onChange={(e) => write?.(e.target.value)}
         />
       ) : null}
-      {p.options.length > 0 &&
+      {open &&
+        p.options.length > 0 &&
         (p.confirmed === true ? (
           <Settled options={p.options} chosen={p.chosen} recommended={p.recommended} />
         ) : (
           <Options options={p.options} chosen={p.chosen} recommended={p.recommended} pick={pick} />
         ))}
-      {messages.length > 0 || discuss !== undefined ? (
+      {open && (messages.length > 0 || discuss !== undefined) ? (
         <div className="cw-choice-foot">
           {messages.length > 0 ? (
             <button type="button" className="link muted small" onClick={() => jump?.(messages[0])}>
@@ -1302,6 +1347,11 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
             </Button>
           ) : null}
         </div>
+      ) : null}
+      {open ? (
+        <button type="button" className="cw-choice-turn" onClick={turn}>
+          Fold it
+        </button>
       ) : null}
     </fieldset>
   );

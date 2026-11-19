@@ -779,7 +779,16 @@ describe('the questions put to the owner, in the panel of the item selected', ()
       'cw-choice cw-choice-done',
       'cw-choice cw-choice-holds',
     ]);
+    // A question answered opens folded, down to the first lines of what it asks; the two the merge waits for open
+    // whole, each with the button that folds it away.
+    const turns = [...el.querySelectorAll('.cw-choice')].map((c) => c.querySelector('.cw-choice-turn')?.textContent);
+    expect(turns).toEqual(['Fold it', 'Show it all', 'Fold it']);
+    expect(el.querySelectorAll('.cw-choice-few').length).toBe(1);
+    expect(options(el)[1]).toEqual([]);
+    // Unfolded, it stands with its answer.
+    act(() => (el.querySelectorAll('.cw-choice')[1].querySelector('.cw-choice-turn') as HTMLButtonElement).click());
     expect(options(el)[1]).toEqual(['Keep itRecommended *', 'Drop it']);
+    expect(el.querySelectorAll('.cw-choice-few').length).toBe(0);
     act(() => (el.querySelectorAll('.cw-choice')[0].querySelectorAll('.cw-option')[0] as HTMLButtonElement).click());
     expect(button(el, 'Confirm (1/2)').disabled).toBe(true);
     act(() => (el.querySelectorAll('.cw-choice')[2].querySelectorAll('.cw-option')[1] as HTMLButtonElement).click());
@@ -988,6 +997,9 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     await act(async () => undefined);
     expect(text(el, '.cw-choice-q')).toEqual(['What of old?']);
     expect(el.querySelector('.cw-choice')?.className).toBe('cw-choice cw-choice-done');
+    // Answered, it opens folded, down to the first lines of what it asks.
+    expect(el.querySelector('.cw-choice-turn')?.textContent).toBe('Show it all');
+    act(() => (el.querySelector('.cw-choice-turn') as HTMLButtonElement).click());
     // Settled: its options words alone, with no radio mark to press, the one taken marked by a tick that says so.
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it *']]);
     expect(el.querySelector('.cw-option, .cw-radio')).toBeNull();
