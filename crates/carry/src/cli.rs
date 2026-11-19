@@ -637,11 +637,11 @@ impl Stream {
     }
 
     /// Reads the stream, for a round that began its session or went on in it with the session having cost `before`:
-    /// the return the command line took, or, where it gave up on the return, its last attempt at it, rebuilt; or says
-    /// why there is no return to take, with what the round took where the result could be read. A round that began
-    /// its session cost the session's total; one that went on in it, that total less what the line's earlier rounds
-    /// cost, or the whole total where that is less (measured: the total is the whole session's, even where two lines
-    /// take turns in one worktree).
+    /// the return the command line took, or, where it gave up on the return or the agent stopped trying and the
+    /// result holds none, its last attempt at it, rebuilt; or says why there is no return to take, with what the
+    /// round took where the result could be read. A round that began its session cost the session's total; one that
+    /// went on in it, that total less what the line's earlier rounds cost, or the whole total where that is less
+    /// (measured: the total is the whole session's, even where two lines take turns in one worktree).
     pub fn read(self, begin: Begin, before: u64) -> std::result::Result<Read, NoResult> {
         let fields = self.said;
         let priced = self.priced();
@@ -666,10 +666,17 @@ impl Stream {
         };
         let spent = spent(&result, begin, before);
         if !result.is_error {
-            return match result.structured_output {
-                Some(structured) => Ok(Read { structured, spent }),
-                None => Err(NoResult {
-                    why: "the command line's result holds no structured return".to_string(),
+            // The agent may stop trying after the command line refused its attempts, and end its turn: its last
+            // attempt is read as one the command line gave up on is.
+            let why = "the command line's result holds no structured return".to_string();
+            let structured = match result.structured_output {
+                Some(structured) => Ok(structured),
+                None => last_attempt(self.attempts, &self.refusals, why),
+            };
+            return match structured {
+                Ok(structured) => Ok(Read { structured, spent }),
+                Err(why) => Err(NoResult {
+                    why,
                     spent: Some(spent),
                     said: fields,
                 }),
@@ -689,33 +696,39 @@ impl Stream {
         };
         // The command line gave up on the return, having refused every attempt at it: the last is read as any return
         // is, by the engine's own reading, which sends it back where it cannot be read.
-        if failure::gave_up(&why, &fields)
-            && let Some((id, raw)) = self.attempts.last()
-        {
-            return match serde_json::from_str::<Value>(&raw) {
-                Ok(structured) => Ok(Read { structured, spent }),
-                Err(e) => {
-                    // What the command line said of it, where its result does not already end with that.
-                    let refused = (self.refusals.iter())
-                        .find(|(refused, _)| *refused == id)
-                        .map(|(_, said)| without_quote(said))
-                        .filter(|said| !why.contains(said.as_str()))
-                        .map(|said| format!(", and the command line said: {said}"))
-                        .unwrap_or_default();
-                    Err(NoResult {
-                        why: format!("{why}; its last attempt at the return is no JSON ({e}){refused}"),
-                        spent: Some(spent),
-                        said: fields,
-                    })
-                }
-            };
-        }
+        let why = if failure::gave_up(&why, &fields) {
+            match last_attempt(self.attempts, &self.refusals, why) {
+                Ok(structured) => return Ok(Read { structured, spent }),
+                Err(why) => why,
+            }
+        } else {
+            why
+        };
         Err(NoResult {
             why,
             spent: Some(spent),
             said: fields,
         })
     }
+}
+
+/// The last attempt at a return in the stream, read as any return is, by the engine's own reading, which sends it
+/// back where it cannot be read; or, as the reason there is none, `why` where the stream holds no attempt, and `why`
+/// with what is wrong with the attempt where it is no JSON, with what the command line said of it where `why` does
+/// not already end with that.
+fn last_attempt(attempts: Attempts, refusals: &[(String, String)], why: String) -> std::result::Result<Value, String> {
+    let Some((id, raw)) = attempts.last() else {
+        return Err(why);
+    };
+    serde_json::from_str::<Value>(&raw).map_err(|e| {
+        let refused = (refusals.iter())
+            .find(|(refused, _)| *refused == id)
+            .map(|(_, said)| without_quote(said))
+            .filter(|said| !why.contains(said.as_str()))
+            .map(|said| format!(", and the command line said: {said}"))
+            .unwrap_or_default();
+        format!("{why}; its last attempt at the return is no JSON ({e}){refused}")
+    })
 }
 
 /// Reads a whole stream, line by line, as [`Stream::read`] does.
@@ -1057,6 +1070,46 @@ mod tests {
         only.push(gave_up(first_refused));
         let read = super::read(only.join("\n").as_bytes(), Begin::New, 0).expect("it is taken");
         assert_eq!(read.structured, serde_json::from_str::<Value>(&first).unwrap());
+    }
+
+    #[test]
+    fn the_last_attempt_is_read_where_the_agent_stopped_trying_and_the_result_holds_no_return() {
+        // Work 21's run 35: the outcome sent as a string, refused each time, then the agent ended its turn in prose.
+        let attempted = json!({ "outcome": json!({ "verdict": "pass" }).to_string() }).to_string();
+        let refused = "Output does not match required schema: /outcome: must be object";
+        let init = json!({ "type": "system", "subtype": "init", "session_id": "s" }).to_string();
+        let ended = json!({ "type": "result", "subtype": "success", "is_error": false, "result": "My review.",
+            "total_cost_usd": 0.4, "usage": { "input_tokens": 10, "output_tokens": 300 } })
+        .to_string();
+        let mut lines = vec![init];
+        for id in ["so-1", "so-2", "so-3"] {
+            lines.extend(attempt(id, &[&attempted], Some(refused)));
+        }
+        lines.push(ended.clone());
+        let read = read(lines.join("\n").as_bytes(), Begin::New, 0).expect("the last attempt is taken");
+        assert_eq!(read.structured, serde_json::from_str::<Value>(&attempted).unwrap());
+        assert_eq!(read.spent.usd_micros, 400_000, "what the call cost");
+
+        // No attempt in the stream: no return, as before; an attempt that is no JSON is none either, said as where the
+        // command line gave up, and is no kind of failure the words tell, so the work still pauses.
+        let none = "the command line's result holds no structured return";
+        let no = super::read(ended.as_bytes(), Begin::New, 0).expect_err("no return");
+        assert_eq!(no.why, none);
+        let mut cut = attempt("so-1", &[r#"{"outcome": "#], Some(refused));
+        cut.push(ended);
+        let no = super::read(cut.join("\n").as_bytes(), Begin::New, 0).expect_err("no return");
+        assert!(
+            no.why
+                .starts_with(&format!("{none}; its last attempt at the return is no JSON (")),
+            "{}",
+            no.why
+        );
+        assert!(
+            no.why.ends_with(&format!(", and the command line said: {refused}")),
+            "{}",
+            no.why
+        );
+        assert_eq!(failure::of(&no.why, &no.said, no.spent.as_ref()), Failure::Other);
     }
 
     #[test]
