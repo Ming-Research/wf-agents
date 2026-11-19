@@ -143,3 +143,33 @@ fn a_way_back_is_not_passed_by_a_later_cell_at_its_limit() {
         ("write".to_string(), vec![("a_points".to_string(), true)])
     );
 }
+
+// Reference: design document `data-and-context`, 6: what waits for the pass is "a cell run only by what cells after it
+// wrote". A cell entered again for the results of calls its own run asked for is run by those results as well, so it is
+// no way back, and it goes on with its work before the cells after it judge what it is still at work on, as the walk
+// before the pass entered it.
+#[test]
+fn a_cell_entered_for_the_results_of_its_own_calls_is_no_way_back() {
+    let mut w = first_judged(true);
+    w.run("judge_b", &[]);
+    // Nothing after the writer is to run, and it takes the first judge's point.
+    w.start("write");
+    let call = w.asks("write", None);
+    // The round that asked also handed in a new version of the plan, as a round that commits hands in the head it
+    // committed as it ends: the plan is new to both judges, by a cell before them.
+    let asked = w.records.finished.last_mut().expect("the run that asked finished");
+    asked.writes.push(Write {
+        block: "plan".into(),
+        meaning_unchanged: false,
+        value: None,
+        empty: false,
+    });
+    w.done(call);
+    assert_eq!(
+        reasons(&w.decide()),
+        (
+            "write".to_string(),
+            vec![("a_points".to_string(), true), ("results".to_string(), false)]
+        )
+    );
+}
