@@ -11,12 +11,11 @@ the reason plain; that the code shows what an entry says to do is no ground for 
 Comments are not the code: what the code shows does not include what a comment says. Comments never go against the
 tree: where a comment and an entry differ, the entry holds and the comment is put right.
 
-The tree is `design/`. It holds four kinds of thing:
+The tree is `design/`. It holds three kinds of thing:
 
 - the constitution, `constitution.md`;
 - the principles, in `principles/`;
-- the decisions, in `decisions/`;
-- the documents, in `docs/`, one file for each design that holds only as a whole.
+- the decisions, in `decisions/`.
 
 `principles/` and `decisions/` are each a tree of concepts: a concept, its narrower concepts under it, as deep as is
 useful. The tree follows the concepts of the design and not the layout of the code. An entry is written once, at the
@@ -28,18 +27,18 @@ for it, and its narrower concepts are in a directory of the same name beside it.
 
 An agent taking the work up in another session reads the code for how, and the tree for why. It reads the
 constitution whole; then the principles and the decisions from the top of each tree down to each concept its work
-changes or relies on, whole; and the document of each design it works on.
+changes or relies on, whole.
 
-Where the right solution needs a decision changed, the work changes it. An agent that finds the constitution, a
-principle or a document missing or wrong, or whose right solution breaks one, says so and proposes the change.
+Where the right solution needs a decision changed, the work changes it. An agent that finds the constitution or a
+principle missing or wrong, or whose right solution breaks one, says so and proposes the change.
 
-## The four kinds
+## The three kinds
 
 ### The constitution
 
-The constitution holds what the project is for and its lasting values. No principle, decision or document goes
-against it, and it decides where two of them pull apart. An entry may rest on one of its articles by naming it. The
-owner sets it and changes it.
+The constitution holds what the project is for and its lasting values. No principle or decision goes against it, and it
+decides where two of them pull apart. An entry may rest on one of its articles by naming it. The owner sets it and
+changes it.
 
 ### A principle
 
@@ -48,8 +47,8 @@ those not yet made included, or of every time a kind of work is done; the kind m
 everything in one part of the system, what is added to that part later included, speaks of a kind and is a principle.
 
 It is not a principle where it speaks of one thing that is there and binds nothing made later: that is a decision.
-Nor where the constitution or a document already says it: one that adds to an article or to a document says only
-what is new, and names what it rests on.
+Nor where the constitution already says it: one that adds to an article says only what is new, and names what it
+rests on.
 
 Principles are the owner's and may come before the code. No decision excuses a breach of a principle.
 
@@ -68,23 +67,8 @@ silent in one of three ways:
 
 What the code already shows a reader rightly does not enter, however much would go wrong were it changed.
 
-A decision is never ahead of the code: it says what the code does, and what is yet to be built is a document's to
-say.
-
-### A document
-
-A document is a design that holds only as a whole: its parts cannot be told one at a time, and an agent given any one
-of them alone would change the system wrongly. It is complete and consistent with itself.
-
-A document may be ahead of the code: a design is there to guide what is built after it. Where the two differ, the
-document says where the system is going, and an agent builds toward it and does not change the document to match the
-code.
-
-A principle or a decision that holds only within what a document covers belongs to the document, and is not written
-as an entry of its own. One that reaches beyond it is an entry, which names the document and does not repeat it. A
-document goes against no principle outside it. Where it is ahead of the code, a decision may still say what the code
-does, until the work that builds that part of the document rewrites or deletes it: that is what is left to build, and
-no fault.
+A decision is never ahead of the code: it says what the code does, and what is yet to be built is an item's work, not
+the tree's.
 
 ## Writing an entry
 
@@ -113,6 +97,6 @@ A decision is added by the work that makes it true. A change that makes a decisi
 same work, and an entry found not to belong here is deleted by the work that finds it. The files of decisions hold only
 what the code on the branch the works merge into does.
 
-A principle and a decision, two decisions, or a document and an entry outside it, that cannot both hold are a fault
-of the tree. A file of decisions that grows long is itself a sign: what no longer belongs here is deleted from it,
-and decisions in more than one file that rest on one reason are one principle, to be proposed as such.
+A principle and a decision, or two decisions, that cannot both hold are a fault of the tree. A file of decisions that
+grows long is itself a sign: what no longer belongs here is deleted from it, and decisions in more than one file that
+rest on one reason are one principle, to be proposed as such.
