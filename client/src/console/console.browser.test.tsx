@@ -57,11 +57,11 @@ const drew = async () => {
 /// Waits until the columns stand still: three frames in a row in which nothing moved, which they reach within a second
 /// of frames of what moved them. The bound is in frames, which the scene moves by, not in time, which a busy machine
 /// stretches.
-async function settle(scene: SnapScene) {
+function settle(scene: SnapScene) {
   let was = JSON.stringify(scene.place());
   let still = 0;
   for (let k = 0; k < 60 && still < 3; k += 1) {
-    await frame();
+    scene.step();
     const now = JSON.stringify(scene.place());
     still = now === was ? still + 1 : 0;
     was = now;
@@ -109,14 +109,14 @@ describe('the tree in columns', () => {
     expect(scene.place().columns[0].at).toBe(14.5);
     move(50, line);
     wheel(0, 3 * ROW);
-    await settle(scene);
+    settle(scene);
     expect(scene.place().columns[0].at).toBeCloseTo(17.5, 3);
     const room = HEIGHT / 2 / ROW - KEEP;
     wheel(0, 100_000);
-    await settle(scene);
+    settle(scene);
     expect(scene.place().columns[0].at).toBeCloseTo(29.5 + room, 3);
     wheel(0, -100_000);
-    await settle(scene);
+    settle(scene);
     expect(scene.place().columns[0].at).toBeCloseTo(0.5 - room, 3);
   });
 
@@ -145,7 +145,7 @@ describe('the tree in columns', () => {
     const told = vi.fn<(item: Shown | null) => void>();
     scene.onSelect = told;
     scene.show([card(1), card(2), card(3)]);
-    await settle(scene);
+    settle(scene);
     // Item 2 stands in the middle; item 1 a row above it.
     const x = scene.place().left + 100;
     await click(x, line);
@@ -163,13 +163,13 @@ describe('the tree in columns', () => {
     scene.onSelect = told;
     // Under 1: item 2 and a shadow of 3; under 4: item 3.
     scene.show([card(1, [card(2), shadow(3)]), card(4, [card(3)])]);
-    await settle(scene);
+    settle(scene);
     const p = scene.place();
     // The shadow is the second of its column, its middle 1.5 rows from the column's top.
     await click(p.left + PITCH + 100, line + (1.5 - p.columns[1].at) * ROW);
     expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 3, shadow: false }));
     expect(scene.place().driver).toBe(1);
-    await settle(scene);
+    settle(scene);
     // Item 3 is the third of its column, after the room between the items of 1 and those of 4: 2 + 0.7 + 0.5 rows.
     expect(scene.place().columns[1].at).toBeCloseTo(3.2, 3);
   });
@@ -179,7 +179,7 @@ describe('the tree in columns', () => {
     scene.onSelect = told;
     scene.show([card(1), card(2), card(3)]);
     scene.select(2);
-    await settle(scene);
+    settle(scene);
     told.mockClear();
     expect(scene.place().columns[0].at).toBe(1.5);
     scene.show([card(0), card(1), card(2), card(3)]);
@@ -191,9 +191,9 @@ describe('the tree in columns', () => {
 
   it('brings an item revealed into the room the panel leaves, a little in from its side', async () => {
     scene.show([card(1, [card(2, [card(3, [card(4)])])])]);
-    await settle(scene);
+    settle(scene);
     scene.reveal(4, 600);
-    await settle(scene);
+    settle(scene);
     expect(Math.abs(scene.place().left - (600 - 24 - NODE_W - 3 * PITCH))).toBeLessThan(0.5);
   });
 
@@ -215,25 +215,25 @@ describe('the tree in columns', () => {
     // One item with ten under it: it wants the column beside it anywhere along the ten, and the further it is from the
     // middle, the more room it gives.
     scene.show([card(1, Array.from({ length: 10 }, (_, k) => card(100 + k)))]);
-    await settle(scene);
+    settle(scene);
     const before = scene.place();
     expect(before.columns[0].at).toBe(0.5);
     expect(before.columns[1].at).toBe(5);
     move(50, line);
     wheel(0, 0.2 * ROW);
-    await settle(scene);
+    settle(scene);
     expect(scene.place().columns[0].at).toBeCloseTo(0.7, 6);
     expect(scene.place().columns[1].at).toBe(5);
     // Six rows off the middle, the item's want is loosened by six rows and more: still met.
     wheel(0, 5.8 * ROW);
-    await settle(scene);
+    settle(scene);
     expect(scene.place().columns[0].at).toBeCloseTo(6.5, 6);
     expect(scene.place().columns[1].at).toBe(5);
   });
 
   it('brings the column beside the one scrolled after it, the same way, never faster than half again its pace, and stops it when the scroll stops', async () => {
     scene.show(pairs());
-    await settle(scene);
+    settle(scene);
     const start = scene.place().columns.map((c) => c.at);
     move(50, line);
     wheel(0, 3 * ROW);
@@ -256,14 +256,14 @@ describe('the tree in columns', () => {
 
   it('makes the column scrolled the one the others follow, and brings the first column after it', async () => {
     scene.show(pairs());
-    await settle(scene);
+    settle(scene);
     const start = scene.place().columns.map((c) => c.at);
     expect(scene.place().driver).toBe(0);
     move(scene.place().left + PITCH + 50, line);
     wheel(0, 6 * ROW);
     await drew();
     expect(scene.place().driver).toBe(1);
-    await settle(scene);
+    settle(scene);
     const p = scene.place();
     // The column scrolled goes where the scroll took it; the first follows it down, no further than half again.
     expect(p.columns[1].at).toBeCloseTo(start[1] + 6, 3);
@@ -278,7 +278,7 @@ describe('the tree in columns', () => {
 
   it('moves nothing on a wheel over no column, or once the pointer has left', async () => {
     scene.show([card(1), card(2)]);
-    await settle(scene);
+    settle(scene);
     const before = scene.place();
     // Right of the only column.
     move(before.left + PITCH + 100, line);
@@ -296,7 +296,7 @@ describe('the tree in columns', () => {
     const told = vi.fn<(item: Shown | null) => void>();
     scene.onSelect = told;
     scene.show([card(1), card(2), card(3)]);
-    await settle(scene);
+    settle(scene);
     told.mockClear();
     const x = scene.place().left + 100;
     move(x, line);
@@ -313,12 +313,12 @@ describe('the tree in columns', () => {
 
   it('brings an item revealed above or below what is seen to the middle, and leaves one in view where it is', async () => {
     scene.show(Array.from({ length: 30 }, (_, k) => card(k + 1)));
-    await settle(scene);
+    settle(scene);
     scene.reveal(15, WIDTH);
-    await settle(scene);
+    settle(scene);
     expect(scene.place().columns[0].at).toBe(14.5);
     scene.reveal(30, WIDTH);
-    await settle(scene);
+    settle(scene);
     expect(scene.place().columns[0].at).toBeCloseTo(29.5, 3);
   });
 
@@ -328,17 +328,17 @@ describe('the tree in columns', () => {
     move(50, line);
     wheel(0, 2 * ROW);
     wheel(80, 0);
-    await settle(scene);
+    settle(scene);
     const before = scene.place();
     host.style.height = `${HEIGHT - 140}px`;
     await expect.poll(() => scene.place().height).toBe(HEIGHT - 140);
-    await settle(scene);
+    settle(scene);
     const shorter = scene.place();
     expect(shorter.left).toBe(before.left);
     shorter.columns.forEach((c, d) => expect(Math.abs(c.at - before.columns[d].at)).toBeLessThan(1e-9));
     document.documentElement.setAttribute('data-theme', 'dark');
     await drew();
-    await settle(scene);
+    settle(scene);
     const dark = scene.place();
     expect(dark.left).toBe(before.left);
     dark.columns.forEach((c, d) => expect(Math.abs(c.at - before.columns[d].at)).toBeLessThan(1e-9));
@@ -525,7 +525,7 @@ describe('the console page', () => {
     const scene = await drawn();
     scene.select(2);
     await expect.poll(() => button('Pause')).not.toBeNull();
-    await settle(scene);
+    settle(scene);
     const before = scene.place();
     await userEvent.click(button('Pause') as HTMLElement);
     // The work's switch now shows it paused.

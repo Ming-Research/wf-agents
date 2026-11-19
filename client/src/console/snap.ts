@@ -1371,6 +1371,14 @@ export class SnapScene {
     return this.pre[d][r] + (rank - r) + APART * g[r];
   }
 
+  /// Draws one frame `ms` on from the last drawn, without waiting for the browser to give one: what the scene does
+  /// over a span of time, drawn in one step. The browser gives a frame when it will and gives none at all to a page it
+  /// does not show, so a test that waits for them waits on the machine's load; stepping, it waits on nothing.
+  step(ms = 16): void {
+    if (this.tree === null) return;
+    this.draw(this.tree, (this.lastDraw > 0 ? this.lastDraw : performance.now()) + ms);
+  }
+
   /// Draws `frames` frames, every sixth with a scroll of most of a row over a column, waiting for the GPU each; gives
   /// the time of each frame in milliseconds.
   bench(frames: number): {
