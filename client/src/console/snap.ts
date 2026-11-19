@@ -516,8 +516,7 @@ function vertical(colour: string, from: number, to: number): FillGradient {
 const high = (rows: number) => rows * ROW - (ROW - NODE_H);
 
 /// The colour of a work's age, three and no more: grey under half an hour, amber from half an hour to an hour, and red
-/// past an hour, however long, since a work not done within an hour is a problem, which red says (decision
-/// a-works-age-is-red-past-an-hour).
+/// past an hour, however long.
 const TONE = () => ({
   success: PALETTE.muted,
   attention: PALETTE.amber,
