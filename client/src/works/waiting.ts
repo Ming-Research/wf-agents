@@ -35,8 +35,6 @@ export function actOf(ends: Ends): WaitAct | null {
       return { on: 'work', act: { kind: 'letGo', cell: ends.cell } };
     case 'resume':
       return { on: 'work', act: { kind: 'resume' } };
-    case 'resumeEverything':
-      return { on: 'engine', act: { kind: 'resume' } };
     case 'answer':
     case 'reply':
     case 'write':

@@ -126,11 +126,6 @@ const OWNERS: [string, Now, Wait][] = [
     wait('pause', 'The engine paused the work. A round failed.', { kind: 'resume' }),
   ],
   [
-    'the works held after the engine started again',
-    { kind: 'everything', at: 'plan', by: 'engine' },
-    wait('held', 'The engine paused every work as it started again.', { kind: 'resumeEverything' }),
-  ],
-  [
     'a question of the work that holds it at its cell, as the engine asks of a change of a protected file',
     { kind: 'waits', at: 'plan', on: [{ kind: 'answer', question: 'protected_files' }] },
     wait('answer-protected_files', 'What of protected_files?', {
@@ -335,6 +330,14 @@ describe("the work's state line", () => {
       cell: 'plan',
       keys: null,
     });
+  });
+});
+
+describe('the pause of every work', () => {
+  it('is no card of a work it holds, and no wait of its own: the bar says it and lifts it', () => {
+    const container = draw({ kind: 'everything', at: 'plan', by: 'engine' }, [], undefined, none);
+    expect(container.querySelector('.cw-waits')).toBeNull();
+    expect(container.textContent).not.toContain('Resume all');
   });
 });
 

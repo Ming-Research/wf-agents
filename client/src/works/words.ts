@@ -340,7 +340,6 @@ export const ENDS_WORDS = {
   goOn: { label: 'Let it go on', title: 'Give the run its next round past its limit' },
   letGo: { label: 'Let it go on', title: 'Run the cell again past its limit' },
   resume: { label: 'Resume', title: "Lift the engine's pause and let the work go on" },
-  resumeEverything: { label: 'Resume all', title: "Lift the engine's pause of every work and let every work go on" },
 } as const;
 
 /// What the card of a block the owner may write says on its button, which writes the value picked, and on pointing at

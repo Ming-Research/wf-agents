@@ -86,7 +86,6 @@ const KINDS: Wait[] = [
   wait('answer-scope', 'What of scope?', { kind: 'answer', question: 'scope', version: 4 }),
   wait('limit', "The cell's run had 2 returns sent back, its limit.", { kind: 'goOn', call: 4 }),
   wait('pause', 'The engine paused the work. A round failed.'),
-  wait('held', 'The engine paused every work as it started again.', { kind: 'resumeEverything' }),
   wait('write-content', '`content` keeps `test = may_merge` from holding.', {
     kind: 'write',
     block: 'content',
