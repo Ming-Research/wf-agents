@@ -1,5 +1,5 @@
 //! The observations of the installation, as the page's Observations view reads them, and the owner's reading of one,
-//! as `client/src/observations-api.ts` asks for them:
+//! as `client/src/observations-api.ts` and the command `wf-agents observations` ask for them:
 //!
 //! - `GET /api/v1/observations`: every observation, the newest first ([`ObservationsPage`]).
 //! - `POST /api/v1/observations/{number}/read`: the owner read the observation: answers with when it was read
@@ -19,7 +19,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use service::Handle;
 use store::Observations;
 
@@ -44,14 +44,14 @@ pub fn router(handle: Handle, store: PathBuf) -> Router {
 }
 
 /// Every observation, the newest first.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservationsPage {
     pub observations: Vec<Observation>,
 }
 
 /// An observation: its number, what it says, where it came from, when it was kept and when the owner read it. Each
 /// time is in milliseconds since the start of 1970.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Observation {
     pub number: u64,
     pub text: String,

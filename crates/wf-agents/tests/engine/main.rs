@@ -9,6 +9,7 @@ mod everything;
 mod failing;
 mod forking;
 mod items;
+mod observing;
 mod starting;
 mod waiting;
 

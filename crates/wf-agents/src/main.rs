@@ -221,6 +221,20 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// The observations agents reported beyond their works, the newest first: each with its number, whether the owner
+    /// read it, when it was kept, the item and work it came from and the cell, run and round that reported it, then
+    /// its whole text. At most twenty are given; the line after them says how many more there are and the number to
+    /// give next time with --from.
+    Observations {
+        /// The number of the observation to give from, going down to the older ones; the newest where none is given.
+        #[arg(long, value_name = "NUMBER")]
+        from: Option<u64>,
+        /// The most observations to give.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[command(flatten)]
+        at: At,
+    },
     /// What an item waits for and what waits for it: up, the items it depends on, each with those it depends on in
     /// turn; down, the items that depend on it, likewise; to a depth.
     Graph {
@@ -552,6 +566,7 @@ fn main() -> ExitCode {
         Command::Changes { since, at } => talk::ask(at.port, Asked::Changes { since }),
         Command::Candidates { at } => talk::ask(at.port, Asked::Candidates),
         Command::Search { text, limit, at } => talk::ask(at.port, Asked::Search { text, limit }),
+        Command::Observations { from, limit, at } => talk::ask(at.port, Asked::Observations { from, limit }),
         Command::Graph {
             item,
             down,
