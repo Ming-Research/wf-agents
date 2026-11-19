@@ -15,6 +15,7 @@ use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
+use web::observations::{Observation, ObservationsPage};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
 use web::system::{Past, System, UnderWay};
 use web::works::{
@@ -82,6 +83,11 @@ pub enum Asked {
         item: u64,
         block: Option<String>,
         whole: bool,
+    },
+    /// The observations, the newest first, from this number down, at most this many.
+    Observations {
+        from: Option<u64>,
+        limit: usize,
     },
     /// What needs whoever plans the work since the mark, waiting for it at most this many seconds; with no time, as
     /// long as it takes.
@@ -180,6 +186,10 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                     texts.push((name, version.content));
                 }
                 Ok(text_said(item, &page, &texts, whole, block.is_some()))
+            }
+            Asked::Observations { from, limit } => {
+                let page: ObservationsPage = send(address, Method::GET, "/api/v1/observations", None::<&()>).await?;
+                Ok(observations_said(&page, from, limit))
             }
             Asked::Everything(act) => {
                 send::<(), _>(address, Method::POST, "/api/v1/engine/acts", Some(&act)).await?;
@@ -1473,12 +1483,63 @@ fn heed(line: &Line, now: u64) -> String {
             format!("{}, {} ago", self::now(is), duration(now.saturating_sub(*since))),
         ),
     };
-    let title: String = if of.title.chars().count() > TITLE {
-        format!("{}…", of.title.chars().take(TITLE - 1).collect::<String>())
+    format!(
+        "Item {} \"{}\", work {}: {}",
+        of.item,
+        cut_title(&of.title),
+        of.work,
+        sentence(&said)
+    )
+}
+
+/// A title, cut to what a line of `wait` or `observations` carries.
+fn cut_title(title: &str) -> String {
+    if title.chars().count() > TITLE {
+        format!("{}…", title.chars().take(TITLE - 1).collect::<String>())
     } else {
-        of.title.clone()
-    };
-    format!("Item {} \"{title}\", work {}: {}", of.item, of.work, sentence(&said))
+        title.to_string()
+    }
+}
+
+/// The observations from the number given down, the newest first, each as a line saying where it came from and whether
+/// the owner read it, then its whole text indented; and how many more there are, with the command that gives them.
+fn observations_said(page: &ObservationsPage, from: Option<u64>, limit: usize) -> String {
+    if page.observations.is_empty() {
+        return "There are no observations.".to_string();
+    }
+    let down: Vec<&Observation> = (page.observations.iter())
+        .filter(|o| from.is_none_or(|from| o.number <= from))
+        .collect();
+    if down.is_empty() {
+        return format!("No observation is numbered O{} or lower.", from.unwrap_or_default());
+    }
+    let mut lines = Vec::new();
+    for o in down.iter().take(limit) {
+        let read = match o.read {
+            Some(at) => format!("read {}", utc(at)),
+            None => "unread".to_string(),
+        };
+        lines.push(format!(
+            "O{}, {read}, kept {}: item #{} \"{}\", W{}, cell {}, run {}, round {}",
+            o.number,
+            utc(o.kept),
+            o.item,
+            cut_title(&o.title),
+            o.work,
+            o.cell,
+            o.run,
+            o.round
+        ));
+        lines.extend(o.text.trim().lines().map(|line| format!("  {line}")));
+    }
+    if let Some(next) = down.get(limit) {
+        lines.push(format!(
+            "And {} more, older: wf-agents observations --from {}",
+            down.len() - limit,
+            next.number
+        ));
+    }
+    lines.join("\n")
 }
 
 /// The first line of a text, cut to a paragraph's length.
@@ -2049,6 +2110,50 @@ mod tests {
 
     // The list says what is down while the wait holds, as the latest check found it, since when, and when the engine
     // checks next; once a check found the outside well it holds nothing, and the list says nothing of it.
+    /// An observation of the plan's first round of this work, kept at this time.
+    fn observation(number: u64, text: &str, read: Option<u64>) -> Observation {
+        Observation {
+            number,
+            text: text.to_string(),
+            work: 3,
+            item: 2,
+            title: "Greet the user".to_string(),
+            cell: "plan".to_string(),
+            run: 4,
+            round: 1,
+            kept: 1_800_000_000_000,
+            read,
+        }
+    }
+
+    #[test]
+    fn observations_are_said_whole_a_bounded_few_at_a_time_with_the_number_to_ask_for_the_rest() {
+        let page = ObservationsPage {
+            observations: vec![
+                observation(3, "Third.\nIn two lines.", None),
+                observation(2, "Second.", Some(1_800_000_060_000)),
+                observation(1, "First.", None),
+            ],
+        };
+        assert_eq!(
+            observations_said(&page, None, 2),
+            "O3, unread, kept 2027-01-15 08:00 UTC: item #2 \"Greet the user\", W3, cell plan, run 4, round 1\n  Third.\n  \
+             In two lines.\nO2, read 2027-01-15 08:01 UTC, kept 2027-01-15 08:00 UTC: item #2 \"Greet the user\", W3, \
+             cell plan, run 4, round 1\n  Second.\nAnd 1 more, older: wf-agents observations --from 1"
+        );
+        let down = observations_said(&page, Some(2), 20);
+        assert!(down.starts_with("O2, read ") && down.ends_with("  First."), "{down}");
+        assert!(!down.contains("O3") && !down.contains("more"), "{down}");
+        assert_eq!(
+            observations_said(&page, Some(0), 20),
+            "No observation is numbered O0 or lower."
+        );
+        let none = ObservationsPage {
+            observations: Vec::new(),
+        };
+        assert_eq!(observations_said(&none, None, 20), "There are no observations.");
+    }
+
     #[test]
     fn a_list_says_what_is_down_since_when_and_when_the_engine_checks_next() {
         let hour = 3_600_000;
