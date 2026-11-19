@@ -21,18 +21,17 @@ const said = (arrows: ChartEdge[]) =>
 describe('the trunks of the arrows a write runs', () => {
   it('draws the arrows out of a cell that carry one name as one trunk, what else runs a cell at its branch', () => {
     expect(said(shownArrows(chart, 'D1', false))).toEqual([
-      'D1 plan > P1 +plan_review; P2 +tree_review; I1 +plan_doubts',
-      'D1 acceptance > T2',
+      'D1 plan > P2 +tree_review; I1 +plan_doubts',
+      'D1 acceptance > T4',
     ]);
   });
 
   it('keeps the arrows into the cell chosen apart, one trunk for each cell they come from', () => {
-    expect(said(shownArrows(chart, 'T2', false))).toEqual([
-      'R1 acceptance > T2',
-      'R2 acceptance > T2',
-      'D1 acceptance > T2',
-      'D2 acceptance > T2',
-      'I1 acceptance, testing > T2',
+    expect(said(shownArrows(chart, 'T4', false))).toEqual([
+      'R1 acceptance > T4',
+      'D1 acceptance > T4',
+      'I1 acceptance, testing > T4',
+      'T2 needs_testing > T4',
     ]);
   });
 
@@ -44,15 +43,13 @@ describe('the trunks of the arrows a write runs', () => {
         .sort(),
     );
     expect(said(shownArrows(chart, null, true))).toEqual([
-      'R1 plan > D2; P1 +plan_review; P2 +tree_review; I1 +plan_doubts',
-      'R1 acceptance > T2',
-      'R2 plan > P2; I1',
-      'R2 acceptance > T2',
-      'D1 plan > P1 +plan_review; P2 +tree_review; I1 +plan_doubts',
-      'D1 acceptance > T2',
-      'D2 plan > P2; I1',
-      'D2 acceptance > T2',
-      'I1 acceptance, testing > T2',
+      'R1 plan > D2 +better_found; P2 +tree_review; I1 +plan_doubts',
+      'R1 acceptance > T4',
+      'D1 plan > P2 +tree_review; I1 +plan_doubts',
+      'D1 acceptance > T4',
+      'I1 change > T2 +test_review; T3 +design_review',
+      'I1 acceptance, testing > T4',
+      'T2 needs_testing > T4',
     ]);
   });
 });

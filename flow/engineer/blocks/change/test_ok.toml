@@ -1,0 +1,4 @@
+what = "yes when nothing in the change's tests and evidence must change; no otherwise."
+values = ["yes", "no"]
+from = "owner"
+shown = true

@@ -110,7 +110,7 @@
   width: 140px;
 }
 
-/* What the owner does to the work: the works page's buttons (`.acts`), under the lines. */
+/* What the owner does to the work: its buttons, under the lines. */
 .cw-acts {
   margin-top: var(--space-12);
 }

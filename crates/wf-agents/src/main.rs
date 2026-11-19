@@ -382,13 +382,6 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Has a line of a work begin a new session at its next round.
-    NewSession {
-        work: u64,
-        line: String,
-        #[command(flatten)]
-        at: At,
-    },
     /// Shows how the system ran over the last days: what its rounds took; the rounds whose cost or time, and the calls
     /// of tools whose time, went past the lines of their history, the latest first; and the rounds and calls under way,
     /// the oldest first, each against its own lines. At most so many of each are listed, and how many more there are
@@ -664,7 +657,6 @@ fn main() -> ExitCode {
         }
         Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
         Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
-        Command::NewSession { work, line, at } => talk::ask(at.port, Asked::Act(work, Act::NewSession { line })),
         Command::System { days, limit, at } => talk::ask(at.port, Asked::System { days, limit }),
     }
 }
@@ -684,13 +676,15 @@ fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
 /// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
 /// `answer`, written by the engine's loop, a cell's own questions, as a question of it is asked, asked anew or
 /// withdrawn and as the owner answers one; `asked`, as the questions and their answers come to stand otherwise;
-/// `main`, written by the acts' watch of main on the host; `tree` and `head`, read by the carriers of the design tree
-/// and of the work's head on a work's branch, written from outside or handed in with the round that committed them; and
-/// `words`, written by the engine's loop as the owner speaks to a cell, the cell's own words.
-const SOURCES: [&str; 9] = [
+/// `handed_in`, written by the engine's loop as the first run of a cell that dealt with something finishes; `main`,
+/// written by the acts' watch of main on the host; `tree` and `head`, read by the carriers of the design tree and of the
+/// work's head on a work's branch, written from outside or handed in with the round that committed them; and `words`,
+/// written by the engine's loop as the owner speaks to a cell, the cell's own words.
+const SOURCES: [&str; 10] = [
     "answer",
     "asked",
     "dependencies",
+    "handed_in",
     "head",
     "main",
     "session",

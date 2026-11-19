@@ -256,6 +256,7 @@ fn the_blocks_entries_are_added_to_are_each_cell_s_own_questions_and_words() {
             "answer",
             "asked",
             "dependencies",
+            "handed_in",
             "main",
             "session",
             "start",
@@ -277,16 +278,53 @@ fn the_blocks_entries_are_added_to_are_each_cell_s_own_questions_and_words() {
         [
             "d1_questions",
             "d1_words",
-            "d2_questions",
-            "d2_words",
             "i1_questions",
             "i1_words",
             "r1_questions",
             "r1_words",
-            "r2_questions",
-            "r2_words",
         ]
     );
+}
+
+// A datum of a cell's own that a cell names only in its condition is made for that cell (decision
+// a-datum-of-a-cell-s-own-is-made-where-a-cell-names-it): the better-way cells' `handed_in`, which the engine writes and
+// no cell watches, reads or writes, and of no other cell.
+#[test]
+fn a_datum_of_a_cell_s_own_named_only_in_a_condition_is_made_for_that_cell() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
+    let source = flow::read(&dir).expect("the engineer's flow is read");
+    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    let has = Has {
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "handed_in",
+            "main",
+            "session",
+            "start",
+            "head",
+            "tree",
+            "words",
+        ]),
+        acts: names(&["start", "check", "merge"]),
+        tools: names(&["query", "run_tests"]),
+        ..Default::default()
+    };
+    let compiled = flow::compile(&source, &has).expect("the engineer's flow compiles");
+    let made: Vec<(String, Option<String>, Option<String>, bool)> = (compiled.blocks.iter())
+        .filter(|(_, block)| block.writers.outside.as_deref() == Some("handed_in"))
+        .map(|(name, block)| {
+            let whose = block.of_cell.as_ref().map(|c| c.0.clone());
+            let named = !block.readers.cells.is_empty() || !block.writers.cells.is_empty();
+            (name.to_string(), whose, block.default.clone(), named)
+        })
+        .collect();
+    let made_for = |cell: &str| {
+        let name = format!("{}_handed_in", cell.to_lowercase());
+        (name, Some(cell.to_string()), Some("no".to_string()), false)
+    };
+    assert_eq!(made, [made_for("D2"), made_for("R2")]);
 }
 
 #[test]
@@ -299,6 +337,7 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
             "answer",
             "asked",
             "dependencies",
+            "handed_in",
             "main",
             "session",
             "start",
@@ -312,24 +351,21 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
     };
     let compiled = flow::compile(&source, &has);
     assert!(compiled.is_ok(), "{:?}", compiled.err());
-    // R2, which may ask the owner and wait, as the work-4 case: not watching its own words.
-    let r2 = source.cells.get_mut("R2").expect("the flow has R2");
-    let (with, without) = (
-        r#"watches = ["plan", "r2_questions", "r2_words"]"#,
-        r#"watches = ["plan", "r2_questions"]"#,
-    );
-    assert!(r2.contains(with), "{r2}");
-    *r2 = (r2.lines())
-        .filter(|line| !line.starts_with("r2_words = "))
+    // R1, which may ask the owner and wait, as the work-4 case: not watching its own words.
+    let r1 = source.cells.get_mut("R1").expect("the flow has R1");
+    let (with, without) = ("  \"r1_words\",\n]\nreads", "]\nreads");
+    assert!(r1.contains(with), "{r1}");
+    *r1 = (r1.lines())
+        .filter(|line| !line.starts_with("r1_words = "))
         .collect::<Vec<_>>()
         .join("\n")
         .replace(with, without);
-    let refused = flow::compile(&source, &has).expect_err("R2 asks and cannot be spoken to");
+    let refused = flow::compile(&source, &has).expect_err("R1 asks and cannot be spoken to");
     let what = AsksAndCannotBeSpokenTo {
-        block: "r2_questions".to_string(),
+        block: "r1_questions".to_string(),
     };
     assert!(
-        refused.iter().any(|f| f.file == "cells/R2.toml" && f.what == what),
+        refused.iter().any(|f| f.file == "cells/R1.toml" && f.what == what),
         "{refused:?}"
     );
     assert_eq!(refused.len(), 1, "{refused:?}");

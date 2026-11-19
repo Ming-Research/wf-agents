@@ -1,35 +1,28 @@
 # Why this cell exists: a plan, once written, is thought through again by its writer, in the same session: asked so, a
 # writer most often finds a better way (the old flow's cell that asked it, on the line that wrote the design, found one
-# 40 times in 52).
+# 40 times in 52). It runs once a work, until it has handed in, and hands the better way it finds to the plan's writer
+# in the dialogue of the two, writing no plan itself (decision the-better-way-is-looked-for-once).
 title = "Is there a better way"
 kind = "agent"
 line = "deep_researcher"
 effort = "xhigh"
 task = { file = "tasks/better_way.md" }
-when = { deep_needed = "yes" }
-watches = ["plan", "r2_questions", "d2_questions", "d2_words"]
+when = { deep_needed = "yes", d2_handed_in = "no" }
+watches = ["plan", "better_found"]
 reads = ["background", "tree"]
-outputs = [
-  "plan_owner",
-  "plan_agent",
-  "d2_questions",
-  "acceptance",
-  "tree_edits",
-  "d2_words",
-]
+outputs = ["better_found"]
 
-# Each version of the plan is thought through once; one it wrote itself runs it not again.
+# What the cell does when each datum it watches is new; a datum with none is the task's alone. An answer in
+# `better_found` comes once the cell has handed in, which skips it.
 [do]
-plan = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
-r2_questions = """The owner has answered a question in `r2_questions` with another option than it recommends, or one that waited: bring the plan to it."""
-d2_questions = """The owner has answered one of your questions in `d2_questions` with another option than yours, or one you wait for: bring the plan to it."""
-d2_words = """The owner has said something to you in `d2_words`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `d2_words`."""
+plan = """Think the plan through."""
 
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
 background = "latest"
-plan_owner = "last_and_latest"
-plan_agent = "last_and_latest"
-acceptance = "last_and_latest"
-tree_edits = "last_and_latest"
+plan_owner = "latest"
+plan_agent = "latest"
+acceptance = "latest"
+tree_edits = "latest"
+better_found = "all"

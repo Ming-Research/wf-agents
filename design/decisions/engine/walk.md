@@ -10,6 +10,18 @@ Why: A cell skipped this time has not been undone: a review that finds the tests
 written before worthless. A gate drawn as a cell needed a record of what the work was waiting for, and care to raise
 and withdraw that record at the right moments.
 
+### decision a-way-back-waits-for-the-pass
+The walk tells a way back from what is new to a cell and who wrote it, and keeps no record of passes; a cell with
+preconditions ends the look past a way back, and is reached only by going through the flow from its start (design
+document `data-and-context`, 6).
+Why: Taken first, each judge's point went back to the plan's writer before the next judge saw the plan: in W11 the
+research, the better-way cell and the design review each ran four times, and the review against the tree first ran at
+the twelfth run, its one point running the three again. A batch recorded as it begins was turned down: what decides the
+next cell would be more than the records' newness (principle state-from-records), and a cell a batch-mate makes new
+after it would wait a batch for nothing, as the adversarial testing would after the test review asked for it. Looking
+past a gate would take a verdict while its judge has something new, as the check before the merge would take `plan_ok`
+on an acceptance the implementation changed.
+
 ### decision a-test-of-content-reads-the-record
 A named test may hold where a block it reads holds anything (`any_content`): the record of each write says whether the
 version holds nothing, no value and its content empty or only whitespace, and the walk reads that as it reads a
@@ -89,7 +101,7 @@ Why: A wait that names only cells that will not run names nobody who can act (pr
 implementation that handed in nothing for a red check left the work at the merge's gate, waiting for the check, and
 nobody was told. A pause of the engine's was turned down: its reason went stale once the work could move again, it
 held what the owner wrote until they let the work on, and what it guarded against, the check run by main moving on a
-branch no one reviewed, the check's own gate on the review's yes holds (decision the-check-waits-for-the-review).
+branch no one reviewed, the check's own gate on the reviews' yes holds (decision the-check-waits-for-the-reviews).
 
 ### decision what-a-run-wrote-may-wait-for-the-outside
 A finished run may say that what it wrote waits for a new version of a block a source outside the work writes and its

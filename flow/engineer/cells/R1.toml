@@ -19,7 +19,15 @@ Decide `deep_needed`. With yes, write only `found`, and ask no question. With no
 check that point.
 '''
 when = { deep_needed = "no" }
-watches = ["background", "plan_review", "tree_review", "plan_doubts", "r1_questions", "r1_words"]
+watches = [
+  "background",
+  "better_found",
+  "plan_review",
+  "tree_review",
+  "plan_doubts",
+  "r1_questions",
+  "r1_words",
+]
 reads = ["tree"]
 outputs = [
   "deep_needed",
@@ -29,6 +37,7 @@ outputs = [
   "r1_questions",
   "acceptance",
   "tree_edits",
+  "better_found",
   "plan_review",
   "tree_review",
   "plan_doubts",
@@ -39,6 +48,7 @@ must_write = ["deep_needed"]
 # What the cell does when each datum it watches is new; a datum with none is the task's alone.
 [do]
 background = """See what changed from the version you last worked from, the whole of it where you worked from none, and bring the research and the plan up to date for it."""
+better_found = """Take the way in `better_found`: change the plan to it, or say why not, and answer it in `better_found`."""
 plan_review = """Take each point of `plan_review`: change the plan where it touches, only there, or say why not, and answer it in `plan_review`."""
 tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `tree_review`."""
 plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `plan_doubts`."""
@@ -51,6 +61,7 @@ r1_words = """The owner has said something to you in `r1_words`: that comes firs
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
 background = "last_and_latest"
+better_found = "all"
 plan_review = "all"
 tree_review = "all"
 plan_doubts = "all"

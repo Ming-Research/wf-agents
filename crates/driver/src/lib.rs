@@ -126,18 +126,21 @@ pub const MERGED: &str = "merged";
 pub const START: &str = "start";
 
 /// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
-/// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`] or of [`engine::asked::ASKED`], and each cell's
-/// own words and questions, which the sources of the owner's words and of the answers write and the cell writes too,
-/// gives in its `writes` each text the engine fills, so that none is written empty; and the words beside the flows
-/// ([`flow::waits_file`]) give every reason the engine says to the owner. A flow with any of these is not run.
+/// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`], of [`engine::asked::ASKED`] or of
+/// [`engine::handed_in::HANDED_IN`], and each cell's own words and questions, which the sources of the owner's words and
+/// of the answers write and the cell writes too, gives in its `writes` each text the engine fills, so that none is
+/// written empty; and the words beside the flows ([`flow::waits_file`]) give every reason the engine says to the owner.
+/// A flow with any of these is not run.
 pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
+    use engine::handed_in::HANDED_IN;
     let session: Vec<&str> = ["text"].into_iter().chain(work::Why::KINDS).collect();
-    let needs: [(&str, &[&str]); 4] = [
+    let needs: [(&str, &[&str]); 5] = [
         (DEPENDENCIES, &[MERGED, WAITING, "cancelled", "between"]),
         (SESSION, &session),
         (START, &["text"]),
         (ASKED, &[ANSWERED, UNANSWERED, "between"]),
+        (HANDED_IN, &["text"]),
     ];
     // The dialogues the sources of the owner's turning write versions of, each a cell's own: its words, the owner's
     // versions and the cell's answers; its questions, each kind of version.

@@ -22,6 +22,7 @@ fn has() -> Has {
             "answer",
             "asked",
             "dependencies",
+            "handed_in",
             "main",
             "session",
             "start",
@@ -52,8 +53,9 @@ fn dialogues(compiled: &Compiled, id: &str) -> Vec<(String, Vec<String>)> {
 }
 
 // The research and the deep research both make the plan: each watches something else the other writes, and neither
-// judges the other. They hold no dialogue with each other, and each answers the plan's review, the tree's review and
-// the implementation's doubts by what that one watches of what it writes, the plan, and by nothing the other watches.
+// judges the other. They hold no dialogue with each other, and each answers the better-way cells, the plan's review,
+// the tree's review and the implementation's doubts by what that one watches of what it writes, the plan, and by
+// nothing the other watches.
 #[test]
 fn two_cells_that_make_the_plan_hold_no_dialogue_with_each_other() {
     let compiled = compiled(&engineer());
@@ -64,12 +66,32 @@ fn two_cells_that_make_the_plan_hold_no_dialogue_with_each_other() {
         assert_eq!(
             dialogues(&compiled, maker),
             [
+                ("better_found".to_string(), plan.clone()),
                 ("plan_doubts".to_string(), plan.clone()),
                 ("plan_review".to_string(), plan.clone()),
                 ("tree_review".to_string(), plan.clone()),
             ],
             "{maker}"
         );
+    }
+}
+
+// The two cells that look for a better way both speak to the plan's writer in `better_found`: each judges there the plan
+// the writer makes, and makes nothing a dialogue answers.
+#[test]
+fn the_cells_that_look_for_a_better_way_judge_the_plan_in_their_dialogue_with_its_writer() {
+    let compiled = compiled(&engineer());
+    let plan: Vec<String> = ["plan_owner", "plan_agent", "acceptance", "tree_edits"]
+        .map(String::from)
+        .to_vec();
+    for looker in ["R2", "D2"] {
+        let i = compiled.flow.place(&looker.into()).expect("the cell");
+        let cell = &compiled.flow.cells()[i];
+        let judges: Vec<(String, Vec<String>)> = (cell.judges.iter())
+            .map(|(d, judged)| (d.to_string(), judged.iter().map(BlockId::to_string).collect()))
+            .collect();
+        assert_eq!(judges, [("better_found".to_string(), plan.clone())], "{looker}");
+        assert_eq!(dialogues(&compiled, looker), [], "{looker}");
     }
 }
 
@@ -86,8 +108,8 @@ fn a_verdict_whose_judge_judges_in_more_than_one_dialogue_is_refused() {
     let source = edit(
         source,
         "cells/T1.toml",
-        "outputs = [\"review\", \"review_ok\", \"needs_testing\"]",
-        "outputs = [\"review\", \"review_ok\", \"needs_testing\", \"plan_review\"]",
+        "outputs = [\"review\", \"review_ok\"]",
+        "outputs = [\"review\", \"review_ok\", \"plan_review\"]",
     );
     let source = edit(
         source,

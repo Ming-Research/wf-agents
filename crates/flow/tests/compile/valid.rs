@@ -187,6 +187,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
                 tests: Vec::new(),
                 shown: false,
             },
+            of_cell: None,
         }
     };
     let none = (false, None);

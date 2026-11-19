@@ -1,0 +1,51 @@
+# Why this cell exists: so that the change is judged against the design tree by a session that did not make it: what it
+# breaks, what it leaves untrue and what it leaves unrecorded, and whether the entries it writes say what the plan
+# says. One of three reviews of the change on one line, each answering its questions one by one (decision
+# the-change-is-reviewed-in-three).
+title = "Design tree review of the change"
+kind = "agent"
+line = "code_reviewer"
+effort = "high"
+task = '''
+Review the change in `code` against the design tree, in a session of your own, and change no file. Read the diff from
+main to `head`, and whole each file of decisions whose topic it touches. Not the code and not the tests.
+
+1. Does the code break a principle, a decision or a document of the tree? A document may be ahead of the code: the change builds toward it, never away from it.
+2. Do the entries the change writes into `design/` say what `tree_edits` says, and no more?
+3. Does the change leave an entry of the tree untrue, or a comment that goes against the tree?
+4. Does a choice the change makes, in `decisions` or in the code, need an entry that neither the plan nor the tree records: a way turned down, something done on purpose that looks like a fault, or a relation between two places?
+
+In the why of `design_ok`, answer each question by its number: what you checked and what you found. A question you did
+not check is a point: what must be shown. Write every point in `design_review` at once: this is your one chance, and
+nothing is raised later that could be raised now. Leave out preferences: the engineer fixes nearly all a review raises,
+so a wrong point makes good code worse. With `design_ok` yes, leave `design_review` out of your return.
+'''
+watches = ["change", "design_review"]
+reads = ["plan", "background", "tree"]
+outputs = ["design_review", "design_ok"]
+must_write = ["design_ok"]
+
+# What the cell does when each datum it watches is new; a datum with none is the task's alone.
+[do]
+# The change is watched as one, what the implementation and the testing hand in; the plan is only read, since the
+# implementation brings the code to it first, and no session is watched, since a reopened session gives a reviewer
+# nothing to do again.
+change = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
+design_review = """Look at what changed: accept each answer in `design_review` or say why not; raise nothing new the fix did not bring."""
+
+# `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest.
+[kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
+design_review = "all"
+code = "last_and_latest"
+title = "latest"
+decisions = "last_and_latest"
+evidence = "latest"
+plan_owner = "last_and_latest"
+plan_agent = "last_and_latest"
+acceptance = "last_and_latest"
+tree_edits = "last_and_latest"
+tests = "last_and_latest"
+head = "last_and_latest"
+background = "latest"

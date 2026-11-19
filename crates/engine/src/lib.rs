@@ -24,12 +24,14 @@
 //!
 //! - [`asked`]: the questions put to the owner, the owner's answers, and the block of how they stand.
 //! - [`event`]: what happens to a work, and what is to be done for it.
+//! - [`handed_in`]: the block that says a cell has handed its work in.
 //! - [`handle`](mod@handle): the loop.
 //! - [`held`](mod@held): what holds a work back, as the loop leaves it.
 //! - [`spoken`]: what the owner says to a work, the cell the engine chooses for it, and what its cells answer.
 
 pub mod asked;
 pub mod event;
+pub mod handed_in;
 pub mod handle;
 pub mod held;
 pub mod spoken;

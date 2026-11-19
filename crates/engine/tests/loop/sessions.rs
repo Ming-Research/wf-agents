@@ -11,7 +11,7 @@ fn a_new_session_of_a_line_is_recorded_at_its_place() {
     let (mut w, ..) = W::requested();
     let effects = w.on(Event::Anew {
         line: "other".to_string(),
-        why: Why::Owner,
+        why: Why::Flagged,
     });
     assert_eq!(effects, [], "the round under way goes on");
     let at = w.work.tick();
@@ -20,7 +20,7 @@ fn a_new_session_of_a_line_is_recorded_at_its_place() {
         [Session {
             at: Seq(at.0 - 1),
             line: "other".to_string(),
-            why: Why::Owner,
+            why: Why::Flagged,
         }]
     );
 }
@@ -30,7 +30,7 @@ fn a_new_session_of_a_line_the_flow_has_no_cell_on_is_refused() {
     let (mut w, ..) = W::requested();
     let why = w.refused(Event::Anew {
         line: "elsewhere".to_string(),
-        why: Why::Owner,
+        why: Why::Flagged,
     });
     assert_eq!(why, Refused::NoSuchLine("elsewhere".to_string()));
 }
