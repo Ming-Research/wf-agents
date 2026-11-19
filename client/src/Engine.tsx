@@ -74,8 +74,8 @@ export function Engine({ items, failed }: { items: Items | null; failed: string 
     );
   }
   const running = items.items.filter((i) => i.work.now.kind === 'round').length;
-  // Who holds every work is said here, where the pause of everything is: the engine takes one as it starts again on
-  // works that were going on, which is not the owner's doing and is read as it otherwise would be.
+  // Who holds every work is said here, where the pause of everything is: the engine's own, taken as it starts again on
+  // works that were going on, is told apart from the owner's.
   const byEngine = !mocks && real?.paused?.by === 'engine';
   const [dot, words] = !paused
     ? ['run', running === 0 ? 'Running' : `Running: ${running} ${running === 1 ? 'round' : 'rounds'}`]
