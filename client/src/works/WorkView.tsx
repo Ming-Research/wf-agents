@@ -1,6 +1,7 @@
-// One work: the view's line, with the way back to the works, the item's number and its title, and at its right the
-// legend of the history's marks; the work's history as a chart; and over its right the console's window (`Drawer`) with the console's item
-// window for the work's item (`ItemPanel`), its tabs the console's, whose Step shows the row of the history chosen.
+// One work: the view's line, with the way back where the owner came from, the item's number and its title, and at its
+// right the legend of the history's marks; the work's history as a chart; and over its right the console's window
+// (`Drawer`) with the console's item window for the work's item (`ItemPanel`), its tabs the console's, whose Step
+// shows the row of the history chosen.
 // What the window shows (the item's state, the work's cost and time, the owner's buttons) is not said again in the
 // view's line. Choosing a row slides the window out on Step; letting the row go slides it back, unless its tab brought
 // it out, in which case it stays until the tab takes it back: as the console's and the flow's window. The window is out
@@ -15,7 +16,7 @@ import { ItemPanel, WINDOW_TABS, type WindowTab } from '../console/ItemWindow';
 import { Legend } from '../marks';
 import { Drawer } from '../parts';
 import { CHOICE_KEYS, keptChoice, useKept, write } from '../kept';
-import { hashOf } from '../route';
+import { goBack, hashOf } from '../route';
 import { WIDTH_KEYS } from '../sizes';
 import type { Act, WorkPage } from '../works-api';
 import { HISTORY_MARKS, HistoryChart } from './History';
@@ -142,8 +143,15 @@ export function WorkScreen({ page, failed = null, onActed, run, active = true }:
     <>
       <div className="view-line">
         <span className="view-title">
-          <a className="link" href="#/works">
-            ← Works
+          <a
+            className="link"
+            href="#/works"
+            onClick={(e) => {
+              e.preventDefault();
+              goBack('#/works');
+            }}
+          >
+            ← Back
           </a>
           <span className="mono muted">#{summary.item}</span>
           <span className="view-name">{page.title}</span>
