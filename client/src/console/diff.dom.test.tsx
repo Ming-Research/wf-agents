@@ -16,10 +16,10 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-function draw(text: string, path: string | null = null): HTMLElement {
+function draw(text: string, path: string | null = null, folded = false): HTMLElement {
   const container = document.body.appendChild(document.createElement('div'));
   const root = createRoot(container);
-  act(() => root.render(<Diff text={text} path={path} />));
+  act(() => root.render(<Diff text={text} path={path} folded={folded} />));
   return container;
 }
 
@@ -115,5 +115,30 @@ describe("a diff in the item's window", () => {
     const code = draw('hello\nworld');
     expect(code.querySelector('pre.content code')?.textContent).toBe('hello\nworld');
     expect(code.querySelector('.cw-diff-line')).toBeNull();
+  });
+
+  it('folds each file of a diff away under its path, which a press opens', () => {
+    const two = [
+      'diff --git a/a.md b/a.md',
+      '--- a/a.md',
+      '+++ b/a.md',
+      '@@ -1 +1 @@',
+      '-one',
+      '+two',
+      'diff --git a/b.md b/b.md',
+      '--- a/b.md',
+      '+++ b/b.md',
+      '@@ -1 +1 @@',
+      '-three',
+      '+four',
+    ].join('\n');
+    const el = draw(two, null, true);
+    // One fold for each file, named by its path, and nothing of the diff drawn until one is opened.
+    expect(texts(el, '.cw-fold-head')).toEqual(['a.md', 'b.md']);
+    expect(lines(el)).toEqual([]);
+    act(() => (el.querySelectorAll('.cw-fold-head')[1] as HTMLButtonElement).click());
+    expect(lines(el)).toEqual(['|-[three]', '1|+[four]']);
+    // A diff that names no file is folded under words that say it is the change.
+    expect(texts(draw('@@ -1 +1 @@\n-one\n+two', null, true), '.cw-fold-head')).toEqual(['The change']);
   });
 });

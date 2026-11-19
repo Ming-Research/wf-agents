@@ -11,8 +11,9 @@
 // code-is-coloured-from-prisms-words), each side of a part of it read whole, so that a comment or a string over
 // several of its lines is read as one.
 
-import { useMemo } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import { CodeWords, codeKinds, codeParts, grammarOf, type CodeKind, type Grammar } from '../code';
+import { Fold } from '../parts';
 
 /// A line of a part of a file a diff changes: kept, removed or added, and its text without its sign.
 type Line = { sign: ' ' | '-' | '+'; text: string };
@@ -306,7 +307,13 @@ function compareHunk(hunk: Hunk, grammar: Grammar | null): Drawn[] {
 /// A ```diff block of a passage, or the diff of a file a work changed, whose path is `path`: each file it changes,
 /// named where it changes several, what it says of each beside its lines, and each part of it that changed, a hairline
 /// between two.
-export function Diff({ text, path = null }: { text: string; path?: string | null }) {
+export function Diff({ text, path = null, folded = false }: {
+  text: string;
+  path?: string | null;
+  /// Each file of the diff is drawn folded away under its path, which the owner opens: for a diff in a text, where it
+  /// stands among words the owner reads first and may be longer than all of them.
+  folded?: boolean;
+}) {
   const files = useMemo(
     () =>
       readDiff(text)?.map((f) => {
@@ -323,11 +330,26 @@ export function Diff({ text, path = null }: { text: string; path?: string | null
     );
   }
   const named = files.length > 1;
+  // Folded, each file stands under its path, which names the fold; drawn whole, a path is named only where the diff
+  // holds more than one.
+  const file = (f: (typeof files)[number], drawn: ReactNode) =>
+    folded ? (
+      <Fold title={f.path ?? 'The change'} shut>
+        {drawn}
+      </Fold>
+    ) : (
+      <>
+        {named && f.path !== null && <div className="cw-diff-file">{f.path}</div>}
+        {drawn}
+      </>
+    );
   return (
     <div className="content">
       {files.map((f, i) => (
-        <div key={i} className={i > 0 ? 'cw-diff-apart' : undefined}>
-          {named && f.path !== null && <div className="cw-diff-file">{f.path}</div>}
+        <div key={i} className={i > 0 && !folded ? 'cw-diff-apart' : undefined}>
+          {file(
+            f,
+            <>
           {f.notes.map((note, k) => (
             <div key={k} className="cw-diff-file">
               {note}
@@ -361,6 +383,8 @@ export function Diff({ text, path = null }: { text: string; path?: string | null
               ))}
             </div>
           ))}
+            </>,
+          )}
         </div>
       ))}
     </div>

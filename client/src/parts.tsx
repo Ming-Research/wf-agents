@@ -420,11 +420,12 @@ export function PanelPart({ label, count, last, children }: {
 }
 
 /// Which sections of the item's window the owner folded away, by their names, kept in this browser, so that one folded
-/// stays folded from item to item and from tab to tab.
+/// stays folded from item to item and from tab to tab; and which of those drawn folded the owner opened.
 const FOLDED = 'console-window-folded';
-function foldedNow(): string[] {
+const OPENED = 'console-window-opened';
+function keptNow(key: string): string[] {
   try {
-    const kept = JSON.parse(localStorage.getItem(FOLDED) ?? '[]') as unknown;
+    const kept = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown;
     return Array.isArray(kept) ? kept.filter((k): k is string => typeof k === 'string') : [];
   } catch {
     return [];
@@ -434,19 +435,22 @@ function foldedNow(): string[] {
 /// A section of the item's window, in every tab of it: a whole row in the accent's colour that names it and folds it
 /// away at a press, how many it holds and a muted note beside the name, and under it what it holds. The spaces between
 /// the name and what follows it are not drawn, the row's gap being, but keep them apart where the row is read as text.
-export function Fold({ title, count, note, children }: {
+/// `shut` draws it folded until the owner opens it.
+export function Fold({ title, count, note, shut = false, children }: {
   title: string;
   count?: number;
   note?: ReactNode;
+  shut?: boolean;
   children: ReactNode;
 }) {
-  const [folded, setFolded] = useState(() => foldedNow().includes(title));
+  const key = shut ? OPENED : FOLDED;
+  const [folded, setFolded] = useState(() => keptNow(key).includes(title) !== shut);
   const turn = () => {
     const now = !folded;
     setFolded(now);
     try {
-      const kept = foldedNow().filter((k) => k !== title);
-      localStorage.setItem(FOLDED, JSON.stringify(now ? [...kept, title] : kept));
+      const kept = keptNow(key).filter((k) => k !== title);
+      localStorage.setItem(key, JSON.stringify(now !== shut ? [...kept, title] : kept));
     } catch {
       // Kept only where the browser lets it be.
     }
