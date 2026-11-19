@@ -5,8 +5,8 @@ not pick at its words.
 
 ## What the tree is
 
-The code is the result: it shows how a thing is done. The design tree holds why, where the code itself does not make
-the reason plain; that the code shows what an entry says to do is no ground for leaving the entry out.
+The code is the result: it shows how a thing is done. The design tree holds what an agent going by the code would get
+wrong; that the code shows what an entry says to do is no ground for leaving the entry out.
 
 Comments are not the code: what the code shows does not include what a comment says. Comments never go against the
 tree: where a comment and an entry differ, the entry holds and the comment is put right.
@@ -25,9 +25,9 @@ for it, and its narrower concepts are in a directory of the same name beside it.
 
 ## How it is used
 
-An agent taking the work up in another session reads the code for how, and the tree for why. It reads the
-constitution whole; then the principles and the decisions from the top of each tree down to each concept its work
-changes or relies on, whole.
+An agent taking the work up in another session reads the code for how, and the tree for what it would otherwise get
+wrong. It reads the constitution whole; then the principles and the decisions from the top of each tree down to each
+concept its work changes or relies on, whole.
 
 Where the right solution needs a decision changed, the work changes it. An agent that finds the constitution or a
 principle missing or wrong, or whose right solution breaks one, says so and proposes the change.
@@ -54,11 +54,11 @@ Principles are the owner's and may come before the code. No decision excuses a b
 
 ### A decision
 
-A decision is about one thing, an ability or a component: what holds there and why, where the code does not show the
-why. It enters only if an agent that has read the code and the principles would still change the code wrongly, which
-is one of three things: a way that was considered and turned down, which leaves no trace in the code and which a later
-agent would take up again; something done on purpose that looks like a fault or an omission, which a later agent would
-mend; a relation between two places that neither of them shows.
+A decision is about one thing, an ability or a component. It enters only if an agent that has read the code and the
+principles would still change the code wrongly there, which is one of three things: a way that was considered and
+turned down, which leaves no trace in the code and which a later agent would take up again; something done on purpose
+that looks like a fault or an omission, which a later agent would mend; a relation between two places that neither of
+them shows.
 
 A decision is never ahead of the code: it says what the code does, and what is yet to be built is said in `docs/`,
 outside the tree.
@@ -70,7 +70,7 @@ A principle and a decision are each a few lines, in one form, a principle under 
 ```
 ### decision <a-short-name>
 <What holds, in one or two sentences.>
-Why: <the reason, in one or two sentences; where the point is a way turned down, which way and why it lost.>
+Not knowing this, an agent would <do what, what leads it there, and what would then go wrong>.
 ```
 
 - A decision is written at the concept an agent would be working on when it changed the code wrongly; where that
@@ -78,8 +78,8 @@ Why: <the reason, in one or two sentences; where the point is a way turned down,
 - No identifier from the code (a function, a type, a file). The system's own terms, a field or a value of a format an
   agent meets, a setting's key, and the names of principles and decisions may be used.
 - No word that dates the entry. What stands behind it (when it was settled, what was tried) is in the pull request of
-  the work; the case or the number that is the reason may be a clause of the Why.
-- A reason that rests on judgment, with no measurement or case behind it, says so in the Why.
+  the work; the case or the number that shows what would go wrong may be a clause of the entry.
+- Where what would go wrong rests on judgment, with no measurement or case behind it, the entry says so.
 
 ## Changing the tree
 
