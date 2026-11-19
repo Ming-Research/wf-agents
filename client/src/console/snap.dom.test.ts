@@ -8,16 +8,18 @@ import type { CellNow, Now } from '../works-api';
 import { stateOf } from '../works/words';
 import { age } from './items';
 import {
-  dashesAlong,
   DIM,
   eased,
   grounded,
+  headAt,
   type Light,
+  lightOn,
   linksStrength,
   moodOf,
   NODE_W,
   PITCH,
   ROW,
+  sparkAt,
   wayAims,
   waysUp,
 } from './snap';
@@ -59,7 +61,7 @@ describe("a card's mood", () => {
   });
 });
 
-describe('the dashed ways of the items whose work runs', () => {
+describe('the lit ways of the items whose work runs', () => {
   // Item 0 is a root with 1 and 2 under it, and 3 under 1; item 4 is a root of its own.
   const parent = Int32Array.from([-1, 0, 0, 1, -1]);
   const ways = (running: number[]) => [...waysUp(running, parent)].sort((a, b) => a - b);
@@ -102,24 +104,41 @@ describe('the dashed ways of the items whose work runs', () => {
     expect(eased(0.7, 0.7, frame)).toBe(0.7);
   });
 
-  it('are dashed from the start, the dashes moving towards the end as time goes on, cut at the ends', () => {
-    expect(dashesAlong(40, 0).slice(0, 2)).toEqual([
-      [0, 5],
-      [9, 14],
-    ]);
-    // Shifted on two pixels, the first dash begins two pixels further along.
-    expect(dashesAlong(40, 2)[0]).toEqual([2, 7]);
-    // Shifted on seven, the dash before it comes in cut at the start.
-    expect(dashesAlong(40, 7).slice(0, 2)).toEqual([
-      [0, 3],
-      [7, 12],
-    ]);
-    for (const [from, to] of dashesAlong(40, 3)) {
+  it('carry one light down from the root, brightest at its head, cut at the ends of each stretch it is on', () => {
+    // A stretch 100 long that begins 300 down from the root, with the light's head 340 down.
+    const on = lightOn(300, 100, 340);
+    // The light stands where it has run to, its head the brightest of it, and none of it is drawn off the stretch.
+    expect(on.at(-1)?.to).toBeCloseTo(40, 9);
+    expect(on.at(-1)?.bright).toBe(1);
+    expect([...on.map((piece) => piece.bright)].sort((a, b) => a - b)).toEqual(on.map((piece) => piece.bright));
+    for (const { from, to } of [...on, ...lightOn(300, 100, 310), ...lightOn(300, 100, 460)]) {
       expect(from).toBeGreaterThanOrEqual(0);
-      expect(to).toBeLessThanOrEqual(40);
-      expect(to - from).toBeLessThanOrEqual(5);
+      expect(to).toBeLessThanOrEqual(100);
+      expect(to).toBeGreaterThan(from);
     }
-    expect(dashesAlong(0, 3)).toEqual([]);
+    // It moves on down the way as the light runs, and the stretches it has not reached or has gone past carry none.
+    expect(lightOn(300, 100, 360).at(-1)?.to).toBeGreaterThan(on.at(-1)?.to ?? 0);
+    expect(lightOn(300, 100, 280)).toEqual([]);
+    expect(lightOn(300, 100, 600)).toEqual([]);
+    // A stretch with no length carries none.
+    expect(lightOn(300, 0, 340)).toEqual([]);
+  });
+
+  it('run slow at the start of a run and faster towards its end', () => {
+    expect(headAt(0, 1000)).toBe(0);
+    expect(headAt(1, 1000)).toBe(1000);
+    // Half the run gone, less than half the way is behind it, and it goes further in its last tenth than its first.
+    expect(headAt(0.5, 1000)).toBeLessThan(500);
+    expect(headAt(1, 1000) - headAt(0.9, 1000)).toBeGreaterThan(headAt(0.1, 1000) - headAt(0, 1000));
+  });
+
+  it('burn the spark where a way meets a card up to the full as the light goes through it', () => {
+    // A spark 300 down from the root: at rest before the light has come and once it has gone, and at the full as
+    // the light's head goes through it.
+    expect(sparkAt(300, 300)).toBe(1);
+    expect(sparkAt(300, 100)).toBeLessThan(1);
+    expect(sparkAt(300, 100)).toBe(sparkAt(300, 600));
+    expect(sparkAt(300, 300)).toBeGreaterThan(sparkAt(300, 240));
   });
 });
 
