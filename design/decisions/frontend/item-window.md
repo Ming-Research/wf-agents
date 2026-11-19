@@ -57,11 +57,16 @@ taken still framed in the accent, the options of an answered question read as a 
 ### decision every-stop-is-one-card
 Every stop of a work is one card, in the one look of a stop: the engine's one sentence of why, a stall's among them,
 its marked names and values in monospace and the rest plain text, and inside it the buttons that end it, with nothing
-of the page's own; a question's card is the question, whichever cell waits for it.
-Why: Drawn as a card and again as a line with "Try again" beside it, the engine's pause of a work whose letting go
-failed read as two stops; a line of the page's own over each card ("The work waits for you", "Still to confirm") was
-turned down as saying again what the card's look says, and a line under a question saying the merge waits for it
-likewise: the red card and the line's cell say it.
+of the page's own; a question's card is the question, whichever cell waits for it. A stop that holds every work is no
+card of a work's own: it is said once and ended where it is set, and a work it holds says in what it does now that it
+is held and where it stands.
+Why: One pause of every work gave each work it held a card of its own, so five works held by it read as five things
+waiting and each carried the button that lifts it over all of them, pressed from inside one work; the pause is one
+thing wherever it holds, as a cause outside every work is one wait (decision a-shared-cause-is-one-wait). Drawn as a
+card and again as a line with "Try again" beside it, the engine's pause of a work whose letting go failed read as two
+stops; a line of the page's own over each card ("The work waits for you", "Still to confirm") was turned down as
+saying again what the card's look says, and a line under a question saying the merge waits for it likewise: the red
+card and the line's cell say it.
 
 ### decision only-a-line-that-takes-words-is-picked
 Of the lines over the message box, one on which the engine has no cell to give the owner's words to is grey, cannot be
