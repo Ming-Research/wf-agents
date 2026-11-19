@@ -2108,8 +2108,6 @@ mod tests {
         Items { items, outage: None }
     }
 
-    // The list says what is down while the wait holds, as the latest check found it, since when, and when the engine
-    // checks next; once a check found the outside well it holds nothing, and the list says nothing of it.
     /// An observation of the plan's first round of this work, kept at this time.
     fn observation(number: u64, text: &str, read: Option<u64>) -> Observation {
         Observation {
@@ -2154,6 +2152,8 @@ mod tests {
         assert_eq!(observations_said(&none, None, 20), "There are no observations.");
     }
 
+    // The list says what is down while the wait holds, as the latest check found it, since when, and when the engine
+    // checks next; once a check found the outside well it holds nothing, and the list says nothing of it.
     #[test]
     fn a_list_says_what_is_down_since_when_and_when_the_engine_checks_next() {
         let hour = 3_600_000;

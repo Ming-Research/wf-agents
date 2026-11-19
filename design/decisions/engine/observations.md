@@ -9,7 +9,3 @@ Why: A later return made in the session that held one sent back says again what 
 ### decision observations-read-beside-the-engines-turn
 The observations are read for the page, and the owner's reading of one is kept, through connections of their own to the store's file, not through the engine's one turn of changes to the works' records.
 Why: Nothing decides by them and the tables of the readings are only added to, so a second writer cannot make a work's records diverge, as with the backup's records (decision backup-records-are-written-beside-the-engines-turn).
-
-### decision the-planner-reads-observations-by-asking
-Whoever plans the work reads the observations with their own command, the newest first, each time they are woken; `wait` says none of them.
-Why: `wait` answers from a mark that is a place in the works' records (decision the-mark-is-a-place-in-the-records), and the observations are read through a connection of their own beside the engine's turn (decision observations-read-beside-the-engines-turn); a line for a new observation would need a second mark and a read of the store the rest of `wait` does not make. This rests on judgment, with no case measured.
