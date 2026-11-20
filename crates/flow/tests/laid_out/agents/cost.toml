@@ -13,7 +13,8 @@ signal = "{command} was ended by signal {signal}: {said}"
 cut_off = "The engine that ran {command} ended before it saw the program end, and what the program printed until then holds no result."
 
 # What the engine's check of the outside of the agents' rounds found down, where it says it itself, a sentence each:
-# `no_account` where no account is in use; `offline` where the network does not reach the agents' service.
+# `no_account` where no account is in use, which a round, a ping or a fork that is given no token says too; `offline`
+# where the network does not reach the agents' service.
 [check]
 no_account = "No account is in use: take one on the Settings view."
 offline = "The network does not reach the agents' service."
