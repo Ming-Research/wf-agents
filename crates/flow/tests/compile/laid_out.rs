@@ -43,6 +43,9 @@ fn a_flow_laid_out_one_thing_to_a_file_compiles_to_what_its_twin_written_before_
         "the words beside the flows are read"
     );
     twin.waits = flow::agents::Waits::default();
+    // Each is kept as the files it was compiled from, which are laid out otherwise.
+    assert_ne!(twin.files, before.files);
+    twin.files = before.files.clone();
     assert_eq!(twin, before);
 }
 

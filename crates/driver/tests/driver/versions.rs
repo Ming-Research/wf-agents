@@ -34,7 +34,7 @@ const REVIEW: &str = r#"
     line = "main"
     task = "Review the text."
     watches = ["text"]
-    outputs = ["opinions"]
+    outputs = ["reviewed"]
     [kinds]
     text = "last_and_latest"
 "#;
@@ -52,12 +52,12 @@ const CHECK: &str = r#"
     text = "last_and_latest"
 "#;
 
-/// The merge, once the review has written its opinions.
+/// The merge, once the review has said it reviewed the text.
 const MERGE: &str = r#"
     title = "Merge"
     kind = "engine"
     act = "merge"
-    watches = ["opinions"]
+    watches = ["reviewed"]
     outputs = ["merged"]
 "#;
 
@@ -84,11 +84,11 @@ const NOTE: &str = r#"
 "#;
 
 /// A version of the flow `staged` with this table of earlier ids, these lines and these blocks beside the request, the
-/// start and what merged, and these cells in this order.
+/// start and what merged, each shown, so that one no cell reads has a reader, and these cells in this order.
 fn staged(table: &str, lines: &[&str], blocks: &[&str], cells: &[(&str, &str)]) -> Compiled {
     let order: Vec<String> = cells.iter().map(|(id, _)| format!("\"{id}\"")).collect();
     let lines: String = lines.iter().map(|l| format!("[lines.{l}]\n")).collect();
-    let blocks: String = blocks.iter().map(|b| format!("[blocks.{b}]\n")).collect();
+    let blocks: String = blocks.iter().map(|b| format!("[blocks.{b}]\nshown = true\n")).collect();
     let flow = format!(
         "name = \"staged\"\norder = [{}]\nearlier_ids = {table}\n[limits]\nruns = 3\nreturns = 2\ncalls = 3\n{lines}\
          [blocks.request]\npeople = true\n[blocks.merged]\nshown = true\n[blocks.start]\noutside = \"start\"\n\
@@ -103,7 +103,7 @@ fn first() -> Compiled {
     staged(
         "[]",
         &["main"],
-        &["text", "opinions"],
+        &["text", "reviewed"],
         &[("T1", WRITE), ("T2", REVIEW), ("M1", MERGE)],
     )
 }
@@ -113,7 +113,7 @@ fn renumbered() -> Compiled {
     staged(
         "[{ ids = { T2 = \"T3\" } }]",
         &["main"],
-        &["text", "opinions", "checked"],
+        &["text", "reviewed", "checked"],
         &[("T1", WRITE), ("T2", CHECK), ("T3", REVIEW), ("M1", MERGE)],
     )
 }
@@ -123,7 +123,7 @@ fn followed() -> Compiled {
     staged(
         "[]",
         &["main", "other"],
-        &["text", "opinions", "note"],
+        &["text", "reviewed", "note"],
         &[("T1", WRITE), ("T2", REVIEW), ("M1", MERGE), ("N1", NOTE)],
     )
 }
@@ -194,7 +194,7 @@ fn a_work_going_on_is_put_on_the_version_installed_its_runs_read_as_the_cells_th
     // The new T2 writes what the line wrote nothing of before: the line's form changed, and its session begins anew.
     assert!(began_for_a_move(&h, work));
     h.lift_the_starts_pause();
-    h.hands_in(work, &[("opinions", None)]);
+    h.hands_in(work, &[("reviewed", None)]);
     // The new T2 has no record, and runs.
     assert_eq!(h.round(work).1, "T2");
 }
@@ -221,7 +221,7 @@ fn the_engine_does_not_start_on_a_table_that_misreads_a_version_a_work_is_on() {
     let rewritten = staged(
         "[{ ids = { T2 = \"T4\" } }]",
         &["main"],
-        &["text", "opinions", "checked"],
+        &["text", "reviewed", "checked"],
         &[("T1", WRITE), ("T2", CHECK), ("T4", REVIEW), ("M1", MERGE)],
     );
     let Fault::EarlierIds {
@@ -234,7 +234,7 @@ fn the_engine_does_not_start_on_a_table_that_misreads_a_version_a_work_is_on() {
         panic!("another fault")
     };
     assert_eq!(
-        (flow.as_str(), of.as_str(), works, why),
+        (flow.as_str(), of.as_str(), works, *why),
         ("staged", version.as_str(), vec![work], Misread::Rewritten)
     );
 
@@ -244,7 +244,7 @@ fn the_engine_does_not_start_on_a_table_that_misreads_a_version_a_work_is_on() {
     let two = staged(
         "[{ ids = { T1 = \"T2\" } }]",
         &["main"],
-        &["text", "opinions"],
+        &["text", "reviewed"],
         &[("T1", WRITE), ("T2", REVIEW), ("M1", MERGE)],
     );
     let Fault::EarlierIds { works, why, .. } = refused_on(&h, vec![two]) else {
@@ -252,7 +252,7 @@ fn the_engine_does_not_start_on_a_table_that_misreads_a_version_a_work_is_on() {
     };
     assert_eq!(works, [work]);
     assert_eq!(
-        why,
+        *why,
         Misread::TwoAsOne {
             cells: vec!["T1".into(), "T2".into()],
             reads_as: "T2".into()
@@ -264,7 +264,7 @@ fn the_engine_does_not_start_on_a_table_that_misreads_a_version_a_work_is_on() {
         panic!("another fault")
     };
     assert_eq!(
-        why,
+        *why,
         Misread::Lost {
             cell: "T2".into(),
             reads_as: "T2".into()

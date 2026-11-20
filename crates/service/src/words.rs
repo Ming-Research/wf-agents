@@ -319,7 +319,7 @@ fn driver_fault(fault: &driver::Fault) -> String {
             why,
         } => {
             let works: Vec<String> = works.iter().map(|work| work.0.to_string()).collect();
-            let why = match why {
+            let why = match &**why {
                 driver::Misread::Rewritten => format!("it does not begin with the table of version {version}"),
                 driver::Misread::TwoAsOne { cells, reads_as } => {
                     let cells: Vec<&str> = cells.iter().map(|cell| cell.as_str()).collect();

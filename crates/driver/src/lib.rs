@@ -489,12 +489,13 @@ pub enum Fault {
     /// A work was put on a version of its flow the store does not keep.
     NoSuchVersion { work: WorkNumber, version: String },
     /// The table of earlier ids of the flow installed would misread this version of it, which these works are on, so
-    /// (decision `a-table-that-misreads-a-kept-version-is-refused`): the table is mended in the flow.
+    /// (decision `a-table-that-misreads-a-kept-version-is-refused`): the table is mended in the flow. What it misreads
+    /// is boxed, so that the fault, which every refusal of the driver may carry, stays small.
     EarlierIds {
         flow: String,
         version: String,
         works: Vec<WorkNumber>,
-        why: Misread,
+        why: Box<Misread>,
     },
 }
 
@@ -638,7 +639,7 @@ impl Driver {
                 flow,
                 version,
                 works,
-                why,
+                why: Box::new(why),
             });
         }
         // Each work is held on its version. One that has not ended on an earlier version is put on the installed one,
