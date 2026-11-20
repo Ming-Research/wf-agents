@@ -18,6 +18,20 @@ fn spent(rounds: u64) -> Value {
     })
 }
 
+/// An agent's cell of the trial flow as a work's outline has it: given what it watches, each its last and its latest.
+fn outlined(id: &str, title: &str, line: &str, watches: &[&str]) -> Value {
+    let given: Vec<Value> = (watches.iter())
+        .map(|block| json!({ "block": block, "kind": "lastAndLatest", "list": "watches" }))
+        .collect();
+    let watched: Vec<Value> = (watches.iter())
+        .map(|block| json!({ "name": block, "blocks": [block], "do": null }))
+        .collect();
+    json!({
+        "id": id, "title": title, "line": line, "agent": true, "given": given, "watches": watched, "reads": [],
+        "words": null,
+    })
+}
+
 fn question() -> Value {
     json!({ "kind": "question", "who": "owner", "question": QUESTION })
 }
@@ -80,6 +94,23 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "changes": [],
             },
             "project": "trial",
+            // The version of the flow the work runs on, as its outline has it: what its history and its card are
+            // drawn from.
+            "outline": {
+                "kept": true,
+                "cells": [
+                    outlined("plan", "Plan", "engineer", &["request"]),
+                    outlined("build", "Build", "engineer", &["plan", "opinions"]),
+                    outlined("review", "Review", "reviewer", &["code"]),
+                    {
+                        "id": "merge", "title": "Merge", "line": null, "agent": false, "given": [],
+                        "watches": [{ "name": "code", "blocks": ["code"], "do": null }], "reads": [], "words": null,
+                    },
+                ],
+                "lines": [{ "name": "engineer", "cells": ["plan", "build"] }, { "name": "reviewer", "cells": ["review"] }],
+                "groups": [],
+                "card": [],
+            },
             "flow": flow,
             "cells": [
                 {

@@ -92,6 +92,10 @@ pub mod owner;
 
 pub mod sessions;
 
+pub mod time;
+
+pub mod versions;
+
 pub mod warm;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -101,13 +105,15 @@ pub mod outage;
 
 pub use along::{Along, Under};
 use decide::run::Failure;
-use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
+use decide::{BlockId, CellId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
 use engine::{Effect, Event, Gate, Refused, handle_held, handle_then, held};
 use flow::Compiled;
 use flow::agents::fill;
 pub use outage::{Checked, Found, Outage, Service, Until};
 use store::{Change, EverythingPaused, First, Item, ItemChange, ItemNumber, Storage, WorkHead, WorkNumber};
-use work::{Time, Work};
+use versions::Installed;
+pub use versions::{Misread, On};
+use work::{KeptTime, Moment, Time, Work};
 
 pub use budget::Budget;
 pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
@@ -222,7 +228,8 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
 /// Drives the engine for every work the store holds.
 pub struct Driver {
     store: Box<dyn Storage + Send>,
-    flows: BTreeMap<String, Arc<Compiled>>,
+    /// The version installed of each flow, by its name.
+    flows: BTreeMap<String, Installed>,
     works: BTreeMap<WorkNumber, Held>,
     /// The work of each item.
     of_item: BTreeMap<ItemNumber, WorkNumber>,
@@ -361,12 +368,17 @@ impl AtOnce {
     }
 }
 
-/// A work as the driver holds it: what the store holds of it, with its item and its flow at hand.
+/// A work as the driver holds it: what the store holds of it, read through its moves, with its item, the version of its
+/// flow it is on and the flow installed of that name at hand.
 #[derive(Clone)]
 struct Held {
     head: WorkHead,
     item: Item,
+    /// The flow installed of the work's flow's name: what decides the work where it is on that version, and what says
+    /// the engine's words beside the flows whatever version it is on.
     flow: Arc<Compiled>,
+    /// The version of its flow the work is on.
+    on: On,
     work: Work,
     /// How the work stands. Worked out again each time the work grows.
     standing: Standing,
@@ -407,9 +419,24 @@ pub struct Kept<'a> {
     pub head: &'a WorkHead,
     /// The item the work is done for.
     pub item: &'a Item,
-    /// The flow the work runs on.
+    /// The flow installed of the name the work runs on: what decides the work where it is on that version
+    /// ([`On::installed`]), and the engine's words beside the flows whatever version it is on. A work that ended on
+    /// another version is read from `on` and its records alone.
     pub flow: &'a Compiled,
+    /// The version of its flow the work is on, with its outline.
+    pub on: &'a On,
     pub work: &'a Work,
+}
+
+impl Kept<'_> {
+    /// What the work does next as its version reads it: what the flow installed decides, for a work on it; how it ended,
+    /// for one that ended on another version or on none kept.
+    pub fn decision(&self) -> Decision {
+        match self.on.end() {
+            Some(end) => Decision::Ended(end),
+            None => decide(&self.flow.flow, &self.work.records),
+        }
+    }
 }
 
 /// An item to be added, with what people write for it first.
@@ -457,6 +484,19 @@ pub enum Fault {
     NotOneWork(ItemNumber),
     /// The engine's loop refused what the driver itself gave it for a work: a look, or the write of its own block.
     Refused { work: WorkNumber, refused: Refused },
+    /// The store holds the outline of this version of a flow as what does not read as one, for this reason.
+    Outline { version: String, why: String },
+    /// A work was put on a version of its flow the store does not keep.
+    NoSuchVersion { work: WorkNumber, version: String },
+    /// The table of earlier ids of the flow installed would misread this version of it, which these works are on, so
+    /// (decision `a-table-that-misreads-a-kept-version-is-refused`): the table is mended in the flow. What it misreads
+    /// is boxed, so that the fault, which every refusal of the driver may carry, stays small.
+    EarlierIds {
+        flow: String,
+        version: String,
+        works: Vec<WorkNumber>,
+        why: Box<Misread>,
+    },
 }
 
 /// Why the driver did not do what it was asked.
@@ -498,13 +538,13 @@ impl Driver {
     /// count that round as begun, and holding it back in its carrier until the lift would be the path the decision
     /// slots-in-the-scheduler turned down.
     pub fn open(
-        store: Box<dyn Storage + Send>,
+        mut store: Box<dyn Storage + Send>,
         flows: Vec<Compiled>,
         slots: usize,
         policy: Option<Policy>,
         now: Time,
     ) -> Result<(Driver, Vec<Todo>), Fault> {
-        let mut by_name = BTreeMap::new();
+        let mut given = BTreeMap::new();
         for flow in flows {
             let mut ours = (flow.blocks.iter()).filter(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES));
             if let Some((block, declared)) = ours.next() {
@@ -523,9 +563,15 @@ impl Driver {
                 }
             }
             let name = flow.name.clone();
-            if by_name.insert(name.clone(), Arc::new(flow)).is_some() {
+            if given.insert(name.clone(), flow).is_some() {
                 return Err(Fault::FlowTwice(name));
             }
+        }
+        // Each flow given is the version installed of it, kept as the driver opens with it.
+        let mut by_name = BTreeMap::new();
+        for (name, flow) in given {
+            let installed = versions::keep(store.as_mut(), flow).map_err(Fault::Store)?;
+            by_name.insert(name, installed);
         }
         let paused = store.everything_paused().map_err(Fault::Store)?;
         let keep_warm = store.keeping_warm().map_err(Fault::Store)?;
@@ -550,8 +596,10 @@ impl Driver {
         };
         let items = driver.store.items().map_err(Fault::Store)?;
         let heads = driver.store.works().map_err(Fault::Store)?;
+        let outlines = versions::outlines(driver.store.as_ref())?;
+        let mut loaded = Vec::new();
         for head in heads {
-            let Some(flow) = driver.flows.get(&head.flow).cloned() else {
+            let Some(installed) = driver.flows.get(&head.flow).cloned() else {
                 return Err(Fault::NoSuchFlow {
                     work: head.number,
                     flow: head.flow,
@@ -563,22 +611,84 @@ impl Driver {
             if driver.of_item.insert(head.item, head.number).is_some() {
                 return Err(Fault::NotOneWork(head.item));
             }
-            let work = driver.store.load(head.number).map_err(Fault::Store)?;
-            let standing = standing_of(&flow, &work);
-            let samples = history::samples(&flow, &work);
-            let held = Held {
-                head,
-                item,
-                flow,
-                work,
-                standing,
-                samples,
-            };
-            driver.works.insert(held.head.number, held);
+            let mut work = driver.store.load(head.number).map_err(Fault::Store)?;
+            versions::read(&mut work, head.number, &outlines)?;
+            loaded.push((head, item, installed, work));
         }
         if let Some(item) = items.iter().find(|item| !driver.of_item.contains_key(&item.number)) {
             return Err(Fault::NotOneWork(item.number));
         }
+        // No version a work is on may be misread by the table installed, which every work is read through as it is
+        // moved, judged and reopened; each is checked before any work is moved.
+        let mut misread: BTreeMap<(String, String), (Misread, Vec<WorkNumber>)> = BTreeMap::new();
+        for (head, _, installed, work) in &loaded {
+            let Some(version) = work.version().and_then(|on| on.version.clone()) else {
+                continue;
+            };
+            if version == installed.version {
+                continue;
+            }
+            let outline = versions::outline_of(&outlines, head.number, &version)?;
+            if let Some(why) = versions::misread(&installed.outline, &outline) {
+                let key = (head.flow.clone(), version);
+                misread.entry(key).or_insert((why, Vec::new())).1.push(head.number);
+            }
+        }
+        if let Some(((flow, version), (why, works))) = misread.into_iter().next() {
+            return Err(Fault::EarlierIds {
+                flow,
+                version,
+                works,
+                why: Box::new(why),
+            });
+        }
+        // Each work is held on its version. One that has not ended on an earlier version is put on the installed one,
+        // and one kept before versions were is put on one; each such move is kept before anything is looked at.
+        for (head, item, installed, mut work) in loaded {
+            let before = work.tick();
+            let on = match work.version().map(|on| on.version.clone()) {
+                // Kept before versions were, the work is read once by the flow installed: ended there, it ran on a
+                // version not kept; else it goes on, on the installed one.
+                None => match standing_of(&installed.flow, &work) {
+                    Standing::Ended(end) => {
+                        work.onto(now, None, decide::Reading::default());
+                        On::NotKept { end }
+                    }
+                    Standing::Going | Standing::AtFault => {
+                        work.onto(now, Some(installed.version.clone()), decide::Reading::default());
+                        installed.on()
+                    }
+                },
+                Some(None) => On::NotKept {
+                    end: versions::ended_unkept(&work.records),
+                },
+                Some(Some(version)) if version == installed.version => installed.on(),
+                Some(Some(version)) => {
+                    let outline = versions::outline_of(&outlines, head.number, &version)?;
+                    match versions::ended(&outline, &work.records) {
+                        Some(end) => {
+                            let reading = flow::reading(&installed.outline, outline.earlier_ids.len());
+                            On::Earlier {
+                                version,
+                                outline,
+                                end,
+                                reading,
+                            }
+                        }
+                        None => {
+                            versions::put_on(&mut work, now, Some((version.as_str(), &*outline)), &installed);
+                            installed.on()
+                        }
+                    }
+                }
+            };
+            if work.tick() != before {
+                driver.store.save(head.number, &work).map_err(Fault::Store)?;
+            }
+            let held = Held::new(head, item, installed.flow.clone(), on, work);
+            driver.works.insert(held.head.number, held);
+        }
+        driver.keep_times(now)?;
         // A work going on would begin its rounds again unseen: everything is paused, and kept so, before anything is
         // looked at, so that a stop before the looks leaves it paused all the same. Where everything is paused, by the
         // owner or by an opening before, it is left as it is.
@@ -644,9 +754,10 @@ impl Driver {
         if let Some(tag) = new.tags.iter().find(|tag| changes::tag_fault(tag).is_some()) {
             return Err(Failed::BadTag(tag.clone()));
         }
-        let Some(flow) = self.flows.get(&new.flow).cloned() else {
+        let Some(installed) = self.flows.get(&new.flow).cloned() else {
             return Err(Failed::NoSuchFlow(new.flow));
         };
+        let flow = installed.flow.clone();
         let mut depends_on = new.depends_on;
         depends_on.sort();
         depends_on.dedup();
@@ -659,7 +770,9 @@ impl Driver {
         let mut tags = new.tags;
         tags.sort();
         tags.dedup();
+        // The version the work is added on is its first entry (decision `a-move-is-read-through-the-renumberings`).
         let mut work = Work::default();
+        work.added_on(installed.version.clone());
         let mut first = vec![Event::Paused {
             by: Pauser::Owner,
             why: None,
@@ -696,19 +809,19 @@ impl Driver {
         let (item, number) = (self.store)
             .add(&first, &new.flow, now, &work)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
-        let held = Held {
-            head: WorkHead {
-                number,
-                item,
-                flow: new.flow,
-                added: now,
-            },
-            item: Item::new(item, now, first, Vec::new()),
-            standing: standing_of(&flow, &work),
-            samples: history::samples(&flow, &work),
-            flow,
-            work,
+        let head = WorkHead {
+            number,
+            item,
+            flow: new.flow,
+            added: now,
         };
+        let held = Held::new(
+            head,
+            Item::new(item, now, first, Vec::new()),
+            flow,
+            installed.on(),
+            work,
+        );
         let todos = effects.into_iter().map(|effect| held.todo(effect)).collect();
         self.works.insert(number, held);
         self.of_item.insert(item, number);
@@ -742,7 +855,7 @@ impl Driver {
                         Standing::Ended(end) => Some(end),
                         _ => None,
                     },
-                    letting_go: engine::letting_go(&held.flow, &held.work),
+                    letting_go: held.letting_go(),
                 };
                 (held.item.number, planned)
             })
@@ -775,6 +888,19 @@ impl Driver {
             };
             let (room, gate) = (self.room(Some(work), true), self.gate_of(work));
             let held = works.entry(work).or_insert_with(|| self.works[&work].clone());
+            // A work reopened is put on the version installed as it is reopened, from the one it ended on.
+            if matches!(event, Event::Reopened { .. })
+                && !held.on.installed()
+                && let Some(installed) = self.flows.get(&held.head.flow)
+            {
+                let from = match &held.on {
+                    On::Earlier { version, outline, .. } => Some((version.clone(), outline.clone())),
+                    On::Installed { .. } | On::NotKept { .. } => None,
+                };
+                let from = from.as_ref().map(|(version, outline)| (version.as_str(), &**outline));
+                versions::put_on(&mut held.work, now, from, installed);
+                held.on = installed.on();
+            }
             let (item, policy) = (&held.item, self.policy.as_ref());
             let then = |flow: &Compiled, work: &Work| {
                 let mut events = sessions::follow(flow, work, item, policy);
@@ -783,8 +909,7 @@ impl Driver {
             };
             let done =
                 handle_then(&held.flow, &mut held.work, now, event, room, gate, &then).map_err(Failed::Refused)?;
-            held.standing = standing_of(&held.flow, &held.work);
-            held.samples = history::samples(&held.flow, &held.work);
+            held.update();
             effects.extend(done.into_iter().map(|effect| held.todo(effect)));
         }
         if items.is_empty() && works.is_empty() {
@@ -801,6 +926,9 @@ impl Driver {
             touched.insert(held.item.number);
             dependencies.insert(number);
             self.works.insert(number, held);
+        }
+        if let Err(fault) = self.keep_times(now) {
+            return Err(self.stop(fault, true));
         }
         for (item, change) in items {
             let work = self.of_item[&item];
@@ -835,6 +963,35 @@ impl Driver {
             }
         }
         self.filled_after(now, todos).map(|todos| (changed, todos))
+    }
+
+    /// Keeps what the time of each work that ended on the installed version went to, where it has kept none since it
+    /// last ended, at the time the caller's clock gives (decision `a-work-keeps-what-its-time-went-to`): as the work
+    /// ends, while that version, which alone can read what it waited for, is installed.
+    fn keep_times(&mut self, now: Time) -> Result<(), Fault> {
+        let numbers: Vec<WorkNumber> = (self.works.iter())
+            .filter(|(_, held)| held.keeps_time())
+            .map(|(number, _)| *number)
+            .collect();
+        if numbers.is_empty() {
+            return Ok(());
+        }
+        let at_once = self.at_once();
+        let cannot_run = at_once.cannot_run();
+        for number in numbers {
+            let Some(held) = self.works.get(&number) else {
+                continue;
+            };
+            let stretches = time::stretches(&held.kept(), &self.spans, cannot_run, now);
+            let Some(held) = self.works.get_mut(&number) else {
+                continue;
+            };
+            let at = held.work.tick();
+            held.work.kept_time.push(KeptTime { at, stretches });
+            held.work.moments.push(Moment { from: at, at: now });
+            self.store.save(number, &held.work).map_err(Fault::Store)?;
+        }
+        Ok(())
     }
 
     /// How the work of this item stands, where the driver has the item.
@@ -936,6 +1093,9 @@ impl Driver {
                 }
             }
         }
+        if let Err(fault) = self.keep_times(now) {
+            return Err(self.stop(fault, true));
+        }
         let held = &self.works[&work];
         if was != Standing::Going || !matches!(held.standing, Standing::Ended(_)) {
             return self.filled_after(now, todos);
@@ -1023,7 +1183,7 @@ impl Driver {
             .and_then(|policy| policy.warm.as_ref())
             .map(|warm| warm.life_ms);
         match (life, self.works.get(&work)) {
-            (Some(life), Some(held)) => cache::misses(&held.flow, &held.work, life),
+            (Some(life), Some(held)) => cache::misses_by(&held.line_of(), &held.work, life),
             _ => Vec::new(),
         }
     }
@@ -1039,7 +1199,8 @@ impl Driver {
             .map(|held| judged::Of {
                 number: held.head.number,
                 flow: &held.head.flow,
-                compiled: &held.flow,
+                compiled: (!matches!(held.on, On::NotKept { .. })).then_some(&*held.flow),
+                reading: held.on.reading(),
                 work: &held.work,
                 samples: &held.samples,
             })
@@ -1083,7 +1244,10 @@ impl Driver {
 
     /// The wait of the service every work shares, if one stands, with what the outside said of it since it began.
     fn outage_of(&self, service: Service) -> Option<Outage> {
-        let works = (self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work));
+        // A work that ended on another version than the installed one ran all its rounds before the flow was installed,
+        // and its cells are not the installed flow's to tell apart: its rounds are no part of a wait that stands now.
+        let works =
+            (self.works.values()).filter_map(|held| held.deciding().map(|flow| (held.head.number, flow, &held.work)));
         let mut outage = outage::outage(service, works, &self.answered)?;
         match service {
             Service::Agents => {
@@ -1417,7 +1581,7 @@ impl Driver {
     /// What was to be done for the works and is not yet known as done, in the order of the works.
     pub fn pending(&self) -> Vec<Todo> {
         self.shown()
-            .flat_map(|held| (engine::pending(&held.flow, &held.work).into_iter()).map(|effect| held.todo(effect)))
+            .flat_map(|held| (held.pending().into_iter()).map(|effect| held.todo(effect)))
             .collect()
     }
 
@@ -1435,7 +1599,7 @@ impl Driver {
 
     /// The flows the driver was given, in the order of their names.
     pub fn flows(&self) -> impl Iterator<Item = &Compiled> {
-        self.flows.values().map(|flow| &**flow)
+        self.flows.values().map(|installed| &*installed.flow)
     }
 
     /// The work as it is now, in the room the engine leaves it: what it does next, each cell's state, every version of
@@ -1448,6 +1612,15 @@ impl Driver {
     /// The work as it is now ([`Driver::view`]), in the room what holds every work at once leaves it.
     pub fn view_at(&self, number: WorkNumber, at_once: &AtOnce) -> Option<View> {
         let kept = self.work(number)?;
+        // A work no flow decides now has ended, and its cells are no flow's to walk: its blocks' versions are read
+        // from its records alone.
+        if let Some(end) = kept.on.end() {
+            return Some(View {
+                decision: Decision::Ended(end),
+                cells: Vec::new(),
+                blocks: decide::versions(&kept.work.records),
+            });
+        }
         let mut view = decide::view_in(&kept.flow.flow, &kept.work.records, self.room_at(number, at_once));
         // A work held at fault by the driver, though the walk finds its records sound, is one the deciding code goes
         // round on without end ([`step`]): it shows as that fault.
@@ -1472,6 +1645,9 @@ impl Driver {
     /// once leaves it.
     pub fn held_at(&self, number: WorkNumber, at_once: &AtOnce) -> Option<Holder> {
         let kept = self.work(number)?;
+        if !kept.on.installed() {
+            return None;
+        }
         held(kept.flow, kept.work, self.room_at(number, at_once))
     }
 
@@ -1575,11 +1751,14 @@ impl Driver {
     }
 
     /// The works that have a round under way that takes a slot. A work at fault takes none: nothing more is decided of
-    /// it, so a slot it held would be held for good.
+    /// it, so a slot it held would be held for good; nor does one no flow decides now, which has ended.
     fn taking(&self) -> BTreeSet<WorkNumber> {
         (self.works.values())
             .filter(|held| held.standing != Standing::AtFault)
-            .filter(|held| taking_slot(&held.flow.flow, &held.work.records))
+            .filter(|held| {
+                held.deciding()
+                    .is_some_and(|flow| taking_slot(&flow.flow, &held.work.records))
+            })
             .map(|held| held.head.number)
             .collect()
     }
@@ -1717,11 +1896,75 @@ impl Driver {
 }
 
 impl Held {
+    /// The work held on this version, with how it stands and its rounds that are history worked out.
+    fn new(head: WorkHead, item: Item, flow: Arc<Compiled>, on: On, work: Work) -> Held {
+        let mut held = Held {
+            head,
+            item,
+            flow,
+            on,
+            work,
+            standing: Standing::Going,
+            samples: Vec::new(),
+        };
+        held.update();
+        held
+    }
+
+    /// Works out again how the work stands and its rounds that are history, as it grew: by its end alone where no flow
+    /// decides it now.
+    fn update(&mut self) {
+        self.standing = match self.on.end() {
+            Some(end) => Standing::Ended(end),
+            None => standing_of(&self.flow, &self.work),
+        };
+        self.samples = samples_of(&self.flow, &self.on, &self.work);
+    }
+
+    /// Whether what the work holds outside is being let go ([`engine::letting_go`]).
+    fn letting_go(&self) -> bool {
+        match self.on.end() {
+            Some(end) => engine::letting_go_after(Some(end), &self.work),
+            None => engine::letting_go(&self.flow, &self.work),
+        }
+    }
+
+    /// What was to be done for the work and is not yet known as done ([`engine::pending`]).
+    fn pending(&self) -> Vec<Effect> {
+        match self.on.end() {
+            Some(end) => engine::pending_after(Some(end), &self.work),
+            None => engine::pending(&self.flow, &self.work),
+        }
+    }
+
+    /// Whether what the work's time went to is to be kept now: it ended on the installed version and has kept none since
+    /// it was last reopened.
+    fn keeps_time(&self) -> bool {
+        let r = &self.work.records;
+        self.on.installed()
+            && matches!(self.standing, Standing::Ended(_))
+            && (self.work.kept_time.last()).is_none_or(|kept| r.reopens.iter().any(|reopen| *reopen > kept.at))
+    }
+
+    /// The flow that decides the work: the installed one, where the work is on it.
+    fn deciding(&self) -> Option<&Compiled> {
+        self.on.installed().then_some(&*self.flow)
+    }
+
+    /// The line of each cell of the work, as the version it is on has it: none of a work on no version kept.
+    fn line_of(&self) -> impl Fn(&CellId) -> Option<String> + '_ {
+        move |cell: &CellId| {
+            let outline = self.on.outline()?;
+            outline.cell(cell).and_then(|c| c.line.clone())
+        }
+    }
+
     fn kept(&self) -> Kept<'_> {
         Kept {
             head: &self.head,
             item: &self.item,
             flow: &self.flow,
+            on: &self.on,
             work: &self.work,
         }
     }
@@ -1748,6 +1991,16 @@ fn step(
     gate: Gate,
 ) -> Result<Vec<Effect>, Halt> {
     let before = held.work.tick();
+    // A work that ended on a version not installed, or on none kept, takes what no flow decides, by its end alone.
+    if let Some(end) = held.on.end() {
+        let let_go = &held.flow.waits.paused.let_go;
+        let effects = engine::handle_ended(end, let_go, &mut held.work, now, event).map_err(Halt::Refused)?;
+        if held.work.tick() != before {
+            store.save(held.head.number, &held.work).map_err(Halt::Store)?;
+            held.update();
+        }
+        return Ok(effects);
+    }
     let item = &held.item;
     let then = |flow: &Compiled, work: &Work| {
         let mut events = sessions::follow(flow, work, item, policy);
@@ -1759,7 +2012,9 @@ fn step(
         // The deciding code goes round without end on the work's records: what was done to the work for this is let
         // go, the work is held at fault as the store keeps it, nothing more is decided of it, and the rest go on.
         Err(engine::Refused::WithoutEnd(_)) => {
-            held.work = store.load(held.head.number).map_err(Halt::Store)?;
+            let mut kept = store.load(held.head.number).map_err(Halt::Store)?;
+            kept.read_through(&held.work.readings);
+            held.work = kept;
             held.standing = Standing::AtFault;
             return Ok(Vec::new());
         }
@@ -1767,8 +2022,7 @@ fn step(
     };
     if held.work.tick() != before {
         store.save(held.head.number, &held.work).map_err(Halt::Store)?;
-        held.standing = standing_of(&held.flow, &held.work);
-        held.samples = history::samples(&held.flow, &held.work);
+        held.update();
     }
     Ok(effects)
 }
@@ -1836,6 +2090,24 @@ fn wake_of(outage: &Outage, looked: Option<(Time, bool)>) -> Option<(Time, bool)
             Some((looked, _)) if looked >= outage.met => Some((Time(looked.0.saturating_add(outage::PROBE)), true)),
             _ => Some((at, true)),
         },
+    }
+}
+
+/// The rounds of the work that are history ([`history::samples`]), as the version it is on tells each round's line, and
+/// each round's cell as it is on the flow installed: through the renumberings since, for a work on an earlier version,
+/// and none, for a work on no version kept, whose rounds are history of the flow's alone.
+fn samples_of(flow: &Compiled, on: &On, work: &Work) -> Vec<history::Sample> {
+    match on {
+        On::Installed { .. } => history::samples(flow, work),
+        On::Earlier { outline, reading, .. } => {
+            let line_of = |cell: &CellId| outline.cell(cell).and_then(|c| c.line.clone());
+            let now = |cell: &CellId| {
+                let now = reading.cell(cell);
+                flow.flow.place(&now).map(|_| now)
+            };
+            history::samples_read(work, &line_of, &now)
+        }
+        On::NotKept { .. } => history::samples_read(work, &|_| None, &|_| None),
     }
 }
 

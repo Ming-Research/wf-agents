@@ -181,6 +181,20 @@ pub fn decide(flow: &Flow, records: &Records) -> Decision {
     decide_in(flow, records, Room::FREE)
 }
 
+/// How a work on these records ended, as the walk reads an end, by the last cell of its flow alone: merged, where that
+/// cell has a run that finished; else cancelled, where a cancel stands and no run of the work is open; none where it
+/// has not ended. So a work that ended is read as ended from its records and its flow's last cell, whatever else that
+/// flow holds (decision a-work-that-ended-stays-on-its-version).
+pub fn ended(last: &CellId, records: &Records) -> Option<End> {
+    let finished = |run| records.finished.iter().any(|f| f.run == run);
+    if (records.started.iter()).any(|s| &s.cell == last && finished(s.run)) {
+        return Some(End::Merged);
+    }
+    let abandoned = |run| records.abandoned.iter().any(|a| a.run == run);
+    let open = (records.started.iter()).any(|s| !finished(s.run) && !abandoned(s.run));
+    (records.cancelled().is_some() && !open).then_some(End::Cancelled)
+}
+
 /// What the work does next, in the room the engine leaves it: under the owner's pause of everything it begins what it
 /// would begin were it paused itself, and where no slot is free a cell that takes one waits for it.
 pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
@@ -189,18 +203,17 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
     }
     let walk = Walk::new(flow, records);
     let cells = flow.cells();
-    if walk.record(&cells[cells.len() - 1].id).is_some() {
-        return Decision::Ended(End::Merged);
+    if let Some(end) = ended(&cells[cells.len() - 1].id, records) {
+        return Decision::Ended(end);
     }
-    if records.cancelled().is_some() {
+    if records.cancelled().is_some()
+        && let Some(run) = walk.runs.values().find(|r| r.open())
+    {
         // Nothing of a cancelled work goes on: each run that is still open is abandoned, whatever it is doing.
-        return match walk.runs.values().find(|r| r.open()) {
-            Some(run) => Decision::Abandon {
-                cell: run.started.cell.clone(),
-                run: run.started.run,
-                because: Abandoning::Cancelled,
-            },
-            None => Decision::Ended(End::Cancelled),
+        return Decision::Abandon {
+            cell: run.started.cell.clone(),
+            run: run.started.run,
+            because: Abandoning::Cancelled,
         };
     }
     // One round of a work at a time: a round being stopped is under way until it has ended, and nothing else begins.

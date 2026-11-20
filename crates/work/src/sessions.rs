@@ -80,6 +80,10 @@ pub enum Why {
     /// The agents' program compacted the line's session during a round: the session goes on under its id, holding a
     /// summary where it held what the line had read.
     Compacted,
+    /// The work was put on another version of its flow, which decides the line's form otherwise than the version its
+    /// session began on (decision `a-move-that-changes-a-lines-form-begins-its-session-anew`): from this version, none
+    /// where it was one not kept, to this one.
+    Flow { from: Option<String>, to: String },
 }
 
 impl Why {
@@ -91,7 +95,7 @@ impl Why {
 
     /// The names of its kinds, each the name of the words of it where the flow says what the engine writes of a new
     /// session: [`Why::named`] gives a kind's name from here, by [`Why::kind`].
-    pub const KINDS: [&'static str; 9] = [
+    pub const KINDS: [&'static str; 10] = [
         "limit",
         "model",
         "account",
@@ -101,6 +105,7 @@ impl Why {
         "too_long",
         "lost",
         "compacted",
+        "flow",
     ];
 
     /// Its kind's place among [`Why::KINDS`]. The match names every kind, so that a kind added to `Why` is given a
@@ -116,6 +121,7 @@ impl Why {
             Why::TooLong => 6,
             Why::Lost => 7,
             Why::Compacted => 8,
+            Why::Flow { .. } => 9,
         }
     }
 
@@ -130,7 +136,8 @@ impl Why {
             | Why::Guarded
             | Why::TooLong
             | Why::Lost
-            | Why::Compacted => Vec::new(),
+            | Why::Compacted
+            | Why::Flow { .. } => Vec::new(),
         };
         (Self::KINDS[self.kind()], places)
     }
@@ -233,6 +240,10 @@ mod tests {
             Why::TooLong,
             Why::Lost,
             Why::Compacted,
+            Why::Flow {
+                from: None,
+                to: "v".to_string(),
+            },
         ];
         let names: Vec<&str> = every.iter().map(|w| w.named().0).collect();
         assert_eq!(names, Why::KINDS);

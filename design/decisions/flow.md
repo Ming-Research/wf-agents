@@ -23,3 +23,26 @@ taken by two, by itself and through a group or through two groups, is refused as
 Why: Taken by two names, what the block does for the cell is said twice, and where one is watched and the other read the
 two contradict each other. Drawing both on the page ("watches G, latest; reads latest") was turned down: it shows the
 contradiction and leaves it standing.
+
+### decision the-table-of-earlier-ids-is-a-list-of-renumberings
+The table of earlier ids, `earlier_ids` in a flow's `flow.toml`, is a list of renumberings, oldest first, each naming
+the cells whose id changed then, by the id each had, with the id it takes, and the cells taken out, by the id each had,
+a stage's last among them; it is only added to, and what was recorded on a version is read through the renumberings
+after that version's own. A cell taken out reads as a cell no flow has. A renumbering is refused as the flow compiles
+where it gives an id of a stage it moves or takes out a cell of, numbered at most the highest it moves or takes out
+there, without moving or taking out the cell that had that id: the stage numbers its cells with no gap, so it had
+every id up to that one before. What the compiler cannot see is checked as the engine starts (decision
+a-table-that-misreads-a-kept-version-is-refused).
+Why: An id is given again whenever a cell is added or taken out (principle cell-numbering), so a cell's earlier ids
+alone cannot say which cell an id named on a given version, and a cell taken out whose id another took would read as
+that other; a stage's last cell taken out leaves its id to be given again. A table of the last renumbering alone was
+turned down: a version the engine never started on would leave its renumbering out of what a work on an earlier one is
+read through.
+
+### decision a-datum-made-for-a-cell-follows-its-cell
+A datum each cell has its own of, made by a file of `data/of_a_cell/`, is read through a renumbering as the datum made
+for the id its cell takes, as the cell is; no table names it.
+Why: Its name is made from its cell's id, so a renumbering renames it as surely as the cell: read under its old name, a
+renumbered cell's words, questions and hand-in would be data taken out, and what was new to the cell no longer would
+be. Listing such data in the table was turned down as a second copy of what the file that makes them says (principle
+one-thing-one-place).

@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use decide::{Decision, End, Pauser, Writer, decide};
+use decide::{Decision, End, Pauser, Writer};
 use driver::{Driver, Kept};
 use serde::{Deserialize, Serialize};
 
@@ -58,7 +58,7 @@ pub enum Standing {
 
 impl Standing {
     fn of(kept: &Kept<'_>) -> Standing {
-        match decide(&kept.flow.flow, &kept.work.records) {
+        match kept.decision() {
             Decision::Ended(End::Merged) => Standing::Merged,
             Decision::Ended(End::Cancelled) => Standing::Cancelled,
             Decision::Fault(_) => Standing::Fault,

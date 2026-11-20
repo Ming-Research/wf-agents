@@ -30,6 +30,16 @@ Why: The owner ruled that a change of these files made in a work counts in that 
 The form of return a session's program is given with every call is made as the session begins, from the flow installed then, and kept with the session beside its system prompt, by the same means; every call of the session is given the kept one, and only a new session one made anew.
 Why: The form is the system prompt sent another way, and a session is given one form on every call (principle one-form-of-return-for-a-session): made anew for each round from the flow installed, it changed within a session as soon as another flow was installed. Keeping it by a means of its own beside the system prompt's was turned down, as two ways of keeping what a session began with would drift apart (principle one-thing-one-place).
 
+### decision a-move-that-changes-a-lines-form-begins-its-session-anew
+A work put on another version begins a new session of each of its lines whose session began on a version that decides
+that line's form otherwise than the one installed, as the digests their outlines keep say: the blocks the line's cells
+write, each in its shape, and the tools the flow names.
+Why: A session is given the form it began with (decision the-form-is-kept-as-the-system-prompt-is), so in it a cell
+cannot hand in a block the new version has it write, as a renumbered cell's words under their new name. What
+`agents/` gives every form is no part of a version, and digested with it, every move that came with a change of it
+would begin each line anew. Beginning every line anew at every move was turned down: it would pay again for sessions
+whose form is unchanged (principle keep-what-was-paid-for).
+
 ### decision lines-say-where-sessions-begin
 No cell begins a new session of its line at a place of its own: a cell that must not go on in another's session is on a line of its own.
 Why: Lines say which cells share a session; a place within a line where its session began anew was turned down as a second way of saying the same thing, with a mark of its own on the chart.

@@ -214,6 +214,10 @@ pub fn refused_words(refused: &Refused) -> String {
         }
         Refused::NotCancelled => "the work's item is not cancelled: there is no cancel to reopen".to_string(),
         Refused::NoOneSpokenTo(why) => no_one_words(why),
+        Refused::NotInstalled => {
+            "the work ended on a version of its flow that is not installed, which decides nothing more of it"
+                .to_string()
+        }
     }
 }
 
@@ -301,6 +305,39 @@ fn driver_fault(fault: &driver::Fault) -> String {
             work.0,
             refused_words(refused)
         ),
+        F::Outline { version, why } => format!("the outline kept of version {version} of a flow does not read: {why}"),
+        F::NoSuchVersion { work, version } => {
+            format!(
+                "work {} is on version {version} of its flow, which the store does not keep",
+                work.0
+            )
+        }
+        F::EarlierIds {
+            flow,
+            version,
+            works,
+            why,
+        } => {
+            let works: Vec<String> = works.iter().map(|work| work.0.to_string()).collect();
+            let why = match &**why {
+                driver::Misread::Rewritten => format!("it does not begin with the table of version {version}"),
+                driver::Misread::TwoAsOne { cells, reads_as } => {
+                    let cells: Vec<&str> = cells.iter().map(|cell| cell.as_str()).collect();
+                    format!(
+                        "it reads the cells {} of version {version} as the one cell {reads_as}",
+                        cells.join(", ")
+                    )
+                }
+                driver::Misread::Lost { cell, reads_as } => format!(
+                    "it reads the cell {cell} of version {version} as {reads_as}, which the flow neither has nor took out"
+                ),
+            };
+            format!(
+                "the table of earlier ids of the flow {flow} would misread what works {} recorded: {why}; mend the table \
+                 in the flow",
+                works.join(", ")
+            )
+        }
     }
 }
 

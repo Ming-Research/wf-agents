@@ -17,7 +17,7 @@
 // Nothing, with the mocks off: an item's unseen mark, unread messages, open questions, tier and verdicts; a work's tier.
 
 import { mocksShown } from '../mock-data';
-import type { Block, Flow, SentPiece } from '../api';
+import type { SentPiece } from '../api';
 import type { Item, Version, VersionPage, Wait, WorkPage } from '../works-api';
 import { askedMock, bodyMock, type ItemMock, itemMock, workTierMock } from './mock';
 import type { Body, Choice, Message, Part } from './window';
@@ -67,18 +67,6 @@ function contentOf(load: LoadVersion, work: number, block: string, number: numbe
 const versionsOf = (page: WorkPage, block: string): Version[] =>
   (page.blocks.find((b) => b.name === block)?.versions ?? []).filter((v) => v.chars > 0).sort((a, b) => a.at - b.at);
 
-/// The source outside the work that writes each cell's own words, its dialogue with the owner.
-const WORDS = 'words';
-
-/// The block among the outputs of the cell of this id that this source of the engine's writes, as the engine finds it.
-const ownOf = (flow: Flow, cell: string, source: string): Block | undefined => {
-  const outputs = flow.cells.find((c) => c.id === cell)?.outputs ?? [];
-  return flow.blocks.find((b) => outputs.includes(b.name) && b.writtenBy.outside === source);
-};
-
-/// The cell's own words, where it has them: the owner speaks to it in them, and it answers there.
-export const wordsOf = (flow: Flow, cell: string): Block | undefined => ownOf(flow, cell, WORDS);
-
 /// What fills each place of an entry of the record, by the place's name, as the engine wrote the entry from one of the
 /// record's texts, `owner` or `reply`: the words between the text's own, the last place taking the rest; none where the
 /// entry does not read so.
@@ -117,13 +105,12 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
     const text = await contentOf(load, work, block, last.number);
     return text.trim() === '' ? [] : [{ kind: 'text', text }];
   };
-  // A section for each datum the flow's card names, in its order and by its name.
-  const sections = await Promise.all(page.flow.card.map(async (title) => ({ title, parts: await current(title) })));
-  // The owner's notes of a flow before cells had words of their own, each to the one cell that reads it.
-  const notes = page.flow.blocks.filter((b) => b.writtenBy.people && b.values === null && b.readBy.cells.length === 1);
-  // Each cell's own words: the owner's versions, to the cell, and the cell's answers, to the owner.
-  const words = page.flow.cells.flatMap((c) => {
-    const block = wordsOf(page.flow, c.id);
+  // A section for each datum the card of the version the work runs on names, in its order and by its name.
+  const sections = await Promise.all(page.outline.card.map(async (title) => ({ title, parts: await current(title) })));
+  // Each cell's own words, as that version names them: the owner's versions, to the cell, and the cell's answers, to
+  // the owner.
+  const words = page.outline.cells.flatMap((c) => {
+    const block = c.words === null ? undefined : { name: c.words.block, writes: c.words.writes };
     return block === undefined ? [] : versionsOf(page, block.name).map((v) => ({ v, block, cell: c.id }));
   });
   // Whether a run of the cell has begun with this version of the block it is said in, or a later one.
@@ -143,13 +130,6 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
       const taken = takenBy(cell, block.name, v.number);
       return { who: 'owner', at: v.time, to: [cell], quote, text: said, taken, place: v.at };
     }),
-    ...notes.flatMap((b) =>
-      versionsOf(page, b.name).map(async (v): Promise<Message & { place: number }> => {
-        const { quote, text } = quoted(await contentOf(load, work, b.name, v.number));
-        const taken = takenBy(b.readBy.cells[0], b.name, v.number);
-        return { who: 'owner', at: v.time, to: [b.readBy.cells[0]], quote, text, taken, place: v.at };
-      }),
-    ),
   ]);
   // A cell's reply is part of the talk only where it answers the owner: where the owner wrote to that cell before it.
   // What a cell writes there with nobody having spoken to it has no words of the owner's to stand under, and is left
@@ -196,7 +176,7 @@ export async function readRulings(page: WorkPage, waits: Wait[], load: LoadVersi
         (last, x) => (last === undefined || x.at > last.at ? x : last),
         undefined,
       );
-      const values = page.flow.blocks.find((b) => b.name === ends.block)?.values ?? [];
+      const values = page.flow?.blocks.find((b) => b.name === ends.block)?.values ?? [];
       const read = async (): Promise<Ruling> => ({
         key: w.key,
         why: w.why,

@@ -84,6 +84,7 @@ export const STRIP_MARKS: MarkKey[] = [
   'again',
   'notYet',
   'skipped',
+  'notRun',
   'stopped',
 ];
 

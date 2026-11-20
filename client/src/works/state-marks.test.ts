@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CellState } from '../works-api';
+import { STRIP_MARKS, cellNowWords } from './marks';
 import { CELL_LOOKS, RUN_STATES, type RunState, STATE_OF_CELL, colourOf, pulses, pulsing } from './state-marks';
 
 describe('the marks of how a run ended or stands', () => {
@@ -29,5 +30,12 @@ describe('the marks of how a run ended or stands', () => {
     expect(STATE_OF_CELL.resting).toBe('atRest');
     expect(Object.keys(RUN_STATES).filter((s) => pulses(s as RunState))).toEqual(['running', 'waiting']);
     expect(Object.keys(STATE_OF_CELL).filter((s) => pulsing(s as CellState))).toEqual(['running', 'calling']);
+  });
+
+  it("draws a cell of a work that ended with no run finished as the strip's dash, saying it did not run, never that it was skipped", () => {
+    expect(CELL_LOOKS.notRun).toEqual({ shape: 'dash', fill: '--muted' });
+    const cell = { cell: 'D4', state: 'notRun', finished: 0, record: null, open: null } as const;
+    expect(cellNowWords(cell)).toBe('D4: did not run, 0 runs finished');
+    expect(STRIP_MARKS).toContain('notRun');
   });
 });

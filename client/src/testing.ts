@@ -19,8 +19,35 @@ import type {
   Watch,
 } from './api';
 import { namesItself } from './matrix';
+import type { Outline } from './works-api';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
+
+/// The outline the engine keeps of the version a flow is, as a work's page gives it: each cell with its title, line,
+/// what it is given, watches and reads, and its own words where a source of the owner's words writes one of its
+/// outputs; the lines, the groups and the card.
+export function outlineOf(flow: Flow): Outline {
+  const words = (c: Cell) => {
+    const block = flow.blocks.find((b) => c.outputs.includes(b.name) && b.writtenBy.outside === 'words');
+    return block === undefined ? null : { block: block.name, writes: block.writes ?? [] };
+  };
+  return {
+    kept: true,
+    cells: flow.cells.map((c) => ({
+      id: c.id,
+      title: c.title,
+      line: c.line,
+      agent: c.kind === 'agent',
+      given: c.given,
+      watches: c.watches,
+      reads: c.reads,
+      words: words(c),
+    })),
+    lines: flow.lines.map((l) => ({ name: l.name, cells: l.cells })),
+    groups: flow.groups.map((g) => ({ name: g.name, blocks: g.blocks })),
+    card: flow.card,
+  };
+}
 
 /// A name a cell's file writes in `watches` or `reads`, in short: a datum by its name, or a group with its blocks.
 export type Named = string | { group: string; blocks: string[] };

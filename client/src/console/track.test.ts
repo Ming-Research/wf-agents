@@ -16,8 +16,15 @@ describe("a work's time track", () => {
   });
 
   it('knows every character the engine writes, and says what each kind is on pointing at it', () => {
-    expect(Object.keys(BAR_KINDS).sort()).toEqual(['.', 'm', 'o', 'p', 't', 'w']);
+    expect(Object.keys(BAR_KINDS).sort()).toEqual(['.', '?', 'm', 'o', 'p', 't', 'w']);
     for (const kind of Object.values(BAR_KINDS)) expect(TRACK_WORDS[kind]).toBeTruthy();
     expect(barSpans('....')).toEqual([]);
+  });
+
+  it('draws a stretch whose wait is not known, of a work that kept no time, as a block of its own that says so', () => {
+    const spans = barSpans('m??t');
+    expect(spans.map((s) => s.kind)).toEqual(['model', 'unknown', 'tool']);
+    expect(TRACK_WORDS.unknown).toContain('not known');
+    expect(TRACK_WORDS.unknown).not.toBe(TRACK_WORDS.gap);
   });
 });

@@ -21,9 +21,10 @@
 //! value, in a step of the store after its SQL (decision `a-migration-carries-each-row-whole`).
 //!
 //! The store also keeps what is the installation's and no work's: the pause of everything, set and lifted, with who set
-//! it: the owner, or the engine as it started with works going on.
+//! it: the owner, or the engine as it started with works going on; and each version of a flow a work runs on.
 //!
 //! - `items`: the items and the works done for them.
+//! - `flows`: the versions of the flows works run on, each kept once as its files and its outline.
 //! - `tables`: a work's entries, table by table.
 //! - `backups`: the copies of the database that were taken and uploaded, and what failed in keeping them. They belong
 //!   to no work, and the backup's own task keeps them through a connection of its own ([`Backups`]).
@@ -33,6 +34,7 @@
 
 mod backups;
 pub mod before_migration;
+mod flows;
 mod items;
 mod observations;
 mod tables;
@@ -44,6 +46,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use work::{Time, Work};
 
 pub use backups::{Backups, Failure, Kept, Records};
+pub use flows::{KeptFlow, KeptOutline};
 pub use items::{Change, First, Item, ItemChange, ItemNumber, WorkHead, WorkNumber};
 pub use observations::{Observation, Observations};
 
@@ -55,7 +58,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 20;
+pub const SCHEMA_VERSION: u32 = 21;
 
 /// A step of the store after a migration's SQL.
 type Step = fn(&Connection) -> Result<(), Fault>;
@@ -132,6 +135,9 @@ const MIGRATIONS: &[Migration] = &[
     )),
     Migration::sql(include_str!(
         "../../../db/migrations/202611182200-keep-whether-the-sessions-of-works-that-wait-are-kept-warm.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611191200-keep-the-versions-of-the-flows-works-run-on.sql"
     )),
 ];
 
@@ -219,9 +225,15 @@ pub trait Storage {
     /// Adds an item as it is to be added, at its level, of its project, depending on items which must all be in the
     /// store already, of any project, and carrying its tags, together with the work done for it on the flow of this
     /// name and what is kept of that work from its start, and gives their numbers. The item, the work and what is kept
-    /// of it are added in one transaction: all of them or none. Only the flow's name is kept: which version of the flow
-    /// the work runs on is not kept yet.
+    /// of it are added in one transaction: all of them or none. Which version of the flow the work runs on is the
+    /// work's first entry, a version the store keeps already.
     fn add(&mut self, item: &First, flow: &str, at: Time, first: &Work) -> Result<(ItemNumber, WorkNumber), Fault>;
+
+    /// Keeps a version of a flow where it is not kept already, and each of its files where no version holds it.
+    fn keep_flow(&mut self, kept: &KeptFlow) -> Result<(), Fault>;
+
+    /// Every version of a flow kept, with its outline, in the order of their digests.
+    fn outlines(&self) -> Result<Vec<KeptOutline>, Fault>;
 
     /// Keeps changes of items made together, at one time and for one reason, each after its item's earlier changes and
     /// in the order given, with what each of these works has that the store does not hold yet, in one transaction: all
@@ -360,6 +372,17 @@ impl Storage for Store {
         tables::save(&tx, work, first)?;
         tx.commit()?;
         Ok((item, work))
+    }
+
+    fn keep_flow(&mut self, kept: &KeptFlow) -> Result<(), Fault> {
+        let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        flows::keep(&tx, kept)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn outlines(&self) -> Result<Vec<KeptOutline>, Fault> {
+        flows::outlines(&self.db)
     }
 
     fn change(

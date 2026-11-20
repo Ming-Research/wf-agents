@@ -114,6 +114,7 @@ export const MARKS: Record<MarkKey, Entry> = {
   again: ofRun('again', 'runs again'),
   notYet: ofRun('notYet', 'not yet'),
   skipped: ofRun('skipped', 'skipped'),
+  notRun: ofRun('notRun', 'did not run'),
 };
 
 /// A mark's name.

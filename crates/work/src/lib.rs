@@ -11,14 +11,18 @@ use decide::{BlockId, CallId, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
 pub mod filled;
+pub mod flows;
 pub mod measured;
 pub mod observations;
 pub mod sessions;
+pub mod time;
 
 pub use filled::{Fill, FillFault, Filled};
+pub use flows::{OnFlow, Read, Version, version_of};
 pub use measured::{Measured, Measures, Pinged};
 pub use observations::Observed;
 pub use sessions::{Ran, RanOn, Session, Why};
+pub use time::{KeptTime, Stretch, Went};
 
 /// Everything kept of one work.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -62,6 +66,13 @@ pub struct Work {
     pub why_cancelled: BTreeMap<Seq, String>,
     /// Why the work's item was reopened, by the place of each reopen, as whoever reopened it said.
     pub why_reopened: BTreeMap<Seq, String>,
+    /// Each version of its flow the work was put on, in order (module [`flows`]).
+    pub flows: Vec<OnFlow>,
+    /// How whoever holds the work read what it recorded before each of its entries in `flows`, in order: no record, and
+    /// none of a work as the store gives it.
+    pub readings: Vec<Read>,
+    /// What its time went to, kept each time it ended, in order (module [`time`]).
+    pub kept_time: Vec<KeptTime>,
 }
 
 impl Work {
@@ -90,7 +101,9 @@ impl Work {
             .chain(self.ran.iter().map(|r| r.at))
             .chain(self.measured.iter().map(|m| m.at))
             .chain(self.pinged.iter().map(|p| p.at))
-            .chain(self.pulls.iter().map(|p| p.at));
+            .chain(self.pulls.iter().map(|p| p.at))
+            .chain(self.flows.iter().map(|f| f.at))
+            .chain(self.kept_time.iter().map(|k| k.at));
         Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
     }
 

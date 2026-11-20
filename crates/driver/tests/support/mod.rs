@@ -479,6 +479,14 @@ impl Storage for Failing {
     fn keep_warm(&mut self, warm: bool, at: Time) -> Result<(), store::Fault> {
         self.store.keep_warm(warm, at)
     }
+
+    fn keep_flow(&mut self, kept: &store::KeptFlow) -> Result<(), store::Fault> {
+        self.store.keep_flow(kept)
+    }
+
+    fn outlines(&self) -> Result<Vec<store::KeptOutline>, store::Fault> {
+        self.store.outlines()
+    }
 }
 
 /// What opening the driver gives.
@@ -929,6 +937,35 @@ impl H {
         }
     }
 
+    /// The process stops and starts again with these flows installed: the driver is dropped and opened anew on the same
+    /// file with them. What it gives as it opens is what is outstanding from then on: a round under way is given again
+    /// as its work reads on the version it is on now (decision a-move-is-read-through-the-renumberings). Gives what
+    /// opening gave.
+    pub fn install(&mut self, flows: Vec<Compiled>) -> Vec<Todo> {
+        self.flows = flows;
+        self.driver = None;
+        let policy = self.policy.map(|make| make());
+        let (opened, calls) = open_with_policy(
+            &self.db,
+            Plan::Never,
+            self.flows.clone(),
+            self.slots,
+            policy,
+            Time(self.clock),
+        );
+        let (driver, todos) = opened.expect("the driver opens on the flows installed");
+        self.driver = Some(driver);
+        self.calls = calls;
+        self.outstanding = (todos.iter())
+            .filter(|t| !matches!(t.effect, Effect::Tell { .. } | Effect::Ping { .. }))
+            .cloned()
+            .collect();
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
     /// The process stops and starts again: the driver is dropped and opened anew on a new store on the same file. It
     /// gives what was given and not yet answered, and nothing answered; opened after a stop at which nothing was
     /// left half done, it gives exactly what it said was pending. Opened while a work is going on and nothing pauses
@@ -1158,13 +1195,33 @@ impl H {
             .collect();
         for kept in d.works() {
             let number = kept.head.number;
-            let stored = self.reader.load(number).expect("the work loads");
+            // What the store holds, read through the moves as the driver read the work.
+            let mut stored = self.reader.load(number).expect("the work loads");
+            stored.read_through(&kept.work.readings);
             assert_eq!(
                 &stored, kept.work,
                 "the store holds otherwise than the driver of work {}",
                 number.0
             );
             assert!(under_way(kept.work) <= 1, "work {} has two rounds under way", number.0);
+            // A work on a version not installed, or on none kept, has ended there and is decided by no flow installed:
+            // it stands ended, and nothing of it is to be done (decision a-work-that-ended-stays-on-its-version).
+            if !kept.on.installed() {
+                let shown = d.view(number).expect("the work is shown").decision;
+                assert!(
+                    matches!(shown, Decision::Ended(_)),
+                    "work {} is on no version installed: {shown:?}",
+                    number.0
+                );
+                assert!(
+                    !d.pending()
+                        .iter()
+                        .any(|t| t.work == number && !matches!(t.effect, Effect::Release { .. })),
+                    "work {} is on no version installed and has something to do",
+                    number.0
+                );
+                continue;
+            }
             if let Some(paused) = d.everything_paused() {
                 self.held_by_everything(number, kept.flow, kept.work, paused.since);
             }

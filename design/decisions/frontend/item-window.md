@@ -15,9 +15,10 @@ console what a work does now and what it used, and one window drawn from one set
 
 ### decision the-card-is-the-flows
 What the item's card shows the owner is named by the work's flow in its own `flow.toml` (`card`), data of the flow in
-their order; the page draws a section of each by its name, and names no datum, no cell and no flow of its own: a
-cell is called by its title in the flow, and an item is a deliverable where its flow has no agent's cell, as the
-work's route says.
+their order, as the outline of the version the work runs on has it; the page draws a section of each by its name, and
+names no datum, no cell and no flow of its own: a cell is called by its title in that outline, and an item is a
+deliverable where the outline has no agent's cell, as the work's route says. What the card of a work on no version
+shows is decision a-works-past-is-drawn-from-its-outline's.
 Why: The page told one flow by its name, read three blocks by theirs and called three cells by words of its own, which
 held for those flows alone (principle engine-knows-no-cell). A key on each block's file saying it is shown was turned
 down: the order is the flow's, and is said once there. A key saying a flow delivers was turned down too: a flow with

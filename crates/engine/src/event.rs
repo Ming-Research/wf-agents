@@ -281,4 +281,7 @@ pub enum Refused {
     NotCancelled,
     /// No cell can take the owner's words, for this reason: they go to no other.
     NoOneSpokenTo(NoOne),
+    /// The work ended on a version of its flow that is not installed, or on none that was kept, and no flow decides it
+    /// now: what happened would be decided by one.
+    NotInstalled,
 }

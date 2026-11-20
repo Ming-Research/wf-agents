@@ -125,3 +125,18 @@ or an edge, a line's row a row of dots, a run under way its square mark and a pa
 in a row half as high, while a way back is a solid line along a row or between cells, with an arrow; any other arrow
 takes the accent only under the pointer. A dot has no shape to tell it
 by, so no dot is ever in the accent for being a way back.
+
+### decision a-works-past-is-drawn-from-its-outline
+A work's page and its item window draw its history, its cells' titles and lines, its card, the owner's talk with its
+cells and each run's inputs from the outline of the version it runs on, a work going on and one that ended alike, and
+its time bar as decision a-work-keeps-what-its-time-went-to says; the whole flow is given only for a work going on, for
+what the owner does with it. A cell of a work that ended with no run takes the strip's dash, with the words "did not
+run". A work on no version has a cell for each id its runs name, in the order they first ran, with no title or line;
+its card shows what was written for its item as it was added, it shows no talk, and it says that the flow it ran on
+was not kept.
+Why: Drawn on the flow installed, a work was read by a flow it never ran on: W11's T2 read as a test review skipped,
+and the runs of W5, W9 and W10 at D4 had no column (principle the-past-as-it-ran). Drawn from the whole flow while its
+version is installed and from the outline after, a work would change on the page when another flow was installed
+(principle owner-keeps-their-place); why a cell did not run is the walk's reading on a whole flow, so "skipped" is not
+said of it. For a work on no version, titles from the flow installed would name another cell where an id was given
+again, as W2's D2, a review of the plan, would be named "Is there a better way"; and its records name no cell's words.

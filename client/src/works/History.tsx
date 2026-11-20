@@ -1,5 +1,5 @@
-// A work's history, drawn as the flow's matrix is: the cells of the work's flow across in the order of the walk, each
-// head the matrix's own; down the side the runs, one to a row in the order they happened, the oldest at the top. At the
+// A work's history, drawn as the flow's matrix is: the cells of the version of its flow the work runs on across, as its
+// outline has them (`outline.ts`), each head the matrix's own; down the side the runs, one to a row in the order they happened, the oldest at the top. At the
 // left of a row, what woke its run, named as the matrix names its rows, with the owner's sign, the outside's or the
 // tool's mark (`placing.ts`). Under the cells, an arrow from the middle of the column of the cell whose run wrote what
 // woke it to the run's own column, drawn as the matrix draws its ways back and in the accent where it runs back
@@ -23,10 +23,11 @@ import { age } from '../console/items';
 import { Arrow, Edge } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
 import type { WorkPage } from '../works-api';
+import { versionFlow } from './outline';
 import { type HistoryRow, type Named } from './placing';
 import { colourOf } from './state-marks';
 import { useNow } from './marks';
-import { duration, fullTime, isOpen, partsText, ranLast, runTook } from './words';
+import { NOT_KEPT, duration, fullTime, isOpen, partsText, ranLast, runTook } from './words';
 
 /// The marks the history draws, in the order its legend lists them (`Legend` in marks.tsx): the arrow from a write to
 /// the run it woke and the way back; the signs of who wrote what woke a run, and a tool's mark; how a run
@@ -88,15 +89,17 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
   /// How much of the frame's right the window over it covers, in pixels; none while it is away.
   covered: number;
 }) {
-  const cells = page.flow.cells;
+  // The version of its flow the work runs on, as its outline has it, whatever flow the engine reads now.
+  const flow = useMemo(() => versionFlow(page), [page]);
+  const cells = flow.cells;
   const frame = useRef<HTMLDivElement>(null);
   const [lead, setLead] = useKeptWidth(WIDTH_KEYS.historyNames, NAMES.min, NAMES.max);
   const [widths, setWidth] = useKeptWidths(WIDTH_KEYS.historyCells, CELLS.min, WIDTHS.cellMax);
   const [pointed, setPointed] = useState<number | null>(null);
-  // The flow's lines, each the matrix's own row of it, under the cells' heads.
-  const lines = useMemo(() => matrix(page.flow).lines, [page.flow]);
-  // The flow's groups, whose names a row writes with the word `group` after them, as the matrix does.
-  const groups = useMemo(() => new Set(page.flow.groups.map((g) => g.name)), [page.flow]);
+  // The version's lines, each the matrix's own row of it, under the cells' heads.
+  const lines = useMemo(() => matrix(flow).lines, [flow]);
+  // The version's groups, whose names a row writes with the word `group` after them, as the matrix does.
+  const groups = useMemo(() => new Set(flow.groups.map((g) => g.name)), [flow]);
   // How long an open run has been under way counts on each second while one is.
   const now = useNow(rows.some((r) => r.step.kind === 'run' && isOpen(r.step)));
   useWheel(frame);
@@ -132,6 +135,7 @@ export function HistoryChart({ page, rows, chosen, onChoose, covered }: {
       onMouseLeave={unpoint}
       style={covered > 0 ? ({ '--window-covers': `${covered}px` } as CSSProperties) : undefined}
     >
+      {!page.outline.kept && <p className="message muted">{NOT_KEPT}</p>}
       <table className="matrix flow history" style={size as CSSProperties}>
         <colgroup>
           <col style={{ width: leadWidth }} />
