@@ -24,7 +24,8 @@ import {
 } from '../accent';
 import { Button, PanelPart, Switch } from '../parts';
 import { useChanges, useReading } from '../works/source';
-import { clock, fullTime } from '../works/words';
+import { useNow } from '../works/marks';
+import { clock, duration, fullTime } from '../works/words';
 import {
   type AccountAsked,
   type AccountDone,
@@ -378,13 +379,18 @@ const DAY = 24 * 60 * 60 * 1000;
 /// From how long before its token ends a row says so.
 const ENDING = 30 * DAY;
 
+/// When a usage limit resets, from now: how long until it does and the time it does, `resets in 2d 5h (11-22 16:00)`,
+/// since the owner chooses the account by how soon its limit frees it; once the time has passed, the time it reset.
+function resetsWords(resets: number, now: number): string {
+  return resets > now ? `resets in ${duration(resets - now)} (${clock(resets)})` : `reset ${clock(resets)}`;
+}
+
 /// What the last act on an account came to, in words: done, or not, as when the engine refused it, in its words.
 type AccountSaid = { ok: boolean; words: string } | null;
 
-/// The accounts the agents run under, as the engine holds them: each by its name, when it was added, until when its
-/// token lasts, said in the look of a warning from a month before it ends, and its usage, which the owner chooses the
-/// account by ([`UsageCell`]); the one in use marked, each other with Use, which takes it at once, and Remove, asked
-/// once beside it. An account is added by its name and its token, which the engine checks before it keeps it; the
+/// The accounts the agents run under, as the engine holds them: each by its name, and its usage, which the owner
+/// chooses the account by ([`UsageCell`]), counted down to its resets as the view stays open; the one in use marked,
+/// each other with Use, which takes it at once, and Remove, asked once beside it. An account is added by its name and its token, which the engine checks before it keeps it; the
 /// command that makes a token is given to copy. The name box keeps what was typed through a reload; the token box keeps
 /// nothing. With no account in use, one line says that no agent's round runs until one is. As the view opens, the
 /// engine looks under the accounts it has not heard of lately, and the view reads the accounts again each time the
@@ -412,6 +418,11 @@ function Accounts() {
   const [name, setName] = useState(keptName);
   // The token is held while the page is open, and written nowhere.
   const [token, setToken] = useState('');
+  // The engine's time as it answered, carried on by the browser's clock, so that how long until a limit resets counts
+  // down while the view is open.
+  const ticking = useNow(page !== null);
+  const [answered, setAnswered] = useState({ page, at: Date.now() });
+  if (answered.page !== page) setAnswered({ page, at: Date.now() });
   if (page === null) {
     return failed ? (
       <p className="failed">The accounts could not be read: {failed}</p>
@@ -419,6 +430,7 @@ function Accounts() {
       <p className="muted">Reading the accounts</p>
     );
   }
+  const now = page.now + Math.max(0, ticking - answered.at);
   const typed = name.trim();
   const named = page.accounts.some((a) => a.name === typed);
   const typeName = (v: string) => {
@@ -455,7 +467,8 @@ function Accounts() {
   const add = () =>
     ask({ kind: 'add', name: typed, token: token.trim() }, (answer) => {
       if (!answer.atLimit) return { ok: true, words: `Added ${typed}.` };
-      const resets = answer.resets === null ? '' : `, which resets ${clock(answer.resets)}`;
+      const now = page.now + Date.now() - answered.at;
+      const resets = answer.resets === null ? '' : `, which ${resetsWords(answer.resets, now)}`;
       return { ok: true, words: `Added ${typed}: its token is at its usage limit${resets}.` };
     });
   const why =
@@ -473,12 +486,13 @@ function Accounts() {
   return (
     <>
       {page.accounts.length > 0 && (
-        <ViewTable heads={['Account', 'Added', 'Token lasts until', 'Usage', '']} label="The accounts">
+        <ViewTable heads={['Account', 'Usage', '']} label="The accounts">
           {page.accounts.map((a) => (
             <AccountRow
               key={a.name}
               account={a}
               page={page}
+              now={now}
               asking={asking === a.name}
               busy={busy !== null}
               onUse={() =>
@@ -552,30 +566,32 @@ function Accounts() {
   );
 }
 
-/// An account's row: its name, when it was added, until when its token lasts, its usage, and what may be done to it.
-function AccountRow({ account: a, page, asking, busy, onUse, onAsk, onRemove }: {
+/// An account's row: its name, with when it was added and until when its token lasts on pointing, and in the look of a
+/// warning from a month before the token ends, that it does; its usage; and what may be done to it.
+function AccountRow({ account: a, page, now, asking, busy, onUse, onAsk, onRemove }: {
   account: AccountsPage['accounts'][number];
   page: AccountsPage;
+  now: number;
   asking: boolean;
   busy: boolean;
   onUse: () => void;
   onAsk: (yes: boolean) => void;
   onRemove: () => void;
 }) {
-  const left = a.lasts - page.now;
+  const left = a.lasts - now;
   const ending = left <= ENDING;
   const busyWhy = busy ? 'An act on an account is on its way' : undefined;
   const cache = `${a.name}'s cache`;
   const use = `Run the agents under ${a.name} from now on: each line's next round writes its session to ${cache}`;
   return (
     <tr>
-      <td className="mono">{a.name}</td>
-      <td title={fullTime(a.added)}>{clock(a.added)}</td>
-      <td className={ending ? 'warn-text' : undefined} title={fullTime(a.lasts)}>
-        {fullTime(a.lasts).slice(0, 10)}
-        {ending && (left > 0 ? ` · ends in ${Math.ceil(left / DAY)} days` : ' · ended')}
+      <td title={`Added ${fullTime(a.added)}; its token lasts until ${fullTime(a.lasts)}.`}>
+        <span className="mono">{a.name}</span>
+        {ending && (
+          <span className="warn-text">{left > 0 ? ` · its token ends in ${duration(left)}` : ' · its token ended'}</span>
+        )}
       </td>
-      <UsageCell usage={a.usage} limit={a.limit} now={page.now} />
+      <UsageCell usage={a.usage} limit={a.limit} now={now} />
       <td>
         {page.inUse === a.name ? (
           <span className="tag account-in-use">in use</span>
@@ -609,7 +625,7 @@ function AccountRow({ account: a, page, asking, busy, onUse, onAsk, onRemove }: 
 /// An account's usage cell, on one line as every cell of the table is: the usage limit the engine holds the account's
 /// rounds at, as its records say, until its reset has passed, since it is what holds the rounds, or else the limit the
 /// service said it met naming no window; each window the service last named under it, by the name the service gives
-/// it, with how much of it is used and when it resets, joined; then "looking" while a look under it is under way, or
+/// it, with how much of it is used and how long until it resets and when, joined; then "looking" while a look under it is under way, or
 /// "not seen" where nothing was heard of it; and "failed" where its latest look failed. A limit, and a window the
 /// service lets through only with a warning or not at all, are in the look of a warning, and a failed look in the look
 /// of a failure. On pointing, the cell says the whole line, when the service said it, what the warning's colour means,
@@ -624,17 +640,17 @@ function UsageCell({ usage, limit, now }: {
     held !== null
       ? held.resets === null
         ? `at its limit since ${clock(held.since)}`
-        : `at its limit · resets ${clock(held.resets)}`
+        : `at its limit · ${resetsWords(held.resets, now)}`
       : usage.atLimit !== null
         ? usage.atLimit.resets === null
           ? 'at its limit'
-          : `at its limit · resets ${clock(usage.atLimit.resets)}`
+          : `at its limit · ${resetsWords(usage.atLimit.resets, now)}`
         : null;
   const parts: { text: string; look?: string }[] = [];
   if (atLimit !== null) parts.push({ text: atLimit, look: 'warn-text' });
   for (const w of usage.windows) {
     const used = w.utilization === null ? '' : ` ${Math.round(w.utilization * 100)}%`;
-    const resets = w.resets === null ? '' : ` · resets ${clock(w.resets)}`;
+    const resets = w.resets === null ? '' : ` · ${resetsWords(w.resets, now)}`;
     parts.push({ text: `${w.name}${used}${resets}`, look: w.allowed ? undefined : 'warn-text' });
   }
   if (usage.looking) parts.push({ text: 'looking', look: 'muted' });
