@@ -3,7 +3,7 @@
 //! work read through its moves saves as it was read (decision `a-move-is-read-through-the-renumberings`).
 
 use decide::{BlockId, CellId, Reading};
-use store::{KeptFlow, KeptOutline};
+use store::{KeptFlow, KeptOutline, SCHEMA_VERSION};
 use work::{KeptTime, OnFlow, Stretch, Went};
 
 use super::opening::{columns, versions};

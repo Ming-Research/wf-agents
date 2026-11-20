@@ -174,11 +174,8 @@ pub(crate) fn read(
         let (Some(from), Some(to)) = (&pair[0].version, &pair[1].version) else {
             continue;
         };
-        let reading = flow::reading(
-            &outline_of(outlines, number, to)?,
-            outline_of(outlines, number, from)?.earlier_ids.len(),
-        );
-        work.read(pair[1].at, reading);
+        let (to, from) = (outline_of(outlines, number, to)?, outline_of(outlines, number, from)?);
+        work.read(pair[1].at, flow::reading(&to, from.earlier_ids.len()));
     }
     Ok(())
 }

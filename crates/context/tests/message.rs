@@ -837,11 +837,17 @@ fn a_datum_a_move_renamed_is_given_whole_once_and_held_after_and_one_it_left_as_
 fn a_datum_written_after_a_move_under_a_name_the_move_took_from_another_is_given_whole() {
     let mut sim = Sim::new();
     sim.writes("request", "Greet the user.");
+    // The plan's round fills the request into the engineer's session; the review hands in its verdict alone, so that
+    // nothing runs after it.
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
-    let round = sim.round().expect("the build is entered");
-    // The move reads what was written as the request as the notes, and the name `request` is another datum's.
+    carry(&mut sim, &[("code", CODE, None)]);
+    carry(&mut sim, &[("verdict", "yes", Some("yes"))]);
+    // The move reads what was written as the request as the notes, and the name `request` is another datum's, which is
+    // written after it and runs the plan again, in the session that holds the request as it was filled.
     sim.moves(&[("request", "notes"), ("notes", "request")]);
     sim.writes("request", "Greet the user by name.");
+    let round = sim.round().expect("the plan is entered again");
+    assert_eq!(sim.cell(&round).id.as_str(), "plan");
     let entered = sim.enter(&round, false);
     let latest = sim.version("request");
     assert_eq!(sim.versions("request"), [Seq(latest)]);
