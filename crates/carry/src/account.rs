@@ -1,6 +1,6 @@
 //! The account the agents' program makes its calls under, as the carrier names what the program reads of it. The owner
-//! adds accounts, each a name and a long-lived token the program makes, kept in the login keychain ([`crate::keychain`]);
-//! the account in use is the engine's own state, handed out with every round (decision
+//! adds accounts, each a name and a long-lived token the program makes, kept in the login keychain
+//! ([`crate::keychain`]); the account in use is the engine's own state, handed out with every round (decision
 //! the-account-is-handed-out-with-the-round), and the program is given its token in a variable of its environment. With
 //! none in use, the program runs on the sign-in of its directory of settings, `agents.config_dir`, which holds the
 //! program's settings and sessions under every account, and is given it in a variable of its own.

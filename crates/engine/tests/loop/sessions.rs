@@ -42,6 +42,7 @@ fn each_try_of_the_round_under_way_is_recorded_with_what_it_ran_on() {
         level: "1".to_string(),
         model: model.to_string(),
         effort: None,
+        directory: None,
         account: None,
     };
     let ran = |attempt, model| Event::Ran {

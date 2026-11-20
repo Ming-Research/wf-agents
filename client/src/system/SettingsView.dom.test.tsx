@@ -359,7 +359,29 @@ describe('the Settings view', () => {
     const add = button(page.querySelector('.account-add')!, 'Add');
     expect(add.disabled).toBe(true);
     expect(add.title).toBe('agents.env names ANTHROPIC_API_KEY');
-    expect(page.textContent).toContain('No account can be added: agents.env names ANTHROPIC_API_KEY');
+    expect(page.textContent).toContain('No account can be added or taken: agents.env names ANTHROPIC_API_KEY');
+  });
+
+  it("says in the look of a failure that a removed account's token is still kept, and shows no limit past its reset", async () => {
+    const s = settingsSource();
+    const accounts = fixtureAccounts();
+    const home = accounts.accounts[1];
+    accounts.accounts[1] = { ...home, limit: { since: accounts.now - 7_200_000, resets: accounts.now - 1 } };
+    s.accounts = accounts;
+    s.answer = async () => ({ atLimit: false, resets: null, notLetGo: 'old: User interaction is not allowed.' });
+    const page = draw(s.source);
+    await settle();
+    expect(accountRows(page)[1].children[3].textContent).toBe('none');
+    expect(accountRows(page)[1].children[3].className).toBe('muted');
+    act(() => button(accountRows(page)[2], 'Remove').click());
+    act(() => button(accountRows(page)[2], 'Remove it').click());
+    await settle();
+    const said = page.querySelector('.account-add ~ [role="alert"]');
+    expect(said?.className).toBe('failed');
+    expect(said?.textContent).toBe(
+      'Removed old, but a token is still in the keychain, and is let go of again at the next removal and as the ' +
+        'engine starts: old: User interaction is not allowed.',
+    );
   });
 });
 

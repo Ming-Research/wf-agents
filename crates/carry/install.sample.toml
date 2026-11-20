@@ -92,13 +92,15 @@ permissions = { locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
 # are refused.
 # setting_sources = "user"
 # The program is given only these variables of the engine's environment: PATH, HOME, USER, LANG and LC_*, TMPDIR, TERM
-# and SHELL, and those named here, such as an API key, which the program takes above the token of an account added on
-# the Settings view: no account can be added while one is named. The carrier's own variables, CLAUDE_CODE_OAUTH_TOKEN,
-# CLAUDE_CONFIG_DIR and CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, are refused.
+# and SHELL, and those named here, such as an API key; none of them reaches a command an agent runs, which the program
+# is told to scrub of credentials. The program takes an API key above the token of an account added on the Settings
+# view: while one is named, no account can be in use, and the engine does not start where one is. The carrier's own
+# variables, CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CONFIG_DIR and CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, are refused.
 # env = ["ANTHROPIC_API_KEY"]
 # The program's own directory of settings, sessions and sign-in, given as CLAUDE_CONFIG_DIR: every account added on the
-# Settings view runs in it, and with none in use the program runs on the sign-in kept there. Left out, the program uses
-# its own default, which an agent can write to: `wf-agents run` says so as it starts.
+# Settings view runs in it, and with none in use the program runs on the sign-in kept there. An absolute path: a
+# relative one is refused. Left out, the program uses its own default, which an agent can write to: `wf-agents run`
+# says so as it starts.
 # config_dir = "/path/to/a/config/dir"
 # What a work's rounds may spend in all, in dollars: once a round ends with the work over it, the work is paused for
 # the owner, who may let it on. Left out, there is no budget.

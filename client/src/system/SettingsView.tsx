@@ -2,8 +2,8 @@
 // (the language the owner reads, each level's model, the highest level an item may be at, the context past which a
 // line begins a new session, and how many rounds run at once), each as a box, and the accounts the agents run under,
 // which are the engine's own state and change at once; then what only the file changes, table by table, each key with
-// its value as written. Beside a value the engine runs at
-// another, which it does until it starts again, since it reads the file as it starts, is the value it runs with.
+// its value as written. Beside a value the engine runs at another, which it does until it starts again, since it reads
+// the file as it starts, is the value it runs with.
 // Save, the one action the view is for, writes what changed into the file, its comments and layout kept, and commits
 // it where the file's directory keeps it in git; what the engine would refuse is refused before anything is written,
 // in the engine's words. What the owner typed and did not save is kept in the browser, key by key, through a reload, a
@@ -377,7 +377,7 @@ const DAY = 24 * 60 * 60 * 1000;
 /// From how long before its token ends a row says so.
 const ENDING = 30 * DAY;
 
-/// What the last act on an account came to, in words: done, or refused with the engine's words.
+/// What the last act on an account came to, in words: done, or not, as when the engine refused it, in its words.
 type AccountSaid = { ok: boolean; words: string } | null;
 
 /// The accounts the agents run under, as the engine holds them: each by its name, when it was added, until when its
@@ -398,7 +398,11 @@ function Accounts() {
   // The token is held while the page is open, and written nowhere.
   const [token, setToken] = useState('');
   if (page === null) {
-    return failed ? <p className="failed">The accounts could not be read: {failed}</p> : <p className="muted">Reading the accounts</p>;
+    return failed ? (
+      <p className="failed">The accounts could not be read: {failed}</p>
+    ) : (
+      <p className="muted">Reading the accounts</p>
+    );
   }
   const typed = name.trim();
   const named = page.accounts.some((a) => a.name === typed);
@@ -411,7 +415,7 @@ function Accounts() {
       // Kept for this page only.
     }
   };
-  const ask = (asked: AccountAsked, done: (answer: AccountDone) => string) => {
+  const ask = (asked: AccountAsked, done: (answer: AccountDone) => { ok: boolean; words: string }) => {
     if (busy !== null) return;
     setBusy(asked);
     setSaid(null);
@@ -419,13 +423,13 @@ function Accounts() {
       .account(asked)
       .then(
         (answer) => {
-          setSaid({ ok: true, words: done(answer) });
+          setSaid(done(answer));
           if (asked.kind === 'add') {
             setToken('');
             typeName('');
           }
         },
-        (e: unknown) => setSaid({ ok: false, words: message(e) }),
+        (e: unknown) => setSaid({ ok: false, words: `Refused: ${message(e)}` }),
       )
       .finally(() => {
         setBusy(null);
@@ -435,9 +439,9 @@ function Accounts() {
   };
   const add = () =>
     ask({ kind: 'add', name: typed, token: token.trim() }, (answer) => {
-      if (!answer.atLimit) return `Added ${typed}.`;
+      if (!answer.atLimit) return { ok: true, words: `Added ${typed}.` };
       const resets = answer.resets === null ? '' : `, which resets ${clock(answer.resets)}`;
-      return `Added ${typed}: its token is at its usage limit${resets}.`;
+      return { ok: true, words: `Added ${typed}: its token is at its usage limit${resets}.` };
     });
   const why =
     page.closed !== null
@@ -462,13 +466,20 @@ function Accounts() {
               page={page}
               asking={asking === a.name}
               busy={busy !== null}
-              onUse={() => ask({ kind: 'take', name: a.name }, () => `The agents run under ${a.name}.`)}
+              onUse={() =>
+                ask({ kind: 'take', name: a.name }, () => ({ ok: true, words: `The agents run under ${a.name}.` }))
+              }
               onAsk={(yes) => setAsking(yes ? a.name : null)}
               onRemove={() =>
                 ask({ kind: 'remove', name: a.name }, (answer) =>
                   answer.notLetGo === null
-                    ? `Removed ${a.name}.`
-                    : `Removed ${a.name}; its token is still in the keychain: ${answer.notLetGo}`,
+                    ? { ok: true, words: `Removed ${a.name}.` }
+                    : {
+                        ok: false,
+                        words:
+                          `Removed ${a.name}, but a token is still in the keychain, and is let go of again at the ` +
+                          `next removal and as the engine starts: ${answer.notLetGo}`,
+                      },
                 )
               }
             />
@@ -513,7 +524,7 @@ function Accounts() {
       </p>
       {page.closed !== null && (
         <p className="failed small" role="alert">
-          No account can be added: {page.closed}
+          No account can be added or taken: {page.closed}
         </p>
       )}
       {busy?.kind === 'add' && (
@@ -523,7 +534,7 @@ function Accounts() {
       )}
       {said !== null && (
         <p className={said.ok ? 'said' : 'failed'} role={said.ok ? 'status' : 'alert'}>
-          {said.ok ? said.words : `Refused: ${said.words}`}
+          {said.words}
         </p>
       )}
     </>
@@ -544,7 +555,10 @@ function AccountRow({ account: a, page, asking, busy, onUse, onAsk, onRemove }: 
   const left = a.lasts - page.now;
   const ending = left <= ENDING;
   const busyWhy = busy ? 'An act on an account is on its way' : undefined;
-  const use = `Run the agents under ${a.name} from now on: each line's next round writes its session to ${a.name}'s cache`;
+  const cache = `${a.name}'s cache`;
+  const use = `Run the agents under ${a.name} from now on: each line's next round writes its session to ${cache}`;
+  // A limit is shown until its reset has passed.
+  const limit = a.limit !== null && (a.limit.resets === null || a.limit.resets > page.now) ? a.limit : null;
   return (
     <tr>
       <td className="mono">{a.name}</td>
@@ -553,12 +567,12 @@ function AccountRow({ account: a, page, asking, busy, onUse, onAsk, onRemove }: 
         {fullTime(a.lasts).slice(0, 10)}
         {ending && (left > 0 ? ` · ends in ${Math.ceil(left / DAY)} days` : ' · ended')}
       </td>
-      <td className={a.limit === null ? 'muted' : 'warn-text'}>
-        {a.limit === null
+      <td className={limit === null ? 'muted' : 'warn-text'}>
+        {limit === null
           ? 'none'
-          : a.limit.resets === null
-            ? `reached ${clock(a.limit.since)}`
-            : `resets ${clock(a.limit.resets)}`}
+          : limit.resets === null
+            ? `reached ${clock(limit.since)}`
+            : `resets ${clock(limit.resets)}`}
       </td>
       <td>
         {page.inUse === a.name ? (
@@ -577,7 +591,7 @@ function AccountRow({ account: a, page, asking, busy, onUse, onAsk, onRemove }: 
           </span>
         ) : (
           <>
-            <Button disabled={busy} title={busyWhy ?? use} onClick={onUse}>
+            <Button disabled={busy || page.closed !== null} title={busyWhy ?? page.closed ?? use} onClick={onUse}>
               Use
             </Button>{' '}
             <Button disabled={busy} title={busyWhy ?? `Remove ${a.name}`} onClick={() => onAsk(true)}>

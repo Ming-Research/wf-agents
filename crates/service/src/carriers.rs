@@ -10,9 +10,9 @@
 //! work, run, round and call: a carrier recognises by those what it began before the stop (principle
 //! `effects-known-as-done`), and answers it once.
 //!
-//! A round a carrier cannot carry out it says failed, with why, and with the kind of cause where it tells one apart: the
-//! engine handles the failure as the kind says, pausing the work with the reason where that is the kind's handling, and
-//! the run's next round is given the same as the failed one, a new round that the carrier carries out anew. The
+//! A round a carrier cannot carry out it says failed, with why, and with the kind of cause where it tells one apart:
+//! the engine handles the failure as the kind says, pausing the work with the reason where that is the kind's handling,
+//! and the run's next round is given the same as the failed one, a new round that the carrier carries out anew. The
 //! carrier keeps nothing of a failed round, and tries nothing again itself: when a round is tried again is the engine's
 //! to say, as its records show, and whatever made the round fail is shown on the page.
 
@@ -44,9 +44,10 @@ pub use engine::spoken::Telling;
 /// Both methods are called inside the loop, between two things it takes: each returns at once, and does its work
 /// elsewhere, on a task or a thread of its own, so that the loop is held up by no round.
 pub trait Rounds: Send + Sync {
-    /// Gives the round: an agent is given it in the session of the cell's line, or the act is done. The round ends
-    /// when the reply says what came back and what it took, or that it failed and why. Given again after the process started again, it is the
-    /// same round, to be gone on with where what was done of it is known, and done again where it is not.
+    /// Gives the round: an agent is given it in the session of the cell's line, or the act is done. The round ends when
+    /// the reply says what came back and what it took, or that it failed and why. Given again after the process started
+    /// again, it is the same round, to be gone on with where what was done of it is known, and done again where it is
+    /// not.
     fn give(&self, round: Round, reply: RoundReply);
 
     /// Stops the round, which is under way: its work was cancelled. The round ends as it always does, by a reply
@@ -162,9 +163,9 @@ pub trait Rounds: Send + Sync {
     }
 }
 
-/// A fork of a round's session, asked a question: the work as it is kept, its flow and item, the run and the round of it
-/// whose session is forked, the question, whether the work has ended, and the accounts as they stand, by which the fork
-/// runs under its session's account, or the one in use where that one was removed ([`Accounts::of_session`]).
+/// A fork of a round's session, asked a question: the work as it is kept, its flow and item, the run and the round of
+/// it whose session is forked, the question, whether the work has ended, and the accounts as they stand, by which the
+/// fork runs under its session's account, or the one in use where that one was removed ([`Accounts::of_session`]).
 #[derive(Clone, Debug)]
 pub struct Fork {
     pub work: WorkNumber,
@@ -519,8 +520,8 @@ impl std::fmt::Debug for Token {
 }
 
 /// What keeps the tokens of the accounts the agents' program may run under, outside the engine, each under its
-/// account's name; and what the program says of a token: the command that makes one, and how long one lasts. Each method
-/// may wait on what keeps the tokens, and is called off the loop.
+/// account's name; and what the program says of a token: the command that makes one, and how long one lasts. Each
+/// method may wait on what keeps the tokens, and is called off the loop.
 pub trait Tokens: Send + Sync {
     /// Keeps the token under the name, in place of any kept under it before.
     fn keep(&self, name: &str, token: &Token) -> Result<(), String>;
@@ -531,7 +532,8 @@ pub trait Tokens: Send + Sync {
     /// Lets go of the token kept under the name; nothing where none is.
     fn let_go(&self, name: &str) -> Result<(), String>;
 
-    /// Why no account can be added now, in words; none where one can.
+    /// Why no account can be in use now, in words; none where one can. While it says so, no account is added or taken,
+    /// and the engine does not start where one is in use.
     fn closed(&self) -> Option<String>;
 
     /// The command the owner runs, signed in to an account in the browser, to make a token of it.
@@ -545,11 +547,19 @@ pub trait Tokens: Send + Sync {
 #[derive(Default)]
 pub struct KeptTokens {
     kept: Mutex<BTreeMap<String, Token>>,
-    refusing: Option<String>,
+    /// Why no account can be in use, where a test says so.
+    refusing: Mutex<Option<String>>,
+    /// Why no token can be let go of, where a test says so.
+    holding: Mutex<Option<String>>,
 }
 
 /// A year, in milliseconds: how long a token lasts, as the agents' program says of the tokens it makes.
 pub const YEAR_MS: u64 = 365 * 24 * 60 * 60 * 1000;
+
+/// What a lock holds, whole whatever panicked while it was held: each change is one insert, take or set.
+fn locked<T>(lock: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    lock.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 impl KeptTokens {
     /// Tokens kept in memory, no account refused.
@@ -557,42 +567,49 @@ impl KeptTokens {
         KeptTokens::default()
     }
 
-    /// Tokens kept in memory, every account to be added refused for this reason.
+    /// Tokens kept in memory, every account refused for this reason.
     pub fn refusing(why: &str) -> KeptTokens {
-        KeptTokens {
-            kept: Mutex::default(),
-            refusing: Some(why.to_string()),
-        }
+        let tokens = KeptTokens::default();
+        tokens.refuse(Some(why));
+        tokens
+    }
+
+    /// From now on every account is refused for this reason, or, with none, none is.
+    pub fn refuse(&self, why: Option<&str>) {
+        *locked(&self.refusing) = why.map(str::to_string);
+    }
+
+    /// From now on no token can be let go of, for this reason, or, with none, every one can.
+    pub fn hold(&self, why: Option<&str>) {
+        *locked(&self.holding) = why.map(str::to_string);
     }
 
     /// The names tokens are kept under.
     pub fn names(&self) -> Vec<String> {
-        self.held().keys().cloned().collect()
-    }
-
-    fn held(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Token>> {
-        // What is held stays whole whatever panicked while it was held: each change is one insert or take.
-        self.kept.lock().unwrap_or_else(PoisonError::into_inner)
+        locked(&self.kept).keys().cloned().collect()
     }
 }
 
 impl Tokens for KeptTokens {
     fn keep(&self, name: &str, token: &Token) -> Result<(), String> {
-        self.held().insert(name.to_string(), token.clone());
+        locked(&self.kept).insert(name.to_string(), token.clone());
         Ok(())
     }
 
     fn token(&self, name: &str) -> Result<Token, String> {
-        (self.held().get(name).cloned()).ok_or_else(|| format!("no token is kept under the name {name}"))
+        (locked(&self.kept).get(name).cloned()).ok_or_else(|| format!("no token is kept under the name {name}"))
     }
 
     fn let_go(&self, name: &str) -> Result<(), String> {
-        self.held().remove(name);
+        if let Some(why) = locked(&self.holding).clone() {
+            return Err(why);
+        }
+        locked(&self.kept).remove(name);
         Ok(())
     }
 
     fn closed(&self) -> Option<String> {
-        self.refusing.clone()
+        locked(&self.refusing).clone()
     }
 
     fn making(&self) -> String {

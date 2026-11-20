@@ -5,8 +5,7 @@
 //!
 //! The account in use is the latest taken that has not been removed since; with none, the agents run on the sign-in of
 //! their directory, as an installation does before any account is added. A try of a round records the account it ran
-//! under by its name, or, with none in use, the directory of the program's settings, which, holding a `/`, is never a
-//! name: a value recorded so names an account where it is the name of one ever added ([`Accounts::named`]).
+//! under by its name, apart from the directory of the program's settings it ran with, and none where none was in use.
 
 use store::{AccountAct, AccountRecord};
 use work::Time;
@@ -25,17 +24,24 @@ pub struct Live {
 }
 
 /// Why a name is no account's name, in words; none where it is one: small letters, digits and dashes, beginning with a
-/// letter or a digit, so that it is safe in the line that keeps its token, and holds no `/`, which a directory recorded
-/// in its place holds.
+/// letter or a digit, so that it is safe in the line that keeps its token.
 pub fn name_fault(name: &str) -> Option<String> {
     let first = name.chars().next();
     let shaped = first.is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
         && (name.chars()).all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
     (!shaped).then(|| {
         format!(
-            "{name:?} is no account's name: a name is small letters, digits and dashes, beginning with a letter or a digit"
+            "{name:?} is no account's name: a name is small letters, digits and dashes, beginning with a letter or a \
+             digit"
         )
     })
+}
+
+/// Why a text pasted as a token is none, in words that hold nothing of it; none where it may be one: some text, with no
+/// space and no control character, as every token the agents' program makes is.
+pub fn token_fault(token: &str) -> Option<String> {
+    let shaped = !token.is_empty() && (token.chars()).all(|c| !c.is_whitespace() && !c.is_control());
+    (!shaped).then(|| "the token is empty, or holds a space or a control character: copy it again whole".to_string())
 }
 
 impl Accounts {
@@ -89,17 +95,23 @@ impl Accounts {
         self.live().iter().any(|l| l.name == name)
     }
 
-    /// The account a try recorded it ran under, where the value it recorded names one ever added; none where it ran on
-    /// the sign-in of the directory, whose path it recorded, or of the program's own default directory.
-    pub fn named<'a>(&self, recorded: Option<&'a str>) -> Option<&'a str> {
-        recorded.filter(|value| (self.records.iter()).any(|r| r.what == AccountAct::Added && r.name == *value))
+    /// The names whose latest record is a removal: the accounts whose tokens are to be let go of, until they are.
+    pub fn removed(&self) -> Vec<String> {
+        let mut removed: Vec<String> = Vec::new();
+        for record in &self.records {
+            removed.retain(|name| *name != record.name);
+            if record.what == AccountAct::Removed {
+                removed.push(record.name.clone());
+            }
+        }
+        removed
     }
 
-    /// The account a command of a session runs under, the session's last try having recorded this: that account where
-    /// it is still added; where it was removed, the account in use, with the removed one's name; and where the try ran
-    /// on a directory's sign-in, that sign-in, none.
-    pub fn of_session(&self, recorded: Option<&str>) -> (Option<String>, Option<String>) {
-        match self.named(recorded) {
+    /// The account a command of a session runs under, the session's last try having run under this one: that account
+    /// where it is still added; where it was removed, the account in use, with the removed one's name; and where the
+    /// try ran under none, on its directory's sign-in, none.
+    pub fn of_session(&self, account: Option<&str>) -> (Option<String>, Option<String>) {
+        match account {
             Some(name) if self.is_live(name) => (Some(name.to_string()), None),
             Some(name) => (self.in_use().map(str::to_string), Some(name.to_string())),
             None => (None, None),
@@ -149,23 +161,38 @@ mod tests {
     }
 
     #[test]
-    fn a_value_a_try_recorded_names_an_account_where_one_of_that_name_was_ever_added() {
+    fn a_session_runs_under_its_account_or_the_one_in_use_where_that_was_removed_and_a_removed_token_is_let_go_of() {
         let mut accounts = Accounts::default();
         accounts.push(record("work", AccountAct::Added, 1));
         accounts.push(record("home", AccountAct::Added, 2));
         accounts.push(record("home", AccountAct::Taken, 3));
         accounts.push(record("old", AccountAct::Added, 4));
         accounts.push(record("old", AccountAct::Removed, 5));
-        assert_eq!(accounts.named(Some("work")), Some("work"));
-        assert_eq!(accounts.named(Some("/data/agents/claude")), None, "a directory");
-        assert_eq!(accounts.named(None), None);
         assert_eq!(accounts.of_session(Some("work")), (Some("work".to_string()), None));
         assert_eq!(
             accounts.of_session(Some("old")),
             (Some("home".to_string()), Some("old".to_string())),
             "a removed account's session runs under the one in use, saying which was removed"
         );
-        assert_eq!(accounts.of_session(Some("/data/agents/claude")), (None, None));
+        assert_eq!(accounts.of_session(None), (None, None), "on its directory's sign-in");
+        assert_eq!(accounts.removed(), ["old"]);
+        accounts.push(record("old", AccountAct::Added, 6));
+        assert_eq!(
+            accounts.removed(),
+            Vec::<String>::new(),
+            "added again, its token is the new one"
+        );
+        accounts.push(record("work", AccountAct::Removed, 7));
+        assert_eq!(accounts.removed(), ["work"]);
+    }
+
+    #[test]
+    fn a_token_is_some_text_with_no_space_and_no_control_character_and_its_fault_says_nothing_of_it() {
+        assert_eq!(token_fault("sk-ant-oat01-a_b-1"), None);
+        for token in ["", "sk-ant oat01", "sk-ant\n", "sk\tant", " sk-ant"] {
+            let fault = token_fault(token).expect("no token");
+            assert!(!fault.contains("sk"), "{fault}");
+        }
     }
 
     #[test]

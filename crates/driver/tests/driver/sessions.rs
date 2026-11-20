@@ -160,6 +160,7 @@ fn on(model: &str) -> RanOn {
         level: "1".to_string(),
         model: model.to_string(),
         effort: None,
+        directory: None,
         account: None,
     }
 }
@@ -185,7 +186,7 @@ fn policy(model: &str) -> Policy {
     let model = model.to_string();
     Policy {
         samples: 1,
-        on: Box::new(move |_, _| Some(on(&model))),
+        model: Box::new(move |_, _| Some(model.clone())),
         warm: None,
     }
 }
@@ -968,16 +969,13 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
     let by_level = Policy {
         samples: 1,
         warm: None,
-        on: Box::new(|item, _| {
+        model: Box::new(|item, _| {
             let model = if item.level.as_deref() == Some("2") {
                 "sonnet"
             } else {
                 "opus"
             };
-            Some(RanOn {
-                level: item.level.clone().unwrap_or_default(),
-                ..on(model)
-            })
+            Some(model.to_string())
         }),
     };
     let mut s = S::with(by_level, None);
@@ -1574,7 +1572,7 @@ fn the_wait_every_work_shares_stops_every_ping_until_a_check_finds_the_outside_w
     let todos = s.driver.tick(Time(at), None, None).unwrap();
     assert!(pings(&s, &todos).is_empty(), "a ping while the agents' rounds wait");
     // A check finds the outside well: the wait is over, and the ping is given.
-    let todos = s.driver.tick(Time(at + 1), Some(Found::Well), None).unwrap();
+    let todos = s.driver.tick(Time(at + 1), Some((None, Found::Well)), None).unwrap();
     assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
 }
 

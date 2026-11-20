@@ -243,6 +243,9 @@ pub enum Fault {
     Answer { work: WorkNumber, failed: Failed },
     /// The driver gave something to be done that names what its work does not hold.
     Stray { todo: Todo, missing: Missing },
+    /// The agents run under this account, and no account can be in use, for this reason, as what keeps the tokens says
+    /// ([`Tokens::closed`]): the engine does not start.
+    AccountsClosed { account: String, why: String },
 }
 
 /// What a todo names that its work does not hold.
@@ -266,6 +269,9 @@ pub enum Refusal {
     NotAPersonsCall(CallId),
     /// The token of an account to be added was not kept, for this reason, in words: no account was added.
     NotKept(String),
+    /// No account can be in use, for this reason, as what keeps the tokens says ([`Tokens::closed`]): none is added or
+    /// taken.
+    Closed(String),
     /// The loop has ended.
     Gone,
 }
@@ -309,11 +315,24 @@ impl Service {
         clock: Arc<dyn Clock>,
     ) -> Result<(Service, Inbox), Fault> {
         let now = clock.now().map_err(Fault::Clock)?;
+        // No account is in use where none can be: the engine does not start under one.
+        let accounts =
+            driver::Accounts::new((store.accounts()).map_err(|fault| Fault::Driver(driver::Fault::Store(fault)))?);
+        if let (Some(account), Some(why)) = (accounts.in_use(), carriers.tokens.closed()) {
+            return Err(Fault::AccountsClosed {
+                account: account.to_string(),
+                why,
+            });
+        }
         let by_name = (flows.iter())
             .map(|flow| (flow.name.clone(), Arc::new(flow.clone())))
             .collect();
         let policy = carriers.agents.policy();
         let (driver, todos) = Driver::open(store, flows, carriers.slots, policy, now).map_err(Fault::Driver)?;
+        // The tokens of the accounts removed are let go of until they are, a removal before a stop among them.
+        if let Some(failed) = let_go_of(&*carriers.tokens, &driver.accounts().removed()) {
+            eprintln!("The tokens of accounts removed could not be let go of, and are tried again: {failed}");
+        }
         let (to, inbox) = mpsc::unbounded_channel();
         let (changed, _) = broadcast::channel(CHANGES);
         let mut service = Service {
@@ -421,8 +440,7 @@ impl Service {
                     self.wake = None;
                 }
                 let now = self.now()?;
-                // A check under an account no longer in use says nothing of the one in use, which is checked anew.
-                let found = found.filter(|_| under.as_deref() == self.driver.accounts().in_use());
+                let found = found.map(|found| (under, found));
                 let todos = (self.driver.tick(now, found, host_reached)).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
             }
@@ -993,14 +1011,17 @@ impl Handle {
 
     /// Adds an account under this name with this token, and says whether the token was at its usage limit as it was
     /// checked, and when that resets. The name is refused where it is no account's name or is one's added and not
-    /// removed, and the account where what keeps the tokens says none can be added. Then the token is checked, by the
-    /// check of the outside under it, off the loop, which may take as long as its short request: one the service
-    /// refuses is not kept, saying the service's words; one at its usage limit is kept, saying its reset; and one that
-    /// could not be checked, the network or the service not reached, is not kept, saying why. The token is kept before
-    /// the account is added, and nothing of it is said in any words.
+    /// removed, the token where it is no token's shape, and the account where what keeps the tokens says none can be in
+    /// use. Then the token is checked, by the check of the outside under it, off the loop, which may take as long as
+    /// its short request: one the service refuses is not kept, saying the service's words; one at its usage limit is
+    /// kept, saying its reset; and one that could not be checked, the network or the service not reached, is not kept,
+    /// saying why. The token is kept before the account is added, and nothing of it is said in any words.
     pub async fn add_account(&self, name: String, token: Token) -> Result<AccountAdded, Refusal> {
         if let Some(why) = driver::accounts::name_fault(&name) {
             return Err(Refusal::Failed(Failed::AccountName(why)));
+        }
+        if let Some(why) = driver::accounts::token_fault(token.secret()) {
+            return Err(Refusal::NotKept(why));
         }
         let _one = self.adding.lock().await;
         let asked = name.clone();
@@ -1009,7 +1030,7 @@ impl Handle {
             return Err(Refusal::Failed(Failed::NameInUse(name)));
         }
         if let Some(why) = self.carriers.tokens.closed() {
-            return Err(Refusal::NotKept(why));
+            return Err(Refusal::Closed(why));
         }
         // What the check says is passed on with the token taken out of it, should the program have said it back.
         let scrubbed = |why: String| why.replace(token.secret(), "…");
@@ -1051,22 +1072,24 @@ impl Handle {
     }
 
     /// Takes the account of this name as the one the agents run under: every round handed out from now on runs under
-    /// it, and the outside is checked at once under it where the agents' rounds wait for it.
+    /// it, and the outside is checked at once under it where the agents' rounds wait for it. It is refused where what
+    /// keeps the tokens says no account can be in use.
     pub async fn take_account(&self, name: String) -> Result<(), Refusal> {
+        if let Some(why) = self.carriers.tokens.closed() {
+            return Err(Refusal::Closed(why));
+        }
         self.account(name, AccountAct::Taken).await
     }
 
-    /// Removes the account of this name, which is not the one in use, and then lets go of its token: gives why its
-    /// token could not be let go of, where it could not, the account being removed all the same.
+    /// Removes the account of this name, which is not the one in use, and then lets go of the token of every account
+    /// removed, until it is: gives the tokens that could not be let go of, with why, the account being removed all the
+    /// same and its token let go of again at the next removal and as the engine opens.
     pub async fn remove_account(&self, name: String) -> Result<Option<String>, Refusal> {
-        self.account(name.clone(), AccountAct::Removed).await?;
+        self.account(name, AccountAct::Removed).await?;
+        let removed = self.read(|driver| driver.accounts().removed()).await?;
         let tokens = self.carriers.tokens.clone();
-        let let_go = tokio::task::spawn_blocking(move || tokens.let_go(&name)).await;
-        Ok(match let_go {
-            Ok(Ok(())) => None,
-            Ok(Err(why)) => Some(why),
-            Err(e) => Some(e.to_string()),
-        })
+        let let_go = tokio::task::spawn_blocking(move || let_go_of(&*tokens, &removed)).await;
+        Ok(let_go.unwrap_or_else(|e| Some(e.to_string())))
     }
 
     /// The owner adds, removes or takes the account of this name, as the driver keeps it.
@@ -1322,6 +1345,15 @@ impl Handle {
 /// milliseconds each, mostly the process starting, so a few at once keep a read of every work short without
 /// crowding the machine.
 pub const SEEN: usize = 8;
+
+/// Lets go of the token of each account of these names, which are removed, a token not found being let go of: gives
+/// each that could not be, by its name, with why; none where every one was.
+fn let_go_of(tokens: &dyn Tokens, names: &[String]) -> Option<String> {
+    let failed: Vec<String> = (names.iter())
+        .filter_map(|name| tokens.let_go(name).err().map(|why| format!("{name}: {why}")))
+        .collect();
+    (!failed.is_empty()).then(|| failed.join("; "))
+}
 
 /// The specification of the cell in the flow.
 fn cell_spec<'a>(flow: &'a Compiled, cell: &CellId) -> Option<&'a CellSpec> {

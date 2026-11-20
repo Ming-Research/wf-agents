@@ -1,0 +1,84 @@
+//! The accounts the agents run under, as the loop opens on them: it does not start under an account where what keeps
+//! the tokens says none can be in use, and it lets go of the tokens of the accounts removed, until they are.
+
+use std::sync::Arc;
+
+use service::{Carriers, Fault, KeptTokens, Scripted, Service, Token, Tokens, TokioClock};
+use store::{AccountAct, AccountRecord, Storage, Store};
+use work::Time;
+
+use crate::{START, trial_flow};
+
+/// A store in a directory of its own, holding these records of accounts, a millisecond apart.
+fn holding(records: &[(&str, AccountAct)]) -> (tempfile::TempDir, Store) {
+    let dir = tempfile::tempdir().expect("a directory for the store");
+    let mut store = Store::open(dir.path().join("store.sqlite")).expect("the store opens");
+    for (n, (name, what)) in (0..).zip(records) {
+        let record = AccountRecord {
+            name: name.to_string(),
+            what: *what,
+            at: Time(START.0 + n),
+        };
+        store.keep_account(&record).expect("the record is kept");
+    }
+    (dir, store)
+}
+
+/// The scripted carriers, the tokens kept by these.
+fn keeping(tokens: &Arc<KeptTokens>) -> Carriers {
+    let mut carriers = Scripted::new(Default::default()).carriers();
+    let kept: Arc<dyn Tokens> = tokens.clone();
+    carriers.tokens = kept;
+    carriers
+}
+
+/// The loop opened on the store with the trial flow and these carriers, or what kept it from opening.
+fn opened(store: Store, carriers: Carriers) -> Result<(), Fault> {
+    let clock = Arc::new(TokioClock::new(START));
+    Service::open(Box::new(store), vec![trial_flow()], carriers, clock).map(drop)
+}
+
+// No account can be in use while what keeps the tokens says so, as where the settings name a credential the agents'
+// program takes above a token: the engine does not start under one, saying why, and starts where none is in use.
+#[tokio::test(start_paused = true)]
+async fn the_engine_does_not_start_under_an_account_while_none_can_be_in_use() {
+    let why = "agents.env names ANTHROPIC_API_KEY, which the agents' program takes above an account's token";
+    let tokens = Arc::new(KeptTokens::refusing(why));
+    let (_dir, store) = holding(&[("work", AccountAct::Added), ("work", AccountAct::Taken)]);
+    let refused = opened(store, keeping(&tokens)).expect_err("it does not start");
+    assert_eq!(
+        refused,
+        Fault::AccountsClosed {
+            account: "work".to_string(),
+            why: why.to_string(),
+        }
+    );
+    assert_eq!(
+        refused.to_string(),
+        format!("the agents run under the account work, and {why}")
+    );
+    let (_dir, store) = holding(&[("work", AccountAct::Added)]);
+    assert_eq!(opened(store, keeping(&tokens)), Ok(()), "no account is in use");
+}
+
+// As the engine opens, the token of every account whose latest record is its removal is let go of: one removed before
+// a stop, or whose token could not be let go of then. An account removed and added again keeps its token.
+#[tokio::test(start_paused = true)]
+async fn the_tokens_of_the_accounts_removed_are_let_go_of_as_the_engine_opens() {
+    let tokens = Arc::new(KeptTokens::new());
+    for name in ["work", "old", "again"] {
+        let token = Token::new(format!("sk-ant-oat01-{name}"));
+        tokens.keep(name, &token).expect("kept");
+    }
+    let (_dir, store) = holding(&[
+        ("work", AccountAct::Added),
+        ("old", AccountAct::Added),
+        ("again", AccountAct::Added),
+        ("work", AccountAct::Taken),
+        ("old", AccountAct::Removed),
+        ("again", AccountAct::Removed),
+        ("again", AccountAct::Added),
+    ]);
+    assert_eq!(opened(store, keeping(&tokens)), Ok(()));
+    assert_eq!(tokens.names(), ["again", "work"]);
+}

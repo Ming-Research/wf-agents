@@ -43,11 +43,11 @@ off the hooks the engine gives too.
 
 ### decision the-agents-commands-are-given-no-credentials
 The agents' program is given `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` set, so that it strips every credential from the
-environment of the commands, hooks and servers it starts, keeping it for its own calls.
-Why: The token of the account a round runs under is in the program's environment; without it every command an agent
-runs would hold the token, and one that prints its environment would write it into the round's stream, which is kept.
-It does not keep the token from an agent that asks the keychain for it with `security`, as the sign-in of the program's
-directory was never kept from one: that rests on judgment, not a trial.
+environment of the commands, hooks and servers it starts, keeping it for its own calls: the token of the account a
+round runs under, and a credential `agents.env` names, reach the program and none of an agent's commands.
+Why: Without it every command an agent runs would hold the token, and one that prints its environment would write it
+into the round's stream, which is kept. It does not keep the token from an agent that asks the keychain for it with
+`security`, as the sign-in of the program's directory was never kept from one: that rests on judgment, not a trial.
 
 ### decision the-pages-server-is-off-the-loops-thread
 The server of the pages and the interface runs on threads apart from the one the engine's loop takes things on, and

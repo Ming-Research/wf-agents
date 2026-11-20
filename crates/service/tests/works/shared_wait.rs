@@ -1,7 +1,7 @@
 //! A wait every work shares, as the loop carries it through with its own timer: it checks the outside of the agents'
 //! rounds when the driver asks, under the account in use, begins no round while a check finds it down, and lets every
-//! work on once one finds it well, whatever else the loop takes meanwhile, and after a restart at any moment of the wait
-//! as well.
+//! work on once one finds it well, whatever else the loop takes meanwhile, and after a restart at any moment of the
+//! wait as well.
 
 use std::future::Future;
 use std::pin::Pin;

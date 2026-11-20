@@ -10,15 +10,16 @@
 //!   engine's loop, answered with what came of it ([`AccountDone`]).
 //!
 //! The owner changes on the page what is tuned while works go on: the language the agents write in for the owner, the
-//! model of each level, the highest level an item may be at, the context at which the agents' program compacts a
-//! line's session, and how many rounds run at once. The rest only the file changes. The accounts the agents' program
-//! runs under are no key of the file: they are the engine's own state, which takes a change at once (decision
-//! the-page-changes-what-is-tuned-while-the-engine-runs). A value is checked here only for its kind; what the engine refuses of it, the engine's own reading of the
-//! file refuses. A change is written into the file with its comments and its layout kept, only where the file it makes
-//! reads as settings, holds each value as asked, and has not changed since the page read it; where the directory the
-//! file is in keeps it in git, the change is committed there, saying what changed, and nothing is written onto a file
-//! whose changes are not committed. The engine reads the file as it starts: until it starts again, each key it runs at
-//! another value than the file gives, as the engine reads the file, is shown with that value beside it.
+//! model of each level, the highest level an item may be at, the context at which the agents' program compacts a line's
+//! session, and how many rounds run at once. The rest only the file changes. The accounts the agents' program runs
+//! under are no key of the file: they are the engine's own state, which takes a change at once (decision
+//! the-page-changes-what-is-tuned-while-the-engine-runs). A value is checked here only for its kind; what the engine
+//! refuses of it, the engine's own reading of the file refuses. A change is written into the file with its comments and
+//! its layout kept, only where the file it makes reads as settings, holds each value as asked, and has not changed
+//! since the page read it; where the directory the file is in keeps it in git, the change is committed there, saying
+//! what changed, and nothing is written onto a file whose changes are not committed. The engine reads the file as it
+//! starts: until it starts again, each key it runs at another value than the file gives, as the engine reads the file,
+//! is shown with that value beside it.
 //!
 //! The settings hold no secret: a token is given to the engine in a variable of its environment, which the file names.
 //! An account's token is taken in once, as it is added, and kept outside the engine; no answer of these routes holds

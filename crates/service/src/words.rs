@@ -39,6 +39,9 @@ impl fmt::Display for Fault {
                     todo.work.0
                 )
             }
+            Fault::AccountsClosed { account, why } => {
+                write!(f, "the agents run under the account {account}, and {why}")
+            }
         }
     }
 }
@@ -64,6 +67,7 @@ impl fmt::Display for Refusal {
                 )
             }
             Refusal::NotKept(why) => f.write_str(&sentence(&format!("no account was added: {why}"))),
+            Refusal::Closed(why) => f.write_str(&sentence(&format!("no account can be added or taken: {why}"))),
             Refusal::Gone => f.write_str("The engine is not running."),
         }
     }

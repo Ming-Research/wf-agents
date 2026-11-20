@@ -163,7 +163,7 @@ fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy, 
     // As many pings as the session's model makes worth it.
     let model = (work.ran.iter().rev()).find(|t| t.run == run && t.round == k)?;
     // The session's cache is the account's its last call ran under, which a ping under the account in use must be.
-    if accounts.named(model.on.account.as_deref()) != accounts.in_use() {
+    if model.on.account.as_deref() != accounts.in_use() {
         return None;
     }
     let most = warm.most.get(&model.on.model).copied().unwrap_or(0);

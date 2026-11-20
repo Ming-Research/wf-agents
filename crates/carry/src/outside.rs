@@ -5,9 +5,9 @@
 //! directory of settings and environment, built as a round's is, with the account's token, at each check. What is down
 //! is said by the first of them that is, the short request's failure told apart as a round's is ([`failure`]).
 //!
-//! Under a token the program says it is signed in whatever the token, saying nothing of it: only the short request finds
-//! a token the service refuses, as a command line that cannot run. A token the keychain cannot give is that too, in the
-//! keychain's words. A token not yet kept is checked the same way before it is kept ([`Check::check_token`]).
+//! Under a token the program says it is signed in whatever the token, saying nothing of it: only the short request
+//! finds a token the service refuses, as a command line that cannot run. A token the keychain cannot give is that too,
+//! in the keychain's words. A token not yet kept is checked the same way before it is kept ([`Check::check_token`]).
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -169,8 +169,8 @@ impl Check {
         let output = match process::output(self.command(&args, token), REQUEST_WAIT).await {
             Ok(output) => output,
             Err(why) => {
-                // One that did not end in time had no answer from the service; one that cannot be started is the command
-                // line failing to run.
+                // One that did not end in time had no answer from the service; one that cannot be started is the
+                // command line failing to run.
                 let failure = match why.contains("did not end within") {
                     true => decide::run::Failure::Unavailable,
                     false => failure::of(&why, &failure::Said::default(), None),

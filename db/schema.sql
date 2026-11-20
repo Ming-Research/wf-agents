@@ -393,9 +393,9 @@ CREATE TABLE sessions (
 );
 
 -- A try of a round of a run began, the round's first being one and the try's first in its round being one, on this
--- level, model, reasoning effort (NULL where the program ran at its own) and account: the name of the account it ran
--- under, or, where none was in use, the directory of the program's settings and sign-in (NULL where it ran with its
--- own default directory).
+-- level, model, reasoning effort (NULL where the program ran at its own), directory of the program's settings and
+-- sessions (NULL where it ran with its own default directory) and account, by the name the owner gave it (NULL where
+-- none was in use, and the program ran on the sign-in of its directory).
 CREATE TABLE ran (
     work INTEGER NOT NULL,
     at INTEGER NOT NULL,
@@ -405,7 +405,8 @@ CREATE TABLE ran (
     level TEXT NOT NULL,
     model TEXT NOT NULL,
     effort TEXT,
-    account TEXT, -- Hidden from agents.
+    directory TEXT, -- Hidden from agents.
+    account TEXT,
     PRIMARY KEY (work, at),
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );

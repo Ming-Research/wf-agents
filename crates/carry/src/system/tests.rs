@@ -534,7 +534,7 @@ fn the_store_the_words_of_query_name_is_what_the_settings_say_of_it() {
 
 /// The five columns of the real schema that hold what agents may not read, each with its table.
 const HIDDEN_COLUMNS: [(&str, &str); 5] = [
-    ("ran", "account"),
+    ("ran", "directory"),
     ("backup_failures", "why"),
     ("results", "result"),
     ("back", "back"),

@@ -11,15 +11,15 @@
 //! while it is under way. A usage limit is its account's own: it stands from the first round under that account that
 //! met it after the last round under it that came back, only a round under it ends it, and it holds the rounds only
 //! while its account is in use; taking another ends the wait at once, and taking it back before its reset holds the
-//! rounds again ([`Accounts`]). From the first round that failed so, no agent's round of any work begins, and no work's
+//! rounds again. From the first round that failed so, no agent's round of any work begins, and no work's
 //! session is touched: the engine checks the outside by itself instead ([`Found`]), with no round, until a check finds
 //! it well. Then every work goes on from where it was, the round that met the failure run again; a round that fails so
 //! again holds every round again, until the next check finds it well. The checks are spaced from half a minute after
 //! the latest round that failed so, each next one twice as long after the one before, up to [`LONGEST_CHECK`], and
 //! counted over the whole wait: a cause the check does not find, which the rounds meet again, is met no more often
 //! than the checks are taken. At a usage limit whose reset was said, by the round that met it or by the latest check,
-//! none is taken before the reset. Once the owner takes another account, what the checks found is dropped, and the
-//! outside is checked at once under the account taken.
+//! none is taken before the reset. A check speaks only of the account it was taken under: once the owner takes another,
+//! the outside is checked at once under the account taken, and what was found under the one before is no check of it.
 //!
 //! The acts' wait stands from the latest act, of any work, that failed for want of the network, until a look at the
 //! acts' host, taken every half minute, reaches it: a look is what an act tries, at no cost, and every act goes on
@@ -35,8 +35,6 @@ use decide::run::Failure;
 use flow::{Compiled, Kind};
 use store::WorkNumber;
 use work::{Back, Time, Work};
-
-use crate::accounts::Accounts;
 
 /// How long after the latest round that failed for a cause outside every work the outside is first checked; and how
 /// often the network to the acts' host is looked at while it cannot be reached.
@@ -218,8 +216,7 @@ struct Taken {
     work: WorkNumber,
     run: RunId,
     number: usize,
-    /// The account its last try recorded it ran under; none where it ran on the sign-in of a directory, or recorded
-    /// none.
+    /// The account its last try ran under; none where it ran under none, or recorded no try.
     account: Option<String>,
     began: Time,
     /// The place of the entry of its beginning, in its work.
@@ -229,18 +226,17 @@ struct Taken {
     ended: Option<(Time, decide::Seq, Option<Back>)>,
 }
 
-/// The wait of the service every work shares, from the records of these works on the flows they run on, the rounds the
-/// service answered while under way, each of a work and run by its number, and the accounts, by which each round's
-/// account and the account in use are read, if one stands. What the outside says of it, its checks and looks, and when
-/// the account in use was taken, is the driver's to add.
+/// The wait of the service every work shares, from the records of these works on the flows they run on, each round's
+/// account read from its last try, the rounds the service answered while under way, each of a work and run by its
+/// number, and the account in use, if one stands. What the outside says of it, its checks and looks, and when the
+/// account in use was taken, is the driver's to add.
 pub fn outage<'a>(
     service: Service,
     works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a Work)>,
     answered: &BTreeSet<(WorkNumber, RunId, usize)>,
-    accounts: &Accounts,
+    in_use: Option<&str>,
 ) -> Option<Outage> {
-    let rounds = rounds(service, works, accounts);
-    let in_use = accounts.in_use();
+    let rounds = rounds(service, works);
     // A usage limit holds the rounds only while its account is in use.
     let standing: Vec<Met> = (standing(&rounds, answered).into_iter())
         .filter(|m| m.failure != Failure::UsageLimit || m.round.account.as_deref() == in_use)
@@ -268,13 +264,12 @@ pub fn outage<'a>(
 }
 
 /// The usage limit of each account that stands, by the account's name, whether or not the account is in use, from the
-/// records of these works, the rounds the agents' service answered while under way, and the accounts.
+/// records of these works and the rounds the agents' service answered while under way.
 pub fn limits<'a>(
     works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a Work)>,
     answered: &BTreeSet<(WorkNumber, RunId, usize)>,
-    accounts: &Accounts,
 ) -> BTreeMap<String, Limit> {
-    let rounds = rounds(Service::Agents, works, accounts);
+    let rounds = rounds(Service::Agents, works);
     let mut limits: BTreeMap<String, (Limit, Time)> = BTreeMap::new();
     for m in standing(&rounds, answered) {
         let Some(account) = m.round.account.clone().filter(|_| m.failure == Failure::UsageLimit) else {
@@ -296,14 +291,10 @@ pub fn limits<'a>(
 }
 
 /// Every round of the works' runs of cells the service serves.
-fn rounds<'a>(
-    service: Service,
-    works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a Work)>,
-    accounts: &Accounts,
-) -> Vec<Taken> {
+fn rounds<'a>(service: Service, works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a Work)>) -> Vec<Taken> {
     let mut rounds = Vec::new();
     for (number, flow, work) in works {
-        rounds.extend(rounds_of(service, number, flow, work, accounts));
+        rounds.extend(rounds_of(service, number, flow, work));
     }
     rounds
 }
@@ -357,8 +348,13 @@ struct Met<'a> {
 
 /// Every round of the work's runs of cells the service serves, with the account its last try ran under, when it began
 /// and ended and what came back.
-fn rounds_of(service: Service, number: WorkNumber, flow: &Compiled, work: &Work, accounts: &Accounts) -> Vec<Taken> {
+fn rounds_of(service: Service, number: WorkNumber, flow: &Compiled, work: &Work) -> Vec<Taken> {
     let r = &work.records;
+    // The account of each round, by its run and number, as its last try recorded it: the tries in the order they began.
+    let mut accounts: BTreeMap<(RunId, usize), Option<&str>> = BTreeMap::new();
+    for ran in &work.ran {
+        accounts.insert((ran.run, ran.round), ran.on.account.as_deref());
+    }
     let mut out = Vec::new();
     for started in &r.started {
         let served = (flow.cells.iter()).any(|spec| spec.id == started.cell && service.serves(spec.kind));
@@ -372,14 +368,15 @@ fn rounds_of(service: Service, number: WorkNumber, flow: &Compiled, work: &Work,
                 let back = work.back.get(&(started.run, i + 1)).cloned();
                 (work.time_of(e.at).unwrap_or_default(), e.at, back)
             });
-            let recorded = (work.ran.iter().rev())
-                .find(|ran| ran.run == started.run && ran.round == i + 1)
-                .and_then(|ran| ran.on.account.as_deref());
             out.push(Taken {
                 work: number,
                 run: started.run,
                 number: i + 1,
-                account: accounts.named(recorded).map(str::to_string),
+                account: accounts
+                    .get(&(started.run, i + 1))
+                    .copied()
+                    .flatten()
+                    .map(str::to_string),
                 began: work.time_of(round.at).unwrap_or_default(),
                 began_at: round.at,
                 ended: end,

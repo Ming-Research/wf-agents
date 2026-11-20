@@ -38,15 +38,19 @@ pub struct Ran {
 }
 
 /// What a try of an agent's round ran on, as its carrier chose it as the try began: the level, the model of that
-/// level, the reasoning effort, and the account the program makes its calls under: the name of the account the round
-/// was handed out with, or, where none was in use, the directory of the program's settings and sign-in.
+/// level, the reasoning effort, the directory of the program's settings and sessions it ran with, and the account it
+/// made its calls under.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RanOn {
     pub level: String,
     pub model: String,
     /// None where the cell sets none, and the program ran at its own.
     pub effort: Option<String>,
-    /// None where no account was in use and the program ran with its own default directory.
+    /// None where the program ran with its own default directory.
+    #[serde(default)]
+    pub directory: Option<String>,
+    /// The name of the account the round was handed out with; none where none was in use, and the program ran on the
+    /// sign-in of its directory.
     pub account: Option<String>,
 }
 
@@ -281,6 +285,7 @@ mod tests {
                 level: "1".to_string(),
                 model: "a".to_string(),
                 effort: None,
+                directory: None,
                 account: None,
             },
         }
@@ -364,6 +369,7 @@ mod tests {
             level: "1".to_string(),
             model: model.to_string(),
             effort: None,
+            directory: None,
             account: None,
         };
         // Each try is put at the place of its round, the fixture leaving no place between a round and its end.

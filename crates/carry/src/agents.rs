@@ -32,14 +32,14 @@
 //! directory. A keep-warm ping runs under the account it is handed out with, which its session's last call ran under,
 //! and a fork under its session's account, or under the one in use where that one was removed, which it says. Which of
 //! its line's sessions a round runs in, and whether it begins it, is counted from the work's records
-//! (`cli::in_session`); what it is sent is what the context manager fills into that session (crate `context`): what
-//! the session lacks, or, where the program begins the session under its id, everything from the top, and what each
-//! try's message fills is said to the loop before the program is given it, so that it is recorded. A session the program no longer has is begun again
-//! under its id, and that is said to the loop at once, so that it is recorded with why. Where the program compacts the
-//! session during the round, a hook it is given marks the compaction, which the round counts among what it took and
-//! says to the loop as the session reopened, and gives the session the round's whole message again, as a session that
-//! holds nothing is sent it. After each use of a tool another hook gives the session what the owner said to the
-//! round while it runs, where the runner put it in the round's files (`cli::Words`).
+//! (`cli::in_session`); what it is sent is what the context manager fills into that session (crate `context`): what the
+//! session lacks, or, where the program begins the session under its id, everything from the top, and what each try's
+//! message fills is said to the loop before the program is given it, so that it is recorded. A session the program no
+//! longer has is begun again under its id, and that is said to the loop at once, so that it is recorded with why. Where
+//! the program compacts the session during the round, a hook it is given marks the compaction, which the round counts
+//! among what it took and says to the loop as the session reopened, and gives the session the round's whole message
+//! again, as a session that holds nothing is sent it. After each use of a tool another hook gives the session what the
+//! owner said to the round while it runs, where the runner put it in the round's files (`cli::Words`).
 //!
 //! A round given again after the process of the engine that gave it ended while a try of it ran goes on from that
 //! try, where its program said it began, reached the service or printed its result: what the try kept of its stream is
@@ -643,9 +643,10 @@ impl Inner {
             }
         };
         // What the round committed is handed in with its return, where its line may change the work; a change found at
-        // the end of a round that only reads is none of its own, and the outside's. A round that fails hands in nothing:
-        // what it committed is read at the end of the round that takes it up. The version of the work's head the run
-        // began on is the latest the records keep, what an earlier round of the run committed being handed in by none.
+        // the end of a round that only reads is none of its own, and the outside's. A round that fails hands in
+        // nothing: what it committed is read at the end of the round that takes it up. The version of the work's head
+        // the run began on is the latest the records keep, what an earlier round of the run committed being handed in
+        // by none.
         let began = looking.head().map(str::to_string);
         let committed = if round.cell.reads_only {
             looking.tell(&place, teller, false).await;
@@ -713,9 +714,9 @@ impl Inner {
                 came.engine.extend(looked.asks);
                 let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });
                 came.found.extend(unexplained);
-                // Every return of a line that changes only the project's tests is held to what its run changed, one that
-                // asks for calls as well: taken, it ends the run, and the run entered for the results begins on the
-                // head it left.
+                // Every return of a line that changes only the project's tests is held to what its run changed, one
+                // that asks for calls as well: taken, it ends the run, and the run entered for the results begins on
+                // the head it left.
                 if round.cell.tests_only {
                     let tests = tests_only::paths(&of.beside.project);
                     let outside = match &ended {
@@ -857,10 +858,10 @@ impl Inner {
     /// that try, as what it kept of its stream says, where its program said it began, reached the service or printed
     /// its result; none where the round kept no such try. What came of it is said to the loop, where `teller` is given,
     /// as any try's is, but for what the records hold of it already, told by the process that ended: each compaction of
-    /// it as the session reopened, what its calls came to, where the stream kept the start of each, and that the service
-    /// answered it. It is read whatever the settings now say of the round's item, its project or its level, and
-    /// whether or not its worktree is there: what came before the session's messages that they no longer say is
-    /// left out of its measures, and a try past the run guard's lines with no project to word why is read as any other.
+    /// it as the session reopened, what its calls came to, where the stream kept the start of each, and that the
+    /// service answered it. It is read whatever the settings now say of the round's item, its project or its level, and
+    /// whether or not its worktree is there: what came before the session's messages that they no longer say is left
+    /// out of its measures, and a try past the run guard's lines with no project to word why is read as any other.
     async fn left(&self, round: &Round, teller: Option<&Teller>) -> Result<Option<Left>, String> {
         let (flow, work) = (&*round.flow, &*round.kept);
         let base = self.kept(round);
@@ -869,13 +870,10 @@ impl Inner {
         };
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
         let of = crate::projects::of(&self.projects, &round.item).ok();
-        // What the try ran on, as the records say it began on it, and the account by its name.
+        // What the try ran on, as the records say it began on it, and the account it ran under.
         let ran = (work.ran.iter()).rfind(|r| r.run == round.run && r.round == round.number && r.attempt == n);
         let account = match ran {
-            Some(ran) => self
-                .settings
-                .account_named(ran.on.account.as_deref())
-                .map(str::to_string),
+            Some(ran) => ran.on.account.clone(),
             None => round.account.clone(),
         };
         let on = (ran.map(|ran| ran.on.clone())).or_else(|| {
@@ -1242,6 +1240,10 @@ impl Inner {
             form,
             permissions,
         } = made;
+        // The account it was handed out with, which its session's last call ran under, whose cache holds the session.
+        let token = account::token_of(&self.tokens, ping.account.as_deref())
+            .await
+            .map_err(failed)?;
         let place = git::place(&self.data, &git::tag(&self.installation), ping.work);
         let dir = git::worktree(&place).map_err(failed)?;
         let base =
@@ -1257,10 +1259,6 @@ impl Inner {
         let _ = tokio::fs::remove_file(&compacted.marks).await;
         // A ping's compaction gives the session nothing again: its next round is filled from the top.
         write(&compacted.again, b"").await.map_err(failed)?;
-        // The account it was handed out with, which its session's last call ran under, whose cache holds the session.
-        let token = account::token_of(&self.tokens, ping.account.as_deref())
-            .await
-            .map_err(failed)?;
         let command = self.command(
             &dir,
             &on,
@@ -1386,9 +1384,9 @@ impl Inner {
     /// Asks a fork of the session the fork's round ran in its question ([`Rounds::fork`]): on the command line of that
     /// session's last round, forked ([`cli::forked`]), begun at the round's end where the session went on past it, or
     /// refused where it cannot be; in the work's worktree, or, where the work has ended and its worktree is gone, a
-    /// checkout of its kept branch made at the worktree's place and taken away after; holding the work, so that no round
-    /// of it runs beside the fork. What the fork was told, its stream and its answer are kept beside the round's, its
-    /// hooks' files are its own and taken away after.
+    /// checkout of its kept branch made at the worktree's place and taken away after; holding the work, so that no
+    /// round of it runs beside the fork. What the fork was told, its stream and its answer are kept beside the round's,
+    /// its hooks' files are its own and taken away after.
     async fn fork(&self, fork: &Fork) -> Result<Forked, String> {
         let of = crate::projects::of(&self.projects, &fork.item)?;
         let (flow, work) = (&*fork.flow, &*fork.kept);
@@ -1519,10 +1517,11 @@ impl Inner {
             None => (made.run, made.number),
         };
         let held = (work.spent.get(&last)).and_then(|s| s.context_tokens);
-        // The last call that read from the cache what the fork begins with, which the cache keeps for its life after. At
-        // the session's end, its last round's end or a keep-warm ping since. At an earlier round's end, the first call
-        // after that round, a ping or the next round's start, which read what the round left and wrote the cache on past
-        // it, so that no later call read that again; where that call came after the cache had let it go, the round's end.
+        // The last call that read from the cache what the fork begins with, which the cache keeps for its life after.
+        // At the session's end, its last round's end or a keep-warm ping since. At an earlier round's end, the first
+        // call after that round, a ping or the next round's start, which read what the round left and wrote the cache
+        // on past it, so that no later call read that again; where that call came after the cache had let it go, the
+        // round's end.
         let time = |at: Seq| work.time_of(at).map(|t| t.0);
         let life = self.settings.cache_ms();
         let pings: Vec<Seq> = (work.pinged.iter())
@@ -1676,8 +1675,8 @@ impl Inner {
     }
 }
 
-/// A checkout at an ended work's worktree's place that a fork ran in: taken away once the fork is done with it, or, where
-/// the fork is given up before, as it is dropped; the work held until it is.
+/// A checkout at an ended work's worktree's place that a fork ran in: taken away once the fork is done with it, or,
+/// where the fork is given up before, as it is dropped; the work held until it is.
 struct StandIn {
     project: Project,
     place: git::Place,
@@ -2313,16 +2312,17 @@ mod tests {
             level: "2".to_string(),
             model: "claude-sonnet-5-5".to_string(),
             effort: Some("high".to_string()),
+            directory: None,
             account: None,
         }
     }
 
     /// The carrier a fork of work 3's first round of run 7 is asked of, its data in this directory, and that fork, of
-    /// the work as [`ran_once`] keeps it: the program a stand-in that keeps its arguments, where it ran and what it found
-    /// there, and prints a stream: its start, its first call's prompt, read mostly from the cache, and its result, with a
-    /// return, the session's total being $0.50. The engineer's line's first session began as kept, the work's worktree
-    /// is there, its project's repository beside, and the time now is ten thousand seconds in; the cache keeps a session
-    /// an hour after its last call.
+    /// the work as [`ran_once`] keeps it: the program a stand-in that keeps its arguments, where it ran and what it
+    /// found there, and prints a stream: its start, its first call's prompt, read mostly from the cache, and its
+    /// result, with a return, the session's total being $0.50. The engineer's line's first session began as kept, the
+    /// work's worktree is there, its project's repository beside, and the time now is ten thousand seconds in; the
+    /// cache keeps a session an hour after its last call.
     fn forking(data: &Path) -> (Agents, git::tests::Repo, Fork) {
         let program = data.join("program.sh");
         let stream = [
@@ -2659,15 +2659,16 @@ mod tests {
         assert_eq!(forked.round, (RunId(7), 1));
         assert_eq!(forked.later, [(RunId(8), 1)]);
         assert_eq!(forked.usd_micros, 180_000);
-        // The first ping, at two thousand seconds, read what the round left from the cache, and the cache kept it an hour
-        // after; the second read the first's.
+        // The first ping, at two thousand seconds, read what the round left from the cache, and the cache kept it an
+        // hour after; the second read the first's.
         assert_eq!(forked.expired, Some(73));
         // With no ping, the next round's start read it, at four thousand seconds.
         let mut unpinged = work.clone();
         unpinged.pinged.clear();
         let forked = agents.inner.fork(&asked(&unpinged)).await.expect("asked with no ping");
         assert_eq!(forked.expired, Some(40));
-        // A next round's start after the cache let it go read nothing of it: it was let go an hour after the round's end.
+        // A next round's start after the cache let it go read nothing of it: it was let go an hour after the round's
+        // end.
         unpinged.moments[3].at = work::Time(6_000_000);
         let forked = agents
             .inner
@@ -2755,6 +2756,42 @@ mod tests {
         (agents, round)
     }
 
+    // A keep-warm ping runs under the account it is handed out with, the one in use, which its session's last call ran
+    // under: its program is given that account's token; with none, it runs on its directory's sign-in, given none; and
+    // an account whose token cannot be given fails the ping, saying so, its program not run. Two runs of a stand-in
+    // program: a few tens of milliseconds.
+    #[tokio::test]
+    async fn a_ping_runs_under_the_account_it_is_handed_out_with_given_its_token() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let data = std::path::absolute(dir.path()).expect("absolute");
+        let (agents, _repo, fork) = forking(&data);
+        let ping = |account: Option<&str>| Ping {
+            work: fork.work,
+            flow: fork.flow.clone(),
+            line: "engineer".to_string(),
+            session: 0,
+            item: fork.item.clone(),
+            kept: fork.kept.clone(),
+            account: account.map(str::to_string),
+        };
+        let given = || std::fs::read_to_string(data.join("token")).ok();
+        agents.inner.ping(&ping(Some("work"))).await.expect("the ping ends");
+        assert_eq!(given().as_deref(), Some("sk-ant-oat01-work"));
+        let args = std::fs::read_to_string(data.join("args")).expect("its arguments");
+        let session = session::session(Uuid::nil(), WorkNumber(3), "engineer", 0).to_string();
+        assert!(args.lines().any(|a| a == session), "it goes on in the session: {args}");
+        assert!(!args.contains("sk-ant"), "{args}");
+        agents.inner.ping(&ping(None)).await.expect("the ping ends");
+        assert_eq!(given().as_deref(), Some("none"));
+        std::fs::remove_file(data.join("token")).expect("taken away");
+        let (why, _) = agents.inner.ping(&ping(Some("gone"))).await.expect_err("no token");
+        assert!(
+            why.starts_with("the token of the account gone could not be read: "),
+            "{why}"
+        );
+        assert_eq!(given(), None, "its program is not run");
+    }
+
     // What comes before a session's messages names the account a call runs under, so that a miss after another is taken
     // says it, and leaves it out where none is in use, as it leaves out an effort.
     #[test]
@@ -2835,6 +2872,7 @@ mod tests {
                 level: "1".to_string(),
                 model: "claude-opus-5-5".to_string(),
                 effort: None,
+                directory: None,
                 account: None,
             },
         });

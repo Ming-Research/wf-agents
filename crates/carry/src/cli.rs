@@ -1348,6 +1348,7 @@ mod tests {
             level: "1".to_string(),
             model: "claude-haiku-5-5".to_string(),
             effort: None,
+            directory: None,
             account: None,
         };
         let compacted = Compacted {
@@ -1414,6 +1415,7 @@ mod tests {
             level: "3".to_string(),
             model: "claude-opus-5-5".to_string(),
             effort: Some("xhigh".to_string()),
+            directory: None,
             account: None,
         };
         let compacted = Compacted {
@@ -1480,6 +1482,7 @@ mod tests {
             level: "2".to_string(),
             model: "claude-sonnet-5-5".to_string(),
             effort: Some("high".to_string()),
+            directory: None,
             account: None,
         };
         let compacted = Compacted {

@@ -32,7 +32,7 @@ use flow::agents::fill;
 use flow::{Compiled, Texts};
 use store::Item;
 use work::sessions::{began_on, number_at, of_line, start};
-use work::{Back, RanOn, Why, Work};
+use work::{Back, Why, Work};
 
 use crate::budget::Budget;
 
@@ -40,11 +40,9 @@ use crate::budget::Budget;
 pub struct Policy {
     /// How many values of a history a line is worked out from at least ([`crate::history`]).
     pub samples: usize,
-    /// What a round of the cell, for the item, runs on now: its model among it; none where it cannot run. The account
-    /// it runs under is the one in use as it is handed out, which this does not say: its account is the one a try records
-    /// where none is in use.
+    /// The model a round of the cell, for the item, runs on now; none where it cannot run.
     #[allow(clippy::type_complexity)]
-    pub on: Box<dyn Fn(&Item, &CellSpec) -> Option<RanOn> + Send>,
+    pub model: Box<dyn Fn(&Item, &CellSpec) -> Option<String> + Send>,
     /// How the sessions of lines that wait are kept warm; none where the agents' program keeps no prompt cache.
     pub warm: Option<Warm>,
 }
@@ -190,9 +188,9 @@ pub fn due(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Polic
     // its round says when it fails. Any cell of the line will do: the levels above the item's that a round runs at are
     // the line's, so a line's model does not depend on which cell runs.
     let cell = flow.cells.iter().find(|cell| cell.line.as_deref() == Some(line));
-    let now = cell.and_then(|cell| (policy.on)(item, cell));
+    let now = cell.and_then(|cell| (policy.model)(item, cell));
     if let (Some(began), Some(now)) = (began, &now)
-        && began.model != now.model
+        && began.model != *now
     {
         return Some(Event::Anew {
             line: line.to_string(),

@@ -530,6 +530,14 @@ impl Agents {
         }
         // The carrier's own variables are given by the carrier alone: named here, the engine's would reach the
         // program where the carrier gives none, as the token where no account is in use.
+        // A relative directory would be read against the directory each of the program's commands runs in.
+        if let Some(dir) = self.config_dir.as_ref().filter(|dir| !dir.is_absolute()) {
+            wrong.push(format!(
+                "agents.config_dir: {} is no absolute path, and the program would read it against the directory each \
+                 command runs in",
+                dir.display()
+            ));
+        }
         let own = [crate::account::TOKEN, crate::account::VARIABLE, crate::cli::SCRUB];
         for name in self.env.iter().filter(|name| own.contains(&name.as_str())) {
             wrong.push(format!(
@@ -542,8 +550,9 @@ impl Agents {
         wrong
     }
 
-    /// Why no account can be added while these settings hold, in words: `env` names a credential the program takes
-    /// above an account's token; none where it names none.
+    /// Why no account can be in use while these settings hold, in words: `env` names a credential the program takes
+    /// above an account's token; none where it names none. No account is then added or taken, and the engine does not
+    /// start where one is in use.
     pub fn accounts_closed(&self) -> Option<String> {
         let above: Vec<&str> = (self.env.iter())
             .map(String::as_str)
@@ -551,7 +560,8 @@ impl Agents {
             .collect();
         (!above.is_empty()).then(|| {
             format!(
-                "agents.env names {}, which the agents' program takes above an account's token: take it out of                  agents.env first",
+                "agents.env names {}, which the agents' program takes above an account's token: take it out of \
+                 agents.env first",
                 above.join(" and ")
             )
         })
@@ -879,35 +889,25 @@ impl Settings {
 
     /// What a round of this cell, for an item at this level, runs on, under the account it was handed out with: the
     /// level of its item, or above it as far as the cell's line says, with that level's model and the cell's effort,
-    /// and the account by its name, or, with none, the directory of the program's settings and sign-in, which holds a
-    /// `/` and so is never a name; or why it cannot run, in words. An item added before items had levels is at the
-    /// default.
+    /// the program's directory of settings, and the account by its name; or why it cannot run, in words. An item added
+    /// before items had levels is at the default.
     pub fn ran_on(&self, item_level: Option<&str>, cell: &CellSpec, account: Option<&str>) -> Result<RanOn, String> {
         let level = self.levels()?.of_round(item_level, cell.levels_above)?;
         let model = (self.agents.levels.get(&level))
             .map(|level| level.model.clone())
             .ok_or_else(|| format!("agents.levels: there is no level {level:?}"))?;
-        let directory = (self.agents.config_dir.as_ref()).map(|dir| dir.to_string_lossy().into_owned());
         Ok(RanOn {
             level,
             model,
             effort: cell.effort.map(|effort| effort.name().to_string()),
-            account: account.map(str::to_string).or(directory),
+            directory: (self.agents.config_dir.as_ref()).map(|dir| dir.to_string_lossy().into_owned()),
+            account: account.map(str::to_string),
         })
-    }
-
-    /// The account a try recorded it ran under, by its name: the value it recorded, where that is not the directory of
-    /// the program's settings, which a try records where no account was in use ([`Settings::ran_on`]); none where it is,
-    /// or where none was recorded.
-    pub fn account_named<'a>(&self, recorded: Option<&'a str>) -> Option<&'a str> {
-        let directory = (self.agents.config_dir.as_ref()).map(|dir| dir.to_string_lossy());
-        recorded.filter(|value| directory.as_deref() != Some(*value))
     }
 
     /// When a line begins a new session, where the model its session's rounds ran on is not the one its rounds run on
     /// now; and how its sessions are kept warm while it waits. A session past the installation's context is compacted
-    /// by the agents' program, not replaced, so the number is no part of the policy; and the account a round runs under
-    /// is handed out with it, not worked out here, so what the policy gives runs under none.
+    /// by the agents' program, not replaced, so the number is no part of the policy.
     pub fn policy(&self) -> Policy {
         let settings = self.clone();
         let sessions = &self.sessions;
@@ -921,7 +921,12 @@ impl Settings {
         });
         Policy {
             samples: self.history.samples,
-            on: Box::new(move |item, cell| settings.ran_on(item.level.as_deref(), cell, None).ok()),
+            model: Box::new(move |item, cell| {
+                settings
+                    .ran_on(item.level.as_deref(), cell, None)
+                    .ok()
+                    .map(|on| on.model)
+            }),
             warm,
         }
     }
@@ -1179,25 +1184,21 @@ mod tests {
     }
 
     #[test]
-    fn a_round_records_the_account_it_was_handed_out_with_and_with_none_the_directory() {
+    fn a_round_records_the_directory_it_ran_with_and_the_account_it_was_handed_out_with_apart() {
         let mut settings = Settings::read(SAMPLE).unwrap();
-        assert_eq!(
-            settings
-                .ran_on(None, &cell(0, None), Some("work"))
-                .unwrap()
-                .account
-                .as_deref(),
-            Some("work")
-        );
-        assert_eq!(settings.ran_on(None, &cell(0, None), None).unwrap().account, None);
+        let under = settings.ran_on(None, &cell(0, None), Some("work")).unwrap();
+        assert_eq!((under.directory, under.account.as_deref()), (None, Some("work")));
         settings.agents.config_dir = Some("/data/agents/claude".into());
         let under = settings.ran_on(None, &cell(0, None), Some("work")).unwrap();
-        assert_eq!(under.account.as_deref(), Some("work"));
+        assert_eq!(
+            (under.directory.as_deref(), under.account.as_deref()),
+            (Some("/data/agents/claude"), Some("work"))
+        );
         let none = settings.ran_on(None, &cell(0, None), None).unwrap();
-        assert_eq!(none.account.as_deref(), Some("/data/agents/claude"));
-        // Read back, the account by its name, and none of the directory.
-        assert_eq!(settings.account_named(under.account.as_deref()), Some("work"));
-        assert_eq!(settings.account_named(none.account.as_deref()), None);
+        assert_eq!(
+            (none.directory.as_deref(), none.account),
+            (Some("/data/agents/claude"), None)
+        );
     }
 
     #[test]
@@ -1218,12 +1219,31 @@ mod tests {
             );
         }
         let settings = Settings::read(&named("\"ANTHROPIC_API_KEY\", \"ANTHROPIC_AUTH_TOKEN\"")).expect("read");
-        let closed = settings.agents.accounts_closed().expect("no account can be added");
-        assert!(
-            closed.contains("ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN"),
-            "{closed}"
+        let closed = settings.agents.accounts_closed().expect("no account can be in use");
+        assert_eq!(
+            closed,
+            "agents.env names ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN, which the agents' program takes above an \
+             account's token: take it out of agents.env first"
         );
         assert_eq!(Settings::read(SAMPLE).unwrap().agents.accounts_closed(), None);
+    }
+
+    #[test]
+    fn a_relative_directory_of_the_programs_settings_is_refused() {
+        let at = |dir: &str| {
+            SAMPLE.replace(
+                "# config_dir = \"/path/to/a/config/dir\"",
+                &format!("config_dir = \"{dir}\""),
+            )
+        };
+        let refused = Settings::read(&at("agents/claude")).expect_err("refused");
+        assert_eq!(
+            refused,
+            "agents.config_dir: agents/claude is no absolute path, and the program would read it against the directory \
+             each command runs in"
+        );
+        let settings = Settings::read(&at("/data/agents/claude")).expect("an absolute path is taken");
+        assert_eq!(settings.agents.config_dir, Some("/data/agents/claude".into()));
     }
 
     #[test]

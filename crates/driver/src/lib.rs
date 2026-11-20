@@ -25,8 +25,8 @@
 //! paused, is first let on with nothing of it started, or, reopened, is first let on since, so that the cell it runs,
 //! the work's start, is entered and makes the place the work is done in again.
 //!
-//! The driver writes one more kind of block of a work: a block of a flow whose source is [`SESSION`], which a cell reads
-//! that loads into a line's session what the line's other cells work from, each line its own. As a line of a work
+//! The driver writes one more kind of block of a work: a block of a flow whose source is [`SESSION`], which a cell
+//! reads that loads into a line's session what the line's other cells work from, each line its own. As a line of a work
 //! begins a new session, the driver records it and writes the block its cells read, so that the cell runs again before
 //! the line goes on; when a line begins one is the installation's [`Policy`], worked out of the work's records after
 //! each thing that happens and before the walk (module [`sessions`]).
@@ -56,8 +56,8 @@
 //! what the check or the look found ([`Driver::tick`]).
 //!
 //! The accounts the agents' program may run under are the engine's own state, as the pause of everything is, kept in
-//! the store as the owner adds, removes and takes them ([`accounts`]). Every round is handed out with the account in use
-//! as it is handed out, a keep-warm ping runs under it ([`warm`]), and a check of the outside is taken under it; a
+//! the store as the owner adds, removes and takes them ([`accounts`]). Every round is handed out with the account in
+//! use as it is handed out, a keep-warm ping runs under it ([`warm`]), and a check of the outside is taken under it; a
 //! usage limit is its account's own ([`outage`]), and taking another account drops what the checks found and has the
 //! outside checked at once.
 //!
@@ -68,8 +68,8 @@
 //! and shows nothing more of the works, which it may hold otherwise than the store does, and is to be opened again
 //! (principle `nothing-passes-for-normal`).
 //!
-//! What needs whoever plans the work since a mark they keep, read from the records of every work, is [`attention`]; what
-//! a work waits on the owner for, defined once for everything that counts or shows it, is [`owner`].
+//! What needs whoever plans the work since a mark they keep, read from the records of every work, is [`attention`];
+//! what a work waits on the owner for, defined once for everything that counts or shows it, is [`owner`].
 //!
 //! The driver alone sees every work, so it is also what judges by history (principle `judged-by-own-history`): it
 //! gathers what the rounds of every work on a flow came to ([`history`]), and gives each round the lines it is judged
@@ -139,8 +139,8 @@ pub const START: &str = "start";
 
 /// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
 /// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`], of [`engine::asked::ASKED`] or of
-/// [`engine::handed_in::HANDED_IN`], and each cell's own words and questions, which the sources of the owner's words and
-/// of the answers write and the cell writes too, gives in its `writes` each text the engine fills, so that none is
+/// [`engine::handed_in::HANDED_IN`], and each cell's own words and questions, which the sources of the owner's words
+/// and of the answers write and the cell writes too, gives in its `writes` each text the engine fills, so that none is
 /// written empty; and the words beside the flows ([`flow::waits_file`]) give every reason the engine says to the owner.
 /// A flow with any of these is not run.
 pub fn faults(flow: &Compiled) -> Vec<String> {
@@ -254,9 +254,10 @@ pub struct Driver {
     fault: Option<Fault>,
     /// When a line begins a new session; with none, only what others record of sessions is followed.
     policy: Option<Policy>,
-    /// The checks of the outside taken while the agents' rounds wait for it, with when the wait they were taken in
-    /// began ([`Outage::since`]): checks of a wait that ended are of no other.
-    checked: Option<(Time, Checked)>,
+    /// The checks of the outside taken while the agents' rounds wait for it, by the account each was taken under, none
+    /// for the directory's sign-in, with when the wait they were taken in began ([`Outage::since`]): a check speaks
+    /// only of its own account, and checks of a wait that ended are of no other.
+    checked: BTreeMap<Option<String>, (Time, Checked)>,
     /// The latest look at the acts' host, while the acts' rounds wait for it: when, and whether it was reached.
     looked_at_host: Option<(Time, bool)>,
     /// When the driver was last told the time it asked for: a wake at or before it has been acted on. Lost in a stop,
@@ -280,7 +281,8 @@ pub struct Unmerged {
     pub cancelled: bool,
 }
 
-/// A stretch the pause of everything held: from when it was set and by whom, to when it was lifted; none while it holds.
+/// A stretch the pause of everything held: from when it was set and by whom, to when it was lifted; none while it
+/// holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Span {
     pub from: Time,
@@ -566,7 +568,7 @@ impl Driver {
             spans,
             fault: None,
             policy,
-            checked: None,
+            checked: BTreeMap::new(),
             looked_at_host: None,
             ticked: None,
             answered: BTreeSet::new(),
@@ -1067,10 +1069,9 @@ impl Driver {
 
     /// Takes the account of this name as the one the agents run under, at the time the caller's clock gives, and gives
     /// what is to be done: every round handed out from now on runs under it, a round handed out before under the
-    /// account it was handed out with. What the checks of the outside found is dropped, as of another account, and the
-    /// outside is checked at once under this one; every work is looked at again, a wait that held them for another
-    /// account's usage limit ending. Taking the account in use changes nothing; there being no such account, it is
-    /// refused.
+    /// account it was handed out with. What the checks of the outside found under another account is no check of this
+    /// one, which is checked at once; every work is looked at again, a wait that held them for another account's usage
+    /// limit ending. Taking the account in use changes nothing; there being no such account, it is refused.
     pub fn take_account(&mut self, now: Time, name: &str) -> Result<Vec<Todo>, Failed> {
         self.going()?;
         if !self.accounts.is_live(name) {
@@ -1080,9 +1081,9 @@ impl Driver {
             return Ok(Vec::new());
         }
         self.keep_account(now, name, AccountAct::Taken)?;
-        self.checked = None;
-        // A wake acted on before is of the account before: the check under this one is asked for at once.
-        self.ticked = None;
+        // The check under this account is asked for now: a time told at or after now, as in the same moment, would pass
+        // it over as acted on.
+        self.ticked = self.ticked.filter(|at| *at < now);
         match self.look(now) {
             Ok(todos) => self.filled_after(now, todos),
             Err(fault) => Err(self.stop(fault, true)),
@@ -1106,7 +1107,7 @@ impl Driver {
     /// The usage limit of each account that stands, by the account's name, whether or not it is in use ([`outage`]).
     pub fn limits(&self) -> BTreeMap<String, Limit> {
         let works = (self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work));
-        outage::limits(works, &self.answered, &self.accounts)
+        outage::limits(works, &self.answered)
     }
 
     /// The history of the rounds of every work on the flow of this name ([`history`]).
@@ -1155,7 +1156,7 @@ impl Driver {
         let (Some(policy), Some(held)) = (&self.policy, self.works.get(&work)) else {
             return history::Lines::default();
         };
-        let model = (policy.on)(&held.item, cell).map(|on| on.model).unwrap_or_default();
+        let model = (policy.model)(&held.item, cell).unwrap_or_default();
         let mut lines = history::Lines::of(&self.history(&held.head.flow), &cell.id, &model, policy.samples);
         // What the flow's other works have come to in all, which a work is judged by as each of its rounds ends.
         let others: Vec<(f64, f64)> = (self.works.iter())
@@ -1184,13 +1185,14 @@ impl Driver {
 
     /// The wait of the service every work shares, if one stands, with what the outside said of it since it began.
     fn outage_of(&self, service: Service) -> Option<Outage> {
+        let in_use = self.accounts.in_use();
         let works = (self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work));
-        let mut outage = outage::outage(service, works, &self.answered, &self.accounts)?;
+        let mut outage = outage::outage(service, works, &self.answered, in_use)?;
         match service {
             Service::Agents => {
-                outage.checked = (self.checked.clone())
+                outage.checked = (self.checked.get(&in_use.map(str::to_string)))
                     .filter(|(of, _)| *of == outage.since)
-                    .map(|(_, checked)| checked);
+                    .map(|(_, checked)| checked.clone());
                 outage.switched = self.accounts.taken_at().filter(|at| *at >= outage.met);
             }
             Service::Host => {
@@ -1313,16 +1315,28 @@ impl Driver {
     }
 
     /// Takes the time, at which the driver asked to be told it ([`Driver::wake`]), and, where it asked for a check of
-    /// the outside of the agents' rounds, what the check found, and for a look at the acts' host, whether the look
-    /// reached it: every work is looked at again, and what is to be done is given. A check taken while no wait of the
-    /// agents' rounds stands is of none, and is passed over.
-    pub fn tick(&mut self, now: Time, found: Option<Found>, host_reached: Option<bool>) -> Result<Vec<Todo>, Fault> {
+    /// the outside of the agents' rounds, the account the check was taken under, none for the directory's sign-in, and
+    /// what it found, and for a look at the acts' host, whether the look reached it: every work is looked at again, and
+    /// what is to be done is given. A check speaks only of the account it was taken under, whichever is in use as it is
+    /// told; one taken while no wait of that account's rounds stands is of none, and is passed over.
+    #[allow(clippy::type_complexity)]
+    pub fn tick(
+        &mut self,
+        now: Time,
+        found: Option<(Option<String>, Found)>,
+        host_reached: Option<bool>,
+    ) -> Result<Vec<Todo>, Fault> {
         if let Some(fault) = &self.fault {
             return Err(fault.clone());
         }
-        if let (Some(found), Some(outage)) = (found, self.outage()) {
-            let taken = outage.checked.map_or(0, |checked| checked.taken) + 1;
-            self.checked = Some((outage.since, Checked { taken, at: now, found }));
+        if let Some((under, found)) = found {
+            let works = (self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work));
+            if let Some(outage) = outage::outage(Service::Agents, works, &self.answered, under.as_deref()) {
+                let before = (self.checked.get(&under)).filter(|(of, _)| *of == outage.since);
+                let taken = before.map_or(0, |(_, checked)| checked.taken) + 1;
+                self.checked
+                    .insert(under, (outage.since, Checked { taken, at: now, found }));
+            }
         }
         if let Some(reached) = host_reached {
             self.looked_at_host = Some((now, reached));
@@ -1901,7 +1915,7 @@ fn runs_on(held: &Held, policy: Option<&Policy>, model: &str) -> bool {
         && !decide::paused(&held.work.records)
         && (held.flow.cells.iter())
             .filter(|cell| cell.kind != flow::Kind::Engine)
-            .any(|cell| (policy.on)(&held.item, cell).is_some_and(|on| on.model == model))
+            .any(|cell| (policy.model)(&held.item, cell).is_some_and(|on| on == model))
 }
 
 /// The write of the work's block of [`START`], where its flow has one and the owner has just started the work: the work

@@ -6,7 +6,7 @@
 //! host reaches it. A usage limit is its account's own: it holds the rounds only while its account is in use, and
 //! taking another account has the outside checked at once under it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use decide::run::{Failure, PASSING};
 use driver::outage::{LONGEST_CHECK, PROBE, spacing};
@@ -420,58 +420,67 @@ fn taking_another_account_has_the_outside_checked_at_once_under_it() {
     assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
 }
 
-/// The agents' rounds under way, each of a work by its run, with the account its try began under.
-fn under_way(h: &H) -> Vec<(WorkNumber, RunId, Option<String>)> {
+/// What a history knows of the accounts from what it told the driver alone: the accounts added, the one it took, the
+/// account each agent's round was handed out with, by its work, run and number, and each account whose usage limit
+/// stands, from a round under it that met the limit until a check under it found the outside well.
+struct Told {
+    added: BTreeSet<String>,
+    in_use: String,
+    rounds: BTreeMap<(WorkNumber, RunId, usize), String>,
+    limited: BTreeSet<String>,
+}
+
+/// The agents' rounds under way, each of a work by its run, with the account the history handed it out with.
+fn under_way(h: &H, told: &Told) -> Vec<(WorkNumber, RunId, String)> {
     (h.outstanding.iter())
         .filter_map(|t| match &t.effect {
-            Effect::Round { run, cell, .. } if cell.as_str() == "write" => {
-                let work = &h.d().work(t.work)?.work;
-                let ran = (work.ran.iter().rev()).find(|r| r.run == *run);
-                Some((t.work, *run, ran.and_then(|r| r.on.account.clone())))
+            Effect::Round { run, cell, number, .. } if cell.as_str() == "write" => {
+                let account = told.rounds.get(&(t.work, *run, *number))?;
+                Some((t.work, *run, account.clone()))
             }
             _ => None,
         })
         .collect()
 }
 
-/// Each agent's round among these begins its try under the account in use, which it was handed out with, as its
-/// carrier says; none is handed out under an account whose usage limit stands, as the history reads it. Gives how many
-/// were handed out.
-fn handed_out(h: &mut H, todos: &[Todo], limited: &BTreeSet<String>) -> usize {
-    let in_use = h
-        .d()
-        .accounts()
-        .in_use()
-        .map(str::to_string)
-        .expect("an account is in use");
+/// Each agent's round among these that is new, not one given again as the engine opened, begins its try under the
+/// account the history took, which it was handed out with, as its carrier says; none is handed out under an account
+/// whose usage limit stands, as the history knows it. Gives how many were handed out.
+fn handed_out(h: &mut H, todos: &[Todo], told: &mut Told) -> usize {
     let mut handed = 0;
-    for (work, run) in (todos.iter()).filter_map(|t| match &t.effect {
-        Effect::Round { run, cell, .. } if cell.as_str() == "write" => Some((t.work, *run)),
+    for (work, run, number) in (todos.iter()).filter_map(|t| match &t.effect {
+        Effect::Round { run, cell, number, .. } if cell.as_str() == "write" => Some((t.work, *run, *number)),
         _ => None,
     }) {
+        if told.rounds.contains_key(&(work, run, number)) {
+            continue;
+        }
+        let in_use = told.in_use.clone();
         assert!(
-            !limited.contains(&in_use),
+            !told.limited.contains(&in_use),
             "a round of W{} run {} is handed out under {in_use}, whose usage limit stands",
             work.0,
             run.0
         );
+        told.rounds.insert((work, run, number), in_use.clone());
         let more = h.ran_under(work, &in_use);
-        handed += 1 + handed_out(h, &more, limited);
+        handed += 1 + handed_out(h, &more, told);
     }
     handed
 }
 
-// Over random histories of three accounts, taken in turn at random, rounds meeting the usage limit, rounds coming back,
-// the service answering a round, works added, and checks finding the outside well or at the limit still, no agent's
-// round is handed out under an account whose usage limit stands, as the history reads it from what it told the driver:
-// from a round under the account that met the limit, until a check under that account found the outside well.
-// Thirty-two histories of sixty steps, each step checked by the harness: under a second.
+// Over random histories of three accounts, taken in turn at random, removed and added again, rounds meeting the usage
+// limit, rounds coming back, the service answering a round, works added, checks finding the outside well or at the
+// limit still, and the engine opened again, no agent's round is handed out under an account whose usage limit stands,
+// as the history knows it from what it told the driver: from a round under the account that met the limit, until a
+// check under that account found the outside well. Thirty-two histories of eighty steps, each step checked by the
+// harness: about a second.
 #[test]
 fn no_round_is_handed_out_under_an_account_whose_usage_limit_stands() {
     const ACCOUNTS: [&str; 3] = ["first", "second", "third"];
-    // Rounds handed out while another account's limit stood, limits met, accounts taken whose limit stood, and limits
-    // a check under their account found over.
-    let (mut around, mut met, mut back, mut over) = (0, 0, 0, 0);
+    // Rounds handed out while another account's limit stood, limits met, accounts taken whose limit stood, limits a
+    // check under their account found over, accounts removed, and openings anew.
+    let (mut around, mut met, mut back, mut over, mut removed, mut reopened) = (0, 0, 0, 0, 0, 0);
     for seed in 0..32u64 {
         let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
         let mut draw = |n: u64| {
@@ -485,18 +494,25 @@ fn no_round_is_handed_out_under_an_account_whose_usage_limit_stands() {
             h.add_account(name);
         }
         h.take_account(ACCOUNTS[0]);
-        let mut limited: BTreeSet<String> = BTreeSet::new();
+        let mut told = Told {
+            added: ACCOUNTS.iter().map(|name| name.to_string()).collect(),
+            in_use: ACCOUNTS[0].to_string(),
+            rounds: BTreeMap::new(),
+            limited: BTreeSet::new(),
+        };
         let mut items = 0;
-        for _ in 0..60 {
-            let handed = match draw(6) {
+        for _ in 0..80 {
+            let handed = match draw(8) {
                 0 => {
-                    let name = ACCOUNTS[draw(3) as usize];
-                    back += usize::from(limited.contains(name));
-                    let todos = h.take_account(name);
-                    handed_out(&mut h, &todos, &limited)
+                    let added: Vec<String> = told.added.iter().cloned().collect();
+                    let name = added[draw(added.len() as u64) as usize].clone();
+                    back += usize::from(told.limited.contains(&name));
+                    let todos = h.take_account(&name);
+                    told.in_use = name;
+                    handed_out(&mut h, &todos, &mut told)
                 }
-                1 => match under_way(&h).first().cloned() {
-                    Some((work, run, Some(account))) => {
+                1 => match under_way(&h, &told).first().cloned() {
+                    Some((work, run, account)) => {
                         let resets = (draw(2) == 0).then(|| Time(h.clock + 600_000));
                         let spent = h.spent();
                         let failed = Event::Failed {
@@ -508,21 +524,20 @@ fn no_round_is_handed_out_under_an_account_whose_usage_limit_stands() {
                         };
                         let todos = h.on(work, failed);
                         met += 1;
-                        limited.insert(account);
-                        handed_out(&mut h, &todos, &limited)
+                        told.limited.insert(account);
+                        handed_out(&mut h, &todos, &mut told)
                     }
-                    _ => 0,
+                    None => 0,
                 },
-                2 => match under_way(&h).first().cloned() {
+                2 => match under_way(&h, &told).first().cloned() {
                     Some((work, ..)) => {
                         let todos = h.hands_in(work, &[("text", None)]);
-                        handed_out(&mut h, &todos, &limited)
+                        handed_out(&mut h, &todos, &mut told)
                     }
                     None => 0,
                 },
                 3 => match h.d().wake().filter(|wake| wake.check) {
                     Some(wake) => {
-                        let in_use = h.d().accounts().in_use().map(str::to_string);
                         let well = draw(2) == 0;
                         let found = match well {
                             true => Found::Well,
@@ -532,21 +547,51 @@ fn no_round_is_handed_out_under_an_account_whose_usage_limit_stands() {
                                 resets: None,
                             },
                         };
-                        if well && let Some(account) = in_use {
-                            over += usize::from(limited.remove(&account));
+                        if well {
+                            over += usize::from(told.limited.remove(&told.in_use));
                         }
-                        let todos = h.tick(wake.at, Some(found));
-                        handed_out(&mut h, &todos, &limited)
+                        let todos = h.tick_under(wake.at, Some(told.in_use.as_str()), found);
+                        handed_out(&mut h, &todos, &mut told)
                     }
                     None => 0,
                 },
-                4 => match under_way(&h).first().cloned() {
+                4 => match under_way(&h, &told).first().cloned() {
                     Some((work, ..)) => {
                         let todos = h.service_answers(work);
-                        handed_out(&mut h, &todos, &limited)
+                        handed_out(&mut h, &todos, &mut told)
                     }
                     None => 0,
                 },
+                5 => {
+                    // An account not in use is removed, or one removed is added again.
+                    let gone: Vec<&str> = (ACCOUNTS.iter().copied())
+                        .filter(|name| !told.added.contains(*name))
+                        .collect();
+                    match gone.first() {
+                        Some(name) => {
+                            h.add_account(name);
+                            told.added.insert(name.to_string());
+                        }
+                        None => {
+                            let others: Vec<String> = (told.added.iter())
+                                .filter(|name| **name != told.in_use)
+                                .cloned()
+                                .collect();
+                            let name = others[draw(others.len() as u64) as usize].clone();
+                            h.remove_account(&name);
+                            told.added.remove(&name);
+                            removed += 1;
+                        }
+                    }
+                    0
+                }
+                6 => {
+                    // The engine opens anew, the owner lifting at once the pause of everything it makes on works going
+                    // on: what was under way is given again, under the account it was handed out with.
+                    reopened += 1;
+                    let todos = h.restart();
+                    handed_out(&mut h, &todos, &mut told)
+                }
                 _ => {
                     // A merge under way comes back, or else a work is added and let on.
                     let merging = (h.outstanding.iter()).find_map(|t| match &t.effect {
@@ -562,11 +607,10 @@ fn no_round_is_handed_out_under_an_account_whose_usage_limit_stands() {
                         }
                         None => Vec::new(),
                     };
-                    handed_out(&mut h, &todos, &limited)
+                    handed_out(&mut h, &todos, &mut told)
                 }
             };
-            let in_use = h.d().accounts().in_use().unwrap_or_default().to_string();
-            if handed > 0 && limited.iter().any(|name| *name != in_use) {
+            if handed > 0 && told.limited.iter().any(|name| *name != told.in_use) {
                 around += handed;
             }
         }
@@ -576,7 +620,34 @@ fn no_round_is_handed_out_under_an_account_whose_usage_limit_stands() {
         ("limits met", met),
         ("accounts taken back while their limit stood", back),
         ("limits a check under their account found over", over),
+        ("accounts removed", removed),
+        ("openings anew", reopened),
     ] {
         assert!(n > 0, "never put to the test: {what}");
     }
+}
+
+// A check speaks only of the account it was taken under: one taken under the account before a switch, which comes
+// back after it, is no check of the account taken, whose wait holds until a check under it finds the outside well.
+#[test]
+fn a_check_taken_under_another_account_than_the_one_in_use_is_no_check_of_it() {
+    let (mut h, a, _) = two_under_accounts();
+    fails(&mut h, a, Failure::CannotRun, None);
+    let switched = {
+        h.take_account("second");
+        Time(h.clock)
+    };
+    assert_eq!(next_check(&h), switched);
+    // The check asked for under the first account, before the switch, comes back after it, finding the outside well.
+    let todos = h.tick_under(switched, Some("first"), Found::Well);
+    assert_eq!(agents_rounds(&todos), vec![], "it speaks of the first account alone");
+    let outage = h.d().outage().expect("the wait stands");
+    assert!(outage.holds());
+    assert_eq!(outage.checked, None);
+    // The check asked for under the second, at the switch, finds it down, and then well.
+    h.tick_under(switched, Some("second"), down(Failure::CannotRun));
+    assert_eq!(h.d().outage().and_then(|o| o.checked).map(|c| c.taken), Some(1));
+    let at = next_check(&h);
+    let todos = h.tick_under(at, Some("second"), Found::Well);
+    assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
 }

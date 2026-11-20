@@ -110,8 +110,8 @@ fn nothing() -> Value {
 
 // Every way an adding goes: a token the service refuses is not kept, the service's words said without it; one that
 // could not be checked is not kept, saying why; a working one is kept and listed, its token lasting a year from when it
-// was added; one at its usage limit is kept, saying its reset; a name taken, and one that is no name, are refused; and a
-// body that cannot be read is refused in words that hold nothing of it. No answer holds a token.
+// was added; one at its usage limit is kept, saying its reset; a name taken, and one that is no name, are refused; and
+// a body that cannot be read is refused in words that hold nothing of it. No answer holds a token.
 #[tokio::test(start_paused = true)]
 async fn an_account_is_added_once_its_token_is_checked_and_no_answer_holds_a_token() {
     let tokens = Arc::new(KeptTokens::new());
@@ -167,6 +167,16 @@ async fn an_account_is_added_once_its_token_is_checked_and_no_answer_holds_a_tok
     let (status, said) = post(&router, PATH, &add("Work!", "sk-ant-oat01-good")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     answers.push(said.to_string());
+    // A paste that is no token's shape is refused at once, before it is checked, in words that hold nothing of it.
+    for token in ["", "sk-ant-oat01 good"] {
+        let (status, said) = post(&router, PATH, &add("pasted", token)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            said["error"],
+            "No account was added: the token is empty, or holds a space or a control character: copy it again whole."
+        );
+        answers.push(said.to_string());
+    }
     let (status, said) = post_text(&router, PATH, r#"{"kind": "add", "token": "sk-ant-oat01-good"}"#).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(
@@ -186,7 +196,8 @@ async fn an_account_is_added_once_its_token_is_checked_and_no_answer_holds_a_tok
 }
 
 // The owner takes an account, which the page then says is in use, and removes another, whose token is let go of; the
-// one in use cannot be removed, and an account there is none of can be neither taken nor removed.
+// one in use cannot be removed, and an account there is none of can be neither taken nor removed. A token that could
+// not be let go of is said, and let go of at the next removal.
 #[tokio::test(start_paused = true)]
 async fn an_account_is_taken_at_once_and_one_not_in_use_is_removed_with_its_token() {
     let tokens = Arc::new(KeptTokens::new());
@@ -210,12 +221,26 @@ async fn an_account_is_taken_at_once_and_one_not_in_use_is_removed_with_its_toke
             .is_some_and(|e| e.contains("agents run under work: take another account first")),
         "{said}"
     );
+    tokens.hold(Some("User interaction is not allowed."));
     assert_eq!(
         post(&router, PATH, &act("remove", "home")).await,
+        (
+            StatusCode::OK,
+            json!({ "atLimit": false, "resets": null, "notLetGo": "home: User interaction is not allowed." })
+        )
+    );
+    assert_eq!(tokens.names(), ["home", "work"], "its token is held");
+    assert_eq!(names(&get_json(&router, PATH).await), ["work"]);
+    tokens.hold(None);
+    assert_eq!(
+        post(&router, PATH, &add("other", "sk-ant-oat01-good")).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(&router, PATH, &act("remove", "other")).await,
         (StatusCode::OK, nothing())
     );
-    assert_eq!(tokens.names(), ["work"], "the removed account's token is let go of");
-    assert_eq!(names(&get_json(&router, PATH).await), ["work"]);
+    assert_eq!(tokens.names(), ["work"], "the removed accounts' tokens are let go of");
     for kind in ["take", "remove"] {
         let (status, said) = post(&router, PATH, &act(kind, "home")).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -228,16 +253,26 @@ async fn an_account_is_taken_at_once_and_one_not_in_use_is_removed_with_its_toke
     }
 }
 
-// Where what keeps the tokens says no account can be added, as where the settings name a credential the agents'
-// program takes above a token, the page is told why, and an adding is refused in those words, nothing kept.
+// Where what keeps the tokens says no account can be in use, as where the settings name a credential the agents'
+// program takes above a token, the page is told why, and an adding and a taking are refused in those words, nothing
+// kept and nothing taken.
 #[tokio::test(start_paused = true)]
-async fn no_account_is_added_while_what_keeps_the_tokens_refuses_one() {
+async fn no_account_is_added_or_taken_while_what_keeps_the_tokens_refuses_one() {
     let why = "agents.env names ANTHROPIC_API_KEY, which the agents' program takes above an account's token";
-    let tokens = Arc::new(KeptTokens::refusing(why));
+    let tokens = Arc::new(KeptTokens::new());
     let (router, _dir) = serving(tokens.clone());
+    assert_eq!(
+        post(&router, PATH, &add("work", "sk-ant-oat01-good")).await.0,
+        StatusCode::OK
+    );
+    tokens.refuse(Some(why));
     assert_eq!(get_json(&router, PATH).await["closed"], why);
-    let (status, said) = post(&router, PATH, &add("work", "sk-ant-oat01-good")).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(said["error"], format!("No account was added: {why}."));
-    assert_eq!(tokens.names(), Vec::<String>::new());
+    let refused = (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        json!({ "error": format!("No account can be added or taken: {why}.") }),
+    );
+    assert_eq!(post(&router, PATH, &add("home", "sk-ant-oat01-good")).await, refused);
+    assert_eq!(post(&router, PATH, &act("take", "work")).await, refused);
+    assert_eq!(tokens.names(), ["work"]);
+    assert_eq!(get_json(&router, PATH).await["inUse"], Value::Null);
 }

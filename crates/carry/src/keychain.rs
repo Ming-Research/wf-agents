@@ -138,15 +138,15 @@ impl Tokens for Keychain {
             self.service,
             token.secret()
         );
+        // The program ends as the command it read ended.
         let output = self.run(&["-i"], Some(&line))?;
-        // The program reads a line of its standard input and goes on whatever came of it: what it kept is read back.
-        match self.token(name) {
-            Ok(kept) if kept == *token => Ok(()),
-            _ => Err(format!(
+        if !output.status.success() {
+            return Err(format!(
                 "the login keychain did not keep the token: {}",
                 Keychain::said(&output, Some(token))
-            )),
+            ));
         }
+        Ok(())
     }
 
     fn token(&self, name: &str) -> Result<Token, String> {
@@ -197,7 +197,9 @@ mod tests {
     use super::*;
 
     /// A stand-in for the program, which keeps each item as a file named by its account in the directory, its
-    /// arguments, a line a call, in `args`, and what it read on its standard input in `stdin`.
+    /// arguments, a line a call, in `args`, and what it read on its standard input in `stdin`. As the program does, it
+    /// ends with 44 where it has no such item, and, read a command on its standard input, as that command ended; where
+    /// the file `locked` is there, it keeps nothing, saying so in words that hold the line it read, as the program may.
     fn stand_in(dir: &Path) -> PathBuf {
         let program = dir.join("security");
         let script = format!(
@@ -222,7 +224,12 @@ while [ $# -gt 0 ]; do
     shift
 done
 case "$command" in
-    add-generic-password) printf '%s' "$secret" > "$dir/item-$account" ;;
+    add-generic-password)
+        if [ -f "$dir/locked" ]; then
+            echo "security: SecKeychainItemCreateFromContent: User interaction is not allowed. ($line)" >&2
+            exit 36
+        fi
+        printf '%s' "$secret" > "$dir/item-$account" ;;
     find-generic-password)
         if [ -f "$dir/item-$account" ]; then cat "$dir/item-$account"; echo; else
             echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2
@@ -279,6 +286,29 @@ esac
         let lacking = keychain.token("work").unwrap_err();
         assert!(lacking.contains("could not be found in the keychain"), "{lacking}");
         keychain.let_go("work").expect("none is nothing to let go of");
+    }
+
+    #[test]
+    fn a_token_the_keychain_does_not_keep_is_said_so_in_its_words_without_the_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let keychain = Keychain::new(
+            &stand_in(dir.path()),
+            &uuid::Uuid::nil(),
+            None,
+            "claude setup-token".into(),
+        );
+        std::fs::write(dir.path().join("locked"), "").unwrap();
+        let token = Token::new("sk-ant-oat01-secret".to_string());
+        let refused = keychain.keep("work", &token).expect_err("the keychain is locked");
+        assert!(
+            refused.starts_with(
+                "the login keychain did not keep the token: security: SecKeychainItemCreateFromContent: User \
+                 interaction is not allowed."
+            ),
+            "{refused}"
+        );
+        assert!(!refused.contains("sk-ant"), "{refused}");
+        assert!(keychain.token("work").is_err(), "nothing was kept");
     }
 
     #[test]

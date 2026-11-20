@@ -465,29 +465,51 @@ fn a_file_of_version_17_with_a_write_of_a_run_that_has_no_end_is_not_opened_and_
 }
 
 #[test]
-fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_and_no_account() {
-    // A file of the version before the accounts were kept, holding a work as the engine keeps one: brought to this
-    // version, every row it held is there as it was, and it holds no account.
+fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directories_moved_apart_and_no_account() {
+    // A work as the engine keeps one, its tries' accounts none; and as a file of version 20 held it, where what a try
+    // recorded as its account was the directory of the program's settings.
     let mut d = Driver::new();
     history(&mut d);
-    let (old, new) = kept_in(20, &d.work);
+    let mut work = d.work;
+    for ran in &mut work.ran {
+        ran.on.account = None;
+    }
+    let mut at_20 = work.clone();
+    for ran in &mut at_20.ran {
+        ran.on.account = ran.on.directory.take();
+    }
+    assert!(
+        at_20.ran.iter().any(|ran| ran.on.account.is_some()),
+        "a try ran with a directory"
+    );
+    let (old, new) = kept_in(20, &at_20);
     let before = dump(&old.path);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     let after = dump(&old.path);
     for (table, rows) in &before {
-        if table == "schema_version" {
+        if table == "schema_version" || table == "ran" {
             continue;
         }
         assert_eq!(after.get(table), Some(rows), "the rows of {table}");
     }
+    // Each try's row is carried whole, what it held as its account its directory, and its account none.
+    let mut moved: Vec<Vec<String>> = (before["ran"].iter())
+        .map(|row| {
+            let mut row = row.clone();
+            row.push("Null".to_string());
+            row
+        })
+        .collect();
+    moved.sort();
+    assert_eq!(after["ran"], moved);
     assert_eq!(after.get("accounts"), Some(&Vec::new()));
     assert_eq!(
         columns(&old.path),
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
-    assert_eq!(store.load(WorkNumber(1)), Ok(d.work));
+    assert_eq!(store.load(WorkNumber(1)), Ok(work));
     assert_eq!(store.accounts(), Ok(Vec::new()));
 }
 

@@ -169,18 +169,3 @@ fn every_account_added_removed_and_taken_is_given_back_in_order_with_its_name_an
     drop(store);
     assert_eq!(db.open().accounts(), Ok(kept.to_vec()));
 }
-
-#[test]
-fn a_file_made_before_the_accounts_were_kept_opens_with_none() {
-    let db = Db::new();
-    {
-        let file = Connection::open(&db.path).expect("the database opens");
-        file.execute_batch(SCHEMA_1).expect("the first schema is made");
-        file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
-            .expect("its version is written");
-        store::migrate(&file, 1, 20).expect("the migrations run");
-    }
-    let store = db.open();
-    assert_eq!(store.accounts(), Ok(Vec::new()));
-    assert_eq!(versions(&db.path), [SCHEMA_VERSION]);
-}

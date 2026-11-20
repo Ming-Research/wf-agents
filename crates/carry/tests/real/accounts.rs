@@ -1,8 +1,8 @@
 //! A round runs under the account it was handed out with: the stand-in for the program is given that account's token,
 //! and the credentials scrubbed from what it runs, while each try records the account by its name; the token is in no
 //! argument, no message, no file the engine keeps and no record of the store. With no account in use the program runs
-//! on its directory's sign-in, given no token, each try recording the directory. A token what keeps the tokens cannot
-//! give fails the round as a command line that cannot run, in its words, and the program is not run.
+//! on its directory's sign-in, given no token, each try recording the directory and no account. A token what keeps the
+//! tokens cannot give fails the round as a command line that cannot run, in its words, and the program is not run.
 
 use std::path::{Path, PathBuf};
 
@@ -100,7 +100,7 @@ async fn a_round_runs_under_the_account_in_use_given_its_token_and_recording_its
 }
 
 #[tokio::test]
-async fn with_no_account_in_use_the_program_runs_on_its_directory_given_no_token_and_the_try_records_the_directory() {
+async fn with_no_account_the_program_is_given_no_token_and_the_try_records_its_directory_and_no_account() {
     let mut real = Real::trial(Fake::default());
     let directory = real.data.join("agents");
     real.settings.agents.config_dir = Some(directory.clone());
@@ -116,7 +116,10 @@ async fn with_no_account_in_use_the_program_runs_on_its_directory_given_no_token
     }
     let recorded = directory.display().to_string();
     for ran in &real.work(work).ran {
-        assert_eq!(ran.on.account.as_deref(), Some(recorded.as_str()));
+        assert_eq!(
+            (ran.on.directory.as_deref(), ran.on.account.as_deref()),
+            (Some(recorded.as_str()), None)
+        );
     }
 }
 

@@ -134,6 +134,7 @@ mod tests {
                 level: "2".into(),
                 model: "a model".into(),
                 effort: None,
+                directory: None,
                 account: None,
             },
         });
