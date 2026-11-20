@@ -334,7 +334,7 @@ describe('the Settings view', () => {
     const s = settingsSource();
     const accounts = fixtureAccounts();
     const old = accounts.accounts[2];
-    const atLimit = { resets: accounts.now + 1 };
+    const atLimit = { resets: accounts.now + 3 * 60 * 60_000 };
     accounts.accounts[2] = { ...old, usage: { ...old.usage, seen: accounts.now, atLimit } };
     s.accounts = accounts;
     s.source.look = async () => {
@@ -343,7 +343,7 @@ describe('the Settings view', () => {
     const page = draw(s.source);
     await settle();
     const spent = accountRows(page)[2].children[1] as HTMLElement;
-    expect(spent.textContent).toMatch(/^at its limit · resets [^·]+$/);
+    expect(spent.textContent).toMatch(/^at its limit · resets in (3h 0m|2h 59m) \(\d\d-\d\d \d\d:\d\d\)$/);
     expect(spent.querySelector('.warn-text')?.textContent).toBe(spent.textContent);
     expect(page.querySelector('[role="alert"]')?.textContent).toBe(
       'The usage was not looked at: The engine has stopped.',
