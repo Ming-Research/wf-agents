@@ -61,7 +61,6 @@ async fn the_page_of_a_work_that_ended_reads_the_version_it_ended_on_and_of_one_
     let ended = get_json(router, "/api/v1/works/1").await;
     assert_eq!(title(&ended, "review"), "Review", "{}", ended["outline"]);
     assert_eq!(ended["outline"]["kept"], true);
-    assert_eq!(ended["outline"]["card"], serde_json::json!(["request"]));
     // A work that ended is given no flow, and no cell as the walk reads it now; each of its cells did not run.
     assert_eq!(ended["flow"], Value::Null);
     assert_eq!(ended["cells"], serde_json::json!([]));

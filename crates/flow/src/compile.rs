@@ -784,13 +784,13 @@ struct Parsed {
     every_agent: EveryAgentFile,
     /// The data each cell or each line has its own of that the flow's cells name.
     own: Own,
-    /// Of a flow laid out one thing to a file, the table of earlier ids, as `flow.toml` writes it.
+    /// The table of earlier ids, as `flow.toml` writes it.
     earlier_ids: Vec<RenumberingFile>,
 }
 
 /// What `flow.toml` says of the flow as a whole beside its order, limits and groups: of a flow laid out one thing to a
-/// file, the engine's data it uses, the tools of every agent cell, what the item's card shows, what every agent cell
-/// reads and the table of earlier ids; and of any flow, the cell the engine asks in.
+/// file, the engine's data it uses, the tools of every agent cell, what the item's card shows and what every agent cell
+/// reads; and of any flow, the cell the engine asks in and the table of earlier ids.
 #[derive(Default)]
 struct Whole {
     data: Vec<String>,
@@ -911,6 +911,7 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
         flow.map(|flow| {
             let whole = Whole {
                 engine_asks_in: flow.engine_asks_in.clone(),
+                earlier_ids: flow.earlier_ids.clone(),
                 ..Whole::default()
             };
             (whole, flow, files)
@@ -1050,6 +1051,7 @@ impl From<LaidOutFlowFile> for FlowFile {
             tests: BTreeMap::new(),
             groups: flow.groups,
             engine_asks_in: flow.engine_asks_in,
+            earlier_ids: flow.earlier_ids,
         }
     }
 }

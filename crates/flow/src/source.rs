@@ -287,6 +287,9 @@ pub struct FlowFile {
     /// The cell in whose questions the engine asks what it asks of a work, as in a flow laid out one thing to a file;
     /// none where the flow names none.
     pub engine_asks_in: Option<String>,
+    /// The table of earlier ids, as in a flow laid out one thing to a file.
+    #[serde(default)]
+    pub earlier_ids: Vec<RenumberingFile>,
 }
 
 /// `flow.toml` of a flow laid out one thing to a file: what is the flow's as a whole. Its lines, blocks and named tests
