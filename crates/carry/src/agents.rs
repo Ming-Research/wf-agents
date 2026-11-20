@@ -26,11 +26,15 @@
 //! this process, the program's process group is sent TERM, and KILL after three seconds, and the round ends with
 //! nothing handed in; what it spent is not known, and is recorded as nothing.
 //!
-//! The program is given an environment of its own, not the engine's (`cli::environment`). Which of its line's sessions
-//! a round runs in, and whether it begins it, is counted from the work's records (`cli::in_session`); what it is sent
-//! is what the context manager fills into that session (crate `context`): what the session lacks, or, where the
-//! program begins the session under its id, everything from the top, and what each try's message fills is said to the
-//! loop before the program is given it, so that it is recorded. A session the program no longer has is begun again
+//! The program is given an environment of its own, not the engine's (`cli::environment`), and in it the token of the
+//! account the round was handed out with, as what keeps the tokens gives it as the round begins; a token it cannot give
+//! fails the round as a command line that cannot run, in its words, never falling back to the sign-in of the program's
+//! directory. A keep-warm ping runs under the account it is handed out with, which its session's last call ran under,
+//! and a fork under its session's account, or under the one in use where that one was removed, which it says. Which of
+//! its line's sessions a round runs in, and whether it begins it, is counted from the work's records
+//! (`cli::in_session`); what it is sent is what the context manager fills into that session (crate `context`): what
+//! the session lacks, or, where the program begins the session under its id, everything from the top, and what each
+//! try's message fills is said to the loop before the program is given it, so that it is recorded. A session the program no longer has is begun again
 //! under its id, and that is said to the loop at once, so that it is recorded with why. Where the program compacts the
 //! session during the round, a hook it is given marks the compaction, which the round counts among what it took and
 //! says to the loop as the session reopened, and gives the session the round's whole message again, as a session that
@@ -68,9 +72,11 @@
 //! the round ends is what it committed, handed in with its return, where its line may change the work, and the
 //! outside's where it only reads.
 //!
-//! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, and at the
-//! effort its cell sets (`Settings::ran_on`); a round whose item's level the settings no longer allow fails, saying so.
-//! What each try runs on is said to the loop as it begins, and recorded in the work's records.
+//! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, at the
+//! effort its cell sets, under the account it was handed out with (`Settings::ran_on`); a round whose item's level the
+//! settings no longer allow fails, saying so. What each try runs on is said to the loop as it begins, and recorded in
+//! the work's records: the account by its name, the one its token is given of, so that what is recorded and what is
+//! given are one.
 //!
 //! What each round was told and the program's stream are kept for reading, in `rounds/<work>/<run>-<round>` in the
 //! data directory: `.message.md` and `.stream.jsonl` for its first try, `.message.2.md` and `.stream.2.jsonl` for the
@@ -93,7 +99,8 @@ use decide::{BlockId, Pauser, RunId, Seq};
 use driver::Policy;
 use engine::Came;
 use service::{
-    Clock, Doings, Fork, Forked, Mark, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Telling, Told,
+    Clock, Doings, Fork, Forked, Mark, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Telling, Token,
+    Tokens, Told,
 };
 use store::WorkNumber;
 use tokio::process::Command;
@@ -108,7 +115,7 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::{self, Permissions};
 use crate::process::{self, Ran};
 use crate::settings::{Project, Settings};
-use crate::{acts, branch, failure, git, kept, protected, returns, session, system, tests_only, tools};
+use crate::{account, acts, branch, failure, git, kept, protected, returns, session, system, tests_only, tools};
 
 /// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
 /// form of a return is made of.
@@ -138,6 +145,8 @@ struct Inner {
     /// What the owner said to each round given and not yet ended that its hook is to give it, by the round; one
     /// telling of a round, or its end, at a time, so that what waits for its hook is known.
     said: std::sync::Mutex<Tellings>,
+    /// What keeps the tokens of the accounts the rounds run under.
+    tokens: Arc<dyn Tokens>,
 }
 
 /// What the owner said to each round, by the round, each behind a lock of its own.
@@ -192,10 +201,17 @@ enum Carried {
 }
 
 impl Agents {
-    /// The agents of these settings, with this data directory, which is an absolute path, the installation's id, and
-    /// what the rounds of each project's works are run with, by the project's name.
-    pub fn new(settings: Settings, data: PathBuf, installation: Uuid, projects: BTreeMap<String, Of>) -> Self {
-        Self::with_clock(settings, data, installation, projects, Arc::new(SystemClock))
+    /// The agents of these settings, with this data directory, which is an absolute path, the installation's id, what
+    /// the rounds of each project's works are run with, by the project's name, and what keeps the tokens of the
+    /// accounts they run under.
+    pub fn new(
+        settings: Settings,
+        data: PathBuf,
+        installation: Uuid,
+        projects: BTreeMap<String, Of>,
+        tokens: Arc<dyn Tokens>,
+    ) -> Self {
+        Self::with_clock(settings, data, installation, projects, tokens, Arc::new(SystemClock))
     }
 
     /// The agents as [`Agents::new`] gives them, reading the time by this clock.
@@ -204,6 +220,7 @@ impl Agents {
         data: PathBuf,
         installation: Uuid,
         projects: BTreeMap<String, Of>,
+        tokens: Arc<dyn Tokens>,
         clock: Arc<dyn Clock>,
     ) -> Self {
         Agents {
@@ -216,6 +233,7 @@ impl Agents {
                 clock,
                 in_work: std::sync::Mutex::new(BTreeMap::new()),
                 said: std::sync::Mutex::new(BTreeMap::new()),
+                tokens,
             }),
         }
     }
@@ -379,7 +397,10 @@ impl Inner {
             Ok(of) => of,
             Err(why) => return failed_before(round, line, left, why),
         };
-        let on = match self.settings.ran_on(round.item.level.as_deref(), &round.cell) {
+        let on = match self
+            .settings
+            .ran_on(round.item.level.as_deref(), &round.cell, round.account.as_deref())
+        {
             Ok(on) => on,
             Err(why) => return failed_before(round, line, left, why),
         };
@@ -461,6 +482,19 @@ impl Inner {
                 (None, left.stream, String::new(), left.compactions)
             }
             None => {
+                // The token of the account the round was handed out with, which every try of it is given; one that
+                // cannot be given fails the round as a command line that cannot run, and nothing is sent.
+                let token = match account::token_of(&self.tokens, round.account.as_deref()).await {
+                    Ok(token) => token,
+                    Err(why) => {
+                        return Ok(Carried::Failed(
+                            why,
+                            Failure::CannotRun,
+                            failure::Said::default(),
+                            Spent::default(),
+                        ));
+                    }
+                };
                 // What the round is sent in the session as it stands, and in one that holds nothing: one begun under
                 // the round, or compacted during it.
                 let about = context::For {
@@ -515,7 +549,7 @@ impl Inner {
                     let told = &entered.text;
                     keep_told(&base, n, &told_at, told).await?;
                     let (system, form) = begun_with()?;
-                    let before = self.before_messages(&on, &system, &form, &permissions);
+                    let before = self.before_messages(&on, round.account.as_deref(), &system, &form, &permissions);
                     let command = self.command(
                         &dir,
                         &on,
@@ -524,8 +558,8 @@ impl Inner {
                         &form,
                         &compacted,
                         &words,
-                        session,
-                        begin,
+                        (session, begin),
+                        token.as_ref(),
                     );
                     // The stream is kept as it comes, so that what the agent is doing can be read while it does it; and
                     // the run guard judges each call as the stream tells it, halting the program at a signal past its
@@ -747,7 +781,8 @@ impl Inner {
 
     /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
     /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, which
-    /// the program compacts at the installation's `sessions.compact_at`.
+    /// the program compacts at the installation's `sessions.compact_at`, given the token of the account it runs under
+    /// where it runs under one.
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
@@ -758,8 +793,8 @@ impl Inner {
         form: &str,
         compacted: &Compacted,
         words: &Words,
-        session: Uuid,
-        begin: Begin,
+        (session, begin): (Uuid, Begin),
+        token: Option<&Token>,
     ) -> Command {
         let agents = &self.settings.agents;
         let mut command = Command::new(&agents.command);
@@ -779,7 +814,7 @@ impl Inner {
         command
             .args(args)
             .env_clear()
-            .envs(cli::environment(agents, std::env::vars()))
+            .envs(cli::environment(agents, std::env::vars(), token))
             .current_dir(dir);
         command
     }
@@ -834,10 +869,20 @@ impl Inner {
         };
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
         let of = crate::projects::of(&self.projects, &round.item).ok();
-        // What the try ran on, as the records say it began on it.
+        // What the try ran on, as the records say it began on it, and the account by its name.
         let ran = (work.ran.iter()).rfind(|r| r.run == round.run && r.round == round.number && r.attempt == n);
-        let on = (ran.map(|ran| ran.on.clone()))
-            .or_else(|| (self.settings).ran_on(round.item.level.as_deref(), &round.cell).ok());
+        let account = match ran {
+            Some(ran) => self
+                .settings
+                .account_named(ran.on.account.as_deref())
+                .map(str::to_string),
+            None => round.account.clone(),
+        };
+        let on = (ran.map(|ran| ran.on.clone())).or_else(|| {
+            (self.settings)
+                .ran_on(round.item.level.as_deref(), &round.cell, account.as_deref())
+                .ok()
+        });
         // What came before the session's messages, as the session kept it when it began.
         let InSession { number, .. } = cli::in_session(flow, work, line, round.run, round.number);
         let session = session::session(self.installation, round.work, line, number);
@@ -854,6 +899,7 @@ impl Inner {
         let mut before = match &on {
             Some(on) => self.before_messages(
                 on,
+                account.as_deref(),
                 system.as_deref().unwrap_or_default(),
                 form.as_deref().unwrap_or_default(),
                 &permissions,
@@ -1137,12 +1183,14 @@ impl Inner {
         locks.entry(work).or_default().clone()
     }
 
-    /// What comes before a session's messages in the prompt of a call on this, with this system prompt, form of return
-    /// and permissions, which the cache reads only where it is what the call before had: the model, the effort, and a
-    /// digest each of the system prompt, the schema and the tools the program is given ([`work::Measures::before`]).
+    /// What comes before a session's messages in the prompt of a call on this, under this account, with this system
+    /// prompt, form of return and permissions, which the cache reads only where it is what the call before had: the
+    /// model, the effort, the account, whose cache is its own, by its name, left out where there is none, and a digest
+    /// each of the system prompt, the schema and the tools the program is given ([`work::Measures::before`]).
     fn before_messages(
         &self,
         on: &RanOn,
+        account: Option<&str>,
         system: &str,
         form: &str,
         permissions: &Permissions,
@@ -1158,6 +1206,9 @@ impl Inner {
         ]);
         if let Some(effort) = &on.effort {
             before.insert("effort".to_string(), effort.clone());
+        }
+        if let Some(account) = account {
+            before.insert("account".to_string(), account.to_string());
         }
         before
     }
@@ -1206,6 +1257,10 @@ impl Inner {
         let _ = tokio::fs::remove_file(&compacted.marks).await;
         // A ping's compaction gives the session nothing again: its next round is filled from the top.
         write(&compacted.again, b"").await.map_err(failed)?;
+        // The account it was handed out with, which its session's last call ran under, whose cache holds the session.
+        let token = account::token_of(&self.tokens, ping.account.as_deref())
+            .await
+            .map_err(failed)?;
         let command = self.command(
             &dir,
             &on,
@@ -1214,8 +1269,8 @@ impl Inner {
             &form,
             &compacted,
             &words,
-            session,
-            Begin::Resume,
+            (session, Begin::Resume),
+            token.as_ref(),
         );
         // What the session cost before the ping: its rounds' and its earlier pings'.
         let before = cli::in_session(flow, work, line, run, number + 1).before;
@@ -1443,8 +1498,17 @@ impl Inner {
             .await;
             added.map_err(|why| format!("The work's worktree is gone, and its branch could not stand in: {why}"))?;
         }
+        // The account the session's last try ran under, whose cache holds it; the one in use where it was removed.
+        let (account, removed) = fork.accounts.of_session(made.on.account.as_deref());
+        let token = account::token_of(&self.tokens, account.as_deref()).await?;
         let asked = self
-            .forked(fork, &made, (&line, of_session), begins.as_deref(), &place.dir)
+            .forked(
+                fork,
+                &made,
+                (&line, of_session),
+                begins.as_deref(),
+                (&place.dir, token.as_ref()),
+            )
             .await;
         if let Some(stand_in) = stand_in.as_mut() {
             stand_in.take_away().await;
@@ -1498,19 +1562,21 @@ impl Inner {
             round: (fork.run, fork.round),
             later,
             kept: kept.display().to_string(),
+            removed,
         })
     }
 
     /// Runs the fork's program in this directory on the session's command line, forked, begun at the message `begins`
-    /// names where it names one, keeping what it was told, its stream and its answer beside the round's; gives its
-    /// return, what its program said at its end, what it cost and what its first call read from the cache.
+    /// names where it names one, given the token of the account it runs under where it runs under one, keeping what it
+    /// was told, its stream and its answer beside the round's; gives its return, what its program said at its end, what
+    /// it cost and what its first call read from the cache.
     async fn forked(
         &self,
         fork: &Fork,
         made: &SessionLine,
         (line, of_session): (&str, u32),
         begins: Option<&str>,
-        dir: &Path,
+        (dir, token): (&Path, Option<&Token>),
     ) -> Result<(Option<String>, String, Spent, Option<u64>, PathBuf), String> {
         let base = kept::base(&self.data, fork.work, fork.run, fork.round);
         let name = base.file_name().unwrap_or_default().to_string_lossy().to_string();
@@ -1551,7 +1617,7 @@ impl Inner {
         command
             .args(cli::forked(round, begins))
             .env_clear()
-            .envs(cli::environment(agents, std::env::vars()))
+            .envs(cli::environment(agents, std::env::vars(), token))
             .current_dir(dir);
         // The program counts a session it goes on with from all it cost, whatever message the fork begins at.
         let before = session_cost(&fork.flow, &fork.kept, line, of_session);
@@ -2266,7 +2332,8 @@ mod tests {
         ];
         let printed: String = stream.iter().map(|line| format!("printf '%s\\n' '{line}'\n")).collect();
         let script = format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}/args'\npwd > '{0}/cwd'\nls > '{0}/listed'\ncat > /dev/null\n{printed}",
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}/args'\npwd > '{0}/cwd'\nls > '{0}/listed'\n\
+             printf '%s' \"${{CLAUDE_CODE_OAUTH_TOKEN:-none}}\" > '{0}/token'\ncat > /dev/null\n{printed}",
             data.display()
         );
         std::fs::write(&program, script).expect("written");
@@ -2277,11 +2344,17 @@ mod tests {
         let project = repo.project.clone();
         let (flow, beside) = engineer();
         let of = Of::new(&settings, project, beside, "refs/heads/main".to_string());
+        // The tokens of the accounts `work` and `home`.
+        let tokens = service::KeptTokens::new();
+        for (name, secret) in [("work", "sk-ant-oat01-work"), ("home", "sk-ant-oat01-home")] {
+            service::Tokens::keep(&tokens, name, &Token::new(secret.to_string())).expect("kept");
+        }
         let agents = Agents::with_clock(
             settings,
             data.to_path_buf(),
             Uuid::nil(),
             [("example".to_string(), of)].into(),
+            Arc::new(tokens),
             Arc::new(service::TokioClock::new(work::Time(10_000_000))),
         );
         let session = session::session(Uuid::nil(), WorkNumber(3), "engineer", 0);
@@ -2322,8 +2395,52 @@ mod tests {
             round: 1,
             question: "Which words can be read two ways?".to_string(),
             ended: false,
+            accounts: driver::Accounts::default(),
         };
         (agents, repo, fork)
+    }
+
+    // A fork runs under the account its session's last try ran under, whose cache holds the session, given its token;
+    // where that account was removed, under the account in use, and it says which was removed. Two forks of a stand-in
+    // program: a few tens of milliseconds.
+    #[tokio::test]
+    async fn a_fork_runs_under_its_sessions_account_or_the_one_in_use_where_that_was_removed_and_says_so() {
+        use store::{AccountAct, AccountRecord};
+        let dir = tempfile::tempdir().expect("a directory");
+        let data = std::path::absolute(dir.path()).expect("absolute");
+        let (agents, _repo, fork) = forking(&data);
+        let given = || std::fs::read_to_string(data.join("token")).expect("what it was given");
+        let forked = agents.inner.fork(&fork).await.expect("the fork is asked");
+        assert_eq!(
+            (forked.removed, given()),
+            (None, "none".to_string()),
+            "no account, no token"
+        );
+        let record = |name: &str, what, at| AccountRecord {
+            name: name.to_string(),
+            what,
+            at: work::Time(at),
+        };
+        let mut records = vec![
+            record("work", AccountAct::Added, 1),
+            record("home", AccountAct::Added, 2),
+            record("work", AccountAct::Taken, 3),
+        ];
+        let mut kept = (*fork.kept).clone();
+        kept.ran[0].on.account = Some("home".to_string());
+        let under = |records: &[AccountRecord]| Fork {
+            kept: Arc::new(kept.clone()),
+            accounts: driver::Accounts::new(records.to_vec()),
+            ..fork.clone()
+        };
+        let forked = agents.inner.fork(&under(&records)).await.expect("the fork is asked");
+        assert_eq!((forked.removed, given()), (None, "sk-ant-oat01-home".to_string()));
+        records.push(record("home", AccountAct::Removed, 4));
+        let forked = agents.inner.fork(&under(&records)).await.expect("the fork is asked");
+        assert_eq!(
+            (forked.removed.as_deref(), given()),
+            (Some("home"), "sk-ant-oat01-work".to_string())
+        );
     }
 
     #[tokio::test]
@@ -2603,7 +2720,13 @@ mod tests {
         let (flow, beside) = engineer();
         let of = Of::new(&settings, project, beside, "refs/heads/main".to_string());
         let projects = [("example".to_string(), of)].into();
-        let agents = Agents::new(settings, dir.to_path_buf(), Uuid::nil(), projects);
+        let agents = Agents::new(
+            settings,
+            dir.to_path_buf(),
+            Uuid::nil(),
+            projects,
+            Arc::new(service::KeptTokens::new()),
+        );
         let first = store::First {
             title: "Greet the user".to_string(),
             level: None,
@@ -2625,10 +2748,25 @@ mod tests {
             item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
             kept: Arc::new(kept),
             lines,
+            account: None,
         };
         let key = (round.work, round.run, round.number);
         (agents.inner.said.lock().unwrap()).insert(key, Arc::default());
         (agents, round)
+    }
+
+    // What comes before a session's messages names the account a call runs under, so that a miss after another is taken
+    // says it, and leaves it out where none is in use, as it leaves out an effort.
+    #[test]
+    fn what_comes_before_the_messages_names_the_account_and_leaves_it_out_where_there_is_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, _) = given_round_of(dir.path(), Work::default(), Default::default());
+        let permissions = Permissions::of(false, &[], &[], &Default::default());
+        let under = (agents.inner).before_messages(&sonnet(), Some("work"), "system", "form", &permissions);
+        assert_eq!(under.get("account").map(String::as_str), Some("work"));
+        let none = (agents.inner).before_messages(&sonnet(), None, "system", "form", &permissions);
+        assert!(!none.contains_key("account"));
+        assert_eq!(under.len(), none.len() + 1);
     }
 
     /// A line of a stream: the program's first, which says it took its message in.

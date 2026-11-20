@@ -29,7 +29,9 @@
 //!   it, and [`head`], the work's head, each the data of a source outside the work.
 //! - [`session`]: the sessions of each line of each work, worked out from the installation's id.
 //! - `held` and `process`: what a carrier holds while it carries something out, and the programs it runs to do so.
-//! - [`account`]: the account the agents' program makes its calls under, a directory of its own signed in by hand.
+//! - [`account`]: the account the agents' program makes its calls under: the variables it is given of it, and the
+//!   token of the account in use.
+//! - [`keychain`]: the tokens of the accounts, kept in the login keychain.
 
 pub mod account;
 mod acts;
@@ -46,6 +48,7 @@ pub mod head;
 mod held;
 mod host;
 mod kept;
+pub mod keychain;
 pub mod outside;
 pub mod permissions;
 mod process;
@@ -84,9 +87,21 @@ pub use tools::{QUERY, Querying, RUN_TESTS};
 /// one beside them, and their system prompts are made from it ([`system`]).
 ///
 /// Each project's acts and tools are carried out on the host its settings say: GitHub where they have a table for it,
-/// with the engine's token from its environment, and its local repository where they have none.
+/// with the engine's token from its environment, and its local repository where they have none. The tokens of the
+/// accounts the agents run under are kept in the login keychain ([`keychain`]).
 pub fn carriers(settings: Settings, data: &Path, beside: flow::agents::Agents) -> Result<Carriers, String> {
     carry(settings, data, beside).map(|(carriers, _)| carriers)
+}
+
+/// The carriers [`carriers`] gives, the tokens of the accounts kept by what is given here in place of the login
+/// keychain, as a test keeps them.
+pub fn carriers_keeping(
+    settings: Settings,
+    data: &Path,
+    beside: flow::agents::Agents,
+    tokens: Arc<dyn service::Tokens>,
+) -> Result<Carriers, String> {
+    carry_keeping(settings, data, beside, Some(tokens)).map(|(carriers, _)| carriers)
 }
 
 /// The watch of main of a project's acts, with the project's name and the name of its main branch.
@@ -104,11 +119,33 @@ pub fn carry(
     data: &Path,
     beside: flow::agents::Agents,
 ) -> Result<(Carriers, Vec<ProjectWatch>), String> {
+    carry_keeping(settings, data, beside, None)
+}
+
+/// The carriers and the watches [`carry`] gives, the tokens of the accounts kept by what is given, or, with none, in
+/// the login keychain under the installation's id, no account added while the settings name a credential the agents'
+/// program takes above a token.
+fn carry_keeping(
+    settings: Settings,
+    data: &Path,
+    beside: flow::agents::Agents,
+    tokens: Option<Arc<dyn service::Tokens>>,
+) -> Result<(Carriers, Vec<ProjectWatch>), String> {
     let words = beside.acts.clone();
     // The worktrees are given to git by their path, which git would read against the repository's directory were it
     // relative.
     let data = std::path::absolute(data).map_err(|e| format!("{}: {e}", data.display()))?;
     let installation = session::installation(&data)?;
+    let tokens: Arc<dyn service::Tokens> = tokens.unwrap_or_else(|| {
+        let making = format!("{} {}", settings.agents.command, account::MAKE_TOKEN);
+        let refused = settings.agents.accounts_closed();
+        Arc::new(keychain::Keychain::new(
+            Path::new(keychain::SECURITY),
+            &installation,
+            refused,
+            making,
+        ))
+    });
     let tag = git::tag(&installation);
     let query = querying(&settings, &beside, &data)?;
     let (mut acts, mut tools, mut watches, mut of) = (BTreeMap::new(), BTreeMap::new(), Vec::new(), BTreeMap::new());
@@ -174,10 +211,10 @@ pub fn carry(
         of.insert(name, agents::Of::new(&settings, project, beside, main));
     }
     let slots = settings.agents.slots;
-    let outside = outside::Check::of(&settings, &beside.cost)?;
+    let outside = outside::Check::of(&settings, &beside.cost, tokens.clone())?;
     let carriers = Carriers {
         slots,
-        agents: Arc::new(Agents::new(settings, data.clone(), installation, of)),
+        agents: Arc::new(Agents::new(settings, data.clone(), installation, of, tokens.clone())),
         acts: Arc::new(ByProject {
             of: acts,
             said: beside.installation.no_project.clone(),
@@ -188,6 +225,7 @@ pub fn carry(
         }),
         outside: Arc::new(outside),
         host: host_look,
+        tokens,
     };
     Ok((carriers, watches))
 }

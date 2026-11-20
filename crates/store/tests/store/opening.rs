@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 45);
+    assert_eq!(tables.len(), 46);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -462,6 +462,33 @@ fn a_file_of_version_17_with_a_write_of_a_run_that_has_no_end_is_not_opened_and_
             .expect("the run is lacking");
         "by run 1 of work 1 has no finished run".to_string()
     });
+}
+
+#[test]
+fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_and_no_account() {
+    // A file of the version before the accounts were kept, holding a work as the engine keeps one: brought to this
+    // version, every row it held is there as it was, and it holds no account.
+    let mut d = Driver::new();
+    history(&mut d);
+    let (old, new) = kept_in(20, &d.work);
+    let before = dump(&old.path);
+    let store = old.open();
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    let after = dump(&old.path);
+    for (table, rows) in &before {
+        if table == "schema_version" {
+            continue;
+        }
+        assert_eq!(after.get(table), Some(rows), "the rows of {table}");
+    }
+    assert_eq!(after.get("accounts"), Some(&Vec::new()));
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    assert_eq!(store.load(WorkNumber(1)), Ok(d.work));
+    assert_eq!(store.accounts(), Ok(Vec::new()));
 }
 
 #[test]

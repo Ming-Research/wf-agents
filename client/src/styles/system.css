@@ -118,12 +118,12 @@
   color: var(--green-text);
 }
 
-/* The account the file names. */
-.account-named {
+/* The account the agents run under. */
+.account-in-use {
   background: var(--accent);
 }
 
-/* The question asked before the agents run under another account, beside the account. */
+/* The question asked before an account is removed, beside the account. */
 .ask-line {
   white-space: normal;
 }

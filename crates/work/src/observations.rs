@@ -4,7 +4,7 @@
 //! A run keeps those of the return it was taken on, and those of each return of it that was sent back and that no
 //! later return of it was made in a session holding. A later return made in the session that held one says again what
 //! of it still holds, so keeping both would keep it twice. One made in a session that never saw it cannot: a new
-//! session begun after it, as for the context's limit, another model or account, the owner or a flag, holds only why
+//! session begun after it, as for the context's limit, another model, the owner or a flag, holds only why
 //! it was sent back, and so does one begun again or compacted under its id. Whether a session holds a return is read
 //! as the context manager reads what a session holds (crate `context`, module `manager`): the two rounds ran in one
 //! session of the line, which was not begun again or compacted under its id after the earlier one ended and before the

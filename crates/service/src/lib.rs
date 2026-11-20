@@ -28,10 +28,13 @@
 //! the driver asks it to ([`Outside`]), and looking at the network to the acts' host ([`Network`]). Neither is held but
 //! as a timer, which is set again from the records when the process starts again.
 //!
-//! The owner's pause of everything comes to the loop as an act of its own, which the driver keeps; how many rounds of
-//! agents go on at once is what the carriers say ([`Carriers::slots`]), and the driver gives no more. Whether a pause
-//! holds a work back the carriers are told as the loop opens and whenever it may have changed ([`Rounds::paused`]),
-//! for what a carrier holds back of a round for itself.
+//! The owner's pause of everything comes to the loop as an act of its own, which the driver keeps; so do the accounts
+//! the agents' program may run under, added, removed and taken by the owner. An account is added once its token has
+//! been checked by the check of the outside and kept by what keeps the tokens ([`Tokens`]), and its token let go of
+//! once it is removed; a round, a ping and a check of the outside are each given the account in use as they are handed
+//! out. How many rounds of agents go on at once is what the carriers say ([`Carriers::slots`]), and the driver gives no
+//! more. Whether a pause holds a work back the carriers are told as the loop opens and whenever it may have changed
+//! ([`Rounds::paused`]), for what a carrier holds back of a round for itself.
 //!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
@@ -56,14 +59,14 @@ use decide::{BlockId, CallId, CellId, Outsider, Pauser, RunId};
 use driver::{Asked, Driver, Failed, Found, NewItem, Todo, Wake};
 use engine::{Effect, Event};
 use flow::{CellSpec, Compiled, Kind};
-use store::{ItemNumber, Storage, WorkNumber};
+use store::{AccountAct, ItemNumber, Storage, WorkNumber};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, RanOn, Time};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, Forked, Hosting, Mark,
-    Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round, RoundReply, Rounds,
-    Saying, Seen, Teller, Telling, Told, ToolCall, Tools, Try, WITHDRAWN,
+    Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, Forked, Hosting, KeptTokens,
+    Mark, Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round, RoundReply, Rounds,
+    Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, WITHDRAWN, YEAR_MS,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use driver::{Along, Under};
@@ -99,6 +102,8 @@ pub struct Service {
     /// what it holds, as its worktree, under the program the ping runs. Lost in a stop, when the driver gives what is
     /// to be done again.
     pinging: BTreeMap<WorkNumber, (usize, Vec<Todo>)>,
+    /// The lock every handle takes to add an account.
+    adding: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// A read of the works as the driver holds them, at the time the loop's clock gives.
@@ -122,6 +127,13 @@ pub enum Message {
     /// The owner has the sessions of works that wait kept warm, or has them kept no longer.
     KeepWarm {
         warm: bool,
+        reply: oneshot::Sender<Result<(), Refusal>>,
+    },
+    /// The owner adds, removes or takes the account of this name; one added has its token kept already, and one
+    /// removed has its token let go of once this is kept.
+    Account {
+        name: String,
+        what: AccountAct,
         reply: oneshot::Sender<Result<(), Refusal>>,
     },
     /// An item is added, with its work.
@@ -148,11 +160,12 @@ pub enum Message {
     /// The time of the engine's wait, this call of this work, has come.
     Due { work: WorkNumber, call: CallId },
     /// The time the driver asked to be told has come; where it asked for a check of the outside of the agents' rounds,
-    /// the check found this, and where it asked for a look at the network to the acts' host, the look found it reached
-    /// or not.
+    /// the check found this, under the account of this name, the one in use as it was taken, and where it asked for a
+    /// look at the network to the acts' host, the look found it reached or not.
     Tick {
         wake: Wake,
         found: Option<Found>,
+        under: Option<String>,
         host_reached: Option<bool>,
     },
     /// The service of the agents answered the round under way of this run, with a message that is no error.
@@ -251,6 +264,8 @@ pub enum Refusal {
     Failed(Failed),
     /// The call is a tool's: the tool gives its result, not a person.
     NotAPersonsCall(CallId),
+    /// The token of an account to be added was not kept, for this reason, in words: no account was added.
+    NotKept(String),
     /// The loop has ended.
     Gone,
 }
@@ -272,6 +287,16 @@ pub struct Handle {
     changed: broadcast::Sender<Changed>,
     /// Asked, off the loop, what they kept of a round.
     carriers: Carriers,
+    /// One account added at a time: a token is kept under a name only once no account of that name is found added.
+    adding: Arc<tokio::sync::Mutex<()>>,
+}
+
+/// An account added: where its token met its usage limit as it was checked, when the limit resets, where that was
+/// said.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AccountAdded {
+    pub at_limit: bool,
+    pub resets: Option<Time>,
 }
 
 impl Service {
@@ -300,6 +325,7 @@ impl Service {
             changed,
             wake: None,
             pinging: BTreeMap::new(),
+            adding: Arc::default(),
         };
         let works: Vec<WorkNumber> = service.driver.works().map(|kept| kept.head.number).collect();
         service.tell_paused(works);
@@ -314,6 +340,7 @@ impl Service {
             to: self.to.clone(),
             changed: self.changed.clone(),
             carriers: self.carriers.clone(),
+            adding: self.adding.clone(),
         }
     }
 
@@ -387,12 +414,15 @@ impl Service {
             Message::Tick {
                 wake,
                 found,
+                under,
                 host_reached,
             } => {
                 if self.wake.as_ref().is_some_and(|(set, _)| *set == wake) {
                     self.wake = None;
                 }
                 let now = self.now()?;
+                // A check under an account no longer in use says nothing of the one in use, which is checked anew.
+                let found = found.filter(|_| under.as_deref() == self.driver.accounts().in_use());
                 let todos = (self.driver.tick(now, found, host_reached)).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
             }
@@ -478,6 +508,35 @@ impl Service {
                     }
                 }
             }
+            Message::Account { name, what, reply } => {
+                let now = self.now()?;
+                let done = match what {
+                    AccountAct::Added => self.driver.add_account(now, &name).map(|()| Vec::new()),
+                    AccountAct::Removed => self.driver.remove_account(now, &name).map(|()| Vec::new()),
+                    AccountAct::Taken => self.driver.take_account(now, &name),
+                };
+                match done {
+                    Ok(todos) => {
+                        let _ = reply.send(Ok(()));
+                        self.hand(now, todos)?;
+                        // What every work does now may have changed, though no record of one grew.
+                        let works: Vec<WorkNumber> = self.driver.works().map(|kept| kept.head.number).collect();
+                        let _ = self.changed.send(Changed {
+                            works,
+                            items: false,
+                            copies: false,
+                        });
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
+            }
             Message::Add { item, reply } => {
                 let now = self.now()?;
                 match self.driver.add(now, item) {
@@ -544,10 +603,12 @@ impl Service {
             self.carriers.outside.clone(),
             self.carriers.host.clone(),
         );
+        // The outside is checked under the account in use as the time is set: taking another sets it anew.
+        let under = self.driver.accounts().in_use().map(str::to_string);
         let timer = tokio::spawn(async move {
             tokio::time::sleep(after).await;
             let found = match wake.check {
-                true => Some(outside.check().await),
+                true => Some(outside.check(under.clone()).await),
                 false => None,
             };
             // A host no network reaches is reached.
@@ -559,6 +620,7 @@ impl Service {
             let _ = to.send(Message::Tick {
                 wake,
                 found,
+                under,
                 host_reached,
             });
         });
@@ -689,6 +751,7 @@ impl Service {
                 item: kept.item.clone(),
                 kept: Arc::new(kept.work.clone()),
                 lines,
+                account: self.driver.accounts().in_use().map(str::to_string),
             };
             Ok((round, spec.kind))
         };
@@ -711,6 +774,7 @@ impl Service {
                     session: *session,
                     item: kept.item.clone(),
                     kept: Arc::new(kept.work.clone()),
+                    account: self.driver.accounts().in_use().map(str::to_string),
                 };
                 let reply = PingReply::new(work, line.clone(), *session, self.to.clone());
                 self.carriers.agents.ping(ping, reply);
@@ -922,6 +986,98 @@ impl Handle {
         answer.await.map_err(|_| Refusal::Gone)?
     }
 
+    /// What keeps the tokens of the accounts, and what the agents' program says of a token.
+    pub fn tokens(&self) -> &dyn Tokens {
+        &*self.carriers.tokens
+    }
+
+    /// Adds an account under this name with this token, and says whether the token was at its usage limit as it was
+    /// checked, and when that resets. The name is refused where it is no account's name or is one's added and not
+    /// removed, and the account where what keeps the tokens says none can be added. Then the token is checked, by the
+    /// check of the outside under it, off the loop, which may take as long as its short request: one the service
+    /// refuses is not kept, saying the service's words; one at its usage limit is kept, saying its reset; and one that
+    /// could not be checked, the network or the service not reached, is not kept, saying why. The token is kept before
+    /// the account is added, and nothing of it is said in any words.
+    pub async fn add_account(&self, name: String, token: Token) -> Result<AccountAdded, Refusal> {
+        if let Some(why) = driver::accounts::name_fault(&name) {
+            return Err(Refusal::Failed(Failed::AccountName(why)));
+        }
+        let _one = self.adding.lock().await;
+        let asked = name.clone();
+        let named = self.read(move |driver| driver.accounts().is_live(&asked)).await?;
+        if named {
+            return Err(Refusal::Failed(Failed::NameInUse(name)));
+        }
+        if let Some(why) = self.carriers.tokens.closed() {
+            return Err(Refusal::NotKept(why));
+        }
+        // What the check says is passed on with the token taken out of it, should the program have said it back.
+        let scrubbed = |why: String| why.replace(token.secret(), "…");
+        let added = match self.carriers.outside.check_token(token.clone()).await {
+            Found::Well => AccountAdded {
+                at_limit: false,
+                resets: None,
+            },
+            Found::Down {
+                failure: decide::run::Failure::UsageLimit,
+                resets,
+                ..
+            } => AccountAdded { at_limit: true, resets },
+            Found::Down {
+                failure: decide::run::Failure::CannotRun,
+                why,
+                ..
+            } => {
+                let why = scrubbed(why);
+                return Err(Refusal::NotKept(format!("the service refused the token: {why}")));
+            }
+            Found::Down { why, .. } => {
+                let why = scrubbed(why);
+                return Err(Refusal::NotKept(format!(
+                    "the token could not be checked, so it was not kept: {why}; add it again"
+                )));
+            }
+        };
+        let tokens = self.carriers.tokens.clone();
+        let kept_as = name.clone();
+        let kept = tokio::task::spawn_blocking(move || tokens.keep(&kept_as, &token)).await;
+        match kept {
+            Ok(Ok(())) => {}
+            Ok(Err(why)) => return Err(Refusal::NotKept(why)),
+            Err(e) => return Err(Refusal::NotKept(format!("the token could not be kept: {e}"))),
+        }
+        self.account(name, AccountAct::Added).await?;
+        Ok(added)
+    }
+
+    /// Takes the account of this name as the one the agents run under: every round handed out from now on runs under
+    /// it, and the outside is checked at once under it where the agents' rounds wait for it.
+    pub async fn take_account(&self, name: String) -> Result<(), Refusal> {
+        self.account(name, AccountAct::Taken).await
+    }
+
+    /// Removes the account of this name, which is not the one in use, and then lets go of its token: gives why its
+    /// token could not be let go of, where it could not, the account being removed all the same.
+    pub async fn remove_account(&self, name: String) -> Result<Option<String>, Refusal> {
+        self.account(name.clone(), AccountAct::Removed).await?;
+        let tokens = self.carriers.tokens.clone();
+        let let_go = tokio::task::spawn_blocking(move || tokens.let_go(&name)).await;
+        Ok(match let_go {
+            Ok(Ok(())) => None,
+            Ok(Err(why)) => Some(why),
+            Err(e) => Some(e.to_string()),
+        })
+    }
+
+    /// The owner adds, removes or takes the account of this name, as the driver keeps it.
+    async fn account(&self, name: String, what: AccountAct) -> Result<(), Refusal> {
+        let (reply, answer) = oneshot::channel();
+        (self.to)
+            .send(Message::Account { name, what, reply })
+            .map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
     /// Adds an item with its work, which is added paused unless it is added going on, and gives their
     /// numbers.
     pub async fn add(&self, item: NewItem) -> Result<(ItemNumber, WorkNumber), Refusal> {
@@ -1057,6 +1213,7 @@ impl Handle {
                     round,
                     question,
                     ended,
+                    accounts: driver.accounts().clone(),
                 }))
             })
             .await?;

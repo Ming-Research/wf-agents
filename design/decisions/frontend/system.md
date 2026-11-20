@@ -20,11 +20,13 @@ Why: With a border it reads as the frame of an agent's words, which the page dra
 
 ### decision the-page-changes-what-is-tuned-while-the-engine-runs
 The settings' view changes the language the owner reads, each level's model, the highest level an item may be at, the
-context at which the agents' program compacts a line's session, the slots and the account the agents run under; every
-other key only the file changes.
+context at which the agents' program compacts a line's session and the slots; every other key only the file changes.
+Beside them it adds, takes and removes the accounts the agents run under, which are no key of the file but the engine's
+own state, changed through the engine and taking effect at once (decision the-account-in-use-is-the-engines-own-state).
 Why: These are what the owner tunes as works go on, to their cost, their pace and the account's limit; the rest are
 set once as the installation is made, and a wrong one stops the engine as it starts. A box for every key was turned
-down: it would make the whole file a form to save.
+down: it would make the whole file a form to save. An account changed in the file would wait for the engine's next
+start, where the owner switches accounts to go on at once.
 
 ### decision settings-are-written-into-the-file-as-it-is
 A change of the settings is written into their file with its comments and its layout kept, only where the file then

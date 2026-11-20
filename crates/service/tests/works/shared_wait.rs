@@ -1,6 +1,7 @@
 //! A wait every work shares, as the loop carries it through with its own timer: it checks the outside of the agents'
-//! rounds when the driver asks, begins no round while a check finds it down, and lets every work on once one finds it
-//! well, whatever else the loop takes meanwhile, and after a restart at any moment of the wait as well.
+//! rounds when the driver asks, under the account in use, begins no round while a check finds it down, and lets every
+//! work on once one finds it well, whatever else the loop takes meanwhile, and after a restart at any moment of the wait
+//! as well.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -11,7 +12,9 @@ use decide::run::Failure;
 use decide::{Decision, End};
 use driver::Found;
 use driver::outage::{PROBE, spacing};
-use service::{Act, Outside};
+use service::{Act, Message, Outside};
+use store::AccountAct;
+use tokio::sync::oneshot;
 
 use crate::Trial;
 use crate::failing::failing_as;
@@ -90,6 +93,8 @@ async fn two_works_held_by_the_wait_both_go_on_by_the_loops_timer_whatever_comes
 struct Downs {
     left: Mutex<u32>,
     taken: Mutex<Vec<tokio::time::Instant>>,
+    /// The account each check was taken under, in order.
+    under: Mutex<Vec<Option<String>>>,
 }
 
 impl Downs {
@@ -97,18 +102,28 @@ impl Downs {
         Arc::new(Downs {
             left: Mutex::new(left),
             taken: Mutex::new(Vec::new()),
+            under: Mutex::new(Vec::new()),
         })
     }
 
     fn taken(&self) -> Vec<tokio::time::Instant> {
         self.taken.lock().unwrap().clone()
     }
+
+    fn under(&self) -> Vec<Option<String>> {
+        self.under.lock().unwrap().clone()
+    }
 }
 
 impl Outside for Downs {
-    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+    fn check_token(&self, _: service::Token) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+        Box::pin(async { Found::Well })
+    }
+
+    fn check(&self, account: Option<String>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
         Box::pin(async move {
             self.taken.lock().unwrap().push(tokio::time::Instant::now());
+            self.under.lock().unwrap().push(account);
             let mut left = self.left.lock().unwrap();
             if *left == 0 {
                 return Found::Well;
@@ -152,4 +167,33 @@ async fn while_the_checks_find_the_outside_down_no_round_begins_and_once_one_fin
         .collect();
     assert_eq!(spaced, vec![PROBE, spacing(1), spacing(2), spacing(3)]);
     assert_eq!(trial.service.driver().outage(), None);
+}
+
+// Taking another account while the wait stands has the loop check the outside at once under the account taken, by its
+// own timer, rather than at the spacing the checks under the account before had reached; and the work goes on once a
+// check under it finds the outside well.
+#[tokio::test(start_paused = true)]
+async fn taking_another_account_while_the_wait_stands_checks_the_outside_at_once_under_it() {
+    let downs = Downs::new(1);
+    let mut trial = Trial::with_outside(failing_as("unavailable", None), downs.clone());
+    let work = waiting(&mut trial).await;
+    for what in [AccountAct::Added, AccountAct::Taken] {
+        let (reply, _answer) = oneshot::channel();
+        let account = Message::Account {
+            name: "work".to_string(),
+            what,
+            reply,
+        };
+        trial.service.take(account).expect("the loop takes it");
+    }
+    let taken_at = tokio::time::Instant::now();
+    assert!(trial.step().await.is_some(), "the loop's timer checks");
+    assert_eq!(downs.under(), [Some("work".to_string())]);
+    let after = downs.taken()[0].duration_since(taken_at);
+    assert!(
+        after < Duration::from_millis(PROBE),
+        "checked {after:?} after the account was taken"
+    );
+    assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
+    assert!(downs.under().iter().all(|under| under.as_deref() == Some("work")));
 }

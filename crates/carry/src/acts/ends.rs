@@ -296,6 +296,7 @@ fn checking(item: Item, kept: Work) -> Round {
         item,
         kept: Arc::new(kept),
         lines: Default::default(),
+        account: None,
     }
 }
 
@@ -449,6 +450,7 @@ fn merging(head: &str) -> Round {
         item: item("Greet the user"),
         kept: Arc::new(kept),
         lines: Default::default(),
+        account: None,
     }
 }
 

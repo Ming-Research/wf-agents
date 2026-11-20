@@ -16,14 +16,15 @@
 //! carrier keeps nothing of a failed round, and tries nothing again itself: when a round is tried again is the engine's
 //! to say, as its records show, and whatever made the round fail is shown on the page.
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use decide::run::Failure;
 use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
 use driver::history::Lines;
-use driver::{Along, Found, Policy, Under};
+use driver::{Accounts, Along, Found, Policy, Under};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
@@ -162,7 +163,8 @@ pub trait Rounds: Send + Sync {
 }
 
 /// A fork of a round's session, asked a question: the work as it is kept, its flow and item, the run and the round of it
-/// whose session is forked, the question, and whether the work has ended.
+/// whose session is forked, the question, whether the work has ended, and the accounts as they stand, by which the fork
+/// runs under its session's account, or the one in use where that one was removed ([`Accounts::of_session`]).
 #[derive(Clone, Debug)]
 pub struct Fork {
     pub work: WorkNumber,
@@ -173,6 +175,7 @@ pub struct Fork {
     pub round: usize,
     pub question: String,
     pub ended: bool,
+    pub accounts: Accounts,
 }
 
 /// What a fork answered: its return, as JSON, where it wrote one, and what its program said at its end; what the fork
@@ -180,7 +183,8 @@ pub struct Fork {
 /// began, the context the round it begins at ended with, in tokens, where each is known; how many minutes before the
 /// cache had let go what the fork begins with, where it had: the last call that read it was more than the cache's life
 /// before; the round asked of, by run and number; the later rounds of the session, which the fork leaves out, beginning
-/// at that round's end; and the file the answer is kept in.
+/// at that round's end; the file the answer is kept in; and the account the session ran under, where it was removed
+/// and the fork ran under the account in use instead.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Forked {
     pub answer: Option<String>,
@@ -192,6 +196,7 @@ pub struct Forked {
     pub round: (RunId, usize),
     pub later: Vec<(RunId, usize)>,
     pub kept: String,
+    pub removed: Option<String>,
 }
 
 /// A keep-warm ping of the session of this number of a line of the work.
@@ -207,6 +212,9 @@ pub struct Ping {
     pub item: Item,
     /// The work as it was kept when the ping was handed out.
     pub kept: Arc<Work>,
+    /// The account the ping runs under: the one in use, which the session's last call ran under, by its name; none
+    /// where none is, and the agents run on the sign-in of their directory.
+    pub account: Option<String>,
 }
 
 /// The way to say once what came of a keep-warm ping.
@@ -478,8 +486,122 @@ pub trait Network: Send + Sync {
 ///
 /// It is called off the loop, and may take as long as the short request may.
 pub trait Outside: Send + Sync {
-    /// What the outside is now.
-    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>>;
+    /// What the outside is now, under the account of this name, the one in use; with none, on the sign-in of the
+    /// agents' directory.
+    fn check(&self, account: Option<String>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>>;
+
+    /// What the outside is under this token of an account not yet kept: the check a token is taken on before it is
+    /// kept, which finds a token the service refuses as a command line that cannot run.
+    fn check_token(&self, token: Token) -> Pin<Box<dyn Future<Output = Found> + Send + '_>>;
+}
+
+/// The token of an account the agents' program may run under: a secret, given to the program alone, in a variable of
+/// its environment, and to what keeps it outside the engine. It says nothing of itself in a debug print, and has no
+/// other print and no form the store or a page could take it in.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Token(String);
+
+impl Token {
+    pub fn new(secret: String) -> Token {
+        Token(secret)
+    }
+
+    /// The secret, for the program's environment and for what keeps it.
+    pub fn secret(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Token(..)")
+    }
+}
+
+/// What keeps the tokens of the accounts the agents' program may run under, outside the engine, each under its
+/// account's name; and what the program says of a token: the command that makes one, and how long one lasts. Each method
+/// may wait on what keeps the tokens, and is called off the loop.
+pub trait Tokens: Send + Sync {
+    /// Keeps the token under the name, in place of any kept under it before.
+    fn keep(&self, name: &str, token: &Token) -> Result<(), String>;
+
+    /// The token kept under the name; or why it cannot be given, in the words of what keeps it.
+    fn token(&self, name: &str) -> Result<Token, String>;
+
+    /// Lets go of the token kept under the name; nothing where none is.
+    fn let_go(&self, name: &str) -> Result<(), String>;
+
+    /// Why no account can be added now, in words; none where one can.
+    fn closed(&self) -> Option<String>;
+
+    /// The command the owner runs, signed in to an account in the browser, to make a token of it.
+    fn making(&self) -> String;
+
+    /// How long a token lasts from when it is made, in milliseconds.
+    fn life_ms(&self) -> u64;
+}
+
+/// Tokens kept in this process's memory alone, for tests and the scripted carriers.
+#[derive(Default)]
+pub struct KeptTokens {
+    kept: Mutex<BTreeMap<String, Token>>,
+    refusing: Option<String>,
+}
+
+/// A year, in milliseconds: how long a token lasts, as the agents' program says of the tokens it makes.
+pub const YEAR_MS: u64 = 365 * 24 * 60 * 60 * 1000;
+
+impl KeptTokens {
+    /// Tokens kept in memory, no account refused.
+    pub fn new() -> KeptTokens {
+        KeptTokens::default()
+    }
+
+    /// Tokens kept in memory, every account to be added refused for this reason.
+    pub fn refusing(why: &str) -> KeptTokens {
+        KeptTokens {
+            kept: Mutex::default(),
+            refusing: Some(why.to_string()),
+        }
+    }
+
+    /// The names tokens are kept under.
+    pub fn names(&self) -> Vec<String> {
+        self.held().keys().cloned().collect()
+    }
+
+    fn held(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Token>> {
+        // What is held stays whole whatever panicked while it was held: each change is one insert or take.
+        self.kept.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl Tokens for KeptTokens {
+    fn keep(&self, name: &str, token: &Token) -> Result<(), String> {
+        self.held().insert(name.to_string(), token.clone());
+        Ok(())
+    }
+
+    fn token(&self, name: &str) -> Result<Token, String> {
+        (self.held().get(name).cloned()).ok_or_else(|| format!("no token is kept under the name {name}"))
+    }
+
+    fn let_go(&self, name: &str) -> Result<(), String> {
+        self.held().remove(name);
+        Ok(())
+    }
+
+    fn closed(&self) -> Option<String> {
+        self.refusing.clone()
+    }
+
+    fn making(&self) -> String {
+        "claude setup-token".to_string()
+    }
+
+    fn life_ms(&self) -> u64 {
+        YEAR_MS
+    }
 }
 
 /// What carries out each kind of todo.
@@ -497,6 +619,8 @@ pub struct Carriers {
     pub outside: Arc<dyn Outside>,
     /// The look at the network to the host the acts reach; none where no network reaches it, as the local repository.
     pub host: Option<Arc<dyn Network>>,
+    /// What keeps the tokens of the accounts the agents' program may run under.
+    pub tokens: Arc<dyn Tokens>,
 }
 
 impl Carriers {
@@ -591,6 +715,9 @@ pub struct Round {
     /// What the round is judged by while it runs: the lines the history of its cell and its flow give, in every work
     /// on the flow (crate `driver`, module `history`).
     pub lines: Lines,
+    /// The account the round runs under, by its name: the one in use as it was handed out, every try of it running
+    /// under it; none where none was, and the agents run on the sign-in of their directory.
+    pub account: Option<String>,
 }
 
 /// A call of a run that a tool answers, to make or to withdraw.
@@ -932,7 +1059,11 @@ mod tests {
     struct Well;
 
     impl Outside for Well {
-        fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+        fn check(&self, _: Option<String>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+            Box::pin(async { Found::Well })
+        }
+
+        fn check_token(&self, _: Token) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
             Box::pin(async { Found::Well })
         }
     }
@@ -945,7 +1076,16 @@ mod tests {
             slots: 1,
             outside: Arc::new(Well),
             host: None,
+            tokens: Arc::new(KeptTokens::new()),
         }
+    }
+
+    #[test]
+    fn a_token_says_nothing_of_itself_in_a_debug_print() {
+        let token = Token::new("sk-ant-oat01-secret".to_string());
+        assert_eq!(format!("{token:?}"), "Token(..)");
+        assert_eq!(format!("{:?}", Some(token.clone())), "Some(Token(..))");
+        assert_eq!(token.secret(), "sk-ant-oat01-secret");
     }
 
     fn messages(told: Told) -> Vec<String> {

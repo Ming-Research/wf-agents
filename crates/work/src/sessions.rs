@@ -38,15 +38,15 @@ pub struct Ran {
 }
 
 /// What a try of an agent's round ran on, as its carrier chose it as the try began: the level, the model of that
-/// level, the reasoning effort, and the account the program makes its calls under, which is the directory of the
-/// program's settings and sign-in.
+/// level, the reasoning effort, and the account the program makes its calls under: the name of the account the round
+/// was handed out with, or, where none was in use, the directory of the program's settings and sign-in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RanOn {
     pub level: String,
     pub model: String,
     /// None where the cell sets none, and the program ran at its own.
     pub effort: Option<String>,
-    /// None where the program ran with its own default directory.
+    /// None where no account was in use and the program ran with its own default directory.
     pub account: Option<String>,
 }
 
@@ -61,7 +61,10 @@ pub enum Why {
     /// The line's rounds run on another model than the one its session was begun on, whose prompt cache holds
     /// nothing of it.
     Model { was: String },
-    /// The line's rounds run under another account than its session's, whose directory does not hold the session.
+    /// The line's rounds run under another account than its session's. No session is begun for another account any
+    /// longer, a line going on in its session under the account in use (decision
+    /// `a-line-goes-on-in-its-session-under-another-account`): the records kept before hold sessions begun for it,
+    /// which are read and shown as they were.
     Account { was: Option<String> },
     /// The owner asked for one. No session is begun at the owner's asking any longer, the act having been taken off
     /// the work's page: the records kept before hold sessions begun so, which are read and shown as they were.

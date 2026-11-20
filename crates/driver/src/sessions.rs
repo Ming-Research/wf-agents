@@ -2,12 +2,14 @@
 //! happened and before the walk: so that a new session is recorded, and the cells it makes run again are run, before
 //! the line's next round is given.
 //!
-//! With the installation's [`Policy`], a line begins a new session at its next round when the account or the model its
-//! session's rounds ran on, as the work's records say, is not the one its rounds run on now. No line begins one for the
-//! context its session holds: the agents' program compacts the session at the installation's own number, given it on
-//! every round's command line, and the line goes on in it (decision
-//! `a-session-is-compacted-at-the-installations-number`). A new session begins at once, and a round whose run ran in
-//! the session before is told what the run was doing.
+//! With the installation's [`Policy`], a line begins a new session at its next round when the model its session's
+//! rounds ran on, as the work's records say, is not the one its rounds run on now. No line begins one for the account
+//! its rounds run under: the session lives in the one directory of the program's, and the service takes a session made
+//! under another account, so the line goes on in it, its next round writing its context to that account's cache
+//! (decision a-line-goes-on-in-its-session-under-another-account). Nor for the context its session holds: the agents'
+//! program compacts the session at the installation's own number, given it on every round's command line, and the line
+//! goes on in it (decision `a-session-is-compacted-at-the-installations-number`). A new session begins at once, and a
+//! round whose run ran in the session before is told what the run was doing.
 //!
 //! Whatever the policy, a line a round of whose session the service's safety check flagged, the run guard stopped, or
 //! whose prompt was too long for the model, begins a new session, in which that round is tried again, so that none is
@@ -38,7 +40,9 @@ use crate::budget::Budget;
 pub struct Policy {
     /// How many values of a history a line is worked out from at least ([`crate::history`]).
     pub samples: usize,
-    /// What a round of the cell, for the item, runs on now: its model and account among it; none where it cannot run.
+    /// What a round of the cell, for the item, runs on now: its model among it; none where it cannot run. The account
+    /// it runs under is the one in use as it is handed out, which this does not say: its account is the one a try records
+    /// where none is in use.
     #[allow(clippy::type_complexity)]
     pub on: Box<dyn Fn(&Item, &CellSpec) -> Option<RanOn> + Send>,
     /// How the sessions of lines that wait are kept warm; none where the agents' program keeps no prompt cache.
@@ -174,36 +178,27 @@ fn line_of_run<'a>(flow: &'a Compiled, work: &Work, run: RunId) -> Option<&'a st
     line_of_cell(flow, started.cell.as_str())
 }
 
-/// The new session the line begins at its next round, as the policy says: where its session's rounds ran under
-/// another account or on another model than the line's rounds run on now. A session past the installation's context is
-/// compacted by the agents' program and goes on (decision `a-session-is-compacted-at-the-installations-number`).
+/// The new session the line begins at its next round, as the policy says: where its session's rounds ran on another
+/// model than the line's rounds run on now. One whose rounds ran under another account goes on (decision
+/// a-line-goes-on-in-its-session-under-another-account), and a session past the installation's context is compacted by
+/// the agents' program and goes on (decision `a-session-is-compacted-at-the-installations-number`).
 pub fn due(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy) -> Option<Event> {
     let on_line = |run: RunId| line_of_run(flow, work, run) == Some(line);
     let session = number_at(work, line, work.tick());
     let began = began_on(work, line, on_line, session);
     // What a round of the line runs on now, as the policy says for a cell of the line; none where it cannot run, which
     // its round says when it fails. Any cell of the line will do: the levels above the item's that a round runs at are
-    // the line's, and the account the installation's, so a line's model and account do not depend on which cell runs.
+    // the line's, so a line's model does not depend on which cell runs.
     let cell = flow.cells.iter().find(|cell| cell.line.as_deref() == Some(line));
     let now = cell.and_then(|cell| (policy.on)(item, cell));
-    let anew = |why| {
-        Some(Event::Anew {
-            line: line.to_string(),
-            why,
-        })
-    };
-    if let (Some(began), Some(now)) = (began, &now)
-        && began.account != now.account
-    {
-        return anew(Why::Account {
-            was: began.account.clone(),
-        });
-    }
     if let (Some(began), Some(now)) = (began, &now)
         && began.model != now.model
     {
-        return anew(Why::Model {
-            was: began.model.clone(),
+        return Some(Event::Anew {
+            line: line.to_string(),
+            why: Why::Model {
+                was: began.model.clone(),
+            },
         });
     }
     None

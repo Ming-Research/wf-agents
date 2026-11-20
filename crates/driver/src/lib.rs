@@ -55,6 +55,12 @@
 //! driver's to say ([`Driver::wake`]) and its caller's, which reads the clock and reaches the outside, to tell it with
 //! what the check or the look found ([`Driver::tick`]).
 //!
+//! The accounts the agents' program may run under are the engine's own state, as the pause of everything is, kept in
+//! the store as the owner adds, removes and takes them ([`accounts`]). Every round is handed out with the account in use
+//! as it is handed out, a keep-warm ping runs under it ([`warm`]), and a check of the outside is taken under it; a
+//! usage limit is its account's own ([`outage`]), and taking another account drops what the checks found and has the
+//! outside checked at once.
+//!
 //! What the driver holds of a work in memory is what the store holds of it: a work is saved each time it grows, and
 //! what is to be done is given out only once the store holds the entries that say so. Stopped at any moment and
 //! [opened](Driver::open) again, the driver gives again everything that was to be done and is not known as done
@@ -73,6 +79,8 @@
 //! nothing ([`judged`]).
 //!
 //! It keeps, while a round or a call is under way, where it stands as what carries it out says as it goes ([`along`]).
+
+pub mod accounts;
 
 pub mod along;
 
@@ -99,14 +107,18 @@ use std::sync::Arc;
 
 pub mod outage;
 
+pub use accounts::{Accounts, Live};
 pub use along::{Along, Under};
 use decide::run::Failure;
 use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
 use engine::{Effect, Event, Gate, Refused, handle_held, handle_then, held};
 use flow::Compiled;
 use flow::agents::fill;
-pub use outage::{Checked, Found, Outage, Service, Until};
-use store::{Change, EverythingPaused, First, Item, ItemChange, ItemNumber, Storage, WorkHead, WorkNumber};
+pub use outage::{Checked, Found, Limit, Outage, Service, Until};
+use store::{
+    AccountAct, AccountRecord, Change, EverythingPaused, First, Item, ItemChange, ItemNumber, Storage, WorkHead,
+    WorkNumber,
+};
 use work::{Time, Work};
 
 pub use budget::Budget;
@@ -233,6 +245,9 @@ pub struct Driver {
     /// Whether the sessions of works that wait are kept warm, as the store keeps it: the engine's own state, which the
     /// owner switches, and no setting, so that a switch takes effect at once ([`warm`]).
     keep_warm: bool,
+    /// The accounts the agents' program may run under, as the store keeps them: the engine's own state, which the owner
+    /// changes ([`accounts`]).
+    accounts: Accounts,
     /// Every stretch the pause of everything held, in order, as the store keeps them.
     spans: Vec<Span>,
     /// What stopped the driver, once something has.
@@ -484,6 +499,14 @@ pub enum Failed {
     /// it was, it has happened and is not to be given again once the driver is opened again, and what follows from
     /// it is given then; where it was not, it has not happened.
     Stopped { fault: Fault, kept: bool },
+    /// An account was to be added under a name that is no account's name, in these words. Nothing was changed.
+    AccountName(String),
+    /// An account was to be added under the name of one that is added and not removed. Nothing was changed.
+    NameInUse(String),
+    /// There is no account of this name added and not removed. Nothing was changed.
+    NoSuchAccount(String),
+    /// The account in use was to be removed: another is taken first. Nothing was changed.
+    RemovingInUse(String),
 }
 
 impl Driver {
@@ -529,6 +552,7 @@ impl Driver {
         }
         let paused = store.everything_paused().map_err(Fault::Store)?;
         let keep_warm = store.keeping_warm().map_err(Fault::Store)?;
+        let accounts = Accounts::new(store.accounts().map_err(Fault::Store)?);
         let spans = spans_of(&store.everything_pauses().map_err(Fault::Store)?);
         let mut driver = Driver {
             store,
@@ -538,6 +562,7 @@ impl Driver {
             slots,
             paused,
             keep_warm,
+            accounts,
             spans,
             fault: None,
             policy,
@@ -1008,6 +1033,82 @@ impl Driver {
         Ok(())
     }
 
+    /// The accounts the agents' program may run under, as the owner added, removed and took them.
+    pub fn accounts(&self) -> &Accounts {
+        &self.accounts
+    }
+
+    /// Adds an account under this name, at the time the caller's clock gives, whose token the caller has kept: it is
+    /// refused where the name is no account's name or is one's that is added and not removed. An account added is not
+    /// taken: the agents run under it once the owner takes it.
+    pub fn add_account(&mut self, now: Time, name: &str) -> Result<(), Failed> {
+        self.going()?;
+        if let Some(why) = accounts::name_fault(name) {
+            return Err(Failed::AccountName(why));
+        }
+        if self.accounts.is_live(name) {
+            return Err(Failed::NameInUse(name.to_string()));
+        }
+        self.keep_account(now, name, AccountAct::Added)
+    }
+
+    /// Removes the account of this name, at the time the caller's clock gives, which is then the caller's to let go of
+    /// the token of: refused where there is no such account, or it is the one in use.
+    pub fn remove_account(&mut self, now: Time, name: &str) -> Result<(), Failed> {
+        self.going()?;
+        if !self.accounts.is_live(name) {
+            return Err(Failed::NoSuchAccount(name.to_string()));
+        }
+        if self.accounts.in_use() == Some(name) {
+            return Err(Failed::RemovingInUse(name.to_string()));
+        }
+        self.keep_account(now, name, AccountAct::Removed)
+    }
+
+    /// Takes the account of this name as the one the agents run under, at the time the caller's clock gives, and gives
+    /// what is to be done: every round handed out from now on runs under it, a round handed out before under the
+    /// account it was handed out with. What the checks of the outside found is dropped, as of another account, and the
+    /// outside is checked at once under this one; every work is looked at again, a wait that held them for another
+    /// account's usage limit ending. Taking the account in use changes nothing; there being no such account, it is
+    /// refused.
+    pub fn take_account(&mut self, now: Time, name: &str) -> Result<Vec<Todo>, Failed> {
+        self.going()?;
+        if !self.accounts.is_live(name) {
+            return Err(Failed::NoSuchAccount(name.to_string()));
+        }
+        if self.accounts.in_use() == Some(name) {
+            return Ok(Vec::new());
+        }
+        self.keep_account(now, name, AccountAct::Taken)?;
+        self.checked = None;
+        // A wake acted on before is of the account before: the check under this one is asked for at once.
+        self.ticked = None;
+        match self.look(now) {
+            Ok(todos) => self.filled_after(now, todos),
+            Err(fault) => Err(self.stop(fault, true)),
+        }
+    }
+
+    /// Keeps what was done to the account, in the store and then here.
+    fn keep_account(&mut self, now: Time, name: &str, what: AccountAct) -> Result<(), Failed> {
+        let record = AccountRecord {
+            name: name.to_string(),
+            what,
+            at: now,
+        };
+        if let Err(fault) = self.store.keep_account(&record) {
+            return Err(self.stop(Fault::Store(fault), false));
+        }
+        self.accounts.push(record);
+        Ok(())
+    }
+
+    /// The usage limit of each account that stands, by the account's name, whether or not it is in use ([`outage`]).
+    pub fn limits(&self) -> BTreeMap<String, Limit> {
+        let works = (self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work));
+        outage::limits(works, &self.answered, &self.accounts)
+    }
+
     /// The history of the rounds of every work on the flow of this name ([`history`]).
     pub fn history(&self, flow: &str) -> Vec<history::Sample> {
         (self.works.values())
@@ -1084,12 +1185,13 @@ impl Driver {
     /// The wait of the service every work shares, if one stands, with what the outside said of it since it began.
     fn outage_of(&self, service: Service) -> Option<Outage> {
         let works = (self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work));
-        let mut outage = outage::outage(service, works, &self.answered)?;
+        let mut outage = outage::outage(service, works, &self.answered, &self.accounts)?;
         match service {
             Service::Agents => {
                 outage.checked = (self.checked.clone())
                     .filter(|(of, _)| *of == outage.since)
                     .map(|(_, checked)| checked);
+                outage.switched = self.accounts.taken_at().filter(|at| *at >= outage.met);
             }
             Service::Host => {
                 outage.reached = (self.looked_at_host)
@@ -1250,7 +1352,15 @@ impl Driver {
             if held.standing != Standing::Going {
                 continue;
             }
-            for due in warm::due(&held.flow, &held.work, &held.item, policy, self.keep_warm, now) {
+            for due in warm::due(
+                &held.flow,
+                &held.work,
+                &held.item,
+                policy,
+                self.keep_warm,
+                &self.accounts,
+                now,
+            ) {
                 if self.pinging.contains(&(*number, due.line.clone())) {
                     continue;
                 }
@@ -1279,12 +1389,21 @@ impl Driver {
         (self.works.iter())
             .filter(|(_, held)| held.standing == Standing::Going)
             .flat_map(|(number, held)| {
-                (warm::kept(&held.flow, &held.work, &held.item, policy, self.keep_warm, now).into_iter())
-                    .filter(|kept| !self.pinging.contains(&(*number, kept.due.line.clone())))
-                    .map(|kept| (kept.at.max(soonest), kept.life))
-                    .filter(|(at, life)| at < life)
-                    .map(|(at, _)| at)
-                    .collect::<Vec<_>>()
+                (warm::kept(
+                    &held.flow,
+                    &held.work,
+                    &held.item,
+                    policy,
+                    self.keep_warm,
+                    &self.accounts,
+                    now,
+                )
+                .into_iter())
+                .filter(|kept| !self.pinging.contains(&(*number, kept.due.line.clone())))
+                .map(|kept| (kept.at.max(soonest), kept.life))
+                .filter(|(at, life)| at < life)
+                .map(|(at, _)| at)
+                .collect::<Vec<_>>()
             })
             .min()
     }

@@ -1,8 +1,9 @@
 //! What the store keeps of the engine as a whole: the owner's pause of everything, set and lifted, the latest saying
-//! whether it holds, and whether the sessions of works that wait are kept warm, which the owner switches; each kept
-//! across an opening, and a file made before the store kept one opening as if it had never been set.
+//! whether it holds, whether the sessions of works that wait are kept warm, which the owner switches, and the accounts
+//! the agents may run under, each added, removed and taken; each kept across an opening, and a file made before the
+//! store kept one opening as if it had never been set.
 
-use store::{EverythingPaused, PauseOfEverything, SCHEMA_VERSION};
+use store::{AccountAct, AccountRecord, EverythingPaused, PauseOfEverything, SCHEMA_VERSION};
 
 use super::opening::{SCHEMA_1, columns, versions};
 use super::*;
@@ -141,4 +142,45 @@ fn a_file_made_before_the_pause_of_everything_was_kept_opens_with_none() {
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
+}
+
+#[test]
+fn every_account_added_removed_and_taken_is_given_back_in_order_with_its_name_and_when_across_an_opening() {
+    let db = Db::new();
+    let mut store = db.open();
+    assert_eq!(store.accounts(), Ok(Vec::new()), "no account until one is added");
+    let record = |name: &str, what: AccountAct, at: u64| AccountRecord {
+        name: name.to_string(),
+        what,
+        at: Time(START + at),
+    };
+    let kept = [
+        record("work", AccountAct::Added, 0),
+        record("home", AccountAct::Added, 1000),
+        record("work", AccountAct::Taken, 2000),
+        record("home", AccountAct::Taken, 3000),
+        record("work", AccountAct::Removed, 4000),
+        record("work", AccountAct::Added, 5000),
+    ];
+    for record in &kept {
+        store.keep_account(record).expect("it is kept");
+    }
+    assert_eq!(store.accounts(), Ok(kept.to_vec()));
+    drop(store);
+    assert_eq!(db.open().accounts(), Ok(kept.to_vec()));
+}
+
+#[test]
+fn a_file_made_before_the_accounts_were_kept_opens_with_none() {
+    let db = Db::new();
+    {
+        let file = Connection::open(&db.path).expect("the database opens");
+        file.execute_batch(SCHEMA_1).expect("the first schema is made");
+        file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+            .expect("its version is written");
+        store::migrate(&file, 1, 20).expect("the migrations run");
+    }
+    let store = db.open();
+    assert_eq!(store.accounts(), Ok(Vec::new()));
+    assert_eq!(versions(&db.path), [SCHEMA_VERSION]);
 }

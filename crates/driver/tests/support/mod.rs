@@ -479,6 +479,14 @@ impl Storage for Failing {
     fn keep_warm(&mut self, warm: bool, at: Time) -> Result<(), store::Fault> {
         self.store.keep_warm(warm, at)
     }
+
+    fn accounts(&self) -> Result<Vec<store::AccountRecord>, store::Fault> {
+        self.store.accounts()
+    }
+
+    fn keep_account(&mut self, record: &store::AccountRecord) -> Result<(), store::Fault> {
+        self.store.keep_account(record)
+    }
 }
 
 /// What opening the driver gives.
@@ -1480,6 +1488,40 @@ impl H {
     /// The work is let on.
     pub fn let_on(&mut self, work: WorkNumber) -> Vec<Todo> {
         self.on(work, Event::Resumed)
+    }
+
+    /// The owner adds an account of this name, which the driver must take.
+    pub fn add_account(&mut self, name: &str) {
+        let now = self.now();
+        (self.dm().add_account(now, name)).expect("the account is added");
+        if self.checking {
+            self.check();
+        }
+    }
+
+    /// The owner takes the account of this name as the one the agents run under, which the driver must take; gives
+    /// what is to be done.
+    pub fn take_account(&mut self, name: &str) -> Vec<Todo> {
+        let now = self.now();
+        let todos = (self.dm().take_account(now, name)).expect("the account is taken");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
+    /// The try of the work's round under way begins under the account of this name, as its carrier says it of a round
+    /// handed out with that account.
+    pub fn ran_under(&mut self, work: WorkNumber, account: &str) -> Vec<Todo> {
+        let (run, ..) = self.round(work);
+        let on = engine::RanOn {
+            level: "1".to_string(),
+            model: "the model".to_string(),
+            effort: None,
+            account: Some(account.to_string()),
+        };
+        self.on(work, Event::Ran { run, attempt: 1, on })
     }
 
     /// Whoever plans the work changes an item, which the driver must take; gives whether that changed it, and what is

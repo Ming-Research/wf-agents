@@ -25,6 +25,7 @@ use decide::RunId;
 use flow::Compiled;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use service::Token;
 use uuid::Uuid;
 use work::{RanOn, Spent, Work, sessions};
 
@@ -302,23 +303,34 @@ pub fn knows_model(model: &str) -> bool {
 /// name it.
 pub const KEPT: [&str; 7] = ["PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM", "SHELL"];
 
+/// The variable that has the command line strip every credential from the environment of the commands, hooks and
+/// servers it starts, keeping it for its own calls (decision the-agents-commands-are-given-no-credentials).
+pub const SCRUB: &str = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
+
 /// The variables the carrier sets for every round's command line: a round waits for whatever it starts, since a
 /// subagent left in the background has the command line ask for the return before it is back; the service checks each
 /// tool's input as JSON before it streams it, since inputs it did not check came cut off; the
 /// command line asks the model again three times, not five, for a return that does not fit its form, each try writing
-/// the whole return again; and rustup installs no Rust toolchain that a command an agent may run asks for and the
-/// machine lacks: the command fails instead of downloading it, which would write beyond the worktree.
-pub const ENVIRONMENT: [(&str, &str); 4] = [
+/// the whole return again; rustup installs no Rust toolchain that a command an agent may run asks for and the
+/// machine lacks: the command fails instead of downloading it, which would write beyond the worktree; and no command an
+/// agent runs is given the token of the account the round runs under ([`SCRUB`]).
+pub const ENVIRONMENT: [(&str, &str); 5] = [
     ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
     ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
     ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
     ("RUSTUP_AUTO_INSTALL", "0"),
+    (SCRUB, "1"),
 ];
 
 /// The environment a round's command line is given, in place of the engine's own: of the engine's variables, those
-/// [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`], and the directory of
-/// settings, the installation's where the settings name one.
-pub fn environment(agents: &Agents, engine: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
+/// [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`]; the directory of
+/// settings, the installation's where the settings name one; and the token of the account the command line runs under,
+/// where it runs under one, which is given nowhere else.
+pub fn environment(
+    agents: &Agents,
+    engine: impl IntoIterator<Item = (String, String)>,
+    token: Option<&Token>,
+) -> Vec<(String, String)> {
     let kept =
         |name: &str| KEPT.contains(&name) || name.starts_with("LC_") || agents.env.iter().any(|named| named == name);
     let mut env: Vec<(String, String)> = engine.into_iter().filter(|(name, _)| kept(name)).collect();
@@ -326,6 +338,9 @@ pub fn environment(agents: &Agents, engine: impl IntoIterator<Item = (String, St
     env.extend(ENVIRONMENT.map(|(name, value)| (name.to_string(), value.to_string())));
     if let Some(dir) = &agents.config_dir {
         env.push((crate::account::VARIABLE.to_string(), dir.to_string_lossy().into_owned()));
+    }
+    if let Some(token) = token {
+        env.push((crate::account::TOKEN.to_string(), token.secret().to_string()));
     }
     env
 }
@@ -1650,7 +1665,7 @@ mod tests {
         ]
         .map(|(n, v)| (n.to_string(), v.to_string()));
         assert_eq!(
-            environment(&agents(), engine.clone()),
+            environment(&agents(), engine.clone(), None),
             [
                 ("HOME", "/home/someone"),
                 ("LC_ALL", "C"),
@@ -1659,17 +1674,34 @@ mod tests {
                 ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
                 ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
                 ("RUSTUP_AUTO_INSTALL", "0"),
+                ("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "1"),
             ]
             .map(|(n, v)| (n.to_string(), v.to_string()))
         );
         let mut configured = agents();
         configured.env = vec!["ANTHROPIC_API_KEY".to_string()];
         configured.config_dir = Some(PathBuf::from("config"));
-        let named: Vec<String> = (environment(&configured, engine).into_iter())
+        let named: Vec<String> = (environment(&configured, engine.clone(), None).into_iter())
             .map(|(name, _)| name)
             .collect();
         assert!(named.contains(&"ANTHROPIC_API_KEY".to_string()));
         assert!(named.contains(&"CLAUDE_CONFIG_DIR".to_string()));
         assert!(!named.contains(&"SECRET_TOKEN".to_string()));
+        assert!(
+            !named.contains(&"CLAUDE_CODE_OAUTH_TOKEN".to_string()),
+            "no account, no token"
+        );
+        // Under an account, its token is given beside the directory, which still holds the program's sessions.
+        let token = Token::new("sk-ant-oat01-secret".to_string());
+        let under = environment(&configured, engine, Some(&token));
+        let given: Vec<(&str, &str)> = (under.iter()).map(|(n, v)| (n.as_str(), v.as_str())).collect();
+        assert_eq!(given.last(), Some(&("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-secret")));
+        assert!(given.contains(&("CLAUDE_CONFIG_DIR", "config")));
+        assert!(given.contains(&("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "1")));
+        assert_eq!(
+            given.iter().filter(|(_, v)| v.contains("sk-ant")).count(),
+            1,
+            "given once"
+        );
     }
 }

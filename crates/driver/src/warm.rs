@@ -21,6 +21,10 @@
 //! more. Whether sessions are kept warm at all is the engine's own state, which the owner switches
 //! ([`crate::Driver::keep_warm`]): switched off, no ping is given, whatever a work's state.
 //!
+//! A session's cache is the account's its calls ran under, and a ping runs under the account in use, as every round
+//! handed out does: a session whose last call ran under another account than the one in use is not pinged, a ping
+//! under the one in use reading nothing of its cache.
+//!
 //! A ping is a job of its work: none is due while a round of the work is under way, on any line, and the loop holds
 //! back the work's rounds while one of its pings is (crate `service`). What is due is worked out from the work's
 //! records and the time alone: a session's last call is the end of the latest of its rounds that called the model, or
@@ -35,6 +39,7 @@ use flow::Compiled;
 use store::Item;
 use work::{Time, Work};
 
+use crate::accounts::Accounts;
 use crate::sessions::{self, Policy, Warm};
 
 /// How long after a ping that failed the next is tried, in milliseconds, while the cache still keeps the session: a
@@ -59,8 +64,17 @@ pub struct Kept {
 /// Each line's session the work keeps warm as of `now`, in the order of the walk, whoever holds the work: none where
 /// `keep_warm`, the engine's own state, says sessions are not kept warm; none for a work that has ended, one with a
 /// round under way, one with no policy of keeping sessions warm, or one the engine paused for spending more than it
-/// may; and none whose cache has let it go by `now`, which a ping would write again whole, for nothing.
-pub fn kept(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, keep_warm: bool, now: Time) -> Vec<Kept> {
+/// may; none whose last call ran under another account than the one in use, as the accounts say; and none whose cache
+/// has let it go by `now`, which a ping would write again whole, for nothing.
+pub fn kept(
+    flow: &Compiled,
+    work: &Work,
+    item: &Item,
+    policy: &Policy,
+    keep_warm: bool,
+    accounts: &Accounts,
+    now: Time,
+) -> Vec<Kept> {
     let Some(warm) = policy.warm.as_ref().filter(|_| keep_warm) else {
         return Vec::new();
     };
@@ -76,14 +90,22 @@ pub fn kept(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, keep_war
     let back = coming_back(flow, work, &decision);
     (lines(flow))
         .filter(|line| back.contains(*line))
-        .filter_map(|line| next(flow, work, item, line, policy))
+        .filter_map(|line| next(flow, work, item, line, policy, accounts))
         .filter(|kept| now < kept.life)
         .collect()
 }
 
 /// The pings due for the work at `now`: those [`kept`] whose time has come.
-pub fn due(flow: &Compiled, work: &Work, item: &Item, policy: &Policy, keep_warm: bool, now: Time) -> Vec<Due> {
-    (kept(flow, work, item, policy, keep_warm, now).into_iter())
+pub fn due(
+    flow: &Compiled,
+    work: &Work,
+    item: &Item,
+    policy: &Policy,
+    keep_warm: bool,
+    accounts: &Accounts,
+    now: Time,
+) -> Vec<Due> {
+    (kept(flow, work, item, policy, keep_warm, accounts, now).into_iter())
         .filter(|kept| kept.at <= now)
         .map(|kept| kept.due)
         .collect()
@@ -109,7 +131,7 @@ fn over_budget(work: &Work, warm: &Warm) -> bool {
 
 /// How a line's session stands for keeping it warm: the session, when its next ping is due, whether or not that time
 /// has come, and when the cache lets the session go; none where it is not to be kept warm.
-fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy) -> Option<Kept> {
+fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy, accounts: &Accounts) -> Option<Kept> {
     let warm = policy.warm.as_ref()?;
     let on_line = |run: RunId| line_of_run(flow, work, run) == Some(line);
     let session = work::sessions::number_at(work, line, work.tick());
@@ -140,6 +162,10 @@ fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy) 
     let (last_round, run, k) = last_round?;
     // As many pings as the session's model makes worth it.
     let model = (work.ran.iter().rev()).find(|t| t.run == run && t.round == k)?;
+    // The session's cache is the account's its last call ran under, which a ping under the account in use must be.
+    if accounts.named(model.on.account.as_deref()) != accounts.in_use() {
+        return None;
+    }
     let most = warm.most.get(&model.on.model).copied().unwrap_or(0);
     let pings: Vec<&work::Pinged> = (work.pinged.iter())
         .filter(|p| p.line == line && p.session == session && p.at > last_round)

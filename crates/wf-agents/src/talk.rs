@@ -2718,8 +2718,9 @@ const READ_ENOUGH: u64 = 80;
 
 /// What a fork answered, in words: each field of its return that holds something, by its key, each cut at
 /// [`FORK_FIELD`] characters, saying where it is kept whole; else what its program said; then what it cost, the share
-/// of the session its first request read from the cache, said plainly where under [`READ_ENOUGH`] percent, and, where
-/// the session went on past the round asked of, that the fork began at that round's end.
+/// of the session its first request read from the cache, said plainly where under [`READ_ENOUGH`] percent; where the
+/// session went on past the round asked of, that the fork began at that round's end; and where the account the session
+/// ran under was removed, that the fork ran under the account in use instead.
 pub fn forked_said(page: &ForkPage) -> String {
     let mut out = String::new();
     let cut = |text: &str| -> String {
@@ -2776,6 +2777,12 @@ pub fn forked_said(page: &ForkPage) -> String {
             later.join(", ")
         ));
     }
+    if let Some(removed) = &page.removed {
+        out.push_str(&format!(
+            "The session ran under the account {removed}, which was removed: the fork ran under the account in use, \
+             whose cache holds nothing of the session.\n"
+        ));
+    }
     out.push_str(&format!("The answer is kept in {}.\n", page.kept));
     out
 }
@@ -2823,6 +2830,7 @@ mod fork_tests {
             round: (7, 1),
             later: Vec::new(),
             kept: "/k/7-1.fork.1.answer".to_string(),
+            removed: None,
         }
     }
 
@@ -2852,6 +2860,14 @@ mod fork_tests {
             forked_said(&unknown)
                 .contains("What its first request read from the cache, or what the session held, is not known.")
         );
+        let removed = ForkPage {
+            removed: Some("home".to_string()),
+            ..page()
+        };
+        assert!(forked_said(&removed).contains(
+            "The session ran under the account home, which was removed: the fork ran under the account in use"
+        ));
+        assert!(!forked_said(&page()).contains("which was removed"));
     }
 
     #[test]

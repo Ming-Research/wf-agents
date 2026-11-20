@@ -1,9 +1,13 @@
 //! The check of the outside the agents' rounds need, which the engine takes by itself while they wait for it, with no
-//! round and in no work's session: the sign-in of their command line, as `auth status` says it in the agents' directory
-//! of settings; the network to their service, by a look at its host; and, once both are well, one short request on
-//! the cheapest level's model, in a session that is not kept, with the agents' command, directory of settings and
-//! environment. What is down is said by the first of them that is, the short request's failure told apart as a round's
-//! is ([`failure`]).
+//! round and in no work's session, under the account in use: the sign-in of their command line, as `auth status` says
+//! it in the agents' directory of settings; the network to their service, by a look at its host; and, once both are
+//! well, one short request on the cheapest level's model, in a session that is not kept, with the agents' command,
+//! directory of settings and environment, built as a round's is, with the account's token, at each check. What is down
+//! is said by the first of them that is, the short request's failure told apart as a round's is ([`failure`]).
+//!
+//! Under a token the program says it is signed in whatever the token, saying nothing of it: only the short request finds
+//! a token the service refuses, as a command line that cannot run. A token the keychain cannot give is that too, in the
+//! keychain's words. A token not yet kept is checked the same way before it is kept ([`Check::check_token`]).
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -12,12 +16,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use driver::Found;
-use service::{Clock, Network, Outside, SystemClock};
+use service::{Clock, Network, Outside, SystemClock, Token, Tokens};
 use tokio::process::Command;
 use work::Time;
 
-use crate::settings::Settings;
-use crate::{cli, failure, process};
+use crate::settings::{Agents, Settings};
+use crate::{account, cli, failure, process};
 
 /// How long the command line is given to say whether it is signed in.
 const SIGN_IN_WAIT: Duration = Duration::from_secs(30);
@@ -33,8 +37,13 @@ const REQUEST: &str = "Reply with the single word ok.";
 pub struct Check {
     /// The agents' command line, as `agents.command` names it.
     command: String,
-    /// The environment it is given, as a round's is ([`cli::environment`]), its directory of settings among it.
-    env: Vec<(String, String)>,
+    /// How the agents are run, of which the environment is built at each check, as a round's is
+    /// ([`cli::environment`]), its directory of settings among it.
+    agents: Agents,
+    /// The engine's own environment, of which the command line is given what a round is.
+    engine: Vec<(String, String)>,
+    /// What keeps the tokens of the accounts.
+    tokens: Arc<dyn Tokens>,
     /// Which of its settings files it reads, as a round's does.
     setting_sources: String,
     /// The model of the cheapest level.
@@ -52,10 +61,11 @@ pub struct Check {
 }
 
 impl Check {
-    /// The check the settings say: with the agents' command, directory of settings and environment, the short request
-    /// on the cheapest level's model, and the network looked at on the service's host ([`failure::Look`]); what it
-    /// finds down is said in the words beside the flows of a program's end and of the check's own.
-    pub fn of(settings: &Settings, cost: &flow::agents::Cost) -> Result<Check, String> {
+    /// The check the settings say: with the agents' command, directory of settings and environment, the token of the
+    /// account it is taken under as what keeps the tokens gives it, the short request on the cheapest level's model,
+    /// and the network looked at on the service's host ([`failure::Look`]); what it finds down is said in the words
+    /// beside the flows of a program's end and of the check's own.
+    pub fn of(settings: &Settings, cost: &flow::agents::Cost, tokens: Arc<dyn Tokens>) -> Result<Check, String> {
         let levels = settings.levels()?;
         let cheapest =
             (levels.levels().first()).ok_or_else(|| "agents.levels: there is at least one level".to_string())?;
@@ -64,7 +74,9 @@ impl Check {
             .ok_or_else(|| format!("agents.levels: there is no level {:?}", cheapest.name))?;
         Ok(Check {
             command: settings.agents.command.clone(),
-            env: cli::environment(&settings.agents, std::env::vars()),
+            agents: settings.agents.clone(),
+            engine: std::env::vars().collect(),
+            tokens,
             setting_sources: settings.agents.setting_sources.clone(),
             model,
             dir: std::env::temp_dir(),
@@ -75,20 +87,35 @@ impl Check {
         })
     }
 
-    /// The agents' command line with these arguments, its environment and its directory.
-    fn command(&self, args: &[&str]) -> Command {
+    /// The agents' command line with these arguments, its environment, with the token where one is given, and its
+    /// directory.
+    fn command(&self, args: &[&str], token: Option<&Token>) -> Command {
         let mut command = Command::new(&self.command);
         command
             .args(args)
             .env_clear()
-            .envs(self.env.iter().cloned())
+            .envs(cli::environment(&self.agents, self.engine.iter().cloned(), token))
             .current_dir(&self.dir);
         command
     }
 
-    /// What is down, of the sign-in, the network and the service, in that order; well where none is.
-    async fn found(&self) -> Found {
-        if let Some(down) = self.signed_out().await {
+    /// What is down under the account of this name, or with none on the directory's sign-in: its token not given, as a
+    /// command line that cannot run; else as [`Check::found`] finds it.
+    async fn under(&self, account: Option<String>) -> Found {
+        match account::token_of(&self.tokens, account.as_deref()).await {
+            Ok(token) => self.found(token.as_ref()).await,
+            Err(why) => Found::Down {
+                failure: decide::run::Failure::CannotRun,
+                why,
+                resets: None,
+            },
+        }
+    }
+
+    /// What is down, of the sign-in, the network and the service, in that order, under this token, or with none on the
+    /// directory's sign-in; well where none is.
+    async fn found(&self, token: Option<&Token>) -> Found {
+        if let Some(down) = self.signed_out(token).await {
             return down;
         }
         let network = self.network.clone();
@@ -100,18 +127,18 @@ impl Check {
                 resets: None,
             };
         }
-        self.request().await
+        self.request(token).await
     }
 
     /// What is down where the command line is not signed in, as it says in its directory of settings, or cannot be
     /// started; none where it says it is signed in, or says what cannot be read, which the short request then tells.
-    async fn signed_out(&self) -> Option<Found> {
+    async fn signed_out(&self, token: Option<&Token>) -> Option<Found> {
         let cannot = |why: String| Found::Down {
             failure: decide::run::Failure::CannotRun,
             why,
             resets: None,
         };
-        let output = match process::output(self.command(&["auth", "status"]), SIGN_IN_WAIT).await {
+        let output = match process::output(self.command(&["auth", "status"], token), SIGN_IN_WAIT).await {
             Ok(output) => output,
             Err(why) => return Some(cannot(why)),
         };
@@ -124,7 +151,7 @@ impl Check {
 
     /// What the short request found: well where the service answered it with a message that is no error, else what
     /// is down as its failure tells it.
-    async fn request(&self) -> Found {
+    async fn request(&self, token: Option<&Token>) -> Found {
         let args = [
             "-p",
             "--model",
@@ -139,7 +166,7 @@ impl Check {
             &self.setting_sources,
             REQUEST,
         ];
-        let output = match process::output(self.command(&args), REQUEST_WAIT).await {
+        let output = match process::output(self.command(&args, token), REQUEST_WAIT).await {
             Ok(output) => output,
             Err(why) => {
                 // One that did not end in time had no answer from the service; one that cannot be started is the command
@@ -187,8 +214,12 @@ impl Check {
 }
 
 impl Outside for Check {
-    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
-        Box::pin(self.found())
+    fn check(&self, account: Option<String>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+        Box::pin(self.under(account))
+    }
+
+    fn check_token(&self, token: Token) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+        Box::pin(async move { self.found(Some(&token)).await })
     }
 }
 
@@ -228,9 +259,12 @@ mod tests {
         );
         std::fs::write(&command, body).unwrap();
         std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let settings = Settings::read(include_str!("../install.sample.toml")).expect("the sample reads");
         Check {
             command: command.display().to_string(),
-            env: vec![("PATH".to_string(), std::env::var("PATH").unwrap_or_default())],
+            agents: settings.agents,
+            engine: vec![("PATH".to_string(), std::env::var("PATH").unwrap_or_default())],
+            tokens: Arc::new(service::KeptTokens::new()),
             setting_sources: "user".to_string(),
             model: "claude-haiku-5-5".to_string(),
             dir: dir.to_path_buf(),
@@ -280,7 +314,7 @@ mod tests {
     async fn a_check_finds_the_outside_well_where_the_sign_in_the_network_and_a_short_request_are() {
         let dir = tempfile::tempdir().unwrap();
         let check = check(dir.path(), &answering(true, ANSWERED), true);
-        assert_eq!(check.check().await, Found::Well);
+        assert_eq!(check.check(None).await, Found::Well);
         let calls = calls(dir.path());
         assert_eq!(calls.len(), 2, "{calls:?}");
         assert_eq!(calls[0], "auth status");
@@ -303,7 +337,7 @@ mod tests {
     async fn a_check_says_what_is_down_by_the_first_of_the_sign_in_the_network_and_the_service_that_is() {
         let dir = tempfile::tempdir().unwrap();
         // Not signed in: neither the network nor the service is tried.
-        let signed_out = check(dir.path(), &answering(false, ANSWERED), true).check().await;
+        let signed_out = check(dir.path(), &answering(false, ANSWERED), true).check(None).await;
         let Found::Down { failure, why, .. } = &signed_out else {
             panic!("{signed_out:?}");
         };
@@ -316,7 +350,7 @@ mod tests {
         assert_eq!(calls(dir.path()), ["auth status"]);
         // Signed in, and the network down: no request is made.
         let dir = tempfile::tempdir().unwrap();
-        let offline = check(dir.path(), &answering(true, ANSWERED), false).check().await;
+        let offline = check(dir.path(), &answering(true, ANSWERED), false).check(None).await;
         assert!(
             matches!(
                 &offline,
@@ -331,7 +365,7 @@ mod tests {
         assert_eq!(calls(dir.path()), ["auth status"]);
         // The service overloaded, and the account at its usage limit, as the short request's failure tells them.
         let dir = tempfile::tempdir().unwrap();
-        let overloaded = check(dir.path(), &answering(true, OVERLOADED), true).check().await;
+        let overloaded = check(dir.path(), &answering(true, OVERLOADED), true).check(None).await;
         assert!(
             matches!(
                 overloaded,
@@ -343,7 +377,7 @@ mod tests {
             "{overloaded:?}"
         );
         let dir = tempfile::tempdir().unwrap();
-        let limited = check(dir.path(), &answering(true, LIMITED), true).check().await;
+        let limited = check(dir.path(), &answering(true, LIMITED), true).check(None).await;
         assert_eq!(
             limited,
             Found::Down {
@@ -354,12 +388,58 @@ mod tests {
         );
     }
 
+    // The check is taken under the account it is asked of, the command line given its token as a round's is; with
+    // none, on the directory's sign-in, given no token; a token not yet kept is checked under itself; and an account
+    // whose token cannot be given is a command line that cannot run, in the words of what keeps the tokens, and
+    // nothing is run for it. A few milliseconds: a shell script run six times.
+    #[tokio::test]
+    async fn a_check_is_taken_under_the_account_asked_of_with_its_token_and_one_whose_token_is_not_given_cannot_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = dir.path().join("tokens");
+        let script = format!(
+            "echo \"${{CLAUDE_CODE_OAUTH_TOKEN:-none}}\" >> '{}'\n{}",
+            tokens.display(),
+            answering(true, ANSWERED)
+        );
+        let mut check = check(dir.path(), &script, true);
+        let kept = service::KeptTokens::new();
+        kept.keep("work", &Token::new("sk-ant-oat01-secret".to_string()))
+            .unwrap();
+        check.tokens = Arc::new(kept);
+        assert_eq!(check.check(Some("work".to_string())).await, Found::Well);
+        assert_eq!(check.check(None).await, Found::Well);
+        let fresh = Token::new("sk-ant-oat01-fresh".to_string());
+        assert_eq!(check.check_token(fresh).await, Found::Well);
+        let given = std::fs::read_to_string(&tokens).unwrap();
+        assert_eq!(
+            given.lines().collect::<Vec<_>>(),
+            [
+                "sk-ant-oat01-secret",
+                "sk-ant-oat01-secret",
+                "none",
+                "none",
+                "sk-ant-oat01-fresh",
+                "sk-ant-oat01-fresh"
+            ]
+        );
+        let ran = calls(dir.path()).len();
+        let Found::Down { failure, why, .. } = check.check(Some("home".to_string())).await else {
+            panic!("a token not given is no outside well");
+        };
+        assert_eq!(failure, Failure::CannotRun);
+        assert!(
+            why.starts_with("the token of the account home could not be read: "),
+            "{why}"
+        );
+        assert_eq!(calls(dir.path()).len(), ran, "nothing is run for it");
+    }
+
     #[tokio::test]
     async fn a_command_line_that_cannot_be_started_cannot_run() {
         let dir = tempfile::tempdir().unwrap();
         let mut check = check(dir.path(), "", true);
         check.command = dir.path().join("missing").display().to_string();
-        let found = check.check().await;
+        let found = check.check(None).await;
         assert!(
             matches!(
                 found,
@@ -372,7 +452,9 @@ mod tests {
         );
         // One whose sign-in says what cannot be read, and whose request prints nothing, never began.
         let dir = tempfile::tempdir().unwrap();
-        let found = self::check(dir.path(), "echo 'what?' >&2; exit 1", true).check().await;
+        let found = self::check(dir.path(), "echo 'what?' >&2; exit 1", true)
+            .check(None)
+            .await;
         let Found::Down { failure, why, .. } = &found else {
             panic!("{found:?}");
         };
