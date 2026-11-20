@@ -8,10 +8,11 @@
 
 use std::collections::BTreeMap;
 
-use decide::{Decision, Holder, Maker, Records, RunId, Waited};
+use decide::{Decision, Holder, Records, RunId};
 use work::{Ask, Call, Stretch, Time, Went, Work};
 
-use crate::{DEPENDENCIES, Kept, Span, owner};
+use crate::attention::on_items;
+use crate::{Kept, Span, owner};
 
 /// Each stretch of the work's time that ran, from its begin to its end, one under way to `now`: each round, a model's
 /// where `model` says its run is an agent's, else the tools'; and each call of a tool, the tools', from when it was made
@@ -140,13 +141,6 @@ fn waited(kept: &Kept<'_>, records: &Records, then: owner::Shared<'_>) -> Went {
         Decision::Wait { on, .. } if on.iter().any(on_items) => Went::Items,
         _ => Went::Other,
     }
-}
-
-/// Whether this is a wait for the items the work's item depends on: a precondition only they make hold, as they merge.
-fn on_items(waited: &Waited) -> bool {
-    matches!(waited, Waited::Precondition { by, .. }
-        if !by.is_empty()
-            && by.iter().all(|maker| matches!(maker, Maker::Outside { source } if source == DEPENDENCIES)))
 }
 
 #[cfg(test)]

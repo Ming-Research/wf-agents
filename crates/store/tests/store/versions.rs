@@ -58,6 +58,8 @@ fn a_work_s_moves_and_what_its_time_went_to_read_back_as_written_its_records_as_
     d.work.onto(Time(START), Some("a".to_string()), Reading::default());
     d.wrote("request", Outsider::Person, None);
     d.end(hands_in(&[("text", None)]));
+    // Saved as it was recorded, before the move; the move is then saved as the work's only new entry.
+    store.save(number, &d.work).expect("the work is saved as recorded");
     let reading = Reading {
         cells: [(CellId::from("write"), CellId::from("drafting"))]
             .into_iter()

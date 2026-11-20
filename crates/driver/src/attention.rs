@@ -317,7 +317,7 @@ impl Standing {
 }
 
 /// Whether what the work waits for is the items its item depends on, which only they can give by merging.
-fn on_items(waited: &Waited) -> bool {
+pub fn on_items(waited: &Waited) -> bool {
     match waited {
         Waited::Precondition { by, .. } => {
             !by.is_empty()

@@ -8,6 +8,7 @@ use driver::{Asked, Misread};
 use engine::Why;
 use flow::Compiled;
 use rusqlite::Connection;
+use store::Storage;
 
 use super::*;
 

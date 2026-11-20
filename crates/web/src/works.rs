@@ -2422,7 +2422,7 @@ impl Now {
                                 ),
                             },
                             // The work waits for those of the items its item depends on that have not merged.
-                            waited if on_items(waited) => Waited::Items {
+                            waited if driver::attention::on_items(waited) => Waited::Items {
                                 items: unmerged.iter().map(|on| on.item.0).collect(),
                                 cancelled: (unmerged.iter())
                                     .filter(|on| on.cancelled)
