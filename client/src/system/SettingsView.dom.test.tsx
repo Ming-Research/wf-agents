@@ -268,28 +268,33 @@ describe('the Settings view', () => {
     const page = draw(s.source);
     await settle();
     const rows = accountRows(page);
-    expect(page.querySelector('table[aria-label="The accounts"] thead')?.textContent).toContain('Usage');
-    expect(rows.map((r) => r.firstElementChild?.textContent)).toEqual(['work', 'home', 'old']);
+    const heads = [...page.querySelectorAll('table[aria-label="The accounts"] thead th')].map((h) => h.textContent);
+    expect(heads).toEqual(['Account', 'Usage', '']);
+    expect(rows.map((r) => r.firstElementChild?.querySelector('.mono')?.textContent)).toEqual(['work', 'home', 'old']);
     expect(rows[0].querySelector('.account-in-use')?.textContent).toBe('in use');
     expect(rows[0].querySelector('button')).toBeNull();
     expect(buttons(rows[1])).toEqual(['Use', 'Remove']);
-    // Each window the service named, by its own name, on one line; the whole line and when it was said on pointing.
-    const work = rows[0].children[3] as HTMLElement;
-    expect(work.textContent).toMatch(/^five_hour 20% · resets [^·]+ · seven_day 67% · resets [^·]+$/);
+    // Each window the service named, by its own name, with how long until it resets and when, on one line; the whole
+    // line and when it was said on pointing.
+    const work = rows[0].children[1] as HTMLElement;
+    expect(work.textContent).toMatch(
+      /^five_hour 20% · resets in (2h 0m|1h 59m) \(\d\d-\d\d \d\d:\d\d\) · seven_day 67% · resets in (4d 0h|3d 23h) \(\d\d-\d\d \d\d:\d\d\)$/,
+    );
     expect(work.title.split('\n')).toEqual([work.textContent, expect.stringMatching(/^Said by the service /)]);
     expect(work.querySelector('.warn-text')).toBeNull();
     // The engine's limit, and a window the service no longer lets through, in the look of a warning, which pointing
     // explains.
-    const home = rows[1].children[3] as HTMLElement;
-    expect(home.textContent).toMatch(/^at its limit · resets [^·]+ · seven_day 100% · resets [^·]+$/);
+    const home = rows[1].children[1] as HTMLElement;
+    expect(home.textContent).toMatch(/^at its limit · resets in [^·]+ · seven_day 100% · resets in [^·]+$/);
     const warned = [...home.querySelectorAll('.warn-text')].map((w) => w.textContent?.split(' ')[0]);
     expect(warned).toEqual(['at', 'seven_day']);
     expect(home.title).toContain('In the look of a warning: the account at its limit, or a window the service lets');
-    expect(rows[2].children[3].textContent).toBe('not seen');
-    // The token added 350 days ago ends within a month: its row says so, in the look of a warning.
-    expect(rows[2].children[2].className).toBe('warn-text');
-    expect(rows[2].children[2].textContent).toContain(' · ends in 15 days');
-    expect(rows[0].children[2].className).toBe('');
+    expect(rows[2].children[1].textContent).toBe('not seen');
+    // The token added 350 days ago ends within a month: its row says so beside its name, in the look of a warning; when
+    // each was added and until when its token lasts is said on pointing.
+    expect(rows[2].children[0].querySelector('.warn-text')?.textContent).toMatch(/^ · its token ends in (15d 0h|14d 23h)$/);
+    expect(rows[0].children[0].querySelector('.warn-text')).toBeNull();
+    expect((rows[0].children[0] as HTMLElement).title).toMatch(/^Added [-\d]+ [:\d]+; its token lasts until [-\d]+ [:\d]+\.$/);
     expect(page.textContent).not.toContain('No account is');
     expect(page.querySelector('code.command')?.textContent).toBe('claude setup-token');
   });
@@ -305,9 +310,9 @@ describe('the Settings view', () => {
     const page = draw(s.source, s.works);
     await settle();
     expect(s.looks).toBe(1);
-    expect(accountRows(page)[1].children[3].textContent).toBe('looking');
+    expect(accountRows(page)[1].children[1].textContent).toBe('looking');
     // A failed look is one word in the look of a failure, its why on pointing.
-    const away = accountRows(page)[2].children[3] as HTMLElement;
+    const away = accountRows(page)[2].children[1] as HTMLElement;
     expect(away.textContent).toBe('failed');
     expect(away.querySelector('.failed')?.textContent).toBe('failed');
     expect(away.title).toBe(`failed\nThe latest look under it failed: ${failed}`);
@@ -321,7 +326,7 @@ describe('the Settings view', () => {
     act(() => s.changed({ works: [], items: false, copies: false, accounts: true }));
     await settle();
     expect(s.accountReads).toBe(reads + 1);
-    expect(accountRows(page)[1].children[3].textContent).toContain('seven_day 100%');
+    expect(accountRows(page)[1].children[1].textContent).toContain('seven_day 100%');
     expect(s.looks, 'looked once, as it opened').toBe(1);
   });
 
@@ -329,7 +334,7 @@ describe('the Settings view', () => {
     const s = settingsSource();
     const accounts = fixtureAccounts();
     const old = accounts.accounts[2];
-    const atLimit = { resets: accounts.now + 1 };
+    const atLimit = { resets: accounts.now + 3 * 60 * 60_000 };
     accounts.accounts[2] = { ...old, usage: { ...old.usage, seen: accounts.now, atLimit } };
     s.accounts = accounts;
     s.source.look = async () => {
@@ -337,12 +342,37 @@ describe('the Settings view', () => {
     };
     const page = draw(s.source);
     await settle();
-    const spent = accountRows(page)[2].children[3] as HTMLElement;
-    expect(spent.textContent).toMatch(/^at its limit · resets [^·]+$/);
+    const spent = accountRows(page)[2].children[1] as HTMLElement;
+    expect(spent.textContent).toMatch(/^at its limit · resets in (3h 0m|2h 59m) \(\d\d-\d\d \d\d:\d\d\)$/);
     expect(spent.querySelector('.warn-text')?.textContent).toBe(spent.textContent);
     expect(page.querySelector('[role="alert"]')?.textContent).toBe(
       'The usage was not looked at: The engine has stopped.',
     );
+  });
+
+  it('counts down to a reset while the view stays open, and says a reset that has passed', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    try {
+      const s = settingsSource();
+      const accounts = fixtureAccounts();
+      const old = accounts.accounts[2];
+      const windows = [
+        { name: 'five_hour', utilization: 0.5, resets: accounts.now + 90 * 60_000, allowed: true },
+        { name: 'seven_day', utilization: 0.1, resets: accounts.now - 60_000, allowed: true },
+      ];
+      accounts.accounts[2] = { ...old, usage: { ...old.usage, seen: accounts.now, windows } };
+      s.accounts = accounts;
+      const page = draw(s.source);
+      await settle();
+      const cell = accountRows(page)[2].children[1];
+      expect(cell.textContent).toMatch(
+        /^five_hour 50% · resets in 1h 30m \(\d\d-\d\d \d\d:\d\d\) · seven_day 10% · reset \d\d-\d\d \d\d:\d\d$/,
+      );
+      act(() => vi.advanceTimersByTime(10 * 60_000));
+      expect(cell.textContent).toMatch(/^five_hour 50% · resets in 1h 20m /);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('takes an account at once with Use, and asks once beside an account before removing it', async () => {
@@ -392,7 +422,7 @@ describe('the Settings view', () => {
     await act(async () => held.answer?.({ atLimit: true, resets: Date.UTC(2026, 10, 19, 15), notLetGo: null }));
     await settle();
     expect(page.querySelector('.said')?.textContent).toMatch(
-      /^Added max: its token is at its usage limit, which resets /,
+      /^Added max: its token is at its usage limit, which resets in (3h 0m|2h 59m) \(\d\d-\d\d \d\d:\d\d\)\.$/,
     );
     expect(accountBox(page, 'token').value).toBe('');
     expect(accountBox(page, 'name').value).toBe('');
@@ -455,8 +485,8 @@ describe('the Settings view', () => {
     s.answer = async () => ({ atLimit: false, resets: null, notLetGo: 'old: User interaction is not allowed.' });
     const page = draw(s.source);
     await settle();
-    expect(accountRows(page)[1].children[3].textContent).not.toContain('at its limit');
-    expect(accountRows(page)[1].children[3].textContent).toContain('seven_day 100%');
+    expect(accountRows(page)[1].children[1].textContent).not.toContain('at its limit');
+    expect(accountRows(page)[1].children[1].textContent).toContain('seven_day 100%');
     act(() => button(accountRows(page)[2], 'Remove').click());
     act(() => button(accountRows(page)[2], 'Remove it').click());
     await settle();
