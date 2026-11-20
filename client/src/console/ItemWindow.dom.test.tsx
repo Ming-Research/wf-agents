@@ -58,6 +58,7 @@ const pageOf = (i: Item, speaking: Speaking[] = SPEAKING): PageState => ({
     level: i.level,
     project: i.project,
     history: i.history,
+    outline: outlineOf(ASKING),
     flow: ASKING,
     cells: [],
     blocks: [],
