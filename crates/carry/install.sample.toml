@@ -93,10 +93,13 @@ permissions = { locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
 # setting_sources = "user"
 # The program is given only these variables of the engine's environment: PATH, HOME, USER, LANG and LC_*, TMPDIR, TERM
 # and SHELL, and those named here, such as a proxy; none of them reaches a command an agent runs, which the program is
-# told to scrub of credentials. The agents run under the account in use on the Settings view and no other credential:
-# ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN, which the program would take above it, are refused, and so are the
-# carrier's own variables, CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CONFIG_DIR and CLAUDE_CODE_SUBPROCESS_ENV_SCRUB. The program's
-# directory of settings and sessions is the engine's, profile/ in the data directory, made where it is missing.
+# told to scrub of credentials. The program runs under no credential but the accounts added on the Settings view: a
+# round and a keep-warm ping under the account in use, a fork under its session's account or the one in use, a look at
+# the usage under each account, and the check of a token under that token. ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN,
+# which the program would take above an account's token, are refused, and so are the carrier's own variables,
+# CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CONFIG_DIR and CLAUDE_CODE_SUBPROCESS_ENV_SCRUB. The program's directory of settings
+# and sessions is the engine's, profile/ in the data directory, made where it is missing; the engine does not start
+# while its settings.json names apiKeyHelper or one of those credentials in its env.
 # env = ["HTTPS_PROXY"]
 # What a work's rounds may spend in all, in dollars: once a round ends with the work over it, the work is paused for
 # the owner, who may let it on. Left out, there is no budget.

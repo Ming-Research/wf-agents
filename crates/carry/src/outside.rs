@@ -17,7 +17,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use driver::Found;
+use driver::{Found, Said};
 use service::{Clock, Heard, Network, Outside, SystemClock, Token, Tokens};
 use tokio::process::Command;
 use work::Time;
@@ -120,10 +120,7 @@ impl Check {
                 resets: None,
             })
         };
-        let Some(name) = account else {
-            return cannot(self.said.no_account.clone());
-        };
-        match account::token_of(&self.tokens, Some(&name)).await {
+        match account::token_of(&self.tokens, account.as_deref(), &self.said.no_account).await {
             Ok(token) => self.found(&token).await,
             Err(why) => cannot(why),
         }
@@ -145,9 +142,37 @@ impl Check {
         self.request(token).await
     }
 
-    /// What the short request found: well where the service answered it with a message that is no error, else what
-    /// is down as its failure tells it; with the windows of usage its stream named, where it named any.
+    /// What the short request heard, as [`Check::asked`] finds it, said for every caller alike: words of the program's
+    /// that hold the token hold it no more, and a request that met the usage limit, where the service named no window,
+    /// says the account is at its limit, with its reset where it was said.
     async fn request(&self, token: &Token) -> Heard {
+        let (found, said) = self.asked(token).await;
+        let found = match found {
+            Found::Down { failure, why, resets } if !token.secret().is_empty() => Found::Down {
+                failure,
+                why: why.replace(token.secret(), "…"),
+                resets,
+            },
+            found => found,
+        };
+        let usage = match (&found, said) {
+            (_, Some(said)) => Some(said),
+            (
+                Found::Down {
+                    failure: decide::run::Failure::UsageLimit,
+                    resets,
+                    ..
+                },
+                None,
+            ) => Some(Said::Limit { resets: *resets }),
+            (_, None) => None,
+        };
+        Heard { found, usage }
+    }
+
+    /// What the short request found: well where the service answered it with a message that is no error, else what
+    /// is down as its failure tells it; with what its stream said of the usage, where it said anything.
+    async fn asked(&self, token: &Token) -> (Found, Option<Said>) {
         let settings = cli::keeping().to_string();
         let args = [
             "-p",
@@ -174,29 +199,25 @@ impl Check {
                     true => decide::run::Failure::Unavailable,
                     false => failure::of(&why, &failure::Said::default(), None),
                 };
-                return Found::Down {
+                let down = Found::Down {
                     failure,
                     why,
                     resets: None,
-                }
-                .into();
+                };
+                return (down, None);
             }
         };
         let mut stream = cli::Stream::default();
         for line in output.stdout.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
             stream.line(line);
         }
-        let usage = stream.usage().map(<[_]>::to_vec).unwrap_or_default();
-        let heard = |found: Found| Heard {
-            found,
-            usage: usage.clone(),
-        };
+        let said = stream.usage().cloned();
         if stream.answered() {
-            return heard(Found::Well);
+            return (Found::Well, said);
         }
         let had_result = stream.has_result();
         let no = match stream.read(cli::Begin::New, 0) {
-            Ok(_) => return heard(Found::Well),
+            Ok(_) => return (Found::Well, said),
             Err(no) => no,
         };
         // What it said, as a round's failure says it: its result's error, or else the end of what it wrote of itself.
@@ -214,7 +235,7 @@ impl Check {
             .then(|| failure::resets(&why, &no.said, now, &failure::zone_offset))
             .flatten()
             .map(Time);
-        heard(Found::Down { failure, why, resets })
+        (Found::Down { failure, why, resets }, said)
     }
 }
 
@@ -343,7 +364,7 @@ mod tests {
         assert_eq!(heard.found, Found::Well);
         assert_eq!(
             heard.usage,
-            [week()],
+            Some(Said::Windows(vec![week()])),
             "the account's usage, as the request's stream names it"
         );
         let calls = calls(dir.path());
@@ -368,6 +389,8 @@ mod tests {
         assert_eq!(lines(dir.path(), "given"), [format!("sk-ant-oat01-secret {profile}")]);
     }
 
+    // A few milliseconds: a shell script run three times. The order the check asks in, which keeps a request from
+    // being spent where no account is in use or the network is down.
     #[tokio::test]
     async fn a_check_says_what_is_down_by_the_first_of_the_account_the_network_and_the_service_that_is() {
         let dir = tempfile::tempdir().unwrap();
@@ -424,13 +447,45 @@ mod tests {
         );
         assert_eq!(
             limited.usage,
-            [Window {
+            Some(Said::Windows(vec![Window {
                 name: "seven_day".to_string(),
                 utilization: None,
                 resets: Some(Time(1_793_394_000_000)),
                 allowed: false,
-            }]
+            }]))
         );
+    }
+
+    // A few milliseconds: a shell script run twice. Every caller of the check, the owner's look and the check of a
+    // token among them, is given words that hold no token and a limit that names no window; tested once, here.
+    #[tokio::test]
+    async fn the_check_says_the_program_s_words_without_the_token_and_a_limit_it_named_no_window_of() {
+        let dir = tempfile::tempdir().unwrap();
+        let said_back = "echo 'Invalid bearer token sk-ant-oat01-secret' >&2; exit 1";
+        let heard = check(dir.path(), said_back, true).check(Some("work".to_string())).await;
+        let Found::Down { failure, why, .. } = &heard.found else {
+            panic!("{heard:?}");
+        };
+        assert_eq!(*failure, Failure::CannotRun);
+        assert!(why.ends_with("Invalid bearer token …"), "{why}");
+        assert!(!why.contains("sk-ant"), "{why}");
+        // A limit met with no event, the result's words saying its reset: the account is at its limit.
+        let words = r#"{"type":"system","subtype":"init","claude_code_version":"2.1.323"}
+{"type":"result","subtype":"success","is_error":true,"result":"You've hit your limit · resets 9pm (UTC)","total_cost_usd":0,"usage":{"input_tokens":0,"output_tokens":0}}"#;
+        let dir = tempfile::tempdir().unwrap();
+        let heard = check(dir.path(), &answering(words), true)
+            .check(Some("work".to_string()))
+            .await;
+        let Found::Down {
+            failure: Failure::UsageLimit,
+            resets,
+            ..
+        } = heard.found
+        else {
+            panic!("{heard:?}");
+        };
+        assert!(resets.is_some(), "the reset its words say");
+        assert_eq!(heard.usage, Some(Said::Limit { resets }));
     }
 
     // A token not yet kept is checked under itself, and an account whose token cannot be given is a command line that

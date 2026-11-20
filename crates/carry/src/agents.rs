@@ -363,11 +363,11 @@ impl Rounds for Agents {
     fn ping(&self, ping: Ping, reply: PingReply) {
         let inner = self.inner.clone();
         tokio::spawn(async move {
-            let mut usage = Vec::new();
+            let mut usage = None;
             let pinged = inner.ping(&ping, &mut usage).await;
             // Said before the ping's end, under the account the ping was handed out with.
-            if let Some(account) = ping.account.clone().filter(|_| !usage.is_empty()) {
-                reply.usage(account, usage);
+            if let (Some(account), Some(said)) = (ping.account.clone(), usage) {
+                reply.usage(account, said);
             }
             match pinged {
                 Ok(spent) => reply.ended(spent),
@@ -416,11 +416,31 @@ impl Inner {
             Ok(on) => on,
             Err(why) => return failed_before(round, line, left, why),
         };
+        // A round given anew is given the token of the account it was handed out with, which every try of it is given,
+        // taken before anything changes the worktree or the branch: one that cannot be given, as with no account in
+        // use, fails the round as a command line that cannot run, nothing changed and nothing sent, in the words of
+        // what keeps the tokens or beside the flows. A try left by an engine that ended goes on with none.
+        let begun = match left {
+            Some(left) => Begun::Left(left),
+            None => match account::token_of(&self.tokens, round.account.as_deref(), &of.beside.cost.check.no_account)
+                .await
+            {
+                Ok(token) => Begun::Anew(token, round.account.clone().unwrap_or_default()),
+                Err(why) => {
+                    return Ok(Carried::Failed(
+                        why,
+                        Failure::CannotRun,
+                        failure::Said::default(),
+                        Spent::default(),
+                    ));
+                }
+            },
+        };
         let dir = match git::worktree(&place) {
             Ok(dir) => dir,
-            Err(why) => return failed_before(round, line, left, why),
+            Err(why) => return failed_before(round, line, begun.left(), why),
         };
-        let main = if round.cell.takes_main && left.is_none() {
+        let main = if round.cell.takes_main && matches!(begun, Begun::Anew(..)) {
             self.caught_up(round, &place, of).await?
         } else {
             None
@@ -484,30 +504,16 @@ impl Inner {
         };
         // The session the program lost is begun again under its id, and that is recorded once for the round.
         let recorded = lost_in(work, line, round);
-        let (status, stream, stderr, compactions) = match left {
+        let (status, stream, stderr, compactions) = match begun {
             // The try the engine that ended left, read as of a try that ended by itself, but for how its program ended,
             // which no process of the engine saw ([`Inner::left`]). Nothing is given the session again.
-            Some(left) => {
+            Begun::Left(left) => {
                 if left.anew {
                     begin = Begin::New;
                 }
                 (None, left.stream, String::new(), left.compactions)
             }
-            None => {
-                // The token of the account the round was handed out with, which every try of it is given; one that
-                // cannot be given, or none where none was in use, fails the round as a command line that cannot run,
-                // and nothing is sent.
-                let (token, under) = match account::token_of(&self.tokens, round.account.as_deref()).await {
-                    Ok(token) => (token, round.account.clone().unwrap_or_default()),
-                    Err(why) => {
-                        return Ok(Carried::Failed(
-                            why,
-                            Failure::CannotRun,
-                            failure::Said::default(),
-                            Spent::default(),
-                        ));
-                    }
-                };
+            Begun::Anew(token, under) => {
                 // What the round is sent in the session as it stands, and in one that holds nothing: one begun under
                 // the round, or compacted during it.
                 let about = context::For {
@@ -600,8 +606,8 @@ impl Inner {
                             // says it, whichever account is in use now.
                             if kept.stream.usages() > told_usage {
                                 told_usage = kept.stream.usages();
-                                if let Some(windows) = kept.stream.usage() {
-                                    teller.usage(under.clone(), windows.to_vec());
+                                if let Some(said) = kept.stream.usage() {
+                                    teller.usage(under.clone(), said.clone());
                                 }
                             }
                             if crossed.is_none()
@@ -1240,7 +1246,7 @@ impl Inner {
     /// of which is under way is not pinged, and a ping that has not ended by the time the cache lets the session go is
     /// stopped, since after that it would write the session again for nothing. What the service said of the usage of
     /// the account it ran under is put in `usage`.
-    async fn ping(&self, ping: &Ping, usage: &mut Vec<driver::Window>) -> Result<Spent, (String, Spent)> {
+    async fn ping(&self, ping: &Ping, usage: &mut Option<driver::Said>) -> Result<Spent, (String, Spent)> {
         let failed = |why: String| (why, Spent::default());
         let of = crate::projects::of(&self.projects, &ping.item).map_err(failed)?;
         let said = &of.beside.cost.ping;
@@ -1266,7 +1272,7 @@ impl Inner {
             permissions,
         } = made;
         // The account it was handed out with, which its session's last call ran under, whose cache holds the session.
-        let token = account::token_of(&self.tokens, ping.account.as_deref())
+        let token = account::token_of(&self.tokens, ping.account.as_deref(), &of.beside.cost.check.no_account)
             .await
             .map_err(failed)?;
         let place = git::place(&self.data, &git::tag(&self.installation), ping.work);
@@ -1317,7 +1323,7 @@ impl Inner {
         let mut never = crate::held::Stop::never();
         let ran = process::streamed(command, Some(message), None, &mut never, Some(halted), &mut each).await;
         timer.abort();
-        *usage = stream.usage().map(<[_]>::to_vec).unwrap_or_default();
+        *usage = stream.usage().cloned();
         let marks = marked(&compacted.marks).await;
         let _ = tokio::fs::remove_file(&compacted.marks).await;
         let _ = tokio::fs::remove_file(&compacted.again).await;
@@ -1491,7 +1497,7 @@ impl Inner {
         // The account the session's last try ran under, whose cache holds it; else the one in use, which it says: that
         // one was removed, or the try ran under none. With none in use, no token can be given and nothing is run.
         let (account, instead) = fork.accounts.of_session(made.on.account.as_deref());
-        let token = account::token_of(&self.tokens, account.as_deref()).await?;
+        let token = account::token_of(&self.tokens, account.as_deref(), &of.beside.cost.check.no_account).await?;
         let place = git::place(&self.data, &git::tag(&self.installation), fork.work);
         if !place.dir.exists() && !fork.ended {
             return Err(format!(
@@ -1597,7 +1603,7 @@ impl Inner {
     /// Runs the fork's program in this directory on the session's command line, forked, begun at the message `begins`
     /// names where it names one, given the token of the account it runs under, keeping what it was told, its stream and
     /// its answer beside the round's; gives its return, what its program said at its end, what it cost, what its first
-    /// call read from the cache, the file its answer is kept in, and the windows of usage its stream named.
+    /// call read from the cache, the file its answer is kept in, and what its stream said of the usage.
     async fn forked(
         &self,
         fork: &Fork,
@@ -1701,14 +1707,20 @@ impl Inner {
         };
         let kept = answer.clone().unwrap_or_else(|| text.clone());
         write(&at("answer"), kept.as_bytes()).await?;
-        let usage = stream.usage().map(<[_]>::to_vec).unwrap_or_default();
-        Ok((answer, text, spent, read, at("answer"), usage))
+        Ok((answer, text, spent, read, at("answer"), stream.usage().cloned()))
     }
 }
 
 /// What a fork's program came to: its return, what it said at its end, what it cost, what its first call read from the
-/// cache, the file its answer is kept in, and the windows of usage its stream named.
-type Forking = (Option<String>, String, Spent, Option<u64>, PathBuf, Vec<driver::Window>);
+/// cache, the file its answer is kept in, and what its stream said of the usage, where it said anything.
+type Forking = (
+    Option<String>,
+    String,
+    Spent,
+    Option<u64>,
+    PathBuf,
+    Option<driver::Said>,
+);
 
 /// A checkout at an ended work's worktree's place that a fork ran in: taken away once the fork is done with it, or,
 /// where the fork is given up before, as it is dropped; the work held until it is.
@@ -1992,6 +2004,23 @@ fn measures(
         crossed,
         priced,
     })
+}
+
+/// How a round's program is begun: going on from the try a process of the engine that ended left, or anew, given the
+/// token of the account the round was handed out with, by its name.
+enum Begun {
+    Left(Left),
+    Anew(Token, String),
+}
+
+impl Begun {
+    /// The try left, where the round goes on from one.
+    fn left(self) -> Option<Left> {
+        match self {
+            Begun::Left(left) => Some(left),
+            Begun::Anew(..) => None,
+        }
+    }
 }
 
 /// A try of a round that the process of the engine that gave it left as it ended ([`Inner::left`]).
@@ -2477,12 +2506,12 @@ mod tests {
         assert_eq!(profile, data.join("profile").display().to_string());
         assert_eq!(
             forked.usage,
-            [driver::Window {
+            Some(driver::Said::Windows(vec![driver::Window {
                 name: "seven_day".to_string(),
                 utilization: Some(0.67),
                 resets: Some(work::Time(1_795_129_200_000)),
                 allowed: true,
-            }]
+            }]))
         );
         let mut kept = (*fork.kept).clone();
         kept.ran[0].on.account = Some("home".to_string());
@@ -2518,7 +2547,7 @@ mod tests {
             ..fork.clone()
         };
         let refused = agents.inner.fork(&none).await.expect_err("no account is in use");
-        assert_eq!(refused, "no account is in use");
+        assert_eq!(refused, "No account is in use: take one on the Settings view.");
         assert!(!data.join("token").exists(), "nothing was run");
     }
 
@@ -2854,7 +2883,7 @@ mod tests {
             account: account.map(str::to_string),
         };
         let given = || std::fs::read_to_string(data.join("token")).ok();
-        let mut usage = Vec::new();
+        let mut usage = None;
         agents
             .inner
             .ping(&ping(Some("work")), &mut usage)
@@ -2863,15 +2892,18 @@ mod tests {
         assert_eq!(given().as_deref(), Some("sk-ant-oat01-work"));
         let profile = std::fs::read_to_string(data.join("directory")).expect("its directory");
         assert_eq!(profile, data.join("profile").display().to_string());
-        assert_eq!(usage.len(), 1, "the week's window: {usage:?}");
+        assert!(
+            matches!(&usage, Some(driver::Said::Windows(windows)) if windows.len() == 1),
+            "the week's window: {usage:?}"
+        );
         let args = std::fs::read_to_string(data.join("args")).expect("its arguments");
         let session = session::session(Uuid::nil(), WorkNumber(3), "engineer", 0).to_string();
         assert!(args.lines().any(|a| a == session), "it goes on in the session: {args}");
         assert!(!args.contains("sk-ant"), "{args}");
         std::fs::remove_file(data.join("token")).expect("taken away");
-        let (why, _) = (agents.inner.ping(&ping(None), &mut Vec::new()).await).expect_err("no account");
-        assert_eq!(why, "no account is in use");
-        let (why, _) = (agents.inner.ping(&ping(Some("gone")), &mut Vec::new()).await).expect_err("no token");
+        let (why, _) = (agents.inner.ping(&ping(None), &mut None).await).expect_err("no account");
+        assert_eq!(why, "No account is in use: take one on the Settings view.");
+        let (why, _) = (agents.inner.ping(&ping(Some("gone")), &mut None).await).expect_err("no token");
         assert!(
             why.starts_with("the token of the account gone could not be read: "),
             "{why}"

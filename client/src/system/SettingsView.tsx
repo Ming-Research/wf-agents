@@ -393,9 +393,14 @@ function Accounts() {
   const source = useSystemSource();
   const load = useCallback(() => source.loadAccounts(), [source]);
   const { value: page, failed, read } = useReading(load);
-  // A look spends a short request under each account not heard of lately; reading the accounts spends nothing.
+  // A look spends a short request under each account not heard of lately; reading the accounts spends nothing. A
+  // refused look is said, so that usage not looked at is not taken for the latest.
+  const [lookRefused, setLookRefused] = useState<string | null>(null);
   useEffect(() => {
-    source.look().catch(() => undefined);
+    source.look().then(
+      () => setLookRefused(null),
+      (e: unknown) => setLookRefused(message(e)),
+    );
   }, [source]);
   useChanges((changed) => {
     if (changed.accounts) read();
@@ -499,6 +504,11 @@ function Accounts() {
       {page.inUse === null && (
         <p className="warn-text small">No account is in use, and no agent's round runs until one is.</p>
       )}
+      {lookRefused !== null && (
+        <p className="failed small" role="alert">
+          The usage was not looked at: {lookRefused}
+        </p>
+      )}
       <div className="account-add">
         <label className="small muted" htmlFor="account-name">
           Name
@@ -565,9 +575,7 @@ function AccountRow({ account: a, page, asking, busy, onUse, onAsk, onRemove }: 
         {fullTime(a.lasts).slice(0, 10)}
         {ending && (left > 0 ? ` · ends in ${Math.ceil(left / DAY)} days` : ' · ended')}
       </td>
-      <td>
-        <UsageCell usage={a.usage} limit={a.limit} now={page.now} />
-      </td>
+      <UsageCell usage={a.usage} limit={a.limit} now={page.now} />
       <td>
         {page.inUse === a.name ? (
           <span className="tag account-in-use">in use</span>
@@ -598,65 +606,61 @@ function AccountRow({ account: a, page, asking, busy, onUse, onAsk, onRemove }: 
   );
 }
 
-/// An account's usage: each window the service last named under it, by the name the service gives it, how much of it
-/// is used and when it resets, a window the service no longer lets the account through in without a warning in the
-/// look of a warning, and when the service said it; above them, in the look of a warning, the usage limit the engine
-/// holds the account's rounds at, as its records say, until its reset has passed, since it is what holds the rounds.
-/// While a look under the account is under way it says so; where nothing was heard of the account, that it was not
-/// seen; and a look that failed says why, in the look of a failure.
+/// An account's usage cell, on one line as every cell of the table is: the usage limit the engine holds the account's
+/// rounds at, as its records say, until its reset has passed, since it is what holds the rounds, or else the limit the
+/// service said it met naming no window; each window the service last named under it, by the name the service gives
+/// it, with how much of it is used and when it resets, joined; then "looking" while a look under it is under way, or
+/// "not seen" where nothing was heard of it; and "failed" where its latest look failed. A limit, and a window the
+/// service lets through only with a warning or not at all, are in the look of a warning, and a failed look in the look
+/// of a failure. On pointing, the cell says the whole line, when the service said it, what the warning's colour means,
+/// and why the look failed.
 function UsageCell({ usage, limit, now }: {
   usage: AccountUsage;
   limit: AccountsPage['accounts'][number]['limit'];
   now: number;
 }) {
   const held = limit !== null && (limit.resets === null || limit.resets > now) ? limit : null;
-  const lines: ReactNode[] = [];
-  if (held !== null) {
-    lines.push(
-      <div key="limit" className="warn-text">
-        {held.resets === null ? `at its limit since ${clock(held.since)}` : `at its limit · resets ${clock(held.resets)}`}
-      </div>,
-    );
-  }
+  const atLimit =
+    held !== null
+      ? held.resets === null
+        ? `at its limit since ${clock(held.since)}`
+        : `at its limit · resets ${clock(held.resets)}`
+      : usage.atLimit !== null
+        ? usage.atLimit.resets === null
+          ? 'at its limit'
+          : `at its limit · resets ${clock(usage.atLimit.resets)}`
+        : null;
+  const parts: { text: string; look?: string }[] = [];
+  if (atLimit !== null) parts.push({ text: atLimit, look: 'warn-text' });
   for (const w of usage.windows) {
     const used = w.utilization === null ? '' : ` ${Math.round(w.utilization * 100)}%`;
     const resets = w.resets === null ? '' : ` · resets ${clock(w.resets)}`;
-    lines.push(
-      <div key={w.name} className={w.allowed ? undefined : 'warn-text'}>
-        <span className="mono">{w.name}</span>
-        {used}
-        {resets}
-      </div>,
-    );
+    parts.push({ text: `${w.name}${used}${resets}`, look: w.allowed ? undefined : 'warn-text' });
   }
-  if (usage.seen !== null && usage.windows.length > 0) {
-    lines.push(
-      <div key="seen" className="muted small" title={fullTime(usage.seen)}>
-        seen {clock(usage.seen)}
-      </div>,
-    );
-  }
-  if (usage.looking) {
-    lines.push(
-      <div key="looking" className="muted">
-        looking
-      </div>,
-    );
-  } else if (usage.windows.length === 0 && usage.failed === null && held === null) {
-    lines.push(
-      <div key="unseen" className="muted">
-        not seen
-      </div>,
-    );
-  }
-  if (usage.failed !== null) {
-    lines.push(
-      <div key="failed" className="failed">
-        {usage.failed}
-      </div>,
-    );
-  }
-  return <>{lines}</>;
+  if (usage.looking) parts.push({ text: 'looking', look: 'muted' });
+  else if (parts.length === 0 && usage.failed === null) parts.push({ text: 'not seen', look: 'muted' });
+  if (usage.failed !== null) parts.push({ text: 'failed', look: 'failed' });
+  const title = [
+    parts.map((p) => p.text).join(' · '),
+    usage.seen === null ? null : `Said by the service ${fullTime(usage.seen)}.`,
+    parts.some((p) => p.look === 'warn-text')
+      ? 'In the look of a warning: the account at its limit, or a window the service lets its calls through in only ' +
+        'with a warning or not at all.'
+      : null,
+    usage.failed === null ? null : `The latest look under it failed: ${usage.failed}`,
+  ]
+    .filter((line) => line !== null)
+    .join('\n');
+  return (
+    <td title={title}>
+      {parts.map((p, i) => (
+        <span key={i}>
+          {i > 0 && ' · '}
+          <span className={p.look}>{p.text}</span>
+        </span>
+      ))}
+    </td>
+  );
 }
 
 /// The colours of the meanings the accent keeps clear of, as the page names them.

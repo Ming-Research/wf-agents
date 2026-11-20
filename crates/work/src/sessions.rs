@@ -50,8 +50,8 @@ pub struct RanOn {
     /// it, or one that ran with the program's own default directory.
     #[serde(default)]
     pub directory: Option<String>,
-    /// The name of the account the round was handed out with; none in a try that ran before the account in use was
-    /// the only credential the agents ran under.
+    /// The name of the account the round was handed out with; none in a try that ran before the program ran under no
+    /// credential but the owner's accounts.
     pub account: Option<String>,
 }
 

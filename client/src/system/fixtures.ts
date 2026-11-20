@@ -163,7 +163,7 @@ export function fixtureAccounts(): AccountsPage {
   const now = Date.UTC(2026, 10, 19, 12);
   const day = 24 * 60 * 60 * 1000;
   const hour = 60 * 60 * 1000;
-  const unknown: AccountUsage = { seen: null, windows: [], looking: false, failed: null };
+  const unknown: AccountUsage = { seen: null, windows: [], atLimit: null, looking: false, failed: null };
   const account = (
     name: string,
     addedDaysAgo: number,
@@ -182,12 +182,14 @@ export function fixtureAccounts(): AccountsPage {
       { name: 'five_hour', utilization: 0.2, resets: now + 2 * hour, allowed: true },
       { name: 'seven_day', utilization: 0.67, resets: now + 4 * day, allowed: true },
     ],
+    atLimit: null,
     looking: false,
     failed: null,
   };
   const home: AccountUsage = {
     seen: now - 2 * hour,
     windows: [{ name: 'seven_day', utilization: 1, resets: now + 3 * hour, allowed: false }],
+    atLimit: null,
     looking: false,
     failed: null,
   };

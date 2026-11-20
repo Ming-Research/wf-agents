@@ -361,8 +361,8 @@ pub struct Agents {
     pub permissions: PermissionsAdded,
     /// The names of the variables of the engine's environment the program is given beside those it is always given
     /// (`PATH`, `HOME`, `USER`, `LANG` and `LC_*`, `TMPDIR`, `TERM`, `SHELL`). The carrier's own variables are refused,
-    /// and so is a credential the program takes above an account's token, an API key among them: the account in use is
-    /// the only credential the agents run under.
+    /// and so is a credential the program takes above an account's token, an API key among them: the program runs
+    /// under no credential but the owner's accounts.
     #[serde(default)]
     pub env: Vec<String>,
     /// Which of the program's settings files it reads, as `--setting-sources`; `user` where none is given, so that a
@@ -535,8 +535,9 @@ impl Agents {
         }
         for name in (self.env.iter()).filter(|name| crate::account::ABOVE_TOKEN.contains(&name.as_str())) {
             wrong.push(format!(
-                "agents.env: {name} gives the agents' program a credential it takes above the account in use, which is \
-                 the only one the agents run under: take it out, and add the account on the Settings view"
+                "agents.env: {name} gives the agents' program a credential it takes above an account's token, and it \
+                 runs under no credential but the owner's accounts: take it out, and add the account on the Settings \
+                 view"
             ));
         }
         // What every agent is refused, and the heavy commands of each project's declaration, are held to the lock
@@ -1175,6 +1176,7 @@ mod tests {
         );
     }
 
+    // Microseconds, the sample read: an installation that names another credential for the agents does not start.
     #[test]
     fn the_carriers_own_variables_and_a_credential_above_the_token_named_in_agents_env_are_refused() {
         let named = |names: &str| SAMPLE.replace("# env = [\"HTTPS_PROXY\"]", &format!("env = [{names}]"));
@@ -1194,24 +1196,29 @@ mod tests {
         }
         // An installation that names a credential the program takes above the token does not start.
         let refused = Settings::read(&named("\"ANTHROPIC_API_KEY\", \"ANTHROPIC_AUTH_TOKEN\"")).expect_err("refused");
-        for name in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] {
-            assert!(
-                refused.contains(&format!(
-                    "agents.env: {name} gives the agents' program a credential it takes above the account in use"
-                )),
-                "{refused}"
-            );
-        }
+        assert_eq!(
+            refused,
+            "agents.env: ANTHROPIC_API_KEY gives the agents' program a credential it takes above an account's token, \
+             and it runs under no credential but the owner's accounts: take it out, and add the account on the \
+             Settings view\n\
+             agents.env: ANTHROPIC_AUTH_TOKEN gives the agents' program a credential it takes above an account's \
+             token, and it runs under no credential but the owner's accounts: take it out, and add the account on the \
+             Settings view"
+        );
         assert!(Settings::read(&named("\"LANGUAGE\"")).is_ok());
     }
 
+    // Microseconds, the sample read: the owner is told where the directory went, in the words the engine stops with.
     #[test]
     fn the_directory_of_the_programs_settings_is_refused_with_where_it_went() {
         let named = SAMPLE.replace("[agents]\n", "[agents]\nconfig_dir = \"/data/agents/claude\"\n");
         assert_ne!(named, SAMPLE);
-        let refused = Settings::read(&named).expect_err("refused");
-        assert!(refused.starts_with("agents.config_dir: the engine keeps"), "{refused}");
-        assert!(refused.contains("profile/ in the data directory"), "{refused}");
+        assert_eq!(
+            Settings::read(&named).expect_err("refused"),
+            "agents.config_dir: the engine keeps the agents' program's directory of settings and sessions itself, at \
+             profile/ in the data directory, and gives it as CLAUDE_CONFIG_DIR: move the directory there, so that the \
+             works' sessions go on, and take agents.config_dir out of [agents]."
+        );
     }
 
     #[test]

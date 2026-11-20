@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use decide::run::Failure;
 use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
 use driver::history::Lines;
-use driver::{Accounts, Along, Found, Instead, Policy, Under, Window};
+use driver::{Accounts, Along, Found, Instead, Policy, Said, Under};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
@@ -186,7 +186,7 @@ pub struct Fork {
 /// cache had let go what the fork begins with, where it had: the last call that read it was more than the cache's life
 /// before; the round asked of, by run and number; the later rounds of the session, which the fork leaves out, beginning
 /// at that round's end; the file the answer is kept in; the account the fork ran under, and why that is the account in
-/// use and not the session's, where it is; and the windows of usage the service named under that account, none where
+/// use and not the session's, where it is; and what the service said of the usage of that account, none where
 /// it named none.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Forked {
@@ -201,7 +201,7 @@ pub struct Forked {
     pub kept: String,
     pub account: String,
     pub instead: Option<Instead>,
-    pub usage: Vec<Window>,
+    pub usage: Option<Said>,
 }
 
 /// A keep-warm ping of the session of this number of a line of the work.
@@ -252,9 +252,9 @@ impl PingReply {
         self.send(spent, Some(why));
     }
 
-    /// The agents' service named these windows of the usage of the account of this name, which the ping ran under.
-    pub fn usage(&self, account: String, windows: Vec<Window>) {
-        let _ = self.to.send(Message::Usage { account, windows });
+    /// The agents' service said this of the usage of the account of this name, which the ping ran under.
+    pub fn usage(&self, account: String, said: Said) {
+        let _ = self.to.send(Message::Usage { account, said });
     }
 
     fn send(self, spent: Spent, failed: Option<String>) {
@@ -507,21 +507,19 @@ pub trait Outside: Send + Sync {
     fn check_token(&self, token: Token) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>>;
 }
 
-/// What a check of the outside heard: what it found, and the windows of usage the service named under the account or
-/// the token it was taken under, none where it named none.
+/// What a check of the outside heard: what it found, in words that hold no token, and what the service said of the
+/// usage of the account or of the token it was taken under, none where it said nothing; a short request that met the
+/// usage limit with no word of a window says the account is at its limit.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Heard {
     pub found: Found,
-    pub usage: Vec<Window>,
+    pub usage: Option<Said>,
 }
 
 impl From<Found> for Heard {
     /// What was found, with no word of usage.
     fn from(found: Found) -> Heard {
-        Heard {
-            found,
-            usage: Vec::new(),
-        }
+        Heard { found, usage: None }
     }
 }
 
@@ -1020,9 +1018,9 @@ impl Teller {
         });
     }
 
-    /// The agents' service named these windows of the usage of the account of this name, which the round runs under.
-    pub fn usage(&self, account: String, windows: Vec<Window>) {
-        let _ = self.to.send(Message::Usage { account, windows });
+    /// The agents' service said this of the usage of the account of this name, which the round runs under.
+    pub fn usage(&self, account: String, said: Said) {
+        let _ = self.to.send(Message::Usage { account, said });
     }
 
     /// The service of the agents answered the round with a message that is no error: it serves the round, which a wait

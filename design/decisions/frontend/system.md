@@ -29,14 +29,19 @@ down: it would make the whole file a form to save. An account changed in the fil
 start, where the owner switches accounts to go on at once.
 
 ### decision the-usage-column-names-the-services-windows
-The Settings view's Usage column names each window of an account's usage by the name the service gives it, with how
-much of it is used and when it resets, and when the service said it; a window the service lets through only with a
-warning or not at all, and the usage limit the engine holds the account's rounds at, are in the look of a warning; a
-look under way says so, an account never heard of says it was not seen, and a look that failed says why in the look of
-a failure (decision usage-is-the-services-latest-word).
+The Settings view's Usage column says an account's usage on one line, as every cell of its table does: the usage limit
+the engine holds the account's rounds at, or else the limit the service said with no window, as `at its limit · resets
+…`; each window the service last named, by the name it gives it, with how much of it is used and when it resets, joined
+with ` · ` (`seven_day 4% · resets 11-22 16:00`); then `looking` where a look under the account is under way, or `not
+seen` where nothing was heard of it; and `failed`, one word in the look of a failure, where the latest look failed. A
+limit, and a window the service lets through only with a warning or not at all, are in the look of a warning. On
+pointing, the cell says its whole line, when the service said it, what the warning's colour means and why the look
+failed (decision usage-is-the-services-latest-word).
 Why: The names are the service's, so a window it adds is shown as it comes, with nothing of the page to change; words
 of the page's own for each would be a list kept in step with the service, which would hide a window it did not know
-(judgment). The engine's limit is shown beside the windows since it, not the service's word, is what holds the rounds.
+(judgment). The engine's limit is shown since it, not the service's word, is what holds the rounds. A failed look's why
+is a sentence in some rows only, which the column cannot hold (principle a-column-holds-what-is-alike), and a mark with
+no words is no mark the owner can read (principle every-mark-is-explained).
 
 ### decision settings-are-written-into-the-file-as-it-is
 A change of the settings is written into their file with its comments and its layout kept, only where the file then

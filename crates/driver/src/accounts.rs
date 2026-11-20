@@ -3,10 +3,10 @@
 //! the-account-in-use-is-the-engines-own-state). They are the engine's own state, as the pause of everything is: the
 //! driver reads them as it opens and changes them as the owner acts, and the page asks the driver.
 //!
-//! The account in use is the latest taken that has not been removed since. It is the only credential the agents run
-//! under (decision no-default-credential): with none in use, a round, a ping or a fork that needs it is handed out all
-//! the same, and fails as its token cannot be given. A try of a round records the account it ran under by its name,
-//! apart from the directory of the program's settings it ran with; a try kept before accounts were, none.
+//! The account in use is the latest taken that has not been removed since; the program runs under no credential but
+//! the owner's accounts (decision no-default-credential). With none in use, a round, a ping or a fork that needs it is
+//! handed out all the same, and fails as its token cannot be given. A try of a round records the account it ran under
+//! by its name, apart from the directory of the program's settings it ran with; a try kept before accounts were, none.
 
 use store::{AccountAct, AccountRecord};
 use work::Time;

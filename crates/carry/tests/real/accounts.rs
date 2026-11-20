@@ -19,6 +19,9 @@ use crate::{Fake, On, Real, USED, ended};
 /// The token the tests keep for the account `work`.
 const SECRET: &str = "sk-ant-oat01-a-token-of-the-tests";
 
+/// What the words beside the flows say where no account is in use.
+const NO_ACCOUNT: &str = "No account is in use: take one on the Settings view.";
+
 /// The owner adds the account of this name and takes it, which the loop takes.
 fn added_and_taken(real: &mut Real, name: &str) {
     for what in [AccountAct::Added, AccountAct::Taken] {
@@ -125,7 +128,9 @@ async fn a_round_runs_under_the_account_in_use_given_its_token_and_recording_its
         .of("work")
         .cloned()
         .expect("the account's usage");
-    let windows = usage.seen.expect("its windows").1;
+    let Some((_, driver::Said::Windows(windows))) = usage.seen else {
+        panic!("no windows were said");
+    };
     assert_eq!(windows.len(), 1);
     assert_eq!(
         (windows[0].name.as_str(), windows[0].utilization),
@@ -154,10 +159,7 @@ async fn with_accounts_added_and_none_in_use_nothing_runs_until_the_owner_takes_
     let work = real.add().await;
     real.act(work, Act::Resume);
     real.until(|real| failed(real, work).is_some()).await;
-    assert_eq!(
-        failed(&real, work),
-        Some(("no account is in use".to_string(), Failure::CannotRun))
-    );
+    assert_eq!(failed(&real, work), Some((NO_ACCOUNT.to_string(), Failure::CannotRun)));
     assert!(real.calls().is_empty(), "nothing is run");
     let outage = real
         .service
@@ -192,4 +194,22 @@ async fn a_token_that_cannot_be_given_fails_the_round_as_a_command_line_that_can
         "the token of the account work could not be read: no token is kept under the name work"
     );
     assert_eq!(real.calls().len(), 0, "the program is not run");
+}
+
+// A round given anew takes its token before it takes main in: with no account in use, the build's run takes nothing in
+// and keeps nothing of it, and the program is not run, the work's branch left as the start made it. Git, the start's
+// act and a refused round: well under a second, and the one test of the order.
+#[tokio::test]
+async fn with_no_account_in_use_a_round_that_takes_main_in_changes_nothing() {
+    let mut real = Real::with_no_account(On::Acts, Fake::default(), None, "true");
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| failed(real, work).is_some()).await;
+    assert_eq!(failed(&real, work), Some((NO_ACCOUNT.to_string(), Failure::CannotRun)));
+    let build = real.run_of(work, "build");
+    let kept = (real.data.join(carry::ROUNDS))
+        .join(work.0.to_string())
+        .join(format!("{}.main.json", build.0));
+    assert!(!kept.exists(), "main was taken in: {}", kept.display());
+    assert!(real.calls().is_empty(), "the program was run");
 }

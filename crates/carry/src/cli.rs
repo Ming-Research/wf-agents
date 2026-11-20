@@ -22,7 +22,7 @@
 use std::path::{Path, PathBuf};
 
 use decide::RunId;
-use driver::Window;
+use driver::Said;
 use flow::Compiled;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -496,9 +496,9 @@ pub struct Stream {
     pub tools: Vec<(String, String, String)>,
     /// The program's version, where its first line told it.
     pub program: Option<String>,
-    /// The windows of usage the latest rate limit event that named any said, of the account the program runs under.
-    usage: Option<Vec<Window>>,
-    /// How many rate limit events named windows of usage.
+    /// What the latest rate limit event that said anything of the usage of the account the program runs under said.
+    usage: Option<Said>,
+    /// How many rate limit events said anything of the usage.
     usages: usize,
 }
 
@@ -559,8 +559,8 @@ impl Stream {
         };
         self.said.line(&v);
         self.called(&v);
-        if let Some(windows) = crate::account::windows(&v) {
-            self.usage = Some(windows);
+        if let Some(said) = crate::account::said(&v) {
+            self.usage = Some(said);
             self.usages += 1;
         }
         match v["type"].as_str() {
@@ -615,13 +615,13 @@ impl Stream {
         self.result.is_some()
     }
 
-    /// The windows of usage the latest rate limit event that named any said, of the account the program runs under;
+    /// What the latest rate limit event that said anything of the usage of the account the program runs under said;
     /// none where none did.
-    pub fn usage(&self) -> Option<&[Window]> {
-        self.usage.as_deref()
+    pub fn usage(&self) -> Option<&Said> {
+        self.usage.as_ref()
     }
 
-    /// How many rate limit events named windows of usage: a count that grows as each comes, by which each is told
+    /// How many rate limit events said anything of the usage: a count that grows as each comes, by which each is told
     /// once while the stream comes.
     pub fn usages(&self) -> usize {
         self.usages

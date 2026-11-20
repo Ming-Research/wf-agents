@@ -273,20 +273,18 @@ describe('the Settings view', () => {
     expect(rows[0].querySelector('.account-in-use')?.textContent).toBe('in use');
     expect(rows[0].querySelector('button')).toBeNull();
     expect(buttons(rows[1])).toEqual(['Use', 'Remove']);
-    // Each window the service named, by its own name, with when it was said.
-    const work = [...rows[0].children[3].children];
-    expect(work.map((d) => d.textContent?.replace(/resets .*$/, 'resets …'))).toEqual([
-      'five_hour 20% · resets …',
-      'seven_day 67% · resets …',
-      expect.stringMatching(/^seen /),
-    ]);
-    expect(work[0].className).toBe('');
-    // The engine's limit, and a window the service no longer lets through, in the look of a warning.
-    const home = [...rows[1].children[3].children];
-    expect(home[0].textContent).toMatch(/^at its limit · resets /);
-    expect(home[0].className).toBe('warn-text');
-    expect(home[1].textContent).toMatch(/^seven_day 100% · resets /);
-    expect(home[1].className).toBe('warn-text');
+    // Each window the service named, by its own name, on one line; the whole line and when it was said on pointing.
+    const work = rows[0].children[3] as HTMLElement;
+    expect(work.textContent).toMatch(/^five_hour 20% · resets [^·]+ · seven_day 67% · resets [^·]+$/);
+    expect(work.title.split('\n')).toEqual([work.textContent, expect.stringMatching(/^Said by the service /)]);
+    expect(work.querySelector('.warn-text')).toBeNull();
+    // The engine's limit, and a window the service no longer lets through, in the look of a warning, which pointing
+    // explains.
+    const home = rows[1].children[3] as HTMLElement;
+    expect(home.textContent).toMatch(/^at its limit · resets [^·]+ · seven_day 100% · resets [^·]+$/);
+    const warned = [...home.querySelectorAll('.warn-text')].map((w) => w.textContent?.split(' ')[0]);
+    expect(warned).toEqual(['at', 'seven_day']);
+    expect(home.title).toContain('In the look of a warning: the account at its limit, or a window the service lets');
     expect(rows[2].children[3].textContent).toBe('not seen');
     // The token added 350 days ago ends within a month: its row says so, in the look of a warning.
     expect(rows[2].children[2].className).toBe('warn-text');
@@ -300,7 +298,7 @@ describe('the Settings view', () => {
     const s = settingsSource();
     const accounts = fixtureAccounts();
     const failed = 'The network does not reach the agents\' service.';
-    const looking = { seen: null, windows: [], looking: true, failed: null };
+    const looking = { seen: null, windows: [], atLimit: null, looking: true, failed: null };
     accounts.accounts[1] = { ...accounts.accounts[1], limit: null, usage: looking };
     accounts.accounts[2] = { ...accounts.accounts[2], usage: { ...looking, looking: false, failed } };
     s.accounts = accounts;
@@ -308,7 +306,11 @@ describe('the Settings view', () => {
     await settle();
     expect(s.looks).toBe(1);
     expect(accountRows(page)[1].children[3].textContent).toBe('looking');
-    expect(accountRows(page)[2].children[3].querySelector('.failed')?.textContent).toBe(failed);
+    // A failed look is one word in the look of a failure, its why on pointing.
+    const away = accountRows(page)[2].children[3] as HTMLElement;
+    expect(away.textContent).toBe('failed');
+    expect(away.querySelector('.failed')?.textContent).toBe('failed');
+    expect(away.title).toBe(`failed\nThe latest look under it failed: ${failed}`);
     // The looks come back: the engine says the accounts changed, and the view reads them again; a change of the works
     // alone reads nothing.
     const reads = s.accountReads;
@@ -321,6 +323,26 @@ describe('the Settings view', () => {
     expect(s.accountReads).toBe(reads + 1);
     expect(accountRows(page)[1].children[3].textContent).toContain('seven_day 100%');
     expect(s.looks, 'looked once, as it opened').toBe(1);
+  });
+
+  it('shows a limit the service named no window of, and says where a look was refused', async () => {
+    const s = settingsSource();
+    const accounts = fixtureAccounts();
+    const old = accounts.accounts[2];
+    const atLimit = { resets: accounts.now + 1 };
+    accounts.accounts[2] = { ...old, usage: { ...old.usage, seen: accounts.now, atLimit } };
+    s.accounts = accounts;
+    s.source.look = async () => {
+      throw new Error('The engine has stopped.');
+    };
+    const page = draw(s.source);
+    await settle();
+    const spent = accountRows(page)[2].children[3] as HTMLElement;
+    expect(spent.textContent).toMatch(/^at its limit · resets [^·]+$/);
+    expect(spent.querySelector('.warn-text')?.textContent).toBe(spent.textContent);
+    expect(page.querySelector('[role="alert"]')?.textContent).toBe(
+      'The usage was not looked at: The engine has stopped.',
+    );
   });
 
   it('takes an account at once with Use, and asks once beside an account before removing it', async () => {

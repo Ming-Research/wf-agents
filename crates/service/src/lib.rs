@@ -73,7 +73,7 @@ pub use carriers::{
     RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, WITHDRAWN, YEAR_MS,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
-pub use driver::{Along, Instead, Under, Window};
+pub use driver::{Along, Instead, Said, Under, Window};
 pub use levels::{Level, Levels, LevelsFault};
 pub use projects::Projects;
 pub use script::Script;
@@ -174,9 +174,9 @@ pub enum Message {
         under: Option<String>,
         host_reached: Option<bool>,
     },
-    /// The agents' service named these windows of the usage of the account of this name, under which a call it
-    /// answered was handed out.
-    Usage { account: String, windows: Vec<Window> },
+    /// The agents' service said this of the usage of the account of this name, under which a call it answered was
+    /// handed out.
+    Usage { account: String, said: Said },
     /// The owner opens the accounts: a look is taken under each whose usage was last heard of long enough ago, and the
     /// reply names them.
     Look {
@@ -390,6 +390,8 @@ impl Service {
         let before = self.sizes();
         let mut items = false;
         let mut accounts = false;
+        // Whether the rounds the service answered changed, which the usage limits that stand are worked out from.
+        let mut answered = false;
         match message {
             Message::Read(read) => {
                 let now = self.now()?;
@@ -448,22 +450,23 @@ impl Service {
                     self.wake = None;
                 }
                 let now = self.now()?;
-                if let (Some(account), Some(heard)) = (&under, &heard) {
-                    accounts = self.driver.heard_usage(now, account, heard.usage.clone());
+                if let (Some(account), Some(said)) = (&under, heard.as_ref().and_then(|heard| heard.usage.clone())) {
+                    accounts = self.driver.heard_usage(now, account, said);
                 }
                 let found = heard.map(|heard| (under, heard.found));
                 let todos = (self.driver.tick(now, found, host_reached)).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
             }
             Message::Answered { work, run } => {
+                answered = true;
                 let now = self.now()?;
                 let todos = self.driver.answered(now, work, run).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
             }
-            Message::Usage { account, windows } => {
+            Message::Usage { account, said } => {
                 // No record grew, and nothing that decides reads it: only the accounts are told again.
                 let now = self.now()?;
-                if self.driver.heard_usage(now, &account, windows) {
+                if self.driver.heard_usage(now, &account, said) {
                     self.tell_accounts();
                 }
                 return Ok(());
@@ -640,7 +643,7 @@ impl Service {
             }
         }
         self.set_wake();
-        self.tell(&before, items, accounts);
+        self.tell(&before, items, accounts, answered);
         Ok(())
     }
 
@@ -964,16 +967,20 @@ impl Service {
 
     /// Tells whoever listens which works grew since `before`, whether an item was added, and whether the accounts
     /// changed, as `accounts` says or as the usage limits that stand did; and the carriers whether a pause holds each
-    /// work that grew.
-    fn tell(&mut self, before: &BTreeMap<WorkNumber, usize>, items: bool, accounts: bool) {
+    /// work that grew. The limits are worked out from every work's rounds and the rounds the service answered, so they
+    /// are worked out again only where a work grew or, as `answered` says, the service answered a round.
+    fn tell(&mut self, before: &BTreeMap<WorkNumber, usize>, items: bool, accounts: bool, answered: bool) {
         let works: Vec<WorkNumber> = (self.sizes().into_iter())
             .filter(|(work, size)| before.get(work) != Some(size))
             .map(|(work, _)| work)
             .collect();
         self.tell_paused(works.clone());
-        let limits = self.driver.limits();
-        let accounts = accounts || limits != self.limits;
-        self.limits = limits;
+        let mut accounts = accounts;
+        if !works.is_empty() || answered {
+            let limits = self.driver.limits();
+            accounts |= limits != self.limits;
+            self.limits = limits;
+        }
         if !works.is_empty() || items || accounts {
             // Nobody may be listening.
             let _ = self.changed.send(Changed {
@@ -1097,8 +1104,7 @@ impl Handle {
         if let Some(why) = self.carriers.tokens.closed() {
             return Err(Refusal::Closed(why));
         }
-        // What the check says is passed on with the token taken out of it, should the program have said it back.
-        let scrubbed = |why: String| why.replace(token.secret(), "…");
+        // What the check says holds no token: the check takes it out, should the program have said it back.
         let heard = self.carriers.outside.check_token(token.clone()).await;
         let added = match heard.found {
             Found::Well => AccountAdded {
@@ -1115,11 +1121,9 @@ impl Handle {
                 why,
                 ..
             } => {
-                let why = scrubbed(why);
                 return Err(Refusal::NotKept(format!("the service refused the token: {why}")));
             }
             Found::Down { why, .. } => {
-                let why = scrubbed(why);
                 return Err(Refusal::NotKept(format!(
                     "the token could not be checked, so it was not kept: {why}; add it again"
                 )));
@@ -1134,11 +1138,8 @@ impl Handle {
             Err(e) => return Err(Refusal::NotKept(format!("the token could not be kept: {e}"))),
         }
         self.account(name.clone(), AccountAct::Added).await?;
-        if !heard.usage.is_empty() {
-            let _ = (self.to).send(Message::Usage {
-                account: name,
-                windows: heard.usage,
-            });
+        if let Some(said) = heard.usage {
+            let _ = (self.to).send(Message::Usage { account: name, said });
         }
         Ok(added)
     }
@@ -1327,11 +1328,11 @@ impl Handle {
         };
         let forked = self.carriers.agents.fork(fork).await;
         if let Ok(forked) = &forked
-            && !forked.usage.is_empty()
+            && let Some(said) = forked.usage.clone()
         {
             let _ = (self.to).send(Message::Usage {
                 account: forked.account.clone(),
-                windows: forked.usage.clone(),
+                said,
             });
         }
         Ok(Some(forked))

@@ -85,10 +85,10 @@ fn flow() -> Compiled {
     flow::compile(&source, &has).expect("the flow compiles")
 }
 
-/// The words the driver writes into a session block, as the flow's own datum gives them.
 /// The account the owner took in a test of keeping sessions warm, which a session is kept warm only under.
 const ACCOUNT: &str = "work";
 
+/// The words the driver writes into a session block, as the flow's own datum gives them.
 const SESSION_WRITES: &str = r#"writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit}", model = "its rounds now run on another model than {was}, which it was begun on", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", lost = "the agents' program no longer had the session it was in", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }"#;
 
 /// Two lines, each loading its session by a cell that reads a session block of its own: `load` the engineer's, which
@@ -807,6 +807,7 @@ fn a_session_is_kept_warm_only_while_its_last_call_ran_under_the_account_in_use(
 
 // With no account in use, no session is pinged, a ping having no account to run under, and no ping wakes the driver;
 // a session whose last call ran under an account not in use is not pinged either, until the owner takes that account.
+// Milliseconds, nothing run: the one test that a ping is never handed out to fail for want of an account.
 #[test]
 fn no_session_is_kept_warm_while_no_account_is_in_use() {
     let mut s = S::with(warm("opus"), None);
@@ -1621,7 +1622,9 @@ fn the_wait_every_work_shares_stops_every_ping_until_a_check_finds_the_outside_w
     let todos = s.driver.tick(Time(at), None, None).unwrap();
     assert!(pings(&s, &todos).is_empty(), "a ping while the agents' rounds wait");
     // A check finds the outside well: the wait is over, and the ping is given.
-    let todos = s.driver.tick(Time(at + 1), Some((None, Found::Well)), None).unwrap();
+    let todos = (s.driver)
+        .tick(Time(at + 1), Some((Some(ACCOUNT.to_string()), Found::Well)), None)
+        .unwrap();
     assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
 }
 

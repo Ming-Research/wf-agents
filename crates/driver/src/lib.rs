@@ -127,7 +127,7 @@ use work::{Time, Work};
 pub use budget::Budget;
 pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
 pub use sessions::{Policy, SESSION, Warm};
-pub use usage::{LOOK_AFTER_MS, Usage, Usages, Window};
+pub use usage::{LOOK_AFTER_MS, Said, Usage, Usages, Window};
 
 /// The source of the blocks the driver writes: whether the items the work's item depends on have merged. Such a block
 /// is a choice of [`WAITING`] and [`MERGED`].
@@ -1120,10 +1120,10 @@ impl Driver {
         &self.usage
     }
 
-    /// Takes the windows of usage the agents' service named, at the time the caller's clock gives, under the account
-    /// of this name, the one a call was handed out with, whichever is in use now; gives whether what is known changed.
-    pub fn heard_usage(&mut self, now: Time, account: &str, windows: Vec<Window>) -> bool {
-        self.usage.heard(&self.accounts, now, account, windows)
+    /// Takes what the agents' service said of the usage of the account of this name, at the time the caller's clock
+    /// gives: the account a call was handed out with, whichever is in use now. Gives whether what it says changed.
+    pub fn heard_usage(&mut self, now: Time, account: &str, said: Said) -> bool {
+        self.usage.heard(&self.accounts, now, account, said)
     }
 
     /// The accounts a look is to be taken under, as the owner opens them, at the time the caller's clock gives, each
@@ -1132,10 +1132,10 @@ impl Driver {
         self.usage.looks(&self.accounts, now)
     }
 
-    /// Takes what a look under the account of this name found, at the time the caller's clock gives, with the windows
-    /// of usage the service named, where it named any; gives whether what is known changed.
-    pub fn looked(&mut self, now: Time, account: &str, found: &Found, windows: Vec<Window>) -> bool {
-        self.usage.looked(&self.accounts, now, account, found, windows)
+    /// Takes what a look under the account of this name found, at the time the caller's clock gives, with what the
+    /// service said of its usage, where it said anything; gives whether what is known changed.
+    pub fn looked(&mut self, now: Time, account: &str, found: &Found, said: Option<Said>) -> bool {
+        self.usage.looked(&self.accounts, now, account, found, said)
     }
 
     /// The usage limit of each account that stands, by the account's name, whether or not it is in use ([`outage`]).

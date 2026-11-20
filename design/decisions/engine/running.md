@@ -54,14 +54,18 @@ The agents' program's directory of settings and sessions is the engine's, `profi
 it is missing and given as `CLAUDE_CONFIG_DIR` to every command of the program's the engine runs; each try records it as
 the directory it ran with, and `agents.config_dir` is refused as the engine starts, saying where it went (decision
 a-moved-setting-is-refused-with-where-it-went). Every command is given, in the settings the engine passes it
-(`--settings`), that the program's cleanup keeps a session a thousand years (`cleanupPeriodDays`).
+(`--settings`), that the program's cleanup keeps a session a thousand years (`cleanupPeriodDays`). The engine does not
+start where the program's own settings file there (`settings.json`) names `apiKeyHelper`, or in its `env` a credential
+the program takes above the token, or cannot be read as JSON, saying so.
 Why: The sessions of every work live there, under every account (decision
 a-line-goes-on-in-its-session-under-another-account), so the directory is the engine's to keep and no setting to point
 elsewhere; with none named the program would use its default one, which an agent can write to. Its cleanup deletes a
 session after thirty days by default, and a work can wait longer with its session to go on in. Given with every
 command, the cleanup holds whatever the directory's own files say, where a file the engine wrote into the directory
 would be one more thing an agent or a hand could change; that the program takes the key from `--settings` rests on its
-documentation (any settings file, and `--settings`, may set it), not a trial.
+documentation (any settings file, and `--settings`, may set it), not a trial. The program reads its settings file with
+every command, so a key named there would run every call under a credential of no account's (decision
+no-default-credential); a file that cannot be read says nothing of whether it does.
 
 ### decision the-pages-server-is-off-the-loops-thread
 The server of the pages and the interface runs on threads apart from the one the engine's loop takes things on, and

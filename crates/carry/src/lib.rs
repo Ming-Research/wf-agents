@@ -124,7 +124,7 @@ pub fn carry(
 
 /// The carriers and the watches [`carry`] gives, the tokens of the accounts kept by what is given, or, with none, in
 /// the login keychain under the installation's id; the agents' program's directory, `profile` in the data directory,
-/// made where it is missing.
+/// made where it is missing, whose settings file may name no credential.
 fn carry_keeping(
     settings: Settings,
     data: &Path,
@@ -146,6 +146,11 @@ fn carry_keeping(
     });
     let profile = account::profile(&data);
     std::fs::create_dir_all(&profile).map_err(|e| format!("{}: {e}", profile.display()))?;
+    // The program reads its own settings file there with every command: one that gives it a credential of no
+    // account's keeps the engine from starting (decision the-programs-directory-is-the-engines).
+    if let Some(why) = account::credential_in(&profile) {
+        return Err(why);
+    }
     let tag = git::tag(&installation);
     let query = querying(&settings, &beside, &data)?;
     let (mut acts, mut tools, mut watches, mut of) = (BTreeMap::new(), BTreeMap::new(), Vec::new(), BTreeMap::new());

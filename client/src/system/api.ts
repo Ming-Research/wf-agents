@@ -234,11 +234,13 @@ export interface Account {
   usage: AccountUsage;
 }
 
-/// What the agents' service last said of an account's usage: each window it named, and when; whether a look under it
-/// is under way; and why the latest look failed, where it did and nothing was heard since.
+/// What the agents' service last said of an account's usage, and when: each window it named, or, where it refused the
+/// account's calls naming none, that the account is at its limit, with its reset where it said; whether a look under
+/// it is under way; and why the latest look under it failed, where it did.
 export interface AccountUsage {
   seen: number | null;
   windows: UsageWindow[];
+  atLimit: { resets: number | null } | null;
   looking: boolean;
   failed: string | null;
 }

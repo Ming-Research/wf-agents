@@ -181,15 +181,25 @@ pub struct Account {
     pub usage: AccountUsage,
 }
 
-/// What the agents' service last said of an account's usage: each window it named, and when; whether a look under it
-/// is under way; and why the latest look failed, where it did and nothing was heard since.
+/// What the agents' service last said of an account's usage, and when: each window it named, or, where it refused the
+/// account's calls naming none, that the account is at its limit; whether a look under it is under way; and why the
+/// latest look under it failed, where it did.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountUsage {
     pub seen: Option<u64>,
     pub windows: Vec<UsageWindow>,
+    pub at_limit: Option<AtLimit>,
     pub looking: bool,
     pub failed: Option<String>,
+}
+
+/// That the service refused the account's calls and named no window: the account is at its limit, which resets then,
+/// where it said.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AtLimit {
+    pub resets: Option<u64>,
 }
 
 /// A window of an account's usage, by the name the service gives it: how much of it is used, from 0 to 1, and when it
@@ -251,10 +261,9 @@ fn change_of(path: &[String]) -> Option<Change> {
 /// One writer of the file at a time: two changes at once would each be made on the text the other replaces.
 static WRITING: Mutex<()> = Mutex::new(());
 
-/// What the routes of the accounts reach: the settings the engine runs with, and the engine's loop.
+/// What the routes of the accounts reach: the engine's loop.
 #[derive(Clone)]
 struct Accounted {
-    install: Arc<Install>,
     handle: service::Handle,
 }
 
@@ -264,10 +273,7 @@ pub fn router(install: Install, handle: service::Handle) -> Router {
     let accounts = Router::new()
         .route("/api/v1/settings/accounts", get(accounts).post(account))
         .route("/api/v1/settings/accounts/look", post(look))
-        .with_state(Accounted {
-            install: install.clone(),
-            handle,
-        });
+        .with_state(Accounted { handle });
     Router::new()
         .route("/api/v1/settings", get(page).post(save))
         .with_state(install)
@@ -327,10 +333,20 @@ async fn accounts(State(at): State<Accounted>) -> Response {
 /// What the service last said of an account's usage, as the page is given it; nothing where nothing is known.
 fn usage_of(usage: Option<&driver::Usage>) -> AccountUsage {
     let usage = usage.cloned().unwrap_or_default();
-    let (seen, windows) = usage.seen.unzip();
+    let (seen, said) = usage.seen.unzip();
+    let (windows, at_limit) = match said {
+        Some(driver::Said::Windows(windows)) => (windows, None),
+        Some(driver::Said::Limit { resets }) => (
+            Vec::new(),
+            Some(AtLimit {
+                resets: resets.map(|at| at.0),
+            }),
+        ),
+        None => (Vec::new(), None),
+    };
     AccountUsage {
         seen: seen.map(|at| at.0),
-        windows: (windows.unwrap_or_default().into_iter())
+        windows: (windows.into_iter())
             .map(|window| UsageWindow {
                 name: window.name,
                 utilization: window.utilization,
@@ -338,6 +354,7 @@ fn usage_of(usage: Option<&driver::Usage>) -> AccountUsage {
                 allowed: window.allowed,
             })
             .collect(),
+        at_limit,
         looking: usage.looking,
         failed: usage.failed,
     }
