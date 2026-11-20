@@ -421,7 +421,7 @@ impl Inner {
         // use, fails the round as a command line that cannot run, nothing changed and nothing sent, in the words of
         // what keeps the tokens or beside the flows. A try left by an engine that ended goes on with none.
         let begun = match left {
-            Some(left) => Begun::Left(left),
+            Some(left) => Begun::Left(Box::new(left)),
             None => match account::token_of(&self.tokens, round.account.as_deref(), &of.beside.cost.check.no_account)
                 .await
             {
@@ -508,6 +508,7 @@ impl Inner {
             // The try the engine that ended left, read as of a try that ended by itself, but for how its program ended,
             // which no process of the engine saw ([`Inner::left`]). Nothing is given the session again.
             Begun::Left(left) => {
+                let left = *left;
                 if left.anew {
                     begin = Begin::New;
                 }
@@ -2009,7 +2010,7 @@ fn measures(
 /// How a round's program is begun: going on from the try a process of the engine that ended left, or anew, given the
 /// token of the account the round was handed out with, by its name.
 enum Begun {
-    Left(Left),
+    Left(Box<Left>),
     Anew(Token, String),
 }
 
@@ -2017,7 +2018,7 @@ impl Begun {
     /// The try left, where the round goes on from one.
     fn left(self) -> Option<Left> {
         match self {
-            Begun::Left(left) => Some(left),
+            Begun::Left(left) => Some(*left),
             Begun::Anew(..) => None,
         }
     }
