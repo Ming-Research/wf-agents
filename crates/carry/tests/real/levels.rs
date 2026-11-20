@@ -45,6 +45,7 @@ fn on(level: &str, model: &str) -> RanOn {
         level: level.to_string(),
         model: model.to_string(),
         effort: Some("high".to_string()),
+        directory: None,
         account: None,
     }
 }

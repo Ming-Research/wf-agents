@@ -109,6 +109,7 @@ fn ran(path: &Path) -> Result<Option<RanOn>, String> {
                 level: file.level,
                 model: file.model,
                 effort: file.effort,
+                directory: None,
                 account: None,
             }))
         }
@@ -692,6 +693,7 @@ mod tests {
             level: "2".to_string(),
             model: "claude-sonnet-5-5".to_string(),
             effort: None,
+            directory: None,
             account: None,
         };
         // The second's file is torn, and the third, recorded, kept none.

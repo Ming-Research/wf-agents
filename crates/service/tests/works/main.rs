@@ -7,6 +7,7 @@
 //!
 //! The tests are kept in modules by subject, so that a new test goes into the module of what it tests.
 
+mod accounts;
 mod acts;
 mod cancelling;
 mod contract;
@@ -519,6 +520,7 @@ fn open(
         outside: (outside.cloned()).unwrap_or_else(|| Arc::new(recording.scripted.clone())),
         host: Some(Arc::new(recording.scripted.clone())),
         slots: SLOTS,
+        tokens: Arc::new(service::KeptTokens::new()),
     };
     let clock: Arc<dyn service::Clock> = clock.clone();
     Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens")
@@ -533,6 +535,7 @@ fn ran_on() -> RanOn {
         level: "1".to_string(),
         model: MODEL.to_string(),
         effort: None,
+        directory: None,
         account: None,
     }
 }
@@ -561,7 +564,7 @@ impl Rounds for Warm {
     fn policy(&self) -> Option<driver::Policy> {
         Some(driver::Policy {
             samples: 19,
-            on: Box::new(|_, _| Some(ran_on())),
+            model: Box::new(|_, _| Some(MODEL.to_string())),
             warm: Some(driver::Warm {
                 life_ms: 3_600_000,
                 after_ms: 3_300_000,

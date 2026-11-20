@@ -438,14 +438,18 @@ fn history(d: &mut Driver) {
         why: engine::Why::Owner,
     });
     d.answer();
-    // The round of the run given the results is tried twice, once at each effort, the second time with an account of
-    // its own.
+    // The round of the run given the results is tried twice, once at each effort, the second time in a directory and
+    // under an account of its own.
     let (run, _) = d.under_way();
-    for (effort, account) in [(None, None), (Some("high"), Some("an account"))] {
+    for (effort, directory, account) in [
+        (None, None, None),
+        (Some("high"), Some("/a/directory"), Some("an account")),
+    ] {
         let on = engine::RanOn {
             level: "2".to_string(),
             model: "a model".to_string(),
             effort: effort.map(str::to_string),
+            directory: directory.map(str::to_string),
             account: account.map(str::to_string),
         };
         d.on(Event::Ran { run, attempt: 1, on });
@@ -704,6 +708,7 @@ impl Building {
                 level: "2".to_string(),
                 model: "a model".to_string(),
                 effort: None,
+                directory: None,
                 account: None,
             },
         });

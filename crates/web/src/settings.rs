@@ -4,20 +4,26 @@
 //! - `GET /api/v1/settings`: the file ([`SettingsPage`]).
 //! - `POST /api/v1/settings`: the owner's change of a few keys ([`SettingsChange`]), answered with what was changed in
 //!   words ([`Saved`]).
-//! - `GET /api/v1/settings/accounts`: the accounts the agents' program may run under ([`AccountsPage`]).
-//! - `POST /api/v1/settings/accounts`: the owner's choice of another of them ([`AccountChoice`]), answered as a change.
+//! - `GET /api/v1/settings/accounts`: the accounts the agents' program may run under, the one in use, the sign-in the
+//!   agents run on where none is, and the command that makes a token ([`AccountsPage`]).
+//! - `POST /api/v1/settings/accounts`: the owner adds, takes or removes an account ([`AccountAsked`]), through the
+//!   engine's loop, answered with what came of it ([`AccountDone`]).
 //!
 //! The owner changes on the page what is tuned while works go on: the language the agents write in for the owner, the
-//! model of each level, the highest level an item may be at, the context at which the agents' program compacts a
-//! line's session, how many rounds run at once, and the account the agents' program runs under. The rest only the file
-//! changes. A value is checked here only for its kind; what the engine refuses of it, the engine's own reading of the
-//! file refuses. A change is written into the file with its comments and its layout kept, only where the file it makes
-//! reads as settings, holds each value as asked, and has not changed since the page read it; where the directory the
-//! file is in keeps it in git, the change is committed there, saying what changed, and nothing is written onto a file
-//! whose changes are not committed. The engine reads the file as it starts: until it starts again, each key it runs at
-//! another value than the file gives, as the engine reads the file, is shown with that value beside it.
+//! model of each level, the highest level an item may be at, the context at which the agents' program compacts a line's
+//! session, and how many rounds run at once. The rest only the file changes. The accounts the agents' program runs
+//! under are no key of the file: they are the engine's own state, which takes a change at once (decision
+//! the-page-changes-what-is-tuned-while-the-engine-runs). A value is checked here only for its kind; what the engine
+//! refuses of it, the engine's own reading of the file refuses. A change is written into the file with its comments and
+//! its layout kept, only where the file it makes reads as settings, holds each value as asked, and has not changed
+//! since the page read it; where the directory the file is in keeps it in git, the change is committed there, saying
+//! what changed, and nothing is written onto a file whose changes are not committed. The engine reads the file as it
+//! starts: until it starts again, each key it runs at another value than the file gives, as the engine reads the file,
+//! is shown with that value beside it.
 //!
 //! The settings hold no secret: a token is given to the engine in a variable of its environment, which the file names.
+//! An account's token is taken in once, as it is added, and kept outside the engine; no answer of these routes holds
+//! it, nor do the words of a refusal, a body that cannot be read among them.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -33,7 +39,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use toml_edit::{DocumentMut, Item, Table as TomlTable, TableLike, Value};
 
-use crate::interface::fail;
+use crate::interface::{fail, refused};
 
 /// Reads a text as the installation's settings: every key's value, those the text leaves out at what the engine takes
 /// for them, as JSON writes it; or why the text does not read, in words with the keys.
@@ -50,16 +56,12 @@ pub struct Install {
     /// What every git command is given before its own arguments, so that nothing the repository's configuration names
     /// is run.
     pub git: &'static [&'static str],
-    /// The agents' program, for its accounts.
+    /// The agents' program, for the sign-in of its directory.
     pub program: Program,
 }
 
-/// What the page needs of the agents' program to show its accounts and switch between them.
+/// What the page needs of the agents' program to say the sign-in of its directory.
 pub struct Program {
-    /// The variable of its environment that names its directory to it.
-    pub variable: &'static str,
-    /// What the owner types in it to sign a directory in.
-    pub sign_in: &'static str,
     /// The account a directory is signed in as, where it is.
     pub signed_in_as: fn(&Path) -> Option<String>,
 }
@@ -152,44 +154,71 @@ pub struct Saved {
     pub committed: bool,
 }
 
-/// The accounts the agents' program may run under: the directories beside the one the file names, named as it is
-/// or as it is with a dash and a name after it.
+/// The accounts the agents' program may run under, as the engine holds them, with what the page says beside them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountsPage {
-    /// The program's command, as the file names it.
-    pub command: String,
-    /// The variable that names a directory to it, and what is typed in it to sign the directory in.
-    pub variable: String,
-    pub sign_in: String,
-    /// The directory the accounts' directories are in; none where the file names no directory of the program's, when
-    /// it runs with its own default.
-    pub dir: Option<String>,
-    /// The name every account's directory begins with.
-    pub stem: String,
+    /// The time now, by the engine's clock.
+    pub now: u64,
+    /// The accounts added and not removed, in the order they were added.
     pub accounts: Vec<Account>,
-    /// The file's text as it was read, by a digest of it, for a choice made against it.
-    pub base: String,
+    /// The account the agents run under, by its name; none where none is in use.
+    pub in_use: Option<String>,
+    /// The sign-in the agents run on where no account is in use: their directory's.
+    pub directory: Directory,
+    /// The command the owner runs, signed in to an account in the browser, to make a token of it.
+    pub command: String,
+    /// Why no account can be added now; none where one can.
+    pub closed: Option<String>,
 }
 
+/// An account added.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
-    /// The directory's name.
     pub name: String,
-    pub path: String,
-    /// The account it is signed in as; none where it is not signed in.
-    pub signed_in_as: Option<String>,
-    /// Whether the file names it.
-    pub named: bool,
+    /// When it was added.
+    pub added: u64,
+    /// Until when its token lasts: the life the agents' program gives a token, from when it was added.
+    pub lasts: u64,
+    /// Its usage limit, where it stands: since when, and the reset it waits for, where one was said.
+    pub limit: Option<AccountLimit>,
 }
 
-/// The owner's choice of the account the agents' program runs under, by its directory's name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountLimit {
+    pub since: u64,
+    pub resets: Option<u64>,
+}
+
+/// The directory of the agents' program's settings, as the engine runs with `agents.config_dir`, and the account it is
+/// signed in as; none of either where the file names no directory, or it is not signed in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountChoice {
-    pub base: String,
-    pub name: String,
+pub struct Directory {
+    pub path: Option<String>,
+    pub signed_in_as: Option<String>,
+}
+
+/// What the owner does to an account: adds one under a name with its token, takes one as the one the agents run under,
+/// or removes one.
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum AccountAsked {
+    Add { name: String, token: String },
+    Take { name: String },
+    Remove { name: String },
+}
+
+/// What came of an act on an account: of one added, whether its token met its usage limit as it was checked, and when
+/// that resets; of one removed, why its token could not be let go of, where it could not.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountDone {
+    pub at_limit: bool,
+    pub resets: Option<u64>,
+    pub not_let_go: Option<String>,
 }
 
 /// The keys the page may change, by their tables and themselves joined by dots, a level's model by any level.
@@ -203,19 +232,29 @@ fn change_of(path: &[String]) -> Option<Change> {
     }
 }
 
-/// The key the account the agents' program runs under is written at.
-const CONFIG_DIR: [&str; 2] = ["agents", "config_dir"];
-
 /// One writer of the file at a time: two changes at once would each be made on the text the other replaces.
 static WRITING: Mutex<()> = Mutex::new(());
 
-/// The routes of the settings.
-pub fn router(install: Install) -> Router {
+/// What the routes of the accounts reach: the settings the engine runs with, and the engine's loop.
+#[derive(Clone)]
+struct Accounted {
+    install: Arc<Install>,
+    handle: service::Handle,
+}
+
+/// The routes of the settings, and of the accounts through the engine's loop.
+pub fn router(install: Install, handle: service::Handle) -> Router {
     let install = Arc::new(install);
+    let accounts = Router::new()
+        .route("/api/v1/settings/accounts", get(accounts).post(account))
+        .with_state(Accounted {
+            install: install.clone(),
+            handle,
+        });
     Router::new()
         .route("/api/v1/settings", get(page).post(save))
-        .route("/api/v1/settings/accounts", get(accounts).post(choose))
         .with_state(install)
+        .merge(accounts)
 }
 
 async fn page(State(install): State<Arc<Install>>) -> Response {
@@ -230,16 +269,77 @@ async fn save(State(install): State<Arc<Install>>, body: Bytes) -> Response {
     off_the_loop(move || changed(&install, &change)).await
 }
 
-async fn accounts(State(install): State<Arc<Install>>) -> Response {
-    off_the_loop(move || accounts_of(&install)).await
+/// The accounts as the engine holds them, each with when its token lasts until and its usage limit where one stands,
+/// and the sign-in of the agents' directory, read off the threads that serve requests.
+async fn accounts(State(at): State<Accounted>) -> Response {
+    let read = at.handle.read_at(|driver, now| {
+        let accounts = driver.accounts();
+        let in_use = accounts.in_use().map(str::to_string);
+        (now, accounts.live(), in_use, driver.limits())
+    });
+    let (now, live, in_use, limits) = match read.await {
+        Ok(read) => read,
+        Err(refusal) => return refused(&refusal),
+    };
+    let tokens = at.handle.tokens();
+    let (life, command, closed) = (tokens.life_ms(), tokens.making(), tokens.closed());
+    let path = at.install.running["agents"]["config_dir"].as_str().map(str::to_string);
+    let signed_in_as = at.install.program.signed_in_as;
+    let looked = path.clone();
+    let signed = tokio::task::spawn_blocking(move || looked.and_then(|path| signed_in_as(Path::new(&path)))).await;
+    let accounts = (live.into_iter())
+        .map(|live| Account {
+            limit: limits.get(&live.name).map(|limit| AccountLimit {
+                since: limit.since.0,
+                resets: limit.resets.map(|at| at.0),
+            }),
+            added: live.added.0,
+            lasts: live.added.0.saturating_add(life),
+            name: live.name,
+        })
+        .collect();
+    Json(AccountsPage {
+        now: now.0,
+        accounts,
+        in_use,
+        directory: Directory {
+            path,
+            signed_in_as: signed.ok().flatten(),
+        },
+        command,
+        closed,
+    })
+    .into_response()
 }
 
-async fn choose(State(install): State<Arc<Install>>, body: Bytes) -> Response {
-    let choice: AccountChoice = match serde_json::from_slice(&body) {
-        Ok(choice) => choice,
-        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The choice cannot be read: {e}.")),
+/// Adds, takes or removes an account through the engine's loop. A body that cannot be read is refused in words of
+/// the route's own, which hold nothing of the body: it may hold a token.
+async fn account(State(at): State<Accounted>, body: Bytes) -> Response {
+    let Ok(asked) = serde_json::from_slice::<AccountAsked>(&body) else {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "The act cannot be read: it is no adding, taking or removing of an account.".to_string(),
+        );
     };
-    off_the_loop(move || chosen(&install, &choice)).await
+    let done = match asked {
+        AccountAsked::Add { name, token } => {
+            let added = at.handle.add_account(name, service::Token::new(token)).await;
+            added.map(|added| AccountDone {
+                at_limit: added.at_limit,
+                resets: added.resets.map(|at| at.0),
+                not_let_go: None,
+            })
+        }
+        AccountAsked::Take { name } => (at.handle.take_account(name).await).map(|()| AccountDone::default()),
+        AccountAsked::Remove { name } => (at.handle.remove_account(name).await).map(|left| AccountDone {
+            not_let_go: left,
+            ..AccountDone::default()
+        }),
+    };
+    match done {
+        Ok(done) => Json(done).into_response(),
+        Err(refusal) => refused(&refusal),
+    }
 }
 
 /// What a request was refused for: its status and why.
@@ -741,118 +841,6 @@ fn replace(file: &Path, text: &str) -> Result<(), String> {
     let beside = file.with_extension("toml.writing");
     std::fs::write(&beside, text).map_err(|e| format!("{}: {e}", beside.display()))?;
     std::fs::rename(&beside, file).map_err(|e| format!("{}: {e}", file.display()))
-}
-
-/// The accounts the agents' program may run under.
-fn accounts_of(install: &Install) -> Result<AccountsPage, Refused> {
-    let text = text_of(&install.file)?;
-    let doc: DocumentMut = text.parse().map_err(|e| {
-        Refused(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{} is not TOML: {e}", install.file.display()),
-        )
-    })?;
-    let command = (doc.get("agents").and_then(|agents| agents.get("command")))
-        .and_then(Item::as_str)
-        .or_else(|| install.running["agents"]["command"].as_str())
-        .unwrap_or_default()
-        .to_string();
-    let named = (doc.get("agents").and_then(|agents| agents.get("config_dir")))
-        .and_then(Item::as_str)
-        .map(PathBuf::from);
-    let stem = Path::new(&command)
-        .file_name()
-        .map_or_else(|| command.clone(), |name| name.to_string_lossy().into_owned());
-    let page = |dir: Option<&Path>, accounts: Vec<Account>| AccountsPage {
-        command: command.clone(),
-        variable: install.program.variable.to_string(),
-        sign_in: install.program.sign_in.to_string(),
-        dir: dir.map(|dir| dir.display().to_string()),
-        stem: stem.clone(),
-        accounts,
-        base: digest(&text),
-    };
-    let Some(named) = named else {
-        return Ok(page(None, Vec::new()));
-    };
-    let Some(dir) = named.parent() else {
-        return Ok(page(None, Vec::new()));
-    };
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let ours = name == stem
-                || name
-                    .strip_prefix(&stem)
-                    .is_some_and(|rest| rest.len() > 1 && rest.starts_with('-'));
-            if ours && entry.path().is_dir() {
-                dirs.push(entry.path());
-            }
-        }
-    }
-    if !dirs.iter().any(|d| same(d, &named)) {
-        dirs.push(named.clone());
-    }
-    dirs.sort();
-    let accounts = (dirs.iter())
-        .map(|d| Account {
-            name: (d.file_name()).map_or_else(String::new, |name| name.to_string_lossy().into_owned()),
-            path: d.display().to_string(),
-            signed_in_as: (install.program.signed_in_as)(d),
-            named: same(d, &named),
-        })
-        .collect();
-    Ok(page(Some(dir), accounts))
-}
-
-/// Whether two paths are of one directory.
-fn same(a: &Path, b: &Path) -> bool {
-    match (a.canonicalize(), b.canonicalize()) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => a == b,
-    }
-}
-
-/// Writes the account's directory as the one the agents' program runs under, where it is signed in.
-fn chosen(install: &Install, choice: &AccountChoice) -> Result<Saved, Refused> {
-    let refused = |why: String| Refused(StatusCode::UNPROCESSABLE_ENTITY, why);
-    let _writing = WRITING.lock().unwrap_or_else(|e| e.into_inner());
-    let all = accounts_of(install)?;
-    let Some(dir) = &all.dir else {
-        return Err(refused(
-            "agents.config_dir names no directory: the program runs with its own, and has no accounts beside it"
-                .to_string(),
-        ));
-    };
-    let Some(to) = all.accounts.iter().find(|a| a.name == choice.name) else {
-        return Err(refused(format!("there is no account {} in {dir}", choice.name)));
-    };
-    if to.named {
-        return Ok(Saved {
-            said: format!("the agents run under {} already", to.name),
-            committed: false,
-        });
-    }
-    if to.signed_in_as.is_none() {
-        return Err(refused(format!(
-            "{} is not signed in: run `{}={} {}` and type {} there first",
-            to.name, all.variable, to.path, all.command, all.sign_in
-        )));
-    }
-    let text = text_of(&install.file)?;
-    let mut doc: DocumentMut = text
-        .parse()
-        .map_err(|e| refused(format!("the file is not TOML: {e}")))?;
-    let path: Vec<String> = CONFIG_DIR.iter().map(|part| part.to_string()).collect();
-    write(
-        install,
-        &text,
-        &mut doc,
-        &choice.base,
-        &[(path, Value::from(to.path.as_str()))],
-        "The owner switched the account the agents run under on the page",
-    )
 }
 
 #[cfg(test)]

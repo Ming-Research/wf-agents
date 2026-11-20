@@ -6,8 +6,10 @@
 //   until now (`System`). The page cuts the weeks at Monday's midnight in the browser's time zone.
 // - `GET  /api/v1/settings`: the installation's settings as their file writes them (`SettingsPage`).
 // - `POST /api/v1/settings`: the owner's change of a few keys (`SettingsChange`), answered with what changed (`Saved`).
-// - `GET  /api/v1/settings/accounts`: the accounts the agents' program may run under (`AccountsPage`).
-// - `POST /api/v1/settings/accounts`: the owner's choice of another (`AccountChoice`), answered as a change.
+// - `GET  /api/v1/settings/accounts`: the accounts the agents' program may run under, as the engine holds them
+//   (`AccountsPage`).
+// - `POST /api/v1/settings/accounts`: the owner adds, takes or removes one (`AccountAsked`), answered with what came of
+//   it (`AccountDone`). A token is sent once, as an account is added, and no answer holds one.
 //
 // The pages reach them through a context, which a test sets to its own source, and which the page's address with
 // `?fixtures` sets to the fixtures (fixtures.ts).
@@ -218,27 +220,42 @@ export interface Saved {
 
 export interface Account {
   name: string;
-  path: string;
-  signedInAs: string | null;
-  /// Whether the file names it.
-  named: boolean;
+  /// When it was added.
+  added: number;
+  /// Until when its token lasts.
+  lasts: number;
+  /// Its usage limit, where it stands: since when, and the reset it waits for, where one was said.
+  limit: { since: number; resets: number | null } | null;
 }
 
 export interface AccountsPage {
-  command: string;
-  variable: string;
-  signIn: string;
-  /// The directory the accounts' directories are in; none where the file names no directory of the program's.
-  dir: string | null;
-  /// The name every account's directory begins with.
-  stem: string;
+  /// The time now, by the engine's clock.
+  now: number;
+  /// The accounts added and not removed, in the order they were added.
   accounts: Account[];
-  base: string;
+  /// The account the agents run under; none where none is in use.
+  inUse: string | null;
+  /// The sign-in the agents run on where no account is in use: their directory, as `agents.config_dir` names it, and
+  /// the account it is signed in as.
+  directory: { path: string | null; signedInAs: string | null };
+  /// The command that makes a token.
+  command: string;
+  /// Why no account can be added now; none where one can.
+  closed: string | null;
 }
 
-export interface AccountChoice {
-  base: string;
-  name: string;
+/// What the owner does to an account.
+export type AccountAsked =
+  | { kind: 'add'; name: string; token: string }
+  | { kind: 'take'; name: string }
+  | { kind: 'remove'; name: string };
+
+/// What came of it: of an account added, whether its token is at its usage limit and when that resets; of one removed,
+/// why its token could not be let go of, where it could not.
+export interface AccountDone {
+  atLimit: boolean;
+  resets: number | null;
+  notLetGo: string | null;
 }
 
 async function send<T>(path: string, body: unknown): Promise<T> {
@@ -261,7 +278,7 @@ export interface SystemSource {
   loadSettings(): Promise<SettingsPage>;
   saveSettings(change: SettingsChange): Promise<Saved>;
   loadAccounts(): Promise<AccountsPage>;
-  chooseAccount(choice: AccountChoice): Promise<Saved>;
+  account(asked: AccountAsked): Promise<AccountDone>;
 }
 
 /// The interface.
@@ -270,7 +287,7 @@ export const INTERFACE: SystemSource = {
   loadSettings: () => read<SettingsPage>('/api/v1/settings'),
   saveSettings: (change) => send<Saved>('/api/v1/settings', change),
   loadAccounts: () => read<AccountsPage>('/api/v1/settings/accounts'),
-  chooseAccount: (choice) => send<Saved>('/api/v1/settings/accounts', choice),
+  account: (asked) => send<AccountDone>('/api/v1/settings/accounts', asked),
 };
 
 /// The fixtures, loaded only when asked for. What the owner changes is only logged.
@@ -282,9 +299,10 @@ export const FIXTURES: SystemSource = {
     return { said: change.set.map((s) => `${s.key} = ${JSON.stringify(s.value)}`).join('; '), committed: false };
   },
   loadAccounts: async () => (await import('./fixtures')).fixtureAccounts(),
-  chooseAccount: async (choice) => {
-    console.info('settings/accounts', choice);
-    return { said: `the agents run under ${choice.name}`, committed: false };
+  account: async (asked) => {
+    // The token is logged nowhere.
+    console.info('settings/accounts', asked.kind, asked.name);
+    return { atLimit: false, resets: null, notLetGo: null };
   },
 };
 

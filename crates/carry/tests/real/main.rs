@@ -8,6 +8,7 @@
 //!
 //! The tests are kept in modules by subject, so that a new test goes into the module of what it tests.
 
+mod accounts;
 mod budget;
 mod catching_up;
 mod delivering;
@@ -273,6 +274,8 @@ pub struct Real {
     pub project: String,
     /// The title the items added from now on are given.
     pub title: String,
+    /// What keeps the tokens of the accounts, in place of the login keychain.
+    pub tokens: Arc<service::KeptTokens>,
 }
 
 /// Runs git in the directory, which must pass, and gives its output.
@@ -401,6 +404,8 @@ for pid in "$log"/*.pid; do
 done
 echo $$ > "$log/$n.pid"
 printf '%s\n' "$@" > "$log/$n.args"
+printf '%s' "${{CLAUDE_CODE_OAUTH_TOKEN:-}}" > "$log/$n.token"
+printf '%s' "${{CLAUDE_CODE_SUBPROCESS_ENV_SCRUB:-}}" > "$log/$n.scrub"
 prev=''
 for arg in "$@"; do
     [ "$prev" = --json-schema ] && printf '%s' "$arg" > "$log/$n.schema"
@@ -609,9 +614,17 @@ impl Rounds for Deaf {
 }
 
 /// The loop with the real carriers of the settings, on an empty store or the one in the data directory, the calls of
-/// `query` answered by the tests; with agents whose stops are dropped where `deaf`.
-fn open(settings: &Settings, data: &Path, flow: &Compiled, deaf: bool) -> (Service, Inbox) {
-    let mut carriers = carry::carriers(settings.clone(), data, beside()).expect("the carriers are made");
+/// `query` answered by the tests, the tokens of the accounts kept by `tokens`; with agents whose stops are dropped
+/// where `deaf`.
+fn open(
+    settings: &Settings,
+    data: &Path,
+    flow: &Compiled,
+    deaf: bool,
+    tokens: &Arc<service::KeptTokens>,
+) -> (Service, Inbox) {
+    let kept: Arc<dyn service::Tokens> = tokens.clone();
+    let mut carriers = carry::carriers_keeping(settings.clone(), data, beside(), kept).expect("the carriers are made");
     if deaf {
         carriers.agents = Arc::new(Deaf(carriers.agents));
     }
@@ -725,7 +738,8 @@ impl Real {
             query: Default::default(),
         };
         let flow = compiled(on);
-        let (service, inbox) = open(&settings, &data, &flow, false);
+        let tokens = Arc::new(service::KeptTokens::new());
+        let (service, inbox) = open(&settings, &data, &flow, false, &tokens);
         Real {
             _dir: dir,
             data,
@@ -740,6 +754,7 @@ impl Real {
             level: "1".to_string(),
             project: PROJECT.to_string(),
             title: "Greet the user".to_string(),
+            tokens,
         }
     }
 
@@ -763,7 +778,7 @@ impl Real {
     /// would, the owner lifting at once the pause of everything it makes as it starts on works going on. What the old
     /// carriers run goes on running.
     pub fn restart(&mut self) {
-        let (service, inbox) = open(&self.settings, &self.data, &self.flow, false);
+        let (service, inbox) = open(&self.settings, &self.data, &self.flow, false, &self.tokens);
         self.service = service;
         self.inbox = inbox;
         self.lift_the_starts_pause();
@@ -772,7 +787,7 @@ impl Real {
     /// Starts the loop again on the same store with agents that drop every stop they are given, the owner lifting at
     /// once the pause of everything it makes as it starts on works going on.
     pub fn deafen(&mut self) {
-        let (service, inbox) = open(&self.settings, &self.data, &self.flow, true);
+        let (service, inbox) = open(&self.settings, &self.data, &self.flow, true, &self.tokens);
         self.service = service;
         self.inbox = inbox;
         self.lift_the_starts_pause();

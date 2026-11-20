@@ -1795,6 +1795,8 @@ pub struct ForkPage {
     pub later: Vec<(u64, usize)>,
     /// The file the answer is kept in, on the engine's machine.
     pub kept: String,
+    /// The account the session ran under, where it was removed and the fork ran under the account in use instead.
+    pub removed: Option<String>,
 }
 
 impl ForkPage {
@@ -1809,6 +1811,7 @@ impl ForkPage {
             round: (forked.round.0.0, forked.round.1),
             later: forked.later.into_iter().map(|(run, round)| (run.0, round)).collect(),
             kept: forked.kept,
+            removed: forked.removed,
         }
     }
 }

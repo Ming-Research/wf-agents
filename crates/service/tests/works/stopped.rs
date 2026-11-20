@@ -74,6 +74,14 @@ impl Storage for Failing {
         self.store.keep_warm(warm, at)
     }
 
+    fn accounts(&self) -> Result<Vec<store::AccountRecord>, store::Fault> {
+        self.store.accounts()
+    }
+
+    fn keep_account(&mut self, record: &store::AccountRecord) -> Result<(), store::Fault> {
+        self.store.keep_account(record)
+    }
+
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), store::Fault> {
         let mut saves = self.saves.lock().expect("the count of saves");
         match saves.as_mut() {

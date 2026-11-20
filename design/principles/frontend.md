@@ -33,10 +33,11 @@ Why: A control pressed from a view about something else did what the owner could
 ### principle typed-words-are-kept
 Every box that takes text keeps what was typed and not sent, through leaving the page, opening something else, a
 reload and the browser dropping the tab: it is written at each change, by the thing the box belongs to, and only text
-is kept.
+is kept. A box that takes a secret, such as a token, keeps nothing.
 Why: Losing what the owner typed is a serious defect, and a browser that drops a tab does not promise to run anything
 as the page leaves. Kept by where the box stands, one box would show another's words; and what is not text, such as
-an option picked, could come back as something else unnoticed.
+an option picked, could come back as something else unnoticed. A secret kept in the browser would lie open there,
+outside what keeps it.
 
 ### principle given-and-returned-shown-whole
 What a round was given and what it handed back are shown in their own structure: nothing translated, merged, picked

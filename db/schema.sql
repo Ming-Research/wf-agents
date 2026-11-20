@@ -284,6 +284,18 @@ CREATE TABLE keep_warm (
     time INTEGER NOT NULL
 );
 
+-- An account the agents' program may run under was added, removed, or taken by the owner as the one the agents run
+-- under (`what`: `Added`, `Removed` or `Taken`), by the name the owner gave it, at `time`, `n` counting from one. Its
+-- token is kept outside the store, under the name. The account in use is the latest taken that was not removed since;
+-- with none, the agents run on the sign-in of their directory. It is the installation's, not a work's, and it is the
+-- engine's own state and no setting, so that a change takes effect at once.
+CREATE TABLE accounts (
+    n INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    what TEXT NOT NULL CHECK (what IN ('Added', 'Removed', 'Taken')),
+    time INTEGER NOT NULL
+);
+
 -- What the work held outside the engine was let go, once it had ended and nothing of it was under way: a row each time
 -- it ended and did, a work reopened ending again.
 CREATE TABLE released (
@@ -381,8 +393,9 @@ CREATE TABLE sessions (
 );
 
 -- A try of a round of a run began, the round's first being one and the try's first in its round being one, on this
--- level, model, reasoning effort (NULL where the program ran at its own) and account (NULL where it ran with its own
--- default directory).
+-- level, model, reasoning effort (NULL where the program ran at its own), directory of the program's settings and
+-- sessions (NULL where it ran with its own default directory) and account, by the name the owner gave it (NULL where
+-- none was in use, and the program ran on the sign-in of its directory).
 CREATE TABLE ran (
     work INTEGER NOT NULL,
     at INTEGER NOT NULL,
@@ -392,7 +405,8 @@ CREATE TABLE ran (
     level TEXT NOT NULL,
     model TEXT NOT NULL,
     effort TEXT,
-    account TEXT, -- Hidden from agents.
+    directory TEXT, -- Hidden from agents.
+    account TEXT,
     PRIMARY KEY (work, at),
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );

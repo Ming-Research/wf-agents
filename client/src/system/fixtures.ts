@@ -159,17 +159,24 @@ function levelKeys(desc: string, model: string) {
 }
 
 export function fixtureAccounts(): AccountsPage {
+  const now = Date.UTC(2026, 10, 19, 12);
+  const day = 24 * 60 * 60 * 1000;
+  const account = (name: string, addedDaysAgo: number, limit: AccountsPage['accounts'][number]['limit'] = null) => ({
+    name,
+    added: now - addedDaysAgo * day,
+    lasts: now - addedDaysAgo * day + 365 * day,
+    limit,
+  });
   return {
-    command: 'claude',
-    variable: 'CLAUDE_CONFIG_DIR',
-    signIn: '/login',
-    dir: '/data/agents',
-    stem: 'claude',
-    base: 'fixture',
+    now,
     accounts: [
-      { name: 'claude', path: '/data/agents/claude', signedInAs: 'owner@example.com', named: true },
-      { name: 'claude-second', path: '/data/agents/claude-second', signedInAs: 'second@example.com', named: false },
-      { name: 'claude-third', path: '/data/agents/claude-third', signedInAs: null, named: false },
+      account('work', 40),
+      account('home', 20, { since: now - 2 * 60 * 60 * 1000, resets: now + 3 * 60 * 60 * 1000 }),
+      account('old', 350),
     ],
+    inUse: 'work',
+    directory: { path: '/data/agents/claude', signedInAs: 'owner@example.com' },
+    command: 'claude setup-token',
+    closed: null,
   };
 }

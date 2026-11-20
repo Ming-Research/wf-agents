@@ -12,7 +12,7 @@ use super::*;
 fn policy() -> driver::Policy {
     driver::Policy {
         samples: 2,
-        on: Box::new(|_, _| Some(on())),
+        model: Box::new(|_, _| Some(on().model)),
         warm: None,
     }
 }
@@ -23,6 +23,7 @@ fn on() -> RanOn {
         level: "1".to_string(),
         model: "opus".to_string(),
         effort: None,
+        directory: None,
         account: None,
     }
 }

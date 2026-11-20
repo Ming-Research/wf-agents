@@ -24,8 +24,8 @@ pub struct Measured {
     pub measures: Measures,
 }
 
-/// What the calls of a try came to: the tokens of its prompts by how the prompt cache took them, and what it thought, as
-/// the agents' program said them; and what the calls of the session's own agent came to, of which only they count, a
+/// What the calls of a try came to: the tokens of its prompts by how the prompt cache took them, and what it thought,
+/// as the agents' program said them; and what the calls of the session's own agent came to, of which only they count, a
 /// subagent's context not being the session's.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -53,8 +53,9 @@ pub struct Measures {
     /// The characters of the message it was given.
     pub given: u64,
     /// What came before the session's messages in its prompt, which the cache reads only where it is what the call
-    /// before had: each part by its name, with its value, or the digest of a long one (`model`, `effort`, `program`,
-    /// `system`, `schema`, `tools`). A part the try did not say is missing.
+    /// before had: each part by its name, with its value, or the digest of a long one (`model`, `effort`, `account`,
+    /// `program`, `system`, `schema`, `tools`). A part the try did not say is missing, as the account where it ran
+    /// under none.
     pub before: BTreeMap<String, String>,
     /// Whether its program said, as its stream began, that it had taken the message in: it is then in the session,
     /// whatever came of the try.

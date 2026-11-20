@@ -479,6 +479,14 @@ impl Storage for Failing {
     fn keep_warm(&mut self, warm: bool, at: Time) -> Result<(), store::Fault> {
         self.store.keep_warm(warm, at)
     }
+
+    fn accounts(&self) -> Result<Vec<store::AccountRecord>, store::Fault> {
+        self.store.accounts()
+    }
+
+    fn keep_account(&mut self, record: &store::AccountRecord) -> Result<(), store::Fault> {
+        self.store.keep_account(record)
+    }
 }
 
 /// What opening the driver gives.
@@ -1436,17 +1444,25 @@ impl H {
     /// outside well and each look reaching what it looks at; gives what is to be done.
     pub fn wake_up(&mut self) -> Option<Vec<Todo>> {
         let wake = self.d().wake()?;
+        let under = self.d().accounts().in_use().map(str::to_string);
         Some(self.ticked(
             wake.at,
-            wake.check.then_some(Found::Well),
+            wake.check.then_some((under, Found::Well)),
             wake.look_at_host.then_some(true),
         ))
     }
 
     /// The driver is told the time, which the harness's clock takes on to, and what a check of the outside of the
-    /// agents' rounds found, where one was taken; gives what is to be done.
+    /// agents' rounds found, where one was taken under the account in use; gives what is to be done.
     pub fn tick(&mut self, at: Time, found: Option<Found>) -> Vec<Todo> {
-        self.ticked(at, found, None)
+        let under = self.d().accounts().in_use().map(str::to_string);
+        self.ticked(at, found.map(|found| (under, found)), None)
+    }
+
+    /// The driver is told the time, which the harness's clock takes on to, and what a check of the outside of the
+    /// agents' rounds taken under this account found; gives what is to be done.
+    pub fn tick_under(&mut self, at: Time, under: Option<&str>, found: Found) -> Vec<Todo> {
+        self.ticked(at, Some((under.map(str::to_string), found)), None)
     }
 
     /// The driver is told the time it asked for, a look at the acts' host having found it reached or not.
@@ -1454,8 +1470,8 @@ impl H {
         self.ticked(at, None, Some(reached))
     }
 
-    /// The driver is told the time, with what each check and look found.
-    fn ticked(&mut self, at: Time, found: Option<Found>, host_reached: Option<bool>) -> Vec<Todo> {
+    /// The driver is told the time, with what each check, under its account, and each look found.
+    fn ticked(&mut self, at: Time, found: Option<(Option<String>, Found)>, host_reached: Option<bool>) -> Vec<Todo> {
         self.clock = self.clock.max(at.0);
         let todos = (self.dm().tick(at, found, host_reached)).expect("the driver takes the time");
         self.given(&todos);
@@ -1480,6 +1496,50 @@ impl H {
     /// The work is let on.
     pub fn let_on(&mut self, work: WorkNumber) -> Vec<Todo> {
         self.on(work, Event::Resumed)
+    }
+
+    /// The owner adds an account of this name, which the driver must take.
+    pub fn add_account(&mut self, name: &str) {
+        let now = self.now();
+        (self.dm().add_account(now, name)).expect("the account is added");
+        if self.checking {
+            self.check();
+        }
+    }
+
+    /// The owner removes the account of this name, which the driver must take.
+    pub fn remove_account(&mut self, name: &str) {
+        let now = self.now();
+        (self.dm().remove_account(now, name)).expect("the account is removed");
+        if self.checking {
+            self.check();
+        }
+    }
+
+    /// The owner takes the account of this name as the one the agents run under, which the driver must take; gives
+    /// what is to be done.
+    pub fn take_account(&mut self, name: &str) -> Vec<Todo> {
+        let now = self.now();
+        let todos = (self.dm().take_account(now, name)).expect("the account is taken");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
+    /// The try of the work's round under way begins under the account of this name, as its carrier says it of a round
+    /// handed out with that account.
+    pub fn ran_under(&mut self, work: WorkNumber, account: &str) -> Vec<Todo> {
+        let (run, ..) = self.round(work);
+        let on = engine::RanOn {
+            level: "1".to_string(),
+            model: "the model".to_string(),
+            effort: None,
+            directory: None,
+            account: Some(account.to_string()),
+        };
+        self.on(work, Event::Ran { run, attempt: 1, on })
     }
 
     /// Whoever plans the work changes an item, which the driver must take; gives whether that changed it, and what is

@@ -74,6 +74,14 @@ impl Storage for Failing {
     fn keep_warm(&mut self, warm: bool, at: Time) -> Result<(), store::Fault> {
         self.store.keep_warm(warm, at)
     }
+
+    fn accounts(&self) -> Result<Vec<store::AccountRecord>, store::Fault> {
+        self.store.accounts()
+    }
+
+    fn keep_account(&mut self, record: &store::AccountRecord) -> Result<(), store::Fault> {
+        self.store.keep_account(record)
+    }
 }
 
 #[tokio::test(start_paused = true)]

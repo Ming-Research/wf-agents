@@ -153,14 +153,7 @@ const MODEL: &str = "the model";
 fn warm() -> driver::Policy {
     driver::Policy {
         samples: 3,
-        on: Box::new(|_, _| {
-            Some(engine::RanOn {
-                level: "1".to_string(),
-                model: MODEL.to_string(),
-                effort: None,
-                account: None,
-            })
-        }),
+        model: Box::new(|_, _| Some(MODEL.to_string())),
         warm: Some(driver::Warm {
             life_ms: 3_600_000,
             after_ms: 3_300_000,
@@ -532,6 +525,7 @@ impl History {
                         level: "1".to_string(),
                         model: MODEL.to_string(),
                         effort: None,
+                        directory: None,
                         account: None,
                     };
                     let ran = Event::Ran { run, attempt: 1, on };
