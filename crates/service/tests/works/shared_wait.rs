@@ -12,7 +12,7 @@ use decide::run::Failure;
 use decide::{Decision, End};
 use driver::Found;
 use driver::outage::{PROBE, spacing};
-use service::{Act, Message, Outside};
+use service::{Act, Heard, Message, Outside};
 use store::AccountAct;
 use tokio::sync::oneshot;
 
@@ -116,17 +116,17 @@ impl Downs {
 }
 
 impl Outside for Downs {
-    fn check_token(&self, _: service::Token) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
-        Box::pin(async { Found::Well })
+    fn check_token(&self, _: service::Token) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>> {
+        Box::pin(async { Found::Well.into() })
     }
 
-    fn check(&self, account: Option<String>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+    fn check(&self, account: Option<String>) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>> {
         Box::pin(async move {
             self.taken.lock().unwrap().push(tokio::time::Instant::now());
             self.under.lock().unwrap().push(account);
             let mut left = self.left.lock().unwrap();
             if *left == 0 {
-                return Found::Well;
+                return Found::Well.into();
             }
             *left -= 1;
             Found::Down {
@@ -134,6 +134,7 @@ impl Outside for Downs {
                 why: "API Error: 529 Overloaded".to_string(),
                 resets: None,
             }
+            .into()
         })
     }
 }

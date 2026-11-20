@@ -1,42 +1,73 @@
 //! The accounts of the Settings view, asked as the page asks them, through the engine's loop: an account is added once
 //! its token is checked, kept where the service takes it or it is at its usage limit and not where the service refuses
 //! it or it could not be checked; taken at once; removed with its token where it is not the one in use. The page is
-//! told the sign-in the agents run on where none is, and the command that makes a token. No answer holds a token.
+//! told what the service last said of each account's usage, and looks under each not heard of lately as it opens; and
+//! the command that makes a token. No answer holds a token.
 
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use axum::Router;
 use axum::http::StatusCode;
 use decide::run::Failure;
-use driver::Found;
+use driver::{Found, LOOK_AFTER_MS, Said, Window};
 use serde_json::{Value, json};
-use service::{KeptTokens, Outside, Scripted, Service, Token, Tokens, TokioClock, YEAR_MS};
+use service::{Heard, KeptTokens, Outside, Scripted, Service, Token, Tokens, TokioClock, YEAR_MS};
 use store::Store;
-use web::settings::{Install, Program};
+use web::settings::Install;
 
 use crate::{START, get_json, post, post_text, trial_flow, trial_has, trial_script};
 
 /// The route of the accounts.
 const PATH: &str = "/api/v1/settings/accounts";
 
-/// The outside of these tests: every check under an account finds it well, and a token is refused by the service, at
-/// its usage limit, or not checked for want of the network, as its text says, else taken. The service says a token it
-/// refuses back, as words the route must not pass on.
-struct ByToken;
+/// The week's window of usage, so much of it used, the service letting calls through in it or not.
+fn week(utilization: f64, allowed: bool) -> Said {
+    Said::Windows(vec![Window {
+        name: "seven_day".to_string(),
+        utilization: Some(utilization),
+        resets: Some(work::Time(START + 7 * 24 * 3_600_000)),
+        allowed,
+    }])
+}
+
+/// The outside of these tests: every check under an account finds it well, and says a third of its week used; and a
+/// token is refused by the service, at its usage limit, saying its week used up, or not checked for want of the
+/// network, as its text says, else taken, saying a tenth of its week used; at the limit, one whose text says `silent`
+/// names no window. A refusal's words hold no token, as the
+/// check gives them. It counts the checks taken under an account, each of which would spend a short request.
+#[derive(Default)]
+struct ByToken {
+    checks: AtomicUsize,
+}
 
 impl Outside for ByToken {
-    fn check(&self, _: Option<String>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
-        Box::pin(async { Found::Well })
+    fn check(&self, account: Option<String>) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>> {
+        self.checks.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move {
+            match account {
+                Some(_) => Heard {
+                    found: Found::Well,
+                    usage: Some(week(0.3, true)),
+                },
+                None => Found::Down {
+                    failure: Failure::CannotRun,
+                    why: "No account is in use: take one on the Settings view.".to_string(),
+                    resets: None,
+                }
+                .into(),
+            }
+        })
     }
 
-    fn check_token(&self, token: Token) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
+    fn check_token(&self, token: Token) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>> {
         let secret = token.secret();
         let found = if secret.contains("refused") {
             Found::Down {
                 failure: Failure::CannotRun,
-                why: format!("Invalid bearer token {secret}"),
+                why: "Invalid bearer token …".to_string(),
                 resets: None,
             }
         } else if secret.contains("limited") {
@@ -54,18 +85,40 @@ impl Outside for ByToken {
         } else {
             Found::Well
         };
-        Box::pin(async move { found })
+        // At the limit, a token whose text says `silent` names no window.
+        let silent = secret.contains("silent");
+        let usage = match &found {
+            Found::Well => Some(week(0.1, true)),
+            Found::Down {
+                failure: Failure::UsageLimit,
+                resets,
+                ..
+            } if silent => Some(Said::Limit { resets: *resets }),
+            Found::Down {
+                failure: Failure::UsageLimit,
+                ..
+            } => Some(week(1.0, false)),
+            Found::Down { .. } => None,
+        };
+        Box::pin(async move { Heard { found, usage } })
     }
 }
 
-/// The routes of the settings over the engine's loop on the trial flow, the tokens kept by `tokens`, the agents'
-/// directory signed in as the owner; with the directory the store is in.
+/// The routes of the settings over the engine's loop on the trial flow, the tokens kept by `tokens`; with the
+/// directory the store is in.
 fn serving(tokens: Arc<KeptTokens>) -> (Router, tempfile::TempDir) {
+    let (router, dir, _) = serving_counted(tokens);
+    (router, dir)
+}
+
+/// The routes [`serving`] gives, with the outside, which counts its checks.
+fn serving_counted(tokens: Arc<KeptTokens>) -> (Router, tempfile::TempDir, Arc<ByToken>) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
     let mut carriers = Scripted::new(trial_script()).carriers();
     let kept: Arc<dyn Tokens> = tokens;
-    let outside: Arc<dyn Outside> = Arc::new(ByToken);
+    let by_token = Arc::new(ByToken::default());
+    let outside: Arc<dyn Outside> = by_token.clone();
     carriers.tokens = kept;
     carriers.outside = outside;
     let flow = flow::compile(&trial_flow(), &trial_has(&flow::Source::default())).unwrap();
@@ -78,13 +131,10 @@ fn serving(tokens: Arc<KeptTokens>) -> (Router, tempfile::TempDir) {
     let install = Install {
         file,
         read: Box::new(|_| Ok(json!({}))),
-        running: json!({ "agents": { "config_dir": "/data/agents/claude" } }),
+        running: json!({ "agents": { "command": "claude" } }),
         git: &[],
-        program: Program {
-            signed_in_as: |_| Some("owner@example.com".to_string()),
-        },
     };
-    (web::settings::router(install, handle), dir)
+    (web::settings::router(install, handle), dir, by_token)
 }
 
 fn add(name: &str, token: &str) -> Value {
@@ -120,10 +170,7 @@ async fn an_account_is_added_once_its_token_is_checked_and_no_answer_holds_a_tok
     let page = get_json(&router, PATH).await;
     assert_eq!(page["accounts"], json!([]));
     assert_eq!(page["inUse"], Value::Null);
-    assert_eq!(
-        page["directory"],
-        json!({ "path": "/data/agents/claude", "signedInAs": "owner@example.com" })
-    );
+    assert_eq!(page.get("directory"), None, "no directory's sign-in is shown");
     assert_eq!(page["command"], "claude setup-token");
     assert_eq!(page["closed"], Value::Null);
     let (status, said) = post(&router, PATH, &add("home", "sk-ant-oat01-refused")).await;
@@ -253,12 +300,11 @@ async fn an_account_is_taken_at_once_and_one_not_in_use_is_removed_with_its_toke
     }
 }
 
-// Where what keeps the tokens says no account can be in use, as where the settings name a credential the agents'
-// program takes above a token, the page is told why, and an adding and a taking are refused in those words, nothing
-// kept and nothing taken.
+// Where what keeps the tokens can keep and give none, as where the keychain's program is missing, the page is told why,
+// and an adding and a taking are refused in those words, nothing kept and nothing taken.
 #[tokio::test(start_paused = true)]
 async fn no_account_is_added_or_taken_while_what_keeps_the_tokens_refuses_one() {
-    let why = "agents.env names ANTHROPIC_API_KEY, which the agents' program takes above an account's token";
+    let why = "/usr/bin/security is not on this system, and no token can be kept in the login keychain";
     let tokens = Arc::new(KeptTokens::new());
     let (router, _dir) = serving(tokens.clone());
     assert_eq!(
@@ -275,4 +321,94 @@ async fn no_account_is_added_or_taken_while_what_keeps_the_tokens_refuses_one() 
     assert_eq!(post(&router, PATH, &act("take", "work")).await, refused);
     assert_eq!(tokens.names(), ["work"]);
     assert_eq!(get_json(&router, PATH).await["inUse"], Value::Null);
+}
+
+/// The usage of the account of this name as the page lists it.
+fn usage_of(page: &Value, name: &str) -> Value {
+    let accounts = page["accounts"].as_array().expect("the accounts");
+    let account = accounts.iter().find(|a| a["name"] == name).expect("the account");
+    account["usage"].clone()
+}
+
+/// The week's window as the page is given it.
+fn week_shown(utilization: f64, allowed: bool) -> Value {
+    json!([{ "name": "seven_day", "utilization": utilization, "resets": START + 7 * 24 * 3_600_000, "allowed": allowed }])
+}
+
+// Each account shows what the service last said of its usage: the check of its token says it as it is added, at its
+// limit as well, where it names no window too; and reading the page spends nothing, no check being taken. Opening the
+// accounts looks under each not heard of lately, none within five minutes of the last word on it; the page, read again
+// once the looks are back, shows what they heard. Milliseconds of the paused clock, nothing run: the one test of what
+// the route spends and shows.
+#[tokio::test(start_paused = true)]
+async fn each_account_shows_the_services_latest_word_on_its_usage_and_an_opening_looks_under_the_stale() {
+    const LOOK: &str = "/api/v1/settings/accounts/look";
+    let (router, _dir, outside) = serving_counted(Arc::new(KeptTokens::new()));
+    let added = [
+        ("work", "sk-ant-oat01-good"),
+        ("max", "sk-ant-oat01-limited"),
+        ("spent", "sk-ant-oat01-limited-silent"),
+    ];
+    for (name, token) in added {
+        assert_eq!(post(&router, PATH, &add(name, token)).await.0, StatusCode::OK);
+    }
+    for _ in 0..3 {
+        get_json(&router, PATH).await;
+    }
+    let page = get_json(&router, PATH).await;
+    assert_eq!(outside.checks.load(Ordering::SeqCst), 0, "reading spends nothing");
+    let work = usage_of(&page, "work");
+    assert_eq!(work["windows"], week_shown(0.1, true));
+    assert_eq!(
+        (work["atLimit"].clone(), work["looking"].clone(), work["failed"].clone()),
+        (Value::Null, json!(false), Value::Null)
+    );
+    assert!(work["seen"].is_u64(), "{work}");
+    assert_eq!(
+        usage_of(&page, "max")["windows"],
+        week_shown(1.0, false),
+        "at its limit"
+    );
+    let spent = usage_of(&page, "spent");
+    assert_eq!(
+        (spent["windows"].clone(), spent["atLimit"].clone()),
+        (json!([]), json!({ "resets": START + 3_600_000 })),
+        "at its limit, naming no window"
+    );
+    assert_eq!(
+        page["accounts"][1]["limit"],
+        Value::Null,
+        "no round of the engine met it"
+    );
+    // All were heard of just now: no look.
+    assert_eq!(
+        post(&router, LOOK, &json!({})).await,
+        (StatusCode::OK, json!({ "looking": [] }))
+    );
+    tokio::time::advance(std::time::Duration::from_millis(LOOK_AFTER_MS + 1)).await;
+    assert_eq!(
+        post(&router, LOOK, &json!({})).await,
+        (StatusCode::OK, json!({ "looking": ["work", "max", "spent"] }))
+    );
+    let mut page = get_json(&router, PATH).await;
+    for _ in 0..100 {
+        if !page["accounts"]
+            .as_array()
+            .expect("the accounts")
+            .iter()
+            .any(|a| a["usage"]["looking"] == true)
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        page = get_json(&router, PATH).await;
+    }
+    assert_eq!(outside.checks.load(Ordering::SeqCst), 3, "a look under each");
+    for name in ["work", "max", "spent"] {
+        assert_eq!(
+            usage_of(&page, name)["windows"],
+            week_shown(0.3, true),
+            "{name} looked under"
+        );
+    }
 }

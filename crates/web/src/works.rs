@@ -1795,8 +1795,20 @@ pub struct ForkPage {
     pub later: Vec<(u64, usize)>,
     /// The file the answer is kept in, on the engine's machine.
     pub kept: String,
-    /// The account the session ran under, where it was removed and the fork ran under the account in use instead.
-    pub removed: Option<String>,
+    /// The account the fork ran under.
+    pub account: String,
+    /// Why that is the account in use and not the one the session ran under, whose cache holds the session, where it
+    /// is.
+    pub instead: Option<ForkInstead>,
+}
+
+/// Why a fork ran under the account in use and not the one its session last ran under: that one was removed, or the
+/// session ran under none.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ForkInstead {
+    Removed { account: String },
+    NoAccount,
 }
 
 impl ForkPage {
@@ -1811,7 +1823,11 @@ impl ForkPage {
             round: (forked.round.0.0, forked.round.1),
             later: forked.later.into_iter().map(|(run, round)| (run.0, round)).collect(),
             kept: forked.kept,
-            removed: forked.removed,
+            account: forked.account,
+            instead: forked.instead.map(|instead| match instead {
+                service::Instead::Removed(account) => ForkInstead::Removed { account },
+                service::Instead::NoAccount => ForkInstead::NoAccount,
+            }),
         }
     }
 }
@@ -1903,14 +1919,15 @@ pub struct Added {
     pub work: u64,
 }
 
-/// Something happened: these works grew, an item was added where `items`, and the copies of the database changed where
-/// `copies`.
+/// Something happened: these works grew, an item was added where `items`, the copies of the database changed where
+/// `copies`, and the accounts, their usage or their usage limits changed where `accounts`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Changed {
     pub works: Vec<u64>,
     pub items: bool,
     pub copies: bool,
+    pub accounts: bool,
 }
 
 /// Why something asked of the interface was refused, in words.
@@ -2969,6 +2986,7 @@ impl Changed {
             works: changed.works.iter().map(|work| work.0).collect(),
             items: changed.items,
             copies: changed.copies,
+            accounts: changed.accounts,
         }
     }
 }

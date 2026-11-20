@@ -267,9 +267,6 @@ fn installed(file: PathBuf, settings: &carry::Settings) -> Result<web::settings:
         }),
         running,
         git: &carry::git::SAFE,
-        program: web::settings::Program {
-            signed_in_as: carry::account::signed_in_as,
-        },
     })
 }
 

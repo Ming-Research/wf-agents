@@ -69,11 +69,11 @@ impl Service {
     }
 }
 
-/// What a check of the outside of the agents' rounds found: what the rounds need from outside every work, the sign-in
-/// of their command line, the network to their service and a short request the service answers, each in turn.
+/// What a check of the outside of the agents' rounds found: what the rounds need from outside every work, an account
+/// in use, the network to their service and a short request the service answers, each in turn.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Found {
-    /// Everything is well: the command line is signed in, the network reaches the service and the service answered.
+    /// Everything is well: an account is in use, the network reaches the service and the service answered.
     Well,
     /// What is down, as a failed round's kind of cause, and why, as the check said it; with when the account's usage
     /// limit resets, where the short request met it and said so.

@@ -26,20 +26,23 @@
 //! this process, the program's process group is sent TERM, and KILL after three seconds, and the round ends with
 //! nothing handed in; what it spent is not known, and is recorded as nothing.
 //!
-//! The program is given an environment of its own, not the engine's (`cli::environment`), and in it the token of the
-//! account the round was handed out with, as what keeps the tokens gives it as the round begins; a token it cannot give
-//! fails the round as a command line that cannot run, in its words, never falling back to the sign-in of the program's
-//! directory. A keep-warm ping runs under the account it is handed out with, which its session's last call ran under,
-//! and a fork under its session's account, or under the one in use where that one was removed, which it says. Which of
-//! its line's sessions a round runs in, and whether it begins it, is counted from the work's records
-//! (`cli::in_session`); what it is sent is what the context manager fills into that session (crate `context`): what the
-//! session lacks, or, where the program begins the session under its id, everything from the top, and what each try's
-//! message fills is said to the loop before the program is given it, so that it is recorded. A session the program no
-//! longer has is begun again under its id, and that is said to the loop at once, so that it is recorded with why. Where
-//! the program compacts the session during the round, a hook it is given marks the compaction, which the round counts
-//! among what it took and says to the loop as the session reopened, and gives the session the round's whole message
-//! again, as a session that holds nothing is sent it. After each use of a tool another hook gives the session what the
-//! owner said to the round while it runs, where the runner put it in the round's files (`cli::Words`).
+//! The program is given an environment of its own, not the engine's (`cli::environment`), and in it the program's
+//! directory, the engine's (`account::profile`), and the token of the account the round was handed out with, as what
+//! keeps the tokens gives it as the round begins; a token it cannot give, or none where the round was handed out with
+//! no account, fails the round as a command line that cannot run, in its words, nothing being run (decision
+//! no-default-credential). A keep-warm ping runs under the account it is handed out with, which its session's last call
+//! ran under, and a fork under its session's account, or under the one in use where that one was removed or the session
+//! ran under none, which it says. What the program's stream says of the usage of the account a round, a ping or a fork
+//! runs under is said to the loop under that account, a round's as each rate limit event comes. Which of its line's
+//! sessions a round runs in, and whether it begins it, is counted from the work's records (`cli::in_session`); what it
+//! is sent is what the context manager fills into that session (crate `context`): what the session lacks, or, where the
+//! program begins the session under its id, everything from the top, and what each try's message fills is said to the
+//! loop before the program is given it, so that it is recorded. A session the program no longer has is begun again
+//! under its id, and that is said to the loop at once, so that it is recorded with why. Where the program compacts the
+//! session during the round, a hook it is given marks the compaction, which the round counts among what it took and
+//! says to the loop as the session reopened, and gives the session the round's whole message again, as a session that
+//! holds nothing is sent it. After each use of a tool another hook gives the session what the owner said to the round
+//! while it runs, where the runner put it in the round's files (`cli::Words`).
 //!
 //! A round given again after the process of the engine that gave it ended while a try of it ran goes on from that
 //! try, where its program said it began, reached the service or printed its result: what the try kept of its stream is
@@ -360,7 +363,13 @@ impl Rounds for Agents {
     fn ping(&self, ping: Ping, reply: PingReply) {
         let inner = self.inner.clone();
         tokio::spawn(async move {
-            match inner.ping(&ping).await {
+            let mut usage = None;
+            let pinged = inner.ping(&ping, &mut usage).await;
+            // Said before the ping's end, under the account the ping was handed out with.
+            if let (Some(account), Some(said)) = (ping.account.clone(), usage) {
+                reply.usage(account, said);
+            }
+            match pinged {
                 Ok(spent) => reply.ended(spent),
                 Err((why, spent)) => reply.failed(why, spent),
             }
@@ -397,18 +406,41 @@ impl Inner {
             Ok(of) => of,
             Err(why) => return failed_before(round, line, left, why),
         };
-        let on = match self
-            .settings
-            .ran_on(round.item.level.as_deref(), &round.cell, round.account.as_deref())
-        {
+        let profile = account::profile(&self.data);
+        let on = match self.settings.ran_on(
+            round.item.level.as_deref(),
+            &round.cell,
+            &profile,
+            round.account.as_deref(),
+        ) {
             Ok(on) => on,
             Err(why) => return failed_before(round, line, left, why),
         };
+        // A round given anew is given the token of the account it was handed out with, which every try of it is given,
+        // taken before anything changes the worktree or the branch: one that cannot be given, as with no account in
+        // use, fails the round as a command line that cannot run, nothing changed and nothing sent, in the words of
+        // what keeps the tokens or beside the flows. A try left by an engine that ended goes on with none.
+        let begun = match left {
+            Some(left) => Begun::Left(Box::new(left)),
+            None => match account::token_of(&self.tokens, round.account.as_deref(), &of.beside.cost.check.no_account)
+                .await
+            {
+                Ok(token) => Begun::Anew(token, round.account.clone().unwrap_or_default()),
+                Err(why) => {
+                    return Ok(Carried::Failed(
+                        why,
+                        Failure::CannotRun,
+                        failure::Said::default(),
+                        Spent::default(),
+                    ));
+                }
+            },
+        };
         let dir = match git::worktree(&place) {
             Ok(dir) => dir,
-            Err(why) => return failed_before(round, line, left, why),
+            Err(why) => return failed_before(round, line, begun.left(), why),
         };
-        let main = if round.cell.takes_main && left.is_none() {
+        let main = if round.cell.takes_main && matches!(begun, Begun::Anew(..)) {
             self.caught_up(round, &place, of).await?
         } else {
             None
@@ -472,29 +504,17 @@ impl Inner {
         };
         // The session the program lost is begun again under its id, and that is recorded once for the round.
         let recorded = lost_in(work, line, round);
-        let (status, stream, stderr, compactions) = match left {
+        let (status, stream, stderr, compactions) = match begun {
             // The try the engine that ended left, read as of a try that ended by itself, but for how its program ended,
             // which no process of the engine saw ([`Inner::left`]). Nothing is given the session again.
-            Some(left) => {
+            Begun::Left(left) => {
+                let left = *left;
                 if left.anew {
                     begin = Begin::New;
                 }
                 (None, left.stream, String::new(), left.compactions)
             }
-            None => {
-                // The token of the account the round was handed out with, which every try of it is given; one that
-                // cannot be given fails the round as a command line that cannot run, and nothing is sent.
-                let token = match account::token_of(&self.tokens, round.account.as_deref()).await {
-                    Ok(token) => token,
-                    Err(why) => {
-                        return Ok(Carried::Failed(
-                            why,
-                            Failure::CannotRun,
-                            failure::Said::default(),
-                            Spent::default(),
-                        ));
-                    }
-                };
+            Begun::Anew(token, under) => {
                 // What the round is sent in the session as it stands, and in one that holds nothing: one begun under
                 // the round, or compacted during it.
                 let about = context::For {
@@ -559,7 +579,7 @@ impl Inner {
                         &compacted,
                         &words,
                         (session, begin),
-                        token.as_ref(),
+                        &token,
                     );
                     // The stream is kept as it comes, so that what the agent is doing can be read while it does it; and
                     // the run guard judges each call as the stream tells it, halting the program at a signal past its
@@ -574,6 +594,7 @@ impl Inner {
                     let mut halt = Some(halt);
                     let mut crossed: Option<Crossing> = None;
                     let mut told_answered = false;
+                    let mut told_usage = 0;
                     let ran = {
                         let mut each = |line: &[u8]| {
                             kept.line(line);
@@ -581,6 +602,14 @@ impl Inner {
                             if !told_answered && kept.stream.answered() {
                                 told_answered = true;
                                 teller.answered();
+                            }
+                            // What the service says of the usage of the account the round was handed out with, as it
+                            // says it, whichever account is in use now.
+                            if kept.stream.usages() > told_usage {
+                                told_usage = kept.stream.usages();
+                                if let Some(said) = kept.stream.usage() {
+                                    teller.usage(under.clone(), said.clone());
+                                }
                             }
                             if crossed.is_none()
                                 && let Some(crossing) = guard.judge(kept.calls())
@@ -782,8 +811,8 @@ impl Inner {
 
     /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
     /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, which
-    /// the program compacts at the installation's `sessions.compact_at`, given the token of the account it runs under
-    /// where it runs under one.
+    /// the program compacts at the installation's `sessions.compact_at`, given the program's directory and the token of
+    /// the account it runs under.
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
@@ -795,7 +824,7 @@ impl Inner {
         compacted: &Compacted,
         words: &Words,
         (session, begin): (Uuid, Begin),
-        token: Option<&Token>,
+        token: &Token,
     ) -> Command {
         let agents = &self.settings.agents;
         let mut command = Command::new(&agents.command);
@@ -812,10 +841,11 @@ impl Inner {
             session,
             begin,
         );
+        let profile = account::profile(&self.data);
         command
             .args(args)
             .env_clear()
-            .envs(cli::environment(agents, std::env::vars(), token))
+            .envs(cli::environment(agents, &profile, std::env::vars(), token))
             .current_dir(dir);
         command
     }
@@ -876,9 +906,10 @@ impl Inner {
             Some(ran) => ran.on.account.clone(),
             None => round.account.clone(),
         };
+        let profile = account::profile(&self.data);
         let on = (ran.map(|ran| ran.on.clone())).or_else(|| {
             (self.settings)
-                .ran_on(round.item.level.as_deref(), &round.cell, account.as_deref())
+                .ran_on(round.item.level.as_deref(), &round.cell, &profile, account.as_deref())
                 .ok()
         });
         // What came before the session's messages, as the session kept it when it began.
@@ -1214,8 +1245,9 @@ impl Inner {
     /// Sends the session of the ping its keep-warm message, with the command line of the session's last round, which
     /// the cache keeps the session under, and gives what it took; or why it failed, with what it took. A work a round
     /// of which is under way is not pinged, and a ping that has not ended by the time the cache lets the session go is
-    /// stopped, since after that it would write the session again for nothing.
-    async fn ping(&self, ping: &Ping) -> Result<Spent, (String, Spent)> {
+    /// stopped, since after that it would write the session again for nothing. What the service said of the usage of
+    /// the account it ran under is put in `usage`.
+    async fn ping(&self, ping: &Ping, usage: &mut Option<driver::Said>) -> Result<Spent, (String, Spent)> {
         let failed = |why: String| (why, Spent::default());
         let of = crate::projects::of(&self.projects, &ping.item).map_err(failed)?;
         let said = &of.beside.cost.ping;
@@ -1241,7 +1273,7 @@ impl Inner {
             permissions,
         } = made;
         // The account it was handed out with, which its session's last call ran under, whose cache holds the session.
-        let token = account::token_of(&self.tokens, ping.account.as_deref())
+        let token = account::token_of(&self.tokens, ping.account.as_deref(), &of.beside.cost.check.no_account)
             .await
             .map_err(failed)?;
         let place = git::place(&self.data, &git::tag(&self.installation), ping.work);
@@ -1268,7 +1300,7 @@ impl Inner {
             &compacted,
             &words,
             (session, Begin::Resume),
-            token.as_ref(),
+            &token,
         );
         // What the session cost before the ping: its rounds' and its earlier pings'.
         let before = cli::in_session(flow, work, line, run, number + 1).before;
@@ -1292,6 +1324,7 @@ impl Inner {
         let mut never = crate::held::Stop::never();
         let ran = process::streamed(command, Some(message), None, &mut never, Some(halted), &mut each).await;
         timer.abort();
+        *usage = stream.usage().cloned();
         let marks = marked(&compacted.marks).await;
         let _ = tokio::fs::remove_file(&compacted.marks).await;
         let _ = tokio::fs::remove_file(&compacted.again).await;
@@ -1462,6 +1495,10 @@ impl Inner {
                 )?)
             }
         };
+        // The account the session's last try ran under, whose cache holds it; else the one in use, which it says: that
+        // one was removed, or the try ran under none. With none in use, no token can be given and nothing is run.
+        let (account, instead) = fork.accounts.of_session(made.on.account.as_deref());
+        let token = account::token_of(&self.tokens, account.as_deref(), &of.beside.cost.check.no_account).await?;
         let place = git::place(&self.data, &git::tag(&self.installation), fork.work);
         if !place.dir.exists() && !fork.ended {
             return Err(format!(
@@ -1496,22 +1533,19 @@ impl Inner {
             .await;
             added.map_err(|why| format!("The work's worktree is gone, and its branch could not stand in: {why}"))?;
         }
-        // The account the session's last try ran under, whose cache holds it; the one in use where it was removed.
-        let (account, removed) = fork.accounts.of_session(made.on.account.as_deref());
-        let token = account::token_of(&self.tokens, account.as_deref()).await?;
         let asked = self
             .forked(
                 fork,
                 &made,
                 (&line, of_session),
                 begins.as_deref(),
-                (&place.dir, token.as_ref()),
+                (&place.dir, &token),
             )
             .await;
         if let Some(stand_in) = stand_in.as_mut() {
             stand_in.take_away().await;
         }
-        let (answer, text, spent, read, kept) = asked?;
+        let (answer, text, spent, read, kept, usage) = asked?;
         let last = match until {
             Some(_) => (fork.run, fork.round),
             None => (made.run, made.number),
@@ -1561,22 +1595,24 @@ impl Inner {
             round: (fork.run, fork.round),
             later,
             kept: kept.display().to_string(),
-            removed,
+            account: account.unwrap_or_default(),
+            instead,
+            usage,
         })
     }
 
     /// Runs the fork's program in this directory on the session's command line, forked, begun at the message `begins`
-    /// names where it names one, given the token of the account it runs under where it runs under one, keeping what it
-    /// was told, its stream and its answer beside the round's; gives its return, what its program said at its end, what
-    /// it cost and what its first call read from the cache.
+    /// names where it names one, given the token of the account it runs under, keeping what it was told, its stream and
+    /// its answer beside the round's; gives its return, what its program said at its end, what it cost, what its first
+    /// call read from the cache, the file its answer is kept in, and what its stream said of the usage.
     async fn forked(
         &self,
         fork: &Fork,
         made: &SessionLine,
         (line, of_session): (&str, u32),
         begins: Option<&str>,
-        (dir, token): (&Path, Option<&Token>),
-    ) -> Result<(Option<String>, String, Spent, Option<u64>, PathBuf), String> {
+        (dir, token): (&Path, &Token),
+    ) -> Result<Forking, String> {
         let base = kept::base(&self.data, fork.work, fork.run, fork.round);
         let name = base.file_name().unwrap_or_default().to_string_lossy().to_string();
         let n = (1..)
@@ -1613,10 +1649,11 @@ impl Inner {
             Begin::Resume,
         );
         let mut command = Command::new(&agents.command);
+        let profile = account::profile(&self.data);
         command
             .args(cli::forked(round, begins))
             .env_clear()
-            .envs(cli::environment(agents, std::env::vars(), token))
+            .envs(cli::environment(agents, &profile, std::env::vars(), token))
             .current_dir(dir);
         // The program counts a session it goes on with from all it cost, whatever message the fork begins at.
         let before = session_cost(&fork.flow, &fork.kept, line, of_session);
@@ -1671,9 +1708,20 @@ impl Inner {
         };
         let kept = answer.clone().unwrap_or_else(|| text.clone());
         write(&at("answer"), kept.as_bytes()).await?;
-        Ok((answer, text, spent, read, at("answer")))
+        Ok((answer, text, spent, read, at("answer"), stream.usage().cloned()))
     }
 }
+
+/// What a fork's program came to: its return, what it said at its end, what it cost, what its first call read from the
+/// cache, the file its answer is kept in, and what its stream said of the usage, where it said anything.
+type Forking = (
+    Option<String>,
+    String,
+    Spent,
+    Option<u64>,
+    PathBuf,
+    Option<driver::Said>,
+);
 
 /// A checkout at an ended work's worktree's place that a fork ran in: taken away once the fork is done with it, or,
 /// where the fork is given up before, as it is dropped; the work held until it is.
@@ -1959,6 +2007,23 @@ fn measures(
     })
 }
 
+/// How a round's program is begun: going on from the try a process of the engine that ended left, or anew, given the
+/// token of the account the round was handed out with, by its name.
+enum Begun {
+    Left(Box<Left>),
+    Anew(Token, String),
+}
+
+impl Begun {
+    /// The try left, where the round goes on from one.
+    fn left(self) -> Option<Left> {
+        match self {
+            Begun::Left(left) => Some(*left),
+            Begun::Anew(..) => None,
+        }
+    }
+}
+
 /// A try of a round that the process of the engine that gave it left as it ended ([`Inner::left`]).
 struct Left {
     /// Its program's stream, read from what the try kept of it.
@@ -2118,6 +2183,8 @@ async fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use decide::{Pause, Returned, Round as Began, Seq};
+    use driver::Instead;
+    use store::AccountAct;
     use work::Back;
 
     use super::*;
@@ -2319,21 +2386,24 @@ mod tests {
 
     /// The carrier a fork of work 3's first round of run 7 is asked of, its data in this directory, and that fork, of
     /// the work as [`ran_once`] keeps it: the program a stand-in that keeps its arguments, where it ran and what it
-    /// found there, and prints a stream: its start, its first call's prompt, read mostly from the cache, and its
-    /// result, with a return, the session's total being $0.50. The engineer's line's first session began as kept, the
-    /// work's worktree is there, its project's repository beside, and the time now is ten thousand seconds in; the
-    /// cache keeps a session an hour after its last call.
+    /// found there, the token and the directory it was given, and prints a stream: its start, the week's usage, its
+    /// first call's prompt, read mostly from the cache, and its result, with a return, the session's total being $0.50.
+    /// The engineer's line's first session began as kept, the work's worktree is there, its project's repository
+    /// beside, and the time now is ten thousand seconds in; the cache keeps a session an hour after its last call. The
+    /// accounts `work` and `home` are added, and `work` is in use.
     fn forking(data: &Path) -> (Agents, git::tests::Repo, Fork) {
         let program = data.join("program.sh");
         let stream = [
             r#"{"type":"system","subtype":"init","claude_code_version":"9.9.9"}"#,
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"seven_day":{"utilization":0.67,"resetsAt":1795129200,"status":"allowed"}}}}"#,
             r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":9000}}},"parent_tool_use_id":null}"#,
             r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.5,"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":9000,"output_tokens":20},"structured_output":{"outcome":{"observations":["The task reads two ways."]}}}"#,
         ];
         let printed: String = stream.iter().map(|line| format!("printf '%s\\n' '{line}'\n")).collect();
         let script = format!(
             "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}/args'\npwd > '{0}/cwd'\nls > '{0}/listed'\n\
-             printf '%s' \"${{CLAUDE_CODE_OAUTH_TOKEN:-none}}\" > '{0}/token'\ncat > /dev/null\n{printed}",
+             printf '%s' \"${{CLAUDE_CODE_OAUTH_TOKEN:-none}}\" > '{0}/token'\n\
+             printf '%s' \"$CLAUDE_CONFIG_DIR\" > '{0}/directory'\ncat > /dev/null\n{printed}",
             data.display()
         );
         std::fs::write(&program, script).expect("written");
@@ -2395,52 +2465,91 @@ mod tests {
             round: 1,
             question: "Which words can be read two ways?".to_string(),
             ended: false,
-            accounts: driver::Accounts::default(),
+            accounts: driver::Accounts::new(accounts(&[
+                ("work", AccountAct::Added),
+                ("home", AccountAct::Added),
+                ("work", AccountAct::Taken),
+            ])),
         };
         (agents, repo, fork)
     }
 
-    // A fork runs under the account its session's last try ran under, whose cache holds the session, given its token;
-    // where that account was removed, under the account in use, and it says which was removed. Two forks of a stand-in
-    // program: a few tens of milliseconds.
+    /// The records of what was done to the accounts, in order, a millisecond apart.
+    fn accounts(done: &[(&str, store::AccountAct)]) -> Vec<store::AccountRecord> {
+        (1..)
+            .zip(done)
+            .map(|(at, (name, what))| store::AccountRecord {
+                name: name.to_string(),
+                what: *what,
+                at: work::Time(at),
+            })
+            .collect()
+    }
+
+    // A fork runs under the account its session's last try ran under, whose cache holds the session, given its token
+    // and the engine's directory; where that account was removed, or the try ran under none, under the account in use,
+    // and it says why; with none in use, such a fork runs nothing and fails, saying none is. What its stream says of
+    // the usage of the account it ran under comes with it. Three forks of a stand-in program: a few tens of
+    // milliseconds.
     #[tokio::test]
-    async fn a_fork_runs_under_its_sessions_account_or_the_one_in_use_where_that_was_removed_and_says_so() {
-        use store::{AccountAct, AccountRecord};
+    async fn a_fork_runs_under_its_sessions_account_or_the_one_in_use_saying_why_and_none_with_none_in_use() {
         let dir = tempfile::tempdir().expect("a directory");
         let data = std::path::absolute(dir.path()).expect("absolute");
         let (agents, _repo, fork) = forking(&data);
         let given = || std::fs::read_to_string(data.join("token")).expect("what it was given");
+        // The session's try ran under no account: under the one in use.
         let forked = agents.inner.fork(&fork).await.expect("the fork is asked");
         assert_eq!(
-            (forked.removed, given()),
-            (None, "none".to_string()),
-            "no account, no token"
+            (forked.account.as_str(), forked.instead, given()),
+            ("work", Some(Instead::NoAccount), "sk-ant-oat01-work".to_string())
         );
-        let record = |name: &str, what, at| AccountRecord {
-            name: name.to_string(),
-            what,
-            at: work::Time(at),
-        };
-        let mut records = vec![
-            record("work", AccountAct::Added, 1),
-            record("home", AccountAct::Added, 2),
-            record("work", AccountAct::Taken, 3),
-        ];
+        let profile = std::fs::read_to_string(data.join("directory")).expect("its directory");
+        assert_eq!(profile, data.join("profile").display().to_string());
+        assert_eq!(
+            forked.usage,
+            Some(driver::Said::Windows(vec![driver::Window {
+                name: "seven_day".to_string(),
+                utilization: Some(0.67),
+                resets: Some(work::Time(1_795_129_200_000)),
+                allowed: true,
+            }]))
+        );
         let mut kept = (*fork.kept).clone();
         kept.ran[0].on.account = Some("home".to_string());
-        let under = |records: &[AccountRecord]| Fork {
+        let under = |done: &[(&str, AccountAct)]| Fork {
             kept: Arc::new(kept.clone()),
-            accounts: driver::Accounts::new(records.to_vec()),
+            accounts: driver::Accounts::new(accounts(done)),
             ..fork.clone()
         };
-        let forked = agents.inner.fork(&under(&records)).await.expect("the fork is asked");
-        assert_eq!((forked.removed, given()), (None, "sk-ant-oat01-home".to_string()));
-        records.push(record("home", AccountAct::Removed, 4));
-        let forked = agents.inner.fork(&under(&records)).await.expect("the fork is asked");
+        let mut done = vec![
+            ("work", AccountAct::Added),
+            ("home", AccountAct::Added),
+            ("work", AccountAct::Taken),
+        ];
+        let forked = agents.inner.fork(&under(&done)).await.expect("the fork is asked");
         assert_eq!(
-            (forked.removed.as_deref(), given()),
-            (Some("home"), "sk-ant-oat01-work".to_string())
+            (forked.account.as_str(), forked.instead, given()),
+            ("home", None, "sk-ant-oat01-home".to_string())
         );
+        done.push(("home", AccountAct::Removed));
+        let forked = agents.inner.fork(&under(&done)).await.expect("the fork is asked");
+        assert_eq!(
+            (forked.account.as_str(), forked.instead, given()),
+            (
+                "work",
+                Some(Instead::Removed("home".to_string())),
+                "sk-ant-oat01-work".to_string()
+            )
+        );
+        // With none in use, a session last run under none has no account to run under.
+        std::fs::remove_file(data.join("token")).expect("taken away");
+        let none = Fork {
+            accounts: driver::Accounts::new(accounts(&[("work", AccountAct::Added)])),
+            ..fork.clone()
+        };
+        let refused = agents.inner.fork(&none).await.expect_err("no account is in use");
+        assert_eq!(refused, "No account is in use: take one on the Settings view.");
+        assert!(!data.join("token").exists(), "nothing was run");
     }
 
     #[tokio::test]
@@ -2757,9 +2866,9 @@ mod tests {
     }
 
     // A keep-warm ping runs under the account it is handed out with, the one in use, which its session's last call ran
-    // under: its program is given that account's token; with none, it runs on its directory's sign-in, given none; and
-    // an account whose token cannot be given fails the ping, saying so, its program not run. Two runs of a stand-in
-    // program: a few tens of milliseconds.
+    // under: its program is given that account's token and the engine's directory, and what its stream says of the
+    // account's usage is heard; handed out with none, or under an account whose token cannot be given, it fails, saying
+    // so, its program not run. One run of a stand-in program: a few tens of milliseconds.
     #[tokio::test]
     async fn a_ping_runs_under_the_account_it_is_handed_out_with_given_its_token() {
         let dir = tempfile::tempdir().expect("a directory");
@@ -2775,16 +2884,27 @@ mod tests {
             account: account.map(str::to_string),
         };
         let given = || std::fs::read_to_string(data.join("token")).ok();
-        agents.inner.ping(&ping(Some("work"))).await.expect("the ping ends");
+        let mut usage = None;
+        agents
+            .inner
+            .ping(&ping(Some("work")), &mut usage)
+            .await
+            .expect("the ping ends");
         assert_eq!(given().as_deref(), Some("sk-ant-oat01-work"));
+        let profile = std::fs::read_to_string(data.join("directory")).expect("its directory");
+        assert_eq!(profile, data.join("profile").display().to_string());
+        assert!(
+            matches!(&usage, Some(driver::Said::Windows(windows)) if windows.len() == 1),
+            "the week's window: {usage:?}"
+        );
         let args = std::fs::read_to_string(data.join("args")).expect("its arguments");
         let session = session::session(Uuid::nil(), WorkNumber(3), "engineer", 0).to_string();
         assert!(args.lines().any(|a| a == session), "it goes on in the session: {args}");
         assert!(!args.contains("sk-ant"), "{args}");
-        agents.inner.ping(&ping(None)).await.expect("the ping ends");
-        assert_eq!(given().as_deref(), Some("none"));
         std::fs::remove_file(data.join("token")).expect("taken away");
-        let (why, _) = agents.inner.ping(&ping(Some("gone"))).await.expect_err("no token");
+        let (why, _) = (agents.inner.ping(&ping(None), &mut None).await).expect_err("no account");
+        assert_eq!(why, "No account is in use: take one on the Settings view.");
+        let (why, _) = (agents.inner.ping(&ping(Some("gone")), &mut None).await).expect_err("no token");
         assert!(
             why.starts_with("the token of the account gone could not be read: "),
             "{why}"

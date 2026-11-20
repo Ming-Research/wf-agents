@@ -28,20 +28,16 @@ pub struct Keychain {
     program: PathBuf,
     /// The service every item of the installation is kept under.
     service: String,
-    /// Why no account can be added, as the settings say, where none can.
-    refused: Option<String>,
     /// The command that makes a token, as the settings name the agents' program.
     making: String,
 }
 
 impl Keychain {
-    /// The keychain of the installation of this id, through this program, an account refused where the settings say
-    /// why, a token made by this command.
-    pub fn new(program: &Path, installation: &uuid::Uuid, refused: Option<String>, making: String) -> Keychain {
+    /// The keychain of the installation of this id, through this program, a token made by this command.
+    pub fn new(program: &Path, installation: &uuid::Uuid, making: String) -> Keychain {
         Keychain {
             program: program.to_path_buf(),
             service: format!("wf-agents.{installation}"),
-            refused,
             making,
         }
     }
@@ -171,13 +167,11 @@ impl Tokens for Keychain {
     }
 
     fn closed(&self) -> Option<String> {
-        self.refused.clone().or_else(|| {
-            (!self.program.exists()).then(|| {
-                format!(
-                    "{} is not on this system, and no token can be kept in the login keychain",
-                    self.program.display()
-                )
-            })
+        (!self.program.exists()).then(|| {
+            format!(
+                "{} is not on this system, and no token can be kept in the login keychain",
+                self.program.display()
+            )
         })
     }
 
@@ -257,12 +251,7 @@ esac
     #[test]
     fn a_token_is_kept_given_on_the_standard_input_read_back_and_let_go_of() {
         let dir = tempfile::tempdir().unwrap();
-        let keychain = Keychain::new(
-            &stand_in(dir.path()),
-            &uuid::Uuid::nil(),
-            None,
-            "claude setup-token".into(),
-        );
+        let keychain = Keychain::new(&stand_in(dir.path()), &uuid::Uuid::nil(), "claude setup-token".into());
         let token = Token::new("sk-ant-oat01-secret_token-1".to_string());
         assert_eq!(keychain.closed(), None);
         keychain.keep("work", &token).expect("the token is kept");
@@ -291,12 +280,7 @@ esac
     #[test]
     fn a_token_the_keychain_does_not_keep_is_said_so_in_its_words_without_the_token() {
         let dir = tempfile::tempdir().unwrap();
-        let keychain = Keychain::new(
-            &stand_in(dir.path()),
-            &uuid::Uuid::nil(),
-            None,
-            "claude setup-token".into(),
-        );
+        let keychain = Keychain::new(&stand_in(dir.path()), &uuid::Uuid::nil(), "claude setup-token".into());
         std::fs::write(dir.path().join("locked"), "").unwrap();
         let token = Token::new("sk-ant-oat01-secret".to_string());
         let refused = keychain.keep("work", &token).expect_err("the keychain is locked");
@@ -314,29 +298,17 @@ esac
     #[test]
     fn a_token_that_cannot_stand_as_one_word_is_refused_without_its_words_and_a_missing_program_closes_the_accounts() {
         let dir = tempfile::tempdir().unwrap();
-        let keychain = Keychain::new(
-            &stand_in(dir.path()),
-            &uuid::Uuid::nil(),
-            None,
-            "claude setup-token".into(),
-        );
+        let keychain = Keychain::new(&stand_in(dir.path()), &uuid::Uuid::nil(), "claude setup-token".into());
         for secret in ["sk-ant oat01", "sk-\"ant", "sk-ant\n"] {
             let refused = keychain.keep("work", &Token::new(secret.to_string())).unwrap_err();
             assert!(!refused.contains("sk-"), "{refused}");
         }
         assert_eq!(read(dir.path(), "args"), "", "nothing was run");
-        let missing = Keychain::new(&dir.path().join("missing"), &uuid::Uuid::nil(), None, String::new());
+        let missing = Keychain::new(&dir.path().join("missing"), &uuid::Uuid::nil(), String::new());
         assert!(
             missing
                 .closed()
                 .is_some_and(|why| why.contains("is not on this system"))
         );
-        let refused = Keychain::new(
-            &stand_in(dir.path()),
-            &uuid::Uuid::nil(),
-            Some("agents.env".into()),
-            String::new(),
-        );
-        assert_eq!(refused.closed().as_deref(), Some("agents.env"));
     }
 }

@@ -10,6 +10,9 @@
 //   (`AccountsPage`).
 // - `POST /api/v1/settings/accounts`: the owner adds, takes or removes one (`AccountAsked`), answered with what came of
 //   it (`AccountDone`). A token is sent once, as an account is added, and no answer holds one.
+// - `POST /api/v1/settings/accounts/look`: the owner opens the accounts, and the engine looks under each whose usage it
+//   last heard of long enough ago, answering at once with their names (`Looking`); the stream of changes says the
+//   accounts changed as each look ends.
 //
 // The pages reach them through a context, which a test sets to its own source, and which the page's address with
 // `?fixtures` sets to the fixtures (fixtures.ts).
@@ -224,8 +227,31 @@ export interface Account {
   added: number;
   /// Until when its token lasts.
   lasts: number;
-  /// Its usage limit, where it stands: since when, and the reset it waits for, where one was said.
+  /// The usage limit the engine holds the account's rounds at, as its records say, where it stands: since when, and
+  /// the reset it waits for, where one was said.
   limit: { since: number; resets: number | null } | null;
+  /// What the agents' service last said of its usage.
+  usage: AccountUsage;
+}
+
+/// What the agents' service last said of an account's usage, and when: each window it named, or, where it refused the
+/// account's calls naming none, that the account is at its limit, with its reset where it said; whether a look under
+/// it is under way; and why the latest look under it failed, where it did.
+export interface AccountUsage {
+  seen: number | null;
+  windows: UsageWindow[];
+  atLimit: { resets: number | null } | null;
+  looking: boolean;
+  failed: string | null;
+}
+
+/// A window of an account's usage, by the name the service gives it: how much of it is used, from 0 to 1, and when it
+/// resets, where the service says; and whether the service lets the account's calls through in it without a warning.
+export interface UsageWindow {
+  name: string;
+  utilization: number | null;
+  resets: number | null;
+  allowed: boolean;
 }
 
 export interface AccountsPage {
@@ -233,15 +259,17 @@ export interface AccountsPage {
   now: number;
   /// The accounts added and not removed, in the order they were added.
   accounts: Account[];
-  /// The account the agents run under; none where none is in use.
+  /// The account the agents run under; none where none is in use, and no agent's round runs.
   inUse: string | null;
-  /// The sign-in the agents run on where no account is in use: their directory, as `agents.config_dir` names it, and
-  /// the account it is signed in as.
-  directory: { path: string | null; signedInAs: string | null };
   /// The command that makes a token.
   command: string;
-  /// Why no account can be added now; none where one can.
+  /// Why no account can be added now, as where what keeps the tokens is missing; none where one can.
   closed: string | null;
+}
+
+/// The accounts the engine looks under as the owner opens them.
+export interface Looking {
+  looking: string[];
 }
 
 /// What the owner does to an account.
@@ -279,6 +307,8 @@ export interface SystemSource {
   saveSettings(change: SettingsChange): Promise<Saved>;
   loadAccounts(): Promise<AccountsPage>;
   account(asked: AccountAsked): Promise<AccountDone>;
+  /// The owner opens the accounts: the engine looks under those not heard of lately.
+  look(): Promise<Looking>;
 }
 
 /// The interface.
@@ -288,6 +318,7 @@ export const INTERFACE: SystemSource = {
   saveSettings: (change) => send<Saved>('/api/v1/settings', change),
   loadAccounts: () => read<AccountsPage>('/api/v1/settings/accounts'),
   account: (asked) => send<AccountDone>('/api/v1/settings/accounts', asked),
+  look: () => send<Looking>('/api/v1/settings/accounts/look', {}),
 };
 
 /// The fixtures, loaded only when asked for. What the owner changes is only logged.
@@ -304,6 +335,7 @@ export const FIXTURES: SystemSource = {
     console.info('settings/accounts', asked.kind, asked.name);
     return { atLimit: false, resets: null, notLetGo: null };
   },
+  look: async () => ({ looking: [] }),
 };
 
 export const SystemSourceContext = createContext<SystemSource>(

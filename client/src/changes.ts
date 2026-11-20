@@ -15,7 +15,12 @@ export type Heard = Changed | 'everything';
 function changedOf(data: string): Heard {
   try {
     const c = JSON.parse(data) as Partial<Changed>;
-    return { works: Array.isArray(c.works) ? c.works : [], items: c.items ?? true, copies: c.copies ?? true };
+    return {
+      works: Array.isArray(c.works) ? c.works : [],
+      items: c.items ?? true,
+      copies: c.copies ?? true,
+      accounts: c.accounts ?? true,
+    };
   } catch {
     return 'everything';
   }

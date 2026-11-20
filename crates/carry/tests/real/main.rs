@@ -108,7 +108,12 @@ pub struct Fake {
     /// Whether the build, as it hands in, deletes the reference of the work's branch after it commits, so that the
     /// branch cannot be read as its round ends.
     pub build_loses_its_branch: bool,
+    /// Whether every call says, before its result, how much of the account's week is used: [`USED`].
+    pub says_usage: bool,
 }
+
+/// How much of the account's week every call that says its usage says is used.
+pub const USED: f64 = 0.04;
 
 impl Default for Fake {
     fn default() -> Self {
@@ -136,6 +141,7 @@ impl Default for Fake {
             build_beside_tests: false,
             build_then_asks: false,
             build_loses_its_branch: false,
+            says_usage: false,
         }
     }
 }
@@ -405,6 +411,7 @@ done
 echo $$ > "$log/$n.pid"
 printf '%s\n' "$@" > "$log/$n.args"
 printf '%s' "${{CLAUDE_CODE_OAUTH_TOKEN:-}}" > "$log/$n.token"
+printf '%s' "${{CLAUDE_CONFIG_DIR:-}}" > "$log/$n.profile"
 printf '%s' "${{CLAUDE_CODE_SUBPROCESS_ENV_SCRUB:-}}" > "$log/$n.scrub"
 prev=''
 for arg in "$@"; do
@@ -558,6 +565,9 @@ else
     structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],$protected\"outputs\":{{$out}}}}}}"
 fi
 iterations='{iterations}'
+if [ '{says_usage}' = yes ]; then
+    printf '%s\n' '{{"type":"rate_limit_event","rate_limit_info":{{"status":"allowed","unifiedWindows":{{"seven_day":{{"utilization":{used},"resetsAt":1795399200,"status":"allowed"}}}}}}}}'
+fi
 printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$iterations" "$structured"
 if [ '{returned_sleeps}' != 0 ] && [ "$first" = Plan ] && [ ! -f "$log/returned" ]; then
     touch "$log/returned"
@@ -588,6 +598,8 @@ fi
         beside_tests = yes(fake.build_beside_tests),
         then_asks = yes(fake.build_then_asks),
         loses_branch = yes(fake.build_loses_its_branch),
+        says_usage = yes(fake.says_usage),
+        used = USED,
         gave_up = GAVE_UP,
         name = NAMED,
         refused = refused.display(),
@@ -636,8 +648,12 @@ fn open(
 /// The project the tests' items belong to where a test names none.
 pub const PROJECT: &str = "test";
 
-/// Makes a project's repository at `repo`, on its main branch, with a greeting, the project's files and its declaration:
-/// the one beside this repository's flows.
+/// The account the agents run under where a test takes none of its own, and its token.
+pub const ACCOUNT: &str = "tests";
+pub const TOKEN: &str = "sk-ant-oat01-the-tests";
+
+/// Makes a project's repository at `repo`, on its main branch, with a greeting, the project's files and its
+/// declaration: the one beside this repository's flows.
 pub fn made_repository(repo: &Path) {
     std::fs::create_dir_all(repo).unwrap();
     git_in(repo, &["init", "-q", "-b", "main"]);
@@ -685,8 +701,27 @@ fn project(repo: &Path, check: &str) -> Project {
 
 impl Real {
     /// The loop on an empty store of the flow, with the fake answering as given and the budget given, the project's
-    /// check being `check`.
+    /// check being `check`; the owner has added the account [`ACCOUNT`], its token kept, and taken it, as the agents
+    /// run under none other.
     pub fn open(on: On, answers: Fake, budget: Option<f64>, check: &str) -> Real {
+        let mut real = Real::with_no_account(on, answers, budget, check);
+        let token = service::Token::new(TOKEN.to_string());
+        service::Tokens::keep(&*real.tokens, ACCOUNT, &token).expect("the token is kept");
+        for what in [store::AccountAct::Added, store::AccountAct::Taken] {
+            let (reply, mut answer) = oneshot::channel();
+            let account = Message::Account {
+                name: ACCOUNT.to_string(),
+                what,
+                reply,
+            };
+            real.service.take(account).expect("the loop takes it");
+            (answer.try_recv()).expect("answered").expect("the account is changed");
+        }
+        real
+    }
+
+    /// The loop as [`Real::open`] opens it, with no account added.
+    pub fn with_no_account(on: On, answers: Fake, budget: Option<f64>, check: &str) -> Real {
         let dir = tempfile::tempdir().expect("a directory");
         let root = std::fs::canonicalize(dir.path()).expect("the directory is there");
         let (repo, data, calls) = (root.join("repo"), root.join("data"), root.join("calls"));
@@ -715,7 +750,6 @@ impl Real {
                 args: Vec::new(),
                 env: Vec::new(),
                 setting_sources: "user".to_string(),
-                config_dir: None,
                 // The lock command of a project on Cargo.
                 permissions: PermissionsAdded {
                     locks: vec!["cargo update".to_string()],

@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use decide::run::Failure;
 use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
 use driver::history::Lines;
-use driver::{Accounts, Along, Found, Policy, Under};
+use driver::{Accounts, Along, Found, Instead, Policy, Said, Under};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
@@ -165,7 +165,8 @@ pub trait Rounds: Send + Sync {
 
 /// A fork of a round's session, asked a question: the work as it is kept, its flow and item, the run and the round of
 /// it whose session is forked, the question, whether the work has ended, and the accounts as they stand, by which the
-/// fork runs under its session's account, or the one in use where that one was removed ([`Accounts::of_session`]).
+/// fork runs under its session's account, or the one in use where that one was removed or the session ran under none
+/// ([`Accounts::of_session`]).
 #[derive(Clone, Debug)]
 pub struct Fork {
     pub work: WorkNumber,
@@ -184,9 +185,10 @@ pub struct Fork {
 /// began, the context the round it begins at ended with, in tokens, where each is known; how many minutes before the
 /// cache had let go what the fork begins with, where it had: the last call that read it was more than the cache's life
 /// before; the round asked of, by run and number; the later rounds of the session, which the fork leaves out, beginning
-/// at that round's end; the file the answer is kept in; and the account the session ran under, where it was removed
-/// and the fork ran under the account in use instead.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// at that round's end; the file the answer is kept in; the account the fork ran under, and why that is the account in
+/// use and not the session's, where it is; and what the service said of the usage of that account, none where
+/// it named none.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Forked {
     pub answer: Option<String>,
     pub text: String,
@@ -197,7 +199,9 @@ pub struct Forked {
     pub round: (RunId, usize),
     pub later: Vec<(RunId, usize)>,
     pub kept: String,
-    pub removed: Option<String>,
+    pub account: String,
+    pub instead: Option<Instead>,
+    pub usage: Option<Said>,
 }
 
 /// A keep-warm ping of the session of this number of a line of the work.
@@ -213,8 +217,9 @@ pub struct Ping {
     pub item: Item,
     /// The work as it was kept when the ping was handed out.
     pub kept: Arc<Work>,
-    /// The account the ping runs under: the one in use, which the session's last call ran under, by its name; none
-    /// where none is, and the agents run on the sign-in of their directory.
+    /// The account the ping runs under: the one in use, which the session's last call ran under, by its name. None is
+    /// handed out with none in use (decision no-default-credential); one handed out with none fails, its token not
+    /// given.
     pub account: Option<String>,
 }
 
@@ -245,6 +250,11 @@ impl PingReply {
     /// The ping failed, for this reason, having taken this.
     pub fn failed(self, why: String, spent: Spent) {
         self.send(spent, Some(why));
+    }
+
+    /// The agents' service said this of the usage of the account of this name, which the ping ran under.
+    pub fn usage(&self, account: String, said: Said) {
+        let _ = self.to.send(Message::Usage { account, said });
     }
 
     fn send(self, spent: Spent, failed: Option<String>) {
@@ -481,19 +491,36 @@ pub trait Network: Send + Sync {
     fn reached(&self) -> bool;
 }
 
-/// What checks the outside the agents' rounds need while they wait for it, by itself and with no round: the sign-in of
-/// their command line, the network to their service and a short request the service answers, each in turn, so that
-/// what is down is said by the first that is. It touches no work's session, and costs at most that short request.
+/// What checks the outside the agents' rounds need while they wait for it, by itself and with no round: an account to
+/// run under, the network to their service and a short request the service answers, each in turn, so that what is down
+/// is said by the first that is. It touches no work's session, and costs at most that short request, which also says
+/// the account's usage.
 ///
 /// It is called off the loop, and may take as long as the short request may.
 pub trait Outside: Send + Sync {
-    /// What the outside is now, under the account of this name, the one in use; with none, on the sign-in of the
-    /// agents' directory.
-    fn check(&self, account: Option<String>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>>;
+    /// What the outside is now, under the account of this name: the one in use, or one the owner's look at the
+    /// accounts is taken under. With none, no account is in use, which is down with nothing run.
+    fn check(&self, account: Option<String>) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>>;
 
     /// What the outside is under this token of an account not yet kept: the check a token is taken on before it is
     /// kept, which finds a token the service refuses as a command line that cannot run.
-    fn check_token(&self, token: Token) -> Pin<Box<dyn Future<Output = Found> + Send + '_>>;
+    fn check_token(&self, token: Token) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>>;
+}
+
+/// What a check of the outside heard: what it found, in words that hold no token, and what the service said of the
+/// usage of the account or of the token it was taken under, none where it said nothing; a short request that met the
+/// usage limit with no word of a window says the account is at its limit.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Heard {
+    pub found: Found,
+    pub usage: Option<Said>,
+}
+
+impl From<Found> for Heard {
+    /// What was found, with no word of usage.
+    fn from(found: Found) -> Heard {
+        Heard { found, usage: None }
+    }
 }
 
 /// The token of an account the agents' program may run under: a secret, given to the program alone, in a variable of
@@ -532,8 +559,8 @@ pub trait Tokens: Send + Sync {
     /// Lets go of the token kept under the name; nothing where none is.
     fn let_go(&self, name: &str) -> Result<(), String>;
 
-    /// Why no account can be in use now, in words; none where one can. While it says so, no account is added or taken,
-    /// and the engine does not start where one is in use.
+    /// Why no token can be kept or given now, in words, as where what keeps them is missing; none where one can. While
+    /// it says so, no account is added or taken, and no agent runs.
     fn closed(&self) -> Option<String>;
 
     /// The command the owner runs, signed in to an account in the browser, to make a token of it.
@@ -547,7 +574,7 @@ pub trait Tokens: Send + Sync {
 #[derive(Default)]
 pub struct KeptTokens {
     kept: Mutex<BTreeMap<String, Token>>,
-    /// Why no account can be in use, where a test says so.
+    /// Why no token can be kept or given, where a test says so.
     refusing: Mutex<Option<String>>,
     /// Why no token can be let go of, where a test says so.
     holding: Mutex<Option<String>>,
@@ -562,19 +589,20 @@ fn locked<T>(lock: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl KeptTokens {
-    /// Tokens kept in memory, no account refused.
+    /// Tokens kept in memory, none refused.
     pub fn new() -> KeptTokens {
         KeptTokens::default()
     }
 
-    /// Tokens kept in memory, every account refused for this reason.
+    /// Tokens kept in memory, none kept or given for this reason.
     pub fn refusing(why: &str) -> KeptTokens {
         let tokens = KeptTokens::default();
         tokens.refuse(Some(why));
         tokens
     }
 
-    /// From now on every account is refused for this reason, or, with none, none is.
+    /// From now on no token is kept or given, for this reason, as [`Tokens::closed`] says it; or, with none, every one
+    /// is.
     pub fn refuse(&self, why: Option<&str>) {
         *locked(&self.refusing) = why.map(str::to_string);
     }
@@ -733,7 +761,7 @@ pub struct Round {
     /// on the flow (crate `driver`, module `history`).
     pub lines: Lines,
     /// The account the round runs under, by its name: the one in use as it was handed out, every try of it running
-    /// under it; none where none was, and the agents run on the sign-in of their directory.
+    /// under it. Where none was, the round fails as its token cannot be given (decision no-default-credential).
     pub account: Option<String>,
 }
 
@@ -990,6 +1018,11 @@ impl Teller {
         });
     }
 
+    /// The agents' service said this of the usage of the account of this name, which the round runs under.
+    pub fn usage(&self, account: String, said: Said) {
+        let _ = self.to.send(Message::Usage { account, said });
+    }
+
     /// The service of the agents answered the round with a message that is no error: it serves the round, which a wait
     /// every work shares for it may be over by.
     pub fn answered(&self) {
@@ -1076,12 +1109,12 @@ mod tests {
     struct Well;
 
     impl Outside for Well {
-        fn check(&self, _: Option<String>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
-            Box::pin(async { Found::Well })
+        fn check(&self, _: Option<String>) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>> {
+            Box::pin(async { Found::Well.into() })
         }
 
-        fn check_token(&self, _: Token) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
-            Box::pin(async { Found::Well })
+        fn check_token(&self, _: Token) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>> {
+            Box::pin(async { Found::Well.into() })
         }
     }
 

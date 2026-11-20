@@ -148,6 +148,9 @@ struct Seen {
 /// The model every agent's round of the histories runs on.
 const MODEL: &str = "the model";
 
+/// The account a history that keeps sessions warm runs its agents under.
+const ACCOUNT: &str = "work";
+
 /// The policy the histories' driver is opened with: each line's session kept warm, at most twice in a wait, whoever
 /// holds the work.
 fn warm() -> driver::Policy {
@@ -214,10 +217,16 @@ fn every_flow() -> Vec<flow::Compiled> {
 impl History {
     /// A history of the seed, with stops and failures where `faults`, and with the lines' sessions kept warm and the
     /// time waited for now and then where `warming`, which no stop is drawn in: a ping is of the time and lost in a
-    /// stop, so a history with stops would not end as one without.
+    /// stop, so a history with stops would not end as one without. A history that keeps sessions warm runs its agents
+    /// under an account the owner took, since a session is kept warm only under the account in use.
     fn new(seed: u64, faults: bool, warming: bool) -> Self {
+        let mut h = H::with_policy(every_flow(), 2, warming.then_some(warm as fn() -> driver::Policy));
+        if warming {
+            h.add_account(ACCOUNT);
+            h.take_account(ACCOUNT);
+        }
         Self {
-            h: H::with_policy(every_flow(), 2, warming.then_some(warm as fn() -> driver::Policy)),
+            h,
             rng: Rng::new(seed),
             faults: faults.then(|| Rng::new(seed ^ 0x5DEE_CE66_D1CE_F00D)),
             delivers: Rng::new(seed ^ 0xDE11_7E2A_B1E5_0F00),
@@ -526,7 +535,7 @@ impl History {
                         model: MODEL.to_string(),
                         effort: None,
                         directory: None,
-                        account: None,
+                        account: Some(ACCOUNT.to_string()),
                     };
                     let ran = Event::Ran { run, attempt: 1, on };
                     if self.act(Act::On(todo.work, ran)).is_none() {

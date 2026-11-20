@@ -3,9 +3,10 @@
 //! the-account-in-use-is-the-engines-own-state). They are the engine's own state, as the pause of everything is: the
 //! driver reads them as it opens and changes them as the owner acts, and the page asks the driver.
 //!
-//! The account in use is the latest taken that has not been removed since; with none, the agents run on the sign-in of
-//! their directory, as an installation does before any account is added. A try of a round records the account it ran
-//! under by its name, apart from the directory of the program's settings it ran with, and none where none was in use.
+//! The account in use is the latest taken that has not been removed since; the program runs under no credential but
+//! the owner's accounts (decision no-default-credential). With none in use, a round, a ping or a fork that needs it is
+//! handed out all the same, and fails as its token cannot be given. A try of a round records the account it ran under
+//! by its name, apart from the directory of the program's settings it ran with; a try kept before accounts were, none.
 
 use store::{AccountAct, AccountRecord};
 use work::Time;
@@ -14,6 +15,14 @@ use work::Time;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Accounts {
     records: Vec<AccountRecord>,
+}
+
+/// Why a command of a session runs under the account in use and not the one the session's last try ran under, whose
+/// cache holds the session: that one was removed, by its name; or the try ran under none.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Instead {
+    Removed(String),
+    NoAccount,
 }
 
 /// An account that has been added and not removed since: its name, and when it was added.
@@ -60,8 +69,8 @@ impl Accounts {
         self.records.push(record);
     }
 
-    /// The account the agents run under: the latest taken that has not been removed since; none where none is, and
-    /// the agents run on the sign-in of their directory.
+    /// The account the agents run under: the latest taken that has not been removed since; none where none is, and no
+    /// agent's call can be made.
     pub fn in_use(&self) -> Option<&str> {
         let removed_after = |name: &str, i: usize| {
             (self.records[i + 1..].iter()).any(|r| r.name == name && r.what == AccountAct::Removed)
@@ -108,13 +117,14 @@ impl Accounts {
     }
 
     /// The account a command of a session runs under, the session's last try having run under this one: that account
-    /// where it is still added; where it was removed, the account in use, with the removed one's name; and where the
-    /// try ran under none, on its directory's sign-in, none.
-    pub fn of_session(&self, account: Option<&str>) -> (Option<String>, Option<String>) {
+    /// where it is still added; else the account in use, none where none is, with why it runs under that one instead:
+    /// the session's account was removed, or the try ran under none.
+    pub fn of_session(&self, account: Option<&str>) -> (Option<String>, Option<Instead>) {
+        let in_use = self.in_use().map(str::to_string);
         match account {
             Some(name) if self.is_live(name) => (Some(name.to_string()), None),
-            Some(name) => (self.in_use().map(str::to_string), Some(name.to_string())),
-            None => (None, None),
+            Some(name) => (in_use, Some(Instead::Removed(name.to_string()))),
+            None => (in_use, Some(Instead::NoAccount)),
         }
     }
 
@@ -161,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn a_session_runs_under_its_account_or_the_one_in_use_where_that_was_removed_and_a_removed_token_is_let_go_of() {
+    fn a_session_runs_under_its_account_else_the_one_in_use_saying_why_and_a_removed_token_is_let_go_of() {
         let mut accounts = Accounts::default();
         accounts.push(record("work", AccountAct::Added, 1));
         accounts.push(record("home", AccountAct::Added, 2));
@@ -171,10 +181,19 @@ mod tests {
         assert_eq!(accounts.of_session(Some("work")), (Some("work".to_string()), None));
         assert_eq!(
             accounts.of_session(Some("old")),
-            (Some("home".to_string()), Some("old".to_string())),
+            (Some("home".to_string()), Some(Instead::Removed("old".to_string()))),
             "a removed account's session runs under the one in use, saying which was removed"
         );
-        assert_eq!(accounts.of_session(None), (None, None), "on its directory's sign-in");
+        assert_eq!(
+            accounts.of_session(None),
+            (Some("home".to_string()), Some(Instead::NoAccount)),
+            "a session last run under no account runs under the one in use, saying so"
+        );
+        assert_eq!(
+            Accounts::default().of_session(None),
+            (None, Some(Instead::NoAccount)),
+            "with none in use, under none: its token cannot be given"
+        );
         assert_eq!(accounts.removed(), ["old"]);
         accounts.push(record("old", AccountAct::Added, 6));
         assert_eq!(

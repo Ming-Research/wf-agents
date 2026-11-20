@@ -57,9 +57,10 @@
 //!
 //! The accounts the agents' program may run under are the engine's own state, as the pause of everything is, kept in
 //! the store as the owner adds, removes and takes them ([`accounts`]). Every round is handed out with the account in
-//! use as it is handed out, a keep-warm ping runs under it ([`warm`]), and a check of the outside is taken under it; a
-//! usage limit is its account's own ([`outage`]), and taking another account drops what the checks found and has the
-//! outside checked at once.
+//! use as it is handed out, none where none is, a keep-warm ping runs under it ([`warm`]), and a check of the outside
+//! is taken under it; a usage limit is its account's own ([`outage`]), and taking another account drops what the checks
+//! found and has the outside checked at once. What the agents' service last said of each account's usage is kept beside
+//! them in memory, out of everything that decides ([`usage`]).
 //!
 //! What the driver holds of a work in memory is what the store holds of it: a work is saved each time it grows, and
 //! what is to be done is given out only once the store holds the entries that say so. Stopped at any moment and
@@ -100,6 +101,8 @@ pub mod owner;
 
 pub mod sessions;
 
+pub mod usage;
+
 pub mod warm;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -107,7 +110,7 @@ use std::sync::Arc;
 
 pub mod outage;
 
-pub use accounts::{Accounts, Live};
+pub use accounts::{Accounts, Instead, Live};
 pub use along::{Along, Under};
 use decide::run::Failure;
 use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
@@ -124,6 +127,7 @@ use work::{Time, Work};
 pub use budget::Budget;
 pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
 pub use sessions::{Policy, SESSION, Warm};
+pub use usage::{LOOK_AFTER_MS, Said, Usage, Usages, Window};
 
 /// The source of the blocks the driver writes: whether the items the work's item depends on have merged. Such a block
 /// is a choice of [`WAITING`] and [`MERGED`].
@@ -255,8 +259,8 @@ pub struct Driver {
     /// When a line begins a new session; with none, only what others record of sessions is followed.
     policy: Option<Policy>,
     /// The checks of the outside taken while the agents' rounds wait for it, by the account each was taken under, none
-    /// for the directory's sign-in, with when the wait they were taken in began ([`Outage::since`]): a check speaks
-    /// only of its own account, and checks of a wait that ended are of no other.
+    /// where none was in use, with when the wait they were taken in began ([`Outage::since`]): a check speaks only of
+    /// its own account, and checks of a wait that ended are of no other.
     checked: BTreeMap<Option<String>, (Time, Checked)>,
     /// The latest look at the acts' host, while the acts' rounds wait for it: when, and whether it was reached.
     looked_at_host: Option<(Time, bool)>,
@@ -272,6 +276,10 @@ pub struct Driver {
     /// Where each round or call under way stands, of a work, as what carries it out last said ([`along`]). What the
     /// outside says at a moment, kept only in memory: lost in a stop, it is said again as what is given again goes on.
     along: BTreeMap<(WorkNumber, Under), Along>,
+    /// What the agents' service last said of each account's usage, and the looks under way ([`usage`]). What the
+    /// outside says at a moment, kept only in memory and read by nothing that decides: lost in a stop, it is said again
+    /// at the next call under each account, or the next look.
+    usage: Usages,
 }
 
 /// An item a work's item depends on that has not merged, and whether it was cancelled, so that it never will.
@@ -574,6 +582,7 @@ impl Driver {
             answered: BTreeSet::new(),
             pinging: BTreeSet::new(),
             along: BTreeMap::new(),
+            usage: Usages::default(),
         };
         let items = driver.store.items().map_err(Fault::Store)?;
         let heads = driver.store.works().map_err(Fault::Store)?;
@@ -1064,7 +1073,9 @@ impl Driver {
         if self.accounts.in_use() == Some(name) {
             return Err(Failed::RemovingInUse(name.to_string()));
         }
-        self.keep_account(now, name, AccountAct::Removed)
+        self.keep_account(now, name, AccountAct::Removed)?;
+        self.usage.keep_only(&self.accounts);
+        Ok(())
     }
 
     /// Takes the account of this name as the one the agents run under, at the time the caller's clock gives, and gives
@@ -1102,6 +1113,29 @@ impl Driver {
         }
         self.accounts.push(record);
         Ok(())
+    }
+
+    /// What the agents' service last said of each account's usage, and the looks under way ([`usage`]).
+    pub fn usage(&self) -> &Usages {
+        &self.usage
+    }
+
+    /// Takes what the agents' service said of the usage of the account of this name, at the time the caller's clock
+    /// gives: the account a call was handed out with, whichever is in use now. Gives whether what it says changed.
+    pub fn heard_usage(&mut self, now: Time, account: &str, said: Said) -> bool {
+        self.usage.heard(&self.accounts, now, account, said)
+    }
+
+    /// The accounts a look is to be taken under, as the owner opens them, at the time the caller's clock gives, each
+    /// marked as being looked at ([`usage`]).
+    pub fn looks(&mut self, now: Time) -> Vec<String> {
+        self.usage.looks(&self.accounts, now)
+    }
+
+    /// Takes what a look under the account of this name found, at the time the caller's clock gives, with what the
+    /// service said of its usage, where it said anything; gives whether what is known changed.
+    pub fn looked(&mut self, now: Time, account: &str, found: &Found, said: Option<Said>) -> bool {
+        self.usage.looked(&self.accounts, now, account, found, said)
     }
 
     /// The usage limit of each account that stands, by the account's name, whether or not it is in use ([`outage`]).
@@ -1315,7 +1349,7 @@ impl Driver {
     }
 
     /// Takes the time, at which the driver asked to be told it ([`Driver::wake`]), and, where it asked for a check of
-    /// the outside of the agents' rounds, the account the check was taken under, none for the directory's sign-in, and
+    /// the outside of the agents' rounds, the account the check was taken under, none where none was in use, and
     /// what it found, and for a look at the acts' host, whether the look reached it: every work is looked at again, and
     /// what is to be done is given. A check speaks only of the account it was taken under, whichever is in use as it is
     /// told; one taken while no wait of that account's rounds stands is of none, and is passed over.

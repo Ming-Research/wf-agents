@@ -39,9 +39,6 @@ impl fmt::Display for Fault {
                     todo.work.0
                 )
             }
-            Fault::AccountsClosed { account, why } => {
-                write!(f, "the agents run under the account {account}, and {why}")
-            }
         }
     }
 }

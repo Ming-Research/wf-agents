@@ -86,8 +86,9 @@ pub enum Failure {
     Guarded,
     /// The account's usage limit was reached: no agent round of any work begins until it resets.
     UsageLimit,
-    /// The agents' command line cannot run at all: it is not signed in, its sign-in was refused, or the program is
-    /// missing or ended before it began, having reached nothing. No agent round of any work begins until it runs.
+    /// The agents' command line cannot run at all: no account is in use, the account's token cannot be given or was
+    /// refused, or the program is missing or ended before it began, having reached nothing. No agent round of any work
+    /// begins until it runs.
     CannotRun,
     /// The network cannot be reached: no agent round of any work begins until it can be.
     Offline,

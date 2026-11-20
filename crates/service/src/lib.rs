@@ -32,9 +32,13 @@
 //! the agents' program may run under, added, removed and taken by the owner. An account is added once its token has
 //! been checked by the check of the outside and kept by what keeps the tokens ([`Tokens`]), and its token let go of
 //! once it is removed; a round, a ping and a check of the outside are each given the account in use as they are handed
-//! out. How many rounds of agents go on at once is what the carriers say ([`Carriers::slots`]), and the driver gives no
-//! more. Whether a pause holds a work back the carriers are told as the loop opens and whenever it may have changed
-//! ([`Rounds::paused`]), for what a carrier holds back of a round for itself.
+//! out, none where none is, which no agent's call runs under (decision no-default-credential). What the agents' service
+//! says of an account's usage, a carrier says under the account its call was handed out with, and the driver keeps it;
+//! as the owner opens the accounts, a look is taken under each whose usage was last heard of long enough ago, with the
+//! check of the outside, off the loop (crate `driver`, module `usage`). How many rounds of agents go on at once is what
+//! the carriers say ([`Carriers::slots`]), and the driver gives no more. Whether a pause holds a work back the carriers
+//! are told as the loop opens and whenever it may have changed ([`Rounds::paused`]), for what a carrier holds back of a
+//! round for itself.
 //!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
@@ -64,12 +68,12 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, RanOn, Time};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, Forked, Hosting, KeptTokens,
-    Mark, Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round, RoundReply, Rounds,
-    Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, WITHDRAWN, YEAR_MS,
+    Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, Forked, Heard, Hosting,
+    KeptTokens, Mark, Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round,
+    RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, WITHDRAWN, YEAR_MS,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
-pub use driver::{Along, Under};
+pub use driver::{Along, Instead, Said, Under, Window};
 pub use levels::{Level, Levels, LevelsFault};
 pub use projects::Projects;
 pub use script::Script;
@@ -104,6 +108,8 @@ pub struct Service {
     pinging: BTreeMap<WorkNumber, (usize, Vec<Todo>)>,
     /// The lock every handle takes to add an account.
     adding: Arc<tokio::sync::Mutex<()>>,
+    /// The usage limit of each account that stands, as last told to whoever listens: told again once it changed.
+    limits: BTreeMap<String, driver::Limit>,
 }
 
 /// A read of the works as the driver holds them, at the time the loop's clock gives.
@@ -160,14 +166,24 @@ pub enum Message {
     /// The time of the engine's wait, this call of this work, has come.
     Due { work: WorkNumber, call: CallId },
     /// The time the driver asked to be told has come; where it asked for a check of the outside of the agents' rounds,
-    /// the check found this, under the account of this name, the one in use as it was taken, and where it asked for a
+    /// the check heard this, under the account of this name, the one in use as it was taken, and where it asked for a
     /// look at the network to the acts' host, the look found it reached or not.
     Tick {
         wake: Wake,
-        found: Option<Found>,
+        heard: Option<Heard>,
         under: Option<String>,
         host_reached: Option<bool>,
     },
+    /// The agents' service said this of the usage of the account of this name, under which a call it answered was
+    /// handed out.
+    Usage { account: String, said: Said },
+    /// The owner opens the accounts: a look is taken under each whose usage was last heard of long enough ago, and the
+    /// reply names them.
+    Look {
+        reply: oneshot::Sender<Result<Vec<String>, Refusal>>,
+    },
+    /// A look under the account of this name heard this.
+    Looked { account: String, heard: Heard },
     /// The service of the agents answered the round under way of this run, with a message that is no error.
     Answered { work: WorkNumber, run: RunId },
     /// What carries out a round or a call of this work says where it stands now, or that it no longer says so.
@@ -222,13 +238,14 @@ pub struct Acted {
     pub reached: Option<CellId>,
 }
 
-/// Something happened: these works grew, an item was added where `items`, and the copies of the database changed where
-/// `copies`.
+/// Something happened: these works grew, an item was added where `items`, the copies of the database changed where
+/// `copies`, and the accounts, their usage or their usage limits changed where `accounts`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Changed {
     pub works: Vec<WorkNumber>,
     pub items: bool,
     pub copies: bool,
+    pub accounts: bool,
 }
 
 /// What stops the loop. Started again, the process goes on from the store.
@@ -243,9 +260,6 @@ pub enum Fault {
     Answer { work: WorkNumber, failed: Failed },
     /// The driver gave something to be done that names what its work does not hold.
     Stray { todo: Todo, missing: Missing },
-    /// The agents run under this account, and no account can be in use, for this reason, as what keeps the tokens says
-    /// ([`Tokens::closed`]): the engine does not start.
-    AccountsClosed { account: String, why: String },
 }
 
 /// What a todo names that its work does not hold.
@@ -269,8 +283,8 @@ pub enum Refusal {
     NotAPersonsCall(CallId),
     /// The token of an account to be added was not kept, for this reason, in words: no account was added.
     NotKept(String),
-    /// No account can be in use, for this reason, as what keeps the tokens says ([`Tokens::closed`]): none is added or
-    /// taken.
+    /// No token can be kept or given, for this reason, as what keeps the tokens says ([`Tokens::closed`]): no account
+    /// is added or taken.
     Closed(String),
     /// The loop has ended.
     Gone,
@@ -315,15 +329,6 @@ impl Service {
         clock: Arc<dyn Clock>,
     ) -> Result<(Service, Inbox), Fault> {
         let now = clock.now().map_err(Fault::Clock)?;
-        // No account is in use where none can be: the engine does not start under one.
-        let accounts =
-            driver::Accounts::new((store.accounts()).map_err(|fault| Fault::Driver(driver::Fault::Store(fault)))?);
-        if let (Some(account), Some(why)) = (accounts.in_use(), carriers.tokens.closed()) {
-            return Err(Fault::AccountsClosed {
-                account: account.to_string(),
-                why,
-            });
-        }
         let by_name = (flows.iter())
             .map(|flow| (flow.name.clone(), Arc::new(flow.clone())))
             .collect();
@@ -335,6 +340,7 @@ impl Service {
         }
         let (to, inbox) = mpsc::unbounded_channel();
         let (changed, _) = broadcast::channel(CHANGES);
+        let limits = driver.limits();
         let mut service = Service {
             driver,
             flows: by_name,
@@ -345,6 +351,7 @@ impl Service {
             wake: None,
             pinging: BTreeMap::new(),
             adding: Arc::default(),
+            limits,
         };
         let works: Vec<WorkNumber> = service.driver.works().map(|kept| kept.head.number).collect();
         service.tell_paused(works);
@@ -382,6 +389,9 @@ impl Service {
     pub fn take(&mut self, message: Message) -> Result<(), Fault> {
         let before = self.sizes();
         let mut items = false;
+        let mut accounts = false;
+        // Whether the rounds the service answered changed, which the usage limits that stand are worked out from.
+        let mut answered = false;
         match message {
             Message::Read(read) => {
                 let now = self.now()?;
@@ -432,7 +442,7 @@ impl Service {
             }
             Message::Tick {
                 wake,
-                found,
+                heard,
                 under,
                 host_reached,
             } => {
@@ -440,14 +450,49 @@ impl Service {
                     self.wake = None;
                 }
                 let now = self.now()?;
-                let found = found.map(|found| (under, found));
+                if let (Some(account), Some(said)) = (&under, heard.as_ref().and_then(|heard| heard.usage.clone())) {
+                    accounts = self.driver.heard_usage(now, account, said);
+                }
+                let found = heard.map(|heard| (under, heard.found));
                 let todos = (self.driver.tick(now, found, host_reached)).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
             }
             Message::Answered { work, run } => {
+                answered = true;
                 let now = self.now()?;
                 let todos = self.driver.answered(now, work, run).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
+            }
+            Message::Usage { account, said } => {
+                // No record grew, and nothing that decides reads it: only the accounts are told again.
+                let now = self.now()?;
+                if self.driver.heard_usage(now, &account, said) {
+                    self.tell_accounts();
+                }
+                return Ok(());
+            }
+            Message::Look { reply } => {
+                let now = self.now()?;
+                let looks = self.driver.looks(now);
+                for account in &looks {
+                    let (to, outside, account) = (self.to.clone(), self.carriers.outside.clone(), account.clone());
+                    tokio::spawn(async move {
+                        let heard = outside.check(Some(account.clone())).await;
+                        let _ = to.send(Message::Looked { account, heard });
+                    });
+                }
+                if !looks.is_empty() {
+                    self.tell_accounts();
+                }
+                let _ = reply.send(Ok(looks));
+                return Ok(());
+            }
+            Message::Looked { account, heard } => {
+                let now = self.now()?;
+                if self.driver.looked(now, &account, &heard.found, heard.usage) {
+                    self.tell_accounts();
+                }
+                return Ok(());
             }
             Message::Along { work, under, along } => {
                 // What a work does now may have changed, though no record of it grew.
@@ -456,6 +501,7 @@ impl Service {
                         works: vec![work],
                         items: false,
                         copies: false,
+                        accounts: false,
                     });
                 }
                 return Ok(());
@@ -489,6 +535,7 @@ impl Service {
                             works,
                             items: false,
                             copies: false,
+                            accounts: false,
                         });
                         return Ok(());
                     }
@@ -513,6 +560,7 @@ impl Service {
                             works: Vec::new(),
                             items: false,
                             copies: false,
+                            accounts: false,
                         });
                         return Ok(());
                     }
@@ -537,12 +585,14 @@ impl Service {
                     Ok(todos) => {
                         let _ = reply.send(Ok(()));
                         self.hand(now, todos)?;
-                        // What every work does now may have changed, though no record of one grew.
+                        // What every work does now may have changed, though no record of one grew; and the accounts
+                        // did.
                         let works: Vec<WorkNumber> = self.driver.works().map(|kept| kept.head.number).collect();
                         let _ = self.changed.send(Changed {
                             works,
                             items: false,
                             copies: false,
+                            accounts: true,
                         });
                     }
                     Err(failed) => {
@@ -593,7 +643,7 @@ impl Service {
             }
         }
         self.set_wake();
-        self.tell(&before, items);
+        self.tell(&before, items, accounts, answered);
         Ok(())
     }
 
@@ -625,7 +675,7 @@ impl Service {
         let under = self.driver.accounts().in_use().map(str::to_string);
         let timer = tokio::spawn(async move {
             tokio::time::sleep(after).await;
-            let found = match wake.check {
+            let heard = match wake.check {
                 true => Some(outside.check(under.clone()).await),
                 false => None,
             };
@@ -637,7 +687,7 @@ impl Service {
             };
             let _ = to.send(Message::Tick {
                 wake,
-                found,
+                heard,
                 under,
                 host_reached,
             });
@@ -915,22 +965,42 @@ impl Service {
             .collect()
     }
 
-    /// Tells whoever listens which works grew since `before`, and whether an item was added; and the carriers whether
-    /// a pause holds each work that grew.
-    fn tell(&self, before: &BTreeMap<WorkNumber, usize>, items: bool) {
+    /// Tells whoever listens which works grew since `before`, whether an item was added, and whether the accounts
+    /// changed, as `accounts` says or as the usage limits that stand did; and the carriers whether a pause holds each
+    /// work that grew. The limits are worked out from every work's rounds and the rounds the service answered, so they
+    /// are worked out again only where a work grew or, as `answered` says, the service answered a round.
+    fn tell(&mut self, before: &BTreeMap<WorkNumber, usize>, items: bool, accounts: bool, answered: bool) {
         let works: Vec<WorkNumber> = (self.sizes().into_iter())
             .filter(|(work, size)| before.get(work) != Some(size))
             .map(|(work, _)| work)
             .collect();
         self.tell_paused(works.clone());
-        if !works.is_empty() || items {
+        let mut accounts = accounts;
+        if !works.is_empty() || answered {
+            let limits = self.driver.limits();
+            accounts |= limits != self.limits;
+            self.limits = limits;
+        }
+        if !works.is_empty() || items || accounts {
             // Nobody may be listening.
             let _ = self.changed.send(Changed {
                 works,
                 items,
                 copies: false,
+                accounts,
             });
         }
+    }
+
+    /// Tells whoever listens that the accounts or their usage changed, and nothing else.
+    fn tell_accounts(&self) {
+        // Nobody may be listening.
+        let _ = self.changed.send(Changed {
+            works: Vec::new(),
+            items: false,
+            copies: false,
+            accounts: true,
+        });
     }
 }
 
@@ -971,6 +1041,7 @@ impl Handle {
             works: Vec::new(),
             items: false,
             copies: true,
+            accounts: false,
         });
     }
 
@@ -1011,11 +1082,12 @@ impl Handle {
 
     /// Adds an account under this name with this token, and says whether the token was at its usage limit as it was
     /// checked, and when that resets. The name is refused where it is no account's name or is one's added and not
-    /// removed, the token where it is no token's shape, and the account where what keeps the tokens says none can be in
-    /// use. Then the token is checked, by the check of the outside under it, off the loop, which may take as long as
+    /// removed, the token where it is no token's shape, and the account where what keeps the tokens says none can be
+    /// kept. Then the token is checked, by the check of the outside under it, off the loop, which may take as long as
     /// its short request: one the service refuses is not kept, saying the service's words; one at its usage limit is
     /// kept, saying its reset; and one that could not be checked, the network or the service not reached, is not kept,
-    /// saying why. The token is kept before the account is added, and nothing of it is said in any words.
+    /// saying why. The token is kept before the account is added, and nothing of it is said in any words; what the
+    /// service said of its usage is the account's once it is added.
     pub async fn add_account(&self, name: String, token: Token) -> Result<AccountAdded, Refusal> {
         if let Some(why) = driver::accounts::name_fault(&name) {
             return Err(Refusal::Failed(Failed::AccountName(why)));
@@ -1032,9 +1104,9 @@ impl Handle {
         if let Some(why) = self.carriers.tokens.closed() {
             return Err(Refusal::Closed(why));
         }
-        // What the check says is passed on with the token taken out of it, should the program have said it back.
-        let scrubbed = |why: String| why.replace(token.secret(), "…");
-        let added = match self.carriers.outside.check_token(token.clone()).await {
+        // What the check says holds no token: the check takes it out, should the program have said it back.
+        let heard = self.carriers.outside.check_token(token.clone()).await;
+        let added = match heard.found {
             Found::Well => AccountAdded {
                 at_limit: false,
                 resets: None,
@@ -1049,11 +1121,9 @@ impl Handle {
                 why,
                 ..
             } => {
-                let why = scrubbed(why);
                 return Err(Refusal::NotKept(format!("the service refused the token: {why}")));
             }
             Found::Down { why, .. } => {
-                let why = scrubbed(why);
                 return Err(Refusal::NotKept(format!(
                     "the token could not be checked, so it was not kept: {why}; add it again"
                 )));
@@ -1067,13 +1137,24 @@ impl Handle {
             Ok(Err(why)) => return Err(Refusal::NotKept(why)),
             Err(e) => return Err(Refusal::NotKept(format!("the token could not be kept: {e}"))),
         }
-        self.account(name, AccountAct::Added).await?;
+        self.account(name.clone(), AccountAct::Added).await?;
+        if let Some(said) = heard.usage {
+            let _ = (self.to).send(Message::Usage { account: name, said });
+        }
         Ok(added)
     }
 
+    /// The owner opens the accounts: a look is taken under each whose usage was last heard of long enough ago, or
+    /// never, off the loop, the accounts said changed as each ends; gives the names of the accounts looked under.
+    pub async fn look(&self) -> Result<Vec<String>, Refusal> {
+        let (reply, answer) = oneshot::channel();
+        self.to.send(Message::Look { reply }).map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
     /// Takes the account of this name as the one the agents run under: every round handed out from now on runs under
-    /// it, and the outside is checked at once under it where the agents' rounds wait for it. It is refused where what
-    /// keeps the tokens says no account can be in use.
+    /// it, and the outside is checked at once under it where the agents' rounds wait for it, as they do while none is
+    /// in use. It is refused where what keeps the tokens says none can be given.
     pub async fn take_account(&self, name: String) -> Result<(), Refusal> {
         if let Some(why) = self.carriers.tokens.closed() {
             return Err(Refusal::Closed(why));
@@ -1245,7 +1326,16 @@ impl Handle {
             Some(Err(why)) => return Ok(Some(Err(why))),
             Some(Ok(fork)) => fork,
         };
-        Ok(Some(self.carriers.agents.fork(fork).await))
+        let forked = self.carriers.agents.fork(fork).await;
+        if let Ok(forked) = &forked
+            && let Some(said) = forked.usage.clone()
+        {
+            let _ = (self.to).send(Message::Usage {
+                account: forked.account.clone(),
+                said,
+            });
+        }
+        Ok(Some(forked))
     }
 
     /// What the agent of the round of this number of the run did from the mark on, as the carrier of its cell's kind

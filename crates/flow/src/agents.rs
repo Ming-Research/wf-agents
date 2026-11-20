@@ -214,8 +214,8 @@ pub struct ProgramWords {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckWords {
-    /// The command line is not signed in, as `{command} auth status` says.
-    pub signed_out: String,
+    /// No account is in use, which the check is taken under: nothing is run.
+    pub no_account: String,
     /// The network does not reach the agents' service.
     pub offline: String,
 }
