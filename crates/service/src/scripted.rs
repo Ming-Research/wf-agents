@@ -19,7 +19,8 @@ use driver::{Along, Found};
 use store::WorkNumber;
 
 use crate::carriers::{
-    CallReply, Carriers, KeptTokens, Network, Outside, Round, RoundReply, Rounds, Token, ToolCall, Tools, WITHDRAWN,
+    CallReply, Carriers, Heard, KeptTokens, Network, Outside, Round, RoundReply, Rounds, Token, ToolCall, Tools,
+    WITHDRAWN,
 };
 use crate::script::{Ends, Planned, Script};
 
@@ -160,12 +161,12 @@ impl Network for Scripted {
 /// The outside of the agents' rounds a script runs on is always well, under every account and every token: what the
 /// script makes a round fail of passes once the engine checks it.
 impl Outside for Scripted {
-    fn check(&self, _: Option<String>) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
-        Box::pin(async { Found::Well })
+    fn check(&self, _: Option<String>) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>> {
+        Box::pin(async { Found::Well.into() })
     }
 
-    fn check_token(&self, _: Token) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
-        Box::pin(async { Found::Well })
+    fn check_token(&self, _: Token) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>> {
+        Box::pin(async { Found::Well.into() })
     }
 }
 

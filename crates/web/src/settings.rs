@@ -4,10 +4,13 @@
 //! - `GET /api/v1/settings`: the file ([`SettingsPage`]).
 //! - `POST /api/v1/settings`: the owner's change of a few keys ([`SettingsChange`]), answered with what was changed in
 //!   words ([`Saved`]).
-//! - `GET /api/v1/settings/accounts`: the accounts the agents' program may run under, the one in use, the sign-in the
-//!   agents run on where none is, and the command that makes a token ([`AccountsPage`]).
+//! - `GET /api/v1/settings/accounts`: the accounts the agents' program may run under, each with what the service last
+//!   said of its usage, the one in use, and the command that makes a token ([`AccountsPage`]). Reading spends nothing.
 //! - `POST /api/v1/settings/accounts`: the owner adds, takes or removes an account ([`AccountAsked`]), through the
 //!   engine's loop, answered with what came of it ([`AccountDone`]).
+//! - `POST /api/v1/settings/accounts/look`: the owner opens the accounts: the engine looks under each whose usage it last
+//!   heard of long enough ago, off the loop, and answers at once with the names it looks under ([`Looking`]); the
+//!   accounts are said changed as each look ends (crate `driver`, module `usage`).
 //!
 //! The owner changes on the page what is tuned while works go on: the language the agents write in for the owner, the
 //! model of each level, the highest level an item may be at, the context at which the agents' program compacts a line's
@@ -34,7 +37,7 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use toml_edit::{DocumentMut, Item, Table as TomlTable, TableLike, Value};
@@ -56,14 +59,6 @@ pub struct Install {
     /// What every git command is given before its own arguments, so that nothing the repository's configuration names
     /// is run.
     pub git: &'static [&'static str],
-    /// The agents' program, for the sign-in of its directory.
-    pub program: Program,
-}
-
-/// What the page needs of the agents' program to say the sign-in of its directory.
-pub struct Program {
-    /// The account a directory is signed in as, where it is.
-    pub signed_in_as: fn(&Path) -> Option<String>,
 }
 
 /// The file as it writes the settings.
@@ -155,25 +150,23 @@ pub struct Saved {
 }
 
 /// The accounts the agents' program may run under, as the engine holds them, with what the page says beside them.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountsPage {
     /// The time now, by the engine's clock.
     pub now: u64,
     /// The accounts added and not removed, in the order they were added.
     pub accounts: Vec<Account>,
-    /// The account the agents run under, by its name; none where none is in use.
+    /// The account the agents run under, by its name; none where none is in use, and no agent's round runs.
     pub in_use: Option<String>,
-    /// The sign-in the agents run on where no account is in use: their directory's.
-    pub directory: Directory,
     /// The command the owner runs, signed in to an account in the browser, to make a token of it.
     pub command: String,
-    /// Why no account can be added now; none where one can.
+    /// Why no account can be added now, as where what keeps the tokens is missing; none where one can.
     pub closed: Option<String>,
 }
 
 /// An account added.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
     pub name: String,
@@ -181,8 +174,40 @@ pub struct Account {
     pub added: u64,
     /// Until when its token lasts: the life the agents' program gives a token, from when it was added.
     pub lasts: u64,
-    /// Its usage limit, where it stands: since when, and the reset it waits for, where one was said.
+    /// The usage limit the engine holds the account's rounds at, as its records say, where it stands: since when, and
+    /// the reset it waits for, where one was said.
     pub limit: Option<AccountLimit>,
+    /// What the agents' service last said of its usage.
+    pub usage: AccountUsage,
+}
+
+/// What the agents' service last said of an account's usage: each window it named, and when; whether a look under it
+/// is under way; and why the latest look failed, where it did and nothing was heard since.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountUsage {
+    pub seen: Option<u64>,
+    pub windows: Vec<UsageWindow>,
+    pub looking: bool,
+    pub failed: Option<String>,
+}
+
+/// A window of an account's usage, by the name the service gives it: how much of it is used, from 0 to 1, and when it
+/// resets, where the service says; and whether the service lets the account's calls through in it without a warning.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageWindow {
+    pub name: String,
+    pub utilization: Option<f64>,
+    pub resets: Option<u64>,
+    pub allowed: bool,
+}
+
+/// What the owner's opening of the accounts looks under: the accounts whose usage the engine looks at now.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Looking {
+    pub looking: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -190,15 +215,6 @@ pub struct Account {
 pub struct AccountLimit {
     pub since: u64,
     pub resets: Option<u64>,
-}
-
-/// The directory of the agents' program's settings, as the engine runs with `agents.config_dir`, and the account it is
-/// signed in as; none of either where the file names no directory, or it is not signed in.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Directory {
-    pub path: Option<String>,
-    pub signed_in_as: Option<String>,
 }
 
 /// What the owner does to an account: adds one under a name with its token, takes one as the one the agents run under,
@@ -247,6 +263,7 @@ pub fn router(install: Install, handle: service::Handle) -> Router {
     let install = Arc::new(install);
     let accounts = Router::new()
         .route("/api/v1/settings/accounts", get(accounts).post(account))
+        .route("/api/v1/settings/accounts/look", post(look))
         .with_state(Accounted {
             install: install.clone(),
             handle,
@@ -269,24 +286,22 @@ async fn save(State(install): State<Arc<Install>>, body: Bytes) -> Response {
     off_the_loop(move || changed(&install, &change)).await
 }
 
-/// The accounts as the engine holds them, each with when its token lasts until and its usage limit where one stands,
-/// and the sign-in of the agents' directory, read off the threads that serve requests.
+/// The accounts as the engine holds them, each with when its token lasts until, the usage limit the engine holds its
+/// rounds at where one stands, and what the service last said of its usage. Reading spends nothing: a look is the
+/// owner's act ([`look`]).
 async fn accounts(State(at): State<Accounted>) -> Response {
     let read = at.handle.read_at(|driver, now| {
         let accounts = driver.accounts();
         let in_use = accounts.in_use().map(str::to_string);
-        (now, accounts.live(), in_use, driver.limits())
+        let usage = driver.usage().clone();
+        (now, accounts.live(), in_use, driver.limits(), usage)
     });
-    let (now, live, in_use, limits) = match read.await {
+    let (now, live, in_use, limits, usage) = match read.await {
         Ok(read) => read,
         Err(refusal) => return refused(&refusal),
     };
     let tokens = at.handle.tokens();
     let (life, command, closed) = (tokens.life_ms(), tokens.making(), tokens.closed());
-    let path = at.install.running["agents"]["config_dir"].as_str().map(str::to_string);
-    let signed_in_as = at.install.program.signed_in_as;
-    let looked = path.clone();
-    let signed = tokio::task::spawn_blocking(move || looked.and_then(|path| signed_in_as(Path::new(&path)))).await;
     let accounts = (live.into_iter())
         .map(|live| Account {
             limit: limits.get(&live.name).map(|limit| AccountLimit {
@@ -295,6 +310,7 @@ async fn accounts(State(at): State<Accounted>) -> Response {
             }),
             added: live.added.0,
             lasts: live.added.0.saturating_add(life),
+            usage: usage_of(usage.of(&live.name)),
             name: live.name,
         })
         .collect();
@@ -302,14 +318,38 @@ async fn accounts(State(at): State<Accounted>) -> Response {
         now: now.0,
         accounts,
         in_use,
-        directory: Directory {
-            path,
-            signed_in_as: signed.ok().flatten(),
-        },
         command,
         closed,
     })
     .into_response()
+}
+
+/// What the service last said of an account's usage, as the page is given it; nothing where nothing is known.
+fn usage_of(usage: Option<&driver::Usage>) -> AccountUsage {
+    let usage = usage.cloned().unwrap_or_default();
+    let (seen, windows) = usage.seen.unzip();
+    AccountUsage {
+        seen: seen.map(|at| at.0),
+        windows: (windows.unwrap_or_default().into_iter())
+            .map(|window| UsageWindow {
+                name: window.name,
+                utilization: window.utilization,
+                resets: window.resets.map(|at| at.0),
+                allowed: window.allowed,
+            })
+            .collect(),
+        looking: usage.looking,
+        failed: usage.failed,
+    }
+}
+
+/// The owner opens the accounts: the engine looks under each whose usage it last heard of long enough ago, and answers
+/// at once with the names it looks under.
+async fn look(State(at): State<Accounted>) -> Response {
+    match at.handle.look().await {
+        Ok(looking) => Json(Looking { looking }).into_response(),
+        Err(refusal) => refused(&refusal),
+    }
 }
 
 /// Adds, takes or removes an account through the engine's loop. A body that cannot be read is refused in words of

@@ -5,7 +5,7 @@
 
 import { fixtureItems } from '../works/fixtures';
 import type { Spent } from '../works-api';
-import type { AccountsPage, SettingsPage, System, Week } from './api';
+import type { AccountsPage, AccountUsage, SettingsPage, System, Week } from './api';
 
 const nothing = (): Spent => ({
   usdMicros: 0,
@@ -126,7 +126,6 @@ export function fixtureSettings(): SettingsPage {
         leftOut: false,
         keys: [
           key('command', '"claude"'),
-          key('config_dir', '"/data/agents/claude"'),
           key('slots', '3', '2', { kind: 'count' }),
           key('args', '["--permission-mode", "acceptEdits"]'),
           key('work_budget_usd', '5.0'),
@@ -158,24 +157,48 @@ function levelKeys(desc: string, model: string) {
   return [key('desc', JSON.stringify(desc)), key('model', JSON.stringify(model), null, { kind: 'name' })];
 }
 
+/// The accounts: `work`, in use, whose week and five hours the service named three minutes ago; `home`, which the
+/// engine holds at its weekly limit; and `old`, whose token ends within a month and of whose usage nothing is known.
 export function fixtureAccounts(): AccountsPage {
   const now = Date.UTC(2026, 10, 19, 12);
   const day = 24 * 60 * 60 * 1000;
-  const account = (name: string, addedDaysAgo: number, limit: AccountsPage['accounts'][number]['limit'] = null) => ({
+  const hour = 60 * 60 * 1000;
+  const unknown: AccountUsage = { seen: null, windows: [], looking: false, failed: null };
+  const account = (
+    name: string,
+    addedDaysAgo: number,
+    usage: AccountUsage = unknown,
+    limit: AccountsPage['accounts'][number]['limit'] = null,
+  ) => ({
     name,
     added: now - addedDaysAgo * day,
     lasts: now - addedDaysAgo * day + 365 * day,
     limit,
+    usage,
   });
+  const work: AccountUsage = {
+    seen: now - 3 * 60 * 1000,
+    windows: [
+      { name: 'five_hour', utilization: 0.2, resets: now + 2 * hour, allowed: true },
+      { name: 'seven_day', utilization: 0.67, resets: now + 4 * day, allowed: true },
+    ],
+    looking: false,
+    failed: null,
+  };
+  const home: AccountUsage = {
+    seen: now - 2 * hour,
+    windows: [{ name: 'seven_day', utilization: 1, resets: now + 3 * hour, allowed: false }],
+    looking: false,
+    failed: null,
+  };
   return {
     now,
     accounts: [
-      account('work', 40),
-      account('home', 20, { since: now - 2 * 60 * 60 * 1000, resets: now + 3 * 60 * 60 * 1000 }),
+      account('work', 40, work),
+      account('home', 20, home, { since: now - 2 * hour, resets: now + 3 * hour }),
       account('old', 350),
     ],
     inUse: 'work',
-    directory: { path: '/data/agents/claude', signedInAs: 'owner@example.com' },
     command: 'claude setup-token',
     closed: null,
   };

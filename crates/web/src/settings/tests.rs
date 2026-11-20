@@ -36,10 +36,7 @@ title_max = 40
 /// The keys the stand-in reading knows, by table.
 const KNOWN: [(&str, &[&str]); 4] = [
     ("owner", &["language"]),
-    (
-        "agents",
-        &["command", "slots", "args", "permissions", "levels", "config_dir"],
-    ),
+    ("agents", &["command", "slots", "args", "permissions", "levels"]),
     ("items", &["default_level", "highest_level", "title_max"]),
     ("sessions", &["compact_at"]),
 ];
@@ -78,9 +75,6 @@ fn install(dir: &Path, text: &str) -> Install {
         read: Box::new(read),
         running: read(text).unwrap(),
         git: &["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgSign=false"],
-        program: Program {
-            signed_in_as: |dir| std::fs::read_to_string(dir.join("account")).ok(),
-        },
     }
 }
 

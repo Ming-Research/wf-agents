@@ -146,7 +146,7 @@ describe('the observations', () => {
     const e = engine();
     const page = await drawn(e);
     e.held.unshift({ ...e.held[1], number: 4, text: 'A run kept another.', run: 9 });
-    act(() => e.changed({ works: [1], items: false, copies: false }));
+    act(() => e.changed({ works: [1], items: false, copies: false, accounts: false }));
     await settle();
     expect([...page.querySelectorAll('.observation')].map((r) => r.getAttribute('data-observation'))).toEqual([
       '4',

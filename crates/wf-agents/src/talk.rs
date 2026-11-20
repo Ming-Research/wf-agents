@@ -19,10 +19,10 @@ use web::observations::{Observation, ObservationsPage};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
 use web::system::{Past, System, UnderWay};
 use web::works::{
-    Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, ForkAsked, ForkPage,
-    Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage,
-    Pauser, Person, QuestionPage, Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Step, Until, VersionPage, Waited,
-    WorkPage, Writer,
+    Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, ForkAsked,
+    ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem,
+    NewWrite, Now, Outage, Pauser, Person, QuestionPage, Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Step, Until,
+    VersionPage, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -2171,7 +2171,7 @@ mod tests {
                 taken: 2,
                 found: Found::Down {
                     failure: Failure::CannotRun,
-                    why: "It is not signed in, as `claude auth status` says.".to_string(),
+                    why: "No account is in use: take one on the Settings view.".to_string(),
                 },
             }),
             until: Until::Checked { at: 3 * hour },
@@ -2183,8 +2183,8 @@ mod tests {
             first,
             "No agent's round of any work begins. The agents' command line cannot run since 1970-01-01 01:00 UTC. The \
              engine checks the outside itself at 1970-01-01 03:00 UTC, touching no work's session, and every work goes \
-             on once it is well. The check at 1970-01-01 02:00 UTC, the 2nd in the wait, found it down. It is not \
-             signed in, as `claude auth status` says. Round 1 of run 2 of W1 met it. API Error: 529 Overloaded."
+             on once it is well. The check at 1970-01-01 02:00 UTC, the 2nd in the wait, found it down. No account is \
+             in use: take one on the Settings view. Round 1 of run 2 of W1 met it. API Error: 529 Overloaded."
         );
         let outage = waiting.outage.as_mut().unwrap();
         outage.until = Until::Well { at: 2 * hour };
@@ -2197,7 +2197,8 @@ mod tests {
     #[test]
     fn wait_says_how_to_mend_the_command_line_once_on_the_line_of_the_wait_every_work_shares() {
         let hour = 3_600_000;
-        let mend = "Sign it in again or install it; the engine lets the work go on once its check finds it runs.";
+        let mend = "Take an account on the Settings view, add its token again, or install the command line; the engine \
+                    lets the work go on once its check finds it runs.";
         let outage = Outage {
             service: web::works::Service::Agents,
             failure: Failure::CannotRun,
@@ -2226,7 +2227,7 @@ mod tests {
             said.ends_with(&format!("Round 1 of run 2 of W1 met it. Not logged in. {mend}")),
             "{said}"
         );
-        assert_eq!(said.matches("Sign it in again").count(), 1, "{said}");
+        assert_eq!(said.matches("Take an account").count(), 1, "{said}");
     }
 
     #[test]
@@ -2720,7 +2721,7 @@ const READ_ENOUGH: u64 = 80;
 /// [`FORK_FIELD`] characters, saying where it is kept whole; else what its program said; then what it cost, the share
 /// of the session its first request read from the cache, said plainly where under [`READ_ENOUGH`] percent; where the
 /// session went on past the round asked of, that the fork began at that round's end; and where the account the session
-/// ran under was removed, that the fork ran under the account in use instead.
+/// ran under was removed, or it ran under none, that the fork ran under the account in use instead.
 pub fn forked_said(page: &ForkPage) -> String {
     let mut out = String::new();
     let cut = |text: &str| -> String {
@@ -2777,11 +2778,17 @@ pub fn forked_said(page: &ForkPage) -> String {
             later.join(", ")
         ));
     }
-    if let Some(removed) = &page.removed {
-        out.push_str(&format!(
-            "The session ran under the account {removed}, which was removed: the fork ran under the account in use, \
-             whose cache holds nothing of the session.\n"
-        ));
+    let ran = &page.account;
+    match &page.instead {
+        Some(ForkInstead::Removed { account }) => out.push_str(&format!(
+            "The session ran under the account {account}, which was removed: the fork ran under the account in use, \
+             {ran}, whose cache holds nothing of the session.\n"
+        )),
+        Some(ForkInstead::NoAccount) => out.push_str(&format!(
+            "The session ran under no account: the fork ran under the account in use, {ran}, whose cache holds \
+             nothing of the session.\n"
+        )),
+        None => {}
     }
     out.push_str(&format!("The answer is kept in {}.\n", page.kept));
     out
@@ -2830,7 +2837,8 @@ mod fork_tests {
             round: (7, 1),
             later: Vec::new(),
             kept: "/k/7-1.fork.1.answer".to_string(),
-            removed: None,
+            account: "work".to_string(),
+            instead: None,
         }
     }
 
@@ -2861,13 +2869,23 @@ mod fork_tests {
                 .contains("What its first request read from the cache, or what the session held, is not known.")
         );
         let removed = ForkPage {
-            removed: Some("home".to_string()),
+            instead: Some(ForkInstead::Removed {
+                account: "home".to_string(),
+            }),
             ..page()
         };
         assert!(forked_said(&removed).contains(
-            "The session ran under the account home, which was removed: the fork ran under the account in use"
+            "The session ran under the account home, which was removed: the fork ran under the account in use, work"
         ));
-        assert!(!forked_said(&page()).contains("which was removed"));
+        let none = ForkPage {
+            instead: Some(ForkInstead::NoAccount),
+            ..page()
+        };
+        assert!(
+            forked_said(&none)
+                .contains("The session ran under no account: the fork ran under the account in use, work, whose cache")
+        );
+        assert!(!forked_said(&page()).contains("the fork ran under the account in use"));
     }
 
     #[test]

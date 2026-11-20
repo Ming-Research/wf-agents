@@ -28,6 +28,16 @@ set once as the installation is made, and a wrong one stops the engine as it sta
 down: it would make the whole file a form to save. An account changed in the file would wait for the engine's next
 start, where the owner switches accounts to go on at once.
 
+### decision the-usage-column-names-the-services-windows
+The Settings view's Usage column names each window of an account's usage by the name the service gives it, with how
+much of it is used and when it resets, and when the service said it; a window the service lets through only with a
+warning or not at all, and the usage limit the engine holds the account's rounds at, are in the look of a warning; a
+look under way says so, an account never heard of says it was not seen, and a look that failed says why in the look of
+a failure (decision usage-is-the-services-latest-word).
+Why: The names are the service's, so a window it adds is shown as it comes, with nothing of the page to change; words
+of the page's own for each would be a list kept in step with the service, which would hide a window it did not know
+(judgment). The engine's limit is shown beside the windows since it, not the service's word, is what holds the rounds.
+
 ### decision settings-are-written-into-the-file-as-it-is
 A change of the settings is written into their file with its comments and its layout kept, only where the file then
 reads as settings, holds each value as asked, and has not changed since the page read it; where git keeps the file, the

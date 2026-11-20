@@ -23,12 +23,13 @@ import {
   useAccent,
 } from '../accent';
 import { Button, PanelPart, Switch } from '../parts';
-import { useReading } from '../works/source';
+import { useChanges, useReading } from '../works/source';
 import { clock, fullTime } from '../works/words';
 import {
   type AccountAsked,
   type AccountDone,
   type AccountsPage,
+  type AccountUsage,
   type Change,
   type Saved,
   type SettingsPage,
@@ -381,15 +382,24 @@ const ENDING = 30 * DAY;
 type AccountSaid = { ok: boolean; words: string } | null;
 
 /// The accounts the agents run under, as the engine holds them: each by its name, when it was added, until when its
-/// token lasts, said in the look of a warning from a month before it ends, and where its usage limit stands; the one
-/// in use marked, each other with Use, which takes it at once, and Remove, asked once beside it. An account is added
-/// by its name and its token, which the engine checks before it keeps it; the command that makes a token is given to
-/// copy. The name box keeps what was typed through a reload; the token box keeps nothing. With no account in use, one
-/// line says the sign-in the agents run on.
+/// token lasts, said in the look of a warning from a month before it ends, and its usage, which the owner chooses the
+/// account by ([`UsageCell`]); the one in use marked, each other with Use, which takes it at once, and Remove, asked
+/// once beside it. An account is added by its name and its token, which the engine checks before it keeps it; the
+/// command that makes a token is given to copy. The name box keeps what was typed through a reload; the token box keeps
+/// nothing. With no account in use, one line says that no agent's round runs until one is. As the view opens, the
+/// engine looks under the accounts it has not heard of lately, and the view reads the accounts again each time the
+/// engine says they changed.
 function Accounts() {
   const source = useSystemSource();
   const load = useCallback(() => source.loadAccounts(), [source]);
   const { value: page, failed, read } = useReading(load);
+  // A look spends a short request under each account not heard of lately; reading the accounts spends nothing.
+  useEffect(() => {
+    source.look().catch(() => undefined);
+  }, [source]);
+  useChanges((changed) => {
+    if (changed.accounts) read();
+  }, read);
   // The account whose removal is asked, and what is on its way: an act on an account, by its name.
   const [asking, setAsking] = useState<string | null>(null);
   const [busy, setBusy] = useState<AccountAsked | null>(null);
@@ -458,7 +468,7 @@ function Accounts() {
   return (
     <>
       {page.accounts.length > 0 && (
-        <ViewTable heads={['Account', 'Added', 'Token lasts until', 'Usage limit', '']} label="The accounts">
+        <ViewTable heads={['Account', 'Added', 'Token lasts until', 'Usage', '']} label="The accounts">
           {page.accounts.map((a) => (
             <AccountRow
               key={a.name}
@@ -487,16 +497,7 @@ function Accounts() {
         </ViewTable>
       )}
       {page.inUse === null && (
-        <p className="small">
-          {page.accounts.length === 0 ? 'No account is added' : 'No account is in use'}: the agents run on the sign-in
-          of <span className="mono">agents.config_dir</span>
-          {page.directory.path !== null && (
-            <>
-              , <span className="mono">{page.directory.path}</span>
-            </>
-          )}
-          , {page.directory.signedInAs === null ? 'not signed in' : `signed in as ${page.directory.signedInAs}`}.
-        </p>
+        <p className="warn-text small">No account is in use, and no agent's round runs until one is.</p>
       )}
       <div className="account-add">
         <label className="small muted" htmlFor="account-name">
@@ -524,7 +525,7 @@ function Accounts() {
       </p>
       {page.closed !== null && (
         <p className="failed small" role="alert">
-          No account can be added or taken: {page.closed}
+          No account can be added or taken, and no agent runs: {page.closed}
         </p>
       )}
       {busy?.kind === 'add' && (
@@ -541,8 +542,7 @@ function Accounts() {
   );
 }
 
-/// An account's row: its name, when it was added, until when its token lasts, its usage limit, and what may be done to
-/// it.
+/// An account's row: its name, when it was added, until when its token lasts, its usage, and what may be done to it.
 function AccountRow({ account: a, page, asking, busy, onUse, onAsk, onRemove }: {
   account: AccountsPage['accounts'][number];
   page: AccountsPage;
@@ -557,8 +557,6 @@ function AccountRow({ account: a, page, asking, busy, onUse, onAsk, onRemove }: 
   const busyWhy = busy ? 'An act on an account is on its way' : undefined;
   const cache = `${a.name}'s cache`;
   const use = `Run the agents under ${a.name} from now on: each line's next round writes its session to ${cache}`;
-  // A limit is shown until its reset has passed.
-  const limit = a.limit !== null && (a.limit.resets === null || a.limit.resets > page.now) ? a.limit : null;
   return (
     <tr>
       <td className="mono">{a.name}</td>
@@ -567,12 +565,8 @@ function AccountRow({ account: a, page, asking, busy, onUse, onAsk, onRemove }: 
         {fullTime(a.lasts).slice(0, 10)}
         {ending && (left > 0 ? ` · ends in ${Math.ceil(left / DAY)} days` : ' · ended')}
       </td>
-      <td className={limit === null ? 'muted' : 'warn-text'}>
-        {limit === null
-          ? 'none'
-          : limit.resets === null
-            ? `reached ${clock(limit.since)}`
-            : `resets ${clock(limit.resets)}`}
+      <td>
+        <UsageCell usage={a.usage} limit={a.limit} now={page.now} />
       </td>
       <td>
         {page.inUse === a.name ? (
@@ -602,6 +596,67 @@ function AccountRow({ account: a, page, asking, busy, onUse, onAsk, onRemove }: 
       </td>
     </tr>
   );
+}
+
+/// An account's usage: each window the service last named under it, by the name the service gives it, how much of it
+/// is used and when it resets, a window the service no longer lets the account through in without a warning in the
+/// look of a warning, and when the service said it; above them, in the look of a warning, the usage limit the engine
+/// holds the account's rounds at, as its records say, until its reset has passed, since it is what holds the rounds.
+/// While a look under the account is under way it says so; where nothing was heard of the account, that it was not
+/// seen; and a look that failed says why, in the look of a failure.
+function UsageCell({ usage, limit, now }: {
+  usage: AccountUsage;
+  limit: AccountsPage['accounts'][number]['limit'];
+  now: number;
+}) {
+  const held = limit !== null && (limit.resets === null || limit.resets > now) ? limit : null;
+  const lines: ReactNode[] = [];
+  if (held !== null) {
+    lines.push(
+      <div key="limit" className="warn-text">
+        {held.resets === null ? `at its limit since ${clock(held.since)}` : `at its limit · resets ${clock(held.resets)}`}
+      </div>,
+    );
+  }
+  for (const w of usage.windows) {
+    const used = w.utilization === null ? '' : ` ${Math.round(w.utilization * 100)}%`;
+    const resets = w.resets === null ? '' : ` · resets ${clock(w.resets)}`;
+    lines.push(
+      <div key={w.name} className={w.allowed ? undefined : 'warn-text'}>
+        <span className="mono">{w.name}</span>
+        {used}
+        {resets}
+      </div>,
+    );
+  }
+  if (usage.seen !== null && usage.windows.length > 0) {
+    lines.push(
+      <div key="seen" className="muted small" title={fullTime(usage.seen)}>
+        seen {clock(usage.seen)}
+      </div>,
+    );
+  }
+  if (usage.looking) {
+    lines.push(
+      <div key="looking" className="muted">
+        looking
+      </div>,
+    );
+  } else if (usage.windows.length === 0 && usage.failed === null && held === null) {
+    lines.push(
+      <div key="unseen" className="muted">
+        not seen
+      </div>,
+    );
+  }
+  if (usage.failed !== null) {
+    lines.push(
+      <div key="failed" className="failed">
+        {usage.failed}
+      </div>,
+    );
+  }
+  return <>{lines}</>;
 }
 
 /// The colours of the meanings the accent keeps clear of, as the page names them.

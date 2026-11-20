@@ -47,7 +47,21 @@ environment of the commands, hooks and servers it starts, keeping it for its own
 round runs under, and a credential `agents.env` names, reach the program and none of an agent's commands.
 Why: Without it every command an agent runs would hold the token, and one that prints its environment would write it
 into the round's stream, which is kept. It does not keep the token from an agent that asks the keychain for it with
-`security`, as the sign-in of the program's directory was never kept from one: that rests on judgment, not a trial.
+`security`; that this is enough rests on judgment, not a trial.
+
+### decision the-programs-directory-is-the-engines
+The agents' program's directory of settings and sessions is the engine's, `profile/` in the data directory, made where
+it is missing and given as `CLAUDE_CONFIG_DIR` to every command of the program's the engine runs; each try records it as
+the directory it ran with, and `agents.config_dir` is refused as the engine starts, saying where it went (decision
+a-moved-setting-is-refused-with-where-it-went). Every command is given, in the settings the engine passes it
+(`--settings`), that the program's cleanup keeps a session a thousand years (`cleanupPeriodDays`).
+Why: The sessions of every work live there, under every account (decision
+a-line-goes-on-in-its-session-under-another-account), so the directory is the engine's to keep and no setting to point
+elsewhere; with none named the program would use its default one, which an agent can write to. Its cleanup deletes a
+session after thirty days by default, and a work can wait longer with its session to go on in. Given with every
+command, the cleanup holds whatever the directory's own files say, where a file the engine wrote into the directory
+would be one more thing an agent or a hand could change; that the program takes the key from `--settings` rests on its
+documentation (any settings file, and `--settings`, may set it), not a trial.
 
 ### decision the-pages-server-is-off-the-loops-thread
 The server of the pages and the interface runs on threads apart from the one the engine's loop takes things on, and

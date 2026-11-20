@@ -92,16 +92,12 @@ permissions = { locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
 # are refused.
 # setting_sources = "user"
 # The program is given only these variables of the engine's environment: PATH, HOME, USER, LANG and LC_*, TMPDIR, TERM
-# and SHELL, and those named here, such as an API key; none of them reaches a command an agent runs, which the program
-# is told to scrub of credentials. The program takes an API key above the token of an account added on the Settings
-# view: while one is named, no account can be in use, and the engine does not start where one is. The carrier's own
-# variables, CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CONFIG_DIR and CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, are refused.
-# env = ["ANTHROPIC_API_KEY"]
-# The program's own directory of settings, sessions and sign-in, given as CLAUDE_CONFIG_DIR: every account added on the
-# Settings view runs in it, and with none in use the program runs on the sign-in kept there. An absolute path: a
-# relative one is refused. Left out, the program uses its own default, which an agent can write to: `wf-agents run`
-# says so as it starts.
-# config_dir = "/path/to/a/config/dir"
+# and SHELL, and those named here, such as a proxy; none of them reaches a command an agent runs, which the program is
+# told to scrub of credentials. The agents run under the account in use on the Settings view and no other credential:
+# ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN, which the program would take above it, are refused, and so are the
+# carrier's own variables, CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CONFIG_DIR and CLAUDE_CODE_SUBPROCESS_ENV_SCRUB. The program's
+# directory of settings and sessions is the engine's, profile/ in the data directory, made where it is missing.
+# env = ["HTTPS_PROXY"]
 # What a work's rounds may spend in all, in dollars: once a round ends with the work over it, the work is paused for
 # the owner, who may let it on. Left out, there is no budget.
 work_budget_usd = 5.0

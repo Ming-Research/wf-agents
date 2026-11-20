@@ -46,11 +46,12 @@ pub struct RanOn {
     pub model: String,
     /// None where the cell sets none, and the program ran at its own.
     pub effort: Option<String>,
-    /// None where the program ran with its own default directory.
+    /// The engine's directory of the program's, as every try records it; none in a try recorded before tries recorded
+    /// it, or one that ran with the program's own default directory.
     #[serde(default)]
     pub directory: Option<String>,
-    /// The name of the account the round was handed out with; none where none was in use, and the program ran on the
-    /// sign-in of its directory.
+    /// The name of the account the round was handed out with; none in a try that ran before the account in use was
+    /// the only credential the agents ran under.
     pub account: Option<String>,
 }
 

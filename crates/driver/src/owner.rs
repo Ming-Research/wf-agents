@@ -680,15 +680,16 @@ mod tests {
         let work = Work::default();
         let cannot = Shared {
             everything: None,
-            cannot_run: Some("It is not signed in."),
+            cannot_run: Some("No account is in use: take one on the Settings view."),
         };
         let waits = of_with(&work, &going("write"), None, cannot);
         assert_eq!(keys(&waits), [AGENTS]);
         assert_eq!(
             waits[0].why,
-            "The agents' command line cannot run. It is not signed in."
+            "The agents' command line cannot run. No account is in use: take one on the Settings view."
         );
-        let mend = "Sign it in again or install it; the engine lets the work go on once its check finds it runs.";
+        let mend = "Take an account on the Settings view, add its token again, or install the command line; the engine \
+                    lets the work go on once its check finds it runs.";
         assert_eq!(waits[0].ends, Ends::Outside { what: mend.to_string() });
         assert_eq!(
             keys(&of_with(&work, &at("write", vec![Waited::Slot]), None, cannot)),

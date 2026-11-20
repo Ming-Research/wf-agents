@@ -360,18 +360,15 @@ pub struct Agents {
     #[serde(default)]
     pub permissions: PermissionsAdded,
     /// The names of the variables of the engine's environment the program is given beside those it is always given
-    /// (`PATH`, `HOME`, `USER`, `LANG` and `LC_*`, `TMPDIR`, `TERM`, `SHELL`): an API key, for one, which the program
-    /// takes above an account's token, so that no account can be added while one is named. The carrier's own
-    /// variables are refused.
+    /// (`PATH`, `HOME`, `USER`, `LANG` and `LC_*`, `TMPDIR`, `TERM`, `SHELL`). The carrier's own variables are refused,
+    /// and so is a credential the program takes above an account's token, an API key among them: the account in use is
+    /// the only credential the agents run under.
     #[serde(default)]
     pub env: Vec<String>,
     /// Which of the program's settings files it reads, as `--setting-sources`; `user` where none is given, so that a
     /// settings file the worktree holds, which an agent may write, is not read.
     #[serde(default = "user")]
     pub setting_sources: String,
-    /// The program's own directory of settings, sessions and sign-in, as `CLAUDE_CONFIG_DIR`; with none, the program's
-    /// own default. Every account runs in it, and with none in use the program runs on the sign-in kept there.
-    pub config_dir: Option<PathBuf>,
     /// The subagents an agent may start within its round; given where a text names `agents.subagents.most`.
     #[serde(default)]
     pub subagents: Subagents,
@@ -528,43 +525,24 @@ impl Agents {
                 wrong.push(format!("agents.permissions.{key}: {c:?} holds {what}"));
             }
         }
-        // The carrier's own variables are given by the carrier alone: named here, the engine's would reach the
-        // program where the carrier gives none, as the token where no account is in use.
-        // A relative directory would be read against the directory each of the program's commands runs in.
-        if let Some(dir) = self.config_dir.as_ref().filter(|dir| !dir.is_absolute()) {
-            wrong.push(format!(
-                "agents.config_dir: {} is no absolute path, and the program would read it against the directory each \
-                 command runs in",
-                dir.display()
-            ));
-        }
+        // The carrier's own variables are given by the carrier alone, and a credential the program takes above the
+        // token by none (decision no-default-credential).
         let own = [crate::account::TOKEN, crate::account::VARIABLE, crate::cli::SCRUB];
         for name in self.env.iter().filter(|name| own.contains(&name.as_str())) {
             wrong.push(format!(
                 "agents.env: {name} is the carrier's own, which it gives the program itself"
             ));
         }
+        for name in (self.env.iter()).filter(|name| crate::account::ABOVE_TOKEN.contains(&name.as_str())) {
+            wrong.push(format!(
+                "agents.env: {name} gives the agents' program a credential it takes above the account in use, which is \
+                 the only one the agents run under: take it out, and add the account on the Settings view"
+            ));
+        }
         // What every agent is refused, and the heavy commands of each project's declaration, are held to the lock
         // commands as the engine starts, beside the flows and the declarations it reads (`permissions::faults`,
         // `permissions::heavy_faults`).
         wrong
-    }
-
-    /// Why no account can be in use while these settings hold, in words: `env` names a credential the program takes
-    /// above an account's token; none where it names none. No account is then added or taken, and the engine does not
-    /// start where one is in use.
-    pub fn accounts_closed(&self) -> Option<String> {
-        let above: Vec<&str> = (self.env.iter())
-            .map(String::as_str)
-            .filter(|name| crate::account::ABOVE_TOKEN.contains(name))
-            .collect();
-        (!above.is_empty()).then(|| {
-            format!(
-                "agents.env names {}, which the agents' program takes above an account's token: take it out of \
-                 agents.env first",
-                above.join(" and ")
-            )
-        })
     }
 }
 
@@ -645,6 +623,12 @@ const CONTEXT_LIMIT: &str = "sessions.context_limit: the number is the context a
 const OWNER_LANGUAGE: &str = "agents.owner_language: the owner's language is the owner's, not the agents': take it \
      out of [agents] and write it as language in a table [owner], as install.sample.toml shows.";
 
+/// What the settings are told where they name `agents.config_dir`, where the program's directory of settings and
+/// sessions once was named.
+const CONFIG_DIR_MOVED: &str = "agents.config_dir: the engine keeps the agents' program's directory of settings and \
+     sessions itself, at profile/ in the data directory, and gives it as CLAUDE_CONFIG_DIR: move the directory there, \
+     so that the works' sessions go on, and take agents.config_dir out of [agents].";
+
 /// The settings file's name in the data directory.
 pub const FILE: &str = "install.toml";
 
@@ -712,6 +696,9 @@ impl Settings {
         }
         if agents.is_some_and(|agents| agents.contains_key("owner_language")) {
             return Err(OWNER_LANGUAGE.to_string());
+        }
+        if agents.is_some_and(|agents| agents.contains_key("config_dir")) {
+            return Err(CONFIG_DIR_MOVED.to_string());
         }
         let permissions = agents.and_then(|a| a.get("permissions")).and_then(|p| p.as_table());
         if permissions.is_some_and(|permissions| permissions.contains_key("heavy")) {
@@ -843,17 +830,10 @@ impl Settings {
         Settings::read(&text).map_err(|why| format!("{}: {why}", path.display()))
     }
 
-    /// What the owner is to be told of the settings as the engine starts, each a sentence: where an agent's sign-in
-    /// and settings are not the installation's own.
+    /// What the owner is to be told of the settings as the engine starts, each a sentence: where what they would do is
+    /// not done.
     pub fn warnings(&self) -> Vec<String> {
         let mut warned = Vec::new();
-        if self.agents.config_dir.is_none() {
-            warned.push(format!(
-                "The agents use the default sign-in and settings directory of {}, which an agent can write to; \
-                 agents.config_dir gives them one of their own.",
-                self.agents.command
-            ));
-        }
         // The engine knows no lock command and no line of a project's tools of its own: where the settings name none,
         // what they would do is not done, and that is said rather than left unseen.
         if self.agents.permissions.locks.is_empty() {
@@ -889,20 +869,33 @@ impl Settings {
 
     /// What a round of this cell, for an item at this level, runs on, under the account it was handed out with: the
     /// level of its item, or above it as far as the cell's line says, with that level's model and the cell's effort,
-    /// the program's directory of settings, and the account by its name; or why it cannot run, in words. An item added
-    /// before items had levels is at the default.
-    pub fn ran_on(&self, item_level: Option<&str>, cell: &CellSpec, account: Option<&str>) -> Result<RanOn, String> {
-        let level = self.levels()?.of_round(item_level, cell.levels_above)?;
-        let model = (self.agents.levels.get(&level))
-            .map(|level| level.model.clone())
-            .ok_or_else(|| format!("agents.levels: there is no level {level:?}"))?;
+    /// the program's directory of settings and sessions, `profile`, the engine's, and the account by its name; or why
+    /// it cannot run, in words. An item added before items had levels is at the default.
+    pub fn ran_on(
+        &self,
+        item_level: Option<&str>,
+        cell: &CellSpec,
+        profile: &Path,
+        account: Option<&str>,
+    ) -> Result<RanOn, String> {
+        let (level, model) = self.model_of(item_level, cell)?;
         Ok(RanOn {
             level,
             model,
             effort: cell.effort.map(|effort| effort.name().to_string()),
-            directory: (self.agents.config_dir.as_ref()).map(|dir| dir.to_string_lossy().into_owned()),
+            directory: Some(profile.to_string_lossy().into_owned()),
             account: account.map(str::to_string),
         })
+    }
+
+    /// The level a round of this cell, for an item at this level, runs at, and that level's model; or why it cannot
+    /// run, in words.
+    fn model_of(&self, item_level: Option<&str>, cell: &CellSpec) -> Result<(String, String), String> {
+        let level = self.levels()?.of_round(item_level, cell.levels_above)?;
+        let model = (self.agents.levels.get(&level))
+            .map(|level| level.model.clone())
+            .ok_or_else(|| format!("agents.levels: there is no level {level:?}"))?;
+        Ok((level, model))
     }
 
     /// When a line begins a new session, where the model its session's rounds ran on is not the one its rounds run on
@@ -923,9 +916,9 @@ impl Settings {
             samples: self.history.samples,
             model: Box::new(move |item, cell| {
                 settings
-                    .ran_on(item.level.as_deref(), cell, None)
+                    .model_of(item.level.as_deref(), cell)
                     .ok()
-                    .map(|on| on.model)
+                    .map(|(_, model)| model)
             }),
             warm,
         }
@@ -984,7 +977,6 @@ mod tests {
         assert_eq!(settings.projects["example"].main, "main");
         assert_eq!(settings.agents.command, "claude");
         assert_eq!(settings.agents.slots, 2);
-        assert_eq!(settings.agents.config_dir, None);
         let budget = settings.budget().expect("a budget");
         assert_eq!((budget.work, budget.let_on), (5_000_000, 2_000_000));
         assert!(
@@ -1097,22 +1089,11 @@ mod tests {
     #[test]
     fn the_owner_is_told_when_no_lock_command_is_named() {
         let mut settings = Settings::read(SAMPLE).unwrap();
-        settings.agents.config_dir = Some("agents".into());
         assert!(settings.warnings().is_empty());
         settings.agents.permissions.locks.clear();
         let warned = settings.warnings();
         assert_eq!(warned.len(), 1, "{warned:?}");
         assert!(warned[0].starts_with("agents.permissions.locks:"), "{}", warned[0]);
-    }
-
-    #[test]
-    fn the_owner_is_told_when_the_agents_have_no_directory_of_their_own() {
-        let mut settings = Settings::read(SAMPLE).unwrap();
-        let warned = settings.warnings();
-        assert_eq!(warned.len(), 1);
-        assert!(warned[0].contains("agents.config_dir"), "{}", warned[0]);
-        settings.agents.config_dir = Some("agents".into());
-        assert!(settings.warnings().is_empty());
     }
 
     #[test]
@@ -1164,7 +1145,8 @@ mod tests {
     #[test]
     fn a_round_runs_on_the_model_of_its_item_s_level_raised_as_its_line_says_and_at_its_cell_s_effort() {
         let settings = Settings::read(SAMPLE).unwrap();
-        let ran = |item: Option<&str>, cell: &CellSpec| settings.ran_on(item, cell, None).unwrap();
+        let profile = Path::new("/data/profile");
+        let ran = |item: Option<&str>, cell: &CellSpec| settings.ran_on(item, cell, profile, None).unwrap();
         let at = ran(Some("1"), &cell(0, None));
         assert_eq!(
             (at.level.as_str(), at.model.as_str(), at.effort),
@@ -1178,32 +1160,24 @@ mod tests {
         assert_eq!(ran(Some("3"), &cell(1, None)).model, "claude-opus-5-5");
         assert_eq!(ran(None, &cell(0, None)).level, "2");
         let gone = settings
-            .ran_on(Some("7"), &cell(0, None), None)
+            .ran_on(Some("7"), &cell(0, None), profile, None)
             .expect_err("there is no level 7");
         assert!(gone.contains("7 is no level"), "{gone}");
     }
 
     #[test]
-    fn a_round_records_the_directory_it_ran_with_and_the_account_it_was_handed_out_with_apart() {
-        let mut settings = Settings::read(SAMPLE).unwrap();
-        let under = settings.ran_on(None, &cell(0, None), Some("work")).unwrap();
-        assert_eq!((under.directory, under.account.as_deref()), (None, Some("work")));
-        settings.agents.config_dir = Some("/data/agents/claude".into());
-        let under = settings.ran_on(None, &cell(0, None), Some("work")).unwrap();
+    fn a_round_records_the_engines_directory_it_ran_with_and_the_account_it_was_handed_out_with_apart() {
+        let settings = Settings::read(SAMPLE).unwrap();
+        let under = (settings.ran_on(None, &cell(0, None), Path::new("/data/profile"), Some("work"))).unwrap();
         assert_eq!(
             (under.directory.as_deref(), under.account.as_deref()),
-            (Some("/data/agents/claude"), Some("work"))
-        );
-        let none = settings.ran_on(None, &cell(0, None), None).unwrap();
-        assert_eq!(
-            (none.directory.as_deref(), none.account),
-            (Some("/data/agents/claude"), None)
+            (Some("/data/profile"), Some("work"))
         );
     }
 
     #[test]
-    fn the_carriers_own_variables_named_in_agents_env_are_refused_and_a_credential_above_a_token_closes_the_accounts() {
-        let named = |names: &str| SAMPLE.replace("# env = [\"ANTHROPIC_API_KEY\"]", &format!("env = [{names}]"));
+    fn the_carriers_own_variables_and_a_credential_above_the_token_named_in_agents_env_are_refused() {
+        let named = |names: &str| SAMPLE.replace("# env = [\"HTTPS_PROXY\"]", &format!("env = [{names}]"));
         let refused = Settings::read(&named(
             "\"CLAUDE_CODE_OAUTH_TOKEN\", \"CLAUDE_CONFIG_DIR\", \"CLAUDE_CODE_SUBPROCESS_ENV_SCRUB\"",
         ))
@@ -1218,32 +1192,26 @@ mod tests {
                 "{refused}"
             );
         }
-        let settings = Settings::read(&named("\"ANTHROPIC_API_KEY\", \"ANTHROPIC_AUTH_TOKEN\"")).expect("read");
-        let closed = settings.agents.accounts_closed().expect("no account can be in use");
-        assert_eq!(
-            closed,
-            "agents.env names ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN, which the agents' program takes above an \
-             account's token: take it out of agents.env first"
-        );
-        assert_eq!(Settings::read(SAMPLE).unwrap().agents.accounts_closed(), None);
+        // An installation that names a credential the program takes above the token does not start.
+        let refused = Settings::read(&named("\"ANTHROPIC_API_KEY\", \"ANTHROPIC_AUTH_TOKEN\"")).expect_err("refused");
+        for name in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] {
+            assert!(
+                refused.contains(&format!(
+                    "agents.env: {name} gives the agents' program a credential it takes above the account in use"
+                )),
+                "{refused}"
+            );
+        }
+        assert!(Settings::read(&named("\"LANGUAGE\"")).is_ok());
     }
 
     #[test]
-    fn a_relative_directory_of_the_programs_settings_is_refused() {
-        let at = |dir: &str| {
-            SAMPLE.replace(
-                "# config_dir = \"/path/to/a/config/dir\"",
-                &format!("config_dir = \"{dir}\""),
-            )
-        };
-        let refused = Settings::read(&at("agents/claude")).expect_err("refused");
-        assert_eq!(
-            refused,
-            "agents.config_dir: agents/claude is no absolute path, and the program would read it against the directory \
-             each command runs in"
-        );
-        let settings = Settings::read(&at("/data/agents/claude")).expect("an absolute path is taken");
-        assert_eq!(settings.agents.config_dir, Some("/data/agents/claude".into()));
+    fn the_directory_of_the_programs_settings_is_refused_with_where_it_went() {
+        let named = SAMPLE.replace("[agents]\n", "[agents]\nconfig_dir = \"/data/agents/claude\"\n");
+        assert_ne!(named, SAMPLE);
+        let refused = Settings::read(&named).expect_err("refused");
+        assert!(refused.starts_with("agents.config_dir: the engine keeps"), "{refused}");
+        assert!(refused.contains("profile/ in the data directory"), "{refused}");
     }
 
     #[test]
@@ -1446,7 +1414,7 @@ mod tests {
     fn what_github_cannot_be_given_is_refused_all_at_once() {
         let text = (on_github().replace("repository = \"owner/name\"", "repository = \"name\""))
             .replace("merge_method = \"squash\"", "merge_method = \"fast-forward\"")
-            .replace("# env = [\"ANTHROPIC_API_KEY\"]", "env = [\"WF_GITHUB_TOKEN\"]");
+            .replace("# env = [\"HTTPS_PROXY\"]", "env = [\"WF_GITHUB_TOKEN\"]");
         let refused = Settings::read(&text).expect_err("refused");
         assert_eq!(refused.lines().count(), 3, "{refused}");
         assert!(refused.contains("projects.example.github.repository"), "{refused}");
@@ -1499,7 +1467,7 @@ mod tests {
     fn what_the_copies_cannot_be_given_is_refused_all_at_once() {
         let text = (with_backup().replace("repository = \"owner/name\"", "repository = \"name\""))
             .replace("keep = 7", "keep = 0")
-            .replace("# env = [\"ANTHROPIC_API_KEY\"]", "env = [\"WF_BACKUP_TOKEN\"]");
+            .replace("# env = [\"HTTPS_PROXY\"]", "env = [\"WF_BACKUP_TOKEN\"]");
         let refused = Settings::read(&text).expect_err("refused");
         assert_eq!(refused.lines().count(), 3, "{refused}");
         assert!(refused.contains("backup.repository"), "{refused}");
@@ -1528,7 +1496,7 @@ mod tests {
             refused.contains("backup.token_env: the token's variable has a name"),
             "{refused}"
         );
-        let shared = with_backup().replace("# env = [\"ANTHROPIC_API_KEY\"]", "env = [\"WF_BACKUP_TOKEN\"]");
+        let shared = with_backup().replace("# env = [\"HTTPS_PROXY\"]", "env = [\"WF_BACKUP_TOKEN\"]");
         let refused = Settings::read(&shared).expect_err("a token an agent is given is refused");
         assert_eq!(refused.lines().count(), 1, "{refused}");
         assert!(refused.contains("agents.env: WF_BACKUP_TOKEN"), "{refused}");

@@ -648,7 +648,7 @@ async fn changes(State(handle): State<Handle>) -> Response {
     Sse::new(stream).keep_alive(KeepAlive::default()).into_response()
 }
 
-/// That every work and the items may have changed.
+/// That every work, the items, the copies and the accounts may have changed.
 async fn everything(handle: &Handle) -> Result<Changed, service::Refusal> {
     let works = handle
         .read(|driver| driver.works().map(|kept| kept.head.number.0).collect())
@@ -657,6 +657,7 @@ async fn everything(handle: &Handle) -> Result<Changed, service::Refusal> {
         works,
         items: true,
         copies: true,
+        accounts: true,
     })
 }
 

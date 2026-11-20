@@ -22,8 +22,9 @@
 //! ([`crate::Driver::keep_warm`]): switched off, no ping is given, whatever a work's state.
 //!
 //! A session's cache is the account's its calls ran under, and a ping runs under the account in use, as every round
-//! handed out does: a session whose last call ran under another account than the one in use is not pinged, a ping
-//! under the one in use reading nothing of its cache.
+//! handed out does: only a session whose last call ran under the account in use is pinged. One whose last call ran
+//! under another account, or under none, is not, a ping under the one in use reading nothing of its cache; and with
+//! none in use none is, a ping having no account to run under (decision no-default-credential).
 //!
 //! A ping is a job of its work: none is due while a round of the work is under way, on any line, and the loop holds
 //! back the work's rounds while one of its pings is (crate `service`). What is due is worked out from the work's
@@ -64,8 +65,9 @@ pub struct Kept {
 /// Each line's session the work keeps warm as of `now`, in the order of the walk, whoever holds the work: none where
 /// `keep_warm`, the engine's own state, says sessions are not kept warm; none for a work that has ended, one with a
 /// round under way, one with no policy of keeping sessions warm, or one the engine paused for spending more than it
-/// may; none whose last call ran under another account than the one in use, as the accounts say; and none whose cache
-/// has let it go by `now`, which a ping would write again whole, for nothing.
+/// may; none whose last call ran under another account than the one in use, or under none, and none while none is in
+/// use, as the accounts say; and none whose cache has let it go by `now`, which a ping would write again whole, for
+/// nothing.
 pub fn kept(
     flow: &Compiled,
     work: &Work,
@@ -162,8 +164,9 @@ fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy, 
     let (last_round, run, k) = last_round?;
     // As many pings as the session's model makes worth it.
     let model = (work.ran.iter().rev()).find(|t| t.run == run && t.round == k)?;
-    // The session's cache is the account's its last call ran under, which a ping under the account in use must be.
-    if model.on.account.as_deref() != accounts.in_use() {
+    // The session's cache is the account's its last call ran under, which a ping under the account in use must be;
+    // with none in use, a ping has none to run under.
+    if accounts.in_use().is_none() || model.on.account.as_deref() != accounts.in_use() {
         return None;
     }
     let most = warm.most.get(&model.on.model).copied().unwrap_or(0);

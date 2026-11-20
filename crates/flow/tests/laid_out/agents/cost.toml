@@ -13,10 +13,9 @@ signal = "{command} was ended by signal {signal}: {said}"
 cut_off = "The engine that ran {command} ended before it saw the program end, and what the program printed until then holds no result."
 
 # What the engine's check of the outside of the agents' rounds found down, where it says it itself, a sentence each:
-# `signed_out` where the command line, `{command}`, says it is not signed in; `offline` where the network does not reach
-# the agents' service.
+# `no_account` where no account is in use; `offline` where the network does not reach the agents' service.
 [check]
-signed_out = "It is not signed in, as `{command} auth status` says."
+no_account = "No account is in use: take one on the Settings view."
 offline = "The network does not reach the agents' service."
 
 # Why the run guard stopped a round, as the round's failure says it, in sentences: `stopped` that it stopped the round,

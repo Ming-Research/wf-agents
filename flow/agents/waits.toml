@@ -23,7 +23,8 @@ let_go = "Letting go of what the work held failed. {why}"
 # `{made}` calls made; `ruling`, a block the owner may write, `{block}`, keeping the cell's `requires` key `{key}` from
 # holding; `paused`, the engine's pause, `{why}` its reason, and `no_reason` where it gave none; `held`, the pause of
 # every work the engine set as it started again; `agents`, the agents' command line that cannot run, `{why}` what its
-# check or its round found, and `mend`, what the owner does about it, which the page has no control for.
+# check or its round found, and `mend`, what the owner does about it, which is done elsewhere than where the wait is
+# shown.
 [owner]
 limit = "The cell ran {runs} times in a row for what a cell after it wrote, its limit."
 calls = "The cell ran {runs} times in a row asking for calls and dealing with nothing, its limit."
@@ -34,7 +35,7 @@ paused = "The engine paused the work. {why}"
 no_reason = "The engine paused the work and gave no reason."
 held = "The engine paused every work as it started again."
 agents = "The agents' command line cannot run. {why}"
-mend = "Sign it in again or install it; the engine lets the work go on once its check finds it runs."
+mend = "Take an account on the Settings view, add its token again, or install the command line; the engine lets the work go on once its check finds it runs."
 
 # Why a stalled work rests, which no one waits on, made of these in a sentence, said beside the cell it stands at,
 # which none names: `waits` where that cell waits for its `requires` keys `{keys}`, or `last` where it is the last cell,
