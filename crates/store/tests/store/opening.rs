@@ -249,7 +249,15 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
     work.records.questions.clear();
     work.records.answers.clear();
     work.pulls.clear();
-    let (old, new) = kept_in(9, &work);
+    // Its tries recorded the directory of the program's settings as their account, which version 21 keeps apart.
+    for ran in &mut work.ran {
+        ran.on.account = None;
+    }
+    let mut kept = work.clone();
+    for ran in &mut kept.ran {
+        ran.on.account = ran.on.directory.take();
+    }
+    let (old, new) = kept_in(9, &kept);
     let mut store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     assert_eq!(
