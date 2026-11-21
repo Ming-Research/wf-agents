@@ -275,11 +275,14 @@ fn with_tree_edits() -> Compiled {
     compiled(&source)
 }
 
+/// The blocks a cell hands in, each with its value where it has one.
+type Hands<'a> = &'a [(&'a str, Option<&'a str>)];
+
 /// Takes the work from the plan's second look to the merge, every cell finding nothing to change and the test review
 /// asking for no testing, as [`W::planned`] and [`W::reviewed`] do. Gives each round's cell, with the blocks it was
 /// told ran it.
 fn to_the_merge(w: &mut W) -> Vec<(String, Vec<BlockId>)> {
-    let steps: [(&str, &[(&str, Option<&str>)]); 9] = [
+    let steps: [(&str, Hands<'_>); 9] = [
         ("R2", &[]),
         ("P1", &[("plan_ok", Some("yes"))]),
         ("P2", &[("tree_ok", Some("yes"))]),
