@@ -8,7 +8,7 @@ takes_main = true
 task = '''
 Research what `found` left open, and work out how to do what `background` asks. This session has not read the tree:
 read it for this work as the tree's rules say, and read the code yourself. Treat `found` as a hypothesis to check. Use
-what the research left in `project.research` instead of running it again, and commit anything you make there too. Find
+what the research left in `project.research` instead of running it again, and commit anything you make there. Find
 out the facts left open, try the approaches worth trying, and analyse a fault in the design itself as a design
 problem. Check any fact that would change the direction before you rely on it, and weigh the upkeep the solution adds.
 

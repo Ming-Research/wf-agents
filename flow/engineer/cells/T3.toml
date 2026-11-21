@@ -8,13 +8,13 @@ line = "code_reviewer"
 effort = "high"
 task = '''
 Review the change in `code` against the design tree, in a session of your own, and change no files. Read the diff from
-main to `head`, and read in full each file of decisions whose topic the change touches. Do not review the code or the
-tests.
+main to `head`, and read in full each file of decisions whose topic the change touches. Judge the code and the tests
+only for these questions.
 
 1. Does the change go against a principle or a decision of the tree, where no question asked the owner about that
    change?
-2. Is every change the work makes to the design tree one that a choice of the owner's settled, written as the tree's
-   rules say, and nothing else?
+2. Does every change the work makes to the design tree come from a choice of the owner's, or from an entry the change
+   made untrue, written as the tree's rules say?
 3. Did the work make a choice that the tree's rules give the owner, in the plan, in `decisions` or in the code, that no
    question put to him?
 4. Does the change leave an entry of the tree untrue, or a comment that goes against the tree?

@@ -1,4 +1,4 @@
-How an engineer works: writing code, design, evidence, experiments and the repository
+# How an engineer works: writing code, design, evidence, experiments and the repository
 
 - Writing code: before changing anything, read what governs it: the project's references, and the documents that define it.
 - Writing code: implement the general behaviour. Do not write a special path that a test, example, client or benchmark selects, or a fallback that hides an unsupported feature.

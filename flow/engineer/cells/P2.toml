@@ -15,7 +15,7 @@ Going against an entry is no fault where a question asks the owner about that ch
 
 In the why of `tree_ok`, say what you found, or none. Write everything the writer must deal with in `tree_review`,
 all at once: this is your one chance, and nothing that could be raised now is raised later. If `tree_ok` is yes,
-leave `tree_review` out of your return. Leave out anything you are not sure is better.
+leave `tree_review` out of your return. Leave out anything you are not sure of.
 '''
 watches = ["plan", "tree_review"]
 reads = ["background", "tree"]

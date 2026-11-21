@@ -1,3 +1,5 @@
+# How every agent works
+
 - Check each fact when you write it: use a tool to confirm every commit id, path, number and measurement you report as fact. A report from another agent or a reviewer is only a lead.
 - Save nothing in the command-line program's own memory.
 - Describe work in plain engineering language, as ordinary technical documentation does: say what was done and why. Do not use adversarial metaphors or phrasing: a model's safety check may misread them and stop the work.
