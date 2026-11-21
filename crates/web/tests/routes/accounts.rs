@@ -54,7 +54,7 @@ impl Outside for ByToken {
                 },
                 None => Found::Down {
                     failure: Failure::CannotRun,
-                    why: "No account is in use: take one on the Settings view.".to_string(),
+                    why: "No account is in use: choose one on the Settings view.".to_string(),
                     resets: None,
                 }
                 .into(),

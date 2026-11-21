@@ -2,11 +2,11 @@
 //! with what it was told ran it, by their names, as an agent writes them, and its return is read as the agents' rounds
 //! read one (`CellSpec::dealt_with`); an act of the engine's names none.
 
-use decide::{Decision, Outsider, RunId};
+use decide::{BlockId, Decision, End, Outsider, Pauser, RunId};
 use engine::{Came, Effect, Event, Handed, Question, Spent, Time, Work, handle};
 use flow::{Compiled, Kind};
 
-use super::engineer;
+use super::{compiled, engineer, engineer_source};
 
 /// A work on the engineer's flow, and the clock its events are taken at.
 pub(super) struct W {
@@ -18,8 +18,13 @@ pub(super) struct W {
 impl W {
     /// A work the owner started, on an item that depends on nothing, with main written as its watch writes it.
     pub(super) fn started() -> W {
+        W::started_on(engineer())
+    }
+
+    /// A work started as [`W::started`] starts one, on this flow.
+    fn started_on(flow: Compiled) -> W {
         let mut w = W {
-            flow: engineer(),
+            flow,
             work: Work::default(),
             clock: 0,
         };
@@ -200,41 +205,168 @@ pub(super) fn wrote(block: &str, by: Outsider, value: Option<&str>) -> Event {
 
 // Every plan is reviewed before it is built, for its design and against the tree (principle
 // every-plan-is-reviewed-before-it-is-built): a plan the research wrote, with no deep research, goes through the design
-// review and the review against the tree before the implementation, whether its edits of the tree hold an entry or none.
+// review and the review against the tree before the implementation.
 #[test]
-fn both_reviews_of_the_plan_run_on_a_plan_the_research_wrote_whether_or_not_it_edits_the_tree() {
-    for edits in ["A decision that a call keeps what it took.", " \n"] {
-        let mut w = W::started();
+fn both_reviews_of_the_plan_run_on_a_plan_the_research_wrote() {
+    let mut w = W::started();
+    w.hands_in("S1", &[("place", None)], Vec::new());
+    w.hands_in("R0", &[], Vec::new());
+    let (run, cell) = w.round();
+    assert_eq!(cell, "R1");
+    let names = w.told(run, "R1");
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let plan = [
+        ("deep_needed", Some("no")),
+        ("plan_owner", None),
+        ("plan_agent", None),
+        ("acceptance", None),
+    ];
+    let came = w.read("R1", &names, &plan);
+    w.on(Event::Returned {
+        run,
+        came,
+        spent: Spent::default(),
+    });
+    // The plan's second look finds no better way, and changes nothing.
+    w.hands_in("R2", &[], Vec::new());
+    assert_eq!(w.round().1, "P1");
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    assert_eq!(w.round().1, "P2");
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
+    assert_eq!(w.round().1, "I1");
+}
+
+/// The engineer's flow with one more block in the plan, `tree_edits`, as an earlier flow had it. The research and the
+/// deep research write it with the rest of the plan, it is in the plan's group, and each cell that takes the plan is
+/// given it as it is given `plan_owner`.
+fn with_tree_edits() -> Compiled {
+    let mut source = engineer_source();
+    let group = r#"plan = ["plan_owner", "plan_agent", "acceptance"]"#;
+    assert!(
+        source.flow.contains(group),
+        "the plan's group is not as this test knows it"
+    );
+    let with = r#"plan = ["plan_owner", "plan_agent", "acceptance", "tree_edits"]"#;
+    source.flow = source.flow.replace(group, with);
+    let what = "Each entry the plan adds, changes or deletes in the design tree, as it will read.";
+    let block = format!("what = \"{what}\"\n");
+    source.files.insert("blocks/plan/tree_edits.toml".to_string(), block);
+    for writer in ["R1", "D1"] {
+        let text = source.cells.get_mut(writer).expect("the cell is in the flow");
+        let output = "  \"acceptance\",\n";
+        assert_eq!(
+            text.matches(output).count(),
+            1,
+            "{writer}'s outputs are not as this test knows them"
+        );
+        *text = text.replace(output, "  \"acceptance\",\n  \"tree_edits\",\n");
+    }
+    for text in source.cells.values_mut() {
+        let kind = (text.lines())
+            .find_map(|line| line.strip_prefix("plan_owner = "))
+            .map(str::to_string);
+        if let Some(kind) = kind {
+            *text = text.replace(
+                &format!("plan_owner = {kind}\n"),
+                &format!("plan_owner = {kind}\ntree_edits = {kind}\n"),
+            );
+        }
+    }
+    compiled(&source)
+}
+
+/// The blocks a cell hands in, each with its value where it has one.
+type Hands<'a> = &'a [(&'a str, Option<&'a str>)];
+
+/// Takes the work from the plan's second look to the merge, every cell finding nothing to change and the test review
+/// asking for no testing, as [`W::planned`] and [`W::reviewed`] do. Gives each round's cell, with the blocks it was
+/// told ran it.
+fn to_the_merge(w: &mut W) -> Vec<(String, Vec<BlockId>)> {
+    let steps: [(&str, Hands<'_>); 9] = [
+        ("R2", &[]),
+        ("P1", &[("plan_ok", Some("yes"))]),
+        ("P2", &[("tree_ok", Some("yes"))]),
+        ("I1", &[("code", None), ("evidence", None)]),
+        ("T1", &[("review_ok", Some("yes"))]),
+        ("T2", &[("test_ok", Some("yes")), ("needs_testing", Some("no"))]),
+        ("T3", &[("design_ok", Some("yes"))]),
+        ("M1", &[("checked", Some("yes"))]),
+        ("M2", &[("merged", None)]),
+    ];
+    let mut rounds = Vec::new();
+    for (cell, blocks) in steps {
+        let (run, _) = w.round();
+        let told = decide::told(&w.flow.flow, &w.work.records, run).expect("the run started");
+        rounds.push((cell.to_string(), told.ran_by));
+        w.hands_in(cell, blocks, Vec::new());
+    }
+    assert_eq!(w.decision(), Decision::Ended(End::Merged));
+    rounds
+}
+
+/// Each run of the work that finished, in the order they finished, by its cell, with what its return dealt with.
+fn dealt_with(w: &W) -> Vec<(String, Option<Vec<BlockId>>)> {
+    let records = &w.work.records;
+    (records.finished.iter())
+        .map(|f| {
+            let started = (records.started.iter())
+                .find(|s| s.run == f.run)
+                .expect("the run started");
+            (started.cell.0.clone(), f.dealt_with.clone())
+        })
+        .collect()
+}
+
+// A flow change is made so that the returns already handed in still pass where it can (principle
+// flow-change-spares-works). A work may hold a version of a block the installed flow no longer has, written by a cell
+// that is still in the flow: here the research wrote `tree_edits` with its plan on a flow that had it, and the flow
+// without it is installed before the next round. The walk passes over that version as if it were not there. Each cell
+// runs in the same order as in a work that never had it, is told of the same blocks and deals with the same, and the
+// work merges. No return is refused or sent back, and the work does not stall.
+#[test]
+fn a_version_of_a_block_the_installed_flow_no_longer_has_is_passed_over_and_the_work_merges() {
+    // The same work on the flow that had `tree_edits` and on the flow that never had it, each paused by the owner while
+    // the research's round is under way, so that its next round waits.
+    let mut works = [W::started_on(with_tree_edits()), W::started()];
+    for w in &mut works {
         w.hands_in("S1", &[("place", None)], Vec::new());
         w.hands_in("R0", &[], Vec::new());
-        let (run, cell) = w.round();
-        assert_eq!(cell, "R1");
-        let names = w.told(run, "R1");
-        let names: Vec<&str> = names.iter().map(String::as_str).collect();
-        let plan = [
-            ("deep_needed", Some("no")),
-            ("plan_owner", None),
-            ("plan_agent", None),
-            ("acceptance", None),
-            ("tree_edits", None),
-        ];
-        let mut came = w.read("R1", &names, &plan);
-        for h in came.writes.iter_mut().filter(|h| h.block.as_str() == "tree_edits") {
-            h.content = edits.to_string();
-        }
-        w.on(Event::Returned {
-            run,
-            came,
-            spent: Spent::default(),
+        assert_eq!(w.round().1, "R1");
+        w.on(Event::Paused {
+            by: Pauser::Owner,
+            why: None,
         });
-        // The plan's second look finds no better way, and changes nothing.
-        w.hands_in("R2", &[], Vec::new());
-        assert_eq!(w.round().1, "P1", "with tree_edits {edits:?}");
-        w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
-        assert_eq!(w.round().1, "P2", "with tree_edits {edits:?}");
-        w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
-        assert_eq!(w.round().1, "I1", "with tree_edits {edits:?}");
     }
+    let plan = [
+        ("deep_needed", Some("no")),
+        ("plan_owner", None),
+        ("plan_agent", None),
+        ("acceptance", None),
+    ];
+    let [had, never] = &mut works;
+    let (research, _) = had.round();
+    let mut with_edits = plan.to_vec();
+    with_edits.push(("tree_edits", None));
+    had.hands_in("R1", &with_edits, Vec::new());
+    never.hands_in("R1", &plan, Vec::new());
+    let written = (had.work.records.finished.iter())
+        .find(|f| f.run == research)
+        .is_some_and(|f| f.writes.iter().any(|x| x.block.as_str() == "tree_edits"));
+    assert!(written, "the research did not write tree_edits on the flow that had it");
+    // The flow without `tree_edits` is installed, the engine looks at each work again, and the owner lets it on.
+    had.flow = engineer();
+    for w in &mut works {
+        w.on(Event::Look);
+        assert_eq!(w.decision(), Decision::Paused { cell: "R2".into() });
+        w.on(Event::Resumed);
+    }
+    let [had, never] = &mut works;
+    assert_eq!(
+        to_the_merge(had),
+        to_the_merge(never),
+        "each round, by its cell, with what it was told ran it"
+    );
+    assert_eq!(dealt_with(had), dealt_with(never), "what each run dealt with");
 }
 
 // The design review's points on a plan the research wrote go to the research, which answers them in the dialogue the

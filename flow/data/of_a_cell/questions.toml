@@ -5,16 +5,16 @@
 # where it changes the option the work goes by. A cell that writes it in `outputs` asks the owner: `words` is told to
 # it, after the list of what it returns, and `[shape]` is what the form of its line holds it to.
 name = "{cell}_questions"
-what = "The questions the cell asks the owner, each under its name, and the owner's answers to them, each the question, the version answered and the option taken."
+what = "The questions the cell asks the owner, each under its name, and the owner's answers to them. Each answer names the question, the version answered and the option chosen."
 from = "answer"
 shown = true
 words = '''
-`{cell}_questions`: what you ask the owner: what you are told to ask, and otherwise only where ways that each would do
-are left, no fact decides between them, and a wrong choice costs much; decide the rest yourself. Set `waits` where you
-cannot go on without the answer, or where going on by your recommendation would likely be undone at a cost: the work
-stops at this cell, and you are entered again with the answer. Otherwise the work goes on by your recommendation. A text
-points to a question as `{{name}}`; `recommends` counts the options from 1. Write a question again under its name to
-rewrite it, or give its name and why to withdraw it; a question you do not write stands, with its answer.
+`{cell}_questions`: what you ask the owner. Ask what your task tells you to ask, and otherwise only what you cannot go
+on without; decide the rest yourself. A question asks what to do, not how to change the design tree. Set `waits` if you
+cannot go on without the answer, or if going on by your recommendation would likely have to be undone at a cost: the
+work stops at this cell, and you are run again with the answer. Otherwise the work goes on by your recommendation. In a
+text, point to a question as `{{name}}`; `recommends` counts the options from 1. To rewrite a question, write it again
+under its name; to withdraw it, give its name and why. A question you do not write again stands, with its answer.
 
 A return with a question you wait for may leave out the blocks marked "hand it in every time", since the work stops at this cell until the answer comes.'''
 

@@ -21,10 +21,9 @@
 //! 6. The work's head that merges is a version the review dealt with: as the merge's run finishes on a branch the work
 //!    committed to, the branch is at the head the check last passed, and each judge that the head runs and that
 //!    applies, a cell that writes a block the check's preconditions read, was told of a version that says that head
-//!    by a run of it that dealt with it (decision the-check-holds-the-head-to-what-the-review-saw).
+//!    by a run of it that dealt with it.
 //! 7. A work never stalls at the check's gate: after every step, the deciding code does not find it stalled on a key
-//!    that reads a choice the check's record wrote as it failed, which only the owner speaking to a cell would move
-//!    (decision an-act-is-answered-by-what-runs-it).
+//!    that reads a choice the check's record wrote as it failed, which only the owner speaking to a cell would move.
 //!
 //! The first two are judged as each round of the merge begins, and the sixth as the merge finishes, by the histories'
 //! own reading of the records as they were then (`reading`), never by the deciding code's tests.
@@ -132,7 +131,7 @@ use decide::{
 };
 use engine::spoken::{self, To};
 use engine::{Ask, Came, Effect, Event, Handed, Question, Way};
-use flow::{Compiled, Has, Kind, compile, read};
+use flow::{Compiled, Has, Kind, Source, compile, read};
 use reading::{Reading, Writer};
 use support::{Driver, Part, Rng, lacking_a_must_write};
 
@@ -282,8 +281,17 @@ fn gate(d: &mut Driver, roles: &Roles, branch: &Shared, run: RunId, i: usize) ->
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
 fn engineer() -> Compiled {
+    compiled(&engineer_source())
+}
+
+/// The files of the engineer's flow as the repository defines it.
+fn engineer_source() -> Source {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
-    let source = read(&dir).expect("the engineer's flow is read");
+    read(&dir).expect("the engineer's flow is read")
+}
+
+/// The flow of these files, the engineer's or one made from it, compiled against what the engine has.
+fn compiled(source: &Source) -> Compiled {
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
         sources: names(&[
@@ -304,7 +312,7 @@ fn engineer() -> Compiled {
         tools: names(&["query", "run_tests"]),
         ..Default::default()
     };
-    compile(&source, &has).expect("the engineer's flow compiles")
+    compile(source, &has).expect("the engineer's flow compiles")
 }
 
 /// The cells and blocks the properties are about, found in the compiled definition.

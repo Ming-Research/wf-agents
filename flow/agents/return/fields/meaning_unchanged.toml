@@ -2,9 +2,9 @@
 # `outputs`, in the same paragraph.
 told = "with_outputs"
 words = '''
-Where you write a block again with
-its meaning unchanged, as when you mend a word, name it in `meaning_unchanged` as well: it is a new version all the
-same, and runs no cell.'''
+If you write
+a block again with its meaning unchanged, as when you fix a word, also name it in `meaning_unchanged`: it is still a new
+version, but it runs no cell.'''
 
 [shape]
 type = "array"

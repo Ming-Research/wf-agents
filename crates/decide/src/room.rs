@@ -1,7 +1,7 @@
 //! What the engine as a whole leaves a work room for, beside the work's own records.
 //!
-//! Two things hold back every work at once, and neither is a cell or a block (decision
-//! `stops-from-outside-are-no-cells`): the owner's pause of everything, and the slots, which bound how many rounds of
+//! Two things hold back every work at once, and neither is a cell or a block: the owner's pause of everything, and the
+//! slots, which bound how many rounds of
 //! agents go on at once. The scheduler works out both, from the records it keeps of the installation, the settings and
 //! the records of every work, and the walk reads them as given ([`Room`]), so that what a work does next is still a
 //! function of what it is given alone (principle `decide-purely`).

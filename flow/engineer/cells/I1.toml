@@ -6,23 +6,27 @@ line = "engineer"
 effort = "xhigh"
 takes_main = true
 task = '''
-Implement `plan_agent`, changing only what this work needs. Follow for each question put to the owner the option the
-owner took, or else the one it recommends, and write into `design/` what `tree_edits` holds: an entry may follow
-main's tree in wording and place, not in meaning. Start from a test that shows what the change is for, red on the code
-before it: the research's, where it left one. Run each test you add or extend on the change and on the code before it;
-a test removed, skipped or weakened needs a technical reason. Where cost per operation or request can change, measure
-what it can make slower as well as what it is for.
+Implement `plan_agent`, changing only what this work needs. For each question put to the owner, follow the option the
+owner took, or else the one it recommends. For each question about a choice the tree's rules give the owner, write the
+option followed into the design tree, as those rules say. If main's tree has changed since, an entry may follow its
+wording and place, but not change its meaning. After you change the tree, run `project.tree_check` and fix what it
+finds before you run the project's check.
 
-Where the plan does not hold (its direction is wrong, or it needs a tree decision changed or a choice the owner has
-not made, such as accepting a slowdown), do not work around it: say where and why in `plan_doubts`; the
-answer comes there too: judge it, and write `plan_doubts` again only where a doubt still stands.
+Start from a test that shows what the change is for, red on the code before the change: use the research's test where
+it left one. Run each test you add or extend both on the change and on the code before it. A test that you remove, skip
+or weaken needs a technical reason. Where the cost per operation or request can change, measure what could get slower
+as well as what the change is for.
+
+If the plan does not hold (its direction is wrong, or it needs a decision of the tree changed, or a choice the owner
+has not made, such as accepting a slowdown), do not work around it. Say where and why in `plan_doubts`. The answer
+comes there too: judge it, and write `plan_doubts` again only where a doubt still stands.
 
 Commit everything in the worktree, and hand in `code`, `decisions` and `evidence` once the project's check passes on
-your last commit: `title` with your first `code` and again when what the change does changes, `decisions` only where
-there is one, and `acceptance` only when a condition must change, the whole list as it now stands, with why.
+your last commit. Hand in `title` with your first `code`, and again when what the change does changes; `decisions` only
+where there is one; and `acceptance` only when a condition must change, as the whole list as it now stands, with why.
 
-Where main does not merge into the branch, merge it in yourself and run the check again. A point its judge insists on,
-fix or have the owner rule. If what the item asks needs no change, ask the owner.
+If main does not merge into the branch, merge it in yourself and run the check again. Fix a point its judge insists
+on, or have the owner rule on it. If what the item asks needs no change, ask the owner.
 '''
 # Run only on a plan its reviews passed: the pass runs every cell after a way back that something else runs, and the
 # order alone no longer keeps it from building a plan just failed (decision the-implementation-waits-for-the-plans-verdicts).
@@ -56,14 +60,14 @@ outputs = [
 
 # What the cell does when each datum it watches is new; a datum with none is the task's alone.
 [do]
-plan = """See what changed in the plan since the version you last built from, the whole of it where you built from none, and bring the code to it."""
-i1_words = """The owner has said something to you in `i1_words`: that comes first. Do what it says, and answer it in `i1_words`: what you changed for it, or why not."""
-i1_questions = """The owner has answered one of your questions in `i1_questions` with another option than yours, or one you wait for: follow the option the owner took."""
-review = """Answer each point of `review` there: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
-test_review = """Answer each point of `test_review` there: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
-design_review = """Answer each point of `design_review` there: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
-testing = """Answer each point of `testing` there: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
-check = """Fix what `check` found and commit; where you judge it not this change's to fix, ask the owner."""
+plan = """Look at what changed in the plan since the version you last built from (all of it, if you have built from none), and bring the code up to date with it."""
+i1_words = """The owner has written to you in `i1_words`: deal with that first. Do what it says, and answer in `i1_words` with what you changed for it, or why not."""
+i1_questions = """The owner has answered one of your questions in `i1_questions`, either with an option other than the one you recommended or one you were waiting for: follow the option the owner took."""
+review = """Answer each point in `review` there: fixed, with its commit, or why not. Settle a dispute over a fact with a run."""
+test_review = """Answer each point in `test_review` there: fixed, with its commit, or why not. Settle a dispute over a fact with a run."""
+design_review = """Answer each point in `design_review` there: fixed, with its commit, or why not. Settle a dispute over a fact with a run."""
+testing = """Answer each point in `testing` there: fixed, with its commit, or why not. Settle a dispute over a fact with a run."""
+check = """Fix what `check` found and commit. If you judge it is not this change's to fix, ask the owner."""
 
 # `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest. The cell's own
 # questions and words are of the kind every agent cell takes them in.
@@ -75,7 +79,6 @@ plan_owner = "last_and_latest"
 plan_doubts = "all"
 plan_agent = "last_and_latest"
 acceptance = "last_and_latest"
-tree_edits = "last_and_latest"
 review = "all"
 test_review = "all"
 design_review = "all"

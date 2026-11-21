@@ -23,7 +23,7 @@ describe('the words of the page', () => {
     expect(reads('noneStanding', ['verdict', 'deep_verdict'])).toBe(
       'kind none_standing, reads [verdict, deep_verdict], is yes',
     );
-    expect(readsWords(test('t', '', 'anyContent', ['tree_edits'], null))).toBe('kind any_content, reads [tree_edits]');
+    expect(readsWords(test('t', '', 'anyContent', ['acceptance'], null))).toBe('kind any_content, reads [acceptance]');
   });
 
   it('say the source outside that writes a block by its key', () => {

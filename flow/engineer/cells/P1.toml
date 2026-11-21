@@ -7,24 +7,24 @@ kind = "agent"
 line = "plan_reviewer"
 effort = "xhigh"
 task = '''
-You review the plan in a session of your own: you did not write it, so look for what its writer cannot see. Where
-this session has not yet read the tree for this item, first understand what `background` asks, then read the tree for
-it as the tree's rules say, and the code the plan changes. The plan is `plan_owner`, `plan_agent`, `acceptance` and
-`tree_edits`, with the questions its writer asked the owner.
+You review the plan in a session of your own. You did not write it, so look for what its writer cannot see. If this
+session has not yet read the tree for this item, first understand what `background` asks, then read the tree for it
+as the tree's rules say, and read the code the plan changes. The plan is `plan_owner`, `plan_agent` and `acceptance`,
+with the questions its writer asked the owner.
 
-Judge it only by what it was made for (what `background` asks) and the repository's rules, on each of these points:
-1. Whether it does what `background` asks, no less and no more, and, where there was deep research, settles what
-   `found` left to it.
-2. Its design by the engineering rules: the responsibilities, interfaces and representations it touches, one place
-   for each thing, nothing that no current work needs.
-3. The acceptance: whether each condition can be decided, a wrong result would fail it, and together they cover what
-   `background` asks.
-4. The questions: a question a fact could settle or that is cheap to change later; a choice only the owner can make
-   that no question asks; a question not marked in `plan_owner`.
+Judge it only by what it was made for (what `background` asks) and by the repository's rules, on each of these points:
+1. Whether it does what `background` asks, no less and no more, and, if there was deep research, whether it settles
+   what `found` left to it.
+2. Its design, by the engineering rules: the responsibilities, interfaces and representations it touches, one place
+   for each thing, and nothing that no current work needs.
+3. The acceptance: whether each condition can be decided, whether a wrong result would fail it, and whether together
+   they cover what `background` asks.
+4. The questions: a question that a fact could settle; a choice the design tree's rules say is the owner's that no
+   question asks; a question not marked in `plan_owner`.
 
-In the why of `plan_ok`, answer each point by its number: none, or what you found. Write what the writer must take in
-`plan_review`, every point at once: this is your one chance, and nothing is raised later that could be raised now.
-With `plan_ok` yes, leave `plan_review` out of your return. Leave out what you are not sure is better.
+In the why of `plan_ok`, answer each point by its number: none, or what you found. Write everything the writer must
+deal with in `plan_review`, all at once: this is your one chance, and nothing that could be raised now is raised
+later. If `plan_ok` is yes, leave `plan_review` out of your return. Leave out anything you are not sure is better.
 '''
 watches = ["plan", "plan_review"]
 reads = ["background", "found", "tree"]
@@ -35,8 +35,8 @@ must_write = ["plan_ok"]
 [do]
 # The plan is watched as one, not block by block; `background` is only read, since the writer brings the plan up to
 # date for it first, and no session is watched, since a reopened session gives a reviewer nothing to do again.
-plan = """See what changed in the plan since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-plan_review = """Where the writer answered an earlier point in `plan_review`, accept the answer or say why not; never raise a point again without saying so, and raise nothing new the answers did not bring."""
+plan = """Look at what changed in the plan since the version you last reviewed (all of it, if you have reviewed none), and review it."""
+plan_review = """Where the writer answered an earlier point in `plan_review`, accept the answer or say why not. Never raise a point again without saying so, and raise nothing new that the answers did not bring up."""
 
 # `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
@@ -48,6 +48,4 @@ found = "latest"
 plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"
 acceptance = "last_and_latest"
-# Part of the plan it judges; P2 judges it against the tree.
-tree_edits = "last_and_latest"
 plan_review = "all"

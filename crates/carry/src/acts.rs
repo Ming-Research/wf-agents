@@ -1291,8 +1291,8 @@ mod tests {
         let mut took = checked(Some("The check failed."));
         took.took_in = true;
         let handed = checked_in(&outputs(), &took, "main", &words().check).unwrap();
-        let said = "\n\nThe engine merged main at beef into the work's branch for the check, as the commit c0ffee, \
-                    which the worktree holds.";
+        let said = "\n\nFor the check, the engine merged main at beef into the work's branch in the commit c0ffee, \
+                    which is now in the worktree.";
         assert!(handed.iter().all(|h| h.content.ends_with(said)), "{handed:?}");
     }
 
@@ -1896,7 +1896,7 @@ mod tests {
         // A path git cannot read as one.
         let checked = check_held(&repo, &host, &protecting(&[":(nonsense)AGENTS.md"]), &Work::default()).await;
         let failed = checked.failed.as_deref().unwrap_or_default();
-        assert!(failed.contains("could not be looked at"), "{checked:?}");
+        assert!(failed.contains("could not look at the change"), "{checked:?}");
         assert_eq!(checked.asks, None);
         assert_eq!(host.asked(), [Asked::Main], "the host is not asked for a verdict");
     }

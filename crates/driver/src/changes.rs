@@ -9,7 +9,7 @@
 //! what it ended as. Its title, level and tags change until then; what it depends on only while its work has started
 //! no run (entry `dependencies-until-the-work-starts`). Two relations between items hold whatever is changed: an item
 //! that has not ended depends on no cancelled item, and an item that has merged depends on no item that has not merged
-//! by any change (entry `cancels-keep-to-the-dependencies`).
+//! by any change.
 
 use std::collections::{BTreeMap, BTreeSet};
 

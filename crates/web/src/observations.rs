@@ -6,9 +6,8 @@
 //!   ([`Read`]), which a reading after the first leaves as it was; 404 where there is no observation of the number,
 //!   however large.
 //!
-//! They are read, and a reading kept, through connections of their own to the store's file, beside the engine's loop
-//! (decision `observations-read-beside-the-engines-turn`); the time of a reading is the one the loop's clock gives,
-//! since the loop alone reads the clock.
+//! They are read, and a reading kept, through connections of their own to the store's file, beside the engine's loop;
+//! the time of a reading is the one the loop's clock gives, since the loop alone reads the clock.
 
 use std::path::PathBuf;
 use std::sync::Arc;

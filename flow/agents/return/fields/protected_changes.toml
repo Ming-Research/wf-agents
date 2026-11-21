@@ -5,8 +5,8 @@
 # (`unexplained` in `../sent_back.toml`).
 told = "listed"
 words = '''
-`protected_changes`: of each file the project protects that a round of yours changes, or changes again, why the
-  change is needed, under the file's path; a reason stands for the file as it then is.'''
+`protected_changes`: for each file the project protects that a round of yours changes, or changes again, why the
+  change is needed, under the file's path. A reason holds for the file as it is when you give it.'''
 
 [shape]
 type = "object"

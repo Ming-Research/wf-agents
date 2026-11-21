@@ -325,7 +325,7 @@ mod tests {
         crate::projects::local_words(&mut beside);
         let local = &beside.tools["run_tests"].words;
         assert!(
-            local.contains("your worktree as it stands, what is not committed included"),
+            local.contains("your worktree as it is, including what is not committed"),
             "{local}"
         );
         assert_ne!(local, &github);

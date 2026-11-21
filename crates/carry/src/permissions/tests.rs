@@ -317,14 +317,14 @@ fn an_agent_is_told_what_its_line_may_do() {
     let writes = of(false, &[]).told(&words(), &[], None);
     assert_eq!(
         writes,
-        "Make your changes there and commit them there. Update a lock file with `cargo update`, `cargo add` or \
-         `npm install --package-lock-only --ignore-scripts`, your arguments after it."
+        "Make your changes there and commit them there. To update a lock file, run `cargo update`, `cargo add` or \
+         `npm install --package-lock-only --ignore-scripts`, with your arguments after it."
     );
     let open = of(false, &args(&["--allowedTools", "Bash(cargo:*)"])).told(&words(), &[], None);
     assert_eq!(
         open,
-        "Make your changes there and commit them there. Update a lock file with \
-         `npm install --package-lock-only --ignore-scripts`, your arguments after it."
+        "Make your changes there and commit them there. To update a lock file, run \
+         `npm install --package-lock-only --ignore-scripts`, with your arguments after it."
     );
     let none = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &[], None);
     assert_eq!(none, "Make your changes there and commit them there.");
@@ -352,8 +352,8 @@ fn a_line_that_writes_is_told_the_paths_the_project_protects() {
     );
     assert_eq!(
         of(true, &[]).told(&words(), &protected, None),
-        "You only read it, and change no file. The project protects `AGENTS.md`, `flow/` and `.github/workflows/`: a \
-         change of them is to be made only where the work needs it."
+        "You only read it, and change no file. The project protects `AGENTS.md`, `flow/` and `.github/workflows/`: the \
+         work may change what is there only where it needs to."
     );
 }
 
@@ -371,15 +371,15 @@ fn a_line_that_changes_only_the_tests_is_told_their_paths_and_no_lock_command() 
     );
     assert_eq!(
         writes.told(&words(), &protected, Some(&tests[..])),
-        "Make your changes there and commit them there. Change only the project's tests, the files \
-         `:(glob)crates/**/tests/**` or `:(glob)client/**/*.test.ts` match; where a test must go into another file, say \
+        "Make your changes there and commit them there. Change only the project's tests, the files that \
+         `:(glob)crates/**/tests/**` or `:(glob)client/**/*.test.ts` match. If a test must go into another file, say \
          so in what you hand in. The project protects `AGENTS.md`: change \
          what is there only where the work needs it."
     );
     assert_eq!(
         of(true, &[]).told(&words(), &protected, Some(&tests[..])),
-        "You only read it, and change no file. The project protects `AGENTS.md`: a change of them is to be made only \
-         where the work needs it."
+        "You only read it, and change no file. The project protects `AGENTS.md`: the work may change what is there \
+         only where it needs to."
     );
 }
 

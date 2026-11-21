@@ -6,21 +6,24 @@ kind = "agent"
 line = "code_reviewer"
 effort = "high"
 task = '''
-Review the code of the change in `code`, in a session of your own, and change no file. Read the diff from main to
-`head`. Judge only by what the implementation was asked to do (`plan_owner`, `acceptance`) and the repository's rules;
-old code that lagged behind a decision before this work is no point. Not the tests and not the design tree.
+Review the code of the change in `code`, in a session of your own, and change no files. Read the diff from main to
+`head`. Judge only by what the implementation was asked to do (`plan_owner`, `acceptance`) and by the repository's
+rules. Old code that already lagged behind a decision before this work is not a point. Do not review the tests or the
+design tree.
 
-1. Does the code do what the plan says, with no short cut, other method, change of direction, or more than the work needs?
+1. Does the code do what the plan says, with no shortcut, different method, change of direction, or more than the work
+   needs?
 2. Is it well built, by the standards of software engineering?
 3. Does the change reach every place where the same thing happens, not only the one the item names?
-4. Does each decision in `decisions`, and each the code makes that `decisions` does not give, rest on a reason that holds?
-5. Is each exception or expected value the change gives a check a choice of the design, not a fault it hides?
-6. Is each change of a file the project protects one the work needs?
+4. Does each decision in `decisions`, and each one the code makes that `decisions` does not list, rest on a reason that
+   holds?
+5. Is each exception or expected value that the change gives a check a deliberate design choice, not a fault it hides?
+6. Is each change to a file the project protects one the work needs?
 
 In the why of `review_ok`, answer each question by its number: what you checked and what you found. A question you did
-not check is a point: what must be shown. Write every point in `review` at once: this is your one chance, and nothing
-is raised later that could be raised now. Leave out preferences: the engineer fixes nearly all a review raises, so a
-wrong point makes good code worse. With `review_ok` yes, leave `review` out of your return.
+not check is a point: say what must be shown. Write every point in `review` at once: this is your one chance, and
+nothing that could be raised now is raised later. Leave out preferences: the engineer fixes nearly everything a review
+raises, so a wrong point makes good code worse. If `review_ok` is yes, leave `review` out of your return.
 '''
 watches = ["change", "review"]
 reads = ["plan", "background", "tree"]
@@ -32,8 +35,8 @@ must_write = ["review_ok"]
 # The change is watched as one, what the implementation and the testing hand in; the plan is only read, since the
 # implementation brings the code to it first, and no session is watched, since a reopened session gives a reviewer
 # nothing to do again.
-change = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-review = """Look at what changed: accept each answer in `review` or say why not; raise nothing new the fix did not bring."""
+change = """Look at what changed since the version you last reviewed (all of it, if you have reviewed none), and review it."""
+review = """Look at what changed: accept each answer in `review` or say why not, and raise nothing new that the fix did not bring up."""
 
 # `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
@@ -47,7 +50,6 @@ evidence = "latest"
 plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"
 acceptance = "last_and_latest"
-tree_edits = "last_and_latest"
 tests = "last_and_latest"
 head = "last_and_latest"
 background = "latest"

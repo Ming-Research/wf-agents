@@ -176,7 +176,7 @@ new session lacks it.
 
 31. An answer that changes nothing the cell goes by is kept, and is new to no cell (9): one that takes the option the
     cell recommends, to a question the work does not wait for; and one to a question as it was asked before it was
-    asked anew (decision an-answer-to-an-earlier-version-is-kept).
+    asked anew.
 
 32. A question the work waits for holds the work at the cell whose question it is, while no answer stands to the
     question as last asked: no later cell runs, and the cell is entered meanwhile only for the owner's words or answer
@@ -250,7 +250,7 @@ new session lacks it.
 
 40. The engine's acts, such as the check before the merge, read no words, and are no party to a dialogue. What the
     check finds, `check`, is a datum the maker watches, and the maker answers it only by what runs the check again: a
-    new head, or a question the work waits for (decision an-act-is-answered-by-what-runs-it).
+    new head, or a question the work waits for.
 
 ## The next word
 
@@ -278,8 +278,8 @@ new session lacks it.
 
 ## The engineer flow, laid out by this design
 
-45. The engineer flow, cell by cell, in the order of the walk. "Plan" is the group of `plan_owner`, `plan_agent`,
-    `acceptance` and `tree_edits`; "change" the group of `code`, `title`, `decisions`, `evidence`, `tests` and `head`.
+45. The engineer flow, cell by cell, in the order of the walk. "Plan" is the group of `plan_owner`, `plan_agent` and
+    `acceptance`; "change" the group of `code`, `title`, `decisions`, `evidence`, `tests` and `head`.
     A dialogue is named by the datum its two sides write. Every agent's cell reads every cell's questions and every
     cell's words (33, 35); each cell that may ask also watches its own questions and its own words (30, 35); a cell that
     reads `tree` reads it first where its session has not (25). None of this is repeated in the table, and a blank

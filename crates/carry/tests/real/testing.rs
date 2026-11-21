@@ -39,15 +39,15 @@ async fn a_build_on_a_line_of_tests_that_commits_beside_them_is_sent_back_until_
     let calls = real.calls();
     let builds: Vec<_> = calls.iter().filter(|call| call.of("Build")).collect();
     assert_eq!(builds.len(), 2);
-    let sent_back = "- `built.txt` is none of the project's tests, the only files your line changes: take back what this \
-                     run changed in it.";
+    let sent_back = "- `built.txt` is not one of the project's tests, which are the only files your line changes: take \
+                     back what this run changed in it.";
     assert!(builds[1].stdin.contains(sent_back), "{}", builds[1].stdin);
     // The line's agents are told the paths of the tests in their system prompt, and no lock command.
     let told = |text: &str| builds[0].args.iter().any(|arg| arg.contains(text));
     assert!(told(
-        "Change only the project's tests, the files `:(glob)crates/**/tests/**`, "
+        "Change only the project's tests, the files that `:(glob)crates/**/tests/**`, "
     ));
-    assert!(!told("Update a lock file with"));
+    assert!(!told("To update a lock file"));
 }
 
 // A return that asks for calls ends its run once taken, and the run entered for the results begins on the head it left:
