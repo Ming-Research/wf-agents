@@ -55,98 +55,49 @@ A flow change is made so that returns already handed in still pass where it can,
 Why: Every tightening of an early cell's output sends each work that went past it back to do the cell again; the owner approves a flow change with that cost in view. (Article 3)
 
 ### principle a-defect-is-seen-before-it-is-fixed
-A defect is fixed only after it was seen to happen where it shows, such as on the page in a real browser or in the
-program run on its own data; where no test can be written for it, a probe, a log or the owner running it may show it.
-One that is seen nowhere, after all the tools reach was tried, stops the work at its research and goes to no deeper
-research: how to go on is written as a question the work waits on, to fix by the cause inferred, to wait for the owner
-to give the conditions, or to close the item.
-Why: A cause that was only inferred was once fixed and passed its test in a stand-in for the browser, while the defect
-stayed and came back as a new item; and it is not known then whether the tools fall short, which a deeper research
-shares.
+A defect is fixed only after it was seen to happen where it shows, such as on the page in a real browser or in the program run on its own data; where no test can be written for it, a probe, a log or the owner running it may show it. One that is seen nowhere, after all the tools reach was tried, stops the work at its research and goes to no deeper research: how to go on is written as a question the work waits on, to fix by the cause inferred, to wait for the owner to give the conditions, or to close the item.
+Why: A cause that was only inferred was once fixed and passed its test in a stand-in for the browser, while the defect stayed and came back as a new item; and it is not known then whether the tools fall short, which a deeper research shares.
 
 ### principle the-reviewer-knows-no-less
-Whoever reviews is no less able than the engineer and knows what the engineer knows: the background and the decisions
-the engineer worked from.
+Whoever reviews is no less able than the engineer and knows what the engineer knows: the background and the decisions the engineer worked from.
 Why: Engineers mostly do what a review says, so a wrong demand turns good code into bad.
 
 ### principle every-plan-is-reviewed-before-it-is-built
-Every work's plan is reviewed before it is built, for its design and against the design tree, by a session that did
-not write it, whatever the size of the change; a change too small to be worth that is joined with related ones into
-one work, never run alone.
-Why: A small change left unreviewed can break what matters, and the damage is not small (a judgment, with no case
-behind it). A fix of a few lines that ran the flow alone took an hour and more with the waiting; what answers that is
-joining small things into one work, not leaving out the review.
+Every work's plan is reviewed before it is built, for its design and against the design tree, by a session that did not write it, whatever the size of the change; a change too small to be worth that is joined with related ones into one work, never run alone.
+Why: A small change left unreviewed can break what matters, and the damage is not small (a judgment, with no case behind it). A fix of a few lines that ran the flow alone took an hour and more with the waiting; what answers that is joining small things into one work, not leaving out the review.
 
 ### principle a-question-is-a-choice
-What is asked of a person is a question of yes or no, or a choice of one or more among options, with the answer its
-asker recommends. The answer is the option taken and nothing else: why, where the owner wants to say it, is said in
-the owner's words to the cell.
-Why: A question in free words cannot be answered quickly, and words given with an answer, taken as part of it, could
-not be told from what the owner says to the cell.
+What is asked of a person is a question of yes or no, or a choice of one or more among options, with the answer its asker recommends. The answer is the option taken and nothing else: why, where the owner wants to say it, is said in the owner's words to the cell.
+Why: A question in free words cannot be answered quickly, and words given with an answer, taken as part of it, could not be told from what the owner says to the cell.
 
 ### principle a-question-says-first-what-to-decide
-A question an agent puts to the owner says in its first sentence what is to be decided and what it affects, uses no
-inner names, gives what follows from each option and a recommendation, and keeps its details behind a link; it is
-short, and is opened only where it is not understood.
-Why: Otherwise the owner reads the whole story again each time; a question written well can be decided with nobody's
-help.
+A question an agent puts to the owner says in its first sentence what is to be decided and what it affects, uses no inner names, gives what follows from each option and a recommendation, and keeps its details behind a link; it is short, and is opened only where it is not understood.
+Why: Otherwise the owner reads the whole story again each time; a question written well can be decided with nobody's help.
 
 ### principle who-asks-can-be-spoken-to
 A cell that may ask the owner a question can be spoken to by the owner; a cell that asks nothing is not spoken to.
-Why: Once asked, the owner may need to ask back about the question's background, and only the cell that asked knows why
-it asked: said to another cell, the words reach one that does not know the question. A cell that asks nothing has
-nothing of its own the owner needs to take up with it: what the owner wants of a review goes through the cell that
-answers the review, which fixes the point or has the owner rule on it.
+Why: Once asked, the owner may need to ask back about the question's background, and only the cell that asked knows why it asked: said to another cell, the words reach one that does not know the question. A cell that asks nothing has nothing of its own the owner needs to take up with it: what the owner wants of a review goes through the cell that answers the review, which fixes the point or has the owner rule on it.
 
 ### principle named-paths-wait-for-the-owner
-A change that touches a path the project's configuration names for the owner, such as a specification or the
-principles of its design, waits at the merge for the owner's yes, and a later change to those paths asks again. The
-engine sees the paths touched and asks by itself, showing the change; which paths, each project's configuration says,
-and the flow names none.
-Why: A rule in the project's own guide, left to the engineer and the review to keep, was turned down: where both
-missed it, the change merged (Article 7). The paths are a project's and not the flow's (Article 1).
+A change that touches a path the project's configuration names for the owner, such as a specification or the principles of its design, waits at the merge for the owner's yes, and a later change to those paths asks again. The engine sees the paths touched and asks by itself, showing the change; which paths, each project's configuration says, and the flow names none.
+Why: A rule in the project's own guide, left to the engineer and the review to keep, was turned down: where both missed it, the change merged (Article 7). The paths are a project's and not the flow's (Article 1).
 
 ### principle the-flow-gives-the-trees-rules
-The rules of the design tree, the tree's own file of rules, are given to every agent by the flow, in the system prompt
-of every session, as the project's guide is: no cell is left to find them by following the guide. The guide points to
-them as well, for the agents that work outside the flow.
-Why: Every project's agents need the same rules, and said once in the flow they reach every cell, where a rule an
-agent must find by itself may go unread. An agent outside the flow is given nothing by the flow and has only the
-guide.
+The rules of the design tree, the tree's own file of rules, are given to every agent by the flow, in the system prompt of every session, as the project's guide is: no cell is left to find them by following the guide. The guide points to them as well, for the agents that work outside the flow.
+Why: Every project's agents need the same rules, and said once in the flow they reach every cell, where a rule an agent must find by itself may go unread. An agent outside the flow is given nothing by the flow and has only the guide.
 
 ### principle an-agent-knows-only-its-task
-An agent works from its task and the data it is given, and knows nothing of the flow around it: not the cell it runs
-as, not the other cells, not who reads what it writes. A cell's words name no other cell.
-Why: Carrying what one cell writes to the next is the flow's work (principle mechanical-engine). Words that tell an
-agent about the flow copy the flow, go stale when it changes, and invite the agent to do the flow's work.
+An agent works from its task and the data it is given, and knows nothing of the flow around it: not the cell it runs as, not the other cells, not who reads what it writes. A cell's words name no other cell.
+Why: Carrying what one cell writes to the next is the flow's work (principle mechanical-engine). Words that tell an agent about the flow copy the flow, go stale when it changes, and invite the agent to do the flow's work.
 
 ### principle a-cell-knows-only-its-data
-A cell knows nothing of the other cells: it is given only the data it watches and reads, and is run only by a version
-of a datum it watches that is new to it, which a version it wrote never is (design document `data-and-context`, which
-says what else is new to no cell). Nothing else runs a cell, and no cell is excepted: no trigger apart from the data,
-no datum made only to run one, and no version sent to some of the cells that watch it and kept from others; nothing of
-the work reaches a cell but what it is given and the checkout at the versions it is given, and a need this cannot meet
-is a fault of the design, mended there (principles solve-within-the-design-first and engine-knows-no-cell).
-Why: Triggers kept apart from the data grew into a second graph to keep consistent with the first: data with no
-content made for each cell to be woken, a datum and a trigger for each pair of cells that answer each other, and
-versions sent on by who wrote them. Each met one case; together they made a work's way through the flow something the
-owner, watching one work go back from the implementation through the plan's cells, had to ask about at each of three
-steps. A cell the work reaches by more than it is given cannot be tested on its own data (design document `testing`).
-This is the flow's side of principle an-agent-knows-only-its-task.
+A cell knows nothing of the other cells: it is given only the data it watches and reads, and is run only by a version of a datum it watches that is new to it, which a version it wrote never is (design document `data-and-context`, which says what else is new to no cell). Nothing else runs a cell, and no cell is excepted: no trigger apart from the data, no datum made only to run one, and no version sent to some of the cells that watch it and kept from others; nothing of the work reaches a cell but what it is given and the checkout at the versions it is given, and a need this cannot meet is a fault of the design, mended there (principles solve-within-the-design-first and engine-knows-no-cell).
+Why: Triggers kept apart from the data grew into a second graph to keep consistent with the first: data with no content made for each cell to be woken, a datum and a trigger for each pair of cells that answer each other, and versions sent on by who wrote them. Each met one case; together they made a work's way through the flow something the owner, watching one work go back from the implementation through the plan's cells, had to ask about at each of three steps. A cell the work reaches by more than it is given cannot be tested on its own data (design document `testing`). This is the flow's side of principle an-agent-knows-only-its-task.
 
 ### principle one-dialogue-for-each-party
-Each agent's cell that judges or doubts another cell's work has a dialogue of its own with that cell, and so has the
-owner with each cell it speaks to: one datum only the two parties write, so that each word is new to the other party
-alone (design document `data-and-context`). An act of the engine reads no words and is no party: it is answered by
-what runs it again (decision an-act-is-answered-by-what-runs-it).
-Why: One record for several parties woke every party at each answer, and a datum made for each answer doubled the
-data and the triggers of every pair, growing with each cell added.
+Each agent's cell that judges or doubts another cell's work has a dialogue of its own with that cell, and so has the owner with each cell it speaks to: one datum only the two parties write, so that each word is new to the other party alone (design document `data-and-context`). An act of the engine reads no words and is no party: it is answered by what runs it again (decision an-act-is-answered-by-what-runs-it).
+Why: One record for several parties woke every party at each answer, and a datum made for each answer doubled the data and the triggers of every pair, growing with each cell added.
 
 ### principle the-one-woken-owes-the-next-word
-In an open dialogue the party woken owes the next word, and a judge's pass, which closes the dialogue, is written as
-its verdict alone (design document `data-and-context`). The engine sends back a return that plainly leaves the word
-owed, as the document says when it does.
-Why: Were every side to answer whenever it is woken, a judge could never pass without a word, and a pass with a word
-would wake the maker for nothing; owing the next word only in an open dialogue holds both (a judgment, with no case
-behind it). A side left owing with nothing to send it back stalls the work with nobody woken, as a red check answered
-in words alone did (decision an-act-is-answered-by-what-runs-it).
+In an open dialogue the party woken owes the next word, and a judge's pass, which closes the dialogue, is written as its verdict alone (design document `data-and-context`). The engine sends back a return that plainly leaves the word owed, as the document says when it does.
+Why: Were every side to answer whenever it is woken, a judge could never pass without a word, and a pass with a word would wake the maker for nothing; owing the next word only in an open dialogue holds both (a judgment, with no case behind it). A side left owing with nothing to send it back stalls the work with nobody woken, as a red check answered in words alone did (decision an-act-is-answered-by-what-runs-it).
