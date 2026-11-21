@@ -1,4 +1,4 @@
 # The dialogue of the testing with the implementation (design document `data-and-context`, 36): it writes its points and
 # the implementation its answers, each a version of it, and both watch it, so that each version is new to the other side
 # alone.
-what = "What the testing and the implementation say to each other, in English: each test that stays red, with what goes wrong by its reference; each place suspected but not tested, such as what shows only on one machine or under concurrency, with why not; and the implementation's answer to each, fixed, with its commit, or why not."
+what = "What the testing and the implementation say to each other: each test that stays red, with what goes wrong by its reference; each place suspected but not tested, such as what shows only on one machine or under concurrency, with why not; and the implementation's answer to each, fixed, with its commit, or why not."
