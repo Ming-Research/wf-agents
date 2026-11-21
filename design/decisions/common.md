@@ -3,14 +3,10 @@
 What holds alike in the engine, on the owner's page and in the command line.
 
 ### decision a-version-is-numbered-within-its-datum
-A version is told to an agent, shown to the owner and taken from the page and the command line by its number among the
-versions of its datum, counted from one in the order they were written: `version 2` to an agent, `v2` on the page. The
-place of the entry that wrote it, which counts every event of the work, orders what happened inside the engine and is
-never told, shown or taken. A question's version is the version of its cell's questions it was asked, asked anew,
-withdrawn or answered at; a group a cell watches as one is numbered as one datum, each place that wrote any of its
-blocks one version of it. One rule gives a number for a place and a place for a number, and nothing else counts
-versions; what the records hold already, written with a place, stays as it was written.
-Why: Told by the place, the first and only version of `plan_review` in work 11 was `version 42` to its agent and
-`plan_review@42` on the page, and "you last worked from version 27, now version 49" read, to the agent and the owner
-alike, as a datum changed many times with most of the changes missed. The old text is left as it ran (principle
-the-past-as-it-ran).
+A version is told, shown and taken by its number among its datum's versions, counted from one as they were written; the place of the entry that wrote it stays inside the engine.
+- replaced: A version told and shown by the place of the entry that wrote it, which counts every event of the work, stood on main; the owner changed it, because "version 42" of a datum written once, or "from 27 to 49", reads as a datum changed many times and mostly missed.
+
+### decision the-part-that-carries-out-the-flow-is-the-engine
+The part of the program that carries out the flow is called the engine, and nothing is called the board: each place names the records or the owner's page it means.
+- rejected: an agent proposed calling that part wf-agents itself, or a name of its own such as musher; the owner rejected it, because wf-agents does not say which part is meant, and the policy already called it the engine.
+- rejected: an agent proposed a name of its own for what was the board; the owner rejected it, because every reader would first have to learn which thing a new name means.

@@ -1,83 +1,42 @@
+# The host
+
+Where a project's repository is hosted, GitHub or the local repository, and what the engine does there to check and merge a work.
+
 ### decision one-interface-for-the-host
-The acts and the agents' checks reach where the project's repository is hosted through one interface, implemented for the local repository and for GitHub. Everything else about a work's branch and worktree is done in the local clone.
-Why: An act means one thing whatever carries it out, and the local host lets every act be tested with no network (principle outside-behind-interfaces). A test of the host in each act would spread it through the code, and a host per act lost because the check and the merge must agree on one pull request.
+The engine reaches a project's host through one interface: on GitHub it pushes the work's branch, opens a pull request, runs CI and merges there; a local host does all in the clone.
+- rejected: an agent proposed doing every work in the local repository alone, its check command run and the branch merged there; the owner rejected it, because the project's rules have every change go by a pull request and its tests run only in CI.
 
-### decision github-through-its-command-line
-GitHub is asked through its own command line, by its REST API and by GraphQL only for what REST cannot do. Git pushes and fetches go to the address the settings give, never one read from the clone.
-Why: The command line handles authentication and paging and adds no network stack to the build (principle tech-mainstream). An agent can write the clone's configuration, so an address or proxy taken from there could send the token elsewhere.
+### decision the-engine-merges-the-pull-request
+The engine merges a work's pull request itself once the check before the merge passes; the owner reviews no pull request.
+- rejected: an agent proposed asking the owner to review a work's pull request before it merges; the owner rejected it, because he reviews no pull request, as the process already said, and his questions go where he works.
 
-### decision found-again-on-the-host
-What a check does on the host is found again there, never by what the engine kept: the pull request by its branch, a run of a workflow by its request (decision a-run-is-found-again-by-its-request). A pull request a person closed, merged or pointed elsewhere fails the round, and no second one is opened. The number and address of the pull request each check finds are kept with the work, for its page alone.
-Why: A restart between opening a pull request and recording it would open a second one were it found by what was recorded (principle effects-known-as-done), and opening another past a person's close would act against them. The owner reads a work's pull request after its branch and its round are gone, and asking the host again for every work at each read of the list would wait on the network.
-
-### decision a-pull-request-before-works-kept-theirs-is-read-from-the-merges-title
-A work that merged before works kept their pull requests is given the one the title of the commit its merge made names at its end, `(#N)`, as GitHub titles a merge's commit: the commit read back from what the merge wrote, by its words, and the address made from the repository's name in the settings.
-Why: Its records hold none, and the commit says it already; asking GitHub for each such work would wait on the network at every read of the list.
-
-### decision a-run-is-found-again-by-its-request
-A run of a workflow is found by a value its name holds, worked out from the work, the call of `run_tests` or the round of the check that asks, the workflow and the commit, in the installation's namespace; given again after the engine started again, the request waits for its run or reads it where it has ended, and asks for another only where it finds none of its own but cancelled ones.
-Why: Asked for on main, the runs of every request are listed together, and two requests of one work at once, each taking the newest, would read each other's. A value made at random at each request was lost with the engine: a restart two minutes into a run of the full workflows asked for them again while the first run went on to pass. With the commit in it, a check given again on a main that moved since takes no run of the commit before; asking again past a cancelled run, which judged nothing, rests on judgment.
-
-### decision the-check-before-the-merge-is-the-full-workflows-once
-The check before the merge runs the project's full workflows on the exact commit to merge, by hand and once, and judges it by the JUnit they upload and by their jobs' conclusions: it fails on a test that failed, on a job that ran and did not pass, and on a run that uploaded no JUnit the engine can read, and never by the pull request's checks or a log; where tests failed and nothing else did, the tests are run again (decision a-red-the-change-did-not-make-is-not-sent-back). Each failure is said as it is, and no job of a run is run again by the engine: what is run again is run in runs of its own. Its notes give each job's wall time (decision a-times-are-kept-with-the-run).
-Why: What the pull request's checks show is what GitHub's triggers happened to start, and counting every check that appears cannot tell "all done" from "not all started"; the branch rules' required checks lost because reading them needs administration rights. The project's declaration names what must pass, and a log has no form the engine can read for every project. Running a red job again in its run lost because it destroys the scene of an intermittent failure, when the task is to find it: the run that failed stays as it was. A job that was skipped fails nothing: GitHub skips a job only where its own condition, as the project wrote it, is false, or where a job it needs did not succeed, and that job is red itself or was skipped by its own condition.
-
-### decision a-red-the-change-did-not-make-is-not-sent-back
-Where the full workflows failed tests and nothing else (each run's JUnit read, no unit not built, each job that did not pass having judged the code and reported a failed test of its own in results of its own, or else being a check the fast workflow runs by name, which the run again runs, or needing every other job of its workflow, as main's file of it says, and so only summing them up), the check runs those tests again by the fast workflow on the commit, beside every check it runs by name, and what fails again there on the head of main it took in. A test that passes on the commit again is said in the check's notes as maybe flaky and kept as an observation in the same words, and fails nothing; a check red again fails the work. Where every test that failed again fails on main as well, the check writes its choice alone, failed, saying so, and says that what it wrote waits for main, so that the work waits for main and not for the owner (the walk's decision what-a-run-wrote-may-wait-for-the-outside), the check running again as main moves; any other fails the work, sent back to the implementation as before. A rerun that judged nothing, or tests that cannot be run again, fail the work, saying why.
-Why: A red the change did not make must cost the implementation no round, in which it could only find the red not its own (Article 3); a test that fails by chance must become an item for the architect, not pass unseen nor stop each work it meets (Article 4). Written into the failure's other blocks, a red of main's would run the implementation for what it cannot mend; so it is said in the choice alone, which runs no cell and holds the merge. A job of tests red for a step before or beside its tests (installing, a browser, a build, a tool's version) left its tests unreported while the other jobs' were read, and merged beside a test of another job that passed again; told by the file named by it, and by the step it says failed there, it fails the work as the full workflows found it, and so does a red job that left no file at all, as one whose runner died, unless the run again reproduces it or it only sums up the others. Both are read from the project's own declaration and workflow files, never from a job's name in the engine. That a job which needs every other one only sums them up rests on judgment: a step of its own that judged the code would merge red beside a test that passed again.
-
-### decision a-run-that-never-started-is-asked-for-again
-A run of a workflow that never started, GitHub listing none or no runner taking it within the minutes the settings give (`start_minutes`), is cancelled where GitHub lists it, and the check fails its round in passing, so that the run is asked for again after the wait, within the bound on failures in passing in a row; `run_tests` says it once (decision a-check-is-not-tried-again).
-Why: What keeps a run from starting is no work's (GitHub's Actions, the account's minutes, a runner offline), and paused at the first, the work would wait for the owner for what may pass by itself while nobody looks; the bound still brings the owner one that does not pass. Unlike `run_tests`, whose agent can tell whether to ask again, the check has nobody to ask but the owner. Left queued, the run would take a runner later for nothing. That most such causes pass rests on judgment.
-
-### decision a-run-past-its-time-fails-the-check
-A run not complete within the time it may take (the full workflows' `too_long` in the project's declaration, the fast workflow's `timeout_minutes` in the settings) is cancelled, its jobs read just before, and is what it found: the check fails, its jobs not complete said so and no test's result known, and `run_tests` says the same.
-Why: The project says how long its run takes, so a run past that has not shown the commit passes, most often as a test that hangs, which the work's own agents mend, and failing the round instead would stop the work for the owner, who mends no hang. A run left going holds a runner for nothing.
+### decision the-repository-is-worked-in-one-act-at-a-time
+The engine's acts and its watch of main work in a project's repository one at a time, under a lock held in the engine's process.
+- rejected: an agent proposed a file lock in the git directory; the owner rejected it, because a lock in the process is reached by every caller, and the git commands it holds are fast, so a wait for it costs little.
+- rejected: an agent proposed trying a git command again where git reports a lock; the owner rejected it, because retrying hides real failures behind expected ones.
 
 ### decision the-check-takes-main-in
-The check merges main's head into the work's branch as a commit of the engine's own and judges that commit, and the merge lands only a commit that holds the main the check took in.
-Why: What passes is then exactly what lands. GitHub's test merge lost because it leaves no mark when main moves after the CI began and the local host has none; an agent's round lost as exact work an agent sometimes gets wrong (principle mechanical-engine).
-
-### decision the-check-holds-the-head-to-what-the-review-saw
-The check passes only where the work's head, which it reads of the branch for its round, is what the version of `head` each judge of it dealt with last says: each cell that writes a block the check's preconditions read and that watches `head`, as the flow's graph finds them, where it applies. Otherwise the round fails in passing, judging nothing, the head told to it as the outside's, so that the judge, to which the head is new, runs first. No block an agent writes names the commit the check and the merge are held to.
-Why: Held to a commit named in any block a cell wrote, the check passed in W9 the implementation's fix of a conflict with main, named only in its answer to the check: the review never ran again, and the merge landed a change of a design decision nobody had reviewed; a tester's commits passed the same way. Read of the branch, whatever is committed is held to the review, under any block's words or none. A failure handed to the implementation lost: it has nothing to fix, what is missing being the review's look.
+The check merges main's head into the work's branch as a commit of the engine's own and judges that commit, and the merge lands only a commit holding the main the check took in.
+- rejected: an agent proposed GitHub's merge queue; the owner rejected it, because it cannot be used for every repository and knows only the required checks, and two ways would give two sets of rules.
 
 ### decision one-work-checks-and-merges-at-a-time
-The works of a project take turns to check and merge, in the order their checks began to wait: a work keeps the turn from its check until its merge or its check failing, and once its check passed no longer than a quarter of an hour. A work a pause holds, its own or the owner's of everything, neither takes the turn nor keeps it, and a merge whose work gave it up waits for it again. The turn is kept in memory only, so that after a stop the first check to wait takes it.
-Why: Checked side by side, each work's merge moves main under the others', each of which is then checked again, and the last of many could go round past its bound on tries and stop for the owner. Given to whichever waiting check looked first, the turn went in turn to three works whose checks began to wait after work 10's, which went on waiting. A paused work cannot merge: holding the turn, works 6, 7 and 9 each ran the full CI for a merge that could not come and kept the others waiting for their quarter of an hour. That a work held between its check and its merge holds the others back no longer than a quarter of an hour rests on judgment. A turn kept in the store would outlive the engine's stop and hold the project for a work that may not come back to it (a judgment, with no case behind it).
+The works of a project take turns to check and merge, in the order their checks began to wait, a work keeping the turn from its check until its merge or its check failing.
+- rejected: an agent proposed bringing each branch behind main up to it and checking it again, the works side by side; the owner rejected it, because one pull request was brought up to main four times in an hour while main broke twice.
 
-### decision the-check-tells-its-round-the-main-it-takes-in
-The check tells its round the head of main it takes in, in the words the watch of main writes, and the check and the watch each say a head only as they read it with the repository held; where the block of main already says that head, none is written. The block of main at that head is then what the check's run read, and runs the check no more.
-Why: A check that waited for its turn while another work merged took the new main in and passed, and was run again, a whole CI more, because the watch had written that main after the check's run began (work 5). Told once the check ended, or the watch's head said after the repository was let go, a head could be said after a newer one was read, and the block would go back to an older head.
+### decision the-check-before-the-merge-is-the-full-workflows-once
+The check before the merge runs the project's full workflows once, by hand, on the exact commit to merge, and judges it by their JUnit and their jobs' conclusions.
+- replaced: Judging the merge by the checks GitHub ran on the pushes of the pull request stood on main; the owner changed it, because the full workflows are dispatched on the exact commit, once, before the merge.
 
-### decision a-moved-main-is-checked-again-by-itself
-A merge refused because main moved since the check passed, as the engine finds or GitHub says ("Base branch was modified"), fails in passing and keeps the work's turn: the watch of main writes main's new head into the work at once, which runs the check again on it, and the merge is tried again after its wait with what that check found. Nothing waits for the owner.
-Why: Main moves under a checked work where it was merged by hand or by another engine; a refusal that waited for the owner stopped the work for what passes by itself. Merging main in within the merge lost, since what lands would be what no check judged (decision the-check-takes-main-in).
-
-### decision a-moved-head-is-reviewed-and-checked-again-before-the-merge
-The merge reads the work's head as the check does; where it moved since the check passed, by a commit no round made, it is written from outside, and the merge fails in passing and gives up the work's turn, so that the review and the check run on it before the merge is tried again. Nothing waits for the owner.
-Why: Refused for the owner, a commit made between the check and the merge stopped the work, and letting it on refused it again, as nothing read the head and so nothing ran the check on it. The review comes first, and may take long, so the turn is given up rather than kept as for a moved main.
-
-### decision the-check-passes-no-empty-change
-The check fails, before the host is asked, a commit that changes nothing against the main it took in, in the words of its own file.
-Why: Its CI would pass and the merge would land nothing, the work merged with no change made, and nobody would see it; the flow's gate on the review's yes keeps such a branch from the check, and this holds whatever the flow's gates are.
+### decision a-red-the-change-did-not-make-is-not-sent-back
+Where the full workflows failed tests alone, the check runs them again: one that passes is observed as maybe flaky, one red on main too holds the work for main, any other sends it back.
+- replaced: Any red of the check holding the work until the owner let it go stood on main; the owner changed it, because a red the change did not make, such as a test that sometimes hangs, held each work it met for the owner.
+- rejected: an agent proposed letting through every red the change did not make, with an item to mend it; the owner rejected it, because while main is red a change that broke the same test would not be seen.
+- rejected: an agent proposed holding the work for every such red until an item mends it; the owner rejected it, because one red would then hold every work after it.
 
 ### decision the-pull-request-says-what-the-work-wrote
-A work's pull request is a draft until just before its merge; its body is what the work wrote in the blocks the flow's check names, published with no mention, reference, closing word or path of this machine left to act, cut to a bound, and written over at each check and before the merge, a person's edit included; the check before the merge and the agents' check work it out alike.
-Why: Anyone on GitHub sees what the change is and that it is not yet to be reviewed, and an agent's text on a public repository must notify, close and reveal nothing. Worked out otherwise by either check, the two would rewrite each other's body each time.
-
-### decision blocks-that-describe-the-work-need-not-run-the-check
-The check describes the work by blocks of the flow with content, whether or not it watches them: the definition holds a block it names only to be one of the flow's, named once.
-Why: The pull request's text is written again from what the work wrote before the merge (decision the-pull-request-says-what-the-work-wrote), so what merges always says what the work handed in, and a draft's text may wait for the next check. Held to blocks that run it, the check would be run by the words that describe the change as well as by the work's head, a whole CI for a change of words alone.
+A work's pull request is a draft until just before its merge, and its body is what the work wrote in the blocks the check names, nothing in it left to act.
+- replaced: One fixed paragraph as the body of every pull request stood on main; the owner changed it, because GitHub then showed nothing of what changed.
 
 ### decision a-merge-is-named-by-its-works-line
-A work's merge, its pull request and the commit it makes, is named by the first line of the latest version of the block the flow's merge names (`named_by`), which the cell that writes the code writes in the repository's language; until it is written, by the words of the engine's commits for a work with no name, made from the work's number. The host is given nothing of the item; on GitHub the name is published as the body is, with nothing left to act, and brought up to date at each check and before the merge, which titles its commit so.
-Why: An item's title is in the owner's language and the repository in English: named by the title, the pull requests and the history of main took the owner's language. A name fixed as the pull request opens lost, since it opens before the code is written and what the change does can change after.
-
-### decision letting-go-at-the-end
-Once a work has ended and nothing of it is under way, the engine takes away its worktrees, uncommitted changes included on purpose, and closes its pull request into main where it did not merge; the work's own branch stays, and nothing that is a symbolic link is followed. What cannot be let go is the engine's pause of the ended work, saying why, tried again once the owner lets it on.
-Why: A round or a tool may work in the worktree until it ends, the branch keeps the commits the work paid for (principle keep-what-was-paid-for), and a link could lead to another work's worktree. A failure retried unseen would hold a locked worktree for ever with nobody told (principle nothing-passes-for-normal).
-
-### decision where-a-call-stands-is-kept-in-memory
-What carries out a round or a call says where it stands as it goes: the act of a check that waits for the turn names the work that has it, and a tool or an act that runs as a CI run gives the run's link. The engine keeps the latest of each in memory only, while the round or the call is under way, and tells the page that the work changed; no record holds it.
-Why: The turn is itself kept in memory only (decision one-work-checks-and-merges-at-a-time), and a CI run's link is the host's to give again; recorded, each would be a fact of the past the walk never reads. Unsaid, a check that waited twelve minutes for another work's turn showed only as a round under way.
+A work's merge, its pull request and the commit it makes, is named by the first line of the block the flow's merge names, which the cell that writes the code writes in English.
+- replaced: The item's title naming the pull request and the merge's commit stood on main; the owner changed it, because the repository is written only in English, and items are in the owner's language.

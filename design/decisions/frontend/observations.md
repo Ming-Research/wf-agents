@@ -2,6 +2,11 @@
 
 The view of the observations.
 
-### decision unread-is-a-dot-in-the-text-colour
-An observation not yet read is marked by a dot in the text's colour, and one read is muted.
-Why: Red says a problem: that something waits for the owner, which only what the one definition of it names does (principle one-count-of-what-waits), that something stopped, or that a work has gone on past an hour; orange says a change of a block's meaning, and the accent what is chosen; a mark in a colour of its own would be one more meaning to learn, a judgment with no case behind it.
+### decision the-observations-have-a-view-of-their-own
+The observations are shown in one place, a view of their own among the bar's tabs, the newest first.
+- replaced: Observations on a tab of the architect's page, as cards in the chat and as counts on matters, stood on main; the owner changed it, because they belong to the project, not to a page that changes with the rounds, and shown twice they broke one thing in one place.
+- rejected: an agent proposed a section under each project's tree of items; the owner rejected it, because there would be very many of them, folded and filtered as they would have to be, so they need a main tab of their own.
+
+### decision a-row-is-the-observations-text
+A row of the observations is the observation's text, cut to three lines and whole on pointing at it, with where it came from on the line under it.
+- replaced: Titles alone in the list, the content opened at the right, stood on main; the owner changed it, because a title alone shows nothing until it is opened.

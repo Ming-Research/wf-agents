@@ -1,66 +1,54 @@
 # Questions and answers
 
-What the engine keeps of the questions put to the owner and of the owner's answers, and what it writes of them.
+What the engine keeps of the questions put to the owner and of the owner's answers, and what it asks the owner itself.
+
+### decision a-cell-that-asks-has-its-own-questions
+Each cell that may ask has a datum of its own, `{cell}_questions`, which it writes and watches; the owner's answers are versions of it, and every agent cell is given all of every cell's.
+- replaced: One record of every cell's questions and answers for the work, `q_and_a`, with a block made for each asking cell to wake it, stood on main; the owner changed it, because only the asking cell watches its own, so an answer wakes it alone and no block is made only to wake a cell.
+- rejected: an agent proposed hanging each answer on the version it answers, as no version of its own; the owner rejected it, because a cell given only the latest could then hold an answer without its question, and pairing the two would need a mechanism of its own.
+
+### decision an-answer-that-changes-nothing-runs-no-cell
+An answer is new to the cells that watch the questions only where it answers a question as last asked with another option than the one the work goes by; any other is kept as changing nothing.
+- rejected: an agent proposed that every answer run the asking cell again and be given to it; the owner rejected it, because picking the recommended option only records that he confirmed it, and changes no input.
+- rejected: an agent proposed that an answer other than the recommended one reach the asking cell as the owner's words to it; the owner rejected it, because bound to the words it becomes a mess: words are words and questions are questions.
+- replaced: A trigger of the asking cell, rung where another option was taken or the question held the work, stood on main; the owner changed it, because the questions became a datum the cell watches, and a version that changes nothing spares a round run for nothing.
 
 ### decision the-merge-gate-is-a-datum-the-engine-writes
-Whether every question of the work that stands has the owner's answer to its latest version is the datum `asked`, a
-choice the engine writes as a question is asked, asked anew or withdrawn and as the owner answers, where its value or
-its words would change; before any question it is `answered` by its default. A cell waits for it as for any datum, by
-its precondition: the check before the merge requires `answered`.
-Why: A wait of the walk's own for the merge, which a cell would have named by a key of its own, was turned down: it
-would be a kind of wait the flow's conditions cannot say and the page cannot show as it shows every precondition
-(Article 7). Written only where it changes, it runs only a cell that watches it, as the check does.
+The engine writes `asked`, `waiting` while a question of the work stands without the owner's answer to its latest version and `answered` otherwise; the check before the merge requires `answered`.
+- replaced: The check before the merge requiring only that no judge's verdict stood at fail stood on main; the owner changed it, because a question not waited for let the work go on by its recommendation, and every question still open was to have his answer before the merge.
+- rejected: an agent proposed a second gate before the implementation, holding it while a question that stops the work stands; the owner rejected it, because any cell may ask, and a cell that needs an answer asks and waits itself.
 
-### decision the-answers-are-the-owners-by-what-the-datum-declares
-The datum `asked` declares that only the owner's acts change what its source writes (`changed_by = "owner"`), so that
-the walk says the owner can make a precondition on it hold, and what waits on the owner gives, for that precondition,
-each question that stands without the owner's answer. No reader of what a work waits for knows the datum by its name.
-Why: Known by name, the page, the planner's list and the bar each held a copy of the rule, and a datum renamed or a
-second one of its kind would have split them (principle one-thing-one-place).
+### decision a-question-says-whether-its-cell-waits
+A question says whether its cell waits for the answer, which holds the work at that cell; one that does not lets the work go on by the option it recommends; a cell stops for him no other way.
+- replaced: A confidence of one to five on each question, four and five letting the work go on, stood on main; the owner changed it, because four and five came down to stop or not anyway, and the agent can say itself whether to stop.
+- rejected: the owner proposed that a cell that cannot go on say so apart, as a message with a blocking mark or through its output, answered by words that let it go on; the owner rejected it, because a question that stands alone and waits says the same, so no other kind is set up.
+- rejected: an agent proposed a field of the question for why it waits, `why` and then `because`; the owner rejected it, because nobody reads it alone: the reason goes into what the question asks.
 
-### decision an-answer-runs-its-cell-by-the-engines-source
-Each version of a cell's questions, a question asked, asked anew or withdrawn and an answer alike, is written by the
-engine's source `answer`, never as the owner's write nor by anything outside the work, each a version readable alone in
-the words of the datum's file; the owner's act is the answer, and the engine works out from the question whether it
-changes the questions' meaning. Neither a cell's questions nor `asked` is taken as written from outside.
-Why: A person's write always changes the meaning (decision meaning-told-by-the-writer), so an answer the owner wrote
-would run the cell for one that takes the option the work goes by, which statement 31 of the design document
-`data-and-context` says runs nothing; and a write of either from outside would say of the questions what their records
-do not.
+### decision a-question-is-written-under-its-name
+A cell names each question it asks: written again under that name, it is asked anew; given by its name with why, it is withdrawn; a question the cell does not write stands, with its answer.
+- rejected: an agent proposed handing in all of a cell's questions again each time, one unchanged kept by its number; the owner rejected it, because a question left out was then withdrawn, and one rewritten lost its answer.
+- rejected: an agent proposed that the engine number each question and tell the cell the number in its next message; the owner rejected it, because nothing in the return that asks could then point to the question.
+- rejected: an agent proposed withdrawing a question by its name alone; the owner rejected it, because the page could then not show that it was withdrawn, nor why.
 
-### decision an-answer-to-an-earlier-version-is-kept
-An answer to a version of a question that a later version replaced is kept in the owner's record and as a version of
-the cell's questions that changes nothing: it runs no cell and leaves `asked` as it was. It is not refused.
-Why: The owner answered what the page showed, which a round may have asked anew in the meantime; the record keeps what
-the owner did (principle the-past-as-it-ran), and the question asked anew waits for an answer of its own.
+### decision a-question-may-stand-alone
+A question is an entry of its cell's questions, not of a text: a text the cell writes points to one as `{{name}}` where they belong together, and one no text points to stands alone.
+- rejected: an agent proposed keeping each question in the text of the cell where it arises; the owner rejected it, because some cells cannot or should not change their text, and a changed text runs again every cell that depends on it.
+- rejected: an agent proposed that a question name the block and the section it belongs to; the owner rejected it, because only a text embeds a question and it refers to the question anyway, so no reference both ways is needed.
+
+### decision the-engines-questions-are-asked-in-the-cell-the-flow-names
+What the engine itself asks of a work is asked in the questions of the cell its flow names (`engine_asks_in`), in the engineer flow the implementation, whichever round it is asked with.
+- rejected: an agent proposed asking it in the questions of the cell whose round made what it asks about; the owner rejected it, because that routes by who wrote what, which the design has no place for.
+- replaced: The engine's questions kept in the work's one record of questions and answers stood on main; the owner changed it, because the implementation can change the work as the answer asks, and the owner can speak to it to ask why it was asked.
 
 ### decision the-check-holds-a-protected-change-until-the-owner-lets-it-merge
-The check before the merge looks at the work's own change under the paths the project protects, in the commit it checks,
-against where that commit left main: each file by its path and the content it ends with. It does not pass while that
-change is not empty and the owner has not let that very change merge, by the option of the engine's question that says
-so, and it asks, or asks anew, where the question does not stand unanswered of that change; it is withdrawn once the
-change is empty. A look the check cannot make fails it. As each round of a line that may change the work ends, the
-engine looks too and asks early, without holding the work, which goes on to its reviews by the option the question
-recommends, the one that lets the change merge, until the owner answers; the check waits while that question stands
-unanswered, and a question the check asks itself holds the work. A look that fails there asks nothing.
-Why: Asked only as rounds ended, a change could merge unasked: a round stopped, a return unread, a run abandoned or a
-look that failed left it unseen, and an answer to take the change back, no yes, let the merge go on. The check judges
-the commit that merges, so nothing between the rounds and the merge escapes it. Told apart by content and not by the
-text of the diff, the change asks nothing again as main moves on; asking at every round that touches the paths was
-turned down, as the owner would answer the same change again and again. Held as soon as it was asked, a work stopped
-before its reviews, which could still change the files and have the owner asked again (work 11). Recommending no option,
-the early question would have the owner's answer letting the change merge, given while a review runs, change what the
-work goes by: it would stop that round, already paid for, and run the implementation for nothing and the review again;
-recommending that option, only taking the change back stops what runs, and the recommendation lets nothing merge, the
-check passing only on the owner's answer.
+The engine asks the owner whether a work's change of protected paths may merge, recommending that it may: asked as a round ends it holds nothing, and the check before the merge passes only on his yes.
+- replaced: Nothing stopping a change of the protected paths stood on main; the owner changed it, because such a change was to wait for his yes before the merge, as one more question waited for alike.
+- rejected: the owner proposed a cell of its own that checks a change of the protected paths; the owner rejected it, because the engine asking a question of it needs no cell of its own.
+- replaced: The question asked as a round changed protected files holding the work until the owner answered stood on main; the owner changed it, because the check holds to the change he let merge and a later change is asked again, so a stop midway only made the work wait.
+- rejected: an agent proposed that the question recommend no option, the work going on as if the change may merge; the owner rejected it, because going on by that option before the answer is recommending it.
 
 ### decision a-protected-change-is-asked-with-the-work-s-reason-for-each-file
-The engine asks the owner of a change of the protected paths only once the work says why each file of it is needed: a return that does the cell's work, of a line that may change the work, is sent back for each file the branch changes as the round left it of which neither its `protected_changes` nor the question that stands says why, unless the owner let the file merge as it is. A reason stands for the file as it then is, another reason asks anew only while the question stands unanswered and never after the owner's yes to the same change, and the check before the merge, with no return to say why, asks with what the question that stands says.
-Why: The owner judges a change of what governs the agents by why the agent made it, and a question with the diff alone
-left that to guess (work 9). What the branch holds as the round ends is judged, not what that round's commits did, so
-that a change left unexplained by a round stopped, failed or sent back is the next round's to explain; a yes the owner
-gave without a reason, as to the check's question, settles it. Asking at once and adding the reason later was turned
-down: the owner would be asked of the same change twice. The reason is kept in the question, which is where the owner
-reads it and where a later round's look finds it. A new reason that took back a yes asked the owner again of a change
-already let merge, only main having been merged into the branch since: the yes had been given to a question with no
-reason, and the round that then gave one asked it anew (work 9).
+The engine asks of a protected change only once the work says why each file is needed; the question says the work changes files the project protects, then each file's path and reason over its diff.
+- replaced: The question with the diff alone stood on main; the owner changed it, because where a change of a protected file is really needed, the agent is to say why.
+- replaced: A question that opened by asking whether the work's change to files that govern the agents may merge, the full diff after it, stood on main; the owner changed it, because he could not read it, and he knows what protected files are.
+- rejected: an agent proposed a first sentence counting the files, a line for each, the diffs folded behind a link and shorter options; the owner rejected it, because that was more than needed: it is to say that protected files changed, then the agent's reasons, then each change.

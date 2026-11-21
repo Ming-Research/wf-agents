@@ -1,27 +1,26 @@
-### decision slots-bound-agents-rounds
-A slot is taken by a round of an agent while it is under way, and by nothing else: a work at rest, waiting for a person or a tool, holds none, and the engine's own acts take none.
-Why: A slot stands for an agent's program running and spending, which is what there is too little of; a work that held its slot while it waited for the owner kept another from going on, and an act that took one would hold an agent back while the act waits on the host, where the repository's lock already sets the acts one after another. That the acts need no bound of their own rests on judgment.
+# Scheduling
+
+What lets works on and holds them back: their pauses, the pause of every work, and the slots their agents' rounds take.
+
+### decision a-work-is-added-paused
+An item is added with its one work, paused, all in one transaction, and the work begins nothing until the owner lets it on.
+- replaced: A work that began by itself once its item was added, within the free slots, stood on main; the owner changed it, because starting by itself is a defect: start and pause stay by hand, so that an urgent work can be put ahead.
+- rejected: an agent proposed starting an item as it is added where whoever adds it says so; the owner rejected it, because a work that starts by itself is a defect.
 
 ### decision slots-in-the-scheduler
-The engine gives a round of an agent only when a slot is free, and the walk of the work says that it waits for one; what carries the rounds out bounds nothing of its own.
-Why: A round given and then held back by its carrier until a slot came free was recorded as under way while it had not begun, the page showed it running, and which work went first was the carrier's order and not the engine's.
+The engine gives a round of an agent only where a slot is free, and the walk of the work says that it waits for one; what carries the rounds out bounds nothing of its own.
+- replaced: Each step of a work counting the free slots for itself stood on main; the owner changed it, because two steps counting at once see the same free slot, and either go past the slots or hold each other back.
 
 ### decision begun-works-first
-A slot that comes free goes to a work that has begun a round of an agent before one that has not, each in the order of its number; and a work whose round ends keeps its slot for the round it begins next, if it begins one at once, before any work that waits.
-Why: What was begun is carried on before something new begins, so that fewer works stand half done and meet each other's changes late, which rests on judgment; and a work that goes straight on has its session's cache warm, which a work waiting its turn after it would let go cold (principle keep-what-was-paid-for). Handing the slots round in turn, round by round, was turned down for both. A round of the engine's own act does not make a work begun: the act takes no slot and runs as soon as it may, so every work would count as begun.
+A slot that comes free goes to a work that has begun a round of an agent before one that has not, each in the order of its number; a work that goes straight on keeps its slot.
+- replaced: A free slot given by the works' numbers alone, begun or not, stood on main; the owner changed it, because works under way waited twenty or thirty minutes for a slot while new ones began.
 
 ### decision pause-of-everything-is-the-installations
-The owner's pause of everything is kept as one record of the installation, beside the works and not in them, and it holds back exactly what a work's own pause holds back: a run that answers a note still has its rounds. Lifting it lets no work on that its own pause holds.
-Why: Written into each work as a pause of its own, it would be the same fact in many places, a stop halfway through writing it would leave some works paused and others not, and lifting it would have to tell its pauses from the owner's. A work the owner paused alone usually has a problem and is being held, which lifting everything is not meant to undo.
-
-### decision pause-is-no-zero-slots
-Stopping every work is a pause of its own, and the slots are never set to none.
-Why: With no slot, a work could not answer the owner's note to one of its cells, and works waiting for a slot could not go on once something else freed one; a count of slots is the installation's setting, and a pause is set and lifted.
+The owner's pause of every work is one record of the installation, apart from each work's own pause and from what a work waits for; lifting it lets on no work its own pause holds.
+- replaced: A hidden switch of the engine's, Run or Hold, which a restart set back to Run, stood on main; the owner changed it, because he wants one control that pauses every work or starts them all, so that they do not all set off at once.
+- replaced: A wait of its own written on every held work, ended as the pause was lifted, stood on main; the owner changed it, because the pause of every work and a work's own waits are two things, and one pause was counted as five waiting.
 
 ### decision a-start-pauses-everything-only-over-works-going-on
-An engine that starts while a work is going on, one that has not ended and that its own pause does not hold, and while nothing pauses everything, pauses everything itself, kept with the engine as who paused it, until the owner lifts it as they lift their own pause; an engine that starts with no work going on pauses nothing.
-Why: Only a work going on could go on before the owner has seen how things stand (principle no-unseen-spending-loop): works are added paused and the owner's pause outlives a stop, so pausing at every start would guard nothing and make every start wait for a lift. Kept in memory alone, the hold would be lost by a second stop before the owner looked.
-
-### decision stops-from-outside-are-no-cells
-Cancelling, pausing and how many rounds go on side by side are neither cells nor blocks. Cancelling stops all of a work (its round under way, the calls it waits for, its runs); a pause holds back only what would begin a round and a check's taking of the project's turn to check and merge (decision one-work-checks-and-merges-at-a-time), so that what a round returned is still taken, the calls it asked for are made, and a run whose cell no longer applies is abandoned.
-Why: What stops or holds a work from outside applies wherever the work is, which a cell cannot. A pause that also held back the taking of what a round handed in would let the work change under it, and the round would be paid for a second time.
+An engine that starts while a work is going on, one not ended that its own pause does not hold, pauses everything itself until the owner lifts it; with none going on it pauses nothing.
+- replaced: An engine that started again running whatever was let on before its stop stood on main; the owner changed it, because the works are not to set off again at once: he starts them himself once the engine is up.
+- rejected: an agent proposed keeping across a stop the state every work and the whole stood in; the owner rejected it, because an engine that starts is to stand still until he starts the works.

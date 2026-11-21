@@ -1,23 +1,22 @@
-### decision an-item-belongs-to-one-project
-An item is added to one of the projects the installation names and keeps it: its works run in that project's repository with that project's declaration, its acts reach that project's host, and what is watched of a project's main is written only into the works of that project's items. Item numbers are one sequence across the projects, and an item may depend on an item of any project, waited for as one of its own. An item kept before items had projects has none: a round of its work fails, saying so, and its work is let go of as it ends, since no repository the installation names holds anything of it.
-Why: A dependency is a result the work uses, and a result merged into another repository, as a compiler a downstream project builds with, is waited for no differently. One sequence keeps `#n` one item wherever it is said (principle numbers-say-what-they-number). An item kept before had a project that had no name, and running it in a project the engine picked for it would run it in a repository nobody chose (principle nothing-passes-for-normal).
+# Items
+
+What an item is, how items relate to one another, and what of an item changes after it was added.
+
+### decision items-relate-only-by-dependency
+Items relate to one another only by what each depends on, a graph with no circle: a change that would close one is refused, naming its way.
+- rejected: an agent proposed two kinds of relation, a parent owning its children and one item waiting on another; the owner rejected it, because an item owns nothing: it only depends on others, and their relations are a directed graph with no circle.
+
+### decision an-items-kind-is-its-flow
+The engine has no kinds of item: an item is added on a flow, and one that only delivers what the items it depends on make runs `deliver`, whose one cell waits for them to merge.
+- rejected: an agent proposed keeping the engine without kinds and telling a deliverable item on the page alone, by a rule guessing it from the open items under it; the owner rejected it, because each kind of item has its own flow, its state like any other item's.
 
 ### decision dependencies-until-the-work-starts
-What an item depends on changes only while its work has started no run; its title, its level and its tags, which no cell reads, change until its work ends, and an item whose work has ended takes no change but, cancelled, its reopening.
-Why: A dependency is a result the work uses, and the walk holds a work at a precondition whose cell has run already, so one added once the work had started would only hold it where it stands while its agents went on without it, as an order of preference does, and one taken away would leave it saying it was built without what it started on. Counting a work as started only from its first round of an agent, as the scheduler counts a work begun, was turned down: the first run is where a work waits for what it depends on, and a work past it would then be made to wait after it started.
+What an item depends on changes only while its work has started no run; its title, level and tags until the work ends, after which only a cancelled item's reopening is taken.
+- replaced: An item's scope, what it depends on among it, changed from outside while its work ran stood on main; the owner changed it, because scope changed midway was the first cause of the works' redesigns, 8 of 24.
+- replaced: No way to take a dependency away stood on main; the owner changed it, because a dependency on items built on an old branch held a finished work back from its merge.
+- replaced: A done item taking on a dependency on one not done stood on main; the owner changed it, because a dependency says what must be done first, so a done item over an open one contradicts itself.
+- rejected: an agent proposed checking the dependencies again before the merge and going back on one added late; the owner rejected it, because going back from the merge for a new dependency is complex and errs easily.
 
-### decision changes-in-turn-all-or-none
-Changes asked together are judged in the order given, each against what those before it make, and are made all of them or none: the changes of the items and the works' cancels and reopens are kept in one transaction. Every change refused is said at once, by its place among them.
-Why: Asked together, changes then do exactly what the same changes asked one by one would do, or nothing; judged all against the items as they stood, a reopen and a change of the item reopened could not be asked together. This rests on judgment.
-
-### decision tags-are-free-names
-A tag is a name an item carries, put on and taken off as the item's other attributes are changed, each change with why; the tags there are are those items carry, and `wf-agents tags` lists each with how many items carry it and how many of those have not ended. A name is checked only to have 1 to 40 characters, no space and no comma.
-Why: The board's vocabulary was turned down: there the architect set each tag with its meaning and its projects (`set_tag`), renamed it and removed it (`rename_tag`, `remove_tag`) once the owner approved on a card, and every item had to carry one. Here items are made by the owner and the assistant, with no architect writing and no cards, and a tag only lets whoever plans read a part of the plan; a vocabulary would be a second thing kept in step with the items. With no space and no comma, a tag is written on the command line as it is and a list of tags is read without quotes. This rests on judgment.
-
-### decision cancels-keep-to-the-dependencies
-No item is cancelled while an item that has not ended depends on it, none comes to depend on a cancelled one, and a cancelled item is reopened only while it depends on no cancelled item and no merged item depends on it. An item that depends on a cancelled one all the same, as one kept before this held, is marked so wherever items are listed.
-Why: A work that depends on a cancelled item waits for good, and only its block says why; the one who cancels knows what is to become of what waits for it, and is told at once. Cancelling and marking what then waits was turned down: it leaves the planner to find each one later. A merged item that came to depend on one not done would say it was built on what is not there.
-
-### decision a-reopened-work-makes-its-place-again
-A cancelled item is reopened in its own work: its cancel no longer stands, the work is paused by the owner as a work added is, and once let on the driver writes its start block again, so that the start cell makes its worktree again on the branch the cancel kept. Every start on a branch that is there already has the host take up what it held for it, opening again a pull request a cancel closed. A reopen is refused while the cancel is still letting go of what the work held, and so in the same change as its cancel; a carrier's word about letting go that comes for a work reopened since is taken as nothing.
-Why: An item has one work, whose records and branch hold what was done; a new work for the item reopened was turned down, as it would split them. Making the place again as an effect of the reopen, out of the flow, was turned down: the start cell is where a work's place is made (Article 7). Opening the pull request again only on the first start after a reopen was turned down: a start given again, as after the engine stops halfway through one, would find the branch there and its pull request closed for good; asked on every such start, the host does nothing where nothing is closed. Reopened while it lets go, the carrier's word that it let go would end a work that no longer ended; taken as nothing, a word that comes late all the same, as one on its way when the engine stopped, does no harm.
+### decision a-title-is-counted-in-words
+An item's title has at most `items.title_max` words, a Chinese character counting as one, and one longer is refused as the item is added or its title changed, saying how many it has.
+- replaced: No bound on an item's title stood on main; the owner changed it, because the titles had grown too long, where the old system bounded them.

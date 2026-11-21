@@ -1,11 +1,18 @@
+# Catching up with main
+
+How a work's branch takes in what merged into main while the work goes on.
+
 ### decision a-run-that-changes-the-code-takes-main-in
-A work is not held to the main it started from: before the first round of each run of a cell that says it changes the code, the engine merges into the work's branch main's head as the host last gave it, and the round is told the commit merged in and the command that shows what it changed. A round later in the run takes nothing in.
-Why: A work held to one main from its start to its merge meets what others merged meanwhile only at the check before its merge, where a conflict costs the most; taken in as each such run starts, it is met while the work is being done, and an agent whose session goes on can see which files to read again rather than working from what it remembers. Taking it in at every round lost because a merge in the middle of a run changes the code under an agent that is still working on it; leaving it to the agent lost because it is exact work an agent sometimes gets wrong (principle mechanical-engine).
+Before the first round of each run of a cell marked `takes_main`, the engine merges main's head, as the host last gave it, into the work's branch; later rounds of the run take nothing in.
+- replaced: A work held to the main it started from until the check before its merge stood on main; the owner changed it, because a work kept close to main to the last moment merges more often and is reworked less.
+- rejected: an agent proposed pinning the main a work starts from, or recording only the commit it started on; the owner rejected it, because a conflict found only at the merge costs the most.
+- replaced: Only the cells that change the code taking main in stood on main; the owner changed it, because the first reading of the design tree must read it as main has it, and a work that never took main in ended in a conflict.
+- rejected: an agent proposed taking main in only at that first reading and before the merge, so that the implementation does not merge round after round; the owner rejected it, because it is not that frequent, and a merge left for later must still be made and reviewed.
 
 ### decision a-conflict-is-the-agents-to-merge
-Where main's head does not merge into the branch without a conflict, or the worktree holds changes not committed or a merge under way, the engine takes nothing in, leaves the branch and the worktree as they were, and tells the round why in one line, with the files in conflict or the changes and no instruction, for its agent to merge main itself.
-Why: Resolving a conflict is judgment, which belongs to the agent that knows the change (principle mechanical-engine), and a merge over changes not committed can lose work that was paid for (principle keep-what-was-paid-for). A merge begun and then taken back on a conflict lost to finding the conflict without changing anything, which leaves nothing to undo if the engine stops between the two.
+Where main does not merge without a conflict, or the worktree holds uncommitted changes or a merge, the engine takes nothing in and tells the round why in one line, with the files and no order.
+- replaced: Listing every file main changed, and on a conflict telling the agent to merge it and then change the code, stood on main; the owner changed it, because the engine's words are then alike for every cell, the first reading of the tree among them, which is not to merge.
 
-### decision what-came-of-taking-main-in-is-kept-for-the-run
-What came of taking main in is kept once for the run, beside its rounds, and every round of the run given its task is told that, not taken in again; it is no block of the work. The run's merge is made with words that name the run, by which a head that is that merge is known again as what the run took in where the engine stopped before keeping it, and by which the check before the merge does not take it for a merge of its own.
-Why: A round given again after the engine stopped before its program took its message in, or tried again with its session begun the other way, must be told the same as before, and taking main in a second time would find it held and tell nothing (principle effects-known-as-done); one whose program had taken its message in takes nothing in (decision a-try-its-engine-did-not-see-end-ends-as-its-stream-says). Known by the engine's identity alone, the run's merge would be taken by the check for its own, which would then write that it had merged main for the check. As a block written while the run is at rest, it would make that run stale if the cell read it, and be read by no one if it did not (principle every-field-has-a-reader).
+### decision what-a-run-took-in-from-main-it-has
+What the round that takes main in reads of the branch after the merge, a new design tree among it, is put into that round, and runs its cell no more.
+- replaced: A version brought in by a run's own merge of main taken as a change that ran its cell again stood on main; the owner changed it, because main is merged first and what changed judged after, both handled in the one run, where the research read the same files twice.
