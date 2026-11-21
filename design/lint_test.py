@@ -6,6 +6,7 @@ directory.
 """
 
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -177,6 +178,14 @@ class TheWholeTree(TreeTest):
         self.write("decisions/extra.md", entries(decision("Spoken-Log", under=[line])))
         self.assertFaults(("principles/extra.md", 6), ("decisions/extra.md", 5), ("decisions/extra.md", 7))
 
+    def test_with_no_argument_it_checks_the_tree_beside_it_from_any_directory(self):
+        copy = self.root / "design" / "lint.py"
+        shutil.copy(LINT, copy)
+        self.write("principles/extra.md", entries(principle("Spoken-Words")))
+        run = subprocess.run([sys.executable, str(copy)], cwd=str(self.elsewhere), capture_output=True, text=True)
+        self.assertEqual(run.returncode, 1, run.stdout)
+        self.assertIn("design/principles/extra.md:5:", run.stdout)
+
     def test_a_directory_that_is_not_there_exits_2(self):
         run = self.run_lint(self.root / "no-such-directory")
         self.assertEqual(run.returncode, 2, run.stdout)
@@ -218,6 +227,11 @@ class BlankLines(TreeTest):
     def test_decisions_with_no_blank_line_between_them_are_a_fault(self):
         self.write("decisions/extra.md", [*OPENING, *decision("spoken-log"), *decision("written-log")])
         self.assertFaultsWithin("decisions/extra.md", 5, 10)
+
+    def test_a_blank_line_ending_a_file_is_a_fault(self):
+        lines = [*OPENING, *principle("spoken-words"), ""]
+        self.write("principles/extra.md", lines)
+        self.assertFaults(("principles/extra.md", len(lines)))
 
 
 class Headings(TreeTest):
