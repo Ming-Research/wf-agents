@@ -15,8 +15,8 @@ the project's tests, and anything else you make in `project.research`. If the de
 
 Decide `deep_needed`. If yes, write only `found`, and ask no questions. If no, write the plan (`plan_owner`,
 `plan_agent` and `acceptance`) and no `found`. Research every approach that could work. When the design tree's rules
-say a choice must go to the owner, ask about it in a question of its own: what to do, with each approach as an option
-and what it gains and costs. If the solution conflicts with the design tree, ask instead of bending the solution.
+say a choice is the owner's, ask about it in a question of its own: what to do, with each approach as an option and
+what it gains and costs. If the solution conflicts with the design tree, ask instead of bending the solution.
 Before handing in, ask yourself where the plan is most likely wrong, and check that point.
 '''
 when = { deep_needed = "no" }

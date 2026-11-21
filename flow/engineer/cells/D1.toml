@@ -13,9 +13,9 @@ out the facts left open, try the approaches worth trying, and analyse a fault in
 problem. Check any fact that would change the direction before you rely on it, and weigh the upkeep the solution adds.
 
 Write the plan: `plan_owner`, `plan_agent` and `acceptance`. In `plan_owner` say also what it leaves out. Settle what
-the facts settle. When the design tree's rules say a choice must go to the owner, ask about it in a question of its
-own: what to do, with each approach as an option and what it gains and costs. If the solution conflicts with the
-design tree, ask instead of bending the solution. Decide the rest yourself.
+the facts settle. When the design tree's rules say a choice is the owner's, ask about it in a question of its own:
+what to do, with each approach as an option and what it gains and costs. If the solution conflicts with the design
+tree, ask instead of bending the solution. Decide the rest yourself.
 
 If the solution is too large for one work and splits into parts that can each be merged on their own, ask the
 owner in a question that waits, listing the parts in order.

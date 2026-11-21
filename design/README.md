@@ -57,7 +57,7 @@ approach that was considered and not taken:
 - `rejected`: an approach someone proposed that was turned down.
 - `replaced`: an approach that was on main, in the code or in the tree, and was changed.
 
-A decision comes only from a question the owner answered. An agent asks the owner whenever one of these comes up:
+A decision records a choice the owner made. These choices are the owner's:
 
 1. an approach that goes against what a decision says;
 2. two or more approaches that would each work, each researched properly or tested in an experiment, far enough to say
@@ -65,19 +65,18 @@ A decision comes only from a question the owner answered. An agent asks the owne
 3. a change to an important mechanism of the code that no decision covers.
 
 The approach taken becomes the first line, of the decision that covers it or of a new one. Every approach not taken
-becomes a line under it: `replaced` if it was on main, `rejected` if it was not. This holds whichever option the owner
-picks. Something done with no other approach considered has no decision.
+becomes a line under it: `replaced` if it was on main, `rejected` if it was not. This holds whichever approach the
+owner takes. Something done with no other approach considered has no decision.
 
-For case 2: an approach that is simply better, with nothing given up, is taken without asking and leaves no line. But
-an approach an experiment showed to be better is always asked about. An experiment measures every approach with the
-same measure under the same conditions, and its numbers are kept in the repository. Looking at how something looks or
-behaves is not an experiment. Fixing a fault is not a choice: a test guards the fix.
+For case 2: an approach that is simply better, with nothing given up, is no choice of the owner's and leaves no line.
+But an approach an experiment showed to be better is always the owner's choice. An experiment measures every approach
+with the same measure under the same conditions, and its numbers are kept in the repository. Looking at how something
+looks or behaves is not an experiment. Fixing a fault is not a choice: a test guards the fix.
 
-A question asks what to do, not how to change the tree. The tree change follows from the answer. Update every entry the
-change makes untrue, and delete decisions about things that no longer exist.
+The tree change follows from the owner's choice. Update every entry the change makes untrue, and delete decisions about
+things that no longer exist.
 
 In a `rejected` line, the first `<who>` is whoever proposed the approach: the owner, an agent or a reviewer agent. The
-`<who>` who rejected or changed it is the one whose answer settled it: the owner. The reason is the one given at the
-time, in the question or in the answer. If it rests on data, end it with the repository file that holds the data, as in
-"(data: `<path>`)". A line says only what happened when the question was asked and answered. It names no work, item or
-date: the file's history keeps those.
+`<who>` who rejected or changed it is the owner, who makes every choice. The reason is the one given at the time the
+choice was made. If it rests on data, end it with the repository file that holds the data, as in "(data: `<path>`)". A
+line says only what happened when the choice was made. It names no work, item or date: the file's history keeps those.
