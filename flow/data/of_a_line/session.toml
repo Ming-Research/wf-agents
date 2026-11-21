@@ -1,7 +1,7 @@
 # A datum of each line one of whose cells watches it, under the name below: a new session of the line writes its own
 # alone, so that it runs again only the cell of that line that watches it (design document `data-and-context`, 25).
 name = "{line}_session"
-what = "That the session of the line was reopened: it holds nothing, and a cell entered in it is filled again from the top."
+what = "That the line's session was reopened: it holds nothing, and a cell entered in it is given everything again from the start."
 from = "session"
 
 # What the engine writes as a line begins a new session: `text`, with `{line}` the line and `{why}` the words below of
@@ -11,8 +11,8 @@ from = "session"
 [writes]
 text = "A new session of the line `{line}`: {why}."
 limit = "its context was {context} tokens as its last round ended, past the limit of {limit} for its line"
-model = "its rounds now run on another model than {was}, which it was begun on"
-account = "its rounds now run under another account than it was begun under"
+model = "its rounds now run on a different model from {was}, the one it was begun on"
+account = "its rounds now run under a different account from the one it was begun under"
 owner = "the owner asked for one"
 flagged = "the service's safety check flagged its last round"
 guarded = "the run guard stopped its last round, whose context grew past what its cell's history explains"

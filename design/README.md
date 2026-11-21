@@ -1,108 +1,82 @@
 # The design tree
 
-Read these rules as an engineer who knows the system and has common sense: judge by what each rule is for, and do
-not pick at its words.
+Read these rules as an engineer who knows the system and uses common sense: follow what each rule is for, and don't
+nitpick its wording.
 
-## What the tree is
+The code is the result of every choice made in the project so far. It is lossy: it shows what was chosen, but not what
+was weighed against it, what was tried, or why one approach won. The design tree is a record, kept beside the code, of
+how the project got to where it is. It holds what the code cannot show, so that later decisions, the code written for
+them and the project's next steps build on what was learned before. Comments are not part of the code: where a comment
+and an entry disagree, the entry is right.
 
-The code is the result: it shows how a thing is done. The design tree holds why, where the code itself does not make
-the reason plain; that the code shows what an entry says to do is no ground for leaving the entry out.
+## What is in it
 
-Comments are not the code: what the code shows does not include what a comment says. Comments never go against the
-tree: where a comment and an entry differ, the entry holds and the comment is put right.
+- `constitution.md`: what the project is for and its lasting values. The owner writes it, and it decides when two
+  entries conflict.
+- `principles/`: the owner's rules for everything built from now on.
+- `decisions/`: what is true of one part of the system, written by the work that makes it true. A decision's first line
+  says only what the code on main does.
 
-The tree is `design/`. It holds four kinds of thing:
+Each directory is a tree of concepts. It doesn't have to follow the layout of the code. Write each entry once, in the
+file of the lowest concept that covers everything the entry is about. What several concepts share goes in the file of
+the concept above them. If decisions in several files come from the same need, they are one principle: propose it to
+the owner.
 
-- the constitution, `constitution.md`;
-- the principles, in `principles/`;
-- the decisions, in `decisions/`;
-- the documents, in `docs/`, one file for each design that holds only as a whole.
+Each file in either directory has a title, one line saying what its concept covers, and its entries, each in the form
+below. Put one blank line between entries, and write each line of an entry as one line of the file. A name is lowercase
+words joined by hyphens, and no two entries in the tree have the same name. To refer to another entry, write
+"principle <name>" or "decision <name>".
 
-`principles/` and `decisions/` are each a tree of concepts: a concept, its narrower concepts under it, as deep as is
-useful. The tree follows the concepts of the design and not the layout of the code. An entry is written once, at the
-lowest concept that holds everything it concerns: what concerns one concept is in that concept's file, and what is
-common to several is in the file of the concept that holds them, up to the whole system. A concept's file is named
-for it, and its narrower concepts are in a directory of the same name beside it.
+An agent reads the whole constitution, then reads both directories from the top down to each concept its work changes
+or depends on.
 
-## How it is used
+## Principles
 
-An agent taking the work up in another session reads the code for how, and the tree for why. It reads the
-constitution whole; then the principles and the decisions from the top of each tree down to each concept its work
-changes or relies on, whole; and the document of each design it works on.
+A principle is a rule for everything of one kind, including things not built yet. A rule about one existing thing is a
+decision. Principles belong to the owner: an agent may propose a principle or a change to one, and the owner decides. A
+principle can come before the code, and no decision can justify breaking one.
 
-Where the right solution needs a decision changed, the work changes it. An agent that finds the constitution, a
-principle or a document missing or wrong, or whose right solution breaks one, says so and proposes the change.
+```
+### principle <a-short-name>
+<The rule, in one or two sentences, at most 300 characters.>
+Why: <the reason for it, at most 300 characters>
+```
 
-## The four kinds
-
-### The constitution
-
-The constitution holds what the project is for and its lasting values. No principle, decision or document goes
-against it, and it decides where two of them pull apart. An entry may rest on one of its articles by naming it. The
-owner sets it and changes it.
-
-### A principle
-
-A principle is a rule that whatever is made later must follow, with its reason. It speaks of every thing of a kind,
-those not yet made included, or of every time a kind of work is done; the kind may be wide or narrow. A rule for
-everything in one part of the system, what is added to that part later included, speaks of a kind and is a principle.
-
-It is not a principle where it speaks of one thing that is there and binds nothing made later: that is a decision.
-Nor where the constitution or a document already says it: one that adds to an article or to a document says only
-what is new, and names what it rests on.
-
-Principles are the owner's and may come before the code. No decision excuses a breach of a principle.
-
-### A decision
-
-A decision is about one thing, an ability or a component: what holds there and why, where the code does not show the
-why. It enters only if an agent that has read the code and the principles would still change the code wrongly, which
-is one of three things: a way that was considered and turned down, which leaves no trace in the code and which a later
-agent would take up again; something done on purpose that looks like a fault or an omission, which a later agent would
-mend; a relation between two places that neither of them shows.
-
-A decision is never ahead of the code: it says what the code does, and what is yet to be built is a document's to
-say.
-
-### A document
-
-A document is a design that holds only as a whole: its parts cannot be told one at a time, and an agent given any one
-of them alone would change the system wrongly. It is complete and consistent with itself.
-
-A document may be ahead of the code: a design is there to guide what is built after it. Where the two differ, the
-document says where the system is going, and an agent builds toward it and does not change the document to match the
-code.
-
-A principle or a decision that holds only within what a document covers belongs to the document, and is not written
-as an entry of its own. One that reaches beyond it is an entry, which names the document and does not repeat it. A
-document goes against no principle outside it. Where it is ahead of the code, a decision may still say what the code
-does, until the work that builds that part of the document rewrites or deletes it: that is what is left to build, and
-no fault.
-
-## Writing an entry
-
-A principle and a decision are each a few lines, in one form, a principle under `### principle <name>`:
+## Decisions
 
 ```
 ### decision <a-short-name>
-<What holds, in one or two sentences.>
-Why: <the reason, in one or two sentences; where the point is a way turned down, which way and why it lost.>
+<What is true now, in one sentence of at most 200 characters.>
+- rejected: <who> proposed <an approach>; <who> rejected it, because <the reason given>.
+- replaced: <an approach> was on main; <who> changed it, because <the reason given>.
 ```
 
-- A decision is written at the concept an agent would be working on when it changed the code wrongly; where that
-  could be more than one, at the concept that holds them.
-- No identifier from the code (a function, a type, a file). The system's own terms, a field or a value of a format an
-  agent meets, a setting's key, and the names of principles and decisions may be used.
-- No word that dates the entry. What stands behind it (when it was settled, what was tried) is in the pull request of
-  the work; the case or the number that is the reason may be a clause of the Why.
-- A reason that rests on judgment, with no measurement or case behind it, says so in the Why.
+The first line says what is true now. Under it come one or more lines, each at most 300 characters, each about an
+approach that was considered and not taken:
 
-## Changing the tree
+- `rejected`: an approach someone proposed that was turned down.
+- `replaced`: an approach that was on main, in the code or in the tree, and was changed.
 
-A decision is added by the work that makes it true. A change that makes a decision untrue rewrites or deletes it in the
-same work, and an entry found not to belong here is deleted by the work that finds it. The files of decisions hold only
-what the code on the branch the works merge into does.
+A decision records a choice the owner made. These choices are the owner's:
 
-A principle and a decision, two decisions, or a document and an entry outside it, that cannot both hold are a fault
-of the tree. A file of decisions that grows long is itself a sign: what no longer belongs here is deleted from it,
-and decisions in more than one file that rest on one reason are one principle, to be proposed as such.
+1. an approach that goes against what a decision says;
+2. two or more approaches that would each work, each researched properly or tested in an experiment, far enough to say
+   why each one not taken lost;
+3. a change to an important mechanism of the code that no decision covers.
+
+The approach taken becomes the first line, of the decision that covers it or of a new one. Every approach not taken
+becomes a line under it: `replaced` if it was on main, `rejected` if it was not. This holds whichever approach the
+owner takes. Something done with no other approach considered has no decision.
+
+For case 2: an approach that is simply better, with nothing given up, is no choice of the owner's and leaves no line.
+But an approach an experiment showed to be better is always the owner's choice. An experiment measures every approach
+with the same measure under the same conditions, and its numbers are kept in the repository. Looking at how something
+looks or behaves is not an experiment. Fixing a fault is not a choice: a test guards the fix.
+
+The tree change follows from the owner's choice. Update every entry the change makes untrue, and delete decisions about
+things that no longer exist.
+
+In a `rejected` line, the first `<who>` is whoever proposed the approach: the owner, an agent or a reviewer agent. The
+`<who>` who rejected or changed it is the owner, who makes every choice. The reason is the one given at the time the
+choice was made. If it rests on data, end it with the repository file that holds the data, as in "(data: `<path>`)". A
+line says only what happened when the choice was made. It names no work, item or date: the file's history keeps those.

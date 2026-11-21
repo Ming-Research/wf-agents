@@ -1,2 +1,2 @@
-what = "Each decision the code makes that the plan does not record, with why, in `owner.language`: read by the owner on the page and judged by the review."
+what = "Each decision the code makes that the plan does not record, and why, in `owner.language`. The owner reads them on the page, and the review judges them."
 shown = true

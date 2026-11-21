@@ -662,8 +662,8 @@ impl Driver {
         Ok((driver, todos))
     }
 
-    /// Adds an item together with its one work and with what people write for it first, all of it or none (entry
-    /// `item-added-with-its-work`), and gives their numbers with what is to be done. The work is added paused, so that
+    /// Adds an item together with its one work and with what people write for it first, all of it or none, and gives
+    /// their numbers with what is to be done. The work is added paused, so that
     /// it begins no round until the owner lets it on. What is kept of it from its start is, in this order, its pause,
     /// what the driver says of the item's dependencies, what people wrote, and what follows from looking at it then.
     ///

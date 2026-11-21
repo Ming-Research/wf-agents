@@ -1,57 +1,61 @@
 # The context manager
 
-What a round of an agent's cell is sent as the cell is entered, and what its session holds.
+What the engine sends to a round of an agent's cell when the cell is entered, and what the round's session holds.
 
-### decision a-fill-counts-where-its-program-had-the-message
-What a try's message fills is recorded before its program is given the message, and a session holds it only where the round reached the model, as the tokens the round took say, or its last try's program said, as its stream began, that it had taken its message in. What the round failed of says nothing of this. Whether a round begins its session is counted the same way.
-Why: Recorded after the try, a try cut off or an engine stopped during it would leave the record short of what the session holds. The program writes the message into the session before it calls the service (decision `the-engine-checks-the-outside-itself`), so a round tried again after it would put a second copy there; but what a round failed of does not tell a crash before the program read its input from one after, and a message referred to and lacking leaves the agent without it, which costs more than tokens.
+### decision every-round-is-filled-with-what-its-session-lacks
+Every round of an agent's cell, the first included, is sent the contents of the cell's data that its session lacks, each as the cell gives it, and which of them are new to the cell.
+- replaced: Giving a cell its whole input each time it was entered was on main; the owner changed it, because cells are entered again and again, and sending the whole input each time would soon fill the context.
+- replaced: The compiler working out in advance whether an input was already in the session was on main; the owner changed it, because its guess was wrong both ways, and what a session holds is known only while it runs.
+- replaced: Giving inputs at different times by where they came from, whether written by the line, needed from the start or from outside, was on main; the owner changed it, because a session is given what it lacks and not what it holds, wherever that came from.
+- replaced: Telling a round only the names and versions of its data, for its agent to read the contents itself, was on main; the owner changed it, because a round should be given the contents, not a list of what changed.
+- rejected: an agent proposed giving a cell's first round only the names and versions, with the contents read in later rounds; the owner rejected it, because the model has no first round: a cell's first round is only the engine finding the cell by its data.
 
-### decision a-compaction-empties-the-session-at-its-round
-A session compacted during a round holds, for the rounds after it, only what that round handed in: from where the compaction is recorded as the session reopened (decision a-compaction-reopens-the-session-under-its-id), the message the compaction's hook gives the session again within the round not counted as held.
-Why: A compaction leaves only a summary of what the session was sent, which is no version of anything; the hook's message may be compacted again before the round ends, so what it gave is sent again rather than taken as held.
+### decision a-datum-is-given-in-one-of-three-kinds
+A cell gives each datum it watches or reads as its latest version, as the version it last worked from and the latest, or as all its versions; each is filled by its own kind, which the cell chooses.
+- rejected: an agent proposed that where one datum of a round is of the first kind, the cell redo everything and the other data be given as their latest; the owner rejected it, because each input is filled by its own kind, so a cell may take a dialogue whole and the plan as what changed in it.
+- rejected: the owner proposed giving nearly every cell only what changed in the data it works from; the owner rejected it, because the kinds already do that where a cell works from what changed, and give a dialogue whole and the rest as their latest.
 
-### decision a-datum-held-and-never-worked-from-is-named-by-its-version
-Of a datum the session holds that the cell never worked from, as a cell entered after another of its line that read or wrote it, `held_new`'s line is sent: its name and the version the session holds.
-Why: All of it is new to the cell, and the system prompt tells the agent that a block the session holds already comes as a line that says so; with nothing sent, a cell such as the implementation after the plan was told to implement a block its message never named. Sending it whole again was turned down for what it costs (judgment, not measured).
+### decision a-datum-the-session-holds-is-given-as-its-change
+A datum given as the last and the latest is sent as what changed since the version the cell last worked from, if the session holds that version and the change is shorter; otherwise it is sent whole.
+- rejected: an agent proposed sending both versions whole; the owner rejected it, because the cell's task asks what changed, less is sent, and the whole versions are in the records.
 
-### decision last-worked-from-a-datum-that-runs-no-cell
-Of a datum that does not run the cell, the version the cell last worked from is the latest written before its last finished run's last round began; of any datum, a version a run of the cell wrote is one it worked from.
-Why: Only a datum that runs a cell is consumed (design document `data-and-context`, 8), and every round is filled with the latest of each datum it is given, so that is the version the run worked from; a cell's own version is no change to it (design document `data-and-context`, 9).
+### decision why-you-are-run-tells-each-new-datum
+A message ends with "Why you are run": for each datum the cell watches that is new to it, its name, the version it last worked from, the latest, and what the cell does for it, the first time too.
+- rejected: an agent proposed putting what ran the cell first, with its versions, and then the data and the task; the owner rejected it, because the task says what the cell does, and then what ran it says what changed and what to do about it, in that order.
+- rejected: an agent proposed words of the engine's own for the design tree and the session, with general sentences in a cell's task; the owner rejected it, because words for named data would then be copied into every cell.
+- rejected: an agent proposed listing a datum the cell never dealt with, without saying what the cell does for it; the owner rejected it, because the cell then did not know how far to deal with each.
 
-### decision what-changed-in-the-tree-is-from-what-the-session-read
-Of a datum whose versions the carrier compares itself, as the design tree's by git, what changed is what the carrier says, sent whatever its length, and from the version the session holds where the cell worked from none.
-Why: Such a datum's content, the tree's commit and id, says nothing an agent reads, while the files that changed tell it what to read again; and it stands for what was read into the session, so what the session read is what a change is from, as the cells that are given the tree say.
+### decision the-task-is-given-once-a-session-under-its-heading
+A cell's task is given once per session, after the data, under `## Your task`; if the session already holds it, the heading comes alone, with a line saying it was given before.
+- rejected: the owner proposed putting the tasks of all a line's cells in its system prompt, with each message only naming the cell; the owner rejected it, because every cell would read the others' tasks, and a changed task would have to wait for a new session.
+- rejected: an agent proposed putting the task right after the heading, so that sessions of different works share a cached start; the owner rejected it, because what is sent stays in the session in any order, and the model does better reading the material before what it has to do.
+- rejected: an agent proposed sending nothing of the task if the session already holds it; the owner rejected it, because the cell would then not know what it has to do.
+- rejected: an agent proposed dropping the heading `## Your task` and letting the cell's title name the task; the owner rejected it, because a task buried among headings is easily misread.
+- replaced: Sending the task again in full when a return was sent back was on main; the owner changed it, because the agent had done the work and only handed it in wrongly, and should be told only that.
 
-### decision a-put-in-is-held-from-the-round-it-reached
-A version put into a round counts as held by the session only from a round before the one entered, put in while it ran, and only where that round reached the model.
-Why: A version is put into a round as it begins, as one its return would have written over; counted held for that round itself, it would never be filled while the message names it, and the next return would write over it unseen.
-
-### decision a-version-written-over-is-given-with-why
-Where a return was sent back for writing over a version it never saw, that version is given once: by the context where the round's context gives it, as a block the cell watches or reads is given by its kind and one it only writes by its latest where the session lacks it (document data-and-context, 21); else with why, in the words a datum given `latest` is given in, as a version written while the round ran.
-Why: With no tool to read the blocks, nothing else shows the agent what it is to write over; given in both places, the session would hold it twice.
-
-### decision a-version-is-held-by-what-it-is
-A version is held by what it is, never by its content, so a new version that says what an earlier one said is given; a latest version the session holds is given by `held`'s line, though the session lacks the version the cell last worked from.
-Why: Holding by content swallowed what was new: the owner saying the same twice, or a datum changed back, would not be given, while the cell was told of a version it never saw. Giving the latest whole where the version last worked from is lacking was turned down: the change since it is unseen either way, and the session holds every word.
-
-### decision the-situations-written-stand-data-by-class
-`wf-agents flow situations` writes each situation an entry of a cell can reach with the data in two classes, each standing alike where it can, those new to the cell and the rest, and counts every combination of each datum's own state without writing it.
-Why: The builder words a datum from its kind and how the session stands with it alone, so the product of every datum's states repeats the same texts, and runs to millions for a cell given ten data (`T1`, about 35 billion); by class every state of every datum is written, in a few hundred files a cell.
-
-### decision the-situations-follow-what-the-flow-can-reach
-The situations written are those the flow's definition lets a cell reach: a cell first on its line is entered first holding nothing, another after the cell of its line before it; what only the cell or cells after it write is unwritten on its first entry; what the work starts with, and what earlier cells write whichever way the conditions go, is never unwritten; a reopened session holds nothing; results and a return sent back come after a return that handed nothing in.
-Why: Situations the flow cannot reach gave the models that read them findings that were not faults. A cell that may write a block is taken to write it, since the flow says no more than what a cell must write; where that is too much, `must_write` on the cell says what it always writes.
+### decision a-cell-is-told-its-own-blocks-once-a-session
+A cell is told the blocks it writes, each with the flow's words for it, once per session with its task; the system prompt says only how every cell returns, the same for the whole flow.
+- rejected: an agent proposed a system prompt listing the line's whole set of fields, with each cell told the part it may use; the owner rejected it, because the agent would be left to match the two.
+- rejected: an agent proposed giving each cell its own form of return every time it is entered; the owner rejected it, because it is given once per session, like any other material.
+- replaced: Sending the words on how to return beside each cell's task, three times in a session of the engineer line, was on main; the owner changed it, because they belong in the line's system prompt, after the engine's own words.
+- replaced: Telling every cell in the system prompt how to ask the owner was on main; the owner changed it, because cells that may not ask were told they may, and a question from one of them got the whole return sent back.
 
 ### decision a-version-is-told-by-the-line-that-wrote-it
-Each version a round is given says the line of the cell whose run wrote it, or that the owner wrote it, worked out
-where it is given from the writing run the records keep and the cell's line in the flow, and never stored. The owner's
-words to a cell are the owner's. A version of a cell's questions is told by its own record: an ask by the asking run's
-line, an answer as the owner's, the engine's own question by nobody; any other version the outside or an act of the
-engine wrote says nobody, one put into a round as main is taken in among them (decision
-a-version-read-at-a-rounds-end-is-that-rounds). The line is the
-cell's in the flow the engine reads now, the records keeping no line of a run: a run of a cell since moved to another
-line is told by the line it has now.
-Why: A stored label would be a second copy of what the records and the flow say (principle one-thing-one-place), and a
-line, not a cell, is what a round may know (principle a-cell-knows-only-its-data). Both sides of `plan_doubts` are on
-one line, so their versions share a label, which is enough: the session holds them, the content tells a doubt from an
-answer, and who owes the next word is read by newness.
+Each version a round is given names the line of the cell whose run wrote it, or says the owner wrote it; this is worked out from the records and the flow, and never stored.
+- replaced: Never telling a round who wrote a version was on main; the owner changed it, because a reopened session could not tell a point from a reply, two cells of one party misjudged whose turn it was, and a judge could not see that the owner had ruled.
+- rejected: the owner proposed naming the cell that wrote it; the owner rejected it, because one party may be two cells, a cell should not know the other cells, and cells get renamed.
+- rejected: an agent proposed naming the writer by its role, such as the judge, the maker or the doubter; the owner rejected it, because the roles need a mapping in the flow's files, and would mislabel what a cell wrote itself.
+
+### decision a-compaction-gives-the-round-again-at-once
+When a session is compacted during a round, the program's hook gives it the round's whole message again as the compaction ends, and the session counts as reopened from there.
+- replaced: Giving a session compacted during a round what it lost only at the next round was on main; the owner changed it, because the rest of the round would otherwise run without what it had been given.
+
+### decision the-work-is-told-once-a-session
+Which work and item a round belongs to is part of the message that the session keeps: it is told once per session, and again only when it changes.
+- rejected: an agent proposed a line under the heading of every message; the owner rejected it, because it never changes within a line.
+- rejected: the owner proposed putting it in the line's system prompt; the owner rejected it, because the system prompt must be the same for every session of a line, and one different character lost the whole cache they shared.
+
+### decision a-datum-with-no-version-is-left-out
+A datum a cell is given that has no version yet is left out of the message: no line says it has none.
+- rejected: an agent proposed a line for each, saying it has no version yet; the owner rejected it, because with nothing to read it takes no part.
+- replaced: Sending inputs that held nothing in every message anyway was on main; the owner changed it, because nothing should be sent for an input that holds nothing.

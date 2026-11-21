@@ -20,7 +20,7 @@ use crate::{Fake, On, Real, USED, ended};
 const SECRET: &str = "sk-ant-oat01-a-token-of-the-tests";
 
 /// What the words beside the flows say where no account is in use.
-const NO_ACCOUNT: &str = "No account is in use: take one on the Settings view.";
+const NO_ACCOUNT: &str = "No account is in use: choose one on the Settings view.";
 
 /// The owner adds the account of this name and takes it, which the loop takes.
 fn added_and_taken(real: &mut Real, name: &str) {

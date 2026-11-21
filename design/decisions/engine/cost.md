@@ -1,32 +1,21 @@
 # What rounds cost
 
-How the engine judges what the agents' rounds, the acts' rounds, the calls of tools and the works take, and tells a
-round that missed its session's prompt cache.
+How the engine judges what rounds, tool calls and works take, and how it tells that a round missed its cache.
 
 ### decision a-line-comes-from-the-history-of-its-kind
-Every line a measured quantity is judged by is `2 × largest − median` of the history of its kind, in every work of the flow: an agent's round against its cell's rounds where at least `history.samples` of them tell it, else the flow's agents' rounds; a round of an act against its cell's rounds alone; a call of a tool against the calls of its tool; with fewer, nothing is judged. What is judged is no part of its own history, nor is a round that went past the lines of a signal that stops a round, a round of an act that handed nothing in, or a call withdrawn before it had its result.
-Why: A fixed number cannot tell a fault from a case that is legitimately large, and was set by hand (principle `judged-by-own-history`). A value in its own history stands within the line it makes, and an anomaly let into the history raises the line for good; an act that failed, or a call withdrawn with its run or its work, was cut short by that, not by its work. With 19 values, a new value of the same kind is past all of them one time in twenty. An act or a tool has no wider kind in a flow than its own: the check before the merge waits for the project's CI, which neither the flow's other acts nor its agents' rounds do, so a line of theirs would say nothing of it (a judgment, not measured).
-
-### decision judged-by-the-history-as-it-began
-What a round cost and how long it took, and how long a call of a tool took, are read against the lines their history gave as each began: of the flow's other works, what had ended by then, and of its own work, what ended before it in the work's order.
-Why: Those are the lines the run guard judged the round by as it ran. Judged by the history as it stands when read, a round would be measured against rounds that came after it, and what it was found to be would change as the history grew.
+Every threshold line that a round, an act or a tool call is judged by is worked out from the history of its kind on the flow; where there are too few of them, nothing is judged.
+- rejected: an agent proposed fixed limits on a round, a work and a day, and a session's limit lowered by hand; the owner rejected it, because a number set by hand that pins one point is not a good way.
+- rejected: an agent proposed three fixed limits on what is sent to an agent, on one input, on a round's own content and on a whole message; the owner rejected it, because a fixed threshold misses small faults and flags large sends that are sound.
 
 ### decision the-guard-stops-on-growth-alone
-The run guard stops a round only on growth of its context or a jump of its first prompt, each past two lines at once; what a round costs and how long it takes are read against their lines from the records and stop nothing. A round the owner let on after the guard stopped its run is judged and not stopped, rounds that failed otherwise between passed over.
-Why: A round that is long and usual costs much and takes long as one running away does, while its context rises for each call no faster than usual; growth alone, or a large message alone, are both usual, so each signal takes two conditions. A guard that stopped the round the owner let on would leave the owner no way past it, and a failure in passing between does not take back what the owner decided.
-
-### decision a-work-is-judged-by-the-flows-other-works
-As each round ends, a work whose spend or time in rounds, counted from where it was last let on after the engine paused it, is past the line the flow's other works give waits for the owner; the work's budget, `agents.work_budget_usd`, stays beside it.
-Why: The other works, finished or not, are the history of a work's kind; counted from the last letting on, a work the owner let on goes until it passes the line again rather than pausing at once. The budget is the owner's own cap, which the owner chose to keep.
+The run guard stops a round only when its context grows, or its first prompt jumps, past two threshold lines at once; what a round costs and how long it takes stop nothing.
+- rejected: an agent proposed cutting off a long round at a threshold line and handing its session over to a new one in the same cell; the owner rejected it, because how an agent uses its own tools is not the system's efficiency, and the system's efficiency is what needs fixing.
 
 ### decision a-letting-on-allows-what-the-installation-says
-The most a work may spend is its budget and `agents.let_on_allowance_usd` once more for each time the owner let it on after the engine paused it for spending more than it may; a letting-on after any other pause allows nothing more. It is worked out from the work's records, its pauses in order, a pause of the engine's where the work had spent more than it then might being the one for the budget; the words the owner reads beside the work say the number it is held to, not the budget it began with, and what a letting-on allows it beyond that, which is what the owner's button buys.
-Why: Held to the budget alone, a work let on ended its very next round over it and was paused again, so each letting-on bought one round and the work could not be carried to its merge at all: work 20 stood at $62.10 of a budget of $60.00 with its reviews and its merge still ahead. How much more a letting-on allows is the owner's to name, as the budget is, rather than the engine lifting or doubling the cap of itself (principle no-unseen-spending-loop). Worked out from the records, nothing of it is stored, and the past reads as it ran (principles state-from-records and the-past-as-it-ran); what the work had spent at the pause tells a pause for the budget from the owner's own and from one of a round that failed under the bar, which a pause saying why in words cannot be read for.
+A work may spend its budget, plus `agents.let_on_allowance_usd` each time the owner let it run again after the engine paused it because of its spending; the words beside it say how much more.
+- replaced: Letting a work paused for its budget run again with nothing more to spend was on main; the owner changed it, because one press then bought a single round, and the work was paused again at its end.
+- replaced: Words beside a work paused for its budget that said only how much it had spent over its budget was on main; the owner changed it, because they should say how much letting it run again adds.
 
 ### decision a-miss-is-told-from-the-records
-A round missed its session's cache where it went on in its session within `sessions.cache_minutes` of the session's last call and its first call read less than half of what the session held; it is expected where something before the session's messages (model, effort, account, program, system prompt, schema, tools) differs from the call before, and a fault of wf-agents otherwise. It is worked out from the records whenever it is read, and not stored.
-Why: What a round wrote to the cache is no measure: it also holds what the session gained since, the last answer and the round's own message, which after a round of tools is large. Each part is recorded with each try, so a miss is told whenever it is asked (principle `state-from-records`).
-
-### decision a-round-without-a-result-is-priced-from-its-calls
-A round the run guard stopped, one whose program ended of itself with no result, as one that crashed, and one given again or stopped after the process of the engine that gave it ended, whose try that process left printed no result, took what its calls to the model cost at their models' prices, as its stream told them, and its record says that what it took is an estimate.
-Why: A program stopped or crashed prints no result to say what the round cost, while the round the guard stops is the costliest kind it sees: recorded as nothing, it would read as no cost and stay out of the budget (principle `nothing-passes-for-normal`). Marked, the estimate is not taken for what the program said.
+A round missed its session's cache if, while the cache was alive, its first call read under half of what the session held: expected if what precedes the messages changed, else wf-agents' fault.
+- rejected: an agent proposed counting a miss in the cost figures a project's architect reads; the owner rejected it, because the project being run need not be wf-agents, and a miss is wf-agents' to fix, so it should come to him.

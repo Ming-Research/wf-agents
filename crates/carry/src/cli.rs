@@ -317,7 +317,7 @@ pub fn knows_model(model: &str) -> bool {
 pub const KEPT: [&str; 7] = ["PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM", "SHELL"];
 
 /// The variable that has the command line strip every credential from the environment of the commands, hooks and
-/// servers it starts, keeping it for its own calls (decision the-agents-commands-are-given-no-credentials).
+/// servers it starts, keeping it for its own calls.
 pub const SCRUB: &str = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
 
 /// The variables the carrier sets for every round's command line: a round waits for whatever it starts, since a
@@ -1057,8 +1057,7 @@ mod tests {
         assert_eq!(partial, 15, "{kept:#?}");
         assert_eq!(kept.len() - partial, 14);
         // What is kept rebuilds the same attempts, and only the attempts, and the same calls of the session's own
-        // agent: a try its engine did not see end is read from it (decision
-        // a-try-its-engine-did-not-see-end-ends-as-its-stream-says).
+        // agent: a try its engine did not see end is read from it.
         let mut again = Stream::default();
         for line in &kept {
             assert!(again.line(line.as_bytes()), "{line}");

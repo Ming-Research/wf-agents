@@ -1,5 +1,7 @@
 # The design tree on a work's branch
 
+When the design tree on a work's branch has a new version, and what a version holds.
+
 ### decision the-tree-is-a-new-version-where-its-id-differs
-The design tree on a work's branch has a new version when it is not what the last version holds; a branch that removes the tree makes a version too. A version's content is the branch's commit and the id of the git tree of the design tree at it, never the files; the files that changed between the version a cell's session last read and the latest are one `git diff --name-only` of their two commits, which a cell is given through its context. The tree runs no cell.
-Why: The carrier that reads git is apart from the loop that keeps the versions, so a version must say what the carrier read. The tree's id says at once whether anything of the design tree changed, where a commit of other files makes no version, and a version kept as its files would hold what git can tell again. Which commits make a version is decided in one place of the engine, whoever changed the tree, main in what it brought in or the work in a commit of its own, so that a narrower rule is made there and nowhere else.
+The design tree on a work's branch has a new version when its git tree differs from the last version's, whoever changed it: main, in what it brought in, or the work, in a commit of its own.
+- replaced: Taking the tree to be as main has it, renewed only when main is merged into the work, was on main; the owner changed it, because an input has changed when its content has, whether on main or in the work.

@@ -1,32 +1,21 @@
 # Why this cell exists: so that every plan is judged against the design tree before it is built, by a session that did
-# not write it, as a judgment of its own: what it goes against, what its change makes untrue, what it leaves out, and
-# each entry it would write. On the line of the review of the plan, after P1.
+# not write it: what in the tree it goes against. On the line of the review of the plan, after P1.
 title = "Design tree review"
 kind = "agent"
 line = "plan_reviewer"
 effort = "xhigh"
 task = '''
-You review the plan against the design tree, in a session that did not write it. Where this session has not yet read
-the tree for this item, first understand what `background` asks, then read the tree for it as the tree's rules say, and
-the code the plan changes. The plan is `plan_owner`, `plan_agent`, `acceptance` and `tree_edits`, with the questions
-its writer asked the owner.
+You review the plan against the design tree, in a session that did not write it. If this session has not yet read
+the tree for this item, first understand what `background` asks, then read the tree for it as the tree's rules say,
+and read the code the plan changes. The plan is `plan_owner`, `plan_agent` and `acceptance`, with the questions its
+writer asked the owner.
 
-Judge it by the tree's rules, on each of these points:
-1. What it goes against: an article of the constitution, a principle, a decision, or a design document, which may be
-   ahead of the code: the plan builds toward it, never away from it.
-2. What its change makes untrue: each entry that will no longer say what the code does, which `tree_edits` must
-   rewrite or delete.
-3. What it leaves out: a way it weighed and turned down, something done on purpose that would look like a fault, a
-   relation between two places that neither shows, or a rule later works must follow, which no entry records.
-4. Each entry of `tree_edits`, as one that must earn its place: its kind and its concept in the tree, whether its
-   reason is the real one, an entry it contradicts or repeats, its form, and whether it says what this plan builds and
-   no more.
-5. A change of the tree in `tree_edits`, of the constitution, a principle, a decision or a document, that no
-   question asks the owner about.
+Judge whether the plan goes against the design tree: an article of the constitution, a principle or a decision.
+Going against an entry is no fault where a question asks the owner about that change.
 
-In the why of `tree_ok`, answer each point by its number: none, or what you found. Write what the writer must take in
-`tree_review`, every point at once: this is your one chance, and nothing is raised later that could be raised now.
-With `tree_ok` yes, leave `tree_review` out of your return. Leave out what you are not sure is better.
+In the why of `tree_ok`, say what you found, or none. Write everything the writer must deal with in `tree_review`,
+all at once: this is your one chance, and nothing that could be raised now is raised later. If `tree_ok` is yes,
+leave `tree_review` out of your return. Leave out anything you are not sure of.
 '''
 watches = ["plan", "tree_review"]
 reads = ["background", "tree"]
@@ -35,8 +24,8 @@ must_write = ["tree_ok"]
 
 # What the cell does when each datum it watches is new; a datum with none is the task's alone.
 [do]
-plan = """See what changed in the plan since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-tree_review = """Where the writer answered an earlier point in `tree_review`, accept the answer or say why not; never raise a point again without saying so, and raise nothing new the answers did not bring."""
+plan = """Look at what changed in the plan since the version you last reviewed (all of it, if you have reviewed none), and review it."""
+tree_review = """Where the writer answered an earlier point in `tree_review`, accept the answer or say why not. Never raise a point again without saying so, and raise nothing new that the answers did not bring up."""
 
 # `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
@@ -46,5 +35,4 @@ background = "latest"
 plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"
 acceptance = "last_and_latest"
-tree_edits = "last_and_latest"
 tree_review = "all"

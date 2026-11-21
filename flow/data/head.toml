@@ -1,5 +1,5 @@
 # The engine writes a version where the work's head differs from the last one, read as it reads the design tree: what a
 # round that may change the work committed is handed in by that round as it ends, and a change no such round made is
 # written from outside. A cell is given it as any datum it lacks.
-what = "The work's head: the head of its branch without the merges on top of it that bring only main's code; between two versions, a command that shows what the work itself changed, or, where the two cannot be compared so, the whole change against main."
+what = "The work's head: the head of its branch, leaving out the merges on top of it that bring in only main's code. Between two versions, it is a command that shows what the work itself changed, or, if the two cannot be compared that way, the whole change against main."
 from = "head"

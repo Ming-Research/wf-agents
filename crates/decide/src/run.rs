@@ -815,7 +815,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     // in, the work's head it committed among it, what is new to the act already, or an answer to come once the return
     // is taken, to a question it asks or to one that stands with no answer to its latest version. The act reads no
     // words, and an answered question has no answer to come: a work answered with none of these would never run it
-    // again (decision an-act-is-answered-by-what-runs-it).
+    // again.
     if calls == 0 && !told.waits {
         let withdrawn = |name: &str| questions.iter().any(|q| q.withdrawn && q.name == name);
         let to_come = waits

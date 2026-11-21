@@ -625,12 +625,15 @@ mod tests {
         let run = of(&work, &at("write", vec![at_limit]));
         assert_eq!(keys(&run), [LIMIT]);
         // Each said beside the cell, which it does not name.
-        assert_eq!(run[0].why, "The cell's run had 2 returns sent back, its limit.");
+        assert_eq!(
+            run[0].why,
+            "The cell's run had 2 returns sent back, which is its limit."
+        );
         assert_eq!(run[0].ends, Ends::GoOn { call: CallId(9) });
         let cell = of(&work, &at("write", vec![Waited::Limit { runs: 3 }]));
         assert_eq!(
             cell[0].why,
-            "The cell ran 3 times in a row for what a cell after it wrote, its limit."
+            "The cell ran 3 times in a row for what a cell after it wrote, which is its limit."
         );
         assert_eq!(cell[0].ends, Ends::LetGo { cell: "write".into() });
         let calls = of(&work, &at("write", vec![Waited::Calls { runs: 3 }]));
@@ -680,16 +683,16 @@ mod tests {
         let work = Work::default();
         let cannot = Shared {
             everything: None,
-            cannot_run: Some("No account is in use: take one on the Settings view."),
+            cannot_run: Some("No account is in use: choose one on the Settings view."),
         };
         let waits = of_with(&work, &going("write"), None, cannot);
         assert_eq!(keys(&waits), [AGENTS]);
         assert_eq!(
             waits[0].why,
-            "The agents' command line cannot run. No account is in use: take one on the Settings view."
+            "The agents' command line cannot run. No account is in use: choose one on the Settings view."
         );
-        let mend = "Take an account on the Settings view, add its token again, or install the command line; the engine \
-                    lets the work go on once its check finds it runs.";
+        let mend = "Choose an account on the Settings view, add its token again, or install the command line. The \
+                    engine lets the work go on once its check finds that the command line runs.";
         assert_eq!(waits[0].ends, Ends::Outside { what: mend.to_string() });
         assert_eq!(
             keys(&of_with(&work, &at("write", vec![Waited::Slot]), None, cannot)),

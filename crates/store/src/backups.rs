@@ -3,7 +3,7 @@
 //!
 //! They belong to no work, no decision of the engine reads them, and their tables are only inserted into like every
 //! other, so they are kept by the backup itself through connections of its own, not through the loop that owns the
-//! [`Store`](crate::Store) (decision `backup-records-are-written-beside-the-engines-turn`). A connection is opened for
+//! [`Store`](crate::Store). A connection is opened for
 //! each call, on a file the store has opened already, so the schema is at its version; it waits for a lock another
 //! connection holds rather than failing. Held across an await, [`Backups`] is therefore `Sync`.
 

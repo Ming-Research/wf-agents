@@ -476,7 +476,7 @@ async fn a_red_test_and_a_red_job_hold_the_work_and_are_said_with_what_the_test_
     let failed = verdict.failed.expect("it failed");
     // What the full workflows found comes first, before what the test run again found.
     let (failed, again) = failed
-        .split_once("\n\nWhat failed was run again")
+        .split_once("\n\nThe fast workflow ran what failed again")
         .expect("it is run again");
     assert!(again.contains("tools::tests::b"), "{again}");
     // The job that did not pass is said where it failed, and the job that passed in the note: no job is told twice.

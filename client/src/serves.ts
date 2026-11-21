@@ -1,7 +1,7 @@
 // What the server the page came from gives. `wf-agents flow page` gives the flow alone: it has no items and no works,
 // and answers that it has no such path. The page asks once, so that the console and the works can say so plainly and
 // offer the flow, where they would otherwise show a failed read. It asks for the levels items are added at, which only
-// a server with the items has and which it answers without reading a work (decision the-server-is-asked-for-the-levels).
+// a server with the items has and which it answers without reading a work.
 
 import { useEffect, useState } from 'react';
 

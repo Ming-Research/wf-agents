@@ -374,7 +374,7 @@ async fn a_held_check_writes_its_choice_alone_and_hands_in_what_the_host_observe
     assert_eq!(written, [("passed".to_string(), Some("no".to_string()))]);
     let content = &came.writes[0].content;
     assert!(
-        content.contains("and what fails also fails on main: the work waits for main to pass, and is checked again")
+        content.contains("and what fails here also fails on main. The work waits for main to pass, and is checked")
             && content.ends_with("Failed on main as well: `b`."),
         "{content}"
     );

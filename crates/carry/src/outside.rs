@@ -401,7 +401,7 @@ mod tests {
         };
         assert_eq!(*failure, Failure::CannotRun);
         assert_eq!(why, &words().check.no_account);
-        assert_eq!(why, "No account is in use: take one on the Settings view.");
+        assert_eq!(why, "No account is in use: choose one on the Settings view.");
         assert!(calls(dir.path()).is_empty(), "nothing is run");
         // The network down: no request is made.
         let offline = check(dir.path(), &answering(ANSWERED), false)

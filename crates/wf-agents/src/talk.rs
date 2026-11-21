@@ -2171,7 +2171,7 @@ mod tests {
                 taken: 2,
                 found: Found::Down {
                     failure: Failure::CannotRun,
-                    why: "No account is in use: take one on the Settings view.".to_string(),
+                    why: "No account is in use: choose one on the Settings view.".to_string(),
                 },
             }),
             until: Until::Checked { at: 3 * hour },
@@ -2184,7 +2184,7 @@ mod tests {
             "No agent's round of any work begins. The agents' command line cannot run since 1970-01-01 01:00 UTC. The \
              engine checks the outside itself at 1970-01-01 03:00 UTC, touching no work's session, and every work goes \
              on once it is well. The check at 1970-01-01 02:00 UTC, the 2nd in the wait, found it down. No account is \
-             in use: take one on the Settings view. Round 1 of run 2 of W1 met it. API Error: 529 Overloaded."
+             in use: choose one on the Settings view. Round 1 of run 2 of W1 met it. API Error: 529 Overloaded."
         );
         let outage = waiting.outage.as_mut().unwrap();
         outage.until = Until::Well { at: 2 * hour };
@@ -2197,8 +2197,8 @@ mod tests {
     #[test]
     fn wait_says_how_to_mend_the_command_line_once_on_the_line_of_the_wait_every_work_shares() {
         let hour = 3_600_000;
-        let mend = "Take an account on the Settings view, add its token again, or install the command line; the engine \
-                    lets the work go on once its check finds it runs.";
+        let mend = "Choose an account on the Settings view, add its token again, or install the command line. The \
+                    engine lets the work go on once its check finds that the command line runs.";
         let outage = Outage {
             service: web::works::Service::Agents,
             failure: Failure::CannotRun,
@@ -2227,7 +2227,7 @@ mod tests {
             said.ends_with(&format!("Round 1 of run 2 of W1 met it. Not logged in. {mend}")),
             "{said}"
         );
-        assert_eq!(said.matches("Take an account").count(), 1, "{said}");
+        assert_eq!(said.matches("Choose an account").count(), 1, "{said}");
     }
 
     #[test]

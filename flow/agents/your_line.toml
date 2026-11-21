@@ -9,9 +9,9 @@
 # same paths, so that whoever judges the change knows which of its files are the owner's.
 reads_only = "You only read it, and change no file."
 writes = "Make your changes there and commit them there."
-locks = " Update a lock file with {commands}, your arguments after it."
+locks = " To update a lock file, run {commands}, with your arguments after it."
 or = " or "
-tests_only = " Change only the project's tests, the files {paths} match; where a test must go into another file, say so in what you hand in."
+tests_only = " Change only the project's tests, the files that {paths} match. If a test must go into another file, say so in what you hand in."
 protected = " The project protects {paths}: change what is there only where the work needs it."
-protected_read = " The project protects {paths}: a change of them is to be made only where the work needs it."
+protected_read = " The project protects {paths}: the work may change what is there only where it needs to."
 and = " and "

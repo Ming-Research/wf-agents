@@ -119,12 +119,12 @@ async fn a_test_that_fails_again_and_on_mains_head_holds_the_commit() {
     assert!(verdict.observations.is_empty(), "{verdict:?}");
     let held = verdict.held.expect("held");
     let says = format!(
-        "Failed on the commit, again when it was run again, and on the head of main, {main}, as well: \
-         `tools::tests::b`.\n\nThe full workflows ran on the commit {head}"
+        "These failed on the commit, failed again when they were run again, and also failed on the head of main, \
+         {main}: `tools::tests::b`.\n\nThe full workflows ran on the commit {head}"
     );
     assert!(held.starts_with(&says), "{held}");
     for part in [
-        "What failed was run again on the commit by the fast workflow, beside every check it runs by name:",
+        "The fast workflow ran what failed again on the commit, together with every check it runs by name:",
         &format!(
             "What failed again was run on the head of main, {main}:\n\nThe fast workflow ran on the commit {main}"
         ),
@@ -155,7 +155,7 @@ async fn a_test_that_fails_again_and_passes_on_mains_head_fails_the_commit() {
         "{failed}"
     );
     assert!(
-        failed.ends_with("Failed again on the commit, and not on the head of main: `tools::tests::b`."),
+        failed.ends_with("These failed again on the commit, but not on the head of main: `tools::tests::b`."),
         "{failed}"
     );
 }
@@ -176,7 +176,7 @@ async fn a_red_lint_beside_a_failed_test_fails_the_commit_when_it_is_red_again()
     let failed = verdict.failed.expect("the lint fails it");
     // What the run again found is said last: its jobs, the lint red again and the test's job passed.
     let again = failed
-        .split("What failed was run again on the commit")
+        .split("The fast workflow ran what failed again on the commit")
         .nth(1)
         .expect("the run again is said");
     assert!(
@@ -227,8 +227,8 @@ async fn nothing_is_run_again_where_more_than_tests_failed_or_nothing_can_run_th
         .expect("failed");
     assert!(
         failed.ends_with(
-            "What failed was not run again: Nothing was run: tests or checks are named, and the project declares no \
-             fast workflow, which alone runs only what is named; name none to run the full workflows."
+            "What failed was not run again: Nothing was run: you named tests or checks, but the project declares no \
+             fast workflow, and only a fast workflow runs just what is named. Name none to run the full workflows."
         ),
         "{failed}"
     );
@@ -340,7 +340,7 @@ async fn a_run_again_on_the_commit_or_on_mains_head_that_judged_nothing_fails_th
         "{failed}"
     );
     let again = failed
-        .split("What failed was run again on the commit")
+        .split("The fast workflow ran what failed again on the commit")
         .nth(1)
         .expect("the run again is said");
     assert!(
@@ -366,7 +366,7 @@ async fn a_run_again_on_the_commit_or_on_mains_head_that_judged_nothing_fails_th
         on_main.contains("- test: ended without judging the code (cancelled)"),
         "{failed}"
     );
-    assert!(!failed.contains("Failed again on the commit"), "{failed}");
+    assert!(!failed.contains("These failed again on the commit"), "{failed}");
     assert_eq!(runs(&hub).len(), 3);
 }
 
@@ -394,14 +394,14 @@ async fn a_test_the_run_again_did_not_run_fails_the_commit_and_is_never_said_to_
         assert_eq!(verdict.held, None, "{verdict:?}");
         let failed = verdict.failed.expect("failed");
         let again = failed
-            .split("What failed was run again on the commit")
+            .split("The fast workflow ran what failed again on the commit")
             .nth(1)
             .expect("the run again is said");
         assert!(
-            again.contains("- tools::tests::b: not run: no test of the run has this name"),
+            again.contains("- tools::tests::b: not run: no test in the run has this name"),
             "{failed}"
         );
-        assert!(!failed.contains("Failed again on the commit"), "{failed}");
+        assert!(!failed.contains("These failed again on the commit"), "{failed}");
         assert_eq!(runs(&hub).len(), 2, "nothing is run on main");
     }
 }
