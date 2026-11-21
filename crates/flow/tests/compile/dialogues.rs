@@ -139,8 +139,8 @@ fn a_verdict_whose_judge_holds_no_dialogue_is_refused() {
     let source = edit(
         source,
         "cells/T1.toml",
-        "\nreview = \"\"\"Look at what changed: accept each answer in `review` or say why not; raise nothing new the fix did \
-         not bring.\"\"\"",
+        "\nreview = \"\"\"Look at what changed: accept each answer in `review` or say why not, and raise nothing new that \
+         the fix did not bring up.\"\"\"",
         "",
     );
     let what = VerdictWithoutDialogue {

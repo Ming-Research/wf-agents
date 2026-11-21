@@ -7,9 +7,10 @@ effort = "xhigh"
 takes_main = true
 task = '''
 Implement `plan_agent`, changing only what this work needs. For each question put to the owner, follow the option the
-owner took, or else the one it recommends. Write into the design tree what each choice that the tree's rules give the
-owner settles, as those rules say. An entry may follow main's tree in wording and place, but not in meaning. After you
-change the tree, run `project.tree_check` and fix what it finds before you run the project's check.
+owner took, or else the one it recommends. For each question about a choice the tree's rules give the owner, write the
+option followed into the design tree, as those rules say. If main's tree has changed since, an entry may follow its
+wording and place, but not change its meaning. After you change the tree, run `project.tree_check` and fix what it
+finds before you run the project's check.
 
 Start from a test that shows what the change is for, red on the code before the change: use the research's test where
 it left one. Run each test you add or extend both on the change and on the code before it. A test that you remove, skip
