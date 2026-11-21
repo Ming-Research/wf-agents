@@ -74,9 +74,9 @@ it does not fit, the design left unchanged; stopping over work that is only hard
 
 How work goes on is drawn in the flow, where the owner and every agent can read it, and a work that went wrong can be
 traced cell by cell: where it stops, who handles what, when something is handed on or taken higher. The engine carries
-the flow out, keeps the data and checks it; it does nothing of its own that a cell or a row could do, and as little as
+the flow out, keeps the data and checks it; it does nothing of its own that a cell could do, and as little as
 possible happens by itself. The chart is how the owner checks the flow, and what is not on it the owner cannot see:
-every step, an agent's as much as the engine's, is a cell or a row.
+every step, an agent's as much as the engine's, is a cell.
 
 Violations: a hand-over, an escalation, a retry or a wait that the engine does out of the flow's sight; behaviour that
 can be found only by reading the engine's code.

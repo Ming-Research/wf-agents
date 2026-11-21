@@ -4,7 +4,7 @@ How the flow is designed, changed and tried, and what its agents are given and a
 
 ### principle cell-numbering
 A cell's id is its stage's initial and a number, its name staying as its title. A stage numbers its cells in running order with no gap; a cell added or removed renumbers those after it, and the table of earlier ids keeps each recorded round reading as the cell it ran at.
-Why: A short id is easier to type than a name, and its number tells where the cell runs; a number out of order or a gap tells nothing and is read as a missing cell.
+Why: A short id is easier to type than a name, and its number tells where the cell runs. Numbers that were never reused grew large, left gaps and ran out of order, and a gap is read as a missing cell.
 
 ### principle cache-order
 What is sent to an agent is ordered from the widest scope to the narrowest: what every cell shares first, what changes every round last. Which part each thing belongs to is declared in the flow definition, not computed in code, and every change of the order is confirmed from the cache reads and writes of real rounds.
@@ -43,7 +43,7 @@ A cell's prompt, rules, data or outputs change only for a problem a real round s
 Why: Changes made by reasoning alone made cells worse than before, and changing a cell that works puts at risk what it already does well. In work 11 a fork bore out two of three guesses at a fault and showed the third wrong.
 
 ### principle audit-cell-by-cell
-The flow is audited or redone one cell at a time, each finished before the next, starting from the problem the cell is there to stop and the ideal cell, with existing cells and recorded rounds only as evidence; the cell's decision says what problem it stops, how, why by that means and at what cost. A cell is frozen once the owner has reviewed it as it stands in the definition, on the chart, and only the owner reopens it.
+The flow is audited or redone one cell at a time, each finished before the next, starting from the problem the cell stops and the ideal cell, with existing cells and recorded rounds only as evidence. A cell the owner has reviewed as it stands on the chart is frozen until he reopens it.
 Why: Cells added one at a time, each reasonable alone, drift apart, and only going through all of them shows it; cells settled in a draft came out different in the definition. With each cell's problem and cost written down, taking a capability from a cell shows which problem must be met elsewhere.
 
 ### principle flow-change-spares-works

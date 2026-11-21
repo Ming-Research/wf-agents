@@ -27,15 +27,15 @@ Nothing is kept in a return, storage or the flow definition without a reader, an
 Why: Unattended things pile up, and a return's format is sent with every call of its line, so a shape no reader reads exactly is paid for at every call, while a slip in a text costs one return written again (judged, not measured). A question an agent cannot answer makes it make something up. (Article 4)
 
 ### principle lean-agent-input
-An agent is given only what it needs and does not already have: one thing per sentence; no warning against what it would not do anyway; nothing the flow, a tool or a permission already decides, or a review catches as a slip; nothing a continued session already holds. A prompt is fixed by rewriting a sentence rather than adding one; what must be added is paid for by cutting as much elsewhere, so that the prompt ends no longer than before.
-Why: Every token is paid for in every round. The longer a prompt, the more an agent misreads it and the more its sentences seem to contradict each other: one cell's task grew to 1,366 characters as sentences were added to fix what trials showed, the problems stayed, and only when it was cut to 428 did the agent follow it.
+An agent is given only what it needs and lacks, one thing per sentence: no warning against what it would not do, and nothing the flow, a tool, a permission, a review or its session covers. Add a sentence only if no rewording fixes the fault, count its words, and cut as much elsewhere.
+Why: Every token is paid for in every round, and the longer a prompt, the more an agent misreads it: one cell's task grew to 1,366 characters as sentences were added to fix what trials showed, the problems stayed, and only when it was cut to 428 did the agent follow it.
 
 ### principle read-code-and-tree
-To understand something or change a design, an agent reads both the code and the tree's decisions about it. It reads the decisions for what was decided and why, not as orders, and follows a decision's From when it needs the data behind it; when the right solution needs a decision or a principle changed, it proposes the change.
+To understand or change a design, an agent reads both the code and the tree's entries about it: for what was weighed and why, not as orders, and the data a line names where it needs it. If the right solution needs an entry changed, it proposes the change.
 Why: Code gives no reasons and does not say which paths were rejected; a decision is a summary that holds neither all the code does nor the data it rests on. Treating the tree as orders bends solutions to fit it.
 
 ### principle mechanical-engine
-The engine only carries out the compiled flow: it takes the row a return selects and runs the actions and checks written there. Judgment belongs to agents and the owner, and what a program can do or know exactly is done by a tool or the engine, as a step the flow shows, never asked of an agent.
+The engine only carries out the compiled flow: it runs each cell that a new version of its data wakes, with the actions and checks written there. Judgment belongs to agents and the owner; what a program can do or know exactly is a step of a tool or the engine shown in the flow, never asked of an agent.
 Why: A judgment needs someone who can give reasons and be reviewed, and every engine step must be predictable from the flow. An agent doing exact work sometimes gets it wrong, and each mistake costs a round: agents misreading test results caused extra runs. (Article 7)
 
 ### principle harness-only
@@ -56,7 +56,7 @@ Why: The engine runs with the owner's credentials and the page can start works a
 
 ### principle the-past-as-it-ran
 What ran is kept whole, with the flow and configuration it ran on, and the past is read by those, never by today's flow or configuration.
-Why: A work goes on from what earlier works on its item left, and the page draws each work on the flow it ran on. A later flow may lack the cells a work ran on and a later configuration may name other models, so reading the past by today's rewrites it; a return kept only to its first 2,048 characters hid the real cause. (Article 4)
+Why: The page draws each work on the flow it ran on. A later flow may lack the cells a work ran on, and a later configuration may name other models, so reading the past by today's rewrites it; a return kept only to its first 2,048 characters hid the real cause. (Article 4)
 
 ### principle keep-what-was-paid-for
 What was already paid for (a round's work, a branch, a session's cache) is kept and carried on from; a stop, a restart, a fault or a new flow redoes only what must be redone.
