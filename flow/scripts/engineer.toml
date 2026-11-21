@@ -140,13 +140,13 @@ cell = "T1"
 run = 4
 hands_in = [{ block = "review_ok", value = "yes" }]
 
-# The test review: content, then asks for adversarial testing, and keeps asking for it while the summing that made it
-# ask is in the change.
+# The test review: asks for adversarial testing, and keeps asking for it while the summing that made it ask is in the
+# change.
 [[flows.engineer.rounds]]
 cell = "T2"
 hands_in = [
     { block = "test_ok", value = "yes" },
-    { block = "needs_testing", value = "no" },
+    { block = "needs_testing", value = "yes" },
 ]
 
 [[flows.engineer.rounds]]
@@ -160,14 +160,6 @@ hands_in = [
 [[flows.engineer.rounds]]
 cell = "T2"
 run = 3
-hands_in = [
-    { block = "test_ok", value = "yes" },
-    { block = "needs_testing", value = "yes" },
-]
-
-[[flows.engineer.rounds]]
-cell = "T2"
-run = 4
 hands_in = [
     { block = "test_ok", value = "yes" },
     { block = "needs_testing", value = "yes" },
