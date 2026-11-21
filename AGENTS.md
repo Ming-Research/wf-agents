@@ -4,6 +4,9 @@ What an agent needs to know for this repository, beyond the rules every agent is
 
 - [design/README.md](design/README.md) says how the design tree is read and changed, and what to read before designing
   or changing code. [design/constitution.md](design/constitution.md) decides between designs.
+- `docs/` holds designs read as a whole, built or still ahead of the code, and guides such as how wf-agents is tested.
+  Read the one of the part your work changes. Where a document and the code or the design tree differ, the code and the
+  tree hold, and the work that finds it puts the document right.
 - Everything in the repository is written in English.
 - Keep keys, credentials, personal paths and machine-local settings out of the repository, its commits and its PR
   descriptions.
