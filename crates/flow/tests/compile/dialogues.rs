@@ -59,9 +59,7 @@ fn dialogues(compiled: &Compiled, id: &str) -> Vec<(String, Vec<String>)> {
 #[test]
 fn two_cells_that_make_the_plan_hold_no_dialogue_with_each_other() {
     let compiled = compiled(&engineer());
-    let plan: Vec<String> = ["plan_owner", "plan_agent", "acceptance", "tree_edits"]
-        .map(String::from)
-        .to_vec();
+    let plan: Vec<String> = ["plan_owner", "plan_agent", "acceptance"].map(String::from).to_vec();
     for maker in ["R1", "D1"] {
         assert_eq!(
             dialogues(&compiled, maker),
@@ -81,9 +79,7 @@ fn two_cells_that_make_the_plan_hold_no_dialogue_with_each_other() {
 #[test]
 fn the_cells_that_look_for_a_better_way_judge_the_plan_in_their_dialogue_with_its_writer() {
     let compiled = compiled(&engineer());
-    let plan: Vec<String> = ["plan_owner", "plan_agent", "acceptance", "tree_edits"]
-        .map(String::from)
-        .to_vec();
+    let plan: Vec<String> = ["plan_owner", "plan_agent", "acceptance"].map(String::from).to_vec();
     for looker in ["R2", "D2"] {
         let i = compiled.flow.place(&looker.into()).expect("the cell");
         let cell = &compiled.flow.cells()[i];

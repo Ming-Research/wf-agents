@@ -278,8 +278,8 @@ new session lacks it.
 
 ## The engineer flow, laid out by this design
 
-45. The engineer flow, cell by cell, in the order of the walk. "Plan" is the group of `plan_owner`, `plan_agent`,
-    `acceptance` and `tree_edits`; "change" the group of `code`, `title`, `decisions`, `evidence`, `tests` and `head`.
+45. The engineer flow, cell by cell, in the order of the walk. "Plan" is the group of `plan_owner`, `plan_agent` and
+    `acceptance`; "change" the group of `code`, `title`, `decisions`, `evidence`, `tests` and `head`.
     A dialogue is named by the datum its two sides write. Every agent's cell reads every cell's questions and every
     cell's words (33, 35); each cell that may ask also watches its own questions and its own words (30, 35); a cell that
     reads `tree` reads it first where its session has not (25). None of this is repeated in the table, and a blank

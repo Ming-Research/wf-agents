@@ -22,17 +22,15 @@ The acceptance conditions are numbered sentences, each plainly true or false and
 The conditions a work is accepted by are not locked: they may change while the work goes on, and each review is given what changed in them since the version it last saw.
 - replaced: The conditions locked once the first design set them, against an agent quietly loosening them, was on main; the owner changed it, because locking was too strict, and a review found too loose can be tightened later.
 
-### decision every-tree-change-of-a-plan-is-one-question
-The plan's writer asks the owner of every change of the design tree in `tree_edits`, of any kind, in one question: each change's file and entry, its diff in a ```diff block, and a sentence.
+### decision each-choice-of-the-owners-is-asked-in-a-question-of-its-own
+The plan's writer asks the owner about each choice the tree's rules give him, in a question of its own about what to do; the change of the tree is not part of the question.
+- replaced: Asking about every change of the tree in `tree_edits`, all in one question with each change's diff, was on main; the owner changed it, because a question should be about what to do, and the tree change is only its result.
 - replaced: Asking only of a change of a principle or of the constitution, the decisions being the work's to change, was on main; the owner changed it, because protected files and the design tree are two things: a principle is both, and a decision is in the tree and not protected.
 - rejected: an agent proposed that the plan only name a change of a principle in `plan_owner`, the engine alone asking of it once the change was made; the owner rejected it, because the plan's writer must ask of every change of the tree, the engine asking apart of the protected files changed.
-- rejected: an agent proposed telling the cells that write `tree_edits` to ask in each one's task; the owner rejected it, because the block's own words reach every cell that writes it from one place.
-- rejected: an agent proposed a question for each change; the owner rejected it, because several changes retold in crowded questions read as if nothing were said clearly, and a diff shown inline needs only its difference explained.
-- rejected: an agent proposed longer words, with a labelled sentence on what the diff changes and why, and options to change so or not; the owner rejected it, because they were too long, and the labels said nothing of what changed.
 
-### decision the-tree-review-looks-for-an-unasked-tree-change
-P2 points out any change of the tree that `tree_edits` holds, of the constitution, a principle, a decision or a document, that no question asks the owner about.
-- replaced: P2 looking only for a change of a principle or of the constitution that no question asked of was on main; the owner changed it, because the review must catch what the writer fails to ask: in one work four files of decisions and a document changed unasked.
+### decision the-tree-review-judges-only-what-the-plan-goes-against
+P2 judges only what the plan goes against in the constitution, the principles and the decisions; going against an entry breaks nothing where a question puts that change to the owner.
+- replaced: P2 also judging what the plan makes untrue, what it leaves unrecorded, each entry of `tree_edits` and any change of the tree asked of no one, was on main; the owner changed it, because the plan asks, the implementation writes the tree, and the review of the change checks it.
 
 ### decision both-plan-reviews-review-every-plan
 P1 and P2 review every plan before it is built, on each version of it, whether the research or the deep research wrote it.

@@ -200,41 +200,35 @@ pub(super) fn wrote(block: &str, by: Outsider, value: Option<&str>) -> Event {
 
 // Every plan is reviewed before it is built, for its design and against the tree (principle
 // every-plan-is-reviewed-before-it-is-built): a plan the research wrote, with no deep research, goes through the design
-// review and the review against the tree before the implementation, whether its edits of the tree hold an entry or none.
+// review and the review against the tree before the implementation.
 #[test]
-fn both_reviews_of_the_plan_run_on_a_plan_the_research_wrote_whether_or_not_it_edits_the_tree() {
-    for edits in ["A decision that a call keeps what it took.", " \n"] {
-        let mut w = W::started();
-        w.hands_in("S1", &[("place", None)], Vec::new());
-        w.hands_in("R0", &[], Vec::new());
-        let (run, cell) = w.round();
-        assert_eq!(cell, "R1");
-        let names = w.told(run, "R1");
-        let names: Vec<&str> = names.iter().map(String::as_str).collect();
-        let plan = [
-            ("deep_needed", Some("no")),
-            ("plan_owner", None),
-            ("plan_agent", None),
-            ("acceptance", None),
-            ("tree_edits", None),
-        ];
-        let mut came = w.read("R1", &names, &plan);
-        for h in came.writes.iter_mut().filter(|h| h.block.as_str() == "tree_edits") {
-            h.content = edits.to_string();
-        }
-        w.on(Event::Returned {
-            run,
-            came,
-            spent: Spent::default(),
-        });
-        // The plan's second look finds no better way, and changes nothing.
-        w.hands_in("R2", &[], Vec::new());
-        assert_eq!(w.round().1, "P1", "with tree_edits {edits:?}");
-        w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
-        assert_eq!(w.round().1, "P2", "with tree_edits {edits:?}");
-        w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
-        assert_eq!(w.round().1, "I1", "with tree_edits {edits:?}");
-    }
+fn both_reviews_of_the_plan_run_on_a_plan_the_research_wrote() {
+    let mut w = W::started();
+    w.hands_in("S1", &[("place", None)], Vec::new());
+    w.hands_in("R0", &[], Vec::new());
+    let (run, cell) = w.round();
+    assert_eq!(cell, "R1");
+    let names = w.told(run, "R1");
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let plan = [
+        ("deep_needed", Some("no")),
+        ("plan_owner", None),
+        ("plan_agent", None),
+        ("acceptance", None),
+    ];
+    let came = w.read("R1", &names, &plan);
+    w.on(Event::Returned {
+        run,
+        came,
+        spent: Spent::default(),
+    });
+    // The plan's second look finds no better way, and changes nothing.
+    w.hands_in("R2", &[], Vec::new());
+    assert_eq!(w.round().1, "P1");
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    assert_eq!(w.round().1, "P2");
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
+    assert_eq!(w.round().1, "I1");
 }
 
 // The design review's points on a plan the research wrote go to the research, which answers them in the dialogue the

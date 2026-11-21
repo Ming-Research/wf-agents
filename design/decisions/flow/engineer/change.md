@@ -10,8 +10,9 @@ I1 runs only on a plan its two reviews passed: it requires `plan_ok` and `tree_o
 Where the plan does not hold, I1 does not work around it: it says where and why in `plan_doubts`, its dialogue with the plan's writer, and writes it again only where a doubt still stands.
 - replaced: A list in which the implementation declared where it departed from the design was on main; the owner changed it, because an implementation that knows it departs should mend it, not keep it for the review to challenge.
 
-### decision the-implementation-writes-the-tree-as-the-plan-says
-I1 writes into `design/` what `tree_edits` holds: an entry may follow main's tree in wording and place, never in meaning.
+### decision the-implementation-writes-the-tree-from-the-owners-choices
+I1 writes into the design tree what each of the owner's choices settles, as the tree's rules say; an entry may follow main's tree in wording and place, never in meaning.
+- replaced: I1 writing into `design/` what `tree_edits` held was on main; the owner changed it, because a change of the tree is only the result of the owner's answer.
 - rejected: an agent proposed that the engine write the approved entries mechanically, sending the work back where main's text no longer matched; the owner rejected it, because a mechanical rule binds too tightly, and the review of the change catches a drift.
 
 ### decision a-dispute-over-a-fact-is-settled-by-a-run
@@ -43,7 +44,8 @@ T1 asks whether each change of a file the project protects is one the work needs
 - replaced: No review of the changes of protected files, the plan's tree review looking only for a principle changed unasked, was on main; the owner changed it, because the reviews must judge such changes too.
 
 ### decision the-design-tree-review-of-the-change-asks-four-things
-T3 asks what the change breaks in the tree, whether its entries say what `tree_edits` says and no more, what it leaves untrue, and what choice it leaves unrecorded.
+T3 asks what the change goes against in the tree unasked, whether its tree changes are exactly the owner's choices, what choice of his it made unasked, and what it leaves untrue.
+- replaced: Checking the entries against `tree_edits`, and looking for a way turned down, something done on purpose or a relation between two places left unrecorded, was on main; the owner changed it, because every choice of his enters the tree, and nothing else does.
 - rejected: an agent proposed that T3 also ask whether an entry is written longer than it needs; the owner rejected it, because a work goes back from T3 to I1 at most, while `tree_edits` is written by R1 and D1, so the one who writes must know what to leave out.
 
 ### decision the-reviews-of-the-change-and-the-testing-keep-their-own-lines
