@@ -8,7 +8,10 @@ named as; and that each file a reason names for its data is in the repository. W
 the one who reads it.
 
 It prints one line for each fault, as `<file>:<line>: <what is wrong>`, and ends with a line of what it found. It exits
-with 1 when there is a fault and 0 when there is none. It takes no arguments and may be run from any directory.
+with 1 when there is a fault and 0 when there is none. It may be run from any directory. With no argument it checks the
+tree beside it; given a directory, it checks the tree in that directory instead, as its tests do (`lint_test.py`), and
+exits with 2 if there is no such directory. The directory above the tree's is taken for the repository's root: each
+file is named from it, and so is each file of data.
 """
 
 import re
@@ -16,7 +19,6 @@ import sys
 from pathlib import Path
 
 DESIGN = Path(__file__).resolve().parent
-ROOT = DESIGN.parent
 
 KINDS = {"principles": "principle", "decisions": "decision"}
 WHO = r"(?:the owner|an agent|a reviewer agent)"
@@ -26,7 +28,7 @@ HEADING = re.compile(r"^### (\S+) (\S+)$")
 NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
 NAMED = re.compile(r"\b(principle|decision) ([a-z0-9]+(?:-[a-z0-9]+)+)\b")
 DATA = re.compile(r"\(data: `([^`]+)`\)")
-WORK_ITEM_OR_DATE = re.compile(r"\bW\d+\b|#\d+\b|\b\d{4}-\d{2}-\d{2}\b")
+WORK_ITEM_OR_DATE = re.compile(r"\bW\d+\b|\b[Ww]ork \d+\b|#\d{1,5}\b|\b[Ii]tem #?\d+\b|\b\d{4}-\d{2}-\d{2}\b")
 
 RULE_MOST = 300
 WHY_MOST = 300
@@ -79,6 +81,8 @@ def check_principle(entry):
     if len(body[0]) > RULE_MOST:
         entry.fault(first + 1, f"the rule is {len(body[0])} characters, over {RULE_MOST}")
     why = body[1][len("Why: "):]
+    if not why.strip():
+        entry.fault(first + 2, "the reason after `Why: ` is empty")
     if len(why) > WHY_MOST:
         entry.fault(first + 2, f"the reason is {len(why)} characters, over {WHY_MOST}")
 
@@ -103,12 +107,13 @@ def check_decision(entry):
             entry.fault(number, f"names a work, an item or a date: {named.group(0)}")
 
 
-def read(directory, kind, faults):
-    """The entries of the files of one directory of the tree, each checked by itself; the faults of the files' own
-    lines go to `faults`."""
+def read(design, directory, kind, faults):
+    """The entries of the files of one directory of the tree in `design`, each checked by itself; the faults of the
+    files' own lines go to `faults`."""
+    root = design.parent
     found = []
-    for path in sorted((DESIGN / directory).rglob("*.md"), key=lambda path: order(path.relative_to(ROOT))):
-        file = path.relative_to(ROOT).as_posix()
+    for path in sorted((design / directory).rglob("*.md"), key=lambda path: order(path.relative_to(root))):
+        file = path.relative_to(root).as_posix()
         lines = path.read_text(encoding="utf-8").split("\n")
         if lines and lines[-1] == "":
             lines.pop()
@@ -134,15 +139,19 @@ def read(directory, kind, faults):
             check_principle(entry) if kind == "principle" else check_decision(entry)
             for number, line in enumerate(entry.body, start=first + 1):
                 for data in DATA.findall(line):
-                    if not (ROOT / data).exists():
+                    if not (root / data).exists():
                         entry.fault(number, f"the data `{data}` is not in the repository")
             found.append(entry)
     return found
 
 
-def main():
+def main(design=DESIGN):
+    design = Path(design).resolve()
+    if not design.is_dir():
+        print(f"{design} is not a directory", file=sys.stderr)
+        return 2
     faults = []
-    entries = [entry for directory, kind in KINDS.items() for entry in read(directory, kind, faults)]
+    entries = [entry for directory, kind in KINDS.items() for entry in read(design, directory, kind, faults)]
     names = {}
     for entry in entries:
         if entry.name in names:
@@ -170,4 +179,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else DESIGN))
