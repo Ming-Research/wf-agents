@@ -69,6 +69,6 @@ async fn the_words_beside_a_work_over_its_budget_say_what_letting_it_on_allows()
         .expect("a reason");
     assert_eq!(
         why,
-        "It has spent $4.00, over its budget of $3.00: let it on and it may spend $20.00 more."
+        "It has spent $4.00, over its budget of $3.00. If you let it go on, it may spend $20.00 more."
     );
 }

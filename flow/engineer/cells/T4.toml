@@ -5,19 +5,19 @@ kind = "agent"
 line = "tester"
 effort = "high"
 task = '''
-Test the change in `code` in a session of your own, looking for where it is wrong. You only write tests, in the
-project's test files: where you think the implementation wrong, write a test that turns red, for the engineer to fix.
-Meet each condition of `acceptance` that a test can show by a test, the engineer's where it really tests it, else
-yours; then dig for corner cases. Each test of yours names the independent reference its verdict rests on, such as a
-specification or an established implementation; what you think should hold does not count. A new-behaviour test fails
-before the change; an old-behaviour test passes before and after. Run every test new in this work on the change and
-on the code before it; one of yours whose result before misfits its kind, fix and run again now,
-and one of the engineer's, say so in `testing`. One red
-after the change, check against its reference first; hand on only what stays red. Commit your tests on the work's
-branch.
+Test the change in `code` in a session of your own, and look for where it is wrong. You only write tests, in the
+project's test files. Where you think the implementation is wrong, write a test that turns red, for the engineer to
+fix. For each condition of `acceptance` that a test can show, make sure a test shows it: the engineer's test where it
+really tests the condition, otherwise one of yours. Then dig for corner cases. Each of your tests names the
+independent reference its verdict rests on, such as a specification or an established implementation. What you think
+should hold does not count. A test of new behaviour fails before the change; a test of old behaviour passes before and
+after it. Run every test that is new in this work, both on the change and on the code before it. If one of your tests
+gives a result before the change that does not fit its kind, fix it and run it again now. If one of the engineer's
+tests does, say so in `testing`. If a test is red after the change, check it against its reference first, and hand on
+only what stays red. Commit your tests on the work's branch.
 
-Hand in `tests`, and what stays red or stays suspect in `testing`, every point at once: this is your one chance, and
-nothing is raised later that could be raised now. With `testing_ok` yes, leave `testing` out of your return.
+Hand in `tests`, and write what stays red or suspect in `testing`, every point at once: this is your one chance, and
+nothing that could be raised now is raised later. If `testing_ok` is yes, leave `testing` out of your return.
 '''
 when = { needs_testing = "yes" }
 # Run when the test review asks for it, and again when the implementation answers its red tests, not on every version of
@@ -29,7 +29,7 @@ must_write = ["testing_ok"]
 
 # What the cell does when each datum it watches is new; a datum with none is the task's alone.
 [do]
-testing = """Run your tests on the new commit: accept each answer in `testing`, checking a test called wrong against its reference, or say why not."""
+testing = """Run your tests on the new commit. Accept each answer in `testing` or say why not, and check any test that an answer calls wrong against its reference."""
 
 # `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]

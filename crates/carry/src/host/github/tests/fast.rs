@@ -126,7 +126,7 @@ async fn the_tests_named_run_by_the_fast_workflow_and_each_is_said_with_its_resu
         "The tests that passed:\n- tools::tests::a: passed in 0.12 s",
         "The tests that did not pass:\n- tools::tests::b: failed in 0.3 s\n  What it said:\n```\nthread 'tools::tests::b' panicked at \
          crates/carry/src/tools.rs:9:5:\nassertion failed: said.is_empty()\n```",
-        "- a_name_of_no_test: not run: no test of the run has this name",
+        "- a_name_of_no_test: not run: no test in the run has this name",
     ] {
         assert!(said.contains(line), "{line}\n\n{said}");
     }
@@ -154,7 +154,7 @@ async fn a_name_is_the_name_its_results_give_and_no_part_of_it_names_a_test() {
         .expect("run");
     assert!(said.contains("): 0 of the 3 tests passed."), "{said}");
     assert_eq!(
-        said.matches(": not run: no test of the run has this name").count(),
+        said.matches(": not run: no test in the run has this name").count(),
         3,
         "{said}"
     );
@@ -190,7 +190,7 @@ async fn a_check_the_fast_workflow_does_not_run_by_name_is_refused_before_anythi
         .expect("said");
     assert_eq!(
         said,
-        "Nothing was run: the fast workflow runs by name only these checks: lint; not clippy."
+        "Nothing was run: the fast workflow runs only these checks by name: lint; not clippy."
     );
     assert!(hub.github().asked().is_empty(), "GitHub was asked nothing");
 }
@@ -337,7 +337,7 @@ async fn names_given_where_the_project_has_no_fast_workflow_are_refused_and_so_i
     });
     hub.committed().await;
     let said = hub.named_check(&named(&["a"], &[])).await.unwrap().expect("said");
-    assert!(said.starts_with("Nothing was run: tests or checks are named, and the project declares no fast workflow"));
+    assert!(said.starts_with("Nothing was run: you named tests or checks, but the project declares no fast workflow"));
     let hub = Hub::new().with(|config| {
         let ci = config.ci.as_mut().expect("a declaration");
         ci.full = None;

@@ -2,4 +2,4 @@
 # 36): it writes the better way it found as its point, and the plan's writer its answer, each a version of it, and both
 # watch it, so that each version is new to the other side alone. Whichever cell writes the plan answers in it; the cell
 # that looks runs once (decision the-better-way-is-looked-for-once), so an answer runs nothing.
-what = "A better way than the plan, as the cell that looked for one found it: what that way is and why it is better, in a few sentences, leaving out what the plan already says; and the plan's writer's answer, changed, or why not."
+what = "A better way than the plan, as the cell that looked for one found it: what that way is and why it is better, in a few sentences, leaving out what the plan already says. Then the answer of the writer of the plan: changed, or why not."

@@ -185,7 +185,7 @@ describe('the panel of the item selected', () => {
     // What it waits for is its card, under the line, in the look of every stop: why, and the button that ends it.
     const card = el.querySelector('[data-wait="limit"]') as HTMLElement;
     expect(card.className).toBe('cw-choice cw-choice-holds');
-    expect(text(card, '.cw-choice-q')).toEqual(['The cell ran 3 times in a row for what a cell after it wrote, its limit.']);
+    expect(text(card, '.cw-choice-q')).toEqual(['The cell ran 3 times in a row for what a cell after it wrote, which is its limit.']);
     // It belongs to no cell, so its frame names none and is unbroken.
     expect(card.querySelector('.cw-choice-by')).toBe(null);
     expect(card.querySelector('button')?.title).toBe('Run the cell again past its limit');
@@ -965,7 +965,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
         {
           does: 'Take it back',
           follows:
-            'the work takes the change back; it does not merge while it changes these files, unless you let a change of them merge.',
+            'the work takes the change back. It does not merge while it changes these files, unless you let a change to them merge.',
         },
       ],
       recommends: 1,

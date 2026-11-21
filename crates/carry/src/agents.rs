@@ -2547,7 +2547,7 @@ mod tests {
             ..fork.clone()
         };
         let refused = agents.inner.fork(&none).await.expect_err("no account is in use");
-        assert_eq!(refused, "No account is in use: take one on the Settings view.");
+        assert_eq!(refused, "No account is in use: choose one on the Settings view.");
         assert!(!data.join("token").exists(), "nothing was run");
     }
 
@@ -2902,7 +2902,7 @@ mod tests {
         assert!(!args.contains("sk-ant"), "{args}");
         std::fs::remove_file(data.join("token")).expect("taken away");
         let (why, _) = (agents.inner.ping(&ping(None), &mut None).await).expect_err("no account");
-        assert_eq!(why, "No account is in use: take one on the Settings view.");
+        assert_eq!(why, "No account is in use: choose one on the Settings view.");
         let (why, _) = (agents.inner.ping(&ping(Some("gone")), &mut None).await).expect_err("no token");
         assert!(
             why.starts_with("the token of the account gone could not be read: "),

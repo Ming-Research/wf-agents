@@ -35,4 +35,4 @@ follows = "the change merges with the work as it stands."
 
 [[protected.options]]
 does = "Take it back"
-follows = "the work takes the change back; it does not merge while it changes these files, unless you let a change of them merge."
+follows = "the work takes the change back. It does not merge while it changes these files, unless you let a change to them merge."

@@ -3690,7 +3690,8 @@ mod tests {
         };
         assert_eq!(
             stalled_words(words, &[key("checked = yes")], &[stalling("M1", Unrun::NothingNew {})]),
-            "It waits for `checked = yes`, which only `M1` can make hold, and `M1` does not run, as nothing new runs it."
+            "It waits for `checked = yes`, which only `M1` can make hold, and `M1` does not run, because nothing new \
+             runs it."
         );
         // The cell it stands at, which every reader says beside it, it does not name.
         assert_eq!(
@@ -3709,7 +3710,8 @@ mod tests {
         assert_eq!(
             stalled_words(words, &[key("ready"), key("done")], &by),
             "It waits for `ready` and `done`, which only `review` or `check` can make hold, and `review` does not run, \
-             as it is skipped, `big = yes` not holding, and `check` does not run, as the cell the work stands at holds it."
+             because it is skipped, `big = yes` not holding, and `check` does not run, because the cell where the work \
+             stands holds it back."
         );
     }
 

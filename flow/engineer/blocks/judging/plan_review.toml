@@ -1,4 +1,4 @@
 # The dialogue of the design review with the plan's writer (design document `data-and-context`, 36): it writes its
 # points and the plan's writer its answers, each a version of it, and both watch it, so that each version is new to the
 # other side alone. Whichever cell writes the plan answers in it.
-what = "What the review of the plan and the plan's writer say to each other: each point, where, what must change and why, what it rests on; and the writer's answer to each, changed, or why not."
+what = "What the review of the plan and the writer of the plan say to each other. For each point, the review says where, what must change and why, and what the point rests on. The writer answers each point: changed, or why not."

@@ -5,7 +5,7 @@
 # where it changes the option the work goes by. A cell that writes it in `outputs` asks the owner: `words` is told to
 # it, after the list of what it returns, and `[shape]` is what the form of its line holds it to.
 name = "{cell}_questions"
-what = "The questions the cell asks the owner, each under its name, and the owner's answers to them, each the question, the version answered and the option taken."
+what = "The questions the cell asks the owner, each under its name, and the owner's answers to them. Each answer names the question, the version answered and the option chosen."
 from = "answer"
 shown = true
 words = '''

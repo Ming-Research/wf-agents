@@ -149,7 +149,7 @@ mod tests {
     use super::*;
 
     /// What the flow's words say where no account is in use.
-    const NONE: &str = "No account is in use: take one on the Settings view.";
+    const NONE: &str = "No account is in use: choose one on the Settings view.";
 
     // A few milliseconds: a thread of the runtime's blocking pool. It guards that a token is given only of the account
     // named, and that no words say it.
