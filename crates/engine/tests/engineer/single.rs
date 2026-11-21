@@ -370,7 +370,7 @@ fn a_version_of_a_block_the_installed_flow_no_longer_has_is_passed_over_and_the_
 }
 
 // The design review's points on a plan the research wrote go to the research, which answers them in the dialogue the
-// two hold once the review against the tree has judged the same plan, and its answer runs the review again (design
+// two hold, before the review against the tree judges the plan; the answer runs the design review again (design
 // document `data-and-context`, 6, 36).
 #[test]
 fn the_design_review_s_points_on_the_research_s_plan_run_the_research_and_its_answer_runs_the_review_again() {
@@ -389,12 +389,6 @@ fn the_design_review_s_points_on_the_research_s_plan_run_the_research_and_its_an
     );
     w.hands_in("R2", &[], Vec::new());
     w.hands_in("P1", &[("plan_ok", Some("no")), ("plan_review", None)], Vec::new());
-    assert_eq!(
-        w.round().1,
-        "P2",
-        "the review against the tree judges the same plan first"
-    );
-    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
     let (run, cell) = w.round();
     assert_eq!(cell, "R1", "the research takes the review's points");
     assert_eq!(w.told(run, "R1"), ["plan_review"]);
@@ -403,7 +397,7 @@ fn the_design_review_s_points_on_the_research_s_plan_run_the_research_and_its_an
     assert_eq!(cell, "P1", "the review takes the answer");
     assert_eq!(w.told(run, "P1"), ["plan_review"]);
     w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
-    assert_eq!(w.round().1, "I1", "both reviews passed the plan");
+    assert_eq!(w.round().1, "P2", "the review against the tree judges the plan next");
 }
 
 #[test]
@@ -449,20 +443,37 @@ fn a_write_of_a_cell_s_words_holds_nothing_by_the_answer_kept_not_by_the_words_h
     assert!(!write.empty, "the entry kept holds something");
 }
 
-// The cells a change reaches run in one pass, and the plan's writer answers what they send back at once (design document
-// `data-and-context`, 6): both reviews of the plan judge its first version, each failing it, before the research
-// answers them, and the better-way cell, having handed in once, looks no more (decision
-// the-better-way-is-looked-for-once). With the walk taking the first cell with anything new, the plan stage ran R1, R2,
-// P1, R1, R2, P1, P2, R1, R2, P1, P2.
+/// The version of the block the run started from, where the block had one.
+fn started_from(w: &W, run: RunId, block: &str) -> Option<decide::Seq> {
+    let started = (w.work.records.started.iter())
+        .find(|s| s.run == run)
+        .expect("the run started");
+    started.basis.get(&BlockId::from(block)).copied().flatten()
+}
+
+/// The version of the block the run wrote as it finished, where it wrote one.
+fn written_by(w: &W, run: RunId, block: &str) -> Option<decide::Seq> {
+    let finished = (w.work.records.finished.iter()).find(|f| f.run == run)?;
+    (finished.writes.iter())
+        .any(|x| x.block.as_str() == block)
+        .then_some(finished.at)
+}
+
+// Each review's point on the plan goes to the research before the next review judges the plan (decision
+// the-walk-goes-from-the-first-cell): the review against the tree first judges the plan the design review's point led
+// to, never the plan that point was about, and the design review judges again each plan the research changes. The
+// better-way cell, having handed in once, looks no more (decision the-better-way-is-looked-for-once).
 #[test]
-fn the_plans_reviews_judge_one_version_in_one_pass_and_the_research_answers_both_at_once() {
+fn each_review_s_point_on_the_plan_goes_to_the_research_before_the_next_review_judges_it() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
     w.hands_in("R0", &[], Vec::new());
     let mut ran: Vec<String> = Vec::new();
     let mut step = |w: &mut W, cell: &str, blocks: &[(&str, Option<&str>)]| {
-        ran.push(w.round().1);
+        let (run, under_way) = w.round();
+        ran.push(under_way);
         w.hands_in(cell, blocks, Vec::new());
+        run
     };
     let plan = [
         ("deep_needed", Some("no")),
@@ -473,20 +484,115 @@ fn the_plans_reviews_judge_one_version_in_one_pass_and_the_research_answers_both
     step(&mut w, "R1", &plan);
     step(&mut w, "R2", &[]);
     step(&mut w, "P1", &[("plan_ok", Some("no")), ("plan_review", None)]);
+    let answer = [("deep_needed", Some("no")), ("plan_agent", None), ("plan_review", None)];
+    let answered = step(&mut w, "R1", &answer);
+    step(&mut w, "P1", &[("plan_ok", Some("yes"))]);
+    let (tree_review, cell) = w.round();
+    assert_eq!(cell, "P2");
+    assert_eq!(w.told(tree_review, "P2"), ["plan"]);
+    assert_eq!(
+        started_from(&w, tree_review, "plan_agent"),
+        written_by(&w, answered, "plan_agent"),
+        "the review against the tree first judges the plan the research changed for the design review"
+    );
     step(&mut w, "P2", &[("tree_ok", Some("no")), ("tree_review", None)]);
-    let (run, _) = w.round();
-    assert_eq!(w.told(run, "R1"), ["plan_review", "tree_review"]);
-    let answer = [
-        ("deep_needed", Some("no")),
-        ("plan_agent", None),
-        ("plan_review", None),
-        ("tree_review", None),
-    ];
+    let answer = [("deep_needed", Some("no")), ("plan_agent", None), ("tree_review", None)];
     step(&mut w, "R1", &answer);
     step(&mut w, "P1", &[("plan_ok", Some("yes"))]);
     step(&mut w, "P2", &[("tree_ok", Some("yes"))]);
-    assert_eq!(ran, ["R1", "R2", "P1", "P2", "R1", "P1", "P2"]);
+    assert_eq!(ran, ["R1", "R2", "P1", "R1", "P1", "P2", "R1", "P1", "P2"]);
     assert_eq!(w.round().1, "I1");
+}
+
+// A better way goes to the plan's writer before the plan's reviews judge the plan (decision
+// the-walk-goes-from-the-first-cell): R2 hands in `better_found` while P1 and P2 have the plan new, and R1 runs next.
+// Each review then judges once, and only the plan R1 wrote for the better way, so that no review is spent on a plan
+// about to be replaced.
+#[test]
+fn a_better_way_runs_the_research_before_the_plans_reviews_judge_the_plan() {
+    let mut w = W::started();
+    w.hands_in("S1", &[("place", None)], Vec::new());
+    w.hands_in("R0", &[], Vec::new());
+    let plan = [
+        ("deep_needed", Some("no")),
+        ("plan_owner", None),
+        ("plan_agent", None),
+        ("acceptance", None),
+    ];
+    w.hands_in("R1", &plan, Vec::new());
+    w.hands_in("R2", &[("better_found", None)], Vec::new());
+    let (research, cell) = w.round();
+    assert_eq!(
+        cell, "R1",
+        "the research takes the better way before the reviews judge its plan"
+    );
+    assert_eq!(w.told(research, "R1"), ["better_found"]);
+    let better = [
+        ("deep_needed", Some("no")),
+        ("plan_agent", None),
+        ("better_found", None),
+    ];
+    w.hands_in("R1", &better, Vec::new());
+    let changed = written_by(&w, research, "plan_agent");
+    for (review, verdict) in [("P1", "plan_ok"), ("P2", "tree_ok")] {
+        let (run, cell) = w.round();
+        assert_eq!(cell, review);
+        assert_eq!(
+            started_from(&w, run, "plan_agent"),
+            changed,
+            "{review} judges the plan the better way led to"
+        );
+        w.hands_in(review, &[(verdict, Some("yes"))], Vec::new());
+    }
+    assert_eq!(w.round().1, "I1");
+    let started = |cell: &str| {
+        (w.work.records.started.iter())
+            .filter(|s| s.cell.as_str() == cell)
+            .count()
+    };
+    assert_eq!(
+        (started("P1"), started("P2")),
+        (1, 1),
+        "each review of the plan judged once"
+    );
+}
+
+// A point of the code review goes to the implementation before the test review looks (decision
+// the-walk-goes-from-the-first-cell): T1 hands in a point while T2 and T3 have the change new, and I1 runs next. T1
+// judges the fix, and T2 then judges the changed code first, at the head of the fix, never the code the point was
+// about.
+#[test]
+fn a_code_review_s_point_runs_the_implementation_before_the_test_review_which_then_judges_the_fix() {
+    let mut w = W::planned();
+    w.commits("I1", &[("code", None), ("evidence", None)], &[("head", "c1")]);
+    w.hands_in("T1", &[("review_ok", Some("no")), ("review", None)], Vec::new());
+    let (implementing, cell) = w.round();
+    assert_eq!(
+        cell, "I1",
+        "the implementation answers the code review before the test review looks"
+    );
+    assert_eq!(w.told(implementing, "I1"), ["review"]);
+    w.commits("I1", &[("code", None), ("review", None)], &[("head", "c2")]);
+    let (run, cell) = w.round();
+    assert_eq!(cell, "T1", "the code review judges the fix");
+    assert_eq!(w.told(run, "T1"), ["change", "review"]);
+    w.hands_in("T1", &[("review_ok", Some("yes"))], Vec::new());
+    let (testing, cell) = w.round();
+    assert_eq!(cell, "T2");
+    assert_eq!(w.told(testing, "T2"), ["change"]);
+    let head = started_from(&w, testing, "head").map(|at| w.work.contents[&(BlockId::from("head"), at)].clone());
+    assert_eq!(
+        head.as_deref(),
+        Some("c2"),
+        "the test review first judges the head of the fix"
+    );
+    w.hands_in(
+        "T2",
+        &[("test_ok", Some("yes")), ("needs_testing", Some("no"))],
+        Vec::new(),
+    );
+    w.hands_in("T3", &[("design_ok", Some("yes"))], Vec::new());
+    assert_eq!(w.round().1, "M1");
 }
 
 // The better-way cell runs once a work: the engine writes that it handed in as its first run that dealt with something
@@ -549,7 +655,6 @@ fn the_better_way_cell_runs_until_it_has_handed_in_once() {
     w.hands_in("R2", &[], Vec::new());
     assert_eq!(handed_in(&w), 1);
     w.hands_in("P1", &[("plan_ok", Some("no")), ("plan_review", None)], Vec::new());
-    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
     w.hands_in(
         "R1",
         &[("deep_needed", Some("no")), ("plan_agent", None), ("plan_review", None)],
@@ -577,9 +682,6 @@ fn the_research_woken_by_a_better_way_owes_its_answer() {
     ];
     w.hands_in("R1", &plan, Vec::new());
     w.hands_in("R2", &[("better_found", None)], Vec::new());
-    // The reviews judge the same plan in the pass before the research answers.
-    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
-    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
     let (run, cell) = w.round();
     assert_eq!(cell, "R1");
     assert_eq!(w.told(run, "R1"), ["better_found"]);
@@ -596,7 +698,7 @@ fn the_research_woken_by_a_better_way_owes_its_answer() {
     );
     assert_eq!(
         w.round().1,
-        "I1",
-        "the answer runs nothing, and both reviews passed the plan"
+        "P1",
+        "the answer runs nothing back, and the plan's review judges the plan next"
     );
 }
