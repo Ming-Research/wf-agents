@@ -2068,7 +2068,7 @@ impl Summary {
         // A work that ended stands as its outline has its cells, as its page draws them: why a cell did not run is the
         // walk's reading on a whole flow, which a work on a version no longer installed is not read by.
         let ended = |id: &str| {
-            let finished = (runs.iter())
+            let mut finished = (runs.iter())
                 .filter(|run| run.cell == id && matches!(run.end, Some(RunEnd::Finished { .. })))
                 .map(|run| run.run);
             CellNow {
@@ -2079,7 +2079,7 @@ impl Summary {
                     CellState::NotRun
                 },
                 finished: finished.clone().count(),
-                record: finished.last(),
+                record: finished.next_back(),
                 open: None,
             }
         };
