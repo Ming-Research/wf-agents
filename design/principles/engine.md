@@ -3,12 +3,12 @@
 How the engine that carries out the flow is built, and what it does for the agents.
 
 ### principle decide-purely
-What decides what a work does next is a function of the flow and the configuration the work runs on and of its records alone: it reads no database, clock or network, and changes nothing. Its answer carries its reason as data, which cell runs and because of what, or what the work waits for and who can give it; the page and the command line show that reason in words for their reader and work out none of their own. The same function tells what a changed flow would do to each work.
-Why: A function of its inputs alone can be tested on every case and run again on any recorded history: a new rule for the next step was checked against each step of twenty-three recorded works without running an agent. The two defects a review confirmed in the engine were both in the code that chose the next step, which read and wrote the database as it chose, and the scripted trials had met neither. A wait that names nobody is answered by nobody. (Articles 2 and 7)
+A function of a work's flow, configuration and records alone decides its next step, and what a changed flow would do, reading no database, clock or network and changing nothing. Its reason is data, why a cell runs or what the work awaits from whom, which the page and command line only put in words.
+Why: A pure function can be tested on every case and rerun on any history: a new rule was tried on 23 recorded works, no agent run. Both defects a review confirmed were in next-step code reading and writing the database; scripted trials missed both. A wait naming nobody gets no answer. (Articles 2 and 7)
 
 ### principle state-from-records
-The state of a work is what its records and its pushed commits say: each run, what it handed in, and the versions of what it was built on, kept whole and only added to. What can be worked out from them is not stored beside them, such as where a work stands or what it waits for, unless a measurement shows that working it out is too slow.
-Why: Where a work stood was stored as a cell and the cells that had called it, and each rule had to read that position rightly: one that read the cell alone sent a work back without end as soon as its cell asked for a tool. A position worked out from the records has one reading. Records only added to can be read as of any moment, which is how a fault is traced and a rule checked against the past. (principles one-thing-one-place and the-past-as-it-ran)
+A work's state is what its records and pushed commits say: each run, what it handed in and the versions it was built on, kept whole and only added to. What can be worked out from them, such as where a work stands or what it waits for, is not stored beside them unless measured too slow to work out.
+Why: A stored position, a cell and its callers, had to be read rightly by every rule: one reading the cell alone sent a work back forever once its cell asked for a tool. Worked out from records, a position has one reading, and append-only records show any past moment, to trace a fault or test a rule.
 
 ### principle outside-behind-interfaces
 Everything the engine reaches outside itself (running an agent, a tool, the clock, a notice to a person, storage) is reached through an interface with a real implementation and one for tests.
@@ -31,7 +31,7 @@ The engine starts an agent with a configuration directory of its own, which load
 Why: Other tools take up context for nothing and can be written to, and what an agent reads by itself the engine cannot carry to a later session.
 
 ### principle refuse-as-little-as-must-be
-Every agent is refused two kinds of command: the heavy work that takes the host's processor, such as building and testing, and writing beyond its worktree, such as pushing. Everything else is let through, running, writing and the network included, but for what a line that only reads is refused besides.
+Every agent is refused two kinds of command: heavy work that takes the host's processor, such as building and testing, and writing beyond its worktree, such as pushing. All else is allowed, running, writing and the network included, except what a read-only line is refused besides.
 Why: The worktree is the agent's own, and what it does there changes nobody else's work, while what it could reach beyond it the engine's own guards hold. Each command refused has to go round by the engine, a round more each time.
 
 ### principle the-engine-runs-only-what-needs-it

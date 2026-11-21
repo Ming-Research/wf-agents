@@ -3,7 +3,7 @@
 What the owner's page holds and how it treats the owner.
 
 ### principle the-console-is-where-the-owner-works
-The console is the owner's way in: everything the owner does day to day is done there. A question, an approval and a word to a line show on the item they belong to, where the owner opens them and answers; no other page holds them. No part of the owner's page is designed or changed without the owner's approval: an agent proposes, and nothing changes before the owner has said yes.
+The owner does everything day to day in the console, where each question, approval and word to a line shows and is answered on its own item, and on no other page. No part of the owner's page is designed or changed without his yes: an agent only proposes.
 Why: The owner works from one place and must find everything there. The page is judged by the owner's use (principle owner-taste-judges), and a change made without asking undid what the owner had settled. (Article 8)
 
 ### principle owner-taste-judges
@@ -32,7 +32,7 @@ Why: A control pressed from a view about something else did what the owner could
 
 ### principle typed-words-are-kept
 Every box that takes text keeps what was typed and not sent, through leaving the page, opening something else, a reload and the browser dropping the tab: it is written at each change, by the thing the box belongs to, and only text is kept. A box that takes a secret, such as a token, keeps nothing.
-Why: Losing what the owner typed is a serious defect, and a browser that drops a tab does not promise to run anything as the page leaves. Kept by where the box stands, one box would show another's words; and what is not text, such as an option picked, could come back as something else unnoticed. A secret kept in the browser would lie open there, outside what keeps it.
+Why: Losing what the owner typed is a serious defect, and a browser dropping a tab may run nothing as the page goes. Kept by where a box is, one box would show another's words; what is not text, like a picked option, could come back changed unnoticed; a secret kept in the browser would lie open there.
 
 ### principle given-and-returned-shown-whole
 What a round was given and what it handed back are shown in their own structure: nothing translated, merged, picked out or left out.
@@ -44,7 +44,7 @@ Why: Sentences the page made up for each attribute could not be found in the fil
 
 ### principle told-apart-by-shape
 What the page says to the owner, what was sent to an agent and what an agent handed back each have one fixed look and are told apart by shape. What was sent is shown as it was sent, in order, with no words of the page between, and a notice of the page never looks like something an agent wrote.
-Why: The owner took the first line sent to an agent for a title of the page, and could not tell what was sent from what was shown. Shape tells them apart without reading, in either appearance and to eyes that do not tell colours; a colour for each speaker was turned down, because the colours already mean other things (principle colour-only-for-state).
+Why: The owner took the first line sent to an agent for a page title and could not tell what was sent from what was shown. Shape tells them apart unread, in either theme and to colour-blind eyes; a colour per speaker was turned down, as colours already mean other things (principle colour-only-for-state).
 
 ### principle prose-in-the-page-font
 What an agent or the owner wrote is shown in the page's font; only what is shown as it came (a message as sent, a file, what a tool printed) stays in monospace.

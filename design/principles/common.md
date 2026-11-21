@@ -3,7 +3,7 @@
 What holds for every part of wf-agents and every work done on it.
 
 ### principle converging-fixes
-A kind of problem, once found, is ended by something that converges: an item that fixes it, a decision to live with it recorded with its reason, or a check that catches it. A return sent back is such a problem even when the cell's next round passes: each cause is found once and ended so, while the work goes on; a fixed problem that comes back is a finding about that fix.
+Each kind of problem found is ended by something that converges: an item that fixes it, a decision to live with it and why, or a check that catches it. A send-back counts even if the next round passes: each cause is ended once while the work goes on, and a fix whose problem comes back is a finding.
 Why: Telling someone about one occurrence ends nothing; someone has to type it into a chat every time, which does not scale. A cause left alone sends back a return of every work that reaches the cell, each costing a round, and a work paused at each send-back left its agent idle. (Article 4)
 
 ### principle question-the-solution
@@ -11,12 +11,12 @@ Once a way to solve a problem is chosen, ask again, by reasoning about the probl
 Why: Without that reasoning, a fix solved one problem while making others, and the work did not converge.
 
 ### principle solve-within-the-design-first
-Before a new mechanism is added to the system (a new kind of thing, or a new rule in how it works: a special case, a switch, a second way of doing what one way already does), a clean solution is looked for in the design as it stands: one with no case handled apart, no part going around another and no rule that holds only with exceptions (Article 6). A problem the mechanisms should solve is solved by them, never by a rule added to get around it; what the flow's definition should say is said there, never fixed in the code; and a new mechanism is a change of the design, which is the owner's: where the design as it stands cannot solve a problem cleanly, the work asks the owner in a question it waits for, and builds nothing of a new mechanism until the owner has answered. A mechanism added so is a general rule that holds for every case alike: a need a general rule does not meet is met by changing that rule, never by a special case beside it for one cell, block, kind of work or event.
-Why: Every mechanism is one more that each agent and each later design must know and keep consistent with the rest, and a second way of doing one thing drifts from the first (principle one-thing-one-place). Twice, in designing how the owner's words reach a work's cells, a new rule was proposed where data with versions and an input of each cell's own already served (the design of data and context). The engine's limits gathered five special cases in one day, each reasonable for its one situation, and together a set of rules no one could state. Agents building the flow added, unasked, a datum and a trigger for each pair of cells that answer each other and a trigger made for each cell, none of which the design had (design document `data-and-context`).
+A problem is first solved cleanly (Article 6) within the design as it is, never by a rule around a mechanism or by code doing what the flow should say. A new mechanism waits for the owner's yes and is a general rule: a need it misses changes that rule, never adds a special case beside it.
+Why: Each mechanism is one more to know and keep consistent, and a second way drifts from the first. Twice a rule was proposed where versioned data served; in one day the engine's limits got five special cases no one could state together; agents added unasked triggers per cell and per answering pair.
 
 ### principle one-thing-one-place
 Each thing (a value, a computation, a capability, a rule, a reason) is defined in one place and referred to elsewhere. It has one name everywhere, named for what it is, and a name, field, relation or state carries one meaning, never two folded into one even where they usually go together.
-Why: Two copies drift apart and contradict each other, and a second name is one more thing every reader must learn: reasons once written into the flow definition were sent to agents every round and drifted from the tree's. Two meanings in one tangle: a relation that meant both dependency and grouping, and a status that made an item read five ways and contradict itself.
+Why: Two copies drift apart and contradict, and a second name is one more to learn: reasons copied into the flow were sent every round and drifted from the tree's. Two meanings in one tangle: a relation meant both dependency and grouping, and one status made an item read five ways, contradicting itself.
 
 ### principle report-all-at-once
 A check or a review reports every problem it finds in one pass, stopping early only when a later check depends on an earlier one passing. A requirement only a review would raise, such as measuring a change's effect on speed, is put in the worker's task, so that it is met in the same round.
@@ -43,8 +43,8 @@ A project's configuration and data are in the owner's data directory, the settin
 Why: Kept in this repository, a project's configuration would put the project into the harness (Article 1); kept in each project's repository, shared settings would be copied many times.
 
 ### principle judged-by-own-history
-What the system takes as normal when it watches itself, such as how long a round or a wait may take or how large a context or a cost may grow, is computed from its own history, never written in as a fixed threshold: it reports what leaves the range its history gives, and a guard stops a case its history does not explain. A stop on a count of the same failure is no measurement and keeps its fixed count.
-Why: Agents writing the engine's health checks fixed a threshold for each thing (the time without a reply, the size of a context, the time a round took), and a fixed threshold cannot tell a fault from a case that is legitimately large, and someone must keep setting it by hand. Each look at a slow growth shows nothing wrong, but it adds up, and the owner cannot keep watching. (Article 3)
+When the system watches itself, what it takes as normal, such as a round's time or a context's size, comes from its own history, not a fixed threshold: it reports what leaves that range and stops what history cannot explain. A limit on repeats of one failure measures nothing, so it stays fixed.
+Why: Agents writing health checks fixed a threshold for each thing, like the time without a reply. A fixed threshold cannot tell a fault from a case rightly large, and someone must keep setting it by hand. A slow growth looks fine at each look but adds up, and the owner cannot keep watching. (Article 3)
 
 ### principle tech-mainstream
 A technology is chosen for being mature, mainstream and fit for the project's size, without comparing every alternative.
@@ -87,5 +87,5 @@ Nothing is designed for the machine going to sleep or its lid being closed.
 Why: The machine that runs the engine is always on.
 
 ### principle protected-files-are-the-owners
-The files that govern the agents are protected: the project's guide for its agents, its constitution, the definition of the flow, and what says how the project's checks run; which paths these are, the project's configuration says. The owner changes them. Where an agent's change touches one, the engine holds it: the agent takes the change back, or gives its reason, and the reason is a question to the owner. Changed in a work's branch, by the owner or with the owner's yes, such a file holds for that work from then on, as any file's new content does.
-Why: What an agent can write must not change what governs it, unless the owner has said yes.
+The paths a project protects, such as the agents' guide, constitution, flow and how checks run, are the owner's. The engine holds an agent's change to one at the merge: the agent takes it back or says why, and the engine asks the owner, again for each new change; after a yes it governs that work.
+Why: What an agent writes must not change what governs it unless the owner says yes. A rule in the project's guide, left to the engineer and the review to keep, was missed by both and the change merged (Article 7). The project's configuration names the paths, not the flow (Article 1).
