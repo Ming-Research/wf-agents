@@ -1,3 +1,7 @@
+# Common
+
+What holds for every part of wf-agents and every work done on it.
+
 ### principle converging-fixes
 A kind of problem, once found, is ended by something that converges: an item that fixes it, a decision to live with it recorded with its reason, or a check that catches it. A return sent back is such a problem even when the cell's next round passes: each cause is found once and ended so, while the work goes on; a fixed problem that comes back is a finding about that fix.
 Why: Telling someone about one occurrence ends nothing; someone has to type it into a chat every time, which does not scale. A cause left alone sends back a return of every work that reaches the cell, each costing a round, and a work paused at each send-back left its agent idle. (Article 4)
@@ -19,8 +23,8 @@ A check or a review reports every problem it finds in one pass, stopping early o
 Why: Each problem found on its own, and each requirement raised first by a review, sends the work back one more round. (Article 3)
 
 ### principle every-field-has-a-reader
-Nothing is kept in a return, storage or the flow definition without a reader: a cell, a page or a person who reads it. An agent is not made to fill a fixed list of questions: what does not apply is left out.
-Why: Unattended things pile up, and a return's format is sent with every call of its line. A question an agent cannot answer forces it to make something up, and later steps act on it. (Article 4)
+Nothing is kept in a return, storage or the flow definition without a reader, and no agent fills a fixed list of questions; a field is a text unless a reader reads a part of it exactly, and one another cell returns serves before a new one is made.
+Why: Unattended things pile up, and a return's format is sent with every call of its line, so a shape no reader reads exactly is paid for at every call, while a slip in a text costs one return written again (judged, not measured). A question an agent cannot answer makes it make something up. (Article 4)
 
 ### principle lean-agent-input
 An agent is given only what it needs and does not already have: one thing per sentence; no warning against what it would not do anyway; nothing the flow, a tool or a permission already decides, or a review catches as a slip; nothing a continued session already holds. A prompt is fixed by rewriting a sentence rather than adding one; what must be added is paid for by cutting as much elsewhere, so that the prompt ends no longer than before.
@@ -33,10 +37,6 @@ Why: Code gives no reasons and does not say which paths were rejected; a decisio
 ### principle mechanical-engine
 The engine only carries out the compiled flow: it takes the row a return selects and runs the actions and checks written there. Judgment belongs to agents and the owner, and what a program can do or know exactly is done by a tool or the engine, as a step the flow shows, never asked of an agent.
 Why: A judgment needs someone who can give reasons and be reviewed, and every engine step must be predictable from the flow. An agent doing exact work sometimes gets it wrong, and each mistake costs a round: agents misreading test results caused extra runs. (Article 7)
-
-### principle stateless-cells
-A stage or a page that waits for something, or must remember how far it got, is not built as a small state machine that stops in several places and patches state together; the state machine itself is changed instead.
-Why: Greying out a button or patching state only works around the problem; what is wrong in the state machine stays.
 
 ### principle harness-only
 A project's configuration and data are in the owner's data directory, the settings projects share kept together and the installation's own rules beside them; a project's constitution, design tree and AGENTS.md are in its repository.

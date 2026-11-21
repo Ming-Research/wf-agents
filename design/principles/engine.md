@@ -1,3 +1,7 @@
+# The engine
+
+How the engine that carries out the flow is built, and what it does for the agents.
+
 ### principle decide-purely
 What decides what a work does next is a function of the flow and the configuration the work runs on and of its records alone: it reads no database, clock or network, and changes nothing. Its answer carries its reason as data, which cell runs and because of what, or what the work waits for and who can give it; the page and the command line show that reason in words for their reader and work out none of their own. The same function tells what a changed flow would do to each work.
 Why: A function of its inputs alone can be tested on every case and run again on any recorded history: a new rule for the next step was checked against each step of twenty-three recorded works without running an agent. The two defects a review confirmed in the engine were both in the code that chose the next step, which read and wrote the database as it chose, and the scripted trials had met neither. A wait that names nobody is answered by nobody. (Articles 2 and 7)
@@ -44,8 +48,20 @@ Why: The assistant's context must stay on what it discusses with the owner: a lo
 
 ### principle engine-knows-no-cell
 Neither the engine's code nor the page's names a particular cell or a particular block: each carries out, and draws, whatever the flow's definition holds.
-Why: What is in the definition the owner can read on the chart and the compiler can check before anything runs (Article 7; principle compile-before-run).
+Why: What is in the definition the owner can read on the chart and the compiler can check before anything runs (Article 7).
 
 ### principle no-tool-opens-a-browser
 No tool an agent is given opens a page in a browser or takes a picture of one; searching the web and fetching its pages are another matter.
 Why: The project's pages are tested with a browser in CI, so an agent needs no browser on its own machine.
+
+### principle agents-run-apart-from-the-engine
+What runs the agents (starting an agent's program, keeping its sessions, ending it) is apart from what decides which cell runs, and the two may be on different machines: nothing is designed on the ground that an agent's program can reach the engine's records, its files or its machine.
+Why: The agents are to run wherever there is room for them, and an agent that read the engine's database with a command of its own would work only beside the engine, and would be a second way to the records that the engine neither records nor guards.
+
+### principle what-the-engine-holds-is-asked-in-the-return
+What an agent needs from the engine, such as its records or a check, it asks for in its return, and the engine gives the result to the round that follows; no tool or command of the agent's own program reaches the engine.
+Why: To the model a tool call is the same whether its program or the engine answers it, a return asking for one only ending the round with that intent; asked in the return, a tool works wherever the agent runs, is recorded with what the round handed in, and is declared on its cell on the chart.
+
+### principle the-records-are-found-in-one-query
+Whatever an agent is told by name, each version of a work's data above all, it finds in the engine's records by one read-only query of the work, the name and the version, the store described for agents in a short text made from the schema's own comments.
+Why: Agents write their own queries (principle what-the-engine-holds-is-asked-in-the-return), and one written from a wrong guess about the store reads the wrong thing or nothing, which the agent then judges by (Article 2); a description kept apart from the schema drifts from it. This rests on judgment.

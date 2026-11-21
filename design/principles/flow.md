@@ -1,10 +1,6 @@
-### principle one-flow
-There is one flow, compiled into the program, for every project; what a project needs differently goes in its configuration.
-Why: A flow per project brings switches on the page, batch updates of nearly identical flows, and forked versions. (Article 1)
+# The flow
 
-### principle compile-before-run
-A changed flow is compiled before it is installed, and one that fails the compiler's checks never reaches a running work.
-Why: An error found halfway through a work costs far more than one found at compile time.
+How the flow is designed, changed and tried, and what its agents are given and asked.
 
 ### principle cell-numbering
 A cell's id is its stage's initial and a number, its name staying as its title. A stage numbers its cells in running order with no gap; a cell added or removed renumbers those after it, and the table of earlier ids keeps each recorded round reading as the cell it ran at.
@@ -95,9 +91,9 @@ A cell knows nothing of the other cells: it is given only the data it watches an
 Why: Triggers kept apart from the data grew into a second graph to keep consistent with the first: data with no content made for each cell to be woken, a datum and a trigger for each pair of cells that answer each other, and versions sent on by who wrote them. Each met one case; together they made a work's way through the flow something the owner, watching one work go back from the implementation through the plan's cells, had to ask about at each of three steps. A cell the work reaches by more than it is given cannot be tested on its own data (design document `testing`). This is the flow's side of principle an-agent-knows-only-its-task.
 
 ### principle one-dialogue-for-each-party
-Each agent's cell that judges or doubts another cell's work has a dialogue of its own with that cell, and so has the owner with each cell it speaks to: one datum only the two parties write, so that each word is new to the other party alone (design document `data-and-context`). An act of the engine reads no words and is no party: it is answered by what runs it again (decision an-act-is-answered-by-what-runs-it).
+Each agent's cell that judges or doubts another cell's work has a dialogue of its own with that cell, and so has the owner with each cell it speaks to: one datum only the two parties write, so that each word is new to the other party alone (design document `data-and-context`). An act of the engine reads no words and is no party: it is answered by what runs it again.
 Why: One record for several parties woke every party at each answer, and a datum made for each answer doubled the data and the triggers of every pair, growing with each cell added.
 
 ### principle the-one-woken-owes-the-next-word
 In an open dialogue the party woken owes the next word, and a judge's pass, which closes the dialogue, is written as its verdict alone (design document `data-and-context`). The engine sends back a return that plainly leaves the word owed, as the document says when it does.
-Why: Were every side to answer whenever it is woken, a judge could never pass without a word, and a pass with a word would wake the maker for nothing; owing the next word only in an open dialogue holds both (a judgment, with no case behind it). A side left owing with nothing to send it back stalls the work with nobody woken, as a red check answered in words alone did (decision an-act-is-answered-by-what-runs-it).
+Why: Were every side to answer whenever it is woken, a judge could never pass without a word, and a pass with a word would wake the maker for nothing; owing the next word only in an open dialogue holds both (a judgment, with no case behind it). A side left owing with nothing to send it back stalls the work with nobody woken, as a red check answered in words alone did.
