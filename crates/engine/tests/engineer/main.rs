@@ -21,10 +21,9 @@
 //! 6. The work's head that merges is a version the review dealt with: as the merge's run finishes on a branch the work
 //!    committed to, the branch is at the head the check last passed, and each judge that the head runs and that
 //!    applies, a cell that writes a block the check's preconditions read, was told of a version that says that head
-//!    by a run of it that dealt with it (decision the-check-holds-the-head-to-what-the-review-saw).
+//!    by a run of it that dealt with it.
 //! 7. A work never stalls at the check's gate: after every step, the deciding code does not find it stalled on a key
-//!    that reads a choice the check's record wrote as it failed, which only the owner speaking to a cell would move
-//!    (decision an-act-is-answered-by-what-runs-it).
+//!    that reads a choice the check's record wrote as it failed, which only the owner speaking to a cell would move.
 //!
 //! The first two are judged as each round of the merge begins, and the sixth as the merge finishes, by the histories'
 //! own reading of the records as they were then (`reading`), never by the deciding code's tests.

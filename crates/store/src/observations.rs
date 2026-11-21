@@ -1,12 +1,11 @@
 //! The observations of the installation: what an agent came across beyond its work and wrote in the `observations` of
 //! its returns. Those a run keeps as it finishes (crate `work`, module `observations`) are kept with the rest of the
-//! work, and numbered as they are, so that each is kept once whatever stops between (decision
-//! `observations-kept-with-the-finish`). What it says, its cell and when it was kept are read from the work's records,
-//! which hold them already.
+//! work, and numbered as they are, so that each is kept once whatever stops between. What it says, its cell and when
+//! it was kept are read from the work's records, which hold them already.
 //!
 //! The owner reads them on the page and marks each read. Nothing the engine decides reads them and their tables are
 //! only added to, so they are read, and the owner's reading of one is kept, through connections of their own beside the
-//! engine's turn, as the records of the copies are (decision `observations-read-beside-the-engines-turn`). A connection
+//! engine's turn, as the records of the copies are. A connection
 //! is opened for each call, on a file the store has opened already, so the schema is at its version; it waits for a
 //! lock another connection holds rather than failing.
 

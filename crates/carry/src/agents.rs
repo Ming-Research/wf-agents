@@ -726,7 +726,7 @@ impl Inner {
             }
             // A try the engine that ended left, which printed no return to take: what its result said, where it printed
             // one, or that its engine ended before it saw it end, in the words beside the flows, which fails as a crash
-            // does (decision a-crash-is-tried-again).
+            // does.
             (Err(no), None) => {
                 let why = match had_result {
                     true => no.why,
@@ -978,8 +978,7 @@ impl Inner {
         let measures = (!measured && starts)
             .then(|| measures(&stream, given, before, crossing.is_some(), priced))
             .flatten();
-        // The service served the round: a wait every work shares need not wait for its end (decision
-        // a-wait-is-over-at-the-first-answer).
+        // The service served the round: a wait every work shares need not wait for its end.
         if let Some(teller) = teller {
             tell_try(teller, line, n, more, measures);
             if stream.answered() {
@@ -1467,8 +1466,8 @@ impl Inner {
                 .map(|e| e.at)
         };
         let asked_end = end_of(fork.run, fork.round);
-        // Where the session went on past the round, the fork begins at the round's last message (decision
-        // a-fork-begins-at-the-end-of-its-round); what keeps it from that is found before anything is written.
+        // Where the session went on past the round, the fork begins at the round's last message; what keeps it from
+        // that is found before anything is written.
         let begins = match until {
             None => None,
             Some(_) => {
@@ -1506,7 +1505,7 @@ impl Inner {
                 fork.work.0
             ));
         }
-        // What stands in for an ended work's worktree, which is let go (decision letting-go-at-the-end), is a checkout
+        // What stands in for an ended work's worktree, which is let go, is a checkout
         // with no branch, taken away after: one made now, or one an earlier fork could not take away. The work's own
         // worktree, on its branch, is left to the work's end.
         let standing = if fork.ended {

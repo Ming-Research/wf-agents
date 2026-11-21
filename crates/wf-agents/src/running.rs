@@ -237,8 +237,7 @@ enum Ended<T> {
 
 /// Runs the engine's loop on this thread and the server of the pages on the runtime's other threads, until either
 /// ends. The server is spawned, not waited on together with the loop on this thread, where it would accept no
-/// connection while the loop takes one thing, such as a read of every work (decision
-/// the-pages-server-is-off-the-loops-thread).
+/// connection while the loop takes one thing, such as a read of every work.
 async fn loop_and_server<L, S>(engine: L, server: S) -> Ended<L::Output>
 where
     L: Future,

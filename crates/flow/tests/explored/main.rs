@@ -248,8 +248,8 @@ const NEVER: &[(&str, &str)] = &[
         "the work waited at M2 on checked = yes",
         "The merge waits on checked = yes only where nothing runs the check again after it said no, a stall, which no \
          path of the flow reaches: the implementation's return to a red check leaves what runs the check again, its \
-         commit, a question with an answer to come or what is new to the check already, or is sent back (decision \
-         an-act-is-answered-by-what-runs-it), which the engineer's histories hold with questions in the records \
+         commit, a question with an answer to come or what is new to the check already, or is sent back, which the \
+         engineer's histories hold with questions in the records \
          (crates/engine/tests/engineer). How a stalled work is shown is the engine's test of stalling \
          (crates/engine/tests/loop/stalling.rs).",
     ),

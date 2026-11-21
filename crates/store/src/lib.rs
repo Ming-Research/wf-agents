@@ -18,7 +18,7 @@
 //! all of them in one transaction with the opening, so that a database is either opened at this version or left as it
 //! was. Before that it is copied whole, so that a migration that goes wrong loses nothing ([`before_migration`]). A
 //! migration that gives the rows kept before a value makes the table anew and carries each row across whole, with the
-//! value, in a step of the store after its SQL (decision `a-migration-carries-each-row-whole`).
+//! value, in a step of the store after its SQL.
 //!
 //! The store also keeps what is the installation's and no work's: the pause of everything, set and lifted, with who set
 //! it: the owner, or the engine as it started with works going on; whether the sessions of works that wait are kept

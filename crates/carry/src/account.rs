@@ -1,7 +1,7 @@
 //! The account the agents' program makes its calls under, as the carrier names what the program reads of it. The owner
 //! adds accounts, each a name and a long-lived token the program makes, kept in the login keychain
-//! ([`crate::keychain`]); the account in use is the engine's own state, handed out with every round (decision
-//! the-account-is-handed-out-with-the-round), and the program is given the token of the account a call runs under in
+//! ([`crate::keychain`]); the account in use is the engine's own state, handed out with every round, and the program is
+//! given the token of the account a call runs under in
 //! a variable of its environment. The program runs under no credential but the owner's accounts (decision
 //! no-default-credential): a round and a keep-warm ping under the account in use, a fork under its session's account or
 //! the one in use, a look under each account added, and the check of a token under that token, before it is kept.
