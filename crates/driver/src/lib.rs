@@ -1530,13 +1530,13 @@ impl Driver {
         if let Some(fault) = &self.fault {
             return Err(fault.clone());
         }
-        if let Some((under, found)) = found {
-            if let Some(outage) = outage::outage(Service::Agents, self.decided(), &self.answered, under.as_deref()) {
-                let before = (self.checked.get(&under)).filter(|(of, _)| *of == outage.since);
-                let taken = before.map_or(0, |(_, checked)| checked.taken) + 1;
-                self.checked
-                    .insert(under, (outage.since, Checked { taken, at: now, found }));
-            }
+        if let Some((under, found)) = found
+            && let Some(outage) = outage::outage(Service::Agents, self.decided(), &self.answered, under.as_deref())
+        {
+            let before = (self.checked.get(&under)).filter(|(of, _)| *of == outage.since);
+            let taken = before.map_or(0, |(_, checked)| checked.taken) + 1;
+            self.checked
+                .insert(under, (outage.since, Checked { taken, at: now, found }));
         }
         if let Some(reached) = host_reached {
             self.looked_at_host = Some((now, reached));
