@@ -2,7 +2,7 @@
 told = "listed"
 words = '''
 `observations`: what you came across beyond this work that is worth an item of its own, a defect or something that
-  should change, each a text in English that says what it is and where.'''
+  should change, each a text that says what it is and where.'''
 
 [shape]
 type = "array"
