@@ -4,48 +4,48 @@ How the engine runs on a machine: its own process, where it keeps the works' wor
 
 ### decision one-process-serves-everything
 The engine, its interface and the owner's page are served by one process.
-- rejected: an agent proposed a process of its own serving the page, meeting the engine only through the store; the owner rejected it, because the reasons for splitting them did not hold, and one process answers the owner at once and tells the page straight what happens.
+- rejected: an agent proposed a separate process that serves the page and meets the engine only through the store; the owner rejected it, because the reasons for splitting them did not hold, and one process answers the owner at once and tells the page directly what happens.
 
 ### decision a-new-build-is-installed-by-hand
 A new build of the engine is installed and started by hand: the engine never installs a build or restarts itself.
-- rejected: an agent proposed a deployment in which CI builds a package after a merge and the engine restarts on it when no round runs; the owner rejected it, because changing the engine by hand is fine once the system improves itself and passes acceptance on the test system.
+- rejected: an agent proposed a deployment in which CI builds a package after a merge and the engine restarts on the new package when no round is running; the owner rejected it, because changing the engine by hand is fine once the system improves itself and passes acceptance on the test system.
 - rejected: an agent proposed that the engine install itself and restart on each green commit of main, as wf-board's deploy agent did; the owner rejected it, because a restart holds every work until the owner looks, so a redeploy at each merge would stop the night's works.
 
 ### decision a-works-worktree-is-in-the-data-directory
 A work's worktree is made in the data directory, under `worktrees/`, on a branch of the work's own.
-- rejected: an agent proposed the works' worktrees under the directory of the wf projects; the owner rejected it, because that place is wf's, and wf-agents' worktrees go under its data directory, which git keeps with the worktrees ignored.
-- rejected: an agent proposed keeping the worktrees, the logs and the tools' output apart from the data, as a runtime that may be thrown away; the owner rejected it, because what cannot be thrown away belongs in the data.
+- rejected: an agent proposed putting the works' worktrees under the directory of the wf projects; the owner rejected it, because that directory belongs to wf, and wf-agents' worktrees go under its own data directory, which git keeps with the worktrees ignored.
+- rejected: an agent proposed keeping the worktrees, the logs and the tools' output apart from the data, as a runtime that can be thrown away; the owner rejected it, because what cannot be thrown away belongs in the data.
 
 ### decision agents-run-by-their-programs-print-mode
 An agent's round is one run of its program's print mode, `claude -p` unless the installation names another program.
-- rejected: an agent proposed running the agents through the Claude Agent SDK; the owner rejected it, because with a print mode he can switch accounts in the terminal or move to another program, as many have one, and the SDK showed no advantage it lacks.
+- rejected: an agent proposed running the agents through the Claude Agent SDK; the owner rejected it, because with a print mode he can switch accounts in the terminal or move to another program, since many programs have one, and the SDK showed no advantage that a print mode lacks.
 
 ### decision the-programs-own-system-prompt-stays
-The agents' program keeps its own system prompt, the line's appended after it, and its tool for sub-agents.
-- rejected: an agent proposed loading only the tools the agents use and dropping the program's own system prompt and its sub-agent tool; the owner rejected it, because he would keep the prompt, and leaned to keeping the sub-agents, though unsure of them.
+The agents' program keeps its own system prompt, with the line's system prompt appended after it, and keeps its tool for sub-agents.
+- rejected: an agent proposed loading only the tools the agents use and dropping the program's own system prompt and its sub-agent tool; the owner rejected it, because he wanted to keep the prompt, and leaned toward keeping the sub-agents, though he was unsure about them.
 
 ### decision the-agents-program-streams-its-input-and-output
-The agents' program takes its message as a stream of JSON and gives its output as one, a line for each thing it does.
-- replaced: One result given as the round ends was on main; the owner changed it, because the old engine streamed it, and what an agent is doing was shown so and is to be shown again.
-- replaced: The message given as plain input was on main; the owner changed it, because the old engine streamed it, which can carry pictures.
+The agents' program takes its message as a stream of JSON and gives its output as a stream of JSON too, one line for each thing it does.
+- replaced: One result given at the end of the round was on main; the owner changed it, because the old engine streamed the output and so showed what an agent is doing, and that is to be shown again.
+- replaced: Giving the message as plain input was on main; the owner changed it, because the old engine streamed it, and a stream can carry pictures.
 
 ### decision tool-inputs-are-checked-before-they-stream
-The agents' program is run with the service checking each tool's input as JSON before it streams it, `CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING` set to 0.
-- replaced: Leaving the program to stream tool inputs as they are made was on main; the owner changed it, because mending the returns that came cut off matters, and with that streaming the service no longer checks a tool's input.
+The engine runs the agents' program with `CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING` set to 0, so that the service checks each tool's input as JSON before it streams it.
+- replaced: Leaving the program to stream tool inputs as they are made was on main; the owner changed it, because it matters to mend the returns that came back cut off, and with that streaming the service no longer checks a tool's input.
 
 ### decision no-toolchain-is-installed-in-a-round
-The agents' program is run with `RUSTUP_AUTO_INSTALL` set to 0, so that no toolchain is installed within a round.
-- replaced: Leaving the variable unset was on main; the owner changed it, because a round then downloads no hundreds of megabytes unseen, and a missing toolchain is an error the agent sees.
+The engine runs the agents' program with `RUSTUP_AUTO_INSTALL` set to 0, so that no toolchain is installed during a round.
+- replaced: Leaving the variable unset was on main; the owner changed it, because then a round does not download hundreds of megabytes unseen, and a missing toolchain is an error the agent sees.
 
 ### decision an-agent-ends-with-the-engine
-An agent's program, as every program the engine runs, is stopped as the engine's process ends, however it ends, by a small shell in a group of its own that waits on a pipe the engine holds.
-- replaced: The agents' programs outliving the engine, the next engine stopping the last one's before it runs a round, was on main; the owner changed it, because a program left running spends and changes the worktree unseen: one ran eight seconds past the engine and committed.
+An agent's program, like every program the engine runs, is stopped when the engine's process ends, however it ends, by a small shell in its own process group that waits on a pipe the engine holds.
+- replaced: Letting the agents' programs outlive the engine, with the next engine stopping them before it runs a round, was on main; the owner changed it, because a program left running spends and changes the worktree unseen: one ran eight seconds after the engine ended and committed.
 
 ### decision the-programs-directory-is-the-engines
-The agents' program keeps its settings and sessions in the engine's `profile/` of the data directory, and every command of it is told to keep a session a thousand years.
-- replaced: The program's directory named by the installation's `agents.config_dir`, under the data directory's `agents/`, was on main; the owner changed it, because he did not want that `agents` directory to stay.
+The agents' program keeps its settings and sessions in the engine's `profile/` in the data directory, and every command that runs it tells it to keep a session for a thousand years.
+- replaced: A directory for the program named by the installation's `agents.config_dir`, under the data directory's `agents/`, was on main; the owner changed it, because he did not want to keep that `agents` directory.
 - replaced: The program's own cleanup, deleting a session after thirty days, was on main; the owner changed it, because it deleted the agents' transcripts, which he wanted kept.
 
 ### decision agents-run-as-the-engines-user
-The agents' program runs under the engine's own system user, and nothing of the engine's keeps it from the data directory but the program's own rules.
-- rejected: an agent proposed another system user for the agents, or the data directory refused to their file tools by path and the shell's commands that read files dropped; the owner rejected it, because an agent works in its own worktree, and only some harmless commands were to be opened.
+The agents' program runs as the engine's own system user, and nothing the engine does keeps it out of the data directory; only the program's own rules do.
+- rejected: an agent proposed another system user for the agents, or else refusing the data directory to their file tools by path and dropping the shell commands that read files; the owner rejected it, because an agent works in its own worktree, and only some harmless commands were to be allowed.
