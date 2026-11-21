@@ -3,8 +3,9 @@
 The general and the engineering rules that the flow gives every agent, along with its cell's task.
 
 ### decision the-old-rules-came-back
-Every agent is given the old system's general and engineering rules, brought back as they were and changed only where the new design forces it.
+Every agent is given the old system's general and engineering rules, with their meaning kept, changed only where the new design forces it, and written in plain English.
 - replaced: The rebuild's own words for agents, written without any of the old rules, was on main; the owner changed it, because the old rules held much of value, settled over a long time, including the basic rules for code.
+- replaced: The old rules in their old wording was on main; the owner changed it, because everything in the project is written in plain English.
 
 ### decision the-rules-name-no-block-to-ask-in
 Where the rules send an agent to the owner or to something it must wait for, they name no block: the agent asks the owner, or says it cannot ask, and tells the engine in its return what it waits for.

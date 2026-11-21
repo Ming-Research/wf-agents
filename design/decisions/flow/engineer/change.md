@@ -29,7 +29,7 @@ In every work, three cells on one line review the change, T1 the code, T2 the te
 - rejected: the owner proposed no review after the implementation, to get a first running version going; the owner rejected it, because the review after the implementation is the design tree's most critical step, and the flow serves real work, so it cannot be half made.
 
 ### decision each-review-of-the-change-is-told-what-is-not-its-own
-Each of T1, T2 and T3 is told in one short line what is not its part, such as T1's "Not the tests and not the design tree.", and nothing about the other reviews.
+Each of T1, T2 and T3 is told in one short line what is not its part, such as T1's "Do not review the tests or the design tree.", and nothing about the other reviews.
 - rejected: an agent proposed for each review a sentence naming the others' part and telling it to leave out even a point it could make about either; the owner rejected it, because it was too long.
 - rejected: the owner proposed saying, for each part left out, that the other two reviews have it; the owner rejected it, because that tells the agent the flow has other cells, against principle an-agent-knows-only-its-task.
 
@@ -44,7 +44,7 @@ T1 asks whether each change to a file the project protects is one the work needs
 - replaced: No review of changes to protected files, with the plan's tree review looking only for a principle changed without asking, was on main; the owner changed it, because the reviews must judge such changes too.
 
 ### decision the-design-tree-review-of-the-change-asks-four-things
-T3 asks what in the tree the change goes against without asking, whether its tree changes are exactly the owner's choices, which of his choices it made without asking, and what it leaves untrue.
+T3 asks what in the tree the change goes against unasked, whether each tree change comes from an owner's choice or an entry made untrue, which of his choices it made unasked, and what is left untrue.
 - replaced: Checking the entries against `tree_edits`, and looking for an approach turned down, something done on purpose or a relation between two places left unrecorded, was on main; the owner changed it, because every choice of his goes into the tree, and nothing else does.
 - rejected: an agent proposed that T3 also ask whether an entry is longer than it needs to be; the owner rejected it, because a work goes back from T3 no further than I1, while R1 and D1 write `tree_edits`, so the writer must know what to leave out.
 
