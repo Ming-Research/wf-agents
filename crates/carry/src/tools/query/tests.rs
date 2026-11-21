@@ -549,7 +549,7 @@ fn a_query_of_the_real_store_naming_a_column_its_schema_hides_is_refused_and_one
     let store = store::Store::open(dir.path().join(store::FILE)).unwrap();
     let querying = Querying::new(&on(), Some(&tool("Words.")), dir.path(), store::SCHEMA).unwrap();
     for (table, column) in [
-        ("ran", "account"),
+        ("ran", "directory"),
         ("backup_failures", "why"),
         ("results", "result"),
         ("back", "back"),

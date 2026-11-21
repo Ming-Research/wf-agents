@@ -732,8 +732,8 @@ mod tests {
         let said = answered_with(&repo, RUN_TESTS, r#"{"tests": ["tools::tests::a"]}"#, &[]).await;
         assert!(
             said.starts_with(
-                "The tests and checks you named are not run apart: the whole command runs.\n\nThe check `echo all is \
-                 well` passed."
+                "The tests and checks you named are not run separately: the whole command runs.\n\nThe check `echo \
+                 all is well` passed."
             ),
             "{said}"
         );

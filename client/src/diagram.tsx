@@ -10,7 +10,7 @@
 // draws at its strictest setting, with no markup in its labels, and keeps the page's look and setting whatever the
 // source's own configuration says; and every drawing is cleaned as SVG, with no script and no foreign object. The
 // larger view shows that same cleaned markup, never a drawing made again from the source. A drawing stands in a shadow
-// root of its own (decision a-drawing-stands-apart-from-the-pages-styles).
+// root of its own.
 
 import { type MouseEvent, type PointerEvent, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { MermaidConfig } from 'mermaid';

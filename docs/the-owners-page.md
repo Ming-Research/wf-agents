@@ -120,8 +120,9 @@ and those of its look.
 
 27. Each part of the settings shows first what the page can change and then what only the file can; of the project's
     constitution only its path is written, since its words are the project's own. The owner governs the whole
-    configuration in one place and must see at a glance which is which. A page of its own for the levels alone was
-    turned down.
+    configuration in one place and must see at a glance which is which. The accounts the agents run under stand with
+    what the page changes, though they are the engine's own state and no key of the file: they change at once, where
+    the rest of what the page changes is saved. A page of its own for the levels alone was turned down.
 
 28. In a form written as a whole by one saving, nothing takes effect before it is saved, so what can be on or off
     there is a box to tick and not a switch that acts when pressed; and a list the owner edits row by row is a table.

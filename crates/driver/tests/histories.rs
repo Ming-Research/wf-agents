@@ -9,8 +9,7 @@
 //! every dependencies block agrees with which of the items its item depends on have merged; no work whose
 //! dependencies have not all merged has started a run; and a work never let on has started none. When the driver
 //! stops, what it says was kept is what the store holds. A round or a call of a tool that ended is judged against the
-//! lines of its history as it was when first seen, however the history grew since (decision
-//! `judged-by-the-history-as-it-began`).
+//! lines of its history as it was when first seen, however the history grew since.
 //!
 //! Once people stop, the works left paused are let on as their last act, and the rounds, the tools' calls, the
 //! withdrawals and the stops are answered until nothing more is given: within a bound each work then waits, saying for
@@ -148,19 +147,15 @@ struct Seen {
 /// The model every agent's round of the histories runs on.
 const MODEL: &str = "the model";
 
+/// The account a history that keeps sessions warm runs its agents under.
+const ACCOUNT: &str = "work";
+
 /// The policy the histories' driver is opened with: each line's session kept warm, at most twice in a wait, whoever
 /// holds the work.
 fn warm() -> driver::Policy {
     driver::Policy {
         samples: 3,
-        on: Box::new(|_, _| {
-            Some(engine::RanOn {
-                level: "1".to_string(),
-                model: MODEL.to_string(),
-                effort: None,
-                account: None,
-            })
-        }),
+        model: Box::new(|_, _| Some(MODEL.to_string())),
         warm: Some(driver::Warm {
             life_ms: 3_600_000,
             after_ms: 3_300_000,
@@ -221,10 +216,16 @@ fn every_flow() -> Vec<flow::Compiled> {
 impl History {
     /// A history of the seed, with stops and failures where `faults`, and with the lines' sessions kept warm and the
     /// time waited for now and then where `warming`, which no stop is drawn in: a ping is of the time and lost in a
-    /// stop, so a history with stops would not end as one without.
+    /// stop, so a history with stops would not end as one without. A history that keeps sessions warm runs its agents
+    /// under an account the owner took, since a session is kept warm only under the account in use.
     fn new(seed: u64, faults: bool, warming: bool) -> Self {
+        let mut h = H::with_policy(every_flow(), 2, warming.then_some(warm as fn() -> driver::Policy));
+        if warming {
+            h.add_account(ACCOUNT);
+            h.take_account(ACCOUNT);
+        }
         Self {
-            h: H::with_policy(every_flow(), 2, warming.then_some(warm as fn() -> driver::Policy)),
+            h,
             rng: Rng::new(seed),
             faults: faults.then(|| Rng::new(seed ^ 0x5DEE_CE66_D1CE_F00D)),
             delivers: Rng::new(seed ^ 0xDE11_7E2A_B1E5_0F00),
@@ -532,7 +533,8 @@ impl History {
                         level: "1".to_string(),
                         model: MODEL.to_string(),
                         effort: None,
-                        account: None,
+                        directory: None,
+                        account: Some(ACCOUNT.to_string()),
                     };
                     let ran = Event::Ran { run, attempt: 1, on };
                     if self.act(Act::On(todo.work, ran)).is_none() {

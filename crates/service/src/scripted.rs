@@ -18,7 +18,10 @@ use decide::{CallId, RunId};
 use driver::{Along, Found};
 use store::WorkNumber;
 
-use crate::carriers::{CallReply, Carriers, Network, Outside, Round, RoundReply, Rounds, ToolCall, Tools, WITHDRAWN};
+use crate::carriers::{
+    CallReply, Carriers, Heard, KeptTokens, Network, Outside, Round, RoundReply, Rounds, Token, ToolCall, Tools,
+    WITHDRAWN,
+};
 use crate::script::{Ends, Planned, Script};
 
 /// Agents, engine acts and tools that follow a script.
@@ -59,6 +62,7 @@ impl Scripted {
             slots: self.inner.script.slots.unwrap_or(crate::script::SLOTS),
             outside: Arc::new(self.clone()),
             host: Some(Arc::new(self.clone())),
+            tokens: Arc::new(KeptTokens::new()),
         }
     }
 
@@ -154,11 +158,15 @@ impl Network for Scripted {
     }
 }
 
-/// The outside of the agents' rounds a script runs on is always well: what the script makes a round fail of passes
-/// once the engine checks it.
+/// The outside of the agents' rounds a script runs on is always well, under every account and every token: what the
+/// script makes a round fail of passes once the engine checks it.
 impl Outside for Scripted {
-    fn check(&self) -> Pin<Box<dyn Future<Output = Found> + Send + '_>> {
-        Box::pin(async { Found::Well })
+    fn check(&self, _: Option<String>) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>> {
+        Box::pin(async { Found::Well.into() })
+    }
+
+    fn check_token(&self, _: Token) -> Pin<Box<dyn Future<Output = Heard> + Send + '_>> {
+        Box::pin(async { Found::Well.into() })
     }
 }
 

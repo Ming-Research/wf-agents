@@ -74,7 +74,8 @@ function sources(engine: Engine = { slots: 2, taken: 1, paused: null, keepWarm: 
     loadSettings: async () => fixtureSettings(),
     saveSettings: async () => ({ said: '', committed: false }),
     loadAccounts: async () => fixtureAccounts(),
-    chooseAccount: async () => ({ said: '', committed: false }),
+    account: async () => ({ atLimit: false, resets: null, notLetGo: null }),
+    look: async () => ({ looking: [] }),
   };
   return { works, system, asked, changed: (c: Changed) => listening.forEach((l) => l.onChanged(c)) };
 }
@@ -262,10 +263,10 @@ describe('the System view', () => {
     expect(s.asked.at(-1)?.[0]).toBeLessThanOrEqual(earliest);
     expect(s.asked.at(-1)?.[0]).toBeGreaterThan(earliest - 7 * 24 * 60 * 60 * 1000);
     const before = s.asked.length;
-    act(() => s.changed({ works: [41], items: false, copies: false }));
+    act(() => s.changed({ works: [41], items: false, copies: false, accounts: false }));
     await settle();
     expect(s.asked.length).toBe(before + 1);
-    act(() => s.changed({ works: [], items: false, copies: true }));
+    act(() => s.changed({ works: [], items: false, copies: true, accounts: false }));
     await settle();
     expect(s.asked.length).toBe(before + 1);
   });

@@ -64,7 +64,7 @@ const STALLED: Now = {
   at: 'merge',
   on: [{ test: 'checked = yes', words: 'checked = yes' }],
   by: [{ cell: 'check', why: { kind: 'nothingNew' } }],
-  why: 'It waits for `checked = yes`, which only `check` can make hold, and `check` does not run, as nothing new runs it.',
+  why: 'It waits for `checked = yes`, which only `check` can make hold, and `check` does not run, because nothing new runs it.',
 };
 
 /// A review's verdict that holds the work, for the owner to rule on.
@@ -114,12 +114,12 @@ const OWNERS: [string, Now, Wait][] = [
   [
     'a run at its limit of returns',
     { kind: 'waits', at: 'plan', on: [{ kind: 'call', call: 4, who: 'owner', what: limit }] },
-    wait('limit', "The cell's run had 2 returns sent back, its limit.", { kind: 'goOn', call: 4 }),
+    wait('limit', "The cell's run had 2 returns sent back, which is its limit.", { kind: 'goOn', call: 4 }),
   ],
   [
     'a cell at its limit of runs',
     { kind: 'waits', at: 'plan', on: [{ kind: 'limit', runs: 3 }] },
-    wait('limit', 'The cell ran 3 times in a row for what a cell after it wrote, its limit.', { kind: 'letGo', cell: 'plan' }),
+    wait('limit', 'The cell ran 3 times in a row for what a cell after it wrote, which is its limit.', { kind: 'letGo', cell: 'plan' }),
   ],
   [
     'a pause the engine made',
@@ -345,7 +345,7 @@ describe('a stop that no one waits on', () => {
   it('is a card in the same look, saying what is wrong, for a fault and for a stall, and counts nothing', () => {
     for (const [now, why] of [
       [{ kind: 'fault', words: 'Two entries at 3' } as Now, 'Two entries at 3'],
-      [STALLED, 'It waits for checked = yes, which only check can make hold, and check does not run, as nothing new runs it.'],
+      [STALLED, 'It waits for checked = yes, which only check can make hold, and check does not run, because nothing new runs it.'],
     ] as const) {
       const container = draw(now, [], undefined, none);
       const card = container.querySelector('.cw-waits .cw-choice-holds');

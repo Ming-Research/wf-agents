@@ -86,8 +86,9 @@ pub enum Failure {
     Guarded,
     /// The account's usage limit was reached: no agent round of any work begins until it resets.
     UsageLimit,
-    /// The agents' command line cannot run at all: it is not signed in, its sign-in was refused, or the program is
-    /// missing or ended before it began, having reached nothing. No agent round of any work begins until it runs.
+    /// The agents' command line cannot run at all: no account is in use, the account's token cannot be given or was
+    /// refused, or the program is missing or ended before it began, having reached nothing. No agent round of any work
+    /// begins until it runs.
     CannotRun,
     /// The network cannot be reached: no agent round of any work begins until it can be.
     Offline,
@@ -814,7 +815,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     // in, the work's head it committed among it, what is new to the act already, or an answer to come once the return
     // is taken, to a question it asks or to one that stands with no answer to its latest version. The act reads no
     // words, and an answered question has no answer to come: a work answered with none of these would never run it
-    // again (decision an-act-is-answered-by-what-runs-it).
+    // again.
     if calls == 0 && !told.waits {
         let withdrawn = |name: &str| questions.iter().any(|q| q.withdrawn && q.name == name);
         let to_come = waits

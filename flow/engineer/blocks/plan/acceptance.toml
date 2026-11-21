@@ -1,1 +1,1 @@
-what = "Numbered conditions, in English, each one sentence plainly true or false, saying how it is verified: a test, a measurement and its criterion, a CI job, or reading the diff."
+what = "Numbered conditions. Each is one sentence that is plainly true or false, and says how it is verified: by a test, by a measurement and its criterion, by a CI job, or by reading the diff."

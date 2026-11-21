@@ -837,8 +837,8 @@ fn checked_flow(check_requires: &str) -> Compiled {
 }
 
 // A question the owner has answered gets no answer to come, which is what would run the check again: a return that
-// deals with what the check found, committing nothing and asking nothing, is sent back though such a question stands
-// (decision an-act-is-answered-by-what-runs-it), where taken it would leave the work stalled at the merge.
+// deals with what the check found, committing nothing and asking nothing, is sent back though such a question stands,
+// where taken it would leave the work stalled at the merge.
 #[test]
 fn a_question_answered_does_not_answer_what_the_check_found() {
     let mut w = W {

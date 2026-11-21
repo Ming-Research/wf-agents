@@ -1,6 +1,6 @@
-//! The paths the project protects (`project.toml`, `[protected]`), as a work's change touches them (principles
-//! `protected-files-are-the-owners` and `named-paths-wait-for-the-owner`): the work says why each such change is
-//! needed, or takes it back, and the change waits at the merge for the owner's yes.
+//! The paths the project protects (`project.toml`, `[protected]`), as a work's change touches them (principle
+//! `protected-files-are-the-owners`): the work says why each such change is needed, or takes it back, and the change
+//! waits at the merge for the owner's yes.
 //!
 //! The work's own change under those paths is what its branch's head holds there that main, where the branch left it,
 //! does not: each file it adds, changes or deletes, by its path and the content it ends with, so that main moving on

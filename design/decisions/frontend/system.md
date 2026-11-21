@@ -1,41 +1,26 @@
 # The system
 
-The view of how the whole system stands, and the settings of the installation.
+The view of the state of the whole system, and the installation's settings.
 
-### decision the-page-cuts-the-weeks
-The weeks the system's view counts by are cut by the page, at Monday's midnight in the browser's time zone, and the
-engine counts into the weeks it is given.
-Why: The engine knows no time zone with its changes of clocks. Cut by the engine at a fixed offset the page sent, a
-week across the end of summer time began an hour off, and four weeks came back as five.
+### decision the-copies-stand-on-the-system-view
+The state of the database's copies is shown in the System view's section on what is going on now, and nowhere on the Works page.
+- replaced: A grey, red or orange line at the top of the Works page was on main; the owner changed it, because the backup belongs to the installation and not to a work, and the line told him nothing while all was well.
 
 ### decision the-shared-wait-is-said-without-the-trace
-The wait every work shares is said as what is down since when, what the engine's check found where it found it down, and
-what it holds; it says nothing where it holds no work, and never the round that met it, its error, or when the engine
-checks next. `wf-agents wait` and `list` say the round and the next check.
-Why: The owner has nothing to do with either, and the assistant traces a stop with both (Article 8).
-
-### decision a-number-standing-alone-has-no-border
-A number of the system's view that stands alone, with what it counts under it, has no border round it.
-Why: With a border it reads as the frame of an agent's words, which the page draws in frames.
+The wait every work shares is described by what is down and since when, what the engine's check found, and what the wait holds; never the round that met it, its error, or when the engine checks next.
+- rejected: an agent proposed six sentences, among them the round that met the wait and the command line's own words; the owner rejected it, because the last two sentences and the words saying it was not signed in said one thing three times.
+- replaced: The same last sentence for every cause, that no round begins until the command line runs again, was on main; the owner changed it, because it did not fit a limit, the network or the service, so each cause says what ends it.
 
 ### decision the-page-changes-what-is-tuned-while-the-engine-runs
-The settings' view changes the language the owner reads, each level's model, the highest level an item may be at, the
-context at which the agents' program compacts a line's session, the slots and the account the agents run under; every
-other key only the file changes.
-Why: These are what the owner tunes as works go on, to their cost, their pace and the account's limit; the rest are
-set once as the installation is made, and a wrong one stops the engine as it starts. A box for every key was turned
-down: it would make the whole file a form to save.
+The Settings view changes the owner's language, each level's model, the highest level an item may have, the context past which a line starts a new session, and the slots; the rest only in the file.
+- replaced: Four settings from the installation's file, shown but not changeable on the page, was on main; the owner changed it, because the page showed too little, and what is tuned while works go on should be changed there.
+- replaced: The levels' models set only in the installation's file was on main; the owner changed it, because he wanted the levels' models, and what goes with them, in the page's settings.
 
-### decision settings-are-written-into-the-file-as-it-is
-A change of the settings is written into their file with its comments and its layout kept, only where the file then
-reads as settings, holds each value as asked, and has not changed since the page read it; where git keeps the file, the
-change is committed, and nothing is written onto changes not committed.
-Why: The file is the owner's own writing, with comments that say why each value is what it is, which writing it anew
-from the settings would drop. A commit over changes not committed would say the page made what the owner wrote by
-hand.
+### decision the-accounts-are-used-removed-and-added-there
+Beside them the Settings view lists the accounts: the one in use marked, each other with Use, which acts at once, and Remove, which asks once; an account is added by its name and its token.
+- replaced: A table of the program's directories, one for each account, each signed in by hand and switched to only after the owner said yes, was on main; the owner changed it, because switching no longer loses the sessions, so one press may switch.
 
-### decision a-colour-of-ones-own-is-taken-as-the-picker-closes
-The Settings view takes a colour of the owner's own on the browser's `change`, which its colour picker sends as it
-closes, and not on each `input` while the owner drags in it.
-Why: Taken at each step of a drag, every step would draw the whole page again and say again why a colour is refused,
-the line coming and going as the drag crosses a bound.
+### decision the-usage-column-names-the-services-windows
+An account's Usage, its table's second column, shows on one line each window the service names, how much of it is used, and how long until it resets and when, counting down while the view is open.
+- replaced: The columns Account, Added, Token lasts until and Usage, with a reset given as a date, was on main; the owner changed it, because the day added and the token's end were of no use, and he wanted to see how long until each reset.
+- replaced: A usage limit shown only for an account under which a round had hit it was on main; the owner changed it, because when switching he most wants to know which account has the most left.

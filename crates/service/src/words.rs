@@ -63,6 +63,8 @@ impl fmt::Display for Refusal {
                     call = call.0
                 )
             }
+            Refusal::NotKept(why) => f.write_str(&sentence(&format!("no account was added: {why}"))),
+            Refusal::Closed(why) => f.write_str(&sentence(&format!("no account can be added or taken: {why}"))),
             Refusal::Gone => f.write_str("The engine is not running."),
         }
     }
@@ -91,6 +93,12 @@ fn failed_words(failed: &Failed) -> String {
         Failed::NoSuchFlow(flow) => format!("there is no flow named {flow}"),
         Failed::Refused(refused) => refused_words(refused),
         Failed::Stopped { fault, .. } => format!("the engine stopped: {}", driver_fault(fault)),
+        Failed::AccountName(why) => why.clone(),
+        Failed::NameInUse(name) => format!("an account named {name} is added already: give the new one another name"),
+        Failed::NoSuchAccount(name) => format!("there is no account named {name}"),
+        Failed::RemovingInUse(name) => {
+            format!("the agents run under {name}: take another account first, then remove it")
+        }
     }
 }
 

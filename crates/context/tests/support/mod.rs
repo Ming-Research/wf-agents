@@ -375,6 +375,7 @@ impl Sim {
             level: "2".to_string(),
             model: "a model".to_string(),
             effort: None,
+            directory: None,
             account: None,
         };
         self.take(Event::Ran {

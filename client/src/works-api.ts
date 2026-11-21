@@ -959,12 +959,13 @@ export interface Refusal {
   kept?: boolean;
 }
 
-/// Something happened: these works grew, the items changed where `items`, and the copies of the database may have
-/// changed where `copies`.
+/// Something happened: these works grew, the items changed where `items`, the copies of the database may have changed
+/// where `copies`, and the accounts, their usage or their usage limits where `accounts`.
 export interface Changed {
   works: number[];
   items: boolean;
   copies: boolean;
+  accounts: boolean;
 }
 
 /// Sends something to the interface; gives why where it is refused.

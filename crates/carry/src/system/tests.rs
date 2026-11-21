@@ -98,8 +98,8 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
         "# `AGENTS.md`\n\n# Working here\n\nThe guide.",
         "# `design/constitution.md`\n\n# The constitution",
         "# `design/README.md`\n\n# The design tree",
-        "- Check each fact when you write it",
-        "How an engineer works",
+        "# How every agent works\n\n- Check each fact when you write it",
+        "# How an engineer works",
         "# How you work here",
         "## How you return",
     ];
@@ -115,7 +115,7 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
     );
     assert!(engineer.contains("`.github/workflows/`: change what is there only where the work needs it. Never"));
     assert!(
-        engineer.contains("\n- `protected_changes`: of each file the project protects"),
+        engineer.contains("\n- `protected_changes`: for each file the project protects"),
         "{engineer}"
     );
     for named in [
@@ -123,7 +123,7 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
         "`project.research` (research/)",
         "`owner.language` (Chinese)",
         "and checks among `lint`;",
-        "`project.test_names` (An agent names to `run_tests` a test by the name its JUnit",
+        "`project.test_names` (To name a test to `run_tests`, an agent gives the test's name",
     ] {
         assert!(engineer.contains(named), "{named}:\n{engineer}");
     }
@@ -141,12 +141,12 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
 #[test]
 fn the_testers_system_prompt_says_it_changes_only_the_projects_tests() {
     let tester = of("tester");
-    let told = "Make your changes there and commit them there. Change only the project's tests, the files \
+    let told = "Make your changes there and commit them there. Change only the project's tests, the files that \
                 `:(glob)crates/**/tests/**`, ";
     assert!(tester.contains(told), "{tester}");
     assert!(
         tester.contains(
-            "`:(glob)client/**/fixtures.ts` match; where a test must go into another file, say so in what you hand in. \
+            "`:(glob)client/**/fixtures.ts` match. If a test must go into another file, say so in what you hand in. \
              The project protects `AGENTS.md`, "
         ),
         "{tester}"
@@ -534,7 +534,7 @@ fn the_store_the_words_of_query_name_is_what_the_settings_say_of_it() {
 
 /// The five columns of the real schema that hold what agents may not read, each with its table.
 const HIDDEN_COLUMNS: [(&str, &str); 5] = [
-    ("ran", "account"),
+    ("ran", "directory"),
     ("backup_failures", "why"),
     ("results", "result"),
     ("back", "back"),

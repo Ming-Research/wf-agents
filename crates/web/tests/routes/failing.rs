@@ -149,7 +149,7 @@ async fn a_command_line_that_cannot_run_is_what_each_work_waits_on_the_owner_for
     failing.run = 2;
     failing.asks = None;
     failing.took = Default::default();
-    failing.fails = Some("It is not signed in.".to_string());
+    failing.fails = Some("no account is in use".to_string());
     failing.failure = Some(Failure::CannotRun);
     plan.rounds.push(failing);
     let running = running_scripted(Box::new(store), dir, script);

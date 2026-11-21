@@ -1,114 +1,49 @@
 # The works
 
-The list of works and the page of one work.
-
-### decision taken-is-the-time-under-way
-The time a work has taken is the time its rounds were under way, without its waits.
-Why: By it the owner judges whether a work runs too long, which the time since it started cannot tell.
-
-### decision a-round-shows-what-was-new-first
-A round's part shows what was filled into its session before the system prompt of its session and the message each
-try was sent, as they were kept.
-Why: What was filled is what was new to the round; one list of a round's inputs, those sent in bold and those its
-session held in grey, was turned down: it did not show what the agent got that round.
-
-### decision what-an-agent-does-comes-on-a-stream-of-its-round
-What a round's agent does is given on a stream of the round's own, which the page that has the round open opens:
-every thing from the round's start, every try in order, then the round's end. The engine follows the file the agent's
-program writes, from where it last read, every half second while the stream is open, and its stream of changes says
-nothing of it; the whole of a round's history is given at once beside it. The page adds each thing to its list as it
-comes and never reads the list anew while it follows the round; a stream it loses it follows again a few seconds later,
-passing over as many things as the list holds, which the stream tells again first.
-Why: Asked every few seconds for the last things of the end of the latest try's file, the page's list jumped, came
-up short past a tool's long result and emptied as a new try began. The engine's loop never sees what an agent does,
-and a change on its one stream for each line would have every page read its works again many times a minute, where a
-stream of the round costs only the page that follows it.
-
-### decision the-model-a-round-recorded
-What a work used shows each model at the level and effort its rounds recorded they ran at.
-Why: Showing it by what the settings say when the page is looked at was turned down: a later configuration may give a
-level another model, and the past would be read by today's (principle the-past-as-it-ran).
-
-### decision each-gap-says-its-length
-Each stretch on a work's line of time in which nothing ran says its own length on pointing at it.
-Why: One number for all the gaps was turned down: two gaps of plainly different lengths sharing one number say nothing
-of either.
-
-### decision a-works-page-shows-its-item-window
-A work's page shows the console's item window for the work's item, in the console's window over its right, its Step
-showing the row of the history chosen (decision one-window-on-the-console-and-a-works-page); what the owner answers,
-chooses and writes is there alone, and nothing the window shows is said again in the view's line.
-Why: What the owner answers and chooses belongs to the item, and each thing has one place (Article 8). A panel of the
-work's own docked at the chart's right was turned down: the owner could not see the item from the work, and the list of
-blocks it showed with nothing chosen meant nothing to the owner.
-
-### decision a-row-is-a-run
-A row of a work's history is a run of a cell, and its left names only what woke it, an answer of the owner's by the
-question it answered. A pause, a resume, a cancel or a reopening of the work is a row half as high between the runs it
-fell between, a dashed line in the accent with what was done and when at the right; one before the first run, as of a
-work added paused and let on, is none. An act of the owner's that woke no
-run, a write of the outside's that woke none, and a new session are no row.
-Why: A column holds one kind of thing (principle a-column-holds-what-is-alike): rows of acts put the act itself where
-the runs' rows put what woke them. What the owner did is in the item's window over the history, the question answered
-and the words said; a write of the outside's that woke nothing is the engine's own bookkeeping, such as
-`asked = waiting`. A pause marked only on the next run's edge was turned down: it hid how long the work stood and why.
-
-### decision a-run-is-marked-as-the-strip-marks-its-cell
-A run's mark in a work's history is one of the states the console's strip draws a cell in, with the strip's look and
-name: handed in for a run that finished, runs again for one abandoned. Whether a finished run changed anything is no
-state of it: the arrows to the runs it woke show what it wrote.
-Why: The history had states of its own, handed in nothing new drawn as the dash the strip draws for skipped, and
-abandoned; one thing drawn two ways, and two things one way, across two views (Article 8).
-
-### decision a-write-woke-what-its-meaning-woke
-A write woke a run where a change of the block is among the run's causes and the version of the block the run started
-from has, as its meaning, the version the write wrote. A run's row names, of the writes that woke it, the latest, and
-after it every other write of the owner's made since the cell's run before.
-Why: The records name a run's cause by its block and not by the write. Naming the version the run started from was
-turned down: a later version that kept the meaning woke nothing. An act of the owner's that woke a cell has no row of
-its own, so named only where it is the latest it would be lost from the history; named in every run it stayed new to,
-it read as said again each time.
-
-### decision the-history-goes-under-the-window
-A work's history keeps its whole width under the window over its right, as the flow's chart does, so that the window
-may cover its last column, how long each run took and what it ran on, while it is out; the frame scrolls on past what
-the window covers.
-Why: What woke each run and the marks are what a row is, and how long it took and what it ran on are read least
-(judgment); drawn alike, the history and the flow's chart behave alike under the window (Article 8).
-
-### decision a-version-is-shown-by-who-wrote-it
-A work's page names who wrote each version by the rule a round is told it by (decision
-a-version-is-told-by-the-line-that-wrote-it): the owner, the run that wrote it, or the outside.
-Why: The record of a write from outside names no one, the owner's words, a cell's ask and the owner's answer all being
-written by the engine's sources, so by the record alone the owner's words read as the outside's; a rule of the page's
-own would be a second copy, which could name another writer than the round is told (principle one-thing-one-place).
+The list of works and the page of one work, whose history is drawn as the flow's matrix.
 
 ### decision the-list-is-ordered-by-a-column
-The list of works is ordered by one of its columns, when something last happened, the latest first, until the owner
-presses the head of another; a work's state orders it only by its own column, where the owner picks it.
-Why: The list is the record of every work, for the owner to look back at, and what needs the owner now is the
-console's (principle the-console-is-where-the-owner-works). Putting first what waits for the owner, then a fault, what
-goes on, what is paused and what has ended was turned down: an order no head of the list shows is hidden from the owner.
+The list of works shows #, Title, State, Cells, Level, Cell level, Cost, Time and Last, sorted by Last, latest first, until the owner presses the header of another column.
+- replaced: The columns Item, Title, Now, Cells, Taken and Last, sorted in five tiers of state that the list did not show, was on main; the owner changed it, because the order looked random, Now was too wide for a short word, and Taken held four things.
+- rejected: an agent proposed columns of fixed widths, sortable only by #, Cost, Time or Last; the owner rejected it, because each column must widen when its header is dragged, and a click on the header of every column that has an order must sort by it.
+- rejected: the owner proposed the model's name beside each level; the owner rejected it, because level and model are two layers, another vendor's names are long, and an ended work would show the model that today's mapping gives.
 
-### decision a-raise-is-what-the-line-says
-How far the line of the cell a work stands at raises it is given as the line's `levels_above` says, beside the level
-the cell runs at, and is never worked out as the distance between that level and the work's.
-Why: The highest level an item may be at holds a raised cell's level down, so that an item at that level runs the
-cell at its own level; the distance would then be nought, and a cell its line raises could not be told from one it
-does not.
+### decision taken-is-the-time-under-way
+The time a work has taken is the time its rounds were under way, not counting its waits.
+- rejected: an agent proposed counting a work's time from its start; the owner rejected it, because time counted from the start does not show whether a work ran too long.
 
-### decision an-engine-cell-has-no-level
-The level of the cell a work stands at, which the engine gives with the work's own, is none at an engine cell, as at no
-cell at all.
-Why: A level chooses the model an agent's rounds run on (decision a-level-is-a-difficulty), and an engine cell's act
-runs on none; given the item's level, the list would say that a model of that level runs the merge.
+### decision a-works-page-shows-its-item-window
+A work's page shows the console's item window for the work's item over its right side, its Step showing the chosen row of the history; only there does the owner answer, choose and write.
+- replaced: A work's page showing only the records of its runs, separate from the item's window, was on main; the owner changed it, because from a work he could not look back at its item.
+- rejected: an agent proposed the item's window at the left of the history; the owner rejected it, because in every other view the window opens on the right, and its tabs must be the same as the console's.
+- replaced: The work's usage shown and hidden by a click on the figures in the view's line was on main; the owner changed it, because it belongs in a tab of the window.
+- replaced: A list of every block's versions, open by default, was on main; the owner changed it, because it is how the engine stores data, which meant nothing to him.
+- replaced: A pinned line saying why the work stopped, and a box that could write any block, was on main; the owner changed it, because the console says it where it happens, and each thing the owner writes has its own place.
 
-### decision a-runs-inputs-are-what-its-cell-is-given
-The Inputs of a run are the blocks the flow gives its cell, each at the version the run began with; the versions it
-began with of a block it may only write are no part of them, and what it wrote of those is under Handed in.
-Why: The engine gives a run the version of every block its cell may write so that it can tell whether a hand-in
-changed anything; that is its own bookkeeping, which the owner's page does not show for existing (constitution,
-Article 8), and shown as an input it read like a datum the cell had been given. The engine's own `outputs` list, which
-names a cell's outputs among what it is given so that a cell brings them up to date, was turned down as the page's
-notion of what a cell is given: the page has one, the flow's `every_agent`, `reads` and `watches`, and the flow's view
-shows a cell's outputs in a fold of their own.
+### decision a-works-history-is-the-flows-matrix
+A work's history is drawn as the flow's matrix: the cells across, under the matrix's headers and the rows of its lines; one row per run, holding only the run's mark, in its cell's column, outlined.
+- replaced: A long list of the engine's records, one line each, was on main; the owner changed it, because the matrix's logic is the flow's, so the page should draw the history the same way.
+- rejected: an agent proposed a box for each run in the matrix's columns with a short text after each row; the owner rejected it, because a cell full of words says less than the matrix's one mark.
+- replaced: A history that did not show the lines, by which cells share a session, was on main; the owner changed it, because the lines should show plainly, drawn with the flow's own parts so that the two never drift apart.
+- replaced: A light background on the cell that ran, instead of its outline, was on main; the owner changed it, because on a dark page the background could hardly be seen.
+
+### decision a-row-is-a-run
+Each row of a work's history is one run of a cell, with what woke it named at the left; a pause, a resume, a cancel or a reopening is a half-height row between runs, a dashed line in the accent.
+- replaced: Rows also for the owner's actions that woke no cell, and for pauses and resumes, was on main; the owner changed it, because the left column then held two kinds of thing, while it should say what woke each run.
+- rejected: an agent proposed that the engine record why a cell's turn came, to say more than first run; the owner rejected it, because a cell runs only when an input changed, and the row's latest input and the order of the rows say that.
+- rejected: an agent proposed a thin rule between the runs for a pause; the owner rejected it, because a thin rule holds no words.
+- rejected: an agent proposed no row for a pause, but a thick top edge on the run after it; the owner rejected it, because that would not show how long the work was paused or who paused it.
+- replaced: Pauses and resumes before a work's first run, drawn like any other, was on main; the owner changed it, because shown there they mean nothing.
+
+### decision a-wake-is-an-arrow-from-the-writer
+An arrow runs under the cells, from the middle of the column of the cell whose run wrote what woke a run, to that run's own column; it is in the accent where it runs back.
+- rejected: an agent proposed naming the datum at the left with the flow's signs of who writes, and marking in each cell what a run handed in and what it woke; the owner rejected it, because one arrow from the cell that wrote to the run says both.
+
+### decision the-history-goes-under-the-window
+What woke a run is at the left of its row, and how long it took and what it ran on are at the right, where the window over the history may cover them while it is out.
+- replaced: What each step did, every block it handed in, at the far right was on main; the owner changed it, because the window covered it there, and why a run ran matters more than when.
+- replaced: When each run began, in the right column, was on main; the owner changed it, because how long each row took is what he wants to see there.
+
+### decision the-model-a-round-recorded
+At a run's right, a work's history names the level, the reasoning effort and the model that the run's latest round recorded it ran on, and none for a run of an engine cell.
+- replaced: A history that named no level, effort or model was on main; the owner changed it, because each round records the model it ran on, which no later change of the settings makes untrue.

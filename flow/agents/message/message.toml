@@ -15,12 +15,12 @@
 
 # What a session compacted during a round is told before the round's message is given to it again, whole: a
 # compaction counts as the session reopened.
-compacted = "Your session was compacted during this round. What the round was told, again, whole, as to a session that begins; carry on with the round's work."
+compacted = "Your session was compacted during this round. Here is everything the round was told, again and in full, as for a session that is just beginning. Carry on with the round's work."
 
 # What the owner says to a round while it runs, given to its session right after its next use of one of its program's
 # own tools, as the owner's version of the cell's words reads: `{entry}` the version, `{block}` the datum's name,
 # `{number}` its version, and `{do}` what the cell does when its words are new, as the part `new` below says it.
-said = "## `{block}`, version {number}, said while this round runs\n\n{entry}\n\nIt is new to this round{do}\n\nStop where you are and hand in your answer now, in an `outcome` that names `{block}` in its `dealt_with`."
+said = "## `{block}`, version {number}, said while this round is running\n\n{entry}\n\nIt is new to this round{do}\n\nStop where you are and hand in your answer now, in an `outcome` that names `{block}` in its `dealt_with`."
 
 # `{taken}` is each block in `each`, `{block}` its name and `{number}` the version it is kept as, with `between`
 # between two of them.
@@ -52,8 +52,8 @@ kind = "latest"
 only = "takes_main"
 text = "{name} at {main} was merged into the work's branch as the commit {merge}; `git diff --name-only {merge}^1 {merge}` shows what it changed."
 conflict = "{name} at {main} was not merged into the work's branch: it conflicts in {files}."
-uncommitted = "{name} at {main} was not merged into the work's branch: the worktree holds changes not committed, {changes}."
-merging = "{name} at {main} was not merged into the work's branch: a merge is under way in the worktree, not committed, {changes}."
+uncommitted = "{name} at {main} was not merged into the work's branch: the worktree has changes that are not committed, {changes}."
+merging = "{name} at {main} was not merged into the work's branch: a merge is under way in the worktree and is not committed, {changes}."
 failed = "{name} was not merged into the work's branch."
 between = ", "
 
@@ -97,4 +97,4 @@ each = "\n- `{datum}`{versions}{do}"
 since = ", new since version {last}, now version {latest}"
 first = ", version {latest}"
 do = ": {do}"
-after = "\n\nOnly these ran this cell: name in `dealt_with` each you have dealt with, by the name between its backquotes, without them. One you leave out runs this cell again."
+after = "\n\nOnly these ran this cell. In `dealt_with`, name each one you have dealt with, by the name between its backquotes, without the backquotes. Any you leave out runs this cell again."

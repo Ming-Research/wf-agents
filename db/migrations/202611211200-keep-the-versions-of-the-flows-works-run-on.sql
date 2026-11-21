@@ -1,4 +1,4 @@
--- From version 20 of the schema to version 21: each version of a flow a work runs on is kept once, as its files, each
+-- From version 21 of the schema to version 22: each version of a flow a work runs on is kept once, as its files, each
 -- file once, and its outline; each work says from which place on it ran on which version; and what a work's time went
 -- to is kept as it ends. A work kept before has none of them, and is put on a version, or on none, as the engine first
 -- starts with them. The version's one row is replaced last.
@@ -24,4 +24,4 @@ CREATE TABLE kept_time (
     stretches TEXT NOT NULL,
     PRIMARY KEY (work, at)
 );
-UPDATE schema_version SET version = 21;
+UPDATE schema_version SET version = 22;

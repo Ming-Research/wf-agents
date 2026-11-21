@@ -214,8 +214,8 @@ pub struct ProgramWords {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckWords {
-    /// The command line is not signed in, as `{command} auth status` says.
-    pub signed_out: String,
+    /// No account is in use, which the check is taken under: nothing is run.
+    pub no_account: String,
     /// The network does not reach the agents' service.
     pub offline: String,
 }
@@ -325,9 +325,9 @@ pub struct Project {
     pub heavy: Commands,
 }
 
-/// The paths of the project's checkout that govern its agents, which the owner changes (principles
-/// `protected-files-are-the-owners`, `named-paths-wait-for-the-owner`): where a work's own change touches one, the
-/// check before the merge holds it until the owner lets it merge, asking in the words of [`Asks`].
+/// The paths of the project's checkout that govern its agents, which the owner changes (principle
+/// `protected-files-are-the-owners`): where a work's own change touches one, the check before the merge holds it until
+/// the owner lets it merge, asking in the words of [`Asks`].
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Protected {

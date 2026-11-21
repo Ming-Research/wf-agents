@@ -1,9 +1,7 @@
 # What the engine reads of a work's branch
 
-### decision the-branch-is-read-in-one-step
-The data of a work's branch, its design tree and the work's head, are read in one step, at the branch and not at what its worktree has checked out: as the start makes the work's place, so that the first session begins with versions the records hold, in the round that takes main in for a run, as each round of the work ends, by the check as it judges and by the merge before it merges. A version is written only where what is read differs from the latest, and each datum says in one place what makes one.
-Why: Two readings would drift apart in when they read and in what they count as new. A run's later rounds read nothing as main is taken in, since what they would find is what the run's earlier rounds committed.
+What the engine reads from a work's branch, and to whom it attributes what it reads.
 
 ### decision a-version-read-at-a-rounds-end-is-that-rounds
-What is read as an agent's round on a line that may change the work ends is what the round committed: its return hands it in, and its run writes it as it finishes. Anything else is no round's and is written from outside: what is read as main is taken in, put into that round; what the end of a round of a line that only reads finds; what an act reads. A round that failed, or whose return was sent back, hands in nothing, and what it committed is read at the end of the round that takes it up.
-Why: Written from outside, a tester's commit would be an outside reason for the review to run, which sets the review's bound on going round back to nought, and a round's own change of the design tree would be told to its session as new. Written from outside as a round fails, a commit would run the review on half-done work before the round is taken up; waiting loses nothing, the check reading the head in any case. That a person's commit made while a round runs is taken as the round's rests on judgment: nothing tells the two apart.
+What a round of a line that may change the work has committed is read when the round ends and handed in by that round, never written as coming from outside.
+- rejected: an agent proposed writing every new head read from the branch as coming from outside; the owner rejected it, because a tester's commit would then set the review's limit on going round back to zero.

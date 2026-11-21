@@ -3,6 +3,7 @@
 //! runtime's time paused so that each round ends when the script says. The tests are kept in modules by subject, so
 //! that a new test goes into the module of what it tests.
 
+mod accounts;
 mod acts;
 mod attention;
 mod calls;

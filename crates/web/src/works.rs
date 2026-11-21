@@ -1805,6 +1805,20 @@ pub struct ForkPage {
     pub later: Vec<(u64, usize)>,
     /// The file the answer is kept in, on the engine's machine.
     pub kept: String,
+    /// The account the fork ran under.
+    pub account: String,
+    /// Why that is the account in use and not the one the session ran under, whose cache holds the session, where it
+    /// is.
+    pub instead: Option<ForkInstead>,
+}
+
+/// Why a fork ran under the account in use and not the one its session last ran under: that one was removed, or the
+/// session ran under none.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ForkInstead {
+    Removed { account: String },
+    NoAccount,
 }
 
 impl ForkPage {
@@ -1819,6 +1833,11 @@ impl ForkPage {
             round: (forked.round.0.0, forked.round.1),
             later: forked.later.into_iter().map(|(run, round)| (run.0, round)).collect(),
             kept: forked.kept,
+            account: forked.account,
+            instead: forked.instead.map(|instead| match instead {
+                service::Instead::Removed(account) => ForkInstead::Removed { account },
+                service::Instead::NoAccount => ForkInstead::NoAccount,
+            }),
         }
     }
 }
@@ -1910,14 +1929,15 @@ pub struct Added {
     pub work: u64,
 }
 
-/// Something happened: these works grew, an item was added where `items`, and the copies of the database changed where
-/// `copies`.
+/// Something happened: these works grew, an item was added where `items`, the copies of the database changed where
+/// `copies`, and the accounts, their usage or their usage limits changed where `accounts`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Changed {
     pub works: Vec<u64>,
     pub items: bool,
     pub copies: bool,
+    pub accounts: bool,
 }
 
 /// Why something asked of the interface was refused, in words.
@@ -2978,6 +2998,7 @@ impl Changed {
             works: changed.works.iter().map(|work| work.0).collect(),
             items: changed.items,
             copies: changed.copies,
+            accounts: changed.accounts,
         }
     }
 }
@@ -3593,7 +3614,8 @@ mod tests {
         };
         assert_eq!(
             stalled_words(words, &[key("checked = yes")], &[stalling("M1", Unrun::NothingNew {})]),
-            "It waits for `checked = yes`, which only `M1` can make hold, and `M1` does not run, as nothing new runs it."
+            "It waits for `checked = yes`, which only `M1` can make hold, and `M1` does not run, because nothing new \
+             runs it."
         );
         // The cell it stands at, which every reader says beside it, it does not name.
         assert_eq!(
@@ -3612,7 +3634,8 @@ mod tests {
         assert_eq!(
             stalled_words(words, &[key("ready"), key("done")], &by),
             "It waits for `ready` and `done`, which only `review` or `check` can make hold, and `review` does not run, \
-             as it is skipped, `big = yes` not holding, and `check` does not run, as the cell the work stands at holds it."
+             because it is skipped, `big = yes` not holding, and `check` does not run, because the cell where the work \
+             stands holds it back."
         );
     }
 

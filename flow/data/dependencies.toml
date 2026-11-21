@@ -6,6 +6,6 @@ from = "dependencies"
 # `between` between two, one whose work was cancelled as `cancelled` says, `{item}` its number.
 [writes]
 merged = "Every item this one depends on has merged."
-waiting = "Waits for the items {items} to merge."
+waiting = "The work waits for the items {items} to merge."
 cancelled = "{item} (cancelled)"
 between = ", "

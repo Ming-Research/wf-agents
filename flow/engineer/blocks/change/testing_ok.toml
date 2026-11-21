@@ -1,4 +1,4 @@
-what = "yes when none of the testing's tests is red on the change and no suspicion stands; no otherwise."
+what = "yes when none of the tests the testing wrote is red on the change and no suspicion remains; no otherwise."
 values = ["yes", "no"]
 from = "owner"
 shown = true

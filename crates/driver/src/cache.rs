@@ -5,8 +5,9 @@
 //! of the round before and the round's own message, which after a round of tools is large.
 //!
 //! A miss after what comes before the session's messages in the prompt changed since the call before (the model, the
-//! effort, the program's version, the system prompt, the schema, the tools) is what the agents' program does by
-//! design, and is expected; any other is a fault of wf-agents, whichever project it came up in. A round after the
+//! effort, the account, whose cache is its own, the program's version, the system prompt, the schema, the tools) is
+//! what the agents' program does by design, and is expected; any other is a fault of wf-agents, whichever project it
+//! came up in. A round after the
 //! cache's lifetime writes its session again whole by design too, and is no miss: keep-warm pings keep it from
 //! happening while a line waits ([`crate::warm`]). Everything is worked out from the records alone (principle
 //! `state-from-records`).

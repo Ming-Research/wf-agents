@@ -18,10 +18,12 @@
 //! all of them in one transaction with the opening, so that a database is either opened at this version or left as it
 //! was. Before that it is copied whole, so that a migration that goes wrong loses nothing ([`before_migration`]). A
 //! migration that gives the rows kept before a value makes the table anew and carries each row across whole, with the
-//! value, in a step of the store after its SQL (decision `a-migration-carries-each-row-whole`).
+//! value, in a step of the store after its SQL.
 //!
 //! The store also keeps what is the installation's and no work's: the pause of everything, set and lifted, with who set
-//! it: the owner, or the engine as it started with works going on; and each version of a flow a work runs on.
+//! it: the owner, or the engine as it started with works going on; whether the sessions of works that wait are kept
+//! warm; the accounts the agents' program may run under, each added, removed and taken by the owner, by its name,
+//! whose token is kept outside the store; and each version of a flow a work runs on.
 //!
 //! - `items`: the items and the works done for them.
 //! - `flows`: the versions of the flows works run on, each kept once as its files and its outline.
@@ -58,7 +60,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 21;
+pub const SCHEMA_VERSION: u32 = 22;
 
 /// A step of the store after a migration's SQL.
 type Step = fn(&Connection) -> Result<(), Fault>;
@@ -137,7 +139,10 @@ const MIGRATIONS: &[Migration] = &[
         "../../../db/migrations/202611182200-keep-whether-the-sessions-of-works-that-wait-are-kept-warm.sql"
     )),
     Migration::sql(include_str!(
-        "../../../db/migrations/202611191200-keep-the-versions-of-the-flows-works-run-on.sql"
+        "../../../db/migrations/202611191200-keep-the-accounts-the-agents-run-under.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611211200-keep-the-versions-of-the-flows-works-run-on.sql"
     )),
 ];
 
@@ -158,6 +163,25 @@ pub struct PauseOfEverything {
     pub paused: bool,
     pub by: Pauser,
     pub at: Time,
+}
+
+/// An account the agents' program may run under, added, removed or taken by the owner as the one the agents run under,
+/// by the name the owner gave it, at this time: what the store keeps of it, every one in order. Its token is kept
+/// outside the store.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AccountRecord {
+    pub name: String,
+    pub what: AccountAct,
+    pub at: Time,
+}
+
+/// What was done to an account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AccountAct {
+    Added,
+    Removed,
+    /// Taken as the one the agents run under.
+    Taken,
 }
 
 /// The items and the works, kept in one SQLite database.
@@ -278,6 +302,12 @@ pub trait Storage {
 
     /// Keeps that the sessions of works that wait are kept warm from this time, or are not.
     fn keep_warm(&mut self, warm: bool, at: Time) -> Result<(), Fault>;
+
+    /// Every account added, removed or taken, in the order they were kept; none in a store that never kept one.
+    fn accounts(&self) -> Result<Vec<AccountRecord>, Fault>;
+
+    /// Keeps that an account was added, removed or taken. Whether it may be is not the store's to judge.
+    fn keep_account(&mut self, record: &AccountRecord) -> Result<(), Fault>;
 }
 
 impl Store {
@@ -463,6 +493,36 @@ impl Storage for Store {
         (self.db).execute(
             "INSERT INTO keep_warm (warm, time) VALUES (?1, ?2)",
             rusqlite::params![warm, at.0],
+        )?;
+        Ok(())
+    }
+
+    fn accounts(&self) -> Result<Vec<AccountRecord>, Fault> {
+        let mut query = (self.db).prepare("SELECT name, what, time FROM accounts ORDER BY n")?;
+        let rows = query.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, u64>(2)?,
+            ))
+        })?;
+        let mut records = Vec::new();
+        for row in rows {
+            let (name, what, time) = row?;
+            records.push(AccountRecord {
+                name,
+                what: tables::from_name("accounts", what)?,
+                at: Time(time),
+            });
+        }
+        Ok(records)
+    }
+
+    fn keep_account(&mut self, record: &AccountRecord) -> Result<(), Fault> {
+        let what = tables::name("accounts", &record.what)?;
+        (self.db).execute(
+            "INSERT INTO accounts (name, what, time) VALUES (?1, ?2, ?3)",
+            rusqlite::params![record.name, what, record.at.0],
         )?;
         Ok(())
     }

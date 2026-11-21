@@ -8,6 +8,7 @@
 //!
 //! The tests are kept in modules by subject, so that a new test goes into the module of what it tests.
 
+mod accounts;
 mod budget;
 mod catching_up;
 mod delivering;
@@ -107,7 +108,12 @@ pub struct Fake {
     /// Whether the build, as it hands in, deletes the reference of the work's branch after it commits, so that the
     /// branch cannot be read as its round ends.
     pub build_loses_its_branch: bool,
+    /// Whether every call says, before its result, how much of the account's week is used: [`USED`].
+    pub says_usage: bool,
 }
+
+/// How much of the account's week every call that says its usage says is used.
+pub const USED: f64 = 0.04;
 
 impl Default for Fake {
     fn default() -> Self {
@@ -135,6 +141,7 @@ impl Default for Fake {
             build_beside_tests: false,
             build_then_asks: false,
             build_loses_its_branch: false,
+            says_usage: false,
         }
     }
 }
@@ -273,6 +280,8 @@ pub struct Real {
     pub project: String,
     /// The title the items added from now on are given.
     pub title: String,
+    /// What keeps the tokens of the accounts, in place of the login keychain.
+    pub tokens: Arc<service::KeptTokens>,
 }
 
 /// Runs git in the directory, which must pass, and gives its output.
@@ -401,6 +410,9 @@ for pid in "$log"/*.pid; do
 done
 echo $$ > "$log/$n.pid"
 printf '%s\n' "$@" > "$log/$n.args"
+printf '%s' "${{CLAUDE_CODE_OAUTH_TOKEN:-}}" > "$log/$n.token"
+printf '%s' "${{CLAUDE_CONFIG_DIR:-}}" > "$log/$n.profile"
+printf '%s' "${{CLAUDE_CODE_SUBPROCESS_ENV_SCRUB:-}}" > "$log/$n.scrub"
 prev=''
 for arg in "$@"; do
     [ "$prev" = --json-schema ] && printf '%s' "$arg" > "$log/$n.schema"
@@ -553,6 +565,9 @@ else
     structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],$protected\"outputs\":{{$out}}}}}}"
 fi
 iterations='{iterations}'
+if [ '{says_usage}' = yes ]; then
+    printf '%s\n' '{{"type":"rate_limit_event","rate_limit_info":{{"status":"allowed","unifiedWindows":{{"seven_day":{{"utilization":{used},"resetsAt":1795399200,"status":"allowed"}}}}}}}}'
+fi
 printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$iterations" "$structured"
 if [ '{returned_sleeps}' != 0 ] && [ "$first" = Plan ] && [ ! -f "$log/returned" ]; then
     touch "$log/returned"
@@ -583,6 +598,8 @@ fi
         beside_tests = yes(fake.build_beside_tests),
         then_asks = yes(fake.build_then_asks),
         loses_branch = yes(fake.build_loses_its_branch),
+        says_usage = yes(fake.says_usage),
+        used = USED,
         gave_up = GAVE_UP,
         name = NAMED,
         refused = refused.display(),
@@ -609,9 +626,17 @@ impl Rounds for Deaf {
 }
 
 /// The loop with the real carriers of the settings, on an empty store or the one in the data directory, the calls of
-/// `query` answered by the tests; with agents whose stops are dropped where `deaf`.
-fn open(settings: &Settings, data: &Path, flow: &Compiled, deaf: bool) -> (Service, Inbox) {
-    let mut carriers = carry::carriers(settings.clone(), data, beside()).expect("the carriers are made");
+/// `query` answered by the tests, the tokens of the accounts kept by `tokens`; with agents whose stops are dropped
+/// where `deaf`.
+fn open(
+    settings: &Settings,
+    data: &Path,
+    flow: &Compiled,
+    deaf: bool,
+    tokens: &Arc<service::KeptTokens>,
+) -> (Service, Inbox) {
+    let kept: Arc<dyn service::Tokens> = tokens.clone();
+    let mut carriers = carry::carriers_keeping(settings.clone(), data, beside(), kept).expect("the carriers are made");
     if deaf {
         carriers.agents = Arc::new(Deaf(carriers.agents));
     }
@@ -623,8 +648,12 @@ fn open(settings: &Settings, data: &Path, flow: &Compiled, deaf: bool) -> (Servi
 /// The project the tests' items belong to where a test names none.
 pub const PROJECT: &str = "test";
 
-/// Makes a project's repository at `repo`, on its main branch, with a greeting, the project's files and its declaration:
-/// the one beside this repository's flows.
+/// The account the agents run under where a test takes none of its own, and its token.
+pub const ACCOUNT: &str = "tests";
+pub const TOKEN: &str = "sk-ant-oat01-the-tests";
+
+/// Makes a project's repository at `repo`, on its main branch, with a greeting, the project's files and its
+/// declaration: the one beside this repository's flows.
 pub fn made_repository(repo: &Path) {
     std::fs::create_dir_all(repo).unwrap();
     git_in(repo, &["init", "-q", "-b", "main"]);
@@ -672,8 +701,27 @@ fn project(repo: &Path, check: &str) -> Project {
 
 impl Real {
     /// The loop on an empty store of the flow, with the fake answering as given and the budget given, the project's
-    /// check being `check`.
+    /// check being `check`; the owner has added the account [`ACCOUNT`], its token kept, and taken it, as the agents
+    /// run under none other.
     pub fn open(on: On, answers: Fake, budget: Option<f64>, check: &str) -> Real {
+        let mut real = Real::with_no_account(on, answers, budget, check);
+        let token = service::Token::new(TOKEN.to_string());
+        service::Tokens::keep(&*real.tokens, ACCOUNT, &token).expect("the token is kept");
+        for what in [store::AccountAct::Added, store::AccountAct::Taken] {
+            let (reply, mut answer) = oneshot::channel();
+            let account = Message::Account {
+                name: ACCOUNT.to_string(),
+                what,
+                reply,
+            };
+            real.service.take(account).expect("the loop takes it");
+            (answer.try_recv()).expect("answered").expect("the account is changed");
+        }
+        real
+    }
+
+    /// The loop as [`Real::open`] opens it, with no account added.
+    pub fn with_no_account(on: On, answers: Fake, budget: Option<f64>, check: &str) -> Real {
         let dir = tempfile::tempdir().expect("a directory");
         let root = std::fs::canonicalize(dir.path()).expect("the directory is there");
         let (repo, data, calls) = (root.join("repo"), root.join("data"), root.join("calls"));
@@ -702,7 +750,6 @@ impl Real {
                 args: Vec::new(),
                 env: Vec::new(),
                 setting_sources: "user".to_string(),
-                config_dir: None,
                 // The lock command of a project on Cargo.
                 permissions: PermissionsAdded {
                     locks: vec!["cargo update".to_string()],
@@ -725,7 +772,8 @@ impl Real {
             query: Default::default(),
         };
         let flow = compiled(on);
-        let (service, inbox) = open(&settings, &data, &flow, false);
+        let tokens = Arc::new(service::KeptTokens::new());
+        let (service, inbox) = open(&settings, &data, &flow, false, &tokens);
         Real {
             _dir: dir,
             data,
@@ -740,6 +788,7 @@ impl Real {
             level: "1".to_string(),
             project: PROJECT.to_string(),
             title: "Greet the user".to_string(),
+            tokens,
         }
     }
 
@@ -763,7 +812,7 @@ impl Real {
     /// would, the owner lifting at once the pause of everything it makes as it starts on works going on. What the old
     /// carriers run goes on running.
     pub fn restart(&mut self) {
-        let (service, inbox) = open(&self.settings, &self.data, &self.flow, false);
+        let (service, inbox) = open(&self.settings, &self.data, &self.flow, false, &self.tokens);
         self.service = service;
         self.inbox = inbox;
         self.lift_the_starts_pause();
@@ -772,7 +821,7 @@ impl Real {
     /// Starts the loop again on the same store with agents that drop every stop they are given, the owner lifting at
     /// once the pause of everything it makes as it starts on works going on.
     pub fn deafen(&mut self) {
-        let (service, inbox) = open(&self.settings, &self.data, &self.flow, true);
+        let (service, inbox) = open(&self.settings, &self.data, &self.flow, true, &self.tokens);
         self.service = service;
         self.inbox = inbox;
         self.lift_the_starts_pause();

@@ -155,6 +155,7 @@ fn opus() -> work::RanOn {
         level: "2".to_string(),
         model: "opus".to_string(),
         effort: None,
+        directory: None,
         account: None,
     }
 }
@@ -251,7 +252,7 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
     .unwrap();
     let policy = driver::Policy {
         samples: 2,
-        on: Box::new(|_, _| Some(opus())),
+        model: Box::new(|_, _| Some(opus().model)),
         warm: None,
     };
     let (mut driver, _) =

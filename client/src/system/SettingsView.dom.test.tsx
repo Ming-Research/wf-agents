@@ -6,7 +6,9 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_ACCENT, ownName, pickAccent, PRESETS, startAccent, type Theme, TONES, tones } from '../accent';
-import type { AccountChoice, SettingsChange, SettingsPage, SystemSource } from './api';
+import { type Source, SourceContext, sourceOf } from '../works/source';
+import type { Changed } from '../works-api';
+import type { AccountAsked, AccountDone, AccountsPage, SettingsChange, SettingsPage, SystemSource } from './api';
 import { SystemSourceContext } from './api';
 import { fixtureAccounts, fixtureSettings, fixtureSystem } from './fixtures';
 import { SettingsView } from './SettingsView';
@@ -25,23 +27,47 @@ afterEach(() => {
 
 interface SettingsSource {
   sent: SettingsChange[];
-  chosen: AccountChoice[];
+  asked: AccountAsked[];
   page: SettingsPage;
+  accounts: AccountsPage;
   refuse: string | null;
+  /// How an act on an account is answered: at once, as done or refused, or held until the test answers it.
+  answer: (asked: AccountAsked) => Promise<AccountDone>;
   reads: number;
+  /// How many times the accounts were read, and looked under.
+  accountReads: number;
+  looks: number;
   source: SystemSource;
+  /// The works' source, whose stream of changes the test says what happened down ([`SettingsSource.changed`]).
+  works: Source;
+  changed: (changed: Changed) => void;
 }
+
+const DONE: AccountDone = { atLimit: false, resets: null, notLetGo: null };
 
 /// The settings' fixtures, with what is sent kept, a save answered as the test says, and the file read anew after it.
 function settingsSource(page: SettingsPage = fixtureSettings()): SettingsSource {
   const sent: SettingsChange[] = [];
-  const chosen: AccountChoice[] = [];
+  const asked: AccountAsked[] = [];
+  const listening = new Set<(changed: Changed) => void>();
   const s: SettingsSource = {
     sent,
-    chosen,
+    asked,
     page,
+    accounts: fixtureAccounts(),
+    answer: async () => DONE,
     refuse: null,
     reads: 0,
+    accountReads: 0,
+    looks: 0,
+    works: {
+      ...sourceOf(''),
+      changes: (onChanged) => {
+        listening.add(onChanged);
+        return () => listening.delete(onChanged);
+      },
+    },
+    changed: (changed) => listening.forEach((on) => on(changed)),
     source: {
       loadSystem: async (weeks: number[]) => fixtureSystem(weeks),
       loadSettings: async (): Promise<SettingsPage> => {
@@ -53,10 +79,17 @@ function settingsSource(page: SettingsPage = fixtureSettings()): SettingsSource 
         if (s.refuse !== null) throw new Error(s.refuse);
         return { said: 'agents.slots = 4 instead of 3', committed: true };
       },
-      loadAccounts: async () => fixtureAccounts(),
-      chooseAccount: async (choice: AccountChoice) => {
-        chosen.push(choice);
-        return { said: 'agents.config_dir = "/data/agents/claude-second" instead of "/data/agents/claude"', committed: true };
+      loadAccounts: async () => {
+        s.accountReads += 1;
+        return s.accounts;
+      },
+      account: async (act: AccountAsked) => {
+        asked.push(act);
+        return s.answer(act);
+      },
+      look: async () => {
+        s.looks += 1;
+        return { looking: [] };
       },
     },
   };
@@ -69,15 +102,18 @@ async function settle() {
   });
 }
 
-function draw(source: SystemSource): HTMLElement {
+function draw(source: SystemSource, works?: Source): HTMLElement {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
+  const quiet: Source = { ...sourceOf(''), changes: () => () => undefined };
   act(() =>
     root.render(
-      <SystemSourceContext.Provider value={source}>
-        <SettingsView />
-      </SystemSourceContext.Provider>,
+      <SourceContext.Provider value={works ?? quiet}>
+        <SystemSourceContext.Provider value={source}>
+          <SettingsView />
+        </SystemSourceContext.Provider>
+      </SourceContext.Provider>,
     ),
   );
   unmounts.push(() => act(() => root.unmount()));
@@ -94,6 +130,17 @@ function type(box: HTMLInputElement | HTMLSelectElement, value: string) {
 }
 
 const box = (root: ParentNode, key: string) => root.querySelector(`[aria-label="${key}"]`) as HTMLInputElement;
+const accountRows = (root: ParentNode) => [...root.querySelectorAll('table[aria-label="The accounts"] tbody tr')];
+const buttons = (root: ParentNode) => [...root.querySelectorAll('button')].map((b) => b.textContent);
+const button = (root: ParentNode, text: string) =>
+  [...root.querySelectorAll('button')].find((b) => b.textContent === text) as HTMLButtonElement;
+const accountBox = (root: ParentNode, what: 'name' | 'token') =>
+  root.querySelector(`#account-${what}`) as HTMLInputElement;
+/// Everything this browser keeps, as one text.
+const storedText = () =>
+  Object.keys(localStorage)
+    .map((key) => `${key}=${localStorage.getItem(key)}`)
+    .join('\n');
 const save = (root: ParentNode) =>
   [...root.querySelectorAll('.view-line button')].find((b) => b.textContent === 'Save') as HTMLButtonElement;
 
@@ -123,7 +170,6 @@ describe('the Settings view', () => {
     const agents = fileOnly[1];
     expect([...agents.querySelectorAll('dt')].map((d) => d.textContent)).toEqual([
       'command',
-      'config_dir',
       'args',
       'work_budget_usd',
     ]);
@@ -217,28 +263,239 @@ describe('the Settings view', () => {
     expect(page.querySelector('.view-fault')?.textContent).toBe('The file does not read as settings: items.unknown: no such key');
   });
 
-  it('switches the account the agents run under once the owner says yes beside it, keeping what was typed', async () => {
+  it('lists the accounts: the one in use marked, the usage of each, and a token ending within a month', async () => {
     const s = settingsSource();
     const page = draw(s.source);
     await settle();
-    type(box(page, 'agents.slots'), '4');
-    const rows = [...page.querySelectorAll('table[aria-label="The accounts"] tbody tr')];
-    expect(rows.map((r) => r.firstElementChild?.textContent)).toEqual(['claude', 'claude-second', 'claude-third']);
-    expect(rows[0].textContent).toContain('named');
-    expect(rows[2].querySelector('button')).toBeNull();
-    act(() => (rows[1].querySelector('button') as HTMLButtonElement).click());
-    expect(rows[1].textContent).toContain('The agents run under second@example.com once the engine starts again');
-    const useIt = [...rows[1].querySelectorAll('button')].find((b) => b.textContent === 'Use it') as HTMLButtonElement;
-    expect(useIt.className).not.toContain('button-primary');
-    act(() => useIt.click());
-    expect(useIt.disabled).toBe(true);
-    act(() => useIt.click());
+    const rows = accountRows(page);
+    const heads = [...page.querySelectorAll('table[aria-label="The accounts"] thead th')].map((h) => h.textContent);
+    expect(heads).toEqual(['Account', 'Usage', '']);
+    expect(rows.map((r) => r.firstElementChild?.querySelector('.mono')?.textContent)).toEqual(['work', 'home', 'old']);
+    expect(rows[0].querySelector('.account-in-use')?.textContent).toBe('in use');
+    expect(rows[0].querySelector('button')).toBeNull();
+    expect(buttons(rows[1])).toEqual(['Use', 'Remove']);
+    // Each window the service named, by its own name, with how long until it resets and when, on one line; the whole
+    // line and when it was said on pointing.
+    const work = rows[0].children[1] as HTMLElement;
+    expect(work.textContent).toMatch(
+      /^five_hour 20% · resets in (2h 0m|1h 59m) \(\d\d-\d\d \d\d:\d\d\) · seven_day 67% · resets in (4d 0h|3d 23h) \(\d\d-\d\d \d\d:\d\d\)$/,
+    );
+    expect(work.title.split('\n')).toEqual([work.textContent, expect.stringMatching(/^Said by the service /)]);
+    expect(work.querySelector('.warn-text')).toBeNull();
+    // The engine's limit, and a window the service no longer lets through, in the look of a warning, which pointing
+    // explains.
+    const home = rows[1].children[1] as HTMLElement;
+    expect(home.textContent).toMatch(/^at its limit · resets in [^·]+ · seven_day 100% · resets in [^·]+$/);
+    const warned = [...home.querySelectorAll('.warn-text')].map((w) => w.textContent?.split(' ')[0]);
+    expect(warned).toEqual(['at', 'seven_day']);
+    expect(home.title).toContain('In the look of a warning: the account at its limit, or a window the service lets');
+    expect(rows[2].children[1].textContent).toBe('not seen');
+    // The token added 350 days ago ends within a month: its row says so beside its name, in the look of a warning; when
+    // each was added and until when its token lasts is said on pointing.
+    expect(rows[2].children[0].querySelector('.warn-text')?.textContent).toMatch(/^ · its token ends in (15d 0h|14d 23h)$/);
+    expect(rows[0].children[0].querySelector('.warn-text')).toBeNull();
+    expect((rows[0].children[0] as HTMLElement).title).toMatch(/^Added [-\d]+ [:\d]+; its token lasts until [-\d]+ [:\d]+\.$/);
+    expect(page.textContent).not.toContain('No account is');
+    expect(page.querySelector('code.command')?.textContent).toBe('claude setup-token');
+  });
+
+  it('looks under the accounts as it opens, says a look under way and one that failed, and reads them again on a change', async () => {
+    const s = settingsSource();
+    const accounts = fixtureAccounts();
+    const failed = 'The network does not reach the agents\' service.';
+    const looking = { seen: null, windows: [], atLimit: null, looking: true, failed: null };
+    accounts.accounts[1] = { ...accounts.accounts[1], limit: null, usage: looking };
+    accounts.accounts[2] = { ...accounts.accounts[2], usage: { ...looking, looking: false, failed } };
+    s.accounts = accounts;
+    const page = draw(s.source, s.works);
     await settle();
-    expect(s.chosen).toEqual([{ base: 'fixture', name: 'claude-second' }]);
-    expect(box(page, 'agents.slots').value).toBe('4');
-    const name = page.querySelector('#account-name') as HTMLInputElement;
-    type(name, 'fourth');
-    expect(page.querySelector('code.command')?.textContent).toBe('CLAUDE_CONFIG_DIR=/data/agents/claude-fourth claude');
+    expect(s.looks).toBe(1);
+    expect(accountRows(page)[1].children[1].textContent).toBe('looking');
+    // A failed look is one word in the look of a failure, its why on pointing.
+    const away = accountRows(page)[2].children[1] as HTMLElement;
+    expect(away.textContent).toBe('failed');
+    expect(away.querySelector('.failed')?.textContent).toBe('failed');
+    expect(away.title).toBe(`failed\nThe latest look under it failed: ${failed}`);
+    // The looks come back: the engine says the accounts changed, and the view reads them again; a change of the works
+    // alone reads nothing.
+    const reads = s.accountReads;
+    s.accounts = fixtureAccounts();
+    act(() => s.changed({ works: [1], items: false, copies: false, accounts: false }));
+    await settle();
+    expect(s.accountReads).toBe(reads);
+    act(() => s.changed({ works: [], items: false, copies: false, accounts: true }));
+    await settle();
+    expect(s.accountReads).toBe(reads + 1);
+    expect(accountRows(page)[1].children[1].textContent).toContain('seven_day 100%');
+    expect(s.looks, 'looked once, as it opened').toBe(1);
+  });
+
+  it('shows a limit the service named no window of, and says where a look was refused', async () => {
+    const s = settingsSource();
+    const accounts = fixtureAccounts();
+    const old = accounts.accounts[2];
+    const atLimit = { resets: accounts.now + 3 * 60 * 60_000 };
+    accounts.accounts[2] = { ...old, usage: { ...old.usage, seen: accounts.now, atLimit } };
+    s.accounts = accounts;
+    s.source.look = async () => {
+      throw new Error('The engine has stopped.');
+    };
+    const page = draw(s.source);
+    await settle();
+    const spent = accountRows(page)[2].children[1] as HTMLElement;
+    expect(spent.textContent).toMatch(/^at its limit · resets in (3h 0m|2h 59m) \(\d\d-\d\d \d\d:\d\d\)$/);
+    expect(spent.querySelector('.warn-text')?.textContent).toBe(spent.textContent);
+    expect(page.querySelector('[role="alert"]')?.textContent).toBe(
+      'The usage was not looked at: The engine has stopped.',
+    );
+  });
+
+  it('counts down to a reset while the view stays open, and says a reset that has passed', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    try {
+      const s = settingsSource();
+      const accounts = fixtureAccounts();
+      const old = accounts.accounts[2];
+      const windows = [
+        { name: 'five_hour', utilization: 0.5, resets: accounts.now + 90 * 60_000, allowed: true },
+        { name: 'seven_day', utilization: 0.1, resets: accounts.now - 60_000, allowed: true },
+      ];
+      accounts.accounts[2] = { ...old, usage: { ...old.usage, seen: accounts.now, windows } };
+      s.accounts = accounts;
+      const page = draw(s.source);
+      await settle();
+      const cell = accountRows(page)[2].children[1];
+      expect(cell.textContent).toMatch(
+        /^five_hour 50% · resets in 1h 30m \(\d\d-\d\d \d\d:\d\d\) · seven_day 10% · reset \d\d-\d\d \d\d:\d\d$/,
+      );
+      act(() => vi.advanceTimersByTime(10 * 60_000));
+      expect(cell.textContent).toMatch(/^five_hour 50% · resets in 1h 20m /);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('takes an account at once with Use, and asks once beside an account before removing it', async () => {
+    const s = settingsSource();
+    const page = draw(s.source);
+    await settle();
+    const use = button(accountRows(page)[1], 'Use');
+    expect(use.title).toBe(
+      "Run the agents under home from now on: each line's next round writes its session to home's cache",
+    );
+    act(() => use.click());
+    await settle();
+    expect(s.asked).toEqual([{ kind: 'take', name: 'home' }]);
+    expect(page.querySelector('.said')?.textContent).toBe('The agents run under home.');
+    act(() => button(accountRows(page)[2], 'Remove').click());
+    expect(accountRows(page)[2].querySelector('.ask-line')?.textContent).toContain('Remove old and its token?');
+    act(() => button(accountRows(page)[2], 'Cancel').click());
+    expect(accountRows(page)[2].querySelector('.ask-line')).toBeNull();
+    expect(s.asked).toHaveLength(1);
+    act(() => button(accountRows(page)[2], 'Remove').click());
+    act(() => button(accountRows(page)[2], 'Remove it').click());
+    await settle();
+    expect(s.asked[s.asked.length - 1]).toEqual({ kind: 'remove', name: 'old' });
+    expect(page.querySelector('.said')?.textContent).toBe('Removed old.');
+  });
+
+  it('adds an account: says it is checking the token, then what came of it, and keeps the name typed but never the token', async () => {
+    const s = settingsSource();
+    const held: { answer?: (done: AccountDone) => void } = {};
+    s.answer = () => new Promise((resolve) => (held.answer = resolve));
+    const page = draw(s.source);
+    await settle();
+    const add = () => button(page.querySelector('.account-add')!, 'Add');
+    expect(add().disabled).toBe(true);
+    type(accountBox(page, 'name'), 'max');
+    expect(add().title).toBe('Paste the token the command printed');
+    type(accountBox(page, 'token'), 'sk-ant-oat01-secret');
+    expect(accountBox(page, 'token').type).toBe('password');
+    expect(storedText()).toContain('max');
+    expect(storedText()).not.toContain('sk-ant');
+    act(() => add().click());
+    expect(s.asked).toEqual([{ kind: 'add', name: 'max', token: 'sk-ant-oat01-secret' }]);
+    expect(page.querySelector('.account-add ~ [role="status"]')?.textContent).toBe(
+      'Checking the token: this may take up to two minutes.',
+    );
+    expect(add().disabled).toBe(true);
+    await act(async () => held.answer?.({ atLimit: true, resets: Date.UTC(2026, 10, 19, 15), notLetGo: null }));
+    await settle();
+    expect(page.querySelector('.said')?.textContent).toMatch(
+      /^Added max: its token is at its usage limit, which resets in (3h 0m|2h 59m) \(\d\d-\d\d \d\d:\d\d\)\.$/,
+    );
+    expect(accountBox(page, 'token').value).toBe('');
+    expect(accountBox(page, 'name').value).toBe('');
+    expect(storedText()).not.toContain('sk-ant');
+  });
+
+  it('says the engine\'s words where a token is refused or could not be checked, and a name that is no name or is taken', async () => {
+    const s = settingsSource();
+    s.answer = async () => {
+      throw new Error('No account was added: the service refused the token: Invalid bearer token.');
+    };
+    const page = draw(s.source);
+    await settle();
+    const add = () => button(page.querySelector('.account-add')!, 'Add');
+    type(accountBox(page, 'name'), 'Max!');
+    type(accountBox(page, 'token'), 'sk-ant-oat01-secret');
+    expect(add().title).toBe('A name is small letters, digits and dashes, beginning with a letter or a digit');
+    type(accountBox(page, 'name'), 'home');
+    expect(add().title).toBe('An account named home is added already');
+    type(accountBox(page, 'name'), 'max');
+    act(() => add().click());
+    await settle();
+    expect(page.querySelector('.account-add ~ .failed')?.textContent).toBe(
+      'Refused: No account was added: the service refused the token: Invalid bearer token.',
+    );
+    s.answer = async () => {
+      throw new Error(
+        'No account was added: the token could not be checked, so it was not kept: offline; add it again.',
+      );
+    };
+    act(() => add().click());
+    await settle();
+    expect(page.querySelector('.account-add ~ [role="alert"]')?.textContent).toContain('could not be checked');
+    expect(storedText()).not.toContain('sk-ant');
+  });
+
+  it('says in one line that no round runs while no account is in use, and why none can be added where none can', async () => {
+    const s = settingsSource();
+    const missing = '/usr/bin/security is not on this system, and no token can be kept in the login keychain';
+    s.accounts = { ...fixtureAccounts(), accounts: [], inUse: null, closed: missing };
+    const page = draw(s.source);
+    await settle();
+    expect(accountRows(page)).toEqual([]);
+    expect(page.textContent).toContain("No account is in use, and no agent's round runs until one is.");
+    expect(page.textContent).not.toContain('sign-in');
+    type(accountBox(page, 'name'), 'max');
+    type(accountBox(page, 'token'), 'sk-ant-oat01-secret');
+    const add = button(page.querySelector('.account-add')!, 'Add');
+    expect(add.disabled).toBe(true);
+    expect(add.title).toBe(missing);
+    expect(page.textContent).toContain(`No account can be added or taken, and no agent runs: ${missing}`);
+  });
+
+  it("says in the look of a failure that a removed account's token is still kept, and shows no limit past its reset", async () => {
+    const s = settingsSource();
+    const accounts = fixtureAccounts();
+    const home = accounts.accounts[1];
+    accounts.accounts[1] = { ...home, limit: { since: accounts.now - 7_200_000, resets: accounts.now - 1 } };
+    s.accounts = accounts;
+    s.answer = async () => ({ atLimit: false, resets: null, notLetGo: 'old: User interaction is not allowed.' });
+    const page = draw(s.source);
+    await settle();
+    expect(accountRows(page)[1].children[1].textContent).not.toContain('at its limit');
+    expect(accountRows(page)[1].children[1].textContent).toContain('seven_day 100%');
+    act(() => button(accountRows(page)[2], 'Remove').click());
+    act(() => button(accountRows(page)[2], 'Remove it').click());
+    await settle();
+    const said = page.querySelector('.account-add ~ [role="alert"]');
+    expect(said?.className).toBe('failed');
+    expect(said?.textContent).toBe(
+      'Removed old, but a token is still in the keychain, and is let go of again at the next removal and as the ' +
+        'engine starts: old: User interaction is not allowed.',
+    );
   });
 });
 

@@ -1,8 +1,9 @@
 // The Settings view: the installation's settings as their file writes them, key by key. First what the page changes
 // (the language the owner reads, each level's model, the highest level an item may be at, the context past which a
-// line begins a new session, how many rounds run at once, and the account the agents run under), each as a box; then
-// what only the file changes, table by table, each key with its value as written. Beside a value the engine runs at
-// another, which it does until it starts again, since it reads the file as it starts, is the value it runs with.
+// line begins a new session, and how many rounds run at once), each as a box, and the accounts the agents run under,
+// which are the engine's own state and change at once; then what only the file changes, table by table, each key with
+// its value as written. Beside a value the engine runs at another, which it does until it starts again, since it reads
+// the file as it starts, is the value it runs with.
 // Save, the one action the view is for, writes what changed into the file, its comments and layout kept, and commits
 // it where the file's directory keeps it in git; what the engine would refuse is refused before anything is written,
 // in the engine's words. What the owner typed and did not save is kept in the browser, key by key, through a reload, a
@@ -22,8 +23,14 @@ import {
   useAccent,
 } from '../accent';
 import { Button, PanelPart, Switch } from '../parts';
-import { useReading } from '../works/source';
+import { useChanges, useReading } from '../works/source';
+import { useNow } from '../works/marks';
+import { clock, duration, fullTime } from '../works/words';
 import {
+  type AccountAsked,
+  type AccountDone,
+  type AccountsPage,
+  type AccountUsage,
   type Change,
   type Saved,
   type SettingsPage,
@@ -278,8 +285,8 @@ function SettingsForm({ page, failed, said, onSaid, reread }: {
                 Refused: {said.why}
               </p>
             ))}
-          <h4 className="view-sub label">The account the agents run under (agents.config_dir)</h4>
-          <Accounts onSaid={onSaid} reread={reread} />
+          <h4 className="view-sub label">The accounts the agents run under</h4>
+          <Accounts />
         </PanelPart>
         <PanelPart label={`Changed in ${page.file.split('/').pop() ?? page.file} only`}>
           {fileOnly.map((t) => (
@@ -354,7 +361,7 @@ function FileTable({ table }: { table: SettingsTable }) {
   );
 }
 
-/// A name the owner gives a new account's directory, after the program's own name and a dash.
+/// A name the owner gives an account: small letters, digits and dashes, beginning with a letter or a digit.
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
 
 const ACCOUNT_DRAFT = 'settings-account-draft';
@@ -367,52 +374,65 @@ function keptName(): string {
   }
 }
 
-/// The accounts the agents' program may run under: each directory by its name, the account it is signed in as, and
-/// the one the file names; another signed in is used once the owner says yes beside it; a new one is signed in by
-/// hand with the command the view gives, the accounts read again every few seconds until it shows.
-function Accounts({ onSaid, reread }: { onSaid: (said: Said) => void; reread: () => void }) {
+const DAY = 24 * 60 * 60 * 1000;
+
+/// From how long before its token ends a row says so.
+const ENDING = 30 * DAY;
+
+/// When a usage limit resets, from now: how long until it does and the time it does, `resets in 2d 5h (11-22 16:00)`,
+/// since the owner chooses the account by how soon its limit frees it; once the time has passed, the time it reset.
+function resetsWords(resets: number, now: number): string {
+  return resets > now ? `resets in ${duration(resets - now)} (${clock(resets)})` : `reset ${clock(resets)}`;
+}
+
+/// What the last act on an account came to, in words: done, or not, as when the engine refused it, in its words.
+type AccountSaid = { ok: boolean; words: string } | null;
+
+/// The accounts the agents run under, as the engine holds them: each by its name, and its usage, which the owner
+/// chooses the account by ([`UsageCell`]), counted down to its resets as the view stays open; the one in use marked,
+/// each other with Use, which takes it at once, and Remove, asked once beside it. An account is added by its name and its token, which the engine checks before it keeps it; the
+/// command that makes a token is given to copy. The name box keeps what was typed through a reload; the token box keeps
+/// nothing. With no account in use, one line says that no agent's round runs until one is. As the view opens, the
+/// engine looks under the accounts it has not heard of lately, and the view reads the accounts again each time the
+/// engine says they changed.
+function Accounts() {
   const source = useSystemSource();
   const load = useCallback(() => source.loadAccounts(), [source]);
   const { value: page, failed, read } = useReading(load);
-  const [asking, setAsking] = useState<string | null>(null);
-  // Whether the choice of an account is on its way: it is not sent again meanwhile.
-  const [choosing, setChoosing] = useState(false);
-  const [name, setName] = useState(keptName);
-  const typed = name.trim();
-  const ok = NAME.test(typed) && !(page?.accounts ?? []).some((a) => a.name === `${page?.stem}-${typed}` && a.signedInAs !== null);
+  // A look spends a short request under each account not heard of lately; reading the accounts spends nothing. A
+  // refused look is said, so that usage not looked at is not taken for the latest.
+  const [lookRefused, setLookRefused] = useState<string | null>(null);
   useEffect(() => {
-    if (!ok) return;
-    const every = window.setInterval(read, 3000);
-    return () => window.clearInterval(every);
-  }, [ok, read]);
+    source.look().then(
+      () => setLookRefused(null),
+      (e: unknown) => setLookRefused(message(e)),
+    );
+  }, [source]);
+  useChanges((changed) => {
+    if (changed.accounts) read();
+  }, read);
+  // The account whose removal is asked, and what is on its way: an act on an account, by its name.
+  const [asking, setAsking] = useState<string | null>(null);
+  const [busy, setBusy] = useState<AccountAsked | null>(null);
+  const [said, setSaid] = useState<AccountSaid>(null);
+  const [name, setName] = useState(keptName);
+  // The token is held while the page is open, and written nowhere.
+  const [token, setToken] = useState('');
+  // The engine's time as it answered, carried on by the browser's clock, so that how long until a limit resets counts
+  // down while the view is open.
+  const ticking = useNow(page !== null);
+  const [answered, setAnswered] = useState({ page, at: Date.now() });
+  if (answered.page !== page) setAnswered({ page, at: Date.now() });
   if (page === null) {
-    return failed ? <p className="failed">The accounts could not be read: {failed}</p> : <p className="muted">Reading the accounts</p>;
-  }
-  if (page.dir === null) {
-    return (
-      <p className="muted">
-        <span className="mono">agents.config_dir</span> names no directory: the agents' program runs with its own, and has no
-        accounts beside it.
-      </p>
+    return failed ? (
+      <p className="failed">The accounts could not be read: {failed}</p>
+    ) : (
+      <p className="muted">Reading the accounts</p>
     );
   }
-  const use = (account: string) => {
-    if (choosing) return;
-    setChoosing(true);
-    onSaid(null);
-    source
-      .chooseAccount({ base: page.base, name: account })
-      .then(
-        (saved) => onSaid({ ok: true, saved }),
-        (e: unknown) => onSaid({ ok: false, why: message(e) }),
-      )
-      .finally(() => {
-        setChoosing(false);
-        setAsking(null);
-        read();
-        reread();
-      });
-  };
+  const now = page.now + Math.max(0, ticking - answered.at);
+  const typed = name.trim();
+  const named = page.accounts.some((a) => a.name === typed);
   const typeName = (v: string) => {
     setName(v);
     try {
@@ -422,60 +442,240 @@ function Accounts({ onSaid, reread }: { onSaid: (said: Said) => void; reread: ()
       // Kept for this page only.
     }
   };
-  const command = `${page.variable}=${page.dir}/${page.stem}-${typed} ${page.command}`;
+  const ask = (asked: AccountAsked, done: (answer: AccountDone) => { ok: boolean; words: string }) => {
+    if (busy !== null) return;
+    setBusy(asked);
+    setSaid(null);
+    source
+      .account(asked)
+      .then(
+        (answer) => {
+          setSaid(done(answer));
+          if (asked.kind === 'add') {
+            setToken('');
+            typeName('');
+          }
+        },
+        (e: unknown) => setSaid({ ok: false, words: `Refused: ${message(e)}` }),
+      )
+      .finally(() => {
+        setBusy(null);
+        setAsking(null);
+        read();
+      });
+  };
+  const add = () =>
+    ask({ kind: 'add', name: typed, token: token.trim() }, (answer) => {
+      if (!answer.atLimit) return { ok: true, words: `Added ${typed}.` };
+      const now = page.now + Date.now() - answered.at;
+      const resets = answer.resets === null ? '' : `, which ${resetsWords(answer.resets, now)}`;
+      return { ok: true, words: `Added ${typed}: its token is at its usage limit${resets}.` };
+    });
+  const why =
+    page.closed !== null
+      ? page.closed
+      : !NAME.test(typed)
+        ? 'A name is small letters, digits and dashes, beginning with a letter or a digit'
+        : named
+          ? `An account named ${typed} is added already`
+          : token.trim() === ''
+            ? 'Paste the token the command printed'
+            : busy !== null
+              ? 'An act on an account is on its way'
+              : undefined;
   return (
     <>
-      <ViewTable heads={['Directory', 'Signed in as', '']} label="The accounts">
-        {page.accounts.map((a) => (
-          <tr key={a.name}>
-            <td className="mono" title={a.path}>
-              {a.name}
-            </td>
-            <td>{a.signedInAs ?? <span className="muted">not signed in</span>}</td>
-            <td>
-              {a.named ? (
-                <span className="tag account-named">named</span>
-              ) : a.signedInAs === null ? null : asking === a.name ? (
-                <span className="ask-line">
-                  The agents run under {a.signedInAs} once the engine starts again, each line in a new session.{' '}
-                  <Button
-                    disabled={choosing}
-                    title={choosing ? 'The choice is on its way' : `Write ${a.path} as agents.config_dir`}
-                    onClick={() => use(a.name)}
-                  >
-                    Use it
-                  </Button>{' '}
-                  <Button onClick={() => setAsking(null)}>Cancel</Button>
-                </span>
-              ) : (
-                <Button title={`Write ${a.path} as agents.config_dir`} onClick={() => setAsking(a.name)}>
-                  Use
-                </Button>
-              )}
-            </td>
-          </tr>
-        ))}
-      </ViewTable>
+      {page.accounts.length > 0 && (
+        <ViewTable heads={['Account', 'Usage', '']} label="The accounts">
+          {page.accounts.map((a) => (
+            <AccountRow
+              key={a.name}
+              account={a}
+              page={page}
+              now={now}
+              asking={asking === a.name}
+              busy={busy !== null}
+              onUse={() =>
+                ask({ kind: 'take', name: a.name }, () => ({ ok: true, words: `The agents run under ${a.name}.` }))
+              }
+              onAsk={(yes) => setAsking(yes ? a.name : null)}
+              onRemove={() =>
+                ask({ kind: 'remove', name: a.name }, (answer) =>
+                  answer.notLetGo === null
+                    ? { ok: true, words: `Removed ${a.name}.` }
+                    : {
+                        ok: false,
+                        words:
+                          `Removed ${a.name}, but a token is still in the keychain, and is let go of again at the ` +
+                          `next removal and as the engine starts: ${answer.notLetGo}`,
+                      },
+                )
+              }
+            />
+          ))}
+        </ViewTable>
+      )}
+      {page.inUse === null && (
+        <p className="warn-text small">No account is in use, and no agent's round runs until one is.</p>
+      )}
+      {lookRefused !== null && (
+        <p className="failed small" role="alert">
+          The usage was not looked at: {lookRefused}
+        </p>
+      )}
       <div className="account-add">
         <label className="small muted" htmlFor="account-name">
-          A new account's directory: {page.stem}-
+          Name
+        </label>
+        <input id="account-name" className="field mono" value={name} onChange={(e) => typeName(e.target.value)} />
+        <label className="small muted" htmlFor="account-token">
+          Token
         </label>
         <input
-          id="account-name"
+          id="account-token"
           className="field mono"
-          value={name}
-          placeholder="name"
-          onChange={(e) => typeName(e.target.value)}
+          type="password"
+          autoComplete="off"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
         />
-        {typed !== '' && !ok && <span className="failed small">A name is small letters, digits and dashes, and not one signed in</span>}
+        <Button disabled={why !== undefined} title={why ?? `Check the token and keep it for ${typed}`} onClick={add}>
+          Add
+        </Button>
       </div>
-      {ok && (
-        <p className="small">
-          Run <code className="mono command">{command}</code>, type <code className="mono">{page.signIn}</code> there, and
-          sign in: the account shows here once it is.
+      <p className="small">
+        Run <code className="mono command">{page.command}</code> while the browser is signed in to that account, and
+        paste the token it prints.
+      </p>
+      {page.closed !== null && (
+        <p className="failed small" role="alert">
+          No account can be added or taken, and no agent runs: {page.closed}
+        </p>
+      )}
+      {busy?.kind === 'add' && (
+        <p className="muted small" role="status">
+          Checking the token: this may take up to two minutes.
+        </p>
+      )}
+      {said !== null && (
+        <p className={said.ok ? 'said' : 'failed'} role={said.ok ? 'status' : 'alert'}>
+          {said.words}
         </p>
       )}
     </>
+  );
+}
+
+/// An account's row: its name, with when it was added and until when its token lasts on pointing, and in the look of a
+/// warning from a month before the token ends, that it does; its usage; and what may be done to it.
+function AccountRow({ account: a, page, now, asking, busy, onUse, onAsk, onRemove }: {
+  account: AccountsPage['accounts'][number];
+  page: AccountsPage;
+  now: number;
+  asking: boolean;
+  busy: boolean;
+  onUse: () => void;
+  onAsk: (yes: boolean) => void;
+  onRemove: () => void;
+}) {
+  const left = a.lasts - now;
+  const ending = left <= ENDING;
+  const busyWhy = busy ? 'An act on an account is on its way' : undefined;
+  const cache = `${a.name}'s cache`;
+  const use = `Run the agents under ${a.name} from now on: each line's next round writes its session to ${cache}`;
+  return (
+    <tr>
+      <td title={`Added ${fullTime(a.added)}; its token lasts until ${fullTime(a.lasts)}.`}>
+        <span className="mono">{a.name}</span>
+        {ending && (
+          <span className="warn-text">{left > 0 ? ` · its token ends in ${duration(left)}` : ' · its token ended'}</span>
+        )}
+      </td>
+      <UsageCell usage={a.usage} limit={a.limit} now={now} />
+      <td>
+        {page.inUse === a.name ? (
+          <span className="tag account-in-use">in use</span>
+        ) : asking ? (
+          <span className="ask-line">
+            Remove {a.name} and its token?{' '}
+            <Button
+              disabled={busy}
+              title={busyWhy ?? `Remove ${a.name} and delete its token from the keychain`}
+              onClick={onRemove}
+            >
+              Remove it
+            </Button>{' '}
+            <Button onClick={() => onAsk(false)}>Cancel</Button>
+          </span>
+        ) : (
+          <>
+            <Button disabled={busy || page.closed !== null} title={busyWhy ?? page.closed ?? use} onClick={onUse}>
+              Use
+            </Button>{' '}
+            <Button disabled={busy} title={busyWhy ?? `Remove ${a.name}`} onClick={() => onAsk(true)}>
+              Remove
+            </Button>
+          </>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/// An account's usage cell, on one line as every cell of the table is: the usage limit the engine holds the account's
+/// rounds at, as its records say, until its reset has passed, since it is what holds the rounds, or else the limit the
+/// service said it met naming no window; each window the service last named under it, by the name the service gives
+/// it, with how much of it is used and how long until it resets and when, joined; then "looking" while a look under it is under way, or
+/// "not seen" where nothing was heard of it; and "failed" where its latest look failed. A limit, and a window the
+/// service lets through only with a warning or not at all, are in the look of a warning, and a failed look in the look
+/// of a failure. On pointing, the cell says the whole line, when the service said it, what the warning's colour means,
+/// and why the look failed.
+function UsageCell({ usage, limit, now }: {
+  usage: AccountUsage;
+  limit: AccountsPage['accounts'][number]['limit'];
+  now: number;
+}) {
+  const held = limit !== null && (limit.resets === null || limit.resets > now) ? limit : null;
+  const atLimit =
+    held !== null
+      ? held.resets === null
+        ? `at its limit since ${clock(held.since)}`
+        : `at its limit · ${resetsWords(held.resets, now)}`
+      : usage.atLimit !== null
+        ? usage.atLimit.resets === null
+          ? 'at its limit'
+          : `at its limit · ${resetsWords(usage.atLimit.resets, now)}`
+        : null;
+  const parts: { text: string; look?: string }[] = [];
+  if (atLimit !== null) parts.push({ text: atLimit, look: 'warn-text' });
+  for (const w of usage.windows) {
+    const used = w.utilization === null ? '' : ` ${Math.round(w.utilization * 100)}%`;
+    const resets = w.resets === null ? '' : ` · ${resetsWords(w.resets, now)}`;
+    parts.push({ text: `${w.name}${used}${resets}`, look: w.allowed ? undefined : 'warn-text' });
+  }
+  if (usage.looking) parts.push({ text: 'looking', look: 'muted' });
+  else if (parts.length === 0 && usage.failed === null) parts.push({ text: 'not seen', look: 'muted' });
+  if (usage.failed !== null) parts.push({ text: 'failed', look: 'failed' });
+  const title = [
+    parts.map((p) => p.text).join(' · '),
+    usage.seen === null ? null : `Said by the service ${fullTime(usage.seen)}.`,
+    parts.some((p) => p.look === 'warn-text')
+      ? 'In the look of a warning: the account at its limit, or a window the service lets its calls through in only ' +
+        'with a warning or not at all.'
+      : null,
+    usage.failed === null ? null : `The latest look under it failed: ${usage.failed}`,
+  ]
+    .filter((line) => line !== null)
+    .join('\n');
+  return (
+    <td title={title}>
+      {parts.map((p, i) => (
+        <span key={i}>
+          {i > 0 && ' · '}
+          <span className={p.look}>{p.text}</span>
+        </span>
+      ))}
+    </td>
   );
 }
 

@@ -27,8 +27,8 @@ async fn a_build_that_changes_the_guide_is_sent_back_until_it_says_why_and_the_o
     assert_eq!(kept.given.get(&(build, 2)), Some(&Given::SentBack(vec![unexplained])));
     let calls = real.calls();
     let builds: Vec<_> = calls.iter().filter(|call| call.of("Build")).collect();
-    let sent_back = "- `AGENTS.md` is a file the project protects, which the work's branch changes, and nothing says why: \
-                     give in `protected_changes` why the change is needed, or take it back.";
+    let sent_back = "- `AGENTS.md` is a file the project protects. The work's branch changes it, and nothing says why: \
+                     say in `protected_changes` why the change is needed, or take it back.";
     assert!(builds[1].stdin.contains(sent_back), "{}", builds[1].stdin);
     // The engine asked nothing of the change before the build said why, and then the question, with the reason.
     let (name, _) = real.unanswered_question(work).expect("the owner is asked");

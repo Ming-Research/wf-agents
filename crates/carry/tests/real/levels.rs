@@ -6,7 +6,7 @@ use service::Act;
 use store::WorkNumber;
 use work::RanOn;
 
-use crate::{Call, Fake, Real, ended};
+use crate::{ACCOUNT, Call, Fake, Real, ended};
 
 /// The model and the effort a call of the command line was given.
 fn ran_with(call: &Call) -> (&str, Option<&str>) {
@@ -40,12 +40,15 @@ fn kept_of(real: &Real, work: WorkNumber, run: decide::RunId, round: usize, try_
     tries.get(try_ - 1).copied().cloned().expect("it is recorded")
 }
 
-fn on(level: &str, model: &str) -> RanOn {
+/// What a try at this level on this model ran on, at the trial cells' effort, in the engine's directory of the agents'
+/// program, under the account the tests take.
+fn on(real: &Real, level: &str, model: &str) -> RanOn {
     RanOn {
         level: level.to_string(),
         model: model.to_string(),
         effort: Some("high".to_string()),
-        account: None,
+        directory: Some(real.data.join("profile").display().to_string()),
+        account: Some(ACCOUNT.to_string()),
     }
 }
 
@@ -65,7 +68,7 @@ async fn each_round_runs_on_the_model_of_its_item_s_level_at_its_cell_s_effort_a
             "level 2, at the cells' effort"
         );
     }
-    assert_eq!(kept(&real, work, "plan", 1, 1), on("2", "claude-sonnet-5-5"));
+    assert_eq!(kept(&real, work, "plan", 1, 1), on(&real, "2", "claude-sonnet-5-5"));
 }
 
 #[tokio::test]
@@ -90,7 +93,7 @@ async fn a_line_that_runs_above_its_item_s_level_runs_on_the_model_of_the_level_
         ["claude-haiku-5-5", "claude-haiku-5-5", "claude-sonnet-5-5"],
         "the plan and the build at level 1, the review at 2"
     );
-    assert_eq!(kept(&real, work, "review", 1, 1), on("2", "claude-sonnet-5-5"));
+    assert_eq!(kept(&real, work, "review", 1, 1), on(&real, "2", "claude-sonnet-5-5"));
 }
 
 #[tokio::test]
@@ -105,8 +108,8 @@ async fn a_round_tried_again_keeps_what_each_try_ran_on() {
     real.until(|real| ended(&real.decision(work))).await;
     // The build, entered again for the check's result, was refused its session and tried again: each try kept what it
     // ran on.
-    assert_eq!(kept(&real, work, "build", 1, 1), on("1", "claude-haiku-5-5"));
-    assert_eq!(kept(&real, work, "build", 1, 2), on("1", "claude-haiku-5-5"));
+    assert_eq!(kept(&real, work, "build", 1, 1), on(&real, "1", "claude-haiku-5-5"));
+    assert_eq!(kept(&real, work, "build", 1, 2), on(&real, "1", "claude-haiku-5-5"));
 }
 
 #[tokio::test]
@@ -135,18 +138,18 @@ async fn a_try_keeps_what_it_ran_on_after_the_settings_give_its_level_another_mo
     real.until(|real| ended(&real.decision(work))).await;
     assert_eq!(
         kept(&real, work, "plan", 1, 1),
-        on("1", "claude-haiku-5-5"),
+        on(&real, "1", "claude-haiku-5-5"),
         "as it ran"
     );
     let builds = runs_of(&real, work, "build");
     assert_eq!(
         kept_of(&real, work, builds[0], 1, 1),
-        on("1", "claude-haiku-5-5"),
+        on(&real, "1", "claude-haiku-5-5"),
         "as it ran"
     );
     assert_eq!(
         kept_of(&real, work, builds[1], 1, 1),
-        on("1", "claude-opus-5-5"),
+        on(&real, "1", "claude-opus-5-5"),
         "on the settings it ran on"
     );
 }

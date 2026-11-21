@@ -36,10 +36,7 @@ title_max = 40
 /// The keys the stand-in reading knows, by table.
 const KNOWN: [(&str, &[&str]); 4] = [
     ("owner", &["language"]),
-    (
-        "agents",
-        &["command", "slots", "args", "permissions", "levels", "config_dir"],
-    ),
+    ("agents", &["command", "slots", "args", "permissions", "levels"]),
     ("items", &["default_level", "highest_level", "title_max"]),
     ("sessions", &["compact_at"]),
 ];
@@ -78,11 +75,6 @@ fn install(dir: &Path, text: &str) -> Install {
         read: Box::new(read),
         running: read(text).unwrap(),
         git: &["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgSign=false"],
-        program: Program {
-            variable: "CLAUDE_CONFIG_DIR",
-            sign_in: "/login",
-            signed_in_as: |dir| std::fs::read_to_string(dir.join("account")).ok(),
-        },
     }
 }
 
@@ -349,65 +341,6 @@ fn where_git_keeps_the_file_a_change_is_committed_and_none_goes_onto_changes_not
     ));
     assert_eq!(status, StatusCode::CONFLICT);
     assert!(said.contains("has changes not committed"), "{said}");
-}
-
-#[test]
-fn the_accounts_beside_the_one_named_are_shown_and_one_signed_in_is_switched_to() {
-    let dir = tempfile::tempdir().unwrap();
-    let agents = dir.path().join("agents");
-    for name in ["claude", "claude-second", "claude-third", "claudette", "other"] {
-        std::fs::create_dir_all(agents.join(name)).unwrap();
-    }
-    std::fs::write(agents.join("claude/account"), "owner@example.com").unwrap();
-    std::fs::write(agents.join("claude-second/account"), "second@example.com").unwrap();
-    let named = agents.join("claude");
-    let text = FILE.replace(
-        "command = \"claude\"",
-        &format!("command = \"claude\"\nconfig_dir = \"{}\"", named.display()),
-    );
-    let install = install(dir.path(), &text);
-    let page = accounts_of(&install).map_err(|r| r.1).unwrap();
-    let names: Vec<(&str, Option<&str>, bool)> = (page.accounts.iter())
-        .map(|a| (a.name.as_str(), a.signed_in_as.as_deref(), a.named))
-        .collect();
-    assert_eq!(
-        names,
-        [
-            ("claude", Some("owner@example.com"), true),
-            ("claude-second", Some("second@example.com"), false),
-            ("claude-third", None, false),
-        ]
-    );
-    let (status, said) = refusal(chosen(
-        &install,
-        &AccountChoice {
-            base: page.base.clone(),
-            name: "claude-third".to_string(),
-        },
-    ));
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        said,
-        format!(
-            "claude-third is not signed in: run `CLAUDE_CONFIG_DIR={} claude` and type /login there first",
-            agents.join("claude-third").display()
-        )
-    );
-    let saved = chosen(
-        &install,
-        &AccountChoice {
-            base: page.base,
-            name: "claude-second".to_string(),
-        },
-    )
-    .map_err(|r| r.1)
-    .unwrap();
-    assert!(saved.said.starts_with("agents.config_dir = "), "{}", saved.said);
-    let page = accounts_of(&install).map_err(|r| r.1).unwrap();
-    assert!(
-        page.accounts.iter().any(|a| a.name == "claude-second" && a.named),
-        "{page:?}"
-    );
 }
 
 #[test]

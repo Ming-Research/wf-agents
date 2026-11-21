@@ -1,5 +1,5 @@
-what = "The plan for the owner, in `owner.language`, technical terms in English: what will be done, how and why, no longer than that; where another way was a real choice, what it was and where the plan wins; where the facts differ from what the item says, that too; each question pointed to where it belongs."
+what = "The plan for the owner, in `owner.language`, with technical terms in English: what will be done, how and why, and no longer than that. Where another way was a real choice, it says what that way was and where the plan is better. Where the facts differ from what the item says, it says that too. At the place where each question belongs, it points to that question."
 shown = true
 words = '''
-`plan_owner`: the plan as it now stands, not how it came to be; none of the code's names (its files, types and
-functions), which are `plan_agent`'s.'''
+`plan_owner`: write the plan as it now stands, not how it came to be. Use none of the code's names (its files, types
+and functions): those belong in `plan_agent`.'''

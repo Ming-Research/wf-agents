@@ -1845,7 +1845,7 @@ impl<'a> Definition<'a> {
             (!file.outputs.iter().any(|o| o == block)).then_some(what)
         }));
         // The work is described by blocks of the flow with content, whether or not they run the cell: what merges is
-        // described again from them before the merge (decision blocks-that-describe-the-work-need-not-run-the-check).
+        // described again from them before the merge.
         found.extend(check_list(&file.describes, "describes", declared));
         if let Some(what) = file.named_by.as_deref().and_then(declared) {
             found.push(("named_by".to_string(), what));

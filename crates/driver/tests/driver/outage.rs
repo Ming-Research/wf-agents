@@ -3,7 +3,10 @@
 //! itself, at times that grow longer while it stays down, giving no round and touching no work's session, and every
 //! work goes on once a check finds it well. The engine's own acts go on meanwhile, and no work is paused for it. An act
 //! that fails for want of the network to its host holds the acts of every work, and only those, until a look at the
-//! host reaches it.
+//! host reaches it. A usage limit is its account's own: it holds the rounds only while its account is in use, and
+//! taking another account has the outside checked at once under it.
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use decide::run::{Failure, PASSING};
 use driver::outage::{LONGEST_CHECK, PROBE, spacing};
@@ -344,4 +347,307 @@ fn a_check_of_a_wait_that_ended_is_of_no_other() {
     let outage = h.d().outage().expect("a new wait stands");
     assert_eq!(outage.checked, None);
     assert_eq!(next_check(&h), Time(outage.met.0 + PROBE));
+}
+
+/// Two works of the plain flow, let on, each with its writer's first round under way under the account `first`, which
+/// the owner took of the accounts `first` and `second`.
+fn two_under_accounts() -> (H, WorkNumber, WorkNumber) {
+    let (mut h, a, b) = two();
+    h.add_account("first");
+    h.add_account("second");
+    h.take_account("first");
+    h.ran_under(a, "first");
+    h.ran_under(b, "first");
+    (h, a, b)
+}
+
+// A usage limit is its account's own (decision a-shared-cause-is-one-wait): met under one account, it holds the rounds
+// while that account is in use; taking another ends the wait at once; a round coming back under the other ends nothing
+// of the first's limit; and taking the first back before its reset holds the rounds again, checked at its reset.
+#[test]
+fn a_usage_limit_holds_the_rounds_only_while_its_account_is_in_use() {
+    let (mut h, a, b) = two_under_accounts();
+    let resets = Time(h.clock + 3_600_000);
+    fails(&mut h, a, Failure::UsageLimit, Some(resets));
+    assert!(h.d().outage().expect("the wait stands").holds());
+    let limit = h.d().limits().get("first").copied().expect("the first's limit stands");
+    assert_eq!(limit.resets, Some(resets));
+    // Taking another account ends the wait at once: the round that met the limit is run again, under it.
+    let todos = h.take_account("second");
+    assert_eq!(h.d().outage(), None);
+    assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
+    h.ran_under(a, "second");
+    h.hands_in(a, &[("text", None)]);
+    assert_eq!(
+        h.d().limits().get("first"),
+        Some(&limit),
+        "a round under another account ends nothing of the first's limit"
+    );
+    assert!(!h.d().limits().contains_key("second"));
+    // Taken back before its reset, the first holds the rounds again, and is checked at its reset and not before.
+    h.take_account("first");
+    assert!(h.d().outage().expect("the wait stands again").holds());
+    assert_eq!(next_check(&h), resets);
+    // A round under it that comes back ends its limit: the other work's, under way all along, began before it.
+    h.hands_in(b, &[("text", None)]);
+    assert!(
+        h.d().limits().contains_key("first"),
+        "a round begun before the limit ends nothing of it"
+    );
+    let todos = h.tick(resets, Some(Found::Well));
+    assert_eq!(agents_rounds(&todos), vec![]);
+}
+
+// Taking another account drops what the checks found, which was of the account before, and the outside is checked at
+// once under the one taken (decision the-engine-checks-the-outside-itself).
+#[test]
+fn taking_another_account_has_the_outside_checked_at_once_under_it() {
+    let (mut h, a, _) = two_under_accounts();
+    fails(&mut h, a, Failure::CannotRun, None);
+    let first = next_check(&h);
+    h.tick(first, Some(down(Failure::CannotRun)));
+    assert_eq!(h.d().outage().and_then(|o| o.checked).map(|c| c.taken), Some(1));
+    let todos = h.take_account("second");
+    assert_eq!(
+        agents_rounds(&todos),
+        vec![],
+        "a cause of every account holds until a check finds it well"
+    );
+    assert_eq!(h.d().outage().expect("the wait stands").checked, None);
+    let now = Time(h.clock);
+    assert_eq!(next_check(&h), now, "checked at once");
+    let todos = h.tick(now, Some(Found::Well));
+    assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
+}
+
+/// What a history knows of the accounts from what it told the driver alone: the accounts added, the one it took, the
+/// account each agent's round was handed out with, by its work, run and number, and each account whose usage limit
+/// stands, from a round under it that met the limit until a check under it found the outside well.
+struct Told {
+    added: BTreeSet<String>,
+    in_use: String,
+    rounds: BTreeMap<(WorkNumber, RunId, usize), String>,
+    limited: BTreeSet<String>,
+}
+
+/// The agents' rounds under way, each of a work by its run, with the account the history handed it out with.
+fn under_way(h: &H, told: &Told) -> Vec<(WorkNumber, RunId, String)> {
+    (h.outstanding.iter())
+        .filter_map(|t| match &t.effect {
+            Effect::Round { run, cell, number, .. } if cell.as_str() == "write" => {
+                let account = told.rounds.get(&(t.work, *run, *number))?;
+                Some((t.work, *run, account.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Each agent's round among these that is new, not one given again as the engine opened, begins its try under the
+/// account the history took, which it was handed out with, as its carrier says; none is handed out under an account
+/// whose usage limit stands, as the history knows it. Gives how many were handed out.
+fn handed_out(h: &mut H, todos: &[Todo], told: &mut Told) -> usize {
+    let mut handed = 0;
+    for (work, run, number) in (todos.iter()).filter_map(|t| match &t.effect {
+        Effect::Round { run, cell, number, .. } if cell.as_str() == "write" => Some((t.work, *run, *number)),
+        _ => None,
+    }) {
+        if told.rounds.contains_key(&(work, run, number)) {
+            continue;
+        }
+        let in_use = told.in_use.clone();
+        assert!(
+            !told.limited.contains(&in_use),
+            "a round of W{} run {} is handed out under {in_use}, whose usage limit stands",
+            work.0,
+            run.0
+        );
+        told.rounds.insert((work, run, number), in_use.clone());
+        let more = h.ran_under(work, &in_use);
+        handed += 1 + handed_out(h, &more, told);
+    }
+    handed
+}
+
+// Over random histories of three accounts, taken in turn at random, removed and added again, rounds meeting the usage
+// limit, rounds coming back, the service answering a round, works added, checks finding the outside well or at the
+// limit still, and the engine opened again, no agent's round is handed out under an account whose usage limit stands,
+// as the history knows it from what it told the driver: from a round under the account that met the limit, until a
+// check under that account found the outside well. Thirty-two histories of eighty steps, each step checked by the
+// harness: about a second.
+#[test]
+fn no_round_is_handed_out_under_an_account_whose_usage_limit_stands() {
+    const ACCOUNTS: [&str; 3] = ["first", "second", "third"];
+    // Rounds handed out while another account's limit stood, limits met, accounts taken whose limit stood, limits a
+    // check under their account found over, accounts removed, and openings anew.
+    let (mut around, mut met, mut back, mut over, mut removed, mut reopened) = (0, 0, 0, 0, 0, 0);
+    for seed in 0..32u64 {
+        let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        let mut draw = |n: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state % n
+        };
+        let mut h = H::new();
+        for name in ACCOUNTS {
+            h.add_account(name);
+        }
+        h.take_account(ACCOUNTS[0]);
+        let mut told = Told {
+            added: ACCOUNTS.iter().map(|name| name.to_string()).collect(),
+            in_use: ACCOUNTS[0].to_string(),
+            rounds: BTreeMap::new(),
+            limited: BTreeSet::new(),
+        };
+        let mut items = 0;
+        for _ in 0..80 {
+            let handed = match draw(8) {
+                0 => {
+                    let added: Vec<String> = told.added.iter().cloned().collect();
+                    let name = added[draw(added.len() as u64) as usize].clone();
+                    back += usize::from(told.limited.contains(&name));
+                    let todos = h.take_account(&name);
+                    told.in_use = name;
+                    handed_out(&mut h, &todos, &mut told)
+                }
+                1 => match under_way(&h, &told).first().cloned() {
+                    Some((work, run, account)) => {
+                        let resets = (draw(2) == 0).then(|| Time(h.clock + 600_000));
+                        let spent = h.spent();
+                        let failed = Event::Failed {
+                            run,
+                            why: "You've hit your limit".to_string(),
+                            failure: Failure::UsageLimit,
+                            resets,
+                            spent,
+                        };
+                        let todos = h.on(work, failed);
+                        met += 1;
+                        told.limited.insert(account);
+                        handed_out(&mut h, &todos, &mut told)
+                    }
+                    None => 0,
+                },
+                2 => match under_way(&h, &told).first().cloned() {
+                    Some((work, ..)) => {
+                        let todos = h.hands_in(work, &[("text", None)]);
+                        handed_out(&mut h, &todos, &mut told)
+                    }
+                    None => 0,
+                },
+                3 => match h.d().wake().filter(|wake| wake.check) {
+                    Some(wake) => {
+                        let well = draw(2) == 0;
+                        let found = match well {
+                            true => Found::Well,
+                            false => Found::Down {
+                                failure: Failure::UsageLimit,
+                                why: "You've hit your limit".to_string(),
+                                resets: None,
+                            },
+                        };
+                        if well {
+                            over += usize::from(told.limited.remove(&told.in_use));
+                        }
+                        let todos = h.tick_under(wake.at, Some(told.in_use.as_str()), found);
+                        handed_out(&mut h, &todos, &mut told)
+                    }
+                    None => 0,
+                },
+                4 => match under_way(&h, &told).first().cloned() {
+                    Some((work, ..)) => {
+                        let todos = h.service_answers(work);
+                        handed_out(&mut h, &todos, &mut told)
+                    }
+                    None => 0,
+                },
+                5 => {
+                    // An account not in use is removed, or one removed is added again.
+                    let gone: Vec<&str> = (ACCOUNTS.iter().copied())
+                        .filter(|name| !told.added.contains(*name))
+                        .collect();
+                    match gone.first() {
+                        Some(name) => {
+                            h.add_account(name);
+                            told.added.insert(name.to_string());
+                        }
+                        None => {
+                            let others: Vec<String> = (told.added.iter())
+                                .filter(|name| **name != told.in_use)
+                                .cloned()
+                                .collect();
+                            let name = others[draw(others.len() as u64) as usize].clone();
+                            h.remove_account(&name);
+                            told.added.remove(&name);
+                            removed += 1;
+                        }
+                    }
+                    0
+                }
+                6 => {
+                    // The engine opens anew, the owner lifting at once the pause of everything it makes on works going
+                    // on: what was under way is given again, under the account it was handed out with.
+                    reopened += 1;
+                    let todos = h.restart();
+                    handed_out(&mut h, &todos, &mut told)
+                }
+                _ => {
+                    // A merge under way comes back, or else a work is added and let on.
+                    let merging = (h.outstanding.iter()).find_map(|t| match &t.effect {
+                        Effect::Round { cell, .. } if cell.as_str() == "merge" => Some(t.work),
+                        _ => None,
+                    });
+                    let todos = match merging {
+                        Some(work) => h.hands_in(work, &[("merged", None)]),
+                        None if items < 8 => {
+                            items += 1;
+                            let (_, work) = h.add(new_item(&format!("item {items}"), &[], "plain"));
+                            h.let_on(work)
+                        }
+                        None => Vec::new(),
+                    };
+                    handed_out(&mut h, &todos, &mut told)
+                }
+            };
+            if handed > 0 && told.limited.iter().any(|name| *name != told.in_use) {
+                around += handed;
+            }
+        }
+    }
+    for (what, n) in [
+        ("rounds handed out while another account's limit stood", around),
+        ("limits met", met),
+        ("accounts taken back while their limit stood", back),
+        ("limits a check under their account found over", over),
+        ("accounts removed", removed),
+        ("openings anew", reopened),
+    ] {
+        assert!(n > 0, "never put to the test: {what}");
+    }
+}
+
+// A check speaks only of the account it was taken under: one taken under the account before a switch, which comes
+// back after it, is no check of the account taken, whose wait holds until a check under it finds the outside well.
+#[test]
+fn a_check_taken_under_another_account_than_the_one_in_use_is_no_check_of_it() {
+    let (mut h, a, _) = two_under_accounts();
+    fails(&mut h, a, Failure::CannotRun, None);
+    let switched = {
+        h.take_account("second");
+        Time(h.clock)
+    };
+    assert_eq!(next_check(&h), switched);
+    // The check asked for under the first account, before the switch, comes back after it, finding the outside well.
+    let todos = h.tick_under(switched, Some("first"), Found::Well);
+    assert_eq!(agents_rounds(&todos), vec![], "it speaks of the first account alone");
+    let outage = h.d().outage().expect("the wait stands");
+    assert!(outage.holds());
+    assert_eq!(outage.checked, None);
+    // The check asked for under the second, at the switch, finds it down, and then well.
+    h.tick_under(switched, Some("second"), down(Failure::CannotRun));
+    assert_eq!(h.d().outage().and_then(|o| o.checked).map(|c| c.taken), Some(1));
+    let at = next_check(&h);
+    let todos = h.tick_under(at, Some("second"), Found::Well);
+    assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
 }

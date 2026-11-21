@@ -1,15 +1,27 @@
+# The levels
+
+What an item's level chooses for the rounds of its agents, the reasoning effort each cell runs at, and which lines run above their item's level.
+
 ### decision a-level-is-a-difficulty
-An item has one level, which says only how hard its work is and chooses the model its agents run on, never how hard each step thinks. A level's description speaks of difficulty alone.
-Why: Levels that bind a model and an effort together were turned down: a step that only gathers needs less thought than one that designs, whatever the item, and an item's difficulty has nothing to do with that (a judgment, not measured). Describing levels by whether decisions are needed misled whoever gave an item its level, since that is not difficulty.
+An item has one level, which says how hard its work is and chooses only the model its agents run on, never their effort; a level's description talks only about difficulty.
+- replaced: Five levels, each a model and an effort together, was on main; the owner changed it, because a step should think as hard as it needs to, and a gate think little whatever the item, which one effort for all of a level's steps could not express.
+- rejected: an agent proposed telling the levels apart by whether a work needs new decisions; the owner rejected it, because a level is how hard the architect understands the work to be, which has nothing to do with whether it needs the decision tree.
+- replaced: A level's description that raised an item when its work met new decisions or facts to find was on main; the owner changed it, because items were rated too high, and this project's work needs no third level.
+- replaced: One model for every round, set by the installation's single setting, was on main; the owner changed it, because small items then ran on Opus, while the old system had most work at level 2.
 
 ### decision effort-is-the-flows
-Every agent step names its reasoning effort in the flow's definition, which changes only by changing the flow; there is no setting of it on the page or in the installation. A step of searching or judging is not given the lowest effort, even on the cheapest model.
-Why: An effort is a property of what the step does, which the flow says, and a setting beside the flow would let the two drift unseen; a step left to the program's own effort would run at a default nobody chose. The cheapest model at the lowest effort judged too poorly.
+Every agent cell names its reasoning effort in the flow's definition, none of them the lowest, and neither the page nor the installation's settings has a setting for it.
+- rejected: an agent proposed keeping each cell's effort in the installation's settings, changed on the page as the owner had asked; the owner rejected it, because if one needs changing, changing the flow is then no trouble.
+- replaced: Searching and judging cells on the cheapest model at the lowest effort was on main; the owner changed it, because the cheapest model at the lowest effort judges too poorly.
+
+### decision the-research-and-the-code-reviews-think-high
+The initial research and the reviews of the change run at the effort high; the implementation, the deep research and the plan's reviews run at xhigh.
+- replaced: Running the initial research and the reviews of the change at xhigh was on main; the owner changed it, because high might take a third less time on a research that took 7 to 13 minutes, though that was not measured.
 
 ### decision the-deep-research-and-the-plan-review-run-above
-The deep research and the plan review run one level above their item's, as the `levels_above` of their lines says; every other line, the code review among them, runs at the item's own. No line runs above the highest level an item may be at, so that an item's work never reaches the top level when the installation keeps that out of items.
-Why: A weaker agent doing the deep research may fix the surface and stop, hiding a larger problem that no later step finds, and few works take that way, so the higher model costs little in all. The plan's reviews, which run on every work, are one line that reviews whichever plan comes, the deep research's among them, which is written a level up, and a line runs at one level: so it runs a level up on every work, never below the plan it reviews (principle the-reviewer-knows-no-less). The code review is a second pair of eyes on far more works, where the higher model would cost much (a judgment, not measured). The top level costs out of proportion to its gain for everyday work, which is why an installation may hold items below it.
-
-### decision what-a-round-ran-on-is-kept-with-it
-What each try of an agent's round ran on, its level, that level's model, its effort and the account it ran under, is recorded in the work's records as the try begins, and the past is read from that and never worked out again from the item's level, the flow and the settings. A try runs on the item's level and the settings as they are when it begins.
-Why: The owner may put an item at another level, the settings may give a level another model, and the flow may raise a line or change an effort; a round read by today's would say it ran on what it did not (principle the-past-as-it-ran). Whether a line goes on in its session is decided by what its session's rounds ran on, and what decides reads the records alone: kept in a file beside the try's message, which was turned down, it was out of that decision's reach, or the model was held twice.
+The deep research and the plan's reviews run one level above their item's, by their lines' `levels_above`, the code's reviews at the item's own, and nothing above the installation's highest for items.
+- replaced: Items at any level, the top one included, was on main; the owner changed it, because the top level's model is not much stronger than the one below it and costs far more.
+- rejected: an agent proposed running the review a level higher when the design tree changes; the owner rejected it, because the item's own level is enough until a trial of both shows that one level more helps.
+- replaced: Running the deep research at its item's level was on main; the owner changed it, because a weaker agent may fix the surface and stop, hiding a larger problem that no later step finds, and with few works going that deep the higher model costs little.
+- replaced: Raising the deep research one level even past the highest level an item may be at, onto the top level, was on main; the owner changed it, because the highest level is the limit for the whole installation.
+- replaced: Running the plan review at its item's level was on main; the owner changed it, because engineers mostly do what a review says, so a review weaker than the plan it reviews turns good work bad; he held to this again once it ran on every work.

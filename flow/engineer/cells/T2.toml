@@ -7,23 +7,24 @@ kind = "agent"
 line = "code_reviewer"
 effort = "high"
 task = '''
-Review the tests and the evidence of the change in `code`, in a session of your own, and change no file. Read the diff
-from main to `head`. Judge only by what the implementation was asked to do (`plan_agent`, `acceptance`) and the
-repository's rules. Not the code and not the design tree.
+Review the tests and the evidence of the change in `code`, in a session of your own, and change no files. Read the
+diff from main to `head`. Judge only by what the implementation was asked to do (`plan_agent`, `acceptance`) and by the
+repository's rules. Do not review the code or the design tree.
 
 1. Does `evidence` show each condition of `acceptance` on the change?
-2. Was each new or extended test red on the code before the change, where its kind needs it, as a run shows?
-3. Of each test the change removes, skips, narrows or weakens: is what it checked still checked, or is a technical reason given?
-4. Is each new test worth its time: what it catches that no other test does, and why it cannot be smaller?
-5. Where cost per operation or request can change, is what it can make slower measured?
+2. Was each new or extended test red on the code before the change, where its kind needs that, as a run shows?
+3. For each test the change removes, skips, narrows or weakens: is what it checked still checked, or is a technical
+   reason given?
+4. Is each new test worth its time: what does it catch that no other test does, and why can it not be smaller?
+5. Where the cost per operation or request can change, is what could get slower measured?
 6. Does the change touch a kind that `needs_testing` names?
 
-In the why of `test_ok`, answer each question by its number: what you checked and what you found; in the why of
-`needs_testing`, the kind the change touches, or that it touches none. A question you did not check is a point: what
-must be shown. Write every point in `test_review` at once: this is your one chance, and nothing is raised later that
-could be raised now. Leave out preferences: the engineer fixes nearly all a review raises, so a wrong point makes good
-code worse. With `test_ok` yes, leave `test_review` out of your return. Having said yes to `needs_testing`, keep it while
-the part of the change that made you say so is still there.
+In the why of `test_ok`, answer each question by its number: what you checked and what you found. In the why of
+`needs_testing`, give the kind the change touches, or say that it touches none. A question you did not check is a point:
+say what must be shown. Write every point in `test_review` at once: this is your one chance, and nothing that could be
+raised now is raised later. Leave out preferences: the engineer fixes nearly everything a review raises, so a wrong
+point makes good code worse. If `test_ok` is yes, leave `test_review` out of your return. Once you have said yes to
+`needs_testing`, keep it while the part of the change that made you say so is still there.
 '''
 watches = ["change", "test_review"]
 reads = ["plan", "background", "tree"]
@@ -35,8 +36,8 @@ must_write = ["test_ok", "needs_testing"]
 # The change is watched as one, what the implementation and the testing hand in; the plan is only read, since the
 # implementation brings the code to it first, and no session is watched, since a reopened session gives a reviewer
 # nothing to do again.
-change = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-test_review = """Look at what changed: accept each answer in `test_review` or say why not; raise nothing new the fix did not bring."""
+change = """Look at what changed since the version you last reviewed (all of it, if you have reviewed none), and review it."""
+test_review = """Look at what changed: accept each answer in `test_review` or say why not, and raise nothing new that the fix did not bring up."""
 
 # `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
@@ -50,7 +51,6 @@ evidence = "latest"
 plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"
 acceptance = "last_and_latest"
-tree_edits = "last_and_latest"
 tests = "last_and_latest"
 head = "last_and_latest"
 background = "latest"

@@ -862,7 +862,7 @@ fn the_research_s_hand_over_holding_a_question_is_sent_back_saying_what_else_it_
     assert_eq!((again.cell.as_str(), again.run, again.number), ("R1", research.run, 2));
     assert!(sim.versions("r1_questions").is_empty(), "the question was asked");
     let entered = sim.enter(&again, sim.begins(&again));
-    let said = "- `deep_needed` is `yes`, and a return with that value holds none of `r1_questions`.";
+    let said = "- `deep_needed` is `yes`, and a return with that value must hold none of `r1_questions`.";
     assert!(entered.text.contains(said), "{}", entered.text);
     sim.tries(&again, 1, entered.fills);
     sim.returns(&again, Came::hands_in(hand_over()), 0);

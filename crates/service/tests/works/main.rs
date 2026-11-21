@@ -7,6 +7,7 @@
 //!
 //! The tests are kept in modules by subject, so that a new test goes into the module of what it tests.
 
+mod accounts;
 mod acts;
 mod cancelling;
 mod contract;
@@ -18,6 +19,7 @@ mod pinging;
 mod shared_wait;
 mod stopped;
 mod stopping;
+mod usage;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -160,9 +162,21 @@ impl Trial {
 
     /// The loop with the trial's script, on an empty store, whose agents' rounds run in sessions kept warm: every round
     /// runs on one model, and a line that waits has its session pinged 55 minutes after its last call, at most twice
-    /// in a wait.
+    /// in a wait. The owner has taken an account, which a session is kept warm only under.
     pub fn warm() -> Trial {
-        Trial::opened(trial_script(), Some(Pings::default()), None)
+        let mut trial = Trial::opened(trial_script(), Some(Pings::default()), None);
+        for what in [store::AccountAct::Added, store::AccountAct::Taken] {
+            let (reply, mut answer) = oneshot::channel();
+            trial.take(Message::Account {
+                name: ACCOUNT.to_string(),
+                what,
+                reply,
+            });
+            (answer.try_recv())
+                .expect("the loop answers at once")
+                .expect("the account is taken");
+        }
+        trial
     }
 
     /// The loop with this script, on an empty store, its sessions kept warm where `pings` holds the pings in hand, and
@@ -268,7 +282,8 @@ impl Trial {
         let (work, event) = match message {
             Message::Happened { work, event } => (work, event),
             // The time a wait was for has come: the loop takes it as it comes, and nothing more is said of it.
-            message @ (Message::Due { .. } | Message::Tick { .. }) => {
+            // So is what a look or a call said of an account's usage.
+            message @ (Message::Due { .. } | Message::Tick { .. } | Message::Looked { .. } | Message::Usage { .. }) => {
                 self.service.take(message).expect("the loop takes it");
                 self.steps += 1;
                 self.check();
@@ -519,6 +534,7 @@ fn open(
         outside: (outside.cloned()).unwrap_or_else(|| Arc::new(recording.scripted.clone())),
         host: Some(Arc::new(recording.scripted.clone())),
         slots: SLOTS,
+        tokens: Arc::new(service::KeptTokens::new()),
     };
     let clock: Arc<dyn service::Clock> = clock.clone();
     Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens")
@@ -527,13 +543,17 @@ fn open(
 /// The model every round of the agents runs on where their sessions are kept warm.
 const MODEL: &str = "the model";
 
-/// What a round runs on where the agents' sessions are kept warm.
-fn ran_on() -> RanOn {
+/// The account the owner takes where the agents' sessions are kept warm.
+const ACCOUNT: &str = "work";
+
+/// What a round runs on where the agents' sessions are kept warm, under the account it was handed out with.
+fn ran_on(account: Option<String>) -> RanOn {
     RanOn {
         level: "1".to_string(),
         model: MODEL.to_string(),
         effort: None,
-        account: None,
+        directory: None,
+        account,
     }
 }
 
@@ -546,7 +566,7 @@ struct Warm {
 
 impl Rounds for Warm {
     fn give(&self, round: Round, reply: RoundReply) {
-        reply.teller().ran_on(1, ran_on());
+        reply.teller().ran_on(1, ran_on(round.account.clone()));
         self.recording.give(round, reply);
     }
 
@@ -561,7 +581,7 @@ impl Rounds for Warm {
     fn policy(&self) -> Option<driver::Policy> {
         Some(driver::Policy {
             samples: 19,
-            on: Box::new(|_, _| Some(ran_on())),
+            model: Box::new(|_, _| Some(MODEL.to_string())),
             warm: Some(driver::Warm {
                 life_ms: 3_600_000,
                 after_ms: 3_300_000,

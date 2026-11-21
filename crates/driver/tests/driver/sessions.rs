@@ -3,8 +3,6 @@
 //! runs again before the line's next round; where each line has a block of its own, a new session of one line writes
 //! its block alone and runs again no cell of another line.
 
-use std::sync::{Arc, Mutex};
-
 use decide::BlockId;
 use driver::{Budget, Policy};
 use driver::{FirstWrite, Found, NewItem, SESSION};
@@ -87,6 +85,9 @@ fn flow() -> Compiled {
     flow::compile(&source, &has).expect("the flow compiles")
 }
 
+/// The account the owner took in a test of keeping sessions warm, which a session is kept warm only under.
+const ACCOUNT: &str = "work";
+
 /// The words the driver writes into a session block, as the flow's own datum gives them.
 const SESSION_WRITES: &str = r#"writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit}", model = "its rounds now run on another model than {was}, which it was begun on", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", lost = "the agents' program no longer had the session it was in", flow = "the work was put on a version of its flow that decides the form of the line's returns otherwise", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }"#;
 
@@ -162,6 +163,7 @@ fn on(model: &str) -> RanOn {
         level: "1".to_string(),
         model: model.to_string(),
         effort: None,
+        directory: None,
         account: None,
     }
 }
@@ -187,32 +189,8 @@ fn policy(model: &str) -> Policy {
     let model = model.to_string();
     Policy {
         samples: 1,
-        on: Box::new(move |_, _| Some(on(&model))),
+        model: Box::new(move |_, _| Some(model.clone())),
         warm: None,
-    }
-}
-
-/// The account rounds run under, as the installation's settings say it each time the policy is asked: none for the
-/// program's own default directory.
-type Account = Arc<Mutex<Option<String>>>;
-
-fn account(dir: Option<&str>) -> Account {
-    Arc::new(Mutex::new(dir.map(str::to_string)))
-}
-
-/// The policy where every round runs on this model, under the account as it is when asked, a history of one value
-/// giving a line.
-fn policy_under(model: &str, account: Account) -> Policy {
-    let model = model.to_string();
-    Policy {
-        samples: 1,
-        warm: None,
-        on: Box::new(move |_, _| {
-            Some(RanOn {
-                account: account.lock().unwrap().clone(),
-                ..on(&model)
-            })
-        }),
     }
 }
 
@@ -239,6 +217,22 @@ impl S {
     /// A driver with the policy, whose rounds' tries begin under the account.
     fn with(policy: Policy, account: Option<&str>) -> S {
         S::on_flow(flow(), policy, account)
+    }
+
+    /// A driver with the policy whose owner took the account [`ACCOUNT`], under which its rounds' tries begin: a
+    /// session is kept warm only under the account in use.
+    fn warmed(policy: Policy) -> S {
+        S::warmed_on(flow(), policy)
+    }
+
+    /// A driver on the flow with the policy whose owner took the account [`ACCOUNT`], under which its rounds' tries
+    /// begin.
+    fn warmed_on(flow: Compiled, policy: Policy) -> S {
+        let mut s = S::on_flow(flow, policy, Some(ACCOUNT));
+        let now = Time(s.clock);
+        s.driver.add_account(now, ACCOUNT).expect("the account is added");
+        s.driver.take_account(now, ACCOUNT).expect("the account is taken");
+        s
     }
 
     /// A driver on the flow with the policy, whose rounds' tries begin under the account.
@@ -751,58 +745,95 @@ fn a_line_whose_rounds_now_run_on_another_model_begins_a_new_session_as_the_engi
     assert_eq!(s.sessions().len(), 1);
 }
 
+// A line goes on in its session under another account: the session lives in the one directory of the agents' program,
+// and the service takes a session made under another account (decision
+// a-line-goes-on-in-its-session-under-another-account). Taken while a round waits, as the engine opens, and once the
+// line goes on, the account begins no session, and the loading cell does not run again.
 #[test]
-fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_as_the_engine_opens() {
-    // The session was begun under the program's own default directory, and the engine opens under a directory set.
+fn a_line_goes_on_in_its_session_after_another_account_is_taken() {
     let mut s = S::new();
     s.hands_in(100, true);
-    let (build, _) = s.round();
     s.asks(100);
-    let todos = reopened(&mut s, policy_under("opus", account(Some("second"))));
+    // The session was begun under no account; the owner adds an account and takes it while the build waits on
+    // its tool's result.
+    let now = Time(s.clock);
+    s.driver.add_account(now, "second").expect("the account is added");
+    s.driver.take_account(now, "second").expect("the account is taken");
     s.account = Some("second".to_string());
-    assert_eq!(
-        s.sessions(),
-        [("engineer".to_string(), Why::Account { was: None })],
-        "the review's line, which has begun no session, begins none"
-    );
-    assert_eq!(s.session_block().len(), 1);
-    let loads = todos
-        .iter()
-        .any(|todo| matches!(&todo.effect, Effect::Round { cell, .. } if cell.as_str() == "load"));
-    assert!(loads, "the load runs again before the build goes on: {todos:?}");
-    // The load's round runs under the new account, and nothing more begins anew.
-    s.hands_in(100, false);
+    assert!(s.sessions().is_empty(), "{:?}", s.sessions());
+    // Opened again, the engine holds the account in use, and begins no session for it.
+    reopened(&mut s, policy("opus"));
+    assert_eq!(s.driver.accounts().in_use(), Some("second"));
+    assert!(s.sessions().is_empty(), "{:?}", s.sessions());
     let call = s.kept().records.called.last().expect("the build's call").call;
     s.on(Event::Done {
         call,
         result: "the request".to_string(),
     });
     let (again, cell) = s.round();
-    assert_eq!(cell, "build");
-    assert_ne!(again, build);
-    assert_eq!(s.sessions().len(), 1);
+    assert_eq!(cell, "build", "the build goes on, not the load");
+    s.began();
+    assert!(s.sessions().is_empty(), "{:?}", s.sessions());
+    assert!(s.session_block().is_empty(), "the loading cell runs not again");
+    assert_eq!(s.engineer(again, 1), (0, false), "in the session its load began");
+    assert_eq!(runs(&s, "load"), 1);
 }
 
+// A session is pinged only where its last call ran under the account in use, a ping running under that account; one
+// whose last call ran under another waits unpinged, and is pinged again once its account is taken back.
 #[test]
-fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_at_the_next_event() {
-    let under = account(Some("first"));
-    let mut s = S::with(policy_under("opus", under.clone()), Some("first"));
+fn a_session_is_kept_warm_only_while_its_last_call_ran_under_the_account_in_use() {
+    let mut s = S::with(warm("opus"), Some("first"));
+    let now = Time(s.clock);
+    for name in ["first", "second"] {
+        s.driver.add_account(now, name).expect("the account is added");
+    }
+    s.driver.take_account(now, "first").expect("taken");
     s.hands_in(100, true);
     s.asks(100);
-    assert!(s.sessions().is_empty());
-    // The account is changed while the build waits on its tool's result; the result is the next thing to happen.
-    *under.lock().unwrap() = Some("second".to_string());
-    s.account = Some("second".to_string());
-    let call = s.kept().records.called.last().expect("the build's call").call;
-    s.on(Event::Done {
-        call,
-        result: "the request".to_string(),
-    });
-    let was = Why::Account {
-        was: Some("first".to_string()),
-    };
-    assert_eq!(s.sessions(), [("engineer".to_string(), was)]);
-    assert_eq!(s.session_block().len(), 1);
+    assert_eq!(kept_warm(&s).len(), 1, "its last call ran under the account in use");
+    s.clock += 1000;
+    s.driver.take_account(Time(s.clock), "second").expect("taken");
+    assert!(kept_warm(&s).is_empty(), "its last call ran under another account");
+    let todos = s
+        .driver
+        .tick(Time(s.clock + 3_300_000), None, None)
+        .expect("the driver takes the time");
+    assert!(pings(&s, &todos).is_empty(), "{todos:?}");
+    s.clock += 1000;
+    s.driver.take_account(Time(s.clock), "first").expect("taken back");
+    assert_eq!(kept_warm(&s).len(), 1, "taken back, its session is kept warm again");
+}
+
+// With no account in use, no session is pinged, a ping having no account to run under, and no ping wakes the driver;
+// a session whose last call ran under an account not in use is not pinged either, until the owner takes that account.
+// Milliseconds, nothing run: the one test that a ping is never handed out to fail for want of an account.
+#[test]
+fn no_session_is_kept_warm_while_no_account_is_in_use() {
+    let mut s = S::with(warm("opus"), None);
+    s.hands_in(100, true);
+    s.asks(100);
+    assert!(
+        kept_warm(&s).is_empty(),
+        "its last call ran under no account, and none is in use"
+    );
+    let todos = s
+        .driver
+        .tick(Time(s.clock + 3_300_000), None, None)
+        .expect("the driver takes the time");
+    assert!(pings(&s, &todos).is_empty(), "{todos:?}");
+    assert_eq!(s.driver.wake(), None, "no ping wakes the driver");
+    let mut s = S::with(warm("opus"), Some(ACCOUNT));
+    s.hands_in(100, true);
+    s.asks(100);
+    assert!(
+        kept_warm(&s).is_empty(),
+        "its last call ran under an account not in use"
+    );
+    let now = Time(s.clock);
+    s.driver.add_account(now, ACCOUNT).expect("the account is added");
+    s.driver.take_account(now, ACCOUNT).expect("the account is taken");
+    assert_eq!(kept_warm(&s).len(), 1, "taken, its session is kept warm");
 }
 
 /// The version of the tree a carrier says the work's branch has now.
@@ -988,16 +1019,13 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
     let by_level = Policy {
         samples: 1,
         warm: None,
-        on: Box::new(|item, _| {
+        model: Box::new(|item, _| {
             let model = if item.level.as_deref() == Some("2") {
                 "sonnet"
             } else {
                 "opus"
             };
-            Some(RanOn {
-                level: item.level.clone().unwrap_or_default(),
-                ..on(model)
-            })
+            Some(model.to_string())
         }),
     };
     let mut s = S::with(by_level, None);
@@ -1135,14 +1163,22 @@ fn kept_warm(s: &S) -> Vec<driver::warm::Kept> {
 fn kept_warm_on(s: &S, policy: &Policy) -> Vec<driver::warm::Kept> {
     let held = s.driver.work(s.work).expect("the work");
     let warm = s.driver.keeping_warm();
-    driver::warm::kept(held.flow, held.work, held.item, policy, warm, Time(s.clock))
+    driver::warm::kept(
+        held.flow,
+        held.work,
+        held.item,
+        policy,
+        warm,
+        s.driver.accounts(),
+        Time(s.clock),
+    )
 }
 
 /// A work with this policy whose engineer's session waits for a tool's result, and when its next ping is due, as a
 /// policy that keeps sessions warm says: a work that is not kept warm waits all the same, and a test asks whether it
 /// is pinged at that time.
 fn waiting(policy: Policy) -> (S, u64) {
-    let mut s = S::with(policy, None);
+    let mut s = S::warmed(policy);
     s.hands_in(100, true);
     s.asks(100);
     let at = kept_warm(&s).first().expect("a session kept warm").at.0;
@@ -1171,7 +1207,7 @@ fn opened_again(s: &mut S, policy: Policy) {
 
 #[test]
 fn a_line_that_waits_has_its_session_pinged_before_the_cache_lets_it_go_as_often_as_a_wait_is_worth() {
-    let mut s = S::with(warm("opus"), None);
+    let mut s = S::warmed(warm("opus"));
     s.hands_in(100, true);
     // The build waits on a tool's result: its line's session waits, called last as the build's round ended.
     s.asks(100);
@@ -1212,7 +1248,7 @@ fn a_line_that_waits_has_its_session_pinged_before_the_cache_lets_it_go_as_often
 
 #[test]
 fn a_ping_that_failed_is_tried_again_a_minute_after_and_none_past_the_caches_life() {
-    let mut s = S::with(warm("opus"), None);
+    let mut s = S::warmed(warm("opus"));
     s.hands_in(100, true);
     s.asks(100);
     let at = woken(&s);
@@ -1229,13 +1265,22 @@ fn a_ping_that_failed_is_tried_again_a_minute_after_and_none_past_the_caches_lif
     );
     // Past the cache's life no ping is due: it would write the session whole again, for nothing.
     let held = s.driver.work(s.work).unwrap();
-    let late = driver::warm::due(held.flow, held.work, held.item, &warm("opus"), true, kept[0].life);
+    let accounts = s.driver.accounts();
+    let late = driver::warm::due(
+        held.flow,
+        held.work,
+        held.item,
+        &warm("opus"),
+        true,
+        accounts,
+        kept[0].life,
+    );
     assert!(late.is_empty());
 }
 
 #[test]
 fn a_session_a_ping_compacted_counts_as_reopened() {
-    let mut s = S::with(warm("opus"), None);
+    let mut s = S::warmed(warm("opus"));
     s.hands_in(100, true);
     s.asks(100);
     let at = woken(&s);
@@ -1322,6 +1367,48 @@ fn a_miss_after_what_comes_before_the_messages_changed_is_expected_and_a_hit_is_
     assert!(misses[0].expected());
 }
 
+// A line goes on in its session under another account, whose cache holds nothing of it: the next round's miss is
+// expected, the account being what comes before the session's messages and differs from the call before.
+#[test]
+fn a_miss_after_another_account_was_taken_names_the_account_as_what_differs() {
+    let mut s = S::with(warm("opus"), None);
+    measured_under(&mut s, 0, None);
+    s.hands_in(1_000, true);
+    let now = Time(s.clock);
+    s.driver.add_account(now, "work").expect("the account is added");
+    s.driver.take_account(now, "work").expect("the account is taken");
+    s.account = Some("work".to_string());
+    measured_under(&mut s, 0, Some("work"));
+    s.asks(1_000);
+    let misses = s.driver.misses(s.work);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].differs, ["account"]);
+    assert!(misses[0].expected());
+    assert!(s.sessions().is_empty(), "no session begins anew for it");
+}
+
+/// The round under way said what its first call read from the cache, on the model `a`, under the account where one was
+/// in use, which is left out where none was.
+fn measured_under(s: &mut S, read: u64, account: Option<&str>) {
+    let (run, _) = s.round();
+    let mut before: std::collections::BTreeMap<String, String> = [("model".to_string(), "a".to_string())].into();
+    if let Some(account) = account {
+        before.insert("account".to_string(), account.to_string());
+    }
+    let measures = Measures {
+        calls: 1,
+        first_read: Some(read),
+        first_context: Some(read + 10),
+        before,
+        ..Measures::default()
+    };
+    s.on(Event::Measured {
+        run,
+        attempt: 1,
+        measures,
+    });
+}
+
 #[test]
 fn a_session_is_pinged_while_the_engine_holds_everything_as_it_opened() {
     let (mut s, at) = waiting(warm("opus"));
@@ -1339,7 +1426,7 @@ fn a_session_is_pinged_while_the_engine_holds_everything_as_it_opened() {
 
 #[test]
 fn a_session_whose_cache_let_it_go_unpinged_wakes_the_driver_no_more() {
-    let mut s = S::with(warm("opus"), None);
+    let mut s = S::warmed(warm("opus"));
     s.hands_in(100, true);
     s.asks(100);
     let life = kept_warm(&s)[0].life.0;
@@ -1354,7 +1441,7 @@ fn a_session_whose_cache_let_it_go_unpinged_wakes_the_driver_no_more() {
 
 #[test]
 fn only_the_lines_the_work_can_come_back_to_and_none_while_a_round_of_it_is_under_way_are_kept_warm() {
-    let mut s = S::with(warm("opus"), None);
+    let mut s = S::warmed(warm("opus"));
     s.hands_in(100, true);
     s.hands_in(100, true);
     // The review's round is under way: nothing of the work is pinged, on any line.
@@ -1405,7 +1492,7 @@ const BUDGET: Budget = Budget {
 #[test]
 fn no_session_of_a_work_the_engine_paused_for_spending_more_than_it_may_is_pinged() {
     let budget = Some(BUDGET);
-    let mut s = S::with(warm_within("opus", budget), None);
+    let mut s = S::warmed(warm_within("opus", budget));
     s.usd = 600_000;
     s.hands_in(100, true);
     s.asks(100);
@@ -1432,7 +1519,7 @@ fn no_session_of_a_work_the_engine_paused_for_spending_more_than_it_may_is_pinge
 #[test]
 fn a_session_of_a_work_the_engine_paused_within_what_a_letting_on_allowed_is_pinged() {
     let budget = Some(BUDGET);
-    let mut s = S::with(warm_within("opus", budget), None);
+    let mut s = S::warmed(warm_within("opus", budget));
     s.usd = 600_000;
     s.hands_in(100, true);
     s.asks(100);
@@ -1535,13 +1622,15 @@ fn the_wait_every_work_shares_stops_every_ping_until_a_check_finds_the_outside_w
     let todos = s.driver.tick(Time(at), None, None).unwrap();
     assert!(pings(&s, &todos).is_empty(), "a ping while the agents' rounds wait");
     // A check finds the outside well: the wait is over, and the ping is given.
-    let todos = s.driver.tick(Time(at + 1), Some(Found::Well), None).unwrap();
+    let todos = (s.driver)
+        .tick(Time(at + 1), Some((Some(ACCOUNT.to_string()), Found::Well)), None)
+        .unwrap();
     assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
 }
 
 #[test]
 fn no_ping_of_a_line_the_work_passed_for_good_while_its_pause_holds_it_at_another_lines_cell() {
-    let mut s = S::on_flow(two_lines(), warm("opus"), None);
+    let mut s = S::warmed_on(two_lines(), warm("opus"));
     s.hands_in(100, true);
     // The owner pauses the work while the build's round is under way: having handed in, the work stands paused at the
     // look, a cell of the review's line, and nothing the review's cells write runs a cell of the engineer's.
@@ -1563,7 +1652,7 @@ fn no_ping_of_a_line_the_work_passed_for_good_while_its_pause_holds_it_at_anothe
 
 #[test]
 fn a_ping_that_compacted_the_session_after_the_loading_cells_round_has_that_cell_run_again() {
-    let mut s = S::with(warm("opus"), None);
+    let mut s = S::warmed(warm("opus"));
     // A person stops the build while the load runs: once the load has handed in, the work rests, its last round the
     // loading cell's.
     s.on(Event::Wrote {
@@ -1595,7 +1684,7 @@ fn a_ping_that_compacted_the_session_after_the_loading_cells_round_has_that_cell
 // did to its session, so that it is filled as the session then stands: a compaction the ping made comes before it.
 #[test]
 fn a_round_due_while_its_works_ping_is_under_way_begins_after_the_ping_and_what_it_did() {
-    let mut s = S::with(warm("opus"), None);
+    let mut s = S::warmed(warm("opus"));
     s.hands_in(100, true);
     s.asks(100);
     let at = woken(&s);

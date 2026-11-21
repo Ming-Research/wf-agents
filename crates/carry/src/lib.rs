@@ -20,7 +20,7 @@
 //! - [`failure`]: the kind of cause of a round that failed, told apart by the fields the command line names the
 //!   service's errors in and by the words of what it reported, and the looks at the network.
 //! - [`outside`]: the check of the outside the agents' rounds need, which the engine takes by itself while they wait
-//!   for it: the sign-in, the network and a short request.
+//!   for it, and as the owner looks at the accounts' usage: an account in use, the network and a short request.
 //! - `agents`: the agents' rounds, run with the command line, a few at a time.
 //! - [`catch_up`]: the work's branch taking main in as a run of a cell that changes the code starts.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
@@ -29,7 +29,9 @@
 //!   it, and [`head`], the work's head, each the data of a source outside the work.
 //! - [`session`]: the sessions of each line of each work, worked out from the installation's id.
 //! - `held` and `process`: what a carrier holds while it carries something out, and the programs it runs to do so.
-//! - [`account`]: the account the agents' program makes its calls under, a directory of its own signed in by hand.
+//! - [`account`]: the account the agents' program makes its calls under: the variables it is given of it, the token
+//!   of the account in use, the program's directory, and the usage its stream says.
+//! - [`keychain`]: the tokens of the accounts, kept in the login keychain.
 
 pub mod account;
 mod acts;
@@ -46,6 +48,7 @@ pub mod head;
 mod held;
 mod host;
 mod kept;
+pub mod keychain;
 pub mod outside;
 pub mod permissions;
 mod process;
@@ -84,9 +87,21 @@ pub use tools::{QUERY, Querying, RUN_TESTS};
 /// one beside them, and their system prompts are made from it ([`system`]).
 ///
 /// Each project's acts and tools are carried out on the host its settings say: GitHub where they have a table for it,
-/// with the engine's token from its environment, and its local repository where they have none.
+/// with the engine's token from its environment, and its local repository where they have none. The tokens of the
+/// accounts the agents run under are kept in the login keychain ([`keychain`]).
 pub fn carriers(settings: Settings, data: &Path, beside: flow::agents::Agents) -> Result<Carriers, String> {
     carry(settings, data, beside).map(|(carriers, _)| carriers)
+}
+
+/// The carriers [`carriers`] gives, the tokens of the accounts kept by what is given here in place of the login
+/// keychain, as a test keeps them.
+pub fn carriers_keeping(
+    settings: Settings,
+    data: &Path,
+    beside: flow::agents::Agents,
+    tokens: Arc<dyn service::Tokens>,
+) -> Result<Carriers, String> {
+    carry_keeping(settings, data, beside, Some(tokens)).map(|(carriers, _)| carriers)
 }
 
 /// The watch of main of a project's acts, with the project's name and the name of its main branch.
@@ -104,11 +119,38 @@ pub fn carry(
     data: &Path,
     beside: flow::agents::Agents,
 ) -> Result<(Carriers, Vec<ProjectWatch>), String> {
+    carry_keeping(settings, data, beside, None)
+}
+
+/// The carriers and the watches [`carry`] gives, the tokens of the accounts kept by what is given, or, with none, in
+/// the login keychain under the installation's id; the agents' program's directory, `profile` in the data directory,
+/// made where it is missing, whose settings file may name no credential.
+fn carry_keeping(
+    settings: Settings,
+    data: &Path,
+    beside: flow::agents::Agents,
+    tokens: Option<Arc<dyn service::Tokens>>,
+) -> Result<(Carriers, Vec<ProjectWatch>), String> {
     let words = beside.acts.clone();
     // The worktrees are given to git by their path, which git would read against the repository's directory were it
     // relative.
     let data = std::path::absolute(data).map_err(|e| format!("{}: {e}", data.display()))?;
     let installation = session::installation(&data)?;
+    let tokens: Arc<dyn service::Tokens> = tokens.unwrap_or_else(|| {
+        let making = format!("{} {}", settings.agents.command, account::MAKE_TOKEN);
+        Arc::new(keychain::Keychain::new(
+            Path::new(keychain::SECURITY),
+            &installation,
+            making,
+        ))
+    });
+    let profile = account::profile(&data);
+    std::fs::create_dir_all(&profile).map_err(|e| format!("{}: {e}", profile.display()))?;
+    // The program reads its own settings file there with every command: one that gives it a credential of no
+    // account's keeps the engine from starting (decision the-programs-directory-is-the-engines).
+    if let Some(why) = account::credential_in(&profile) {
+        return Err(why);
+    }
     let tag = git::tag(&installation);
     let query = querying(&settings, &beside, &data)?;
     let (mut acts, mut tools, mut watches, mut of) = (BTreeMap::new(), BTreeMap::new(), Vec::new(), BTreeMap::new());
@@ -174,10 +216,10 @@ pub fn carry(
         of.insert(name, agents::Of::new(&settings, project, beside, main));
     }
     let slots = settings.agents.slots;
-    let outside = outside::Check::of(&settings, &beside.cost)?;
+    let outside = outside::Check::of(&settings, &beside.cost, tokens.clone(), &profile)?;
     let carriers = Carriers {
         slots,
-        agents: Arc::new(Agents::new(settings, data.clone(), installation, of)),
+        agents: Arc::new(Agents::new(settings, data.clone(), installation, of, tokens.clone())),
         acts: Arc::new(ByProject {
             of: acts,
             said: beside.installation.no_project.clone(),
@@ -188,6 +230,7 @@ pub fn carry(
         }),
         outside: Arc::new(outside),
         host: host_look,
+        tokens,
     };
     Ok((carriers, watches))
 }
@@ -282,7 +325,7 @@ mod tests {
         crate::projects::local_words(&mut beside);
         let local = &beside.tools["run_tests"].words;
         assert!(
-            local.contains("your worktree as it stands, what is not committed included"),
+            local.contains("your worktree as it is, including what is not committed"),
             "{local}"
         );
         assert_ne!(local, &github);

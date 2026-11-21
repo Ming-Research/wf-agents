@@ -108,13 +108,13 @@ fn a_work_s_moves_and_what_its_time_went_to_read_back_as_written_its_records_as_
 }
 
 #[test]
-fn a_file_of_version_20_is_migrated_with_no_version_kept_no_work_on_one_and_no_time_kept() {
+fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_time_kept() {
     let mut d = Driver::new();
     history(&mut d);
-    let (old, new) = kept_in_20(&d.work);
+    let (old, new) = kept_in_21(&d.work);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
-    assert_eq!(SCHEMA_VERSION, 21);
+    assert_eq!(SCHEMA_VERSION, 22);
     assert_eq!(
         columns(&old.path),
         columns(&new.path),
@@ -127,7 +127,7 @@ fn a_file_of_version_20_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
     assert_eq!(store.outlines(), Ok(Vec::new()));
 }
 
-/// The work as a file of version 20 of the schema holds it, and a file of this version that holds it.
-fn kept_in_20(work: &Work) -> (Db, Db) {
-    super::opening::kept_in(20, work)
+/// The work as a file of version 21 of the schema holds it, and a file of this version that holds it.
+fn kept_in_21(work: &Work) -> (Db, Db) {
+    super::opening::kept_in(21, work)
 }

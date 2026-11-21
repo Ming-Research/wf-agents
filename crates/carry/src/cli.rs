@@ -22,9 +22,11 @@
 use std::path::{Path, PathBuf};
 
 use decide::RunId;
+use driver::Said;
 use flow::Compiled;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use service::Token;
 use uuid::Uuid;
 use work::{RanOn, Spent, Work, sessions};
 
@@ -168,14 +170,26 @@ fn quote(path: &Path) -> String {
 /// (`autoMemoryEnabled`, which its settings' schema says keeps it from reading or writing its auto-memory directory):
 /// a session holds what the engine gives it and what its agent reads, and the program's own memory, which its own
 /// system prompt would tell the agent to write, would hold what the engine never sees, against the rule the agents are
-/// given that they keep nothing there.
+/// given that they keep nothing there. And what every command of the program's is given ([`keeping`]).
 fn settings(compacted: &Compacted, words: &Words) -> String {
     let hook = |command: String| json!([{ "type": "command", "command": command }]);
     let hooks = json!({
         "SessionStart": [{ "matcher": "compact", "hooks": hook(compacted.command()) }],
         "PostToolUse": [{ "matcher": "*", "hooks": hook(words.command()) }],
     });
-    json!({ "autoMemoryEnabled": false, "hooks": hooks }).to_string()
+    let mut settings = keeping();
+    settings["autoMemoryEnabled"] = json!(false);
+    settings["hooks"] = hooks;
+    settings.to_string()
+}
+
+/// The settings every command of the program's the engine runs is given, as `--settings`: that its cleanup keeps a
+/// session for [`KEEP_DAYS`](crate::account::KEEP_DAYS) days (`cleanupPeriodDays`, which any settings file and the
+/// command line's `--settings` may set, as the program's documentation says), so that a session the engine goes on in,
+/// however long its work waited, is never deleted from the program's directory, which is the engine's (decision
+/// the-programs-directory-is-the-engines). Given with every command, it holds whatever the directory's own files say.
+pub fn keeping() -> Value {
+    json!({ "cleanupPeriodDays": crate::account::KEEP_DAYS })
 }
 
 /// The arguments of a round's command line, after the program: the engine's own, then the installation's, then the
@@ -302,31 +316,45 @@ pub fn knows_model(model: &str) -> bool {
 /// name it.
 pub const KEPT: [&str; 7] = ["PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM", "SHELL"];
 
+/// The variable that has the command line strip every credential from the environment of the commands, hooks and
+/// servers it starts, keeping it for its own calls.
+pub const SCRUB: &str = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
+
 /// The variables the carrier sets for every round's command line: a round waits for whatever it starts, since a
 /// subagent left in the background has the command line ask for the return before it is back; the service checks each
 /// tool's input as JSON before it streams it, since inputs it did not check came cut off; the
 /// command line asks the model again three times, not five, for a return that does not fit its form, each try writing
-/// the whole return again; and rustup installs no Rust toolchain that a command an agent may run asks for and the
-/// machine lacks: the command fails instead of downloading it, which would write beyond the worktree.
-pub const ENVIRONMENT: [(&str, &str); 4] = [
+/// the whole return again; rustup installs no Rust toolchain that a command an agent may run asks for and the
+/// machine lacks: the command fails instead of downloading it, which would write beyond the worktree; and no command an
+/// agent runs is given the token of the account the round runs under ([`SCRUB`]).
+pub const ENVIRONMENT: [(&str, &str); 5] = [
     ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
     ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
     ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
     ("RUSTUP_AUTO_INSTALL", "0"),
+    (SCRUB, "1"),
 ];
 
-/// The environment a round's command line is given, in place of the engine's own: of the engine's variables, those
-/// [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`], and the directory of
-/// settings, the installation's where the settings name one.
-pub fn environment(agents: &Agents, engine: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
+/// The environment a command of the program's is given, in place of the engine's own: of the engine's variables,
+/// those [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`]; the program's
+/// directory of settings and sessions, the engine's `profile`; and the token of the account the command runs under,
+/// which is given nowhere else.
+pub fn environment(
+    agents: &Agents,
+    profile: &Path,
+    engine: impl IntoIterator<Item = (String, String)>,
+    token: &Token,
+) -> Vec<(String, String)> {
     let kept =
         |name: &str| KEPT.contains(&name) || name.starts_with("LC_") || agents.env.iter().any(|named| named == name);
     let mut env: Vec<(String, String)> = engine.into_iter().filter(|(name, _)| kept(name)).collect();
     env.sort();
     env.extend(ENVIRONMENT.map(|(name, value)| (name.to_string(), value.to_string())));
-    if let Some(dir) = &agents.config_dir {
-        env.push((crate::account::VARIABLE.to_string(), dir.to_string_lossy().into_owned()));
-    }
+    env.push((
+        crate::account::VARIABLE.to_string(),
+        profile.to_string_lossy().into_owned(),
+    ));
+    env.push((crate::account::TOKEN.to_string(), token.secret().to_string()));
     env
 }
 
@@ -468,6 +496,10 @@ pub struct Stream {
     pub tools: Vec<(String, String, String)>,
     /// The program's version, where its first line told it.
     pub program: Option<String>,
+    /// What the latest rate limit event that said anything of the usage of the account the program runs under said.
+    usage: Option<Said>,
+    /// How many rate limit events said anything of the usage.
+    usages: usize,
 }
 
 /// The calls of the session's own agent to the model, as their first partial messages tell their prompts: a call made
@@ -527,6 +559,10 @@ impl Stream {
         };
         self.said.line(&v);
         self.called(&v);
+        if let Some(said) = crate::account::said(&v) {
+            self.usage = Some(said);
+            self.usages += 1;
+        }
         match v["type"].as_str() {
             Some("stream_event") => {
                 let own = starts && v["parent_tool_use_id"].is_null();
@@ -577,6 +613,18 @@ impl Stream {
     /// Whether the stream gave a result.
     pub fn has_result(&self) -> bool {
         self.result.is_some()
+    }
+
+    /// What the latest rate limit event that said anything of the usage of the account the program runs under said;
+    /// none where none did.
+    pub fn usage(&self) -> Option<&Said> {
+        self.usage.as_ref()
+    }
+
+    /// How many rate limit events said anything of the usage: a count that grows as each comes, by which each is told
+    /// once while the stream comes.
+    pub fn usages(&self) -> usize {
+        self.usages
     }
 
     /// Whether the service has answered a call of the round's main loop with a message that is no error: it serves
@@ -896,7 +944,6 @@ mod tests {
             args: vec!["--strict-mcp-config".to_string()],
             env: Vec::new(),
             setting_sources: "user".to_string(),
-            config_dir: None,
             permissions: Default::default(),
             subagents: Default::default(),
             work_budget_usd: None,
@@ -1010,8 +1057,7 @@ mod tests {
         assert_eq!(partial, 15, "{kept:#?}");
         assert_eq!(kept.len() - partial, 14);
         // What is kept rebuilds the same attempts, and only the attempts, and the same calls of the session's own
-        // agent: a try its engine did not see end is read from it (decision
-        // a-try-its-engine-did-not-see-end-ends-as-its-stream-says).
+        // agent: a try its engine did not see end is read from it.
         let mut again = Stream::default();
         for line in &kept {
             assert!(again.line(line.as_bytes()), "{line}");
@@ -1333,6 +1379,7 @@ mod tests {
             level: "1".to_string(),
             model: "claude-haiku-5-5".to_string(),
             effort: None,
+            directory: None,
             account: None,
         };
         let compacted = Compacted {
@@ -1353,7 +1400,7 @@ mod tests {
                 begin,
             )
         };
-        let hooks = json!({ "autoMemoryEnabled": false, "hooks": {
+        let hooks = json!({ "autoMemoryEnabled": false, "cleanupPeriodDays": 365_000, "hooks": {
             "SessionStart": [{ "matcher": "compact", "hooks": [{ "type": "command",
                 "command": "printf x >> 'rounds/1/2-3.compacted' && cat 'rounds/1/2-3.again.md'" }] }],
             "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": words().command() }] }],
@@ -1399,6 +1446,7 @@ mod tests {
             level: "3".to_string(),
             model: "claude-opus-5-5".to_string(),
             effort: Some("xhigh".to_string()),
+            directory: None,
             account: None,
         };
         let compacted = Compacted {
@@ -1465,6 +1513,7 @@ mod tests {
             level: "2".to_string(),
             model: "claude-sonnet-5-5".to_string(),
             effort: Some("high".to_string()),
+            directory: None,
             account: None,
         };
         let compacted = Compacted {
@@ -1646,11 +1695,13 @@ mod tests {
             ("HOME", "/home/someone"),
             ("LC_ALL", "C"),
             ("SECRET_TOKEN", "x"),
-            ("ANTHROPIC_API_KEY", "k"),
+            ("CLAUDE_CONFIG_DIR", "/elsewhere"),
         ]
         .map(|(n, v)| (n.to_string(), v.to_string()));
+        let token = Token::new("sk-ant-oat01-secret".to_string());
+        let profile = Path::new("/data/profile");
         assert_eq!(
-            environment(&agents(), engine.clone()),
+            environment(&agents(), profile, engine, &token),
             [
                 ("HOME", "/home/someone"),
                 ("LC_ALL", "C"),
@@ -1659,17 +1710,23 @@ mod tests {
                 ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
                 ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
                 ("RUSTUP_AUTO_INSTALL", "0"),
+                ("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "1"),
+                ("CLAUDE_CONFIG_DIR", "/data/profile"),
+                ("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-secret"),
             ]
-            .map(|(n, v)| (n.to_string(), v.to_string()))
+            .map(|(n, v)| (n.to_string(), v.to_string())),
+            "the engine's own directory, never the engine's environment's"
         );
         let mut configured = agents();
-        configured.env = vec!["ANTHROPIC_API_KEY".to_string()];
-        configured.config_dir = Some(PathBuf::from("config"));
-        let named: Vec<String> = (environment(&configured, engine).into_iter())
-            .map(|(name, _)| name)
-            .collect();
-        assert!(named.contains(&"ANTHROPIC_API_KEY".to_string()));
-        assert!(named.contains(&"CLAUDE_CONFIG_DIR".to_string()));
-        assert!(!named.contains(&"SECRET_TOKEN".to_string()));
+        configured.env = vec!["LANGUAGE".to_string()];
+        let engine = [("LANGUAGE", "en"), ("OTHER", "x")].map(|(n, v)| (n.to_string(), v.to_string()));
+        let given = environment(&configured, profile, engine, &token);
+        assert!(given.contains(&("LANGUAGE".to_string(), "en".to_string())), "named");
+        assert!(!given.iter().any(|(n, _)| n == "OTHER"));
+        assert_eq!(
+            given.iter().filter(|(_, v)| v.contains("sk-ant")).count(),
+            1,
+            "the token given once"
+        );
     }
 }

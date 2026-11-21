@@ -6,7 +6,7 @@ text = "The branch {branch} is merged into {main}, whose head is now {head}."
 # would land what nothing checked. The round fails in passing and is tried again after a wait, while the watch of main
 # writes its new head into the work, which runs the check again. Filled in a run: `{main}` the main branch's name,
 # `{head}` its head now, `{checked}` the commit the check passed.
-moved = "{main} has moved to {head} since the check passed {checked}, which does not hold it: the check runs again on {main}'s new head, and the merge is tried again after it."
+moved = "{main} has moved to {head} since the check passed {checked}, and {checked} does not contain it. The check runs again on {main}'s new head, and the merge is tried again after that."
 
 # Why the merge is not made where the work's head moved since the check passed. Filled in a run: `{head}` the work's
 # head.

@@ -41,6 +41,7 @@ impl Rounds for Keeping {
                     level: "3".to_string(),
                     model: "claude-opus-5-5".to_string(),
                     effort: Some("high".to_string()),
+                    directory: None,
                     account: None,
                 },
             );
@@ -181,6 +182,7 @@ async fn a_try_is_given_what_the_record_of_its_number_says_it_ran_on_or_else_wha
         level: "2".to_string(),
         model: "claude-sonnet-5-5".to_string(),
         effort: None,
+        directory: None,
         account: None,
     };
     let told = Told {

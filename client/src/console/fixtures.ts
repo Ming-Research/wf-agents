@@ -454,7 +454,7 @@ export function fixtureItems(start = Date.now()): Items {
           rounds: 70,
           quiet: 300,
           waits: [
-            wait('limit', 'The cell ran 3 times in a row for what a cell after it wrote, its limit.', {
+            wait('limit', 'The cell ran 3 times in a row for what a cell after it wrote, which is its limit.', {
               kind: 'letGo',
               cell: 'review_plan',
             }),
@@ -654,7 +654,7 @@ export function fixtureSource(start = Date.now()): Source {
     throw new Error(`There is no work ${work}`);
   };
   const told = (work: number) => {
-    const c: Changed = { works: [work], items: true, copies: false };
+    const c: Changed = { works: [work], items: true, copies: false, accounts: false };
     window.setTimeout(() => listeners.forEach((on) => on(c)), 0);
   };
   const change = (s: Summary, what: Act) => {

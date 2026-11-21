@@ -24,14 +24,14 @@ heading = "## How you return"
 first = "You end every round with one return, in the form given to you."
 kinds = '''
 A return is one of two kinds, never both: `outcome`, which ends the round with the cell's work and holds the fields
-told below; or `tools`, which asks the engine for tools, as "What you may ask the engine for" says, and holds them
-alone.'''
+described below; or `tools`, which asks the engine for tools, as "What you may ask the engine for" says, and holds
+nothing else.'''
 # An item of the list of the fields, and of the tools.
 item = "- {text}"
 # The fields told `listed`, in this order.
 listed = ["observations", "protected_changes"]
 every_time = '''
-Handing in again a block marked "hand it in every time", its value unchanged, runs no cell again.'''
+Handing in a block marked "hand it in every time" again, with its value unchanged, runs no cell again.'''
 fields = '''
 Fields that are not blocks of the work:'''
 owner_reads = "The owner reads {fields}: write it in `owner.language`, with technical terms in their English original."
@@ -41,8 +41,8 @@ and = " and "
 tools = '''
 ## What you may ask the engine for
 
-Each tool is a field of `tools` under its name, holding a list of requests; those of one return are run together, and
-the cell is entered again once their results are there.'''
+Each tool is a field of `tools` under its name, holding a list of requests. The requests of one return run together,
+and the cell is entered again once their results are in.'''
 
 # What a cell is told it writes, with its task, where the session lacks it: its blocks, each on a line, after the
 # heading; after the list, `owner_reads`, once, where a block of the list is one the owner reads; then the words of
@@ -57,5 +57,5 @@ choice = ", a choice, one of {values}"
 shown = " (the owner reads it)"
 must_write = " (hand it in every time)"
 owner_reads = '''
-Write what the owner reads in `owner.language`, with technical terms in their English original. Where a diagram says
+Write what the owner reads in `owner.language`, with technical terms in their English original. If a diagram says
 it more plainly than words, draw it in a small ```mermaid or ```dot fence, and do not say it again in words.'''

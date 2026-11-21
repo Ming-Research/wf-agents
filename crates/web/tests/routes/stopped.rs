@@ -75,6 +75,14 @@ impl Storage for Failing {
         self.store.keep_warm(warm, at)
     }
 
+    fn accounts(&self) -> Result<Vec<store::AccountRecord>, store::Fault> {
+        self.store.accounts()
+    }
+
+    fn keep_account(&mut self, record: &store::AccountRecord) -> Result<(), store::Fault> {
+        self.store.keep_account(record)
+    }
+
     fn keep_flow(&mut self, kept: &store::KeptFlow) -> Result<(), store::Fault> {
         self.store.keep_flow(kept)
     }

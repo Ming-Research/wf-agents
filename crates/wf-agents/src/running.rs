@@ -204,7 +204,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         // The observations are read, and marked read, through connections of their own to the store's file.
         let router = router.merge(web::observations::router(service.handle(), data.join(store::FILE)));
         let router = match install {
-            Some(install) => router.merge(web::settings::router(install)),
+            Some(install) => router.merge(web::settings::router(install, service.handle())),
             None => router,
         };
         println!("The owner's pages are at {}", works_page(address));
@@ -237,8 +237,7 @@ enum Ended<T> {
 
 /// Runs the engine's loop on this thread and the server of the pages on the runtime's other threads, until either
 /// ends. The server is spawned, not waited on together with the loop on this thread, where it would accept no
-/// connection while the loop takes one thing, such as a read of every work (decision
-/// the-pages-server-is-off-the-loops-thread).
+/// connection while the loop takes one thing, such as a read of every work.
 async fn loop_and_server<L, S>(engine: L, server: S) -> Ended<L::Output>
 where
     L: Future,
@@ -267,11 +266,6 @@ fn installed(file: PathBuf, settings: &carry::Settings) -> Result<web::settings:
         }),
         running,
         git: &carry::git::SAFE,
-        program: web::settings::Program {
-            variable: carry::account::VARIABLE,
-            sign_in: carry::account::SIGN_IN,
-            signed_in_as: carry::account::signed_in_as,
-        },
     })
 }
 

@@ -1,5 +1,0 @@
-what = "Each entry the plan adds, changes or deletes in the design tree, as it will read; empty where there is none."
-words = '''
-`tree_edits`: ask the owner about every change of the tree you propose in it, whatever its kind, in one question. It
-says first that the work changes the design tree, then gives each change: its file and entry, its diff in a ```diff
-block, and a sentence explaining it.'''
