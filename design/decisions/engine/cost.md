@@ -13,8 +13,8 @@ The run guard stops a round only where its context grows, or its first prompt ju
 
 ### decision a-letting-on-allows-what-the-installation-says
 A work may spend its budget, and `agents.let_on_allowance_usd` more each time the owner let it on after the engine paused it for its spend; the words beside it say how much more.
-- replaced: Letting on a work paused for its budget allowing nothing more stood on main; the owner changed it, because one press then bought a single round, and the work was paused again at its end.
-- replaced: Words beside a work paused for its budget that said only what it had spent over its budget stood on main; the owner changed it, because they are to say how much a letting-on adds.
+- replaced: Letting on a work paused for its budget allowing nothing more was on main; the owner changed it, because one press then bought a single round, and the work was paused again at its end.
+- replaced: Words beside a work paused for its budget that said only what it had spent over its budget was on main; the owner changed it, because they are to say how much a letting-on adds.
 
 ### decision a-miss-is-told-from-the-records
 A round missed its session's cache where, within the cache's life, its first call read under half of what the session held: expected where what precedes the messages changed, else wf-agents' fault.

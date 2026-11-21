@@ -8,8 +8,8 @@ takes_main = true
 task = '''
 First understand what the item's `background` asks for, only as far as you need to know where in the design tree to
 look. Then read the tree for it as the tree's rules say. The research comes next, in this session, and starts from
-what you read here: this run is for the tree of this repository, `design/`, and whatever else the `background` names
-is read in the research. What you read stays in this session for the research: hand in only `dealt_with`.
+what you read here: this run is for this project's design tree, and whatever else the `background` names is read in
+the research. What you read stays in this session for the research: hand in only `dealt_with`.
 '''
 watches = ["background", "engineer_session"]
 reads = ["tree"]

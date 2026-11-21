@@ -5,7 +5,7 @@ How the architect arranges the items: the tree they make, their dependencies, th
 ### decision a-parent-delivers-one-thing
 From the top down items are related by dependency, never by class: a parent waits for its children and delivers one thing, and more than ten side by side show a wrong arrangement.
 - rejected: an agent proposed parents that name a class of work, as a part of the code; the owner rejected it, because a parent waits for its children, so it must deliver one thing of its own.
-- replaced: More than ten parallel dependencies of an item gathered under intermediate items stood on main; the owner changed it, because what matters is items arranged sensibly in layers of deliver items, not crammed, and more than ten only shows that something is off.
+- replaced: More than ten parallel dependencies of an item gathered under intermediate items was on main; the owner changed it, because what matters is items arranged sensibly in layers of deliver items, not crammed, and more than ten only shows that something is off.
 
 ### decision a-dependency-is-a-use-of-its-result
 An item depends on another only where it uses that one's result; two works touching the same code is no dependency, only a reason not to start them side by side.
@@ -14,13 +14,13 @@ An item depends on another only where it uses that one's result; two works touch
 ### decision a-work-is-worth-a-run-of-the-flow
 A work is at least worth a run of the flow, about ten rounds and half an hour, and at most what one engineer finishes in a day; a smaller change is joined into an item that carries it.
 - rejected: an agent proposed works each of one engineer, one branch, one CI run and one merge of at most a day, which on a trial made 141 items; the owner rejected it, because every work pays for the whole flow.
-- replaced: A work bounded from above, with only a change the size of a rewording kept from running alone, stood on main; the owner changed it, because the flow as heavy as it is now is for one large thing at a time, and a small one through three independent reviews cannot be quick.
+- replaced: A work bounded from above, with only a change the size of a rewording kept from running alone, was on main; the owner changed it, because the flow as heavy as it is now is for one large thing at a time, and a small one through three independent reviews cannot be quick.
 - rejected: an agent proposed conditions in the flow so that two of its reviews run only where they are needed; the owner rejected it, because those conditions cannot be written, and a lighter flow for small works was turned down before.
 - rejected: an agent proposed letting a change too small for a work be made by hand outside the flow; the owner rejected it, because made by hand it would go round the flow the project develops itself by.
 
 ### decision only-related-items-are-joined
 Items not begun are joined so that none too small wastes a run, but only related things of one kind, related by what they deliver and never by the code they touch.
-- replaced: Joining items only where they are nearly one thing, follow one another or change one place, never to save a run, stood on main; the owner changed it, because a run of the flow is not light, so joining is mainly to keep too small an item from wasting one.
+- replaced: Joining items only where they are nearly one thing, follow one another or change one place, never to save a run, was on main; the owner changed it, because a run of the flow is not light, so joining is mainly to keep too small an item from wasting one.
 - rejected: an agent proposed joining unrelated items where each is small and in one repository; the owner rejected it, because joining must never put unrelated things together, only related things of one kind.
 - rejected: an agent proposed counting changes of the same code as one work and as related; the owner rejected it, because that contradicted the rule that a dependency is a matter of logic and not of code.
 
@@ -34,7 +34,7 @@ A step that makes no merge is no item but the owner's, said in the item it follo
 
 ### decision an-observation-becomes-an-item-where-a-delivery-needs-it
 An observation no item can take in becomes an item, under the root it serves, where what is being delivered now needs it; otherwise it stays an observation.
-- replaced: Making an item of an observation only where no item could take it in and it was urgent stood on main; the owner changed it, because urgent has no measure, while bounding the items by what is being delivered keeps them few and leaves nothing pressing among the observations.
+- replaced: Making an item of an observation only where no item could take it in and it was urgent was on main; the owner changed it, because urgent has no measure, while bounding the items by what is being delivered keeps them few and leaves nothing pressing among the observations.
 
 ### decision correctness-problems-are-always-items
 A correctness problem, and anything that fails now and then, is always an item, whether anyone meets it now or not.
@@ -52,7 +52,7 @@ An item's title says the work to be done, never a state that reads as done.
 
 ### decision a-background-opens-with-three-paragraphs
 An item's background opens with three short paragraphs: what it is to do, why with one case and of a cause only the conclusion, and the result wanted; never how to do it.
-- replaced: One first paragraph saying what the item is, why it is to be done, what brought it about and the result wanted stood on main; the owner changed it, because the three mixed in one paragraph read badly.
+- replaced: One first paragraph saying what the item is, why it is to be done, what brought it about and the result wanted was on main; the owner changed it, because the three mixed in one paragraph read badly.
 
 ### decision which-item-starts-first
 Among the items that can start, one that makes a red main green goes first, then what the owner said comes first, then the one most items not held wait for; there is no policy.

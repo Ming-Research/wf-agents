@@ -9,7 +9,7 @@ An architect is a session started in `architect/`, reading the `AGENTS.md` that 
 
 ### decision one-architect-for-each-project
 Each project has an architect of its own, put together for the project whose repository it starts in, and the architects of two projects deal with each other for what one needs of the other.
-- replaced: One architect over every project stood on main; the owner changed it, because one architect cannot scale as the projects grow.
+- replaced: One architect over every project was on main; the owner changed it, because one architect cannot scale as the projects grow.
 - rejected: an agent proposed that what one project asks of another go in a fixed form through the engine's queues; the owner rejected it, because a fixed form makes talking hard.
 
 ### decision keeping-the-items-is-the-architects-duty
@@ -17,7 +17,7 @@ The architect answers for the items alone, at all times: their dependencies, the
 - rejected: an agent proposed an architect whose duties open with the projects' direction, judging whether engineers are right and deep technical questions; the owner rejected it, because with the engineers taking the technical decisions of their work, the architect no longer takes the key ones.
 - rejected: the owner proposed a PM beside the architect, keeping the process and the status of the work; the owner rejected it, because the runner came to do the PM's dispatching, waiting, merging and finishing.
 - rejected: an agent proposed a standing observation manager, a role of its own; the owner rejected it, because handling observations needs no role of its own.
-- replaced: An architect that also kept its own understanding of the project, a plan apart from the items and a policy set with the owner stood on main; the owner changed it, because the architect is responsible for moving the items on, and only for that.
+- replaced: An architect that also kept its own understanding of the project, a plan apart from the items and a policy set with the owner was on main; the owner changed it, because the architect is responsible for moving the items on, and only for that.
 - rejected: an agent proposed the architect's rules laid flat, with no order of weight; the owner rejected it, because keeping the items is the architect's first duty and all else serves it, where the agent before had only listed items at the root.
 
 ### decision the-architect-changes-items-unasked
@@ -34,7 +34,7 @@ Where a slot is free and no item can start, the architect tells the owner, and m
 
 ### decision a-red-main-comes-before-everything
 A red main is an incident before all else: the architect makes an item for it at once, lets it start ahead of every other and tells the owner, and the works it holds up depend on it.
-- replaced: An item for a red main made like any other, under what waits for it, stood on main; the owner changed it, because a red main is a serious incident that the architect must handle at once.
+- replaced: An item for a red main made like any other, under what waits for it, was on main; the owner changed it, because a red main is a serious incident that the architect must handle at once.
 - rejected: an agent proposed taking off the architect, with its other extra duties, the choice between an item and a rollback when main goes red; the owner rejected it, because the architect moves the whole project on, by items added, deleted, changed, started and paused.
 
 ### decision what-waits-for-a-person-is-the-owners

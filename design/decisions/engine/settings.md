@@ -8,4 +8,4 @@ A text sent to an agent names a setting by its key between backticks and is give
 
 ### decision how-tests-are-named-is-a-project-setting
 How an agent names a test to `run_tests` is the project's setting `project.test_names`, which the tool's words name; the project's guide says nothing of the engine's tools.
-- replaced: The project's guide telling the engine's agents how to name tests to the engine's checks stood on main; the owner changed it, because the guide holds what is the project's, and is not to be coupled to the engine.
+- replaced: The project's guide telling the engine's agents how to name tests to the engine's checks was on main; the owner changed it, because the guide holds what is the project's, and is not to be coupled to the engine.

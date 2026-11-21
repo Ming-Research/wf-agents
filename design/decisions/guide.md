@@ -4,9 +4,9 @@ What AGENTS.md, at the root of the repository, tells the agents that work in it.
 
 ### decision agents-md-holds-what-nothing-else-tells
 AGENTS.md holds only what an agent working in the repository must know before it acts and neither the code nor the design tree tells it.
-- replaced: Lines on the Rust version, the toolchain, the lints and where new crates go stood on main; the owner changed it, because a line stays only if an agent would act differently for reading it, and those are seen in the manifests.
-- replaced: A first line telling that the repository was built anew beside the engine before it stood on main; the owner changed it, because AGENTS.md must hold no such thing as where the project came from.
-- replaced: How the engine's agents name tests to its checks stood on main; the owner changed it, because AGENTS.md is for the project's own information and must not be coupled to the engine.
+- replaced: Lines on the Rust version, the toolchain, the lints and where new crates go was on main; the owner changed it, because a line stays only if an agent would act differently for reading it, and those are seen in the manifests.
+- replaced: A first line telling that the repository was built anew beside the engine before it was on main; the owner changed it, because AGENTS.md must hold no such thing as where the project came from.
+- replaced: How the engine's agents name tests to its checks was on main; the owner changed it, because AGENTS.md is for the project's own information and must not be coupled to the engine.
 - rejected: an agent proposed a line that every agent in the repository keeps the rules the flow gives its agents; the owner rejected it, because the engineering rules already hold it, and the line would repeat them.
 - rejected: an agent proposed writing that heavy work runs in CI as a decision of the engine in the tree; the owner rejected it, because it is how to work in this repository, which AGENTS.md says, not what the system is.
 

@@ -25,18 +25,18 @@ The works of a project take turns to check and merge, in the order their checks 
 
 ### decision the-check-before-the-merge-is-the-full-workflows-once
 The check before the merge runs the project's full workflows once, by hand, on the exact commit to merge, and judges it by their JUnit and their jobs' conclusions.
-- replaced: Judging the merge by the checks GitHub ran on the pushes of the pull request stood on main; the owner changed it, because the full workflows are dispatched on the exact commit, once, before the merge.
+- replaced: Judging the merge by the checks GitHub ran on the pushes of the pull request was on main; the owner changed it, because the full workflows are dispatched on the exact commit, once, before the merge.
 
 ### decision a-red-the-change-did-not-make-is-not-sent-back
 Where the full workflows failed tests alone, the check runs them again: one that passes is observed as maybe flaky, one red on main too holds the work for main, any other sends it back.
-- replaced: Any red of the check holding the work until the owner let it go stood on main; the owner changed it, because a red the change did not make, such as a test that sometimes hangs, held each work it met for the owner.
+- replaced: Any red of the check holding the work until the owner let it go was on main; the owner changed it, because a red the change did not make, such as a test that sometimes hangs, held each work it met for the owner.
 - rejected: an agent proposed letting through every red the change did not make, with an item to mend it; the owner rejected it, because while main is red a change that broke the same test would not be seen.
 - rejected: an agent proposed holding the work for every such red until an item mends it; the owner rejected it, because one red would then hold every work after it.
 
 ### decision the-pull-request-says-what-the-work-wrote
 A work's pull request is a draft until just before its merge, and its body is what the work wrote in the blocks the check names, nothing in it left to act.
-- replaced: One fixed paragraph as the body of every pull request stood on main; the owner changed it, because GitHub then showed nothing of what changed.
+- replaced: One fixed paragraph as the body of every pull request was on main; the owner changed it, because GitHub then showed nothing of what changed.
 
 ### decision a-merge-is-named-by-its-works-line
 A work's merge, its pull request and the commit it makes, is named by the first line of the block the flow's merge names, which the cell that writes the code writes in English.
-- replaced: The item's title naming the pull request and the merge's commit stood on main; the owner changed it, because the repository is written only in English, and items are in the owner's language.
+- replaced: The item's title naming the pull request and the merge's commit was on main; the owner changed it, because the repository is written only in English, and items are in the owner's language.

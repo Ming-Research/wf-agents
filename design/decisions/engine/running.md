@@ -26,25 +26,25 @@ The agents' program keeps its own system prompt, the line's appended after it, a
 
 ### decision the-agents-program-streams-its-input-and-output
 The agents' program takes its message as a stream of JSON and gives its output as one, a line for each thing it does.
-- replaced: One result given as the round ends stood on main; the owner changed it, because the old engine streamed it, and what an agent is doing was shown so and is to be shown again.
-- replaced: The message given as plain input stood on main; the owner changed it, because the old engine streamed it, which can carry pictures.
+- replaced: One result given as the round ends was on main; the owner changed it, because the old engine streamed it, and what an agent is doing was shown so and is to be shown again.
+- replaced: The message given as plain input was on main; the owner changed it, because the old engine streamed it, which can carry pictures.
 
 ### decision tool-inputs-are-checked-before-they-stream
 The agents' program is run with the service checking each tool's input as JSON before it streams it, `CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING` set to 0.
-- replaced: Leaving the program to stream tool inputs as they are made stood on main; the owner changed it, because mending the returns that came cut off matters, and with that streaming the service no longer checks a tool's input.
+- replaced: Leaving the program to stream tool inputs as they are made was on main; the owner changed it, because mending the returns that came cut off matters, and with that streaming the service no longer checks a tool's input.
 
 ### decision no-toolchain-is-installed-in-a-round
 The agents' program is run with `RUSTUP_AUTO_INSTALL` set to 0, so that no toolchain is installed within a round.
-- replaced: Leaving the variable unset stood on main; the owner changed it, because a round then downloads no hundreds of megabytes unseen, and a missing toolchain is an error the agent sees.
+- replaced: Leaving the variable unset was on main; the owner changed it, because a round then downloads no hundreds of megabytes unseen, and a missing toolchain is an error the agent sees.
 
 ### decision an-agent-ends-with-the-engine
 An agent's program, as every program the engine runs, is stopped as the engine's process ends, however it ends, by a small shell in a group of its own that waits on a pipe the engine holds.
-- replaced: The agents' programs outliving the engine, the next engine stopping the last one's before it runs a round, stood on main; the owner changed it, because a program left running spends and changes the worktree unseen: one ran eight seconds past the engine and committed.
+- replaced: The agents' programs outliving the engine, the next engine stopping the last one's before it runs a round, was on main; the owner changed it, because a program left running spends and changes the worktree unseen: one ran eight seconds past the engine and committed.
 
 ### decision the-programs-directory-is-the-engines
 The agents' program keeps its settings and sessions in the engine's `profile/` of the data directory, and every command of it is told to keep a session a thousand years.
-- replaced: The program's directory named by the installation's `agents.config_dir`, under the data directory's `agents/`, stood on main; the owner changed it, because he did not want that `agents` directory to stay.
-- replaced: The program's own cleanup, deleting a session after thirty days, stood on main; the owner changed it, because it deleted the agents' transcripts, which he wanted kept.
+- replaced: The program's directory named by the installation's `agents.config_dir`, under the data directory's `agents/`, was on main; the owner changed it, because he did not want that `agents` directory to stay.
+- replaced: The program's own cleanup, deleting a session after thirty days, was on main; the owner changed it, because it deleted the agents' transcripts, which he wanted kept.
 
 ### decision agents-run-as-the-engines-user
 The agents' program runs under the engine's own system user, and nothing of the engine's keeps it from the data directory but the program's own rules.
