@@ -623,8 +623,10 @@ function ItemView({
       );
       if (!taken) return;
     }
-    if (body.choicesWait) setBody((was) => ({ ...was, choicesWait: false }));
-    setConfirmed(body.choicesWait ? 'You confirmed the plan.' : 'Your answer was sent.');
+    if (body.choicesWait) {
+      setBody((was) => ({ ...was, choicesWait: false }));
+      setConfirmed('You confirmed the plan.');
+    }
   };
   // A passage selected in the body offers to be quoted, by a button just above it.
   const selected = () => {
