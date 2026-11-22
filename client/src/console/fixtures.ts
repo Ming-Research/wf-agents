@@ -593,6 +593,7 @@ const QUESTIONS: Record<number, Question[]> = {
       version: 2,
       engine: false,
       waits: true,
+      tree: true,
       withdrawn: null,
       ask: 'Should a stale run be abandoned at once or kept a day?',
       options: [
@@ -608,6 +609,7 @@ const QUESTIONS: Record<number, Question[]> = {
       version: 1,
       engine: false,
       waits: false,
+      tree: false,
       withdrawn: null,
       ask: 'How long may a run rest before it is stale?',
       options: [

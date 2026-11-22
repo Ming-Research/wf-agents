@@ -693,6 +693,8 @@ export interface Question {
   /// The cell waits for the answer: the work goes past it to no later cell until it is answered; else it goes on by
   /// the option it recommends.
   waits: boolean;
+  /// Its latest version is marked `tree`: the option taken goes into the design tree.
+  tree: boolean;
   /// The latest version withdraws it, for this reason; none while it stands.
   withdrawn: string | null;
   /// What it asks, its options and the one it recommends, counted from one; of a question withdrawn, none.
