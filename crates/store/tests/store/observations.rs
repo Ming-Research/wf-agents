@@ -108,7 +108,10 @@ fn a_return_sent_back_keeps_no_observation_where_the_return_taken_was_made_in_it
     // The run's next round says it again, and its return is taken: that one is kept, from the second round.
     d.end(handing_in(&[("text", None)], &["Said again in the return taken."]));
     let taken: Vec<(u64, String, RunId, usize)> = (kept(&path).into_iter())
-        .map(|o| (o.number, o.text, o.run, o.round))
+        .map(|o| {
+            let round = o.round.expect("kept from a round");
+            (o.number, o.text, round.run, round.round)
+        })
         .collect();
     assert_eq!(taken, [(1, "Said again in the return taken.".to_string(), run, 2)]);
 }
@@ -132,7 +135,9 @@ fn anew(d: &mut Driver, why: engine::Why) {
 
 /// What the work keeps of the observations, oldest first: the text and the round of each.
 fn said(path: &Path) -> Vec<(String, usize)> {
-    let mut all: Vec<(String, usize)> = (kept(path).into_iter()).map(|o| (o.text, o.round)).collect();
+    let mut all: Vec<(String, usize)> = (kept(path).into_iter())
+        .map(|o| (o.text, o.round.expect("kept from a round").round))
+        .collect();
     all.reverse();
     all
 }
