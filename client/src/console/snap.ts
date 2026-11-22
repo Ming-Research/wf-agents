@@ -246,13 +246,6 @@ export const FOLD_PAD = 3;
 /// in all the way to the dot; over the whole time of an unfold it is slow, and a fold put away a little faster reads
 /// better.
 export const UNFOLD_MS = 240;
-
-/// A frame that takes longer than this, in milliseconds, is slow: longer than a frame at sixty a second, which a
-/// graphics card's frames of the tree keep well within. After a slow frame the scene draws none for this many times as
-/// long, so that it takes at most a quarter of the page's time: a browser that draws in software, under load, still
-/// answers the owner's keys and pointer at once.
-const SLOW_FRAME = 16;
-const SLOW_REST = 3;
 export const UNFOLD_EASE = [0.2, 0.8, 0.2, 1] as const;
 export const FOLD_MS = 180;
 export const FOLD_EASE = [0, 0, 0.58, 1] as const;
@@ -1061,11 +1054,6 @@ export class SnapScene {
   private frames: number[] = [];
   private lastDraw = 0;
   private last = 0;
-  /// Whether something asks for a frame at the next tick ([`ask`]); how long the last frame took to draw and render, in
-  /// milliseconds, and when it ended ([`tick`]).
-  private asked = true;
-  private cost = 0;
-  private drawnAt = 0;
   private dragging: { x: number } | null = null;
   /// Where the pointer went down, so that a press let go where it began is a click, not a drag.
   private down: { x: number; y: number } | null = null;
@@ -1118,10 +1106,7 @@ export class SnapScene {
     host.appendChild(this.app.canvas);
     // The canvas takes the size of what holds it whenever that changes, as when the panel beside it is folded away or
     // dragged, not only when the window does.
-    this.sized = new ResizeObserver(() => {
-      this.app.queueResize();
-      this.ask();
-    });
+    this.sized = new ResizeObserver(() => this.app.queueResize());
     this.sized.observe(host);
     // Light or dark, the system's or the page's switch's, and the accent picked: drawn again in the theme's colours.
     const media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -1154,17 +1139,13 @@ export class SnapScene {
     canvas.addEventListener('pointerleave', () => {
       this.hovered = -1;
       this.pointer = null;
-      this.ask();
     });
     canvas.addEventListener('pointerdown', (e) => {
       this.dragging = { x: e.clientX };
       this.down = { x: e.clientX, y: e.clientY };
-      this.ask();
     });
     window.addEventListener('pointermove', this.drag);
     window.addEventListener('pointerup', this.up);
-    // The scene renders each frame it draws itself ([`tick`]), and no other.
-    this.app.ticker.remove(this.app.render, this.app);
     this.app.ticker.add(this.tick);
     this.ready = true;
   }
@@ -1172,7 +1153,6 @@ export class SnapScene {
   /// Draws while the view is shown, and stops while another view hides it; shown again, it draws at the size of what
   /// holds it, which its observer follows.
   setShown(shown: boolean): void {
-    this.ask();
     if (!this.ready) return;
     if (shown) {
       this.app.queueResize();
@@ -1193,7 +1173,6 @@ export class SnapScene {
 
   /// Takes the theme's colours, and draws the tree again in them where it stands.
   private retheme = () => {
-    this.ask();
     if (!this.ready || this.gone) return;
     Object.assign(PALETTE, themed());
     this.lighting();
@@ -1227,7 +1206,6 @@ export class SnapScene {
   /// the middle of the screen, where that item is still in it, and else where it was; a column new to the tree stands
   /// where its links put it, and at first the middle root stands in the middle.
   show(roots: Shown[]): void {
-    this.ask();
     const old = this.tree;
     const before = this.columns.map((c, d) => {
       if (old === null || old.columns[d].length === 0) return null;
@@ -2204,8 +2182,8 @@ export class SnapScene {
     for (let k = 0; k < frames; k += 1) {
       const t0 = performance.now();
       if (k % 6 === 0) this.scroll(1 + (k % 4), ROW * 0.7);
-      this.ask();
       this.tick();
+      this.app.renderer.render(this.app.stage);
       gl?.finish();
       times.push(performance.now() - t0);
     }
@@ -2336,7 +2314,6 @@ export class SnapScene {
   }
 
   private wheel = (e: WheelEvent) => {
-    this.ask();
     e.preventDefault();
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
       this.leftGoal = null;
@@ -2345,7 +2322,6 @@ export class SnapScene {
   };
 
   private hover = (e: PointerEvent) => {
-    this.ask();
     const r = this.app.canvas.getBoundingClientRect();
     const d = Math.floor((e.clientX - r.left - this.left + (PITCH - NODE_W) / 2) / PITCH);
     this.hovered = d >= 0 && d < this.columns.length ? d : -1;
@@ -2387,14 +2363,12 @@ export class SnapScene {
 
   private drag = (e: PointerEvent) => {
     if (this.dragging === null) return;
-    this.ask();
     this.leftGoal = null;
     this.left += e.clientX - this.dragging.x;
     this.dragging = { x: e.clientX };
   };
 
   private up = (e: PointerEvent) => {
-    this.ask();
     this.dragging = null;
     const d = this.down;
     this.down = null;
@@ -2424,7 +2398,6 @@ export class SnapScene {
   /// column is not wholly within the room, the columns moved sideways only until it is, a little in from the side it
   /// was out at. An item already in view stays where it is.
   reveal(id: number, room: number): void {
-    this.ask();
     const t = this.tree;
     const i = this.real.get(id);
     if (t === null || i === undefined) return;
@@ -2458,14 +2431,13 @@ export class SnapScene {
     return true;
   }
 
-  /// Selects the item numbered `id`, or none.
-  /// The item selected, by its number, or none: as soon as it is asked for, though folds over it still open.
+  /// The item selected, by its number, or none: from the moment it is chosen, while the folds over it still open.
   selectedId(): number | null {
     return this.selected;
   }
 
+  /// Selects the item numbered `id`, or none.
   select(id: number | null): void {
-    this.ask();
     // An item folds hide is selected once the folds over it are opened and it is drawn.
     if (id !== null && !this.real.has(id) && this.unfoldTo(id)) return;
     this.selected = id !== null && this.real.has(id) ? id : null;
@@ -2478,34 +2450,18 @@ export class SnapScene {
     this.onSelect?.(at === undefined ? null : this.shownItems[at]);
   }
 
-  /// Asks for a frame at the next tick, however long the last one took ([`tick`]).
-  private ask() {
-    this.asked = true;
-  }
-
-  /// Draws a frame and renders it, at the browser's frame rate where a frame is quick. Where a frame takes longer than
-  /// the browser gives one ([`SLOW_FRAME`]), as in a browser that draws in software, the next is drawn only once
-  /// [`SLOW_REST`] times as long has passed with none, so that the page keeps most of its time for what the owner does
-  /// and for itself; what the owner does with the tree, and new items, are drawn at the next tick all the same. The
-  /// light keeps its pace either way, as it is placed by the time and not by the frame.
   private tick = () => {
     const now = performance.now();
-    const rest = this.cost > SLOW_FRAME ? SLOW_REST * this.cost : 0;
-    if (!this.asked && now - this.drawnAt < rest) return;
-    this.asked = false;
     if (this.last > 0) this.frames.push(now - this.last);
     this.last = now;
     if (this.frames.length > 120) this.frames.shift();
     const step = this.advance(now);
     if (this.tree !== null) this.draw(this.tree, now, step);
-    this.app.render();
-    this.drawnAt = performance.now();
-    this.cost = this.drawnAt - now;
     const sorted = [...this.frames].sort((a, b) => a - b);
     const mean = sorted.reduce((a, b) => a + b, 0) / Math.max(1, sorted.length);
     this.stats = {
       ...this.stats,
-      fps: mean > 0 ? Math.round(1000 / mean) : 0,
+      fps: Math.round(this.app.ticker.FPS),
       meanMs: Math.round(mean * 10) / 10,
       p95Ms: Math.round((sorted[Math.floor(sorted.length * 0.95)] ?? 0) * 10) / 10,
     };
