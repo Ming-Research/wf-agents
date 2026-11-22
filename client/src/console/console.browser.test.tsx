@@ -229,31 +229,27 @@ describe('the tree in columns', () => {
     expect(canvas().title).toBe('Show the items under it (e): 1 shown elsewhere');
   });
 
-  it('draws the items under a fold drawing in to its dot, frame by frame at the page rate, through the sizes they grow through as it unfolds, in the other order', () => {
+  it('draws the items under a fold drawing in to its dot frame by frame at the page rate: smaller from the first frame, and still drawn at half its time', () => {
     const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
     const tree = (folded: boolean) => [{ ...card(1, [card(2)]), fold: { folded, under } }];
     scene.show(tree(false));
     settle(scene);
-    /// How large item 2 is drawn at each frame of a turn, 16 ms apart, but the last, once the fold is shown so.
+    // How large item 2 is drawn at each frame of the fold, 16 ms apart, but the last, once the fold is shown so.
     const frames = TURN_MS / 16;
-    const sizes = (folded: boolean) => {
-      scene.show(tree(folded));
-      const seen: number[] = [];
-      for (let k = 1; k < frames; k += 1) {
-        scene.step(16);
-        seen.push(scene.cardAt(2)?.size ?? 0);
-      }
-      settle(scene);
-      return seen;
-    };
-    const folding = sizes(true);
-    const unfolding = sizes(false);
-    // Halfway through the fold, item 2 is still drawn, at most of its size, and smaller frame by frame to its end.
-    expect(folding[Math.floor(frames / 2) - 1]).toBeGreaterThan(0.5);
-    expect(folding[0]).toBeLessThan(1);
+    scene.show(tree(true));
+    const folding: number[] = [];
+    for (let k = 1; k < frames; k += 1) {
+      scene.step(16);
+      folding.push(scene.cardAt(2)?.size ?? 0);
+    }
+    // It moves in its first frame, by well under a quarter of its size; it is smaller at every frame after; and
+    // half way through it is still drawn.
+    expect(folding[0]).toBeLessThan(0.95);
+    expect(folding[0]).toBeGreaterThan(0.75);
     for (let k = 1; k < folding.length; k += 1) expect(folding[k]).toBeLessThan(folding[k - 1]);
-    // The fold shows the frames of the unfold in the other order.
-    folding.forEach((size, k) => expect(size).toBeCloseTo(unfolding[unfolding.length - 1 - k], 6));
+    expect(folding[Math.floor(frames / 2) - 1]).toBeGreaterThan(0.2);
+    settle(scene);
+    expect(scene.cardAt(2)).toBeNull();
   });
 
   it('draws a fold as it stands at the end of its turn in the first frame after its time, however far apart the frames come', () => {

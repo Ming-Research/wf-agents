@@ -231,11 +231,16 @@ export const DOT_R = 4.5;
 export const DOT_AT = 12;
 export const FOLD_REACH = 24;
 export const FOLD_PAD = 3;
-/// How a fold turns: the funnel and the items under it draw in to the dot, or grow back out of it, in the page's
-/// motion for opening and closing a part, the window's as it slides (styles/parts.css, `.cw`) and a question card's as
-/// it folds (`--turn-time`, `--turn-ease`): this many milliseconds, on this cubic Bézier.
+/// How a fold turns, over this many milliseconds, the page's time for opening and closing a part: the funnel and the
+/// items under it grow out of the dot on the page's curve for it, the window's as it slides (styles/parts.css, `.cw`)
+/// and a question card's as it folds (`--turn-time`, `--turn-ease`); and draw in to the dot on a plain ease-out of
+/// their own. The two differ because the page's curve goes most of its way in its first frames: run forward on a
+/// shrink, it empties the cards in those frames, and the fold looks instant; run backwards, it stalls at the start,
+/// and the fold looks stuck. The plain ease-out moves at once, but gently, so the cards are seen drawing in all the
+/// way to the dot.
 export const TURN_MS = 240;
-const TURN_EASE = [0.2, 0.8, 0.2, 1] as const;
+export const UNFOLD_EASE = [0.2, 0.8, 0.2, 1] as const;
+export const FOLD_EASE = [0, 0, 0.58, 1] as const;
 /// What pointing at the funnel or the dot says a click does, with the key that does it over the card, before how many
 /// items stand under the item, by kind.
 export const FOLD_SAYS = { folded: 'Show the items under it (e)', shown: 'Fold the items under it away (e)' } as const;
@@ -619,12 +624,12 @@ function vertical(colour: string, from: number, to: number): FillGradient {
 /// A node's height in pixels, of `rows` rows.
 const high = (rows: number) => rows * ROW - (ROW - NODE_H);
 
-/// How far a fold's turn has gone, from 0 to 1, when a part `t` of its time has gone: the cubic Bézier of
-/// [`TURN_EASE`], read as CSS reads one.
-export function turnEase(t: number): number {
+/// How far a fold's turn has gone, from 0 to 1, when a part `t` of its time has gone: the cubic Bézier `curve`, an
+/// unfold's ([`UNFOLD_EASE`]) or a fold's ([`FOLD_EASE`]), read as CSS reads one.
+export function turnEase(t: number, curve: readonly [number, number, number, number] = UNFOLD_EASE): number {
   if (t <= 0) return 0;
   if (t >= 1) return 1;
-  const [x1, y1, x2, y2] = TURN_EASE;
+  const [x1, y1, x2, y2] = curve;
   const at = (a: number, b: number, u: number) => 3 * (1 - u) * (1 - u) * u * a + 3 * (1 - u) * u * u * b + u * u * u;
   let [lo, hi] = [0, 1];
   for (let n = 0; n < 30; n += 1) {
@@ -675,15 +680,11 @@ export function inFunnel(
 /// on the scene's clock, and over how many milliseconds.
 export type Turn = { to: number; from: number; at: number; ms: number };
 
-/// How large the items under a turning fold are drawn at the scene's time `clock`, from 0 folded away to 1 shown. A
-/// fold that grows runs the curve of its turn forward, and one that shrinks runs it backwards, so that folding shows
-/// the frames of unfolding in the other order: run forward, the curve goes most of its way in its first frames, and a
-/// shrink would lose nearly all its size at once.
+/// How large the items under a turning fold are drawn at the scene's time `clock`, from 0 folded away to 1 shown, from
+/// the size the turn began at: growing on the unfold's curve, shrinking on the fold's ([`TURN_MS`]).
 export function sizeOf(turn: Turn, clock: number): number {
   const t = turn.ms <= 0 ? 1 : (clock - turn.at) / turn.ms;
-  return turn.to >= turn.from
-    ? turn.from + (turn.to - turn.from) * turnEase(t)
-    : turn.to + (turn.from - turn.to) * turnEase(1 - t);
+  return turn.from + (turn.to - turn.from) * turnEase(t, turn.to >= turn.from ? UNFOLD_EASE : FOLD_EASE);
 }
 
 /// The colour of a work's age, three and no more: grey under half an hour, amber from half an hour to an hour, and red

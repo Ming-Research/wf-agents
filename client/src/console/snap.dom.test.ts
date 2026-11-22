@@ -19,6 +19,7 @@ import {
   sizeOf,
   type Turn,
   turnEase,
+  UNFOLD_EASE,
   DIM,
   eased,
   gatherAt,
@@ -116,13 +117,23 @@ describe('a fold', () => {
     for (let t = 0; t < 1; t += 0.05) expect(turnEase(t + 0.05)).toBeGreaterThanOrEqual(turnEase(t));
   });
 
-  it('shrinks through the sizes it grows through, in the other order, so that a fold shows as much of its turn as an unfold', () => {
+  it('grows on the page\'s curve, and shrinks on a gentle ease-out of its own: at once from its first frame, and all the way to the dot', () => {
     const grows: Turn = { to: 1, from: 0, at: 0, ms: 240 };
     const shrinks: Turn = { to: 0, from: 1, at: 0, ms: 240 };
-    for (let at = 0; at <= 240; at += 16) expect(sizeOf(shrinks, at)).toBeCloseTo(sizeOf(grows, 240 - at), 6);
+    // An unfold keeps the page's curve: half its time gone, some 95% of its size.
+    expect(sizeOf(grows, 120)).toBeCloseTo(turnEase(0.5, UNFOLD_EASE), 9);
+    expect(sizeOf(grows, 120)).toBeCloseTo(0.946, 2);
+    // A fold moves in its first frame, by well under a quarter, shrinks at every frame after, and is still drawn
+    // at half its time.
+    expect(sizeOf(shrinks, 16)).toBeLessThan(0.95);
+    expect(sizeOf(shrinks, 16)).toBeGreaterThan(0.8);
+    for (let at = 16; at <= 240; at += 16) expect(sizeOf(shrinks, at)).toBeLessThan(sizeOf(shrinks, at - 16));
+    expect(sizeOf(shrinks, 120)).toBeGreaterThan(0.2);
     expect([sizeOf(shrinks, 0), sizeOf(shrinks, 240), sizeOf(shrinks, 999)]).toEqual([1, 0, 0]);
-    // Half its time gone, a fold still draws its items at most of their size, as an unfold has drawn them.
-    expect(sizeOf(shrinks, 120)).toBeGreaterThan(0.9);
+    // A fold reversed part of the way goes on from the size it had reached.
+    const back: Turn = { to: 0, from: 0.6, at: 0, ms: 240 * 0.6 };
+    expect(sizeOf(back, 0)).toBe(0.6);
+    expect(sizeOf(back, 16)).toBeLessThan(0.6);
   });
 
   it('is pressed in its funnel, between the curves the funnel is drawn with, and nowhere past either end of it', () => {
