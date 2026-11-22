@@ -378,17 +378,17 @@ function useChosen(at: string | undefined): string {
 
 /// Under a stop of the work, the button that goes to the next, as n does, saying which of the item's stops this one is
 /// and how many there are; none under the last, and none where the window has no walk.
-function NextStop({ at }: { at: string | undefined }) {
+function NextStop({ at, beside = false }: { at: string | undefined; beside?: boolean }) {
   const { keys, next } = useContext(StopsContext);
   const k = at === undefined ? -1 : keys.indexOf(at);
   if (next === undefined || k < 0 || k === keys.length - 1) return null;
-  return (
-    <div className="cw-stop-acts">
-      <Button title="Go to the next question, as n does" onClick={() => next(k)}>
-        {`Next question (${k + 1}/${keys.length})`}
-      </Button>
-    </div>
+  const button = (
+    <Button title="Go to the next question, as n does" onClick={() => next(k)}>
+      {`Next (${k + 1}/${keys.length})`}
+    </Button>
   );
+  // On a question's last row it stands just left of Discuss; on a card with no such row, on a row of its own.
+  return beside ? <span className="cw-next">{button}</span> : <div className="cw-stop-acts">{button}</div>;
 }
 
 /// The window's item. Its lines and its body are the item's own: what one item was sending, or was refused, is not
@@ -1365,7 +1365,12 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
   // view, and it is folded when the window is read again.
   const [open, setOpen] = useState(p.confirmed !== true);
   const box = useRef<HTMLFieldSetElement>(null);
-  const lit = useChosen(pick === undefined ? undefined : waitKeyOf(p));
+  // The key it is a stop by, where it is one: a question not yet answered.
+  const stopKey = pick === undefined ? undefined : waitKeyOf(p);
+  const lit = useChosen(stopKey);
+  // Its last row, while it is open: how many messages are about it, and Discuss, with the button to the next stop
+  // just left of Discuss.
+  const foot = open && (messages.length > 0 || discuss !== undefined);
   // The card's height before the press, which the turn is drawn from.
   const was = useRef<number | null>(null);
   const turn = () => {
@@ -1424,7 +1429,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
         ) : (
           <Options options={p.options} chosen={p.chosen} recommended={p.recommended} pick={pick} />
         ))}
-      {open && (messages.length > 0 || discuss !== undefined) ? (
+      {foot ? (
         <div className="cw-choice-foot">
           {messages.length > 0 ? (
             <button type="button" className="link muted small" onClick={() => jump?.(messages[0])}>
@@ -1433,6 +1438,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
           ) : (
             <span />
           )}
+          <NextStop at={stopKey} beside />
           {discuss !== undefined ? (
             <Button
               title={
@@ -1447,7 +1453,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
           ) : null}
         </div>
       ) : null}
-      <NextStop at={pick === undefined ? undefined : waitKeyOf(p)} />
+      {!foot && <NextStop at={stopKey} />}
       {open ? (
         <button type="button" className="cw-choice-turn" onClick={turn}>
           Fold it
