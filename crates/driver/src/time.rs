@@ -155,7 +155,7 @@ impl<'a> Waits<'a> {
             return None;
         }
         let work = self.kept.work;
-        let place = (work.moments.iter()).find(|m| m.at >= at).map(|m| m.from);
+        let place = (work.moments.iter()).find(|m| m.at > at).map(|m| m.from);
         let everything = (self.spans.iter())
             .find(|span| span.from <= at && span.until.is_none_or(|until| at < until))
             .map(|span| span.by);
