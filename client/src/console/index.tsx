@@ -1,16 +1,16 @@
 // The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`snap.ts`), as they stand, drawn
 // again as they change; with `?fixtures` in the page's address, made-up items that show every state the drawing has
 // (`fixtures.ts`): those that stand as the boxes over the tree's corner tick, open, done or cancelled, and what stands
-// over them. A press on the knob of an item's fold folds the items under it away or shows them again, a choice kept in
-// the browser for that item, which wins over the tree's own rule. Beside the tree, a window shows the item selected
-// (`ItemWindow.tsx`). Selecting an item slides the window out; letting it go slides the window back, unless the tab
-// stuck to its left edge brought it out, in which case it stays until the tab takes it back. The tab takes it back
-// without letting the item go, and the next item selected brings it out again. The window coming out over the item
-// selected, or an item selected half under it or half off the screen, moves the tree only until the item is wholly
-// within what the window leaves. Escape lets the item go while the tree has the keys, and slides the window in while it
-// has them. Each time the interface says something happened, the items are read again, at most one read at a time and
-// one more after it, and drawn where they stand, the item selected and the panel as they were; when the stream opens
-// again after a cut, everything is. An item the address names is selected once the tree shows it, as from a
+// over them. A press on the funnel or the dot of an item's fold folds the items under it away or shows them again, a
+// choice kept in the browser for that item, which wins over the tree's own rule. Beside the tree, a window shows the
+// item selected (`ItemWindow.tsx`). Selecting an item slides the window out; letting it go slides the window back,
+// unless the tab stuck to its left edge brought it out, in which case it stays until the tab takes it back. The tab
+// takes it back without letting the item go, and the next item selected brings it out again. The window coming out over
+// the item selected, or an item selected half under it or half off the screen, moves the tree only until the item is
+// wholly within what the window leaves. Escape lets the item go while the tree has the keys, and slides the window in
+// while it has them. Each time the interface says something happened, the items are read again, at most one read at a
+// time and one more after it, and drawn where they stand, the item selected and the panel as they were; when the stream
+// opens again after a cut, everything is. An item the address names is selected once the tree shows it, as from a
 // notification of a question it waits on. The page's shell mounts it lazily (`lazy.tsx`).
 //
 // Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
@@ -128,7 +128,8 @@ export function ConsolePage({
             return w.byHand ? w : { open: false, byHand: false };
           });
         };
-        // A press on the knob of an item's fold is the owner's choice for that item, kept, and the tree is drawn again.
+        // A press on the funnel or the dot of an item's fold is the owner's choice for that item, kept, and the tree is
+        // drawn again.
         s.onFold = (id, folded) => turnFoldNow.current(id, folded);
         if (latestData.current !== undefined)
           s.show(shownTree(latestData.current, showsNow.current, foldsNow.current));

@@ -10,6 +10,9 @@ import { age, type Shown } from './items';
 import {
   beatOf,
   beneath,
+  foldWords,
+  inFunnel,
+  turnEase,
   DIM,
   eased,
   gatherAt,
@@ -89,6 +92,32 @@ describe('what a fold hides', () => {
     expect(beneath(tree, (s) => s.id === 2)).toBe(true);
     expect(beneath(tree, (s) => s.id === 4)).toBe(false);
     expect(beneath(tree, (s) => s.id === 1)).toBe(false);
+  });
+});
+
+describe('a fold', () => {
+  it("turns in the page's motion for opening and closing a part: from none of the way to all of it, most of it early, never back and never past its end", () => {
+    expect([turnEase(-1), turnEase(0), turnEase(1), turnEase(2)]).toEqual([0, 0, 1, 1]);
+    // cubic-bezier(0.2, 0.8, 0.2, 1): half its time gone, some 95% of the way.
+    expect(turnEase(0.5)).toBeCloseTo(0.946, 2);
+    for (let t = 0; t < 1; t += 0.05) expect(turnEase(t + 0.05)).toBeGreaterThanOrEqual(turnEase(t));
+  });
+
+  it('is pressed in its funnel, between the curves the funnel is drawn with, and nowhere past either end of it', () => {
+    // A card 26 pixels high ending at 300, the items under it starting at 370, from 100 to 200 down the screen. Half
+    // way across, each curve has gone half way down: from -13 to 43.5, and from 13 to 106.5.
+    const at = (x: number, y: number) => inFunnel(300, -13, 13, 370, 100, 200, x, y);
+    expect([at(335, 44), at(335, 106), at(301, 0), at(369, 150)]).toEqual([true, true, true, true]);
+    expect([at(335, 43), at(335, 107), at(369, 0), at(299, 0), at(371, 150)]).toEqual(Array(5).fill(false));
+  });
+
+  it('says on pointing what a click on it does, then how many items stand under it by kind, a kind with none left out', () => {
+    expect(foldWords({ folded: false, under: { open: 2, done: 4, cancelled: 0 } })).toBe(
+      'Fold the items under it away: open 2, done 4',
+    );
+    expect(foldWords({ folded: true, under: { open: 0, done: 1, cancelled: 2 } })).toBe(
+      'Show the items under it: done 1, cancelled 2',
+    );
   });
 });
 

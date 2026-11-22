@@ -34,9 +34,11 @@ A done or cancelled item that no item depends on any more stands under the item 
 - replaced: An ended item that no item depended on any more standing at the top was on main; the owner changed it, because every item that depends on an item stops depending on it as it is cancelled, so the cancelled items, once ticked, filled the screen as roots.
 
 ### decision an-item-folds-what-stands-under-it
-An item with items under it folds them away at a knob past its card's edge that its lines run through, its row then counting them by kind; folded where nothing in it is open, or as the owner chose.
+A click on an item's funnel folds it and the items under it into a dot past the card, which ends the lit way of a running item in it; it is folded where nothing in it is open, or as the owner chose.
 - replaced: The whole tree always drawn, with no way to fold a part of it, was on main; the owner changed it, because the tree grows with every item added, and would keep growing.
 - rejected: an agent proposed folding the done rows by default, showing only their count; the owner rejected it, because he often needs to see the overall progress.
+- rejected: an agent proposed a round knob past the card's edge, with a plus or a minus in it, that the lines ran through; the owner rejected it, because it belonged to neither the grey funnel nor the blue lit way, overlapped them, the blue light above all, and its meaning was unclear.
+- rejected: an agent proposed counts of what is folded as framed grey tags on the folded card; the owner rejected it, because a folded card should carry nothing new, the counts being said on pointing at the funnel or the dot.
 
 ### decision a-card-has-a-row-for-its-work
 A card has one row, with its number and its title, and a second row only while a work is under way on it, holding the level its cell runs at, the strip of its cells and the lines it changed.
