@@ -653,16 +653,7 @@ async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_proje
 // jobs not complete said so, and no round of the check is failed for it.
 #[tokio::test]
 async fn a_full_run_past_its_time_is_cancelled_and_fails_the_check_with_its_jobs_not_complete() {
-    let hub = Hub::new().with(|config| {
-        config
-            .ci
-            .as_mut()
-            .expect("a declaration")
-            .full
-            .as_mut()
-            .expect("full")
-            .too_long = "1s".to_string()
-    });
+    let hub = Hub::new().with(|config| config.ci.as_mut().expect("a declaration").full.too_long = "1s".to_string());
     let head = hub.committed().await;
     hub.github().runs_go_on();
     let jobs = vec![passed("lint"), check("test", Outcome::Pending)];
