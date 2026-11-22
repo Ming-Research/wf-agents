@@ -2136,10 +2136,7 @@ impl Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
             flow: kept.head.flow.clone(),
-            // As the version the work is on has it. Of a work on none kept, whether its flow only delivers is not
-            // known, and it is taken as a work of its own, whose row is drawn: taken for a deliverable, its row would
-            // be hidden.
-            delivers: (kept.on.outline()).is_some_and(|outline| !outline.cells.iter().any(|c| c.agent)),
+            delivers: delivers(kept),
             added: kept.head.added.0,
             paused: decide::pause(&work.records).map(|pause| Pauser::of(pause.by)),
             waits: (driver.waits_on_owner_at(number, view, held, &every.at_once).into_iter())
@@ -2657,8 +2654,6 @@ impl WorkPage {
         let view = viewed_at(driver, number, &every.at_once)?;
         let work = kept.work;
         let records = &work.records;
-        // Where each datum written from outside comes from, as the version the work is on says.
-        let from = |block: &BlockId| kept.from(block).map(str::to_string);
         let mut blocks = Vec::new();
         for (block, versions) in &view.blocks {
             let versions = (versions.iter())
@@ -2667,7 +2662,7 @@ impl WorkPage {
                         at: version.at.0,
                         number: numbered(records, block, version.at)?,
                         time: time(work, version.at)?,
-                        by: writer_of(&from, work, block, version)?,
+                        by: writer_of(kept, block, version)?,
                         meaning: (version.meaning).map(|m| numbered(records, block, m)).transpose()?,
                         value: version.value.clone(),
                         said_to: said_to(work, block, version.at),
@@ -2720,7 +2715,7 @@ impl WorkPage {
                 at: written.at.0,
                 time: time(work, written.at)?,
                 block: written.block.to_string(),
-                by: writer_of(&from, work, &written.block, version)?,
+                by: writer_of(kept, &written.block, version)?,
                 changed: version.meaning == Some(version.at),
                 value: written.value.clone(),
                 chars: chars(work, &written.block, written.at)?,
@@ -3056,22 +3051,25 @@ fn chars(work: &Work, block: &BlockId, at: Seq) -> Result<usize, Broken> {
         .ok_or_else(|| Broken(format!("the version of {block} at {} has no content", at.0)))
 }
 
-/// Who wrote the version of the block, by the rule a round is told it by.
-/// Who wrote the version of the block, each block written from outside the work coming from where `from` says.
-fn writer_of(
-    from: &dyn Fn(&BlockId) -> Option<String>,
-    work: &Work,
-    block: &BlockId,
-    version: &VersionView,
-) -> Result<Writer, Broken> {
-    Ok(match context::author_from(from, &work.records, block, version) {
+/// Who wrote the version of the block of the work, by the rule a round is told it by, each block written from outside
+/// the work coming from where the version the work is on says.
+fn writer_of(kept: Kept<'_>, block: &BlockId, version: &VersionView) -> Result<Writer, Broken> {
+    let from = |block: &BlockId| kept.from(block).map(str::to_string);
+    Ok(match context::author_from(&from, &kept.work.records, block, version) {
         Author::Owner => Writer::Owner,
         Author::Nobody => Writer::Outside,
         Author::Run(run) => Writer::Run {
             run: run.0,
-            cell: cell_of(work, run)?,
+            cell: cell_of(kept.work, run)?,
         },
     })
+}
+
+/// Whether the work's flow only delivers, no cell of it an agent's, as the version the work is on has it. Of a work on
+/// none kept, whether its flow only delivers is not known, and it is taken as a work of its own, whose row is drawn:
+/// taken for a deliverable, its row would be hidden.
+fn delivers(kept: Kept<'_>) -> bool {
+    (kept.on.outline()).is_some_and(|outline| !outline.cells.iter().any(|c| c.agent))
 }
 
 /// The cell the version of the block written at this place is said to, where it is said to one.
@@ -3530,10 +3528,12 @@ impl Failure {
 }
 
 #[cfg(test)]
-mod tests {
-    //! A work's levels, the words of a stalled work, and who each version is named by.
+pub(crate) mod tests {
+    //! A work's levels, the words of a stalled work, who each version is named by, and what a work is read by of the
+    //! version of its flow it is on.
 
     use std::collections::BTreeMap;
+    use std::sync::Arc;
 
     use decide::{Outsider, Written};
     use flow::{Has, Source, compile};
@@ -3541,7 +3541,7 @@ mod tests {
     use super::*;
 
     /// A writer the owner's request runs, and the merge, with the repository's words beside it.
-    fn flow() -> flow::Compiled {
+    pub(crate) fn flow() -> flow::Compiled {
         let text = r#"
             name = "small"
             order = ["write", "merge"]
@@ -3578,6 +3578,56 @@ mod tests {
             ..Has::default()
         };
         compile(&source, &has).expect("the definition compiles")
+    }
+
+    /// The item of one work and the work's head, on the flow of this name, as the store keeps them, for a [`Kept`] to
+    /// borrow.
+    pub(crate) struct Stored {
+        head: store::WorkHead,
+        item: store::Item,
+    }
+
+    impl Stored {
+        pub(crate) fn new(flow: &str) -> Stored {
+            let first = store::First {
+                title: "A work".to_string(),
+                level: None,
+                project: None,
+                depends_on: Vec::new(),
+                tags: Vec::new(),
+            };
+            Stored {
+                head: store::WorkHead {
+                    number: WorkNumber(1),
+                    item: ItemNumber(1),
+                    flow: flow.to_string(),
+                    added: Time(0),
+                },
+                item: store::Item::new(ItemNumber(1), Time(0), first, Vec::new()),
+            }
+        }
+
+        /// The work with these records, on this version, the flow installed being this one.
+        pub(crate) fn kept<'a>(&'a self, flow: &'a flow::Compiled, on: &'a driver::On, work: &'a Work) -> Kept<'a> {
+            Kept {
+                head: &self.head,
+                item: &self.item,
+                flow,
+                on,
+                passed: &[],
+                work,
+            }
+        }
+    }
+
+    /// The outline of an earlier version of the flow, on which the work ended cancelled.
+    pub(crate) fn earlier(outline: flow::Outline) -> driver::On {
+        driver::On::Earlier {
+            version: "earlier".to_string(),
+            outline: Arc::new(outline),
+            end: End::Cancelled,
+            reading: Default::default(),
+        }
     }
 
     // A work's level and its cell's are what the rule that gives a round its level says (the route's test shows a line
@@ -3780,14 +3830,14 @@ mod tests {
         r.questions.push(asked("protected", true, 12));
         r.written.push(wrote("write_questions", Outsider::Outside, 13));
         let versions = decide::versions(&work.records);
-        // Where each datum comes from, as the outline of the flow says.
-        let outline = flow::Outline::of(&flow);
-        let from = |block: &BlockId| outline.from.get(block).cloned();
+        let stored = Stored::new("asking");
+        let on = driver::On::installed_flow(&flow);
+        let kept = stored.kept(&flow, &on, &work);
         let named = |block: &str, at: u64| {
             let version = (versions[&BlockId::from(block)].iter())
                 .find(|v| v.at == Seq(at))
                 .expect("the version is read");
-            let writer = writer_of(&from, &work, &BlockId::from(block), version).expect("its writer is named");
+            let writer = writer_of(kept, &BlockId::from(block), version).expect("its writer is named");
             serde_json::to_value(writer).expect("the writer is given as JSON")
         };
         let owner = serde_json::json!({ "kind": "owner" });
@@ -3851,29 +3901,9 @@ mod tests {
                 account: None,
             },
         });
-        let first = store::First {
-            title: "Kept before".to_string(),
-            level: None,
-            project: None,
-            depends_on: Vec::new(),
-            tags: Vec::new(),
-        };
-        let item = store::Item::new(ItemNumber(1), Time(0), first, Vec::new());
-        let head = store::WorkHead {
-            number: WorkNumber(1),
-            item: ItemNumber(1),
-            flow: flow.name.clone(),
-            added: Time(0),
-        };
+        let stored = Stored::new(&flow.name);
         let on = driver::On::NotKept { end: End::Merged };
-        let kept = Kept {
-            head: &head,
-            item: &item,
-            flow: &flow,
-            on: &on,
-            passed: &[],
-            work: &work,
-        };
+        let kept = stored.kept(&flow, &on, &work);
         let all = HeldAll {
             everything: Vec::new(),
             cannot_run: None,
@@ -3882,6 +3912,139 @@ mod tests {
         let drawn = bar(kept, &all, Time(10_000));
         let expected = "m".repeat(third) + &"?".repeat(third) + &"t".repeat(third);
         assert_eq!(drawn, expected);
+    }
+
+    /// A work on an earlier version of the asking writer ([`asking`]) whose writer is on the line `writing`, the flow
+    /// installed since being the plain writer ([`flow`]), which has no questions or words of the writer's and puts it
+    /// on the line `main`: the writer's round, in which the owner speaks to it, and the question its return asks,
+    /// written as the writer's questions.
+    fn asked_on_an_earlier_version() -> (flow::Compiled, driver::On, Work) {
+        use decide::{Questioned, Returned, Round, Started};
+        use work::Moment;
+
+        let mut outline = flow::Outline::of(&asking());
+        let write = (outline.cells.iter_mut())
+            .find(|c| c.id.as_str() == "write")
+            .expect("the writer");
+        write.line = Some("writing".to_string());
+        let mut work = Work::default();
+        let r = &mut work.records;
+        let wrote = |block: &str, by: Outsider, at: u64| Written {
+            block: block.into(),
+            by,
+            matters: true,
+            value: None,
+            empty: false,
+            said_to: None,
+            at: Seq(at),
+        };
+        let run = RunId(1);
+        r.written.push(wrote("request", Outsider::Person, 1));
+        r.started.push(Started {
+            run,
+            cell: "write".into(),
+            at: Seq(2),
+            because: Vec::new(),
+            basis: BTreeMap::new(),
+        });
+        r.rounds.push(Round { run, at: Seq(3) });
+        r.written.push(wrote("write_words", Outsider::Outside, 4));
+        r.returned.push(Returned { run, at: Seq(5) });
+        r.questions.push(Questioned {
+            name: "which".to_string(),
+            cell: "write".into(),
+            run,
+            engine: false,
+            waits: true,
+            withdrawn: false,
+            at: Seq(6),
+        });
+        r.written.push(wrote("write_questions", Outsider::Outside, 7));
+        work.given.insert((run, 1), GivenOf::Task);
+        work.spent.insert((run, 1), work::Spent::default());
+        work.moments.push(Moment {
+            from: Seq(1),
+            at: Time(0),
+        });
+        (flow(), earlier(outline), work)
+    }
+
+    // The three tests below read a work on an earlier version as that version has it, not as the flow installed since,
+    // which has none of what each reads, so that a page reading the flow installed fails each. Milliseconds, as each
+    // test of this module: what each catches is one reading of the page, which no route test reaches.
+
+    // The question the writer's return asked is numbered as the version names the writer's questions.
+    #[test]
+    fn a_work_on_an_earlier_version_numbers_its_questions_as_that_version_names_them() {
+        let (installed, on, work) = asked_on_an_earlier_version();
+        let stored = Stored::new("asking");
+        let kept = stored.kept(&installed, &on, &work);
+        let numbered: Vec<_> = (QuestionPage::all(&kept).into_iter())
+            .map(|q| (q.name, q.version))
+            .collect();
+        assert_eq!(numbered, [("which".to_string(), Some(1))]);
+    }
+
+    // The owner's words to the writer are named as the owner's, and its questions as the run's that asked them, as the
+    // version says where each comes from.
+    #[test]
+    fn a_work_on_an_earlier_version_names_who_wrote_each_version_as_that_version_says_where_it_comes_from() {
+        let (installed, on, work) = asked_on_an_earlier_version();
+        let stored = Stored::new("asking");
+        let kept = stored.kept(&installed, &on, &work);
+        let versions = decide::versions(&work.records);
+        let named = |block: &str, at: u64| {
+            let version = (versions[&BlockId::from(block)].iter())
+                .find(|v| v.at == Seq(at))
+                .expect("the version is read");
+            let writer = writer_of(kept, &BlockId::from(block), version).expect("its writer is named");
+            serde_json::to_value(writer).expect("the writer is given as JSON")
+        };
+        assert_eq!(named("write_words", 4), serde_json::json!({ "kind": "owner" }));
+        assert_eq!(
+            named("write_questions", 7),
+            serde_json::json!({ "kind": "run", "run": 1, "cell": "write" })
+        );
+    }
+
+    // The writer's round runs in a session of the line the version puts the writer on.
+    #[test]
+    fn a_work_on_an_earlier_version_puts_its_rounds_on_the_lines_that_version_puts_their_cells_on() {
+        let (installed, on, work) = asked_on_an_earlier_version();
+        let stored = Stored::new("asking");
+        let kept = stored.kept(&installed, &on, &work);
+        let mut runs = runs(kept).expect("the runs are read");
+        in_detail(kept, &mut runs, &[], &driver::judged::Judged::default()).expect("the rounds are read in detail");
+        let lines: Vec<_> = (runs.iter().flat_map(|run| &run.rounds))
+            .map(|round| round.session.as_ref().map(|s| s.line.as_str()))
+            .collect();
+        assert_eq!(lines, [Some("writing")]);
+    }
+
+    // Whether a work only delivers is as the version it is on has it, and a work on none kept is taken as one of its
+    // own: the flow installed here only delivers, so that a reading of it fails both a work on an earlier version
+    // with a writer and one on none kept. Milliseconds.
+    #[test]
+    fn a_work_delivers_as_the_version_it_is_on_has_it_and_one_on_none_kept_is_its_own() {
+        let installed = only_delivers();
+        let work = Work::default();
+        let stored = Stored::new(&installed.name);
+        let of = |on: &driver::On| delivers(stored.kept(&installed, on, &work));
+        assert!(of(&driver::On::installed_flow(&installed)));
+        assert!(!of(&earlier(flow::Outline::of(&flow()))));
+        assert!(!of(&driver::On::NotKept { end: End::Merged }));
+    }
+
+    /// The flow of a deliverable item as the repository defines it (`flow/deliver`), whose one cell is the engine's.
+    fn only_delivers() -> flow::Compiled {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver");
+        let source = flow::read(&dir).expect("the deliver flow is read");
+        let has = Has {
+            sources: [driver::DEPENDENCIES.to_string()].into(),
+            acts: ["deliver".to_string()].into(),
+            ..Has::default()
+        };
+        compile(&source, &has).expect("the deliver flow compiles")
     }
 
     // A new session begun because what a new one would begin with changed is given to the page with the tokens of

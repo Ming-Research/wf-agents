@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use decide::{Decision, Holder, Records, RunId};
+use decide::{Decision, Holder, Pauser, Records, RunId, Seq};
 use work::{Ask, Call, Stretch, Time, Went, Work};
 
 use crate::attention::on_items;
@@ -94,21 +94,34 @@ pub fn stretches(kept: &Kept<'_>, spans: &[Span], cannot_run: Option<(Time, &str
             .find(|span| span.from <= at && span.until.is_none_or(|until| at < until))
             .map(|span| span.by)
     };
+    // What the work waited for in a stretch, by the place of the first entry after its start, the records as they stood
+    // then being those before it, by who set the pause of everything then, and by whether the agents' command line could
+    // run: the stretches of one wait share these, and each is decided once.
+    let mut decided: BTreeMap<(Option<Seq>, Option<bool>, bool), Went> = BTreeMap::new();
     let mut waits: Vec<Stretch> = Vec::new();
     for pair in points.windows(2) {
         let (a, b) = (pair[0], pair[1]);
         if merged.iter().any(|(x, y)| *x <= a && b <= *y) {
             continue;
         }
-        let then = owner::Shared {
-            everything: everything_at(a),
-            cannot_run: cannot_run.filter(|(since, _)| *since <= a).map(|(_, why)| why),
-        };
         let place = (work.moments.iter()).find(|m| m.at > a).map(|m| m.from);
-        let went = match place {
-            Some(place) => waited(kept, &work.records.before(place), then),
-            None => waited(kept, &work.records, then),
-        };
+        let everything = everything_at(a);
+        let could_not_run = cannot_run.filter(|(since, _)| *since <= a).map(|(_, why)| why);
+        let key = (
+            place,
+            everything.map(|by| by == Pauser::Engine),
+            could_not_run.is_some(),
+        );
+        let went = *decided.entry(key).or_insert_with(|| {
+            let then = owner::Shared {
+                everything,
+                cannot_run: could_not_run,
+            };
+            match place {
+                Some(place) => waited(kept, &work.records.before(place), then),
+                None => waited(kept, &work.records, then),
+            }
+        });
         match waits.last_mut() {
             Some(last) if last.until == a && last.went == went => last.until = b,
             _ => waits.push(Stretch {
@@ -319,6 +332,69 @@ mod tests {
                 stretch(0, 1000, Went::Model),
                 stretch(3000, 4000, Went::Model),
                 stretch(1000, 3000, Went::Owner)
+            ]
+        );
+    }
+    // The pause of everything holds a work that would begin a round from the time it was set, and no longer from the
+    // time it was lifted, a pause not lifted holding it to the end, whoever set it: between, the work waited for nothing
+    // that holds it. The work here, let on as the agents' wait held its round back, would begin the round all along.
+    // Fails where a pause is read as holding at the time it was lifted, or not at the time it was set, or one not lifted
+    // as over. Milliseconds; the one test that reads the pause of everything through its stretches.
+    #[test]
+    fn the_pause_of_everything_holds_a_work_from_the_time_it_was_set_up_to_the_time_it_was_lifted() {
+        let flow = flow();
+        let mut work = Work::default();
+        let wrote = Event::Wrote {
+            block: "request".into(),
+            by: Outsider::Person,
+            content: "Greet.".to_string(),
+            matters: true,
+            value: None,
+        };
+        let effects = engine::handle(&flow, &mut work, Time(0), wrote).expect("the request is taken");
+        let run = effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Round { run, .. } => Some(*run),
+                _ => None,
+            })
+            .expect("the writer's round begins");
+        let failed = || Event::Failed {
+            run,
+            why: "it broke".to_string(),
+            failure: Failure::Other,
+            resets: None,
+            spent: Spent::default(),
+        };
+        engine::handle(&flow, &mut work, Time(1000), failed()).expect("the round fails");
+        let held = |work: &mut Work, at: u64, event: Event, gate: engine::Gate| {
+            engine::handle_held(&flow, work, Time(at), event, decide::Room::FREE, gate).expect("it is taken")
+        };
+        held(&mut work, 3000, Event::Resumed, engine::Gate::Agents);
+        held(&mut work, 6000, Event::Look, engine::Gate::Open);
+        engine::handle(&flow, &mut work, Time(7000), failed()).expect("the round fails again");
+        let span = |from: u64, until: Option<u64>, by: Pauser| Span {
+            from: Time(from),
+            until: until.map(Time),
+            by,
+        };
+        let spans = [span(4000, Some(5000), Pauser::Owner), span(5500, None, Pauser::Engine)];
+        let stretches = with_kept(&flow, &work, |kept| stretches(kept, &spans, None, Time(9000)));
+        let stretch = |from: u64, until: u64, went: Went| Stretch {
+            from: Time(from),
+            until: Time(until),
+            went,
+        };
+        assert_eq!(
+            stretches,
+            [
+                stretch(0, 1000, Went::Model),
+                stretch(6000, 7000, Went::Model),
+                stretch(1000, 3000, Went::Owner),
+                stretch(3000, 4000, Went::Other),
+                stretch(4000, 5000, Went::Paused),
+                stretch(5000, 5500, Went::Other),
+                stretch(5500, 6000, Went::Paused),
             ]
         );
     }

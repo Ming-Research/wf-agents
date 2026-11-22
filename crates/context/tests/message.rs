@@ -813,8 +813,9 @@ fn fills_whole(entered: &Entered, block: &str) -> bool {
 }
 
 // A session that goes on through a move holds what it took in before it only under a name the move left as it was
-// (decision a-datum-a-move-renamed-is-given-again-whole): a move here gives the name `plan` to the datum it reads as,
-// as a renumbering gives `t4_words` to what T2 wrote as `t2_words`, and leaves the request as it was.
+// (decision a-datum-a-move-renamed-is-given-again-whole): a move here reads what was written as the request as the code,
+// as a renumbering reads what T2 wrote as `t2_words` as `t4_words`, and leaves the plan as it was. The build reads the
+// code, and its session holds the request, filled into the plan's round, and the plan, which the session handed in.
 #[test]
 fn a_datum_a_move_renamed_is_given_whole_once_and_held_after_and_one_it_left_as_it_was_is_still_held() {
     let mut sim = Sim::new();
@@ -828,27 +829,22 @@ fn a_datum_a_move_renamed_is_given_whole_once_and_held_after_and_one_it_left_as_
         "{}",
         before.text
     );
-    sim.moves(&[("plan", "plan")]);
+    sim.moves(&[("request", "code")]);
+    assert!(sim.versions("request").is_empty(), "the request reads as the code");
+    let code = sim.version("code");
     let entered = sim.enter(&round, false);
-    assert!(
-        entered.fills.contains(&whole("plan", sim.version("plan"))),
-        "{}",
-        entered.text
-    );
-    assert!(!fills_whole(&entered, "request"), "{}", entered.text);
-    assert_eq!(entered.situation.data["request"], Stands::HoldsNew);
-    // Given whole once, after the move, it is held: the plan entered again in the session is not given it again.
+    assert!(entered.fills.contains(&whole("code", code)), "{}", entered.text);
+    assert!(!fills_whole(&entered, "plan"), "{}", entered.text);
+    // Given whole once, after the move, it is held: the round, tried again in the session after its program took its
+    // message in, is not given it again.
     sim.tries(&round, 1, entered.fills.clone());
-    sim.hands_in(&round, &[("code", CODE, None)]);
-    carry(
-        &mut sim,
-        &[("opinions", "Name the error.", None), ("verdict", "no", Some("no"))],
-    );
-    let again = sim.round().expect("the plan is entered again");
-    assert_eq!(sim.cell(&again).id.as_str(), "plan");
+    sim.fails_as(&round, decide::run::Failure::UsageLimit, true);
+    let again = sim.round().expect("the build's round is tried again");
+    assert_eq!((again.run, again.number), (round.run, 2));
+    assert!(!sim.begins(&again), "the session goes on");
     let entered = sim.enter(&again, false);
     assert!(
-        !fills_whole(&entered, "plan") && !fills_whole(&entered, "request"),
+        !fills_whole(&entered, "code") && !fills_whole(&entered, "plan"),
         "{}",
         entered.text
     );
