@@ -130,7 +130,7 @@ export interface System {
 }
 
 /// What ended past the line of its history: a round whose cost or time went past its line, and a call of a tool whose
-/// time did.
+/// time or whose result's size did.
 export type Past =
   | { kind: 'round'; work: number; item: number; cell: string; run: number; round: number; ended: number; judged: Judged }
   | {
@@ -142,7 +142,8 @@ export type Past =
       call: number;
       tool: string;
       done: number;
-      time: Against;
+      time: Against | null;
+      size: Against | null;
     };
 
 /// What is under way, with how long it has taken so far against its line, where enough of its kind tell one, and an

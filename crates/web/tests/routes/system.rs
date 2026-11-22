@@ -315,3 +315,118 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
         .expect("the plan's run");
     assert_eq!(plan["rounds"][0]["judged"], past[0]["judged"]);
 }
+
+/// A work of the trial flow added and let on at `at`, whose plan asks for a tool at once and has the result, of this
+/// many bytes, two seconds later: the call, the work it is of, and when it had its result.
+fn answered(driver: &mut driver::Driver, at: u64, bytes: usize) -> (store::WorkNumber, decide::CallId, u64) {
+    let new = driver::NewItem {
+        title: "Ask".to_string(),
+        level: "2".to_string(),
+        project: "trial".to_string(),
+        depends_on: Vec::new(),
+        tags: Vec::new(),
+        flow: "trial".to_string(),
+        writes: vec![driver::FirstWrite {
+            block: decide::BlockId("request".to_string()),
+            content: "Please.".to_string(),
+            value: None,
+        }],
+    };
+    let (_, work, _) = driver.add(work::Time(at), new).unwrap();
+    happened(driver, at, work, engine::Event::Resumed);
+    let run = round_of(driver, work);
+    let ran = engine::Event::Ran {
+        run,
+        attempt: 1,
+        on: opus(),
+    };
+    happened(driver, at, work, ran);
+    let ask = engine::Ask::Tool {
+        name: "search".to_string(),
+        input: "what search is run on".to_string(),
+    };
+    let returned = engine::Event::Returned {
+        run,
+        came: engine::Came::asks(vec![ask]),
+        spent: engine::Spent::default(),
+    };
+    happened(driver, at, work, returned);
+    let call = (driver.pending().into_iter())
+        .find_map(|todo| match todo.effect {
+            engine::Effect::Call { call, .. } if todo.work == work => Some(call),
+            _ => None,
+        })
+        .expect("the tool is called");
+    let done = at + 2_000;
+    let result = "x".repeat(bytes);
+    happened(driver, done, work, engine::Event::Done { call, result });
+    (work, call, done)
+}
+
+// What the System view and a work's page are given of how the results of calls of a tool went against the line of
+// their sizes: here, of searches that took as long as one another, whose third returned far more than the two before
+// it, and a fourth that returned less than the line.
+#[test]
+fn a_call_past_its_line_by_the_size_of_its_result_alone_is_given_with_its_size_against_its_line() {
+    const S: u64 = 1000;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let flow = flow::compile(
+        &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+        &crate::trial_has(&flow::Source::default()),
+    )
+    .unwrap();
+    let policy = driver::Policy {
+        samples: 2,
+        model: Box::new(|_, _| Some(opus().model)),
+        changed: None,
+        warm: None,
+    };
+    let (mut driver, _) =
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+    answered(&mut driver, START, 5_000);
+    answered(&mut driver, START + 60 * S, 10_000);
+    let (third, call, done) = answered(&mut driver, START + 120 * S, 60_000);
+    answered(&mut driver, START + 180 * S, 5_000);
+    let now = work::Time(START + 600 * S);
+    let system = serde_json::to_value(web::system::System::of(&driver, now, &[]).unwrap()).unwrap();
+    let line = |value: u64, samples: u64| json!({ "value": value, "samples": samples, "scope": "tool" });
+    let past = system["past"].as_array().unwrap();
+    assert_eq!(past.len(), 1, "{system}");
+    assert_eq!(
+        (
+            &past[0]["kind"],
+            &past[0]["work"],
+            &past[0]["call"],
+            &past[0]["tool"],
+            &past[0]["done"]
+        ),
+        (
+            &json!("call"),
+            &json!(third.0),
+            &json!(call.0),
+            &json!("search"),
+            &json!(done)
+        )
+    );
+    assert_eq!(
+        past[0]["size"],
+        json!({ "value": 60_000, "line": line(12_500, 2), "past": true })
+    );
+    assert_eq!(
+        past[0]["time"],
+        json!({ "value": 2_000, "line": line(2_000, 2), "past": false }),
+        "it took as long as the calls before it"
+    );
+    // A work's page gives the call the same.
+    let page = web::works::WorkPage::of(&driver, &crate::levels(), third, now)
+        .unwrap()
+        .unwrap();
+    let page = serde_json::to_value(page).unwrap();
+    let row = (page["steps"].as_array().unwrap().iter())
+        .filter(|step| step["kind"] == "run")
+        .flat_map(|step| step["calls"].as_array().unwrap().iter())
+        .find(|row| row["call"] == call.0)
+        .expect("the call's row");
+    assert_eq!(row["size"], past[0]["size"]);
+}

@@ -1099,7 +1099,7 @@ pub struct Judged {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Against {
-    /// The measure: millionths of a dollar for a cost, milliseconds for a time.
+    /// The measure: millionths of a dollar for a cost, milliseconds for a time, bytes for a size.
     pub value: u64,
     /// Its line, in the same units.
     pub line: Line,
@@ -1372,6 +1372,11 @@ pub struct CallRow {
     /// of the calls of its tool as it stood when it was made. Worked out for a work's page only.
     #[serde(default)]
     pub time: Option<Against>,
+    /// How long the result of a call of a tool is, in bytes, as the engine keeps it and tells an agent it is cut,
+    /// against the line of the results of the calls of its tool as it stood when it was made: none while it has no
+    /// result. Worked out for a work's page only.
+    #[serde(default)]
+    pub size: Option<Against>,
 }
 
 /// How a run ended.
@@ -3263,7 +3268,9 @@ fn in_detail(
         let run = RunId(r.run);
         let line = line_of(run);
         for call in &mut r.calls {
-            call.time = judged.calls.get(&(of_work, CallId(call.call))).map(Against::of);
+            let against = judged.calls.get(&(of_work, CallId(call.call)));
+            call.time = against.and_then(|against| against.time.as_ref()).map(Against::of);
+            call.size = against.and_then(|against| against.size.as_ref()).map(Against::of);
         }
         for round in &mut r.rounds {
             let number = round.number;
@@ -3406,6 +3413,7 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 done: done.map(|done| time(work, done.at)).transpose()?,
                 chars: work.results.get(&called.call).map(|result| result.chars().count()),
                 time: None,
+                size: None,
             });
         }
         let finished = records.finished.iter().find(|finished| finished.run == run);
