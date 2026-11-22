@@ -1,6 +1,6 @@
 # The console
 
-The tree of items in columns, their cards, and how the page lights what runs and what the owner points at.
+The tree of items in columns, their cards and folds, and how the page lights what runs and what the owner points at.
 
 ### decision the-console-is-the-old-engines-console
 The console's tree is the old engine's console brought over, with its layout, its motion and its constants unchanged; the page's new look is used only around it.
@@ -28,6 +28,18 @@ An item stands whole in one place, under the lowest-numbered item that depends o
 - rejected: an agent proposed a count, on the item, of the other items that depend on it; the owner rejected it, because a count does not say which they are.
 - rejected: an agent proposed linking the item to the others that depend on it only while the pointer is on it; the owner rejected it, because the link could not be found without pointing at the item.
 - replaced: A main dependent chosen for each item was on main; the owner changed it, because the code takes the lowest-numbered one, and a decision never runs ahead of the code.
+
+### decision an-ended-item-stands-where-it-stood
+A done or cancelled item stands under the item that depends on it, by the rule every item stands by; the tree works out no place of its own from the items' changes.
+- replaced: A cancelled item standing at the top, as the items that depended on it stopped as it was cancelled, was on main; the owner changed it, because the cancelled items, once ticked, filled the screen as roots, so a cancel now keeps the dependencies on an item.
+- rejected: the owner proposed drawing an ended item under the item that last stopped depending on it, worked out from the items' changes; the owner rejected it, because once a cancel keeps the dependencies on an item, it would be a second way of placing an item.
+
+### decision an-item-folds-what-stands-under-it
+A click on an item's funnel folds it and the items under it into a dot past the card, which ends the lit way of a running item in it; it is folded where nothing in it is open, or as the owner chose.
+- replaced: The whole tree always drawn, with no way to fold a part of it, was on main; the owner changed it, because the tree grows with every item added, and would keep growing.
+- rejected: an agent proposed folding the done rows by default, showing only their count; the owner rejected it, because he often needs to see the overall progress.
+- rejected: an agent proposed a round knob past the card's edge, with a plus or a minus in it, that the lines ran through; the owner rejected it, because it belonged to neither the grey funnel nor the blue lit way, overlapped them, the blue light above all, and its meaning was unclear.
+- rejected: an agent proposed counts of what is folded as framed grey tags on the folded card; the owner rejected it, because a folded card should carry nothing new, the counts being said on pointing at the funnel or the dot.
 
 ### decision a-card-has-a-row-for-its-work
 A card has one row, with its number and its title, and a second row only while a work is under way on it, holding the level its cell runs at, the strip of its cells and the lines it changed.

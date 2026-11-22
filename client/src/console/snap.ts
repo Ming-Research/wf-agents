@@ -21,7 +21,15 @@
 // screen; at those two edges the column under the pointer has a line of blue, faded in as the pointer comes. Only what
 // is on the screen is drawn. What it draws and how fast is kept in `stats`. An act of the engine's own under way keeps
 // its card running as a round does; a work that waits for the calls of tools the engine carries out is a work that
-// waits. Either way its cell's mark, in the yellow of a call, pulses as a running cell's does.
+// waits. Either way its cell's mark, in the yellow of a call, pulses as a running cell's does. A press on the funnel
+// from an item to the items under it folds them away, as the console is told, and selects nothing: the funnel and the
+// cards under it draw in to a small grey dot just past the item's card, where the funnel began, and a press on the dot
+// grows them back out of it. Where a running item is folded in it, the dot ends the lit way, in its colour and glow;
+// while the fold turns, the lit way draws in and grows out with the cards. Pointing at the funnel or the dot fills it
+// with the pointer's tint and says what a press does and how many items stand under the item by kind. What a fold hides
+// counts at its item wherever the tree marks what is under an item: the edge above a work, the title of what has begun,
+// and the map. A click on the shadow of an item folded away, or the selection of one, has the console open the folds
+// over it, and the item is selected once it is drawn.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
 // every constant as they were. What changed: a card's second row draws the level the work's cell runs at, the works
@@ -41,7 +49,7 @@ import { LINES_LOOKS, levelLook, levelWords } from '../marks';
 import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
 import { NO_LEVEL, STATE, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
-import { type Shown, type ShownWork, age } from './items';
+import { type Fold, STANDINGS, type Shown, type ShownWork, age } from './items';
 import { indexTree, type Tree } from './tree';
 
 export const NODE_W = 300;
@@ -214,6 +222,31 @@ const RING = 2;
 const CHOSEN_RING = 3;
 /// How far in from the side of the room an item brought into view stands.
 const INSET = 24;
+/// The dot the funnel from an item to the items under it folds into: a disc of this radius, 9 pixels across, its
+/// middle this far out from the card's right edge at the card's middle, where the funnel folds into it and grows out
+/// of it; in the funnel's grey, or, where a running item is folded in it, as the end of the lit way. A press this far
+/// out from the edge, within the card's height, is on the dot of a folded item; under the pointer, the dot is set in a
+/// disc this much wider, and the funnel filled, in the accent's tint, as what can be pressed is (principle
+/// quiet-motion): the tint the pointer's ribbons are drawn in.
+export const DOT_R = 4.5;
+export const DOT_AT = 12;
+export const FOLD_REACH = 24;
+export const FOLD_PAD = 3;
+/// How a fold turns. The funnel and the items under it grow out of the dot in the page's motion for opening and
+/// closing a part, the window's as it slides (styles/parts.css, `.cw`) and a question card's as it folds
+/// (`--turn-time`, `--turn-ease`): this many milliseconds, on this cubic Bézier. They draw in to the dot on a plain
+/// ease-out of their own, in less time. The curves differ because the page's goes most of its way in its first frames:
+/// run forward on a shrink, it empties the cards in those frames, and the fold looks instant; run backwards, it stalls
+/// at the start, and the fold looks stuck. The plain ease-out moves at once, but gently, so the cards are seen drawing
+/// in all the way to the dot; over the whole time of an unfold it is slow, and a fold put away a little faster reads
+/// better.
+export const UNFOLD_MS = 240;
+export const UNFOLD_EASE = [0.2, 0.8, 0.2, 1] as const;
+export const FOLD_MS = 180;
+export const FOLD_EASE = [0, 0, 0.58, 1] as const;
+/// What pointing at the funnel or the dot says a click does, with the key that does it over the card, before how many
+/// items stand under the item, by kind.
+export const FOLD_SAYS = { folded: 'Show the items under it (e)', shown: 'Fold the items under it away (e)' } as const;
 /// The soft light round the item under the pointer, and round the item selected: a fill of the item's own colour behind
 /// its card, this many pixels past its edge, blurred this much, at this strength, so that the light
 /// shows only as a narrow glow round the card; the item selected's a little wider and softer, so that it stands out
@@ -385,6 +418,12 @@ export function waysUp(running: Iterable<number>, parent: ArrayLike<number>): Se
     }
   }
   return on;
+}
+
+/// Whether an item under `item`, at any depth, folded away or not, is as `is` says; a shadow, whose item stands
+/// elsewhere, is not under it.
+export function beneath(item: Shown, is: (s: Shown) => boolean): boolean {
+  return item.children.some((c) => !c.shadow && (is(c) || beneath(c, is)));
 }
 
 /// How strong the links between the items are drawn, as bright as the items not lit are (`dim`): fully while nothing is
@@ -587,6 +626,69 @@ function vertical(colour: string, from: number, to: number): FillGradient {
 
 /// A node's height in pixels, of `rows` rows.
 const high = (rows: number) => rows * ROW - (ROW - NODE_H);
+
+/// How far a fold's turn has gone, from 0 to 1, when a part `t` of its time has gone: the cubic Bézier `curve`, an
+/// unfold's ([`UNFOLD_EASE`]) or a fold's ([`FOLD_EASE`]), read as CSS reads one.
+export function turnEase(t: number, curve: readonly [number, number, number, number] = UNFOLD_EASE): number {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  const [x1, y1, x2, y2] = curve;
+  const at = (a: number, b: number, u: number) => 3 * (1 - u) * (1 - u) * u * a + 3 * (1 - u) * u * u * b + u * u * u;
+  let [lo, hi] = [0, 1];
+  for (let n = 0; n < 30; n += 1) {
+    const u = (lo + hi) / 2;
+    if (at(x1, x2, u) < t) lo = u;
+    else hi = u;
+  }
+  return at(y1, y2, (lo + hi) / 2);
+}
+
+/// What pointing at the funnel or the dot of an item's fold says: what a click does, then how many items stand under
+/// the item, each kind by its key with its count, and apart how many shadows there point to items shown elsewhere,
+/// any with none left out: `Fold the items under it away: open 2, done 4, 1 shown elsewhere`.
+export function foldWords(fold: Fold): string {
+  const counts = STANDINGS.filter((s) => fold.under[s] > 0).map((s) => `${s} ${fold.under[s]}`);
+  if (fold.under.elsewhere > 0) counts.push(`${fold.under.elsewhere} shown elsewhere`);
+  return `${FOLD_SAYS[fold.folded ? 'folded' : 'shown']}: ${counts.join(', ')}`;
+}
+
+/// Whether the point (`x`, `y`) is in the funnel from an item ending at `px`, its box from `top` to `bottom`, to items
+/// starting at `cx`, the first's box starting at `first` and the last's ending at `last`: between its two curves, each
+/// bent as the funnel is drawn. A part `u` along either curve stands `1.5u - 1.5u² + u³` of the way across and
+/// `3u² - 2u³` of the way down.
+export function inFunnel(
+  px: number,
+  top: number,
+  bottom: number,
+  cx: number,
+  first: number,
+  last: number,
+  x: number,
+  y: number,
+): boolean {
+  if (!(cx > px) || x < px || x > cx) return false;
+  const across = (x - px) / (cx - px);
+  let [lo, hi] = [0, 1];
+  for (let n = 0; n < 30; n += 1) {
+    const u = (lo + hi) / 2;
+    if (1.5 * u - 1.5 * u * u + u * u * u < across) lo = u;
+    else hi = u;
+  }
+  const u = (lo + hi) / 2;
+  const down = 3 * u * u - 2 * u * u * u;
+  return y >= top + (first - top) * down && y <= bottom + (last - bottom) * down;
+}
+
+/// A fold turning: towards which size the items under its item go, 0 folded away or 1 shown, from which, since when
+/// on the scene's clock, and over how many milliseconds.
+export type Turn = { to: number; from: number; at: number; ms: number };
+
+/// How large the items under a turning fold are drawn at the scene's time `clock`, from 0 folded away to 1 shown, from
+/// the size the turn began at: growing on the unfold's curve, shrinking on the fold's ([`UNFOLD_MS`]).
+export function sizeOf(turn: Turn, clock: number): number {
+  const t = turn.ms <= 0 ? 1 : (clock - turn.at) / turn.ms;
+  return turn.from + (turn.to - turn.from) * turnEase(t, turn.to >= turn.from ? UNFOLD_EASE : FOLD_EASE);
+}
 
 /// The colour of a work's age, three and no more: grey under half an hour, amber from half an hour to an hour, and red
 /// past an hour, however long.
@@ -794,6 +896,10 @@ export class SnapScene {
   private hoverGlow = new Graphics({ filters: [softBlur(SOFT_BLUR)] });
   /// The page's ground at each item a soft light reaches, over the lights and under the cards.
   private glowGround = new Graphics();
+  /// The funnel or the dot of the fold under the pointer, filled with the pointer's tint, under the lit ways; and the
+  /// dots of the items folded, in the funnel's grey, over it.
+  private foldLight = new Graphics();
+  private dots = new Graphics();
   /// The items, by their place in the tree, whose link to the one above them is on the way from an item whose work
   /// runs up to its root ([`waysUp`]); and how strong each of those links is drawn, eased from frame to frame towards
   /// what [`wayAims`] gives it.
@@ -816,9 +922,26 @@ export class SnapScene {
   /// Each item's number, in the tree's order.
   private ids: number[] = [];
   private views: Container[] = [];
-  /// Each item's height in rows; for each column, where each of its items starts, its rows counted from the top.
+  /// Each item's height in rows when drawn whole, and as drawn now; how much of its whole size it is drawn at, less
+  /// than whole only while a fold over it turns; and for each column, where each of its items starts, its rows counted
+  /// from the top, and the room between its groups above each.
+  private base: Float64Array = new Float64Array(0);
   private rows: Float64Array = new Float64Array(0);
+  private scaleOf: Float64Array = new Float64Array(0);
   private pre: Float64Array[] = [];
+  private gaps: Float64Array[] = [];
+  /// The folds turning, by the number of their item; the scene's own time, in milliseconds drawn, which they run on;
+  /// and whether each item with items under it was folded as last shown, by its number, from which a turn begins.
+  private turns = new Map<number, Turn>();
+  private clock = 0;
+  private wasFolded = new Map<number, boolean>();
+  /// The items, by their place in the tree, whose dot ends the lit way of a running item folded in it.
+  private litDots: number[] = [];
+  /// How each item, by its place in the tree, was moved and sized at the last frame while folds turned ([`movedNow`]);
+  /// none else, when each is drawn where it stands, whole. And the lit ways drawn at the last frame, each by the item
+  /// it runs into, from where it began to where it ended; for the tests.
+  private drawnMoved: { a: Float64Array; bx: Float64Array; by: Float64Array } | null = null;
+  private waysDrawn: { id: number; from: [number, number]; to: [number, number] }[] = [];
   /// For each item, whether a work goes on on it or under it: the edges of the cards above a work are lit.
   private lit: Uint8Array = new Uint8Array(0);
   /// For each item, whether a work has begun on it or under it: the title of one with none is greyer.
@@ -843,8 +966,6 @@ export class SnapScene {
   private asking: number[][] = [];
   private fresh: number[][] = [];
   private columns: Column[] = [];
-  /// For each column, each rank's group: how many items above in the column to the left have items here before it.
-  private group: Int32Array[] = [];
   private shown = new Set<Container>();
   /// The column under the pointer, or none; and how far the columns are moved right.
   private hovered = -1;
@@ -878,14 +999,23 @@ export class SnapScene {
   private down: { x: number; y: number } | null = null;
   /// The item under the pointer at the last frame, by its index in the tree, or none.
   private under = -1;
+  /// The item whose fold's funnel or dot is under the pointer at the last frame, by its index in the tree, or none;
+  /// and what the canvas says on pointing at it, as last written.
+  private underFold = -1;
+  private foldSaid = '';
   /// Each item's place in the tree, a shadow's left out; and for each item, its shadows: what a shadow points to and
   /// what points to an item.
   private real = new Map<number, number>();
   /// The item selected, by its number, or none: it and the way from it to its root, and from each of its shadows to
   /// theirs, stay lit in the accent until it is let go.
   private selected: number | null = null;
+  /// The item selected by a click on its shadow while folds hid it, to bring to the middle once it is drawn; or none.
+  private toFocus: number | null = null;
   /// Told the item selected each time it changes, or is drawn afresh: the window beside the tree shows it.
   onSelect: ((item: Shown | null) => void) | null = null;
+  /// Told, at a press on the funnel or the dot of an item's fold, the item's number and whether the items under it are
+  /// now to be folded away: the console keeps the choice and draws the tree again.
+  onFold: ((id: number, folded: boolean) => void) | null = null;
   /// The items as last shown, by their place in the tree.
   private shownItems: Shown[] = [];
   private shadowsOf = new Map<number, number[]>();
@@ -926,6 +1056,8 @@ export class SnapScene {
     this.themes = { media, root, accent: onAccent(this.retheme) };
     this.world.addChild(
       this.links,
+      this.foldLight,
+      this.dots,
       this.runLines.far,
       this.runLines.near,
       this.runLines.line,
@@ -990,14 +1122,23 @@ export class SnapScene {
   };
 
   /// Where the columns stand, for the tests: how far they are moved right, the column the others follow, and each
-  /// column's place, in rows from its first item to the middle of the screen, and where it is going.
-  place(): { left: number; driver: number; columns: { at: number; aim: number }[]; height: number; width: number } {
+  /// column's place, in rows from its first item to the middle of the screen, and where it is going; and how many folds
+  /// are turning.
+  place(): {
+    left: number;
+    driver: number;
+    columns: { at: number; aim: number }[];
+    height: number;
+    width: number;
+    turns: number;
+  } {
     return {
       left: this.left,
       driver: this.driver,
       columns: this.columns.map((c) => ({ at: c.at, aim: c.aim })),
       height: this.app.screen.height,
       width: this.app.screen.width,
+      turns: this.turns.size,
     };
   }
 
@@ -1013,11 +1154,17 @@ export class SnapScene {
     });
     const was = this.columns.map((c) => c.at);
     this.roots = roots;
+    this.turn(roots);
     this.layer.removeChildren();
     for (const v of this.views) v.destroy({ children: true });
     this.shown = new Set();
     this.styles = makeStyles();
-    const { tree, items } = indexTree(roots, (i) => i.children);
+    // The items under an item folded are not drawn, but while its fold turns; what is under it counts at it, where the
+    // tree marks what is under an item.
+    const { tree, items } = indexTree(roots, (i) =>
+      i.fold?.folded === true && !this.turns.has(i.id) ? [] : i.children,
+    );
+    const hides = (k: number, is: (s: Shown) => boolean) => items[k].fold?.folded === true && beneath(items[k], is);
     this.tree = tree;
     this.ids = items.map((i) => i.id);
     this.shownItems = items;
@@ -1029,21 +1176,23 @@ export class SnapScene {
       else this.shadowsOf.set(it.id, [...(this.shadowsOf.get(it.id) ?? []), k]);
     });
     this.under = -1;
-    this.rows = Float64Array.from(items, (i) =>
+    this.underFold = -1;
+    this.drawnMoved = null;
+    this.waysDrawn = [];
+    this.base = Float64Array.from(items, (i) =>
       i.work === null ? 1 : 1 + WORK_ROW,
     );
-    this.pre = tree.columns.map((col) => {
-      const p = new Float64Array(col.length + 1);
-      for (let r = 0; r < col.length; r += 1) p[r + 1] = p[r] + this.rows[col[r]];
-      return p;
-    });
-    this.asking = tree.columns.map((col) => col.flatMap((i, r) => (items[i].asks > 0 ? [r] : [])));
-    this.fresh = tree.columns.map((col) => col.flatMap((i, r) => (items[i].unseen ? [r] : [])));
+    this.shape();
+    const asks = (s: Shown) => s.asks > 0;
+    const unseen = (s: Shown) => s.unseen;
+    this.asking = tree.columns.map((col) => col.flatMap((i, r) => (asks(items[i]) || hides(i, asks) ? [r] : [])));
+    this.fresh = tree.columns.map((col) => col.flatMap((i, r) => (unseen(items[i]) || hides(i, unseen) ? [r] : [])));
     // The items a work goes on on, and those above them up to their roots: from the roots one sees which branches
     // have work on.
     this.lit = new Uint8Array(items.length);
+    const working = (s: Shown) => s.work !== null;
     items.forEach((i, k) => {
-      if (i.work === null) return;
+      if (!working(i) && !hides(k, working)) return;
       for (let p = k; p >= 0 && this.lit[p] === 0; p = tree.parent[p]) this.lit[p] = 1;
     });
     this.own = items.map((i, k) => {
@@ -1053,14 +1202,29 @@ export class SnapScene {
     });
     // The items whose work has begun, and those above them: an item with nothing begun on it or under it is quieter.
     this.begun = new Uint8Array(items.length);
+    const begun = (s: Shown) => s.begun;
     items.forEach((i, k) => {
-      if (!i.begun) return;
+      if (!begun(i) && !hides(k, begun)) return;
       for (let p = k; p >= 0 && this.begun[p] === 0; p = tree.parent[p]) this.begun[p] = 1;
     });
     this.pulses = new Map();
     this.beat = beatOf();
+    // The way from each item whose work runs up to its root, under a turning fold as well: there it is drawn with the
+    // cards as they draw in to the dot or grow out of it ([`ends`] in `draw`). The dot of an item folded, or whose fold
+    // turns, with a running item under it ends the way: the way runs from the root through the item's card to the dot,
+    // which comes and goes with the turn.
+    const running = (s: Shown) => !s.shadow && s.work !== null && moodOf(s.work) === 'running';
+    const turning = (k: number) => this.turns.has(items[k].id);
+    const inside = new Uint8Array(items.length);
+    items.forEach((_, k) => {
+      const p = tree.parent[k];
+      inside[k] = p >= 0 && (inside[p] === 1 || turning(p)) ? 1 : 0;
+    });
+    this.litDots = items.flatMap((i, k) =>
+      inside[k] === 0 && (i.fold?.folded === true || turning(k)) && beneath(i, running) ? [k] : [],
+    );
     this.runWays = waysUp(
-      items.flatMap((i, k) => (!i.shadow && i.work !== null && moodOf(i.work) === 'running' ? [k] : [])),
+      [...items.flatMap((i, k) => (running(i) ? [k] : [])), ...this.litDots],
       tree.parent,
     );
     this.runStrength = new Map();
@@ -1071,12 +1235,6 @@ export class SnapScene {
     this.ages = new Map();
     this.views = items.map((item, k) => this.node(item, k));
     this.columns = tree.columns.map(() => ({ at: 0, aim: 0, warm: 0 }));
-    this.group = tree.columns.map((col) => {
-      const g = new Int32Array(col.length);
-      for (let r = 1; r < col.length; r += 1)
-        g[r] = g[r - 1] + (tree.parent[col[r]] === tree.parent[col[r - 1]] ? 0 : 1);
-      return g;
-    });
     if (tree.columns.length === 0) {
       this.buildMap(tree);
       this.stats.items = 0;
@@ -1110,7 +1268,142 @@ export class SnapScene {
     this.buildMap(tree);
     this.stats.items = items.length;
     if (this.selected !== null && !this.real.has(this.selected)) this.selected = null;
+    // An item a click on its shadow asked for, once the folds over it are open and it is drawn whole, comes to the
+    // middle of the screen.
+    if (this.toFocus !== this.selected) this.toFocus = null;
+    const goal = this.toFocus === null ? undefined : this.real.get(this.toFocus);
+    if (goal !== undefined && this.scaleOf[goal] === 1) {
+      this.focus(tree.depth[goal], tree.rank[goal]);
+      this.toFocus = null;
+    }
     this.announce();
+  }
+
+  /// Begins the turn of each fold that `roots` shows folded the other way than the tree before did: from where it
+  /// stands, if it was turning already, else from the other end, over as much of the turn's time as it has to go. A
+  /// fold no longer shown turns no more.
+  private turn(roots: Shown[]) {
+    const folded = new Map<number, boolean>();
+    const walk = (s: Shown) => {
+      if (s.shadow) return;
+      if (s.fold != null) folded.set(s.id, s.fold.folded);
+      s.children.forEach(walk);
+    };
+    roots.forEach(walk);
+    for (const [id, now] of folded) {
+      const was = this.wasFolded.get(id);
+      if (was === undefined || was === now) continue;
+      const turning = this.turns.get(id);
+      const from = turning === undefined ? (now ? 1 : 0) : sizeOf(turning, this.clock);
+      const to = now ? 0 : 1;
+      this.turns.set(id, { to, from, at: this.clock, ms: (now ? FOLD_MS : UNFOLD_MS) * Math.abs(to - from) });
+    }
+    for (const id of [...this.turns.keys()]) if (!folded.has(id)) this.turns.delete(id);
+    this.wasFolded = folded;
+  }
+
+  /// Ends each fold whose turn is over, and draws the tree again: without what a fold that ended folded away, and with
+  /// the ways of what one that ended shows lit.
+  private endTurns() {
+    let ended = false;
+    for (const [id, turn] of [...this.turns]) {
+      if (this.clock - turn.at < turn.ms) continue;
+      this.turns.delete(id);
+      ended = true;
+    }
+    if (ended && this.roots !== null) this.show(this.roots);
+  }
+
+  /// How large the items under the item at `k` are drawn by its fold's turn, from 0 to 1: whole where it does not turn.
+  private sizeUnder(k: number): number {
+    const turning = this.turns.get(this.ids[k]);
+    return turning === undefined ? 1 : sizeOf(turning, this.clock);
+  }
+
+  /// How much of the dot of the item at `k` is drawn: all of it while it is folded, none while it is shown, and while
+  /// its fold turns, as much as the items under it have drawn in.
+  private dotness(k: number): number {
+    const turning = this.turns.get(this.ids[k]);
+    if (turning !== undefined) return 1 - sizeOf(turning, this.clock);
+    return this.shownItems[k].fold?.folded === true ? 1 : 0;
+  }
+
+  /// Sizes every item and its column as the folds turning stand now: an item under a turning fold at that fold's size,
+  /// times the size of any fold turning over that, its rows and the room above its group with it.
+  private shape() {
+    const t = this.tree;
+    if (t === null) return;
+    const scale = new Float64Array(this.ids.length);
+    for (let k = 0; k < scale.length; k += 1) {
+      const p = t.parent[k];
+      scale[k] = p < 0 ? 1 : scale[p] * this.sizeUnder(p);
+    }
+    this.scaleOf = scale;
+    this.rows = Float64Array.from(this.base, (r, k) => r * scale[k]);
+    this.pre = t.columns.map((col) => {
+      const p = new Float64Array(col.length + 1);
+      for (let r = 0; r < col.length; r += 1) p[r + 1] = p[r] + this.rows[col[r]];
+      return p;
+    });
+    // The room above each group of items under one item, the first of a column's groups having none: as large as the
+    // group is drawn, so that a group drawn whole has the whole of it.
+    this.gaps = t.columns.map((col) => {
+      const g = new Float64Array(col.length);
+      let groups = 0;
+      for (let r = 1; r < col.length; r += 1) {
+        if (t.parent[col[r]] !== t.parent[col[r - 1]]) groups += scale[col[r]];
+        g[r] = APART * groups;
+      }
+      return g;
+    });
+  }
+
+  /// How each item is moved while folds turn: under a turning fold, drawn in towards its dot by as much as that fold
+  /// has turned, and moved with whatever moves that fold's item. Each item `k` is drawn at its place times `a[k]`, then
+  /// moved by (`bx[k]`, `by[k]`), and its size times `a[k]`.
+  private movedNow(t: Tree, x: (d: number) => number, y: (d: number, rank: number) => number) {
+    const n = this.ids.length;
+    const [a, bx, by] = [new Float64Array(n), new Float64Array(n), new Float64Array(n)];
+    for (let k = 0; k < n; k += 1) {
+      const p = t.parent[k];
+      if (p < 0) {
+        a[k] = 1;
+        continue;
+      }
+      const f = this.sizeUnder(p);
+      const [qx, qy] = f === 1 ? [0, 0] : [x(t.depth[p]) + NODE_W + DOT_AT, y(t.depth[p], t.rank[p])];
+      a[k] = a[p] * f;
+      bx[k] = a[p] * (1 - f) * qx + bx[p];
+      by[k] = a[p] * (1 - f) * qy + by[p];
+    }
+    return { a, bx, by };
+  }
+
+  /// Of the item numbered `id`, where folds hide it, the folded items over it, from its root down; none where it is
+  /// drawn, or stands nowhere in the tree.
+  private foldsOver(id: number): number[] {
+    const path: Shown[] = [];
+    const find = (items: Shown[]): boolean =>
+      items.some((s) => {
+        if (s.shadow) return false;
+        if (s.id === id) return true;
+        path.push(s);
+        if (find(s.children)) return true;
+        path.pop();
+        return false;
+      });
+    if (this.roots === null || this.real.has(id) || !find(this.roots)) return [];
+    return path.filter((s) => s.fold?.folded === true).map((s) => s.id);
+  }
+
+  /// Asks for the item numbered `id` where folds hide it: the console is told to unfold each folded item over it, and
+  /// the item is selected once it is drawn. Whether folds hid it.
+  private unfoldTo(id: number): boolean {
+    const over = this.foldsOver(id);
+    if (over.length === 0 || this.onFold === null) return false;
+    for (const f of over) this.onFold(f, false);
+    this.selected = id;
+    return true;
   }
 
   /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does
@@ -1118,11 +1411,12 @@ export class SnapScene {
   /// state's colour, its title, and at the right how many things its work waits for from the owner, white on red; on
   /// the second row, for an item whose work goes on, under the number the level its cell runs at, the strip of the
   /// work's cells as the works page draws it, the lines the work added and removed where it changed any, and how long
-  /// it has gone on. An item whose work has ended has its one row, with the lines its work changed at its right.
+  /// it has gone on. An item whose work has ended has its one row, with the lines its work changed at its right. A
+  /// node is drawn at its whole size, and made smaller as a whole while a fold over it turns.
   private node(item: Shown, k: number): Container {
     const s = this.styles as Styles;
     const view = new Container();
-    const h = high(this.rows[k]);
+    const h = high(this.base[k]);
     const top = -h / 2;
     const row1 = top + NODE_H / 2;
     if (item.shadow) return this.shadow(item, view, top, h, row1);
@@ -1354,6 +1648,27 @@ export class SnapScene {
     return this.drawnStrips.get(id) ?? null;
   }
 
+  /// Where the card of item `id` stands on the canvas, its left side and its middle; and, as at the last frame, where
+  /// that point was drawn and how large the card was, which differ while a fold over it turns; for the tests. None
+  /// for an item the tree does not draw.
+  cardAt(id: number): { x: number; y: number; size: number; drawn: [number, number] } | null {
+    const t = this.tree;
+    const i = this.real.get(id);
+    if (t === null || i === undefined) return null;
+    const d = t.depth[i];
+    const line = this.app.screen.height / 2;
+    const [x, y] = [this.left + d * PITCH, line + (this.middle(d, t.rank[i]) - this.columns[d].at) * ROW];
+    const m = this.drawnMoved;
+    if (m === null) return { x, y, size: 1, drawn: [x, y] };
+    return { x, y, size: m.a[i], drawn: [m.a[i] * x + m.bx[i], m.a[i] * y + m.by[i]] };
+  }
+
+  /// The lit ways drawn at the last frame, each by the number of the item it runs into, from where it began to where
+  /// it ended, for the tests.
+  litWays(): { id: number; from: [number, number]; to: [number, number] }[] {
+    return [...this.waysDrawn];
+  }
+
   /// The shadow of an item under another item that depends on it besides its main one: a white card, its edge dashed,
   /// its number and title grey, and at the right an arrow pointing away, to where the item stands.
   private shadow(item: Shown, view: Container, top: number, h: number, row1: number): Container {
@@ -1514,12 +1829,11 @@ export class SnapScene {
     me.at += Math.max(-most, Math.min(most, ((g > 0 ? lo : hi) - me.at) * LINK_EASE));
   }
 
-  /// Adds to the funnels the one from an item ending at `px`, its box from `top` to `bottom`, to items starting at `cx`,
-  /// the first's box starting at `first` and the last's ending at `last`.
-  private funnel(px: number, top: number, bottom: number, cx: number, first: number, last: number) {
+  /// Adds to the funnels, or to `g`, the one from an item ending at `px`, its box from `top` to `bottom`, to items
+  /// starting at `cx`, the first's box starting at `first` and the last's ending at `last`.
+  private funnel(px: number, top: number, bottom: number, cx: number, first: number, last: number, g = this.links) {
     const bend = (cx - px) / 2;
-    this.links
-      .moveTo(px, top)
+    g.moveTo(px, top)
       .bezierCurveTo(px + bend, top, cx - bend, first, cx, first)
       .lineTo(cx, last)
       .bezierCurveTo(cx - bend, last, px + bend, bottom, px, bottom)
@@ -1730,7 +2044,7 @@ export class SnapScene {
   /// The rank of the item of column `d` at `place` rows from its top, the first whose place is not above it.
   private rankAt(d: number, place: number): number {
     let lo = 0;
-    let hi = this.group[d].length;
+    let hi = this.gaps[d].length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
       if (this.slot(d, mid) + this.rowsAt(d, mid) < place) lo = mid + 1;
@@ -1742,9 +2056,9 @@ export class SnapScene {
   /// Where an item of a column starts, in rows from the column's top: the rows of the items above it, and the room
   /// between the groups above it.
   private slot(d: number, rank: number): number {
-    const g = this.group[d];
+    const g = this.gaps[d];
     const r = Math.max(0, Math.min(g.length - 1, rank));
-    return this.pre[d][r] + (rank - r) + APART * g[r];
+    return this.pre[d][r] + (rank - r) + g[r];
   }
 
   /// Draws one frame `ms` on from the last drawn, without waiting for the browser to give one: what the scene does
@@ -1752,7 +2066,20 @@ export class SnapScene {
   /// does not show, so a test that waits for them waits on the machine's load; stepping, it waits on nothing.
   step(ms = 16): void {
     if (this.tree === null) return;
-    this.draw(this.tree, (this.lastDraw > 0 ? this.lastDraw : performance.now()) + ms);
+    const now = (this.lastDraw > 0 ? this.lastDraw : performance.now()) + ms;
+    const step = this.advance(now);
+    if (this.tree !== null) this.draw(this.tree, now, step);
+  }
+
+  /// Goes on to the frame drawn at `now`: the time since the frame before, by which the scene's own clock goes on; and
+  /// each fold whose turn that time ends, drawn as it then stands in this same frame, however long the browser took to
+  /// give it. Gives that time.
+  private advance(now: number): number {
+    const step = this.lastDraw > 0 ? Math.max(0, now - this.lastDraw) : 16;
+    this.lastDraw = now;
+    this.clock += step;
+    this.endTurns();
+    return step;
   }
 
   /// Draws `frames` frames, every sixth with a scroll of most of a row over a column, waiting for the GPU each; gives
@@ -1873,9 +2200,28 @@ export class SnapScene {
   /// The item under the pointer, by its index in the tree, or none: the card of column `d` whose box holds the
   /// pointer. `y` gives an item's middle on the screen.
   private pointed(t: Tree, x: (d: number) => number, y: (d: number, rank: number) => number): number {
+    return this.beside(t, x, y, 0, NODE_W);
+  }
+
+  /// The item folded whose dot is under the pointer, by its index in the tree, or none: the room past its card's right
+  /// edge as far as [`FOLD_REACH`], as high as the card, where its funnel would be.
+  private dotPointed(t: Tree, x: (d: number) => number, y: (d: number, rank: number) => number): number {
+    const i = this.beside(t, x, y, NODE_W, NODE_W + FOLD_REACH);
+    return i >= 0 && this.shownItems[i].fold?.folded === true ? i : -1;
+  }
+
+  /// The item of column `d` level with the pointer, by its index in the tree, where the pointer is from `from` to `to`
+  /// pixels right of the column's left side and within the item's height; or none.
+  private beside(
+    t: Tree,
+    x: (d: number) => number,
+    y: (d: number, rank: number) => number,
+    from: number,
+    to: number,
+  ): number {
     const p = this.pointer;
     const d = this.hovered;
-    if (p === null || d < 0 || p.x < x(d) || p.x > x(d) + NODE_W) return -1;
+    if (p === null || d < 0 || p.x < x(d) + from || p.x > x(d) + to) return -1;
     const c = this.columns[d];
     const line = this.app.screen.height / 2;
     const rank = this.rankAt(d, (p.y - line) / ROW + c.at);
@@ -1896,13 +2242,20 @@ export class SnapScene {
     const d = this.down;
     this.down = null;
     if (d === null || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4 || this.tree === null) return;
+    // A click on the funnel of an item's fold folds the items under it away, on its dot shows them again, and either
+    // selects nothing.
+    if (this.turnFold(this.underFold)) return;
     // A click on an item selects it, and on it again, or on no item, lets it go. A click on a shadow selects the item
     // it points to and brings it to the middle of the screen, so that the columns come to where it stands.
     const i = this.under;
     if (i < 0) this.selected = null;
     else if (this.shadows[i] === 1) {
       const to = this.real.get(this.ids[i]);
-      if (to === undefined) return;
+      // Where folds hide the item it points to, they are opened, and the item comes to the middle once it is drawn.
+      if (to === undefined) {
+        if (this.unfoldTo(this.ids[i])) this.toFocus = this.ids[i];
+        return;
+      }
       this.selected = this.ids[to];
       this.focus(this.tree.depth[to], this.tree.rank[to]);
     } else this.selected = this.selected === this.ids[i] ? null : this.ids[i];
@@ -1929,8 +2282,28 @@ export class SnapScene {
     else if (x + NODE_W > room) this.leftGoal = room - INSET - NODE_W - d * PITCH;
   }
 
+  /// Folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or its dot
+  /// does, the console told; a shadow, or a card with nothing under it, folds nothing. Whether it folded or unfolded.
+  foldPointedCard(): boolean {
+    return this.turnFold(this.under);
+  }
+
+  /// Tells the console to fold the items under the item at `k` away, or show them again, where it has any; its column
+  /// becomes the one the others follow, so that the items shown under it come level with it. Whether it had any.
+  private turnFold(k: number): boolean {
+    const fold = k < 0 ? null : this.shownItems[k].fold;
+    if (fold == null || this.tree === null) return false;
+    const c = this.tree.depth[k];
+    this.driver = c;
+    this.columns[c].aim = this.columns[c].at;
+    this.onFold?.(this.ids[k], !fold.folded);
+    return true;
+  }
+
   /// Selects the item numbered `id`, or none.
   select(id: number | null): void {
+    // An item folds hide is selected once the folds over it are opened and it is drawn.
+    if (id !== null && !this.real.has(id) && this.unfoldTo(id)) return;
     this.selected = id !== null && this.real.has(id) ? id : null;
     this.announce();
   }
@@ -1946,7 +2319,8 @@ export class SnapScene {
     if (this.last > 0) this.frames.push(now - this.last);
     this.last = now;
     if (this.frames.length > 120) this.frames.shift();
-    if (this.tree !== null) this.draw(this.tree, now);
+    const step = this.advance(now);
+    if (this.tree !== null) this.draw(this.tree, now, step);
     const sorted = [...this.frames].sort((a, b) => a - b);
     const mean = sorted.reduce((a, b) => a + b, 0) / Math.max(1, sorted.length);
     this.stats = {
@@ -1957,12 +2331,13 @@ export class SnapScene {
     };
   };
 
-  private draw(t: Tree, now: number) {
+  /// Draws the frame at `now`, `step` milliseconds after the one before ([`advance`]).
+  private draw(t: Tree, now: number, step: number) {
     const { width, height } = this.app.screen;
     const line = height / 2;
-    // The column followed goes a part of the way to where it is taken; the others after it, out from it each way.
-    const step = this.lastDraw > 0 ? Math.max(0, now - this.lastDraw) : 16;
-    this.lastDraw = now;
+    // The columns take the sizes the folds turning give them now. The column followed goes a part of the way to where
+    // it is taken; the others after it, out from it each way.
+    if (this.turns.size > 0) this.shape();
     const was = this.columns.map((c) => c.at);
     this.columns.forEach((c, d) => {
       // The blue lines at the column's edges fade in while the pointer is over it, and out once it leaves, in about
@@ -1996,11 +2371,21 @@ export class SnapScene {
     }
     this.left = bound(this.left);
     const x = (d: number) => this.left + d * PITCH;
+    // While a fold turns, what is under it is drawn in towards its dot, or grows back out of it: where a point of an
+    // item `k` is drawn, and how large the item is.
+    const m = this.turns.size === 0 ? null : this.movedNow(t, x, y);
+    this.drawnMoved = m;
+    const at = (k: number, px: number, py: number): [number, number] =>
+      m === null ? [px, py] : [m.a[k] * px + m.bx[k], m.a[k] * py + m.by[k]];
+    const size = (k: number) => (m === null ? 1 : m.a[k]);
     this.links.clear();
     this.marks.clear();
     const nowShown = new Set<Container>();
     const drawn: number[] = [];
     const rows = Math.ceil(height / ROW / 2) + 2;
+    // The funnel under the pointer, as it is drawn: every funnel folds, one over shadows alone as well.
+    const pointer = this.pointer;
+    let funnelled: { k: number; shape: [number, number, number, number, number, number] } | null = null;
     for (let d = 0; d < t.columns.length; d += 1) {
       const cx = x(d);
       if (cx > width || cx + NODE_W < 0) continue;
@@ -2012,7 +2397,8 @@ export class SnapScene {
         if (yy < -2 * ROW || yy > height + 2 * ROW) continue;
         const item = col[rank];
         const view = this.views[item];
-        view.position.set(cx, yy);
+        view.position.set(...at(item, cx, yy));
+        view.scale.set(size(item));
         const p = this.pulses.get(item);
         if (p !== undefined) p.alpha = pulse;
         this.age(item);
@@ -2022,20 +2408,25 @@ export class SnapScene {
       }
       if (d === 0) continue;
       // The funnel from each item of the column to the left to the items under it: from its top to the top of the
-      // first and from its bottom to the bottom of the last, filled.
+      // first and from its bottom to the bottom of the last, filled. While the item's fold turns, the whole funnel is
+      // drawn in towards its dot with the items under it, its end at the card too.
       const px = x(d - 1) + NODE_W;
       const prev = t.columns[d - 1];
       for (let r = 0; r < prev.length; r += 1) {
-        const kids = t.children[prev[r]];
+        const i = prev[r];
+        const kids = t.children[i];
         if (kids.length === 0) continue;
+        const [one, end] = [kids[0], kids[kids.length - 1]];
         const py = y(d - 1, r);
-        const ph = half(d - 1, r);
-        const f = t.rank[kids[0]];
-        const l = t.rank[kids[kids.length - 1]];
-        const top = y(d, f) - half(d, f);
-        const bottom = y(d, l) + half(d, l);
-        if (Math.max(py + ph, bottom) < 0 || Math.min(py - ph, top) > height) continue;
-        this.funnel(px, py - ph, py + ph, cx, top, bottom);
+        const ph = high(this.base[i]) / 2;
+        const [fx, top] = at(one, px, py - ph);
+        const [, bottom] = at(one, px, py + ph);
+        const [gx, first] = at(one, cx, y(d, t.rank[one]) - high(this.base[one]) / 2);
+        const [, last] = at(one, cx, y(d, t.rank[end]) + high(this.base[end]) / 2);
+        if (Math.max(bottom, last) < 0 || Math.min(top, first) > height) continue;
+        this.funnel(fx, top, bottom, gx, first, last);
+        const on = pointer !== null && inFunnel(fx, top, bottom, gx, first, last, pointer.x, pointer.y);
+        if (on && this.shownItems[i].fold != null) funnelled = { k: i, shape: [fx, top, bottom, gx, first, last] };
       }
     }
     this.links.fill({ color: PALETTE.other, alpha: PALETTE.otherAlpha * linksStrength(this.dim) });
@@ -2065,7 +2456,28 @@ export class SnapScene {
       if (this.shadows[from] === 0) for (const sh of this.shadowsOf.get(id) ?? []) light(sh);
       return set;
     };
+    // What is under the pointer: a card first; else the dot of an item folded, past its card; else a funnel.
     this.under = this.pointed(t, x, y);
+    const dot = this.under >= 0 ? -1 : this.dotPointed(t, x, y);
+    this.underFold = this.under >= 0 ? -1 : dot >= 0 ? dot : (funnelled?.k ?? -1);
+    // The fold under the pointer: its dot set in a disc, or its funnel filled, in the pointer's tint under the lit
+    // ways; the pointer a hand; and what a click does and what stands under the item said on pointing.
+    this.foldLight.clear();
+    const fold = this.underFold < 0 ? null : this.shownItems[this.underFold].fold;
+    if (fold != null && dot >= 0) {
+      const d = t.depth[dot];
+      const [dx, dy] = at(dot, x(d) + NODE_W + DOT_AT, y(d, t.rank[dot]));
+      this.foldLight.circle(dx, dy, (DOT_R + FOLD_PAD) * size(dot)).fill(PALETTE.hoverRibbon);
+    } else if (fold != null && funnelled !== null) {
+      this.funnel(...funnelled.shape, this.foldLight);
+      this.foldLight.fill(PALETTE.hoverRibbon);
+    }
+    const said = fold == null ? '' : foldWords(fold);
+    if (said !== this.foldSaid) {
+      this.foldSaid = said;
+      this.app.canvas.title = said;
+      this.app.canvas.style.cursor = said === '' ? '' : 'pointer';
+    }
     const chain = lit(this.under);
     // The item selected, the same way, in the accent; only the item itself glows, those lit with it are only ringed,
     // so that it stands out among them.
@@ -2126,15 +2538,23 @@ export class SnapScene {
     // Each way's curve, how far it goes across the page, and how far across from the left side of the roots' cards
     // it begins ([`RUN.light`]).
     const ways = new Map<number, { way: Way; len: number; dist: number }>();
+    // Where the way into item `i` begins, at the middle of its parent's right edge, and ends, at the middle of its own
+    // left edge, each where its card is drawn: so that under a turning fold the way grows out of the dot or draws in
+    // to it with the cards, from the folded card to the running one as it is drawn at that frame.
+    const ends = (i: number) => {
+      const p = t.parent[i];
+      const d = t.depth[i];
+      const [px, py] = at(p, x(d - 1) + NODE_W, y(d - 1, t.rank[p]));
+      const [cx, iy] = at(i, x(d), y(d, t.rank[i]));
+      return { px, py, cx, iy };
+    };
     const wayDown = (i: number): { way: Way; len: number; dist: number } => {
       const had = ways.get(i);
       if (had !== undefined) return had;
-      const p = t.parent[i];
-      const d = t.depth[i];
-      const [px, cx] = [x(d - 1) + NODE_W, x(d)];
-      const at = { way: this.wayOf(px, y(d - 1, t.rank[p]), cx, y(d, t.rank[i])), len: cx - px, dist: px - x(0) };
-      ways.set(i, at);
-      return at;
+      const { px, py, cx, iy } = ends(i);
+      const found = { way: this.wayOf(px, py, cx, iy), len: cx - px, dist: px - x(0) };
+      ways.set(i, found);
+      return found;
     };
     // How far the furthest item whose work runs stands from its root, its own card counted, and where the light has
     // run to now: every root's light runs from its own card down every way under it, all of them in step and
@@ -2144,6 +2564,9 @@ export class SnapScene {
       const { len, dist } = wayDown(i);
       far = Math.max(far, dist + len + NODE_W);
     }
+    // A way that ends at the dot of a fold, past its item's card, runs as far as the dot.
+    const dotFrom = (k: number) => x(t.depth[k]) - x(0) + NODE_W + DOT_AT;
+    for (const k of this.litDots) far = Math.max(far, dotFrom(k) + DOT_R);
     const rest = this.adds ? 1 : RUN.inkRest;
     const whole = far + RUN.light;
     // Where the light has run to now, and nothing where the run is over and the next has not begun: a head a whole
@@ -2154,13 +2577,14 @@ export class SnapScene {
     // it, however many ways it stands on.
     const crossed = new Set<number>();
     const sparked = new Set<number>();
+    this.waysDrawn = [];
     for (const [i, strength] of this.runStrength) {
       const p = t.parent[i];
       const d = t.depth[i];
-      const [px, cx] = [x(d - 1) + NODE_W, x(d)];
+      const { px, py, cx, iy } = ends(i);
       if (cx < 0 || px > width) continue;
-      const [py, iy] = [y(d - 1, t.rank[p]), y(d, t.rank[i])];
       if (Math.max(py, iy) < 0 || Math.min(py, iy) > height) continue;
+      this.waysDrawn.push({ id: this.ids[i], from: [px, py], to: [cx, iy] });
       const { way, len, dist } = wayDown(i);
       // How long the way's curve is, and how far along it the place stands that is `across` the page from its start.
       const curve = way.along[RUN.pieces];
@@ -2212,14 +2636,16 @@ export class SnapScene {
       // a root, the root's own card is crossed before any way.
       // The light where the way meets each card: on the parent's right side, going into it, and on the item's left.
       // Each card's own end is lit once, however many running ways meet it there.
+      // A card drawn smaller under a turning fold has its ends lit at its size, and its edge crossed by no light
+      // until it is drawn whole.
       if (!sparked.has(p * 2)) {
         sparked.add(p * 2);
-        const ph = half(d - 1, t.rank[p]);
+        const ph = (high(this.base[p]) / 2) * size(p);
         this.spark(px, py, ph, -1, tint, lineColour, glintColour, strength, sparkAt(dist, head));
       }
       if (!sparked.has(i * 2 + 1)) {
         sparked.add(i * 2 + 1);
-        const ih = half(d, t.rank[i]);
+        const ih = (high(this.base[i]) / 2) * size(i);
         this.spark(cx, iy, ih, 1, tint, lineColour, glintColour, strength, sparkAt(dist + len, head));
       }
       if (t.parent[p] < 0 && !crossed.has(p)) {
@@ -2227,15 +2653,61 @@ export class SnapScene {
         const over = lightOn(0, NODE_W, head);
         this.across(x(d - 1), py, half(d - 1, t.rank[p]), over, tint, lineColour, glintColour, strength);
       }
-      if (!crossed.has(i)) {
+      if (!crossed.has(i) && size(i) === 1) {
         crossed.add(i);
         const over = lightOn(dist + len, NODE_W, head);
         this.across(x(d), iy, half(d, t.rank[i]), over, tint, lineColour, glintColour, strength);
       }
     }
+    // The dot of each fold with a running item folded in it is the end of the way: the way's line from the card's edge
+    // to it, and the dot in the way's colour with its glow close in and further out, burning brighter as the light
+    // comes to it; a root's card crossed by the light first, as no way down crosses it. While the fold turns, the dot
+    // comes and goes with it. The ways above it are dimmed and lit as the way into its card is.
+    const dotted = new Set<number>();
+    for (const k of this.litDots) {
+      const ness = this.dotness(k);
+      const d = t.depth[k];
+      const ky = y(d, t.rank[k]);
+      if (ness <= 0 || x(d) > width || x(d) + NODE_W + DOT_AT + DOT_R < 0 || ky < -ROW || ky > height + ROW) continue;
+      dotted.add(k);
+      const root = t.parent[k] < 0;
+      const strength = root
+        ? shining.size === 0 || shining.has(k)
+          ? 1
+          : linksStrength(this.dim)
+        : (this.runStrength.get(k) ?? 1);
+      if (root && !crossed.has(k)) {
+        crossed.add(k);
+        this.across(x(d), ky, half(d, t.rank[k]), lightOn(0, NODE_W, head), tint, lineColour, glintColour, strength);
+      }
+      const [ex, ey] = at(k, x(d) + NODE_W, ky);
+      const [dx, dy] = at(k, x(d) + NODE_W + DOT_AT, ky);
+      const r = DOT_R * size(k) * ness;
+      const burn = sparkAt(dotFrom(k), head);
+      const glow = strength * rest * burn;
+      this.runEdges.line
+        .moveTo(ex, ey)
+        .lineTo(dx, dy)
+        .stroke({ color: lineColour, width: lineWide, alpha: strength * ness * lineAlpha });
+      this.runEdges.far.circle(dx, dy, r * 3).fill({ color: tint(burn), alpha: glow * RUN.farAlpha });
+      this.runEdges.near.circle(dx, dy, r * 1.8).fill({ color: tint(burn), alpha: glow * RUN.nearAlpha });
+      this.runEdges.line.circle(dx, dy, r).fill({ color: lineColour, alpha: strength * lineAlpha });
+    }
+    // The dot of each other fold folded, or turning, in the funnel's grey, as strong as the funnels are drawn.
+    this.dots.clear();
+    for (const k of drawn) {
+      const ness = this.dotness(k);
+      if (ness <= 0 || dotted.has(k)) continue;
+      const d = t.depth[k];
+      const [dx, dy] = at(k, x(d) + NODE_W + DOT_AT, y(d, t.rank[k]));
+      this.dots.circle(dx, dy, DOT_R * size(k) * ness).fill({ color: PALETTE.other, alpha: linksStrength(this.dim) });
+    }
+    // An item drawn in towards the dot of a turning fold, or growing out of it, has its lit way go with it, but not its
+    // ribbon, ring or soft light, which wait until it is drawn whole.
+    const isWhole = (i: number) => this.scaleOf[i] === 1;
     for (const i of chosen) {
       const p = t.parent[i];
-      if (p < 0) continue;
+      if (p < 0 || !isWhole(i)) continue;
       const d = t.depth[i];
       const [py, ph, iy, ih] = [y(d - 1, t.rank[p]), half(d - 1, t.rank[p]), y(d, t.rank[i]), half(d, t.rank[i])];
       this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
@@ -2254,7 +2726,7 @@ export class SnapScene {
     ease(this.softLit, new Set(this.under < 0 ? [] : [this.under]));
     for (const [i, a] of this.glowing) {
       const p = t.parent[i];
-      if (p < 0) continue;
+      if (p < 0 || !isWhole(i)) continue;
       const d = t.depth[i];
       const [py, ph, iy, ih] = [y(d - 1, t.rank[p]), half(d - 1, t.rank[p]), y(d, t.rank[i]), half(d, t.rank[i])];
       this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
@@ -2275,11 +2747,14 @@ export class SnapScene {
       });
       lights.push({ item: i, gx, gy, gh, reach: out + BLUR_ROOM * blur });
     };
-    if (picked >= 0) softLight(this.chosenGlow, picked, CHOSEN_SPREAD, CHOSEN_BLUR, this.own[picked], 1);
-    for (const [i, a] of this.softLit) softLight(this.hoverGlow, i, SOFT_SPREAD, SOFT_BLUR, this.own[i], a);
+    if (picked >= 0 && isWhole(picked))
+      softLight(this.chosenGlow, picked, CHOSEN_SPREAD, CHOSEN_BLUR, this.own[picked], 1);
+    for (const [i, a] of this.softLit)
+      if (isWhole(i)) softLight(this.hoverGlow, i, SOFT_SPREAD, SOFT_BLUR, this.own[i], a);
     this.glowGround.clear();
     if (lights.length > 0) {
       for (const j of drawn) {
+        if (!isWhole(j)) continue;
         const d = t.depth[j];
         const [jx, jy, jh] = [x(d), y(d, t.rank[j]), half(d, t.rank[j])];
         const boxed = this.shadows[j] === 1 || !this.shownItems[j].deliver;
@@ -2291,6 +2766,7 @@ export class SnapScene {
     // come in; over them, of the item selected and those above it, the item selected's wider, so that the selection
     // stands out under the pointer too.
     for (const [i, a] of this.glowing) {
+      if (!isWhole(i)) continue;
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
       this.marks
@@ -2298,6 +2774,7 @@ export class SnapScene {
         .stroke({ color: this.own[i], width: RING, alpha: a });
     }
     for (const i of chosen) {
+      if (!isWhole(i)) continue;
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
       const ring = i === picked ? CHOSEN_RING : RING;

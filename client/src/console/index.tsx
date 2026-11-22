@@ -1,16 +1,18 @@
 // The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`snap.ts`), as they stand, drawn
 // again as they change; with `?fixtures` in the page's address, made-up items that show every state the drawing has
 // (`fixtures.ts`): those that stand as the boxes over the tree's corner tick, open, done or cancelled, and what stands
-// over them. Beside the tree, a window shows the item selected (`ItemWindow.tsx`). Selecting an item slides the
-// window out; letting it go slides the window back, unless the tab stuck to its left edge brought it out, in which case
-// it stays until the tab takes it back. The tab takes it back without letting the item go, and the next item selected
-// brings it out again. The window coming out over the item selected, or an item selected half under it or half off the
-// screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item go while the
-// tree has the keys, and slides the window in while it has them. Each time the interface says something happened, the
-// items are read again, at most one read at a time and one more after it, and drawn where they stand, the item selected
-// and the panel as they were; when the stream opens again after a cut, everything is. An item the address names is
-// selected once the tree shows it, as from a notification of a question it waits on. The page's shell mounts it lazily
-// (`lazy.tsx`).
+// over them. A press on the funnel or the dot of an item's fold folds the items under it away or shows them again, as
+// `e` does over its card, except while the owner types in a field or holds Ctrl, Alt or Meta: a choice kept in the
+// browser for that item, which wins over the tree's own rule. Beside the tree, a window shows the item selected
+// (`ItemWindow.tsx`). Selecting an item slides the window out; letting it go slides the window back, unless the tab
+// stuck to its left edge brought it out, in which case it stays until the tab takes it back. The tab takes it back
+// without letting the item go, and the next item selected brings it out again. The window coming out over the item
+// selected, or an item selected half under it or half off the screen, moves the tree only until the item is wholly
+// within what the window leaves. Escape lets the item go while the tree has the keys, and slides the window in while it
+// has them. Each time the interface says something happened, the items are read again, at most one read at a time and
+// one more after it, and drawn where they stand, the item selected and the panel as they were; when the stream opens
+// again after a cut, everything is. An item the address names is selected once the tree shows it, as from a
+// notification of a question it waits on. The page's shell mounts it lazily (`lazy.tsx`).
 //
 // Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
 // the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel and a
@@ -21,7 +23,7 @@ import './console.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Drawer } from '../parts';
-import { CHOICE_KEYS, useKeptTicks } from '../kept';
+import { CHOICE_KEYS, useKeptFolds, useKeptTicks } from '../kept';
 import { WIDTH_KEYS } from '../sizes';
 import type { Items, WorkPage } from '../works-api';
 import { oneAtATime } from '../works/source';
@@ -65,6 +67,13 @@ export function ConsolePage({
   // Which kinds of item the tree shows, open, done and cancelled each ticked or not, and what stands over them.
   const [shows, tick] = useKeptTicks(CHOICE_KEYS.consoleShows, ['open'], STANDINGS);
   const showsNow = useRef(shows);
+  // Which items the owner folded and which he unfolded, as he last chose: the others fold as the tree's rule says.
+  const [folds, turnFold] = useKeptFolds(CHOICE_KEYS.consoleFolds);
+  const foldsNow = useRef(folds);
+  const turnFoldNow = useRef(turnFold);
+  useEffect(() => {
+    turnFoldNow.current = turnFold;
+  }, [turnFold]);
 
   // The items, read at first and again each time something happened, at most one read at a time.
   const heard = useRef<(h: Heard) => void>(() => undefined);
@@ -120,7 +129,11 @@ export function ConsolePage({
             return w.byHand ? w : { open: false, byHand: false };
           });
         };
-        if (latestData.current !== undefined) s.show(shownTree(latestData.current, showsNow.current));
+        // A press on the funnel or the dot of an item's fold is the owner's choice for that item, kept, and the tree is
+        // drawn again.
+        s.onFold = (id, folded) => turnFoldNow.current(id, folded);
+        if (latestData.current !== undefined)
+          s.show(shownTree(latestData.current, showsNow.current, foldsNow.current));
         selectNamed();
         // To try the drawing from the browser's console on the dev server: `consoleScene.show(consoleFake(2000))` draws
         // a made-up tree.
@@ -150,9 +163,10 @@ export function ConsolePage({
   useEffect(() => {
     latestData.current = data;
     showsNow.current = shows;
-    if (data !== undefined) scene.current?.show(shownTree(data, shows));
+    foldsNow.current = folds;
+    if (data !== undefined) scene.current?.show(shownTree(data, shows, folds));
     selectNamed();
-  }, [data, shows]);
+  }, [data, shows, folds]);
   useEffect(() => {
     toSelect.current = named;
     selectNamed();
@@ -178,6 +192,15 @@ export function ConsolePage({
   useEffect(() => {
     if (!active) return;
     const key = (e: KeyboardEvent) => {
+      // `e` folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or
+      // its dot does; not while the owner types in a field, nor with Ctrl, Alt or Meta held.
+      if (e.key === 'e') {
+        const to = e.target as HTMLElement | null;
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (to && (to.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(to.tagName))) return;
+        if (scene.current?.foldPointedCard() === true) e.preventDefault();
+        return;
+      }
       // Escape answers a question the page asks, and nothing else.
       if (e.key !== 'Escape' || document.querySelector('dialog[open]') !== null) return;
       const inside = panel.current?.contains(document.activeElement) === true;
@@ -258,7 +281,8 @@ export function ConsolePage({
             goal={selected !== null && goalMock(selected.work !== null, selected.children.length)}
             open={open && active}
             onRead={() =>
-              latestData.current !== undefined && scene.current?.show(shownTree(latestData.current, showsNow.current))
+              latestData.current !== undefined &&
+              scene.current?.show(shownTree(latestData.current, showsNow.current, foldsNow.current))
             }
             onTitle={() => scene.current?.reveal(item.number, room(open))}
           />

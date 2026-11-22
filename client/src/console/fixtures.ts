@@ -1,5 +1,5 @@
 // Made-up items for looking at the console with no server behind it (`console.html?fixtures`), and for its tests: some
-// twenty items, each with its one work, depending on each other in four layers, their works in every state a work can
+// thirty items, each with its one work, depending on each other in four layers, their works in every state a work can
 // be in, on one made-up flow of an engineer's work; most of the project `wf-agents`, two of another, and one, added
 // before items had projects, of none. What the owner does to a work changes it here, and the console is told as the
 // interface's stream of changes would tell it.
@@ -565,6 +565,59 @@ export function fixtureItems(start = Date.now()): Items {
         rounds: 0,
         waits: [ruling(REQUEST_READ, 'request_read')],
       }),
+    },
+    // Items that ended, each under the item that depends on it, and folds. 26 is open, its work not begun; under it
+    // 27, done, folded as nothing under it is open; 28, open, unfolded over 32, whose work runs; and 29, cancelled,
+    // folded over 33, done, and 34, cancelled. 35 is cancelled, and no item depends on it.
+    26: {
+      title: 'Fold the items under an item',
+      dependsOn: [27, 28, 29],
+      work: work({ kind: 'next', cell: 'research' }, notStarted, { hours: 40, dollars: 0, rounds: 0 }),
+    },
+    27: {
+      title: 'Count the items under a fold',
+      dependsOn: [30, 31],
+      work: work({ kind: 'merged' }, cellsAt(null, 'done', false), { hours: 30, dollars: 3.4, rounds: 25 }),
+    },
+    28: {
+      title: 'Keep a cancelled item where it stood',
+      dependsOn: [32],
+      work: work({ kind: 'next', cell: 'research' }, notStarted, { hours: 6, dollars: 0, rounds: 0 }),
+    },
+    29: {
+      title: 'Hide the cancelled roots',
+      dependsOn: [33, 34],
+      work: work({ kind: 'cancelled' }, cellsAt('deep_research', 'notYet'), { hours: 50, dollars: 0.6, rounds: 4 }),
+    },
+    30: {
+      title: 'Draw a fold as a dot',
+      dependsOn: [],
+      work: work({ kind: 'merged' }, cellsAt(null, 'done', false), { hours: 36, dollars: 2.1, rounds: 18 }),
+    },
+    31: {
+      title: 'Keep what the owner folds',
+      dependsOn: [],
+      work: work({ kind: 'merged' }, cellsAt(null, 'done'), { hours: 34, dollars: 1.7, rounds: 15 }),
+    },
+    32: {
+      title: 'Keep the dependencies on a cancelled item',
+      dependsOn: [],
+      work: work(round('implement', 9), cellsAt('implement', 'running'), { hours: 5, dollars: 2.6, rounds: 21 }),
+    },
+    33: {
+      title: 'List the cancelled items apart',
+      dependsOn: [],
+      work: work({ kind: 'merged' }, cellsAt(null, 'done', false), { hours: 60, dollars: 1.2, rounds: 10 }),
+    },
+    34: {
+      title: 'Show the cancelled items in a column of their own',
+      dependsOn: [],
+      work: work({ kind: 'cancelled' }, cellsAt('research', 'notYet'), { hours: 70, dollars: 0.2, rounds: 2 }),
+    },
+    35: {
+      title: 'Try the tree as a flat list',
+      dependsOn: [],
+      work: work({ kind: 'cancelled' }, cellsAt('research', 'notYet'), { hours: 80, dollars: 0.3, rounds: 2 }),
     },
   };
   return {

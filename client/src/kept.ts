@@ -1,5 +1,6 @@
 // What the owner chose of how a view shows, kept in this browser so that it stands when the view is left and shown
-// again and when the page is loaded again: which of a switch's choices, whether a window is out, the order of a list.
+// again and when the page is loaded again: which of a switch's choices, whether a window is out, the order of a list,
+// which items of a tree are folded.
 // Kept only where the browser lets it be: a page that keeps nothing still works, at its first choices. Widths are kept
 // the same way (`sizes.ts`).
 import { useCallback, useState } from 'react';
@@ -37,6 +38,8 @@ export const CHOICE_KEYS = {
   flowDataArrows: 'wf-agents.flow-data-arrows',
   /// Which of the kinds of item the console's tree shows, each one ticked.
   consoleShows: 'wf-agents.console-shows',
+  /// Which items of the console's tree the owner folded, and which he unfolded.
+  consoleFolds: 'wf-agents.console-folds',
   /// The tab of the console's item window.
   consoleTab: 'wf-agents.console-window-tab',
   /// The tab of a work's item window, and whether that window is out.
@@ -84,4 +87,40 @@ export function useKeptTicks<T extends string>(key: string, first: readonly T[],
     [key, allowed],
   );
   return [value, tick] as const;
+}
+
+/// Of each item the owner folded or unfolded, by its number, whether it is folded, as he last chose; an item he never
+/// folded or unfolded is not in it. Kept under `key` as each number with `folded` or `unfolded`, in JSON; an entry kept
+/// by an earlier page that is no such pair is taken as none kept.
+export function useKeptFolds(key: string) {
+  const [value, setValue] = useState<ReadonlyMap<number, boolean>>(() => keptFolds(key));
+  const turn = useCallback(
+    (id: number, folded: boolean) =>
+      setValue((was) => {
+        const now = new Map(was);
+        now.set(id, folded);
+        write(key, JSON.stringify(Object.fromEntries([...now].map(([n, f]) => [n, f ? 'folded' : 'unfolded']))));
+        return now;
+      }),
+    [key],
+  );
+  return [value, turn] as const;
+}
+
+/// The folds kept under `key`, as `useKeptFolds` keeps them.
+function keptFolds(key: string): Map<number, boolean> {
+  const v = read(key);
+  if (v === null) return new Map();
+  let kept: unknown;
+  try {
+    kept = JSON.parse(v);
+  } catch {
+    return new Map();
+  }
+  if (typeof kept !== 'object' || kept === null || Array.isArray(kept)) return new Map();
+  return new Map(
+    Object.entries(kept).flatMap(([n, f]): [number, boolean][] =>
+      /^[1-9]\d*$/.test(n) && (f === 'folded' || f === 'unfolded') ? [[Number(n), f === 'folded']] : [],
+    ),
+  );
 }

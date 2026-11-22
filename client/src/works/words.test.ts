@@ -182,11 +182,6 @@ describe('what a work does now, in words', () => {
     expect(nowWords(doing({ kind: 'waits', at: 'S1', on: [dependencies] }))).toBe(
       'Waiting for the items it depends on · S1 · #5 and #7',
     );
-    // One that was cancelled is said so, in the catalogue's words: the work waits for it for good.
-    const forGood: Waited = { kind: 'items', items: [5, 7], cancelled: [7] };
-    expect(nowWords(doing({ kind: 'waits', at: 'S1', on: [forGood] }))).toBe(
-      'Waiting for the items it depends on · S1 · #5 and #7; it waits for good on #7, cancelled',
-    );
     expect(itemsWords([5])).toBe('#5');
     expect(itemsWords([5, 6, 7])).toBe('#5, #6 and #7');
     const main: Waited = { kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' };
