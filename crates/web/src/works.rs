@@ -623,16 +623,30 @@ pub enum CellState {
     /// Its run's last round failed: the run is at rest, and its next round, once the work is let on, is that round
     /// again.
     Failed,
-    /// Its condition is not met, so it is skipped this time; what it wrote before still counts.
+    /// Its condition is not met, and it never finished a run.
     Skipped,
     /// It has no record: it never finished a run.
     NotYet,
     /// It has a record, and a block it reads has changed in meaning since: it runs again when the walk reaches it.
     Again,
-    /// Its record knows the current meaning of every block it reads; of a work that ended, a run of it finished.
+    /// Its record knows the current meaning of every block it reads, or its condition is not met now and what it wrote
+    /// still counts; of a work that ended, a run of it finished.
     Done,
     /// Of a work that ended, no run of it finished (decision `a-works-past-is-drawn-from-its-outline`).
     NotRun,
+}
+
+/// How a cell with no run open stands: where its condition does not hold, done if it finished a run, since what it
+/// wrote still counts (decision `conditions-and-preconditions`), and skipped if it never did; where its condition holds,
+/// not yet run with no record, to run again where a block it reads has changed in meaning since, and else done.
+fn settled(applies: bool, ran: bool, changed: bool) -> CellState {
+    match (applies, ran) {
+        (false, false) => CellState::Skipped,
+        (false, true) => CellState::Done,
+        (true, false) => CellState::NotYet,
+        (true, true) if changed => CellState::Again,
+        (true, true) => CellState::Done,
+    }
 }
 
 /// What rounds took.
@@ -2117,10 +2131,7 @@ impl Summary {
                         _ if calling == Some(cell.cell.as_str()) => CellState::Calling,
                         (Some(open), ..) if failed(work, open.run) => CellState::Failed,
                         (Some(_), ..) => CellState::Resting,
-                        (None, false, _) => CellState::Skipped,
-                        (None, true, None) => CellState::NotYet,
-                        (None, true, Some(_)) if !cell.needs.is_empty() => CellState::Again,
-                        (None, true, Some(_)) => CellState::Done,
+                        (None, applies, record) => settled(applies, record.is_some(), !cell.needs.is_empty()),
                     },
                     finished: (runs.iter())
                         .filter(|run| {
@@ -4162,5 +4173,18 @@ pub(crate) mod tests {
             serde_json::json!({ "kind": "changed", "context": 86_953 })
         );
         assert_eq!(given(None), serde_json::json!({ "kind": "changed", "context": null }));
+    }
+
+    // A cell its condition passes over stands as its record does: done where it finished a run, as R2 does once it has
+    // run, what it wrote still counting; skipped only where it never ran (decision conditions-and-preconditions). It
+    // does not run again for a block it reads that changed, since the walk passes it.
+    #[test]
+    fn a_cell_passed_over_is_done_where_it_ran_and_skipped_where_it_never_did() {
+        assert_eq!(settled(false, true, false), CellState::Done);
+        assert_eq!(settled(false, true, true), CellState::Done);
+        assert_eq!(settled(false, false, false), CellState::Skipped);
+        assert_eq!(settled(true, false, false), CellState::NotYet);
+        assert_eq!(settled(true, true, true), CellState::Again);
+        assert_eq!(settled(true, true, false), CellState::Done);
     }
 }
