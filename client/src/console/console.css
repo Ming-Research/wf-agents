@@ -386,6 +386,7 @@
 .cw-choice {
   margin: var(--space-8) 0;
   padding: var(--space-12);
+  --stop-colour: var(--orange);
   border: var(--hairline) solid var(--orange);
   background: var(--orange-tint);
   /* A fieldset keeps the width of its widest content unless it is told it may shrink. */
@@ -444,6 +445,7 @@
 /* A question answered: framed in the accent on its tint, so that where a question was asked is told from the body's
    text, every question not answered being red or orange. */
 .cw-choice-done {
+  --stop-colour: var(--accent);
   border-color: var(--accent);
   background: var(--accent-tint);
 }
@@ -451,8 +453,16 @@
 /* Every stop of a work, the one look: what waits for the owner, a question that holds the work, a ruling, a limit, a
    pause, the agents' command line, and a fault or a stall: on the red tint, framed in red. */
 .cw-choice-holds {
+  --stop-colour: var(--red);
   border-color: var(--red);
   background: var(--red-tint);
+}
+
+/* The stop chosen, by n and N or by a click on its frame: in the soft light a card chosen on the console stands in, a
+   blurred glow in the stop's own colour, as far out and as strong as the console's (decision
+   what-the-owner-points-at-stands-in-a-soft-light). */
+.cw-choice.cw-stop-chosen {
+  box-shadow: 0 0 9px 4px color-mix(in srgb, var(--stop-colour) 45%, transparent);
 }
 
 /* The button that ends a stop is in the stop's colour, red, as its frame is, so that it belongs to the card; a card

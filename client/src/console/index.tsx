@@ -362,6 +362,9 @@ export function ConsolePage({
             }
             onTitle={() => scene.current?.reveal(item.number, room(open))}
             stop={stopAsked !== null && stopAsked.item === item.number ? stopAsked : undefined}
+            onStopChosen={(at) => {
+              walk.current = { item: item.number, at };
+            }}
             onNextStop={(at) => {
               walk.current = { item: item.number, at };
               walkOn(1);

@@ -1106,6 +1106,31 @@ describe('the console page', () => {
     }
   });
 
+  it('gives the stop n goes to the soft light of a stop chosen, and moves it to another stop clicked on its frame, from which n goes on', async () => {
+    await drawn();
+    const was = window.location.hash;
+    const stops = () => [
+      ...container.querySelectorAll<HTMLElement>('.cw-item .cw-choice[data-wait]:not(.cw-choice-done)'),
+    ];
+    const lit = () => stops().map((s) => s.classList.contains('cw-stop-chosen'));
+    try {
+      // n goes to item 1's first stop, which stands in the light; its second does not.
+      key('n');
+      await expect.poll(inAddress).toBe(1);
+      await expect.poll(lit).toEqual([true, false]);
+      expect(getComputedStyle(stops()[0]).boxShadow).not.toBe('none');
+      expect(getComputedStyle(stops()[1]).boxShadow).toBe('none');
+      // A click on the second stop's frame, outside its buttons, moves the light there, and n goes on from it, to the
+      // first stop of item 15.
+      (stops()[1].querySelector('.cw-choice-q') as HTMLElement).click();
+      await expect.poll(lit).toEqual([false, true]);
+      key('n');
+      await expect.poll(inAddress).toBe(15);
+    } finally {
+      history.replaceState(null, '', was === '' ? window.location.pathname : was);
+    }
+  });
+
   it("puts under each of an item's stops but its last a button to the next, saying its place, and brings the card of a stop gone to onto the screen", async () => {
     const scene = await drawn();
     const was = window.location.hash;

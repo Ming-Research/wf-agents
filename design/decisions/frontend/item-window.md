@@ -36,6 +36,10 @@ A question that holds the work is framed in red on its tint, as a stop is; one t
 - replaced: A yellow question box was on main; the owner changed it, because it did not stand out.
 - replaced: Every question in one purple card under the words The work waits for this answer was on main; the owner changed it, because those words are needless, and a question that holds the work is red.
 
+### decision the-stop-walked-to-stands-in-a-soft-light
+The stop n or N goes to, or a click on its frame chooses, stands in the soft light of a card chosen on the console, in its own colour; one at a time, none after Escape.
+- replaced: Nothing showing which stop the walk stood at was on main; the owner changed it, because n scrolled the window to a stop, but a question box cannot be selected, so nothing showed which stop was current.
+
 ### decision a-question-stands-where-a-text-points-to-it
 A question is drawn at the first `{{name}}` that points to it, in the body's passages and then in an agent's messages; a later pointer links to it, and one no text points to is drawn after the body.
 - replaced: Every question drawn at the end of the card's last section was on main; the owner changed it, because a question is shown where it is asked, in the text it is about.

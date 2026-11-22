@@ -354,6 +354,8 @@ export type ItemPanelProps = {
   /// Told that the owner pressed the button under the stop at `at`, which goes to the next stop as n does; with none,
   /// the stops draw no such button.
   onNextStop?: (at: number) => void;
+  /// Told that the owner chose the stop at `at` by a click on its frame, from which the walk goes on.
+  onStopChosen?: (at: number) => void;
 };
 
 /// The stops of a work as the window draws them, in its order from the top: each card of what the work waits on the
@@ -361,8 +363,18 @@ export type ItemPanelProps = {
 /// the red and the orange counts of the item's card count, and what n and N walk on the console.
 const STOP = '.cw-choice[data-wait]:not(.cw-choice-done)';
 
-/// The keys of the stops the window draws, in its order, and what the button under one does.
-const StopsContext = createContext<{ keys: string[]; next?: (at: number) => void }>({ keys: [] });
+/// The keys of the stops the window draws, in its order; what the button under one does; and the key of the stop
+/// chosen, which stands in the soft light of a card chosen on the console.
+const StopsContext = createContext<{ keys: string[]; next?: (at: number) => void; chosen: string | null }>({
+  keys: [],
+  chosen: null,
+});
+
+/// The class a stop's frame takes while it is the one chosen.
+function useChosen(at: string | undefined): string {
+  const { chosen } = useContext(StopsContext);
+  return at !== undefined && at === chosen ? ' cw-stop-chosen' : '';
+}
 
 /// Under a stop of the work, the button that goes to the next, as n does, saying which of the item's stops this one is
 /// and how many there are; none under the last, and none where the window has no walk.
@@ -401,6 +413,7 @@ function ItemView({
   wait,
   stop,
   onNextStop,
+  onStopChosen,
 }: ItemPanelProps) {
   const work = item.work;
   const read = pageIn(page);
@@ -490,7 +503,29 @@ function ItemView({
     drawing.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-wait'] });
     return () => drawing.disconnect();
   }, []);
-  const walk = useMemo(() => ({ keys: stops, next: onNextStop }), [stops, onNextStop]);
+  // The stop chosen, by n and N or by a click on its frame outside its buttons and fields; one at a time, and none
+  // once Escape is pressed. Another item is another window, with none chosen.
+  const [chosenStop, setChosenStop] = useState<string | null>(null);
+  const walk = useMemo(
+    () => ({ keys: stops, next: onNextStop, chosen: chosenStop }),
+    [stops, onNextStop, chosenStop],
+  );
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setChosenStop(null);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, []);
+  const chooseStop = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button, a, input, textarea, select, label') !== null) return;
+    const card = target.closest<HTMLElement>(STOP);
+    if (card === null) return;
+    const cards = [...(inner.current?.querySelectorAll<HTMLElement>(STOP) ?? [])];
+    setChosenStop(card.dataset.wait ?? null);
+    onStopChosen?.(cards.indexOf(card));
+  };
   // The stop the page asks for is brought to the top of what the window shows, on the tab that draws the body, once it
   // is drawn, once each time it is asked.
   const shownStop = useRef(0);
@@ -504,6 +539,7 @@ function ItemView({
     const card = cards[stop.at < 0 ? cards.length - 1 : stop.at];
     if (card === undefined) return;
     shownStop.current = stop.seq;
+    setChosenStop(card.dataset.wait ?? null);
     card.scrollIntoView({ block: 'start' });
   });
   // The card the address names is brought into view once it is drawn, once.
@@ -709,7 +745,7 @@ function ItemView({
   };
   return (
     <StopsContext.Provider value={walk}>
-      <div className="cw-item" ref={inner}>
+      <div className="cw-item" ref={inner} onClick={chooseStop}>
         <header className="drawer-head">
           <span className="drawer-id">{item.number}</span>
           <h2 className="drawer-title">
@@ -1066,9 +1102,10 @@ function StopCards({ work, act }: { work: Summary; act: (what: Act) => Promise<u
 /// marked names and values in the monospace and the rest plain text, then what stands under it and the buttons that
 /// end it, inside the card.
 function StopCard({ wait, why, children }: { wait?: string; why: string; children?: ReactNode }) {
+  const lit = useChosen(wait);
   return (
     <div className="cw-part">
-      <div className="cw-choice cw-choice-holds" data-wait={wait}>
+      <div className={`cw-choice cw-choice-holds${lit}`} data-wait={wait}>
         <div className="cw-choice-q">
           <p>
             <Coded text={why} />
@@ -1326,6 +1363,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
   // view, and it is folded when the window is read again.
   const [open, setOpen] = useState(p.confirmed !== true);
   const box = useRef<HTMLFieldSetElement>(null);
+  const lit = useChosen(pick === undefined ? undefined : waitKeyOf(p));
   // The card's height before the press, which the turn is drawn from.
   const was = useRef<number | null>(null);
   const turn = () => {
@@ -1355,7 +1393,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
   return (
     <fieldset
       ref={box}
-      className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${p.holds === true ? ' cw-choice-holds' : ''}`}
+      className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${p.holds === true ? ' cw-choice-holds' : ''}${lit}`}
       data-wait={waitKeyOf(p)}
     >
       <Asked by={by} tree={p.tree === true} />
@@ -1451,10 +1489,11 @@ function RulingBox({ ruling, act, links }: {
   const first = ruling.holding === null ? -1 : options.indexOf(ruling.holding);
   const [chosen, setChosen] = useState<number | null>(first < 0 ? null : first);
   const value = chosen === null ? null : options[chosen];
+  const lit = useChosen(ruling.key);
   return (
     <>
       <div className="cw-part">
-        <div className="cw-choice cw-choice-holds" data-wait={ruling.key}>
+        <div className={`cw-choice cw-choice-holds${lit}`} data-wait={ruling.key}>
           <div className="cw-choice-q">
             <p>
               <Coded text={ruling.why} />
