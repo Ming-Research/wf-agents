@@ -595,6 +595,9 @@ export interface CallRow {
   /// How long a call of a tool took, or has taken so far while it has no result, against the line of the calls of its
   /// tool as it stood when it was made.
   time: Against | null;
+  /// How long the result of a call of a tool is, in bytes, against the line of the results of the calls of its tool as
+  /// it stood when it was made; none while it has no result.
+  size: Against | null;
 }
 
 export type RunEnd =

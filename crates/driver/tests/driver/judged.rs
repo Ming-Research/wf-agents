@@ -192,58 +192,83 @@ fn a_round_under_way_is_judged_by_how_long_it_has_taken_so_far_and_given_the_lin
     assert!(late.past(), "thirty seconds is past the line of twenty-five");
 }
 
+/// The call of a tool by a work let on, which has `result` as its result `ms` after it was made, or none.
+fn call(h: &mut H, answered: Option<(u64, String)>) -> (WorkNumber, CallId) {
+    let (_, work) = h.add_let_on(new_item("a", &[], "plain"));
+    let todos = ends(h, work, 3_000, 10, Came::asks(vec![tool("test")]));
+    let call = (todos.iter())
+        .find_map(|todo| match &todo.effect {
+            Effect::Call { call, .. } => Some(*call),
+            _ => None,
+        })
+        .expect("the tool is called");
+    if let Some((ms, result)) = answered {
+        h.clock += ms - 1000;
+        h.on(work, Event::Done { call, result });
+    }
+    (work, call)
+}
+
 #[test]
 fn a_call_of_a_tool_is_judged_by_the_calls_of_its_tool_that_had_their_results_as_it_was_made() {
     let mut h = harness();
     let mut calls = Vec::new();
     for ms in [5_000, 10_000, 60_000] {
-        let (_, work) = h.add_let_on(new_item("a", &[], "plain"));
-        let todos = ends(&mut h, work, 3_000, 10, Came::asks(vec![tool("test")]));
-        let call = (todos.iter())
-            .find_map(|todo| match &todo.effect {
-                Effect::Call { call, .. } => Some(*call),
-                _ => None,
-            })
-            .expect("the tool is called");
-        h.clock += ms - 1000;
-        h.answer(work, call);
-        calls.push((work, call));
+        calls.push(call(&mut h, Some((ms, "result".to_string()))));
     }
     let judged: Judged = h.d().judged(None, Time(h.clock));
     assert!(
         !judged.calls.contains_key(&calls[0]) && !judged.calls.contains_key(&calls[1]),
         "too few calls of the tool had their results as the first two were made: {judged:?}"
     );
-    let against = judged.calls[&calls[2]];
+    let against = judged.calls[&calls[2]].time.expect("its time is judged");
     assert_eq!(against.value, 60_000.0);
     assert_eq!(
         (against.line.value, against.line.samples, against.line.scope),
         (2.0 * 10_000.0 - 7_500.0, 2, Scope::Tool)
     );
     assert!(against.past());
+    let size = judged.calls[&calls[2]].size.expect("its size is judged");
+    assert!(!size.past(), "the results are alike in size: {size:?}");
+}
+
+#[test]
+fn the_size_of_a_calls_result_is_judged_by_the_sizes_of_the_results_of_its_tool_as_it_was_made() {
+    let mut h = harness();
+    let mut calls = Vec::new();
+    for bytes in [5_000, 10_000, 60_000] {
+        calls.push(call(&mut h, Some((2_000, "x".repeat(bytes)))));
+    }
+    let under_way = call(&mut h, None);
+    let judged: Judged = h.d().judged(None, Time(h.clock + 600_000));
+    assert!(
+        !judged.calls.contains_key(&calls[0]) && !judged.calls.contains_key(&calls[1]),
+        "too few results of the tool were there as the first two were made: {judged:?}"
+    );
+    let against = judged.calls[&calls[2]];
+    let size = against.size.expect("its size is judged");
+    assert_eq!(size.value, 60_000.0);
+    assert_eq!(
+        (size.line.value, size.line.samples, size.line.scope),
+        (2.0 * 10_000.0 - 7_500.0, 2, Scope::Tool)
+    );
+    assert!(size.past());
+    assert!(
+        !against.time.expect("its time is judged").past(),
+        "the calls took as long as one another"
+    );
+    assert_eq!(
+        judged.calls.get(&under_way).and_then(|call| call.size),
+        None,
+        "a call without its result has no size"
+    );
 }
 
 #[test]
 fn a_call_withdrawn_with_its_work_is_neither_judged_nor_part_of_its_tool_s_history() {
     let mut h = harness();
-    // The call of a tool by a work let on, which has its result `ms` after it was made, or none.
-    let call = |h: &mut H, ms: Option<u64>| {
-        let (_, work) = h.add_let_on(new_item("a", &[], "plain"));
-        let todos = ends(h, work, 3_000, 10, Came::asks(vec![tool("test")]));
-        let call = (todos.iter())
-            .find_map(|todo| match &todo.effect {
-                Effect::Call { call, .. } => Some(*call),
-                _ => None,
-            })
-            .expect("the tool is called");
-        if let Some(ms) = ms {
-            h.clock += ms - 1000;
-            h.answer(work, call);
-        }
-        (work, call)
-    };
-    call(&mut h, Some(5_000));
-    call(&mut h, Some(10_000));
+    call(&mut h, Some((5_000, "x".repeat(5_000))));
+    call(&mut h, Some((10_000, "x".repeat(10_000))));
     // The third work's item is cancelled while its call waits for its result: the call is withdrawn, and is not
     // judged however long the withdrawal takes, nor once it has its result.
     let (cancelled, withdrawn) = call(&mut h, None);
@@ -254,7 +279,7 @@ fn a_call_withdrawn_with_its_work_is_neither_judged_nor_part_of_its_tool_s_histo
     );
     let judged = h.d().judged(None, Time(h.clock + 600_000));
     assert!(!judged.calls.contains_key(&(cancelled, withdrawn)), "{judged:?}");
-    let result = "withdrawn".to_string();
+    let result = "w".repeat(1_000_000);
     h.on(
         cancelled,
         Event::Done {
@@ -263,14 +288,14 @@ fn a_call_withdrawn_with_its_work_is_neither_judged_nor_part_of_its_tool_s_histo
         },
     );
     // The call after it is judged by the two that had their results, the withdrawn one being none of them.
-    let last = call(&mut h, Some(60_000));
+    let last = call(&mut h, Some((60_000, "x".repeat(60_000))));
     let judged = h.d().judged(None, Time(h.clock));
     assert!(!judged.calls.contains_key(&(cancelled, withdrawn)), "{judged:?}");
     let against = judged.calls[&last];
-    assert_eq!(
-        (against.line.value, against.line.samples),
-        (2.0 * 10_000.0 - 7_500.0, 2)
-    );
+    let time = against.time.expect("its time is judged");
+    assert_eq!((time.line.value, time.line.samples), (2.0 * 10_000.0 - 7_500.0, 2));
+    let size = against.size.expect("its size is judged");
+    assert_eq!((size.line.value, size.line.samples), (2.0 * 10_000.0 - 7_500.0, 2));
 }
 
 #[test]
