@@ -9,8 +9,8 @@
 //! and go to no other cell.
 //!
 //! The words are the next version of the cell's words, in the words of that datum's `owner`, which name no cell, and
-//! which runs the cell, stops a round under way of a later cell and enters the cell while it waits, as the owner turning
-//! to a cell does. Where a round of the cell is under way, its carrier is given the version to hand to the round after
+//! which runs the cell, tells a round under way of a later cell to hand in what it has and enters the cell while it
+//! waits, as the owner turning to a cell does. Where a round of the cell is under way, its carrier is given the version to hand to the round after
 //! its next use of a tool ([`Effect::Tell`]); only once it says the round was given it ([`Event::SaidToRound`]) is the
 //! version put into the round, so that a round consumes only words that reached it and a session is not given again
 //! what its round was told. A cell answers by writing its words in its return's `outputs`, as it writes any block, and
