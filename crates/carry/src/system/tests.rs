@@ -122,7 +122,7 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
         "`agents.subagents.most` (3)",
         "`project.research` (research/)",
         "`owner.language` (Chinese)",
-        "and checks among `lint`;",
+        "Name checks among `lint`;",
     ] {
         assert!(engineer.contains(named), "{named}:\n{engineer}");
     }
@@ -523,15 +523,15 @@ fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workfl
         declared
     };
     let fast = told(&beside);
-    assert!(fast.contains("and checks among `lint`;"), "{fast}");
-    assert!(told(&declared(&["lint", "page"])).contains("and checks among `lint`, `page`;"));
-    assert!(told(&declared(&[])).contains(&format!("and checks among {};", ways["none_named"])));
+    assert!(fast.contains("Name checks among `lint`;"), "{fast}");
+    assert!(told(&declared(&["lint", "page"])).contains("Name checks among `lint`, `page`;"));
+    assert!(told(&declared(&[])).contains(&format!("Name checks among {};", ways["none_named"])));
     // A project that declares no workflows, on GitHub or on the local repository alike.
     let mut no_fast = beside.clone();
     no_fast.project.ci = None;
     let whole = told(&no_fast);
     assert!(
-        whole.contains(&format!("and checks among {};", ways["whole"])),
+        whole.contains(&format!("Name checks among {};", ways["whole"])),
         "{whole}"
     );
     assert!(!whole.contains("{named_checks}"), "{whole}");
