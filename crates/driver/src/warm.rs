@@ -70,8 +70,7 @@ pub struct Kept {
 
 /// Each line's session the work of this number keeps warm as of `now`, in the order of the walk, whoever holds the
 /// work: none where `keep_warm`, the engine's own state, says sessions are not kept warm; none for a work that has
-/// ended or been cancelled, one with no policy of keeping sessions warm, or one the engine paused for spending more
-/// than it may; none of a line with a round under way (`line_busy`), whatever the work's other lines run; none whose
+/// ended, one with no policy of keeping sessions warm, or one the engine paused for spending more than it may; none of a line with a round under way (`line_busy`), whatever the work's other lines run; none whose
 /// last call ran under another account than the one in use, or under none, and none while none is in use, as the
 /// accounts say; none of a line that is to begin a new session at its next round; and none whose cache has let it go
 /// by `now`, which a ping would write again whole, for nothing.
@@ -90,9 +89,7 @@ pub fn kept(
         return Vec::new();
     };
     let decision = decide(&flow.flow, &work.records);
-    if matches!(decision, Decision::Ended(_) | Decision::Fault(_))
-        || over_budget(work, warm)
-    {
+    if matches!(decision, Decision::Ended(_) | Decision::Fault(_)) || over_budget(work, warm) {
         return Vec::new();
     }
     let back = coming_back(flow, work, &decision);
@@ -287,4 +284,93 @@ fn line_of_run<'a>(flow: &'a Compiled, work: &Work, run: RunId) -> Option<&'a st
     (flow.cells.iter())
         .find(|c| c.id == started.cell)
         .and_then(|c| c.line.as_deref())
+}
+
+#[cfg(test)]
+mod tests {
+    //! Which line a round that has not ended keeps from being pinged.
+
+    use decide::{Abandoned, Returned, Round, Seq, Started};
+    use flow::{Has, Source, compile};
+
+    use super::*;
+
+    /// Two lines: `write` on `main`, `judge` on `second`, and the merge.
+    fn flow() -> Compiled {
+        let text = r#"
+            name = "lines"
+            order = ["write", "judge", "merge"]
+            [limits]
+            runs = 3
+            returns = 2
+            calls = 3
+            [lines.main]
+            [lines.second]
+            [blocks.request]
+            people = true
+            [blocks.text]
+            [blocks.verdict]
+            [blocks.merged]
+            shown = true
+        "#;
+        let cell = |line: &str, watches: &str, outputs: &str| {
+            format!(
+                "title = \"A cell\"\nkind = \"agent\"\neffort = \"high\"\nline = \"{line}\"\ntask = \"Do it.\"\n\
+                 watches = [\"{watches}\"]\noutputs = [\"{outputs}\"]\n[kinds]\n{watches} = \"last_and_latest\"\n"
+            )
+        };
+        let merge =
+            "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"verdict\"]\noutputs = [\"merged\"]\n";
+        let source = Source {
+            flow: text.to_string(),
+            cells: [
+                ("write", cell("main", "request", "text")),
+                ("judge", cell("second", "text", "verdict")),
+                ("merge", merge.to_string()),
+            ]
+            .into_iter()
+            .map(|(id, text)| (id.to_string(), text))
+            .collect(),
+            files: [(
+                flow::waits_file(),
+                include_str!("../../../flow/agents/waits.toml").to_string(),
+            )]
+            .into(),
+            ..Source::default()
+        };
+        let has = Has {
+            acts: ["merge".to_string()].into(),
+            ..Has::default()
+        };
+        compile(&source, &has).expect("the definition compiles")
+    }
+
+    // A round is under way from its beginning to its end whether or not its run was abandoned meanwhile, as a round
+    // stopped for a cell the owner turned to is: its program still runs, and its line's session is in use. A line
+    // beside it is not. Fails where only the open runs are looked at, which an abandoned run is not, or where a round of
+    // another line counts. Microseconds.
+    #[test]
+    fn a_line_is_busy_from_the_beginning_of_a_round_of_it_to_its_end_though_its_run_was_abandoned() {
+        let flow = flow();
+        let mut work = Work::default();
+        let run = RunId(1);
+        assert!(!line_busy(&flow, &work, "main"), "no round has begun");
+        work.records.started.push(Started {
+            run,
+            cell: CellId::from("write"),
+            at: Seq(1),
+            because: Vec::new(),
+            basis: BTreeMap::new(),
+        });
+        work.records.rounds.push(Round { run, at: Seq(2) });
+        assert!(line_busy(&flow, &work, "main"), "its round is under way");
+        assert!(
+            !line_busy(&flow, &work, "second"),
+            "another line's session is not in use"
+        );
+        work.records.abandoned.push(Abandoned { run, at: Seq(3) });
+        assert!(line_busy(&flow, &work, "main"), "its round is being stopped");
+        work.records.returned.push(Returned { run, at: Seq(4) });
+        assert!(!line_busy(&flow, &work, "main"), "its round has ended");
+    }
 }

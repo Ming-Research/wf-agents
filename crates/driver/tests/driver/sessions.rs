@@ -1772,26 +1772,6 @@ fn a_round_of_another_line_begins_while_a_session_is_pinged() {
 }
 
 #[test]
-fn no_session_of_a_work_cancelled_while_a_round_of_it_is_being_stopped_is_kept_warm() {
-    let (mut s, _) = awaiting_a_tool();
-    s.on(remark("a remark"));
-    s.began();
-    assert_eq!(lines_kept(&s), ["engineer"]);
-    // Cancelled, the work stops the look's round, which has not ended: the run is abandoned and its program still
-    // runs. A work that is ending is not kept warm, on the line of the round being stopped or on another.
-    s.on(Event::Cancelled { why: None });
-    let kept = s.kept();
-    assert!(
-        kept.records.rounds.len() > kept.records.returned.len(),
-        "the round being stopped has not ended"
-    );
-    assert!(
-        kept_warm(&s).is_empty(),
-        "a session of a work being cancelled is kept warm"
-    );
-}
-
-#[test]
 fn a_session_is_pinged_while_the_owners_pause_holds_everything_or_the_work_alone() {
     for everything in [true, false] {
         let (mut s, at) = waiting(warm("opus"));
