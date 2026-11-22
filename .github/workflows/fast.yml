@@ -292,6 +292,11 @@ jobs:
       # Chromium is installed and started. A name that only a page test could have and none has is said, and no test is
       # reported for it; one that may be a Rust test's is left to the results, which tell whether any test has it.
       #
+      # Each list is read from the file vitest is told to write (`--json=<path>`), never from its standard output, where
+      # its own notices stand at times: with several lists read at once on the machine, the first lines of one were
+      # `Port 63315 is in use, trying another one...`, which no JSON parser takes, and the step failed with no test's
+      # result. What vitest prints stays in the step's log.
+      #
       # The page's tests are Vitest projects (client/vite.config.ts): `unit` always, and `browser`, which draws the page
       # in a real Chromium, only when a name is a browser test's. Playwright installs the Chromium its version drives
       # into the runner user's cache, once for each version; a workflow has no root on the owner's machine, so the
@@ -311,12 +316,14 @@ jobs:
               ($want | split("\n") | map(select(length > 0))) as $w
               | .[] | select(.name as $n | $w | index($n)) | "\(.name)\t\(.file | ltrimstr($root))"' "$1"
           }
-          npx --no-install vitest list --project unit --json > "$names/unit.json"
+          npx --no-install vitest list --project unit --json="$names/unit.json"
+          [ -s "$names/unit.json" ] || { echo "vitest wrote no list of the unit project's tests"; exit 1; }
           found "$names/unit.json" > "$names/found"
           browser=false
           if [ "$(cut -f1 "$names/found" | sort -u | wc -l)" -lt "$(sort -u "$names/page" | wc -l)" ]; then
             npx --no-install playwright install --only-shell chromium
-            npx --no-install vitest list --project browser --json > "$names/browser.json"
+            npx --no-install vitest list --project browser --json="$names/browser.json"
+            [ -s "$names/browser.json" ] || { echo "vitest wrote no list of the browser project's tests"; exit 1; }
             found "$names/browser.json" > "$names/found-browser"
             if [ -s "$names/found-browser" ]; then browser=true; fi
             cat "$names/found-browser" >> "$names/found"
