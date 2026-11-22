@@ -20,7 +20,7 @@
 //! it goes on only once a person or a source outside the work writes what runs a cell ([`Decision::Stalled`]). One
 //! round of a work is under way at a time: a round of a cell after one the owner turned to, by words or by an answer,
 //! is told, once for each version, to hand in what it has now ([`Decision::Hurry`]), or, where it is an act of the
-//! engine's, which has nothing to hand in, is stopped; nothing else begins until it has ended, and what it left
+//! engine's, which has nothing to hand in, or the last cell, whose finish ends the work, is stopped; nothing else begins until it has ended, and what it left
 //! undealt with is still new to its cell, which runs again later. A work has ended when its last
 //! cell has a record or its item is cancelled and not reopened since; a reopened work is walked from its records as any
 //! other, what its cancel abandoned leaving no record.
@@ -151,8 +151,9 @@ pub enum Abandoning {
     /// Its cell is skipped now, or is no longer in the flow.
     NoLongerApplies,
     /// The owner turned to this cell before it, by a new version of this block, and the cell is to run first: the
-    /// round under way, an act of the engine's that takes no telling, is stopped, and its cell runs again later (design
-    /// document `data-and-context`, 35).
+    /// round under way, which cannot be told to hand in what it has, is stopped, and its cell runs again later (design
+    /// document `data-and-context`, 35). A round cannot be told where its cell is an act of the engine's, which has
+    /// nothing to hand in, or the flow's last, whose finish ends the work with no later run.
     Stopped { cell: CellId, block: BlockId },
 }
 
@@ -242,10 +243,10 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
     // A round under way is dealt with only for a cell before it that the owner turned to.
     if let Some(run) = walk.runs.values().find(|r| r.under_way()) {
         if let Some((turned_to, block, version)) = walk.stopping(run, room) {
-            // An agent's round is told to hand in what it has; an act of the engine's has nothing to be told, and is
-            // stopped.
-            let agent = (walk.flow.place(&run.started.cell)).is_some_and(|i| walk.flow.cells()[i].slot);
-            if !agent {
+            // An agent's round is told to hand in what it has, and its cell runs again later. An act of the engine's
+            // has nothing to be told, and the last cell's finish ends the work, with no later run: each is stopped.
+            let tells = (walk.flow.place(&run.started.cell)).is_some_and(|i| i + 1 < cells.len() && cells[i].slot);
+            if !tells {
                 return Decision::Abandon {
                     cell: run.started.cell.clone(),
                     run: run.started.run,

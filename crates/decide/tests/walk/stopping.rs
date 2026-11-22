@@ -1,16 +1,19 @@
 //! The owner turning to a cell (design document `data-and-context`, 35): a round under way of an agent's cell after it
-//! is told to hand in what it has, an act of the engine's after it is stopped, consuming nothing; the cell turned to
-//! runs, and the cell of the round runs again later, for what its round left undealt with.
+//! is told to hand in what it has; an act of the engine's after it, or the flow's last cell, whose finish ends the work,
+//! is stopped, consuming nothing; the cell turned to runs, and the cell of the round runs again later, for what its
+//! round left undealt with.
 
 use super::*;
 
-/// A research that the brief and the owner's words to it run, writing the plan, and an implementation of the plan;
-/// both ran once, and the implementation's second run has its round under way. Returns the first plan, the second,
+/// A research that the brief and the owner's words to it run, writing the plan, an implementation of the plan and a
+/// merge after it; the research and the implementation ran once, and the implementation's second run has its round
+/// under way. Returns the first plan, the second,
 /// and that run.
 fn implementing() -> (World, Seq, Seq, RunId) {
     let mut w = World::with_gate(vec![
         cell("research", &["brief", "spoken to research"], &["plan"]),
         cell("implement", &["plan"], &["code"]),
+        cell("merge", &["code"], &["merged"]),
     ]);
     w.turning("spoken to research");
     w.person_writes("brief");
@@ -127,6 +130,7 @@ fn a_round_under_way_is_not_hurried_for_an_earlier_cell_that_could_not_run() {
     let mut w = World::with_gate(vec![
         requiring("ready", cell("research", &["brief", "spoken to research"], &["plan"])),
         cell("implement", &["plan"], &["code"]),
+        cell("merge", &["code"], &["merged"]),
     ]);
     w.turning("spoken to research");
     w.person_writes("brief");
@@ -165,6 +169,26 @@ fn a_round_of_an_act_of_the_engine_cannot_be_told_and_is_stopped_for_the_owner_t
         panic!("nothing runs: {:?}", w.decide())
     };
     assert_eq!(cell.as_str(), "research");
+}
+
+#[test]
+fn a_round_of_the_last_cell_cannot_be_told_to_hand_in_for_its_finish_ends_the_work_and_is_stopped() {
+    let mut w = World::with_gate(vec![
+        cell("research", &["brief", "spoken to research"], &["plan"]),
+        cell("implement", &["plan"], &["code"]),
+    ]);
+    w.turning("spoken to research");
+    w.person_writes("brief");
+    w.run("research", &[("plan", Matters)]);
+    w.person_writes("brief");
+    w.run("research", &[("plan", Matters)]);
+    let run = w.start("implement");
+    w.outside_writes("spoken to research");
+    let stopped = Abandoning::Stopped {
+        cell: "research".into(),
+        block: "spoken to research".into(),
+    };
+    assert_eq!(w.decide(), abandon("implement", run, stopped));
 }
 
 #[test]

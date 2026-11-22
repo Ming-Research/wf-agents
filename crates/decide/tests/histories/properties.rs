@@ -51,8 +51,9 @@ pub const UNSEEN: &str = "nothing is written over unseen";
 pub const CONSUMED: &str = "a datum is consumed only by a return that dealt with it";
 pub const ENTERED: &str = "a cell is entered only for what is new to it";
 pub const FIRST: &str = "the cell entered is the first that something new runs";
-pub const STOPPED: &str = "an act of the engine's is stopped only for the owner turning to a cell before it";
-pub const HURRIED: &str = "a round of an agent is told to hand in what it has only for the owner turning to a cell before it, once for a version";
+pub const STOPPED: &str =
+    "an act of the engine's, or the last cell's round, is stopped only for the owner turning to a cell before it";
+pub const HURRIED: &str = "a round of an agent that is not the last cell's is told to hand in what it has only for the owner turning to a cell before it, once for a version";
 pub const SPOKE: &str = "who wrote what is new is counted right";
 pub const PURE: &str = "the decision is a function of the records";
 pub const REACHES: &str = "a person's write reaches the cells it runs";
@@ -962,7 +963,7 @@ fn stalled(
 }
 
 /// Property a-round-is-hurried-only-for-the-owner-turning (design document `data-and-context`, 35): a round of an
-/// agent is told to hand in what it has only while it is under way, for a cell before its own that applies and to
+/// agent that is not the last cell's, whose finish ends the work, is told to hand in what it has only while it is under way, for a cell before its own that applies and to
 /// which something that interrupts is new, by the latest version of it that the cell did not write itself, and once for
 /// a version.
 fn hurried(
@@ -981,7 +982,7 @@ fn hurried(
     let before = place(turned_to).zip(place(&s.cell)).is_some_and(|(j, i)| j < i);
     let new = !reading.new_to(turned_to, block, now).is_empty();
     let applies = place(turned_to).is_some_and(|j| reading.applies(flow, j));
-    let agent = place(&s.cell).is_some_and(|i| flow.cells()[i].slot);
+    let agent = place(&s.cell).is_some_and(|i| i + 1 < flow.cells().len() && flow.cells()[i].slot);
     let r = reading.records;
     let under_way = r.rounds.iter().filter(|x| x.run == run).count()
         > r.returned.iter().filter(|x| x.run == run).count()
@@ -1007,7 +1008,7 @@ fn hurried(
 
 /// Why a run was abandoned (properties one-round-of-a-work-at-a-time and consumed-only-by-what-a-return-dealt-with): as
 /// cancelled only in a cancelled work; as no longer applying only when its cell is skipped; as stopped only while a
-/// round of it, an act of the engine's, is under way, for a cell before it that applies, to which something that
+/// round of it, an act of the engine's or the last cell's, is under way, for a cell before it that applies, to which something that
 /// interrupts is new.
 pub fn abandoned(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, because: &Abandoning) {
     let s = reading.started[&run];
@@ -1021,8 +1022,8 @@ pub fn abandoned(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, be
             let before = place(cell).zip(place(&s.cell)).is_some_and(|(j, i)| j < i);
             let new = !reading.new_to(cell, block, now).is_empty();
             let applies = place(cell).is_some_and(|j| reading.applies(flow, j));
-            let act = place(&s.cell).is_some_and(|i| !flow.cells()[i].slot);
-            before && new && applies && act && flow.interrupts(block)
+            let untold = place(&s.cell).is_some_and(|i| i + 1 == flow.cells().len() || !flow.cells()[i].slot);
+            before && new && applies && untold && flow.interrupts(block)
         }
     };
     if !ok {
