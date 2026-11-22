@@ -130,7 +130,8 @@ new session lacks it.
 
 24. `AGENTS.md` is not data. It is in the system prompt of every session (decision
     the-projects-files-as-the-work-has-them): no cell watches or reads it, and none runs because of it. A session that
-    was open when it changed does not receive the change, and a session begun later reads the new one. Giving it as
+    was open when it changed does not receive the change: its line begins a new session at its next round, which begins
+    with the new one (decision a-changed-system-prompt-or-form-begins-a-new-session). Giving it as
     data, so that an open session was told what changed, was turned down: that case is rare, while the datum was
     listed in the first message of every cell, and an agent copied it whole into what it dealt with and had its return
     sent back (judgment on how rare the case is, not measured).
