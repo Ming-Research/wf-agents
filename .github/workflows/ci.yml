@@ -312,7 +312,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: junit-${{ matrix.partition }}
-          path: ${{ runner.temp }}/test ${{ matrix.partition }} of 3.xml
+          path: target/nextest/ci/test ${{ matrix.partition }} of 3.xml
           if-no-files-found: ignore
 
   # Red whenever the page, the lint or a job of the tests did not pass, cancelled ones included; and the one place the
