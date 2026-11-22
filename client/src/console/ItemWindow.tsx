@@ -197,6 +197,7 @@ function questionsStanding(questions: Question[] | undefined, s: Summary): Choic
         chosen: q.answer === null ? null : q.answer.option - 1,
         confirmed: answered,
         asks: { cell: q.cell, question: q.name, version: q.version },
+        tree: q.tree,
         ...held,
       },
     ];
@@ -1289,7 +1290,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
       className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${p.holds === true ? ' cw-choice-holds' : ''}`}
       data-wait={waitKeyOf(p)}
     >
-      <Asked by={by} />
+      <Asked by={by} tree={p.tree === true} />
       <div className={open ? 'cw-choice-q' : 'cw-choice-q cw-choice-few'}>
         <Markdown text={p.question} pointers={links} />
       </div>
@@ -1348,13 +1349,19 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
 }
 
 /// Whose question it is, on the frame of its card: the cell it belongs to, by its id, and the line that cell runs on
-/// after it. A card that belongs to no cell draws none, and its frame is unbroken.
-function Asked({ by }: { by?: { cell: string; line: string | null } }) {
+/// after it; then, for a question marked `tree`, the key `tree`, since its answer goes into the design tree. A card
+/// that belongs to no cell draws none, and its frame is unbroken.
+function Asked({ by, tree }: { by?: { cell: string; line: string | null }; tree: boolean }) {
   if (by === undefined) return null;
   return (
     <legend className="cw-choice-by">
       <span className="mono">{by.cell}</span>
       {by.line !== null && <span className="muted"> {by.line}</span>}
+      {tree && (
+        <span className="tag cw-choice-tree" title="Its answer goes into the design tree">
+          tree
+        </span>
+      )}
     </legend>
   );
 }

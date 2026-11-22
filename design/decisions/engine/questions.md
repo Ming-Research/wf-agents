@@ -24,6 +24,11 @@ A question says whether its cell waits for the answer, which holds the work at t
 - rejected: the owner proposed that a cell that cannot go on say so separately, as a message with a blocking mark or through its output, answered by words that let it go on; the owner rejected it, because a question that stands alone and waits says the same, so no other kind is set up.
 - rejected: an agent proposed a field on the question for why it waits, `why` and then `because`; the owner rejected it, because nobody reads it on its own: the reason goes into what the question asks.
 
+### decision a-question-says-whether-its-answer-goes-into-the-tree
+Each question a cell asks says in `tree` whether its answer settles a choice the tree's rules give the owner; the engine sends back the change handed in while such an answer left the tree unchanged.
+- replaced: Leaving it to the implementation to judge which answers settled a choice the tree's rules give the owner was on main; the owner changed it, because an answered choice could go unwritten with nothing to catch it, as a question of where his page shows an abnormal tool call showed.
+- rejected: the owner proposed that the engine also send back a change of the tree that no question marked yes asked for; the owner rejected it, because mending an entry the change made untrue changes the tree with no question.
+
 ### decision a-question-is-written-under-its-name
 A cell names each question it asks: written again under that name, it is asked again; given by its name with a reason, it is withdrawn; a question the cell does not write stands, with its answer.
 - rejected: an agent proposed handing in all of a cell's questions again each time, with an unchanged one kept by its number; the owner rejected it, because a question left out was then withdrawn, and a rewritten one lost its answer.

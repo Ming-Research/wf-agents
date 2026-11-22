@@ -253,6 +253,8 @@ fn asked(
     Some(Question::Asked {
         name: words.name.clone(),
         waits,
+        // The engine's question settles no choice of the design tree's: it is not marked.
+        tree: None,
         recommends: Some(words.merges),
         ask,
         options: (words.options.iter())
@@ -444,6 +446,7 @@ pub(crate) mod tests {
         let Ok(Some(Question::Asked {
             name,
             waits,
+            tree,
             recommends,
             ask,
             options,
@@ -455,6 +458,7 @@ pub(crate) mod tests {
         };
         assert_eq!(name, "protected_files");
         assert!(!waits, "asked as a round ends, the question does not hold the work");
+        assert_eq!(tree, None, "the engine's question is not marked `tree`");
         assert_eq!(
             recommends,
             Some(words().merges),

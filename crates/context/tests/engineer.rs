@@ -219,6 +219,7 @@ fn words_to_r1_while_its_question_waits_reach_it_and_its_message_holds_them_unde
     let asked = Question::Asked {
         name: "naming".to_string(),
         waits: true,
+        tree: None,
         recommends: Some(1),
         ask: "Which name does the greeting use?".to_string(),
         options: vec![
@@ -504,6 +505,7 @@ fn naming() -> Question {
     Question::Asked {
         name: "naming".to_string(),
         waits: true,
+        tree: None,
         recommends: Some(1),
         ask: "Which name does the greeting use?".to_string(),
         options: vec![
@@ -518,6 +520,57 @@ fn naming() -> Question {
         ],
         about: None,
         reasons: Default::default(),
+    }
+}
+
+// A question marked `tree` says so in its version of the cell's questions, which every agent cell is given, so that
+// whoever writes the tree and whoever reviews it knows which answers go there; one marked no, or one kept before
+// questions said `tree`, says nothing of it.
+#[test]
+fn a_question_marked_tree_says_so_in_its_version_and_one_not_marked_says_nothing_of_it() {
+    let (mut sim, round) = until("R1");
+    tried(&mut sim, &round);
+    let Question::Asked {
+        recommends,
+        ask,
+        options,
+        about,
+        reasons,
+        ..
+    } = naming()
+    else {
+        unreachable!("the question is asked");
+    };
+    let marked = |name: &str, tree: Option<bool>| Question::Asked {
+        name: name.to_string(),
+        waits: true,
+        tree,
+        recommends,
+        ask: ask.clone(),
+        options: options.clone(),
+        about: about.clone(),
+        reasons: reasons.clone(),
+    };
+    let came = Came {
+        said: Said {
+            questions: vec![
+                marked("naming", Some(true)),
+                marked("colour", Some(false)),
+                marked("before", None),
+            ],
+            ..Said::default()
+        },
+        ..Came::default()
+    };
+    sim.returns(&round, came, 0);
+    let entries = sim.versions("r1_questions");
+    assert_eq!(entries.len(), 3, "each question is a version");
+    let text = |i: usize| sim.content("r1_questions", entries[i]).to_string();
+    let mark = "\nMarked `tree`: the option taken goes into the design tree.";
+    assert!(text(0).ends_with(mark), "{}", text(0));
+    for i in [1, 2] {
+        assert!(!text(i).contains("Marked `tree`"), "{}", text(i));
+        assert!(text(i).ends_with("The work waits for the answer."), "{}", text(i));
     }
 }
 
@@ -903,6 +956,7 @@ fn an_answer_to_the_questions_of_a_cell_since_skipped_runs_the_cell_in_charge() 
     came.said.questions = vec![Question::Asked {
         name,
         waits: false,
+        tree: None,
         recommends,
         ask,
         options,

@@ -20,7 +20,8 @@ Judge it only by what it was made for (what `background` asks) and by the reposi
 3. The acceptance: whether each condition can be decided, whether a wrong result would fail it, and whether together
    they cover what `background` asks.
 4. The questions: a question that a fact could settle; a choice the design tree's rules say is the owner's that no
-   question asks; a question not marked in `plan_owner`.
+   question asks; a question not marked in `plan_owner`; a question marked wrongly, `tree` yes for a choice that is not
+   the owner's by the tree's rules, or no for one that is.
 
 In the why of `plan_ok`, answer each point by its number: none, or what you found. Write everything the writer must
 deal with in `plan_review`, all at once: this is your one chance, and nothing that could be raised now is raised

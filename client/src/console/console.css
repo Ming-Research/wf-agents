@@ -290,6 +290,13 @@
   font-size: var(--size-small);
 }
 
+/* A question whose answer goes into the design tree says so after who asked it: the key `tree` as the page's tag, in
+   the accent of the card's frame, so that such a question is told from the others at a glance. */
+.cw-choice-tree {
+  margin-inline-start: var(--space-8);
+  background: var(--accent);
+}
+
 /* A question folded shows the first lines of what it asks and nothing else, cut off into the card's ground so that the
    last line reads as cut and not as the end. Three lines are enough to tell one question from another. */
 .cw-choice-few {

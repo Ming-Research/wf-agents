@@ -38,7 +38,7 @@ const OUTPUTS: &str = flow::agents::OUTPUTS;
 const PROTECTED_CHANGES: &str = "protected_changes";
 
 /// The fields of a question, of either shape, as the engine reads them.
-const QUESTION_FIELDS: [&str; 6] = ["name", "waits", "recommends", "ask", "options", "withdrawn"];
+const QUESTION_FIELDS: [&str; 7] = ["name", "waits", "tree", "recommends", "ask", "options", "withdrawn"];
 
 /// A return as the agent writes it: one of the two kinds, or, where it mixes them, both, which the run's check sends
 /// back.
@@ -77,11 +77,16 @@ enum QuestionIn {
     Withdrawn(WithdrawnIn),
 }
 
+/// A question asked, as the agent writes it. Whether the option taken goes into the design tree, `tree`, is read
+/// where it is written: the form of every session begun since questions said it holds the agent to it, and a session
+/// begun before keeps a form that has no `tree` and takes none, whose question is kept as one not marked.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AskedIn {
     name: String,
     waits: bool,
+    #[serde(default)]
+    tree: Option<bool>,
     recommends: u64,
     ask: String,
     options: Vec<WayIn>,
@@ -400,6 +405,7 @@ fn question(q: QuestionIn) -> Question {
         QuestionIn::Asked(q) => Question::Asked {
             name: q.name,
             waits: q.waits,
+            tree: q.tree,
             recommends: Some(q.recommends),
             ask: q.ask,
             options: (q.options.into_iter())

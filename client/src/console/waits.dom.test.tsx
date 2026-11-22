@@ -184,6 +184,7 @@ const asked = (name: string, cell: string, waits: boolean): Question => ({
   version: 4,
   engine: false,
   waits,
+  tree: false,
   withdrawn: null,
   ask: `What of ${name}?`,
   options: [{ does: 'Keep it', follows: 'Nothing changes' }],

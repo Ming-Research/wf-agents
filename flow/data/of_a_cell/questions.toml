@@ -10,7 +10,8 @@ from = "answer"
 shown = true
 words = '''
 `{cell}_questions`: what you ask the owner. Ask what your task tells you to ask, and otherwise only what you cannot go
-on without; decide the rest yourself. A question asks what to do, not how to change the design tree. Set `waits` if you
+on without; decide the rest yourself. A question asks what to do, not how to change the design tree. Set `tree` if the
+answer settles a choice the design tree's rules give the owner: the option taken goes into the tree. Set `waits` if you
 cannot go on without the answer, or if going on by your recommendation would likely have to be undone at a cost: the
 work stops at this cell, and you are run again with the answer. Otherwise the work goes on by your recommendation. In a
 text, point to a question as `{{name}}`; `recommends` counts the options from 1. To rewrite a question, write it again
@@ -23,8 +24,8 @@ type = "array"
 
 [[shape.items.anyOf]]
 type = "object"
-properties = { name = { type = "string" }, waits = { type = "boolean" }, recommends = { type = "integer" }, ask = { type = "string" }, options = { type = "array", items = { type = "object", properties = { does = { type = "string" }, follows = { type = "string" } }, required = ["does", "follows"], additionalProperties = false } } }
-required = ["name", "waits", "recommends", "ask", "options"]
+properties = { name = { type = "string" }, waits = { type = "boolean" }, tree = { type = "boolean" }, recommends = { type = "integer" }, ask = { type = "string" }, options = { type = "array", items = { type = "object", properties = { does = { type = "string" }, follows = { type = "string" } }, required = ["does", "follows"], additionalProperties = false } } }
+required = ["name", "waits", "tree", "recommends", "ask", "options"]
 additionalProperties = false
 
 [[shape.items.anyOf]]
@@ -37,16 +38,18 @@ additionalProperties = false
 # name, `{version}` the version answered, `{option}` the option's number, `{does}` and `{follows}` the option's. A
 # question asked: `{question}` its name, `{version}` its version, `{ask}` what it asks, `{options}` each option as
 # `option` says it, with `{option}` its number, `{recommends}` the option it recommends as `recommends` says it, where
-# it recommends one, and `{waits}` whether its cell waits for the answer, as `waits` or `goes_on` says it; asked anew,
-# `{was}` the version it replaces. A question withdrawn: `{version}` the version that withdraws it, `{was}` the version
-# withdrawn, `{why}` why, as `why` says it.
+# it recommends one, `{waits}` whether its cell waits for the answer, as `waits` or `goes_on` says it, and `{tree}` as
+# `tree` says it where the question is marked `tree`, else nothing; asked anew, `{was}` the version it replaces. A
+# question withdrawn: `{version}` the version that withdraws it, `{was}` the version withdrawn, `{why}` why, as `why`
+# says it.
 [writes]
 text = "`{question}`, version {version}, answered: option {option}, {does}: {follows}."
 why = " Why: {why}"
-asked = "`{question}`, version {version}, asked: {ask}{options}{recommends}{waits}"
-asked_anew = "`{question}`, version {version}, asked anew in place of version {was}: {ask}{options}{recommends}{waits}"
+asked = "`{question}`, version {version}, asked: {ask}{options}{recommends}{waits}{tree}"
+asked_anew = "`{question}`, version {version}, asked anew in place of version {was}: {ask}{options}{recommends}{waits}{tree}"
 option = "\n- option {option}, {does}: {follows}"
 recommends = "\nRecommended: option {option}."
 waits = "\nThe work waits for the answer."
 goes_on = "\nThe work goes on by the recommendation."
+tree = "\nMarked `tree`: the option taken goes into the design tree."
 withdrawn = "`{question}`, version {was}, withdrawn.{why}"

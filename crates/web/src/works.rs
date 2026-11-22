@@ -758,6 +758,8 @@ pub struct QuestionPage {
     /// The engine itself asked it, and not the cell's agent.
     pub engine: bool,
     pub waits: bool,
+    /// Its latest version is marked `tree`: the option taken goes into the design tree.
+    pub tree: bool,
     /// The latest version withdraws it, for this reason; none while it stands.
     pub withdrawn: Option<String>,
     /// What it asks, its options and the one it recommends, counted from one; of a question withdrawn, none.
@@ -790,11 +792,12 @@ impl QuestionPage {
     fn all(flow: &flow::Compiled, work: &Work) -> Vec<QuestionPage> {
         (decide::questions::questions(&work.records).into_iter())
             .map(|(name, q)| {
-                let (ask, options, recommends, withdrawn) = match work.question(q.latest) {
+                let (ask, options, recommends, withdrawn, tree) = match work.question(q.latest) {
                     Some(work::Question::Asked {
                         ask,
                         options,
                         recommends,
+                        tree,
                         ..
                     }) => {
                         let options = (options.iter())
@@ -803,10 +806,10 @@ impl QuestionPage {
                                 follows: o.follows.clone(),
                             })
                             .collect();
-                        (Some(ask.clone()), options, *recommends, None)
+                        (Some(ask.clone()), options, *recommends, None, *tree == Some(true))
                     }
-                    Some(work::Question::Withdrawn { why, .. }) => (None, Vec::new(), None, Some(why.clone())),
-                    None => (None, Vec::new(), None, None),
+                    Some(work::Question::Withdrawn { why, .. }) => (None, Vec::new(), None, Some(why.clone()), false),
+                    None => (None, Vec::new(), None, None, false),
                 };
                 QuestionPage {
                     name: name.to_string(),
@@ -814,6 +817,7 @@ impl QuestionPage {
                     version: engine::asked::number_of(flow, &work.records, &q.latest.cell, q.latest.at),
                     engine: q.latest.engine,
                     waits: q.latest.waits,
+                    tree,
                     withdrawn: withdrawn.or_else(|| q.latest.withdrawn.then(String::new)),
                     ask,
                     options,
@@ -1291,6 +1295,9 @@ pub enum Unmet {
     Unexplained { path: String },
     /// The run of a line that changes only the project's tests changed this file, which is none of them.
     NotATest { path: String },
+    /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
+    /// change changes nothing in the design tree.
+    TreeUnchanged { name: String },
     /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question with an
     /// answer to come.
     Unanswered { block: String },
@@ -3172,6 +3179,7 @@ impl Unmet {
             UnmetOf::NotAnswered { name } => Unmet::NotAnswered { name: name.clone() },
             UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
             UnmetOf::NotATest { path } => Unmet::NotATest { path: path.clone() },
+            UnmetOf::TreeUnchanged { name } => Unmet::TreeUnchanged { name: name.clone() },
             UnmetOf::Unanswered { block } => Unmet::Unanswered {
                 block: block.to_string(),
             },

@@ -2386,6 +2386,7 @@ mod tests {
                 version: Some(n),
                 engine: false,
                 waits: true,
+                tree: false,
                 withdrawn: None,
                 ask: Some(format!("Which way, {n}?")),
                 options: Vec::new(),
