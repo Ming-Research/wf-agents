@@ -1,6 +1,6 @@
 # The console
 
-The tree of items in columns, their cards, and how the page lights what runs and what the owner points at.
+The tree of items in columns, their cards and folds, and how the page lights what runs and what the owner points at.
 
 ### decision the-console-is-the-old-engines-console
 The console's tree is the old engine's console brought over, with its layout, its motion and its constants unchanged; the page's new look is used only around it.
@@ -19,7 +19,7 @@ Items stand in columns, one for each level from the roots at the left; each scro
 - replaced: A line across the middle, onto which an item of each column snapped, was on main; the owner changed it, because the snap still jumped, and nothing pulls a block of items away from its parent.
 
 ### decision the-tree-follows-what-depends-on-what
-The items form one tree by what depends on what: where one item depends on another, the other stands under it, directly or further down; nothing else shapes the tree.
+The items form one tree by what depends on what, or last did: where one item depends on another, the other stands under it, directly or further down; nothing else shapes the tree.
 - rejected: an agent proposed giving each item a parent, besides its dependencies, for the tree to show it under; the owner rejected it, because the parent relation and the dependencies can be one, merged into the dependencies.
 - replaced: A flat list of the items by their class was on main; the owner changed it, because a flat list shows no dependencies.
 
@@ -28,6 +28,15 @@ An item stands whole in one place, under the lowest-numbered item that depends o
 - rejected: an agent proposed a count, on the item, of the other items that depend on it; the owner rejected it, because a count does not say which they are.
 - rejected: an agent proposed linking the item to the others that depend on it only while the pointer is on it; the owner rejected it, because the link could not be found without pointing at the item.
 - replaced: A main dependent chosen for each item was on main; the owner changed it, because the code takes the lowest-numbered one, and a decision never runs ahead of the code.
+
+### decision an-ended-item-stands-where-it-stood
+A done or cancelled item that no item depends on any more stands under the item that last depended on it; one that no item ever depended on stands at the top.
+- replaced: An ended item that no item depended on any more standing at the top was on main; the owner changed it, because every item that depends on an item stops depending on it as it is cancelled, so the cancelled items, once ticked, filled the screen as roots.
+
+### decision an-item-folds-what-stands-under-it
+An item with items under it folds them away at a mark past its card's right edge, its row then counting them by how they stand; it is folded where nothing in it is open, or as the owner chose.
+- replaced: The whole tree always drawn, with no way to fold a part of it, was on main; the owner changed it, because the tree grows with every item added, and would keep growing.
+- rejected: an agent proposed folding the done rows by default, showing only their count; the owner rejected it, because he often needs to see the overall progress.
 
 ### decision a-card-has-a-row-for-its-work
 A card has one row, with its number and its title, and a second row only while a work is under way on it, holding the level its cell runs at, the strip of its cells and the lines it changed.

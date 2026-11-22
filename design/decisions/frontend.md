@@ -103,7 +103,7 @@ The page's animations play whether or not the system asks for reduced motion.
 - rejected: an agent proposed changing at once, with no animation, when the system asks for reduced motion; the owner rejected it, because he has no use for that setting at all.
 
 ### decision a-views-choices-are-kept-in-the-browser
-The browser keeps each view as the owner left it: its switches, window, order, span and widths; each tab leads back to its last address, and a view the owner leaves is kept, hidden.
+The browser keeps each view as the owner left it: its switches, window, order, span, widths and folds; each tab leads back to its last address, and a view the owner leaves is kept, hidden.
 - replaced: Choices held only in the view's memory was on main; the owner changed it, because every choice went back to its default each time he went to another tab or reloaded the page.
 - replaced: A tab that always led to its first view, the Works tab to its list, was on main; the owner changed it, because a work he had opened was lost when he came back, and there was no way from it back to the list.
 - replaced: A view removed when another tab was shown, then built again with its scroll lost when he came back, was on main; the owner changed it, because coming back to the console was a poor experience.
