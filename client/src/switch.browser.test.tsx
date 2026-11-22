@@ -11,9 +11,6 @@ import { userEvent } from 'vitest/browser';
 
 import { Switch } from './parts';
 
-/// Longer than a hover's step takes (`--hover-time`).
-const settled = () => new Promise((done) => setTimeout(done, 300));
-
 describe('a segmented switch', () => {
   let host: HTMLDivElement;
   afterEach(() => host.remove());
@@ -40,14 +37,17 @@ describe('a segmented switch', () => {
     const look = (b: HTMLElement) => ({ cursor: getComputedStyle(b).cursor, ground: getComputedStyle(b).backgroundColor });
     const still = { taken: look(taken), other: look(other) };
 
-    await userEvent.hover(taken);
-    await settled();
-    expect(look(taken)).toEqual({ cursor: 'default', ground: still.taken.ground });
-
+    // The hover reaches the other choice, and its tint comes: waited for as long as the browser tests wait on a
+    // condition, not for a time that a busy machine outlasts. The hand is the style's own and does not wait.
     await userEvent.hover(other);
-    await settled();
+    await expect.poll(() => look(other).ground).not.toBe(still.other.ground);
     expect(look(other).cursor).toBe('pointer');
-    expect(look(other).ground).not.toBe(still.other.ground);
+
+    // The pointer moves to the choice taken. The other choice has its first look again once the hover has left it,
+    // which says the hover has reached this one; a tint it would take starts in the same step, so it is read after.
+    await userEvent.hover(taken);
+    await expect.poll(() => look(other).ground).toBe(still.other.ground);
+    expect(look(taken)).toEqual({ cursor: 'default', ground: still.taken.ground });
     root.unmount();
   });
 });
