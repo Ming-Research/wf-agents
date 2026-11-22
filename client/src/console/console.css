@@ -50,9 +50,11 @@
   color: var(--red-text);
 }
 
-/* The search, under the boxes: the page's field, and under it what it finds, on the card in a hairline frame, each a
-   list row of one line, the item's path, its title cut at the edge, and how it stands: under the pointer a step
-   darker, the row the arrow keys stand on in the accent's tint, as a row chosen is. */
+/* The search, under the boxes: the page's field, and under it what it finds, or that it finds nothing, on the card in a
+   hairline frame as the legend's panel is, wider than the tree's first column (its cards are 300 pixels wide, from
+   40 in: `NODE_W` and the scene's first `left` in snap.ts), so that no card of the tree shows through it or beside
+   it. Each item found is a list row of one line, its path, its title cut at the edge, and how it stands: under the
+   pointer a step darker, the row the arrow keys stand on in the accent's tint, as a row chosen is. */
 .console-find {
   display: flex;
   flex-direction: column;
@@ -61,7 +63,7 @@
 }
 
 .console-found {
-  max-width: var(--wide-cell);
+  width: var(--wide-cell);
   border: var(--hairline) solid var(--line);
   background: var(--card);
   font-size: var(--size-small);
@@ -98,9 +100,8 @@
 }
 
 .console-found-none {
-  margin: 0;
+  padding: var(--space-4) var(--space-8);
   color: var(--muted);
-  font-size: var(--size-small);
 }
 
 /* What the marks and keys mean: the page's button with the question mark drawn, at the tree's bottom left corner, and

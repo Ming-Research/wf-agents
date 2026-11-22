@@ -78,30 +78,34 @@ export function Find({ data, field, onPick }: {
         onChange={(e) => type(e.target.value)}
         onKeyDown={key}
       />
-      {query.trim() === '' ? null : found.length === 0 ? (
-        <p className="console-found-none">{FIND_SAYS.none}</p>
-      ) : (
-        <ul className="console-found" role="listbox" aria-label="The items found">
-          {found.map(({ item, path }, k) => {
-            const standing = standingOf(item);
-            return (
-              <li
-                key={item.number}
-                role="option"
-                aria-selected={k === at}
-                className={k === at ? 'list-row console-found-row chosen' : 'list-row console-found-row'}
-                onClick={() => pick(item.number)}
-              >
-                <span className="mono">{pathWords(path)}</span>
-                <span className="console-found-title">{item.title}</span>
-                <span className="console-found-standing">
-                  <span className={DOT[standing]} aria-hidden="true" />
-                  {STANDING_WORDS[standing]}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+      {query.trim() === '' ? null : (
+        <div className="console-found">
+          {found.length === 0 ? (
+            <p className="console-found-none">{FIND_SAYS.none}</p>
+          ) : (
+            <ul role="listbox" aria-label="The items found">
+              {found.map(({ item, path }, k) => {
+                const standing = standingOf(item);
+                return (
+                  <li
+                    key={item.number}
+                    role="option"
+                    aria-selected={k === at}
+                    className={k === at ? 'list-row console-found-row chosen' : 'list-row console-found-row'}
+                    onClick={() => pick(item.number)}
+                  >
+                    <span className="mono">{pathWords(path)}</span>
+                    <span className="console-found-title">{item.title}</span>
+                    <span className="console-found-standing">
+                      <span className={DOT[standing]} aria-hidden="true" />
+                      {STANDING_WORDS[standing]}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

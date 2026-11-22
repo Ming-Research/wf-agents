@@ -25,6 +25,7 @@ import { apart, lchOf } from '../colour';
 import { MARKS } from '../marks';
 import type { Items } from '../works-api';
 import { fixtureSource } from './fixtures';
+import { FIND_SAYS } from './find';
 import { CONSOLE_MARKS } from './help';
 import type { Heard } from './source';
 import { ConsolePage } from './index';
@@ -781,7 +782,7 @@ describe('the console page', () => {
       ?.querySelector('input') as HTMLInputElement;
 
   it('gives the keys to the search at `/`, finds by number, by path and by a part of the title, and empties at Escape', async () => {
-    await drawn();
+    const scene = await drawn();
     await userEvent.keyboard('/');
     expect(document.activeElement).toBe(field());
     expect(field().value).toBe('');
@@ -793,6 +794,29 @@ describe('the console page', () => {
     await userEvent.clear(field());
     await userEvent.keyboard('26-27');
     await expect.poll(found).toEqual(['26-27', '26-27-30', '26-27-31']);
+    // As a path is typed a digit at a time: `26-2` names 26-27, 26-28 and 26-29, each with the items under it.
+    await userEvent.clear(field());
+    await userEvent.keyboard('26-2');
+    await expect.poll(found).toEqual([
+      '26-27',
+      '26-27-30',
+      '26-27-31',
+      '26-28',
+      '26-28-32',
+      '26-29',
+      '26-29-33',
+      '26-29-34',
+    ]);
+    // The list's frame reaches past the right edge of the tree's first column, so that no card shows beside it.
+    const frame = (container.querySelector('.console-found') as HTMLElement).getBoundingClientRect();
+    const canvas = (container.querySelector('canvas') as HTMLCanvasElement).getBoundingClientRect();
+    expect(frame.right).toBeGreaterThanOrEqual(canvas.left + scene.place().left + NODE_W);
+    // Nothing found is said in the list's own frame, on its ground.
+    await userEvent.clear(field());
+    await userEvent.keyboard('nowhere at all');
+    await expect.poll(() => container.querySelector('.console-found > .console-found-none')?.textContent).toBe(
+      FIND_SAYS.none,
+    );
     // By a part of the title, in any case, over every item, done or not.
     await userEvent.clear(field());
     await userEvent.keyboard('FOLD');
