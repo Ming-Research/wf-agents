@@ -117,6 +117,27 @@ async fn start_twice_gives_one_worktree() {
     assert_eq!(worktrees.lines().filter(|l| l.starts_with("worktree ")).count(), 2);
 }
 
+// A command run in a worktree may leave directories that do not let their owner take a file out, at any depth: the
+// worktree is still taken away, since git alone cannot, and the repository no longer names it.
+#[tokio::test]
+async fn a_worktree_with_directories_that_cannot_be_written_or_read_is_taken_away() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = Repo::new("true");
+    let started = start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+    let (outer, inner) = (started.place.dir.join("sealed"), started.place.dir.join("sealed/inner"));
+    std::fs::create_dir_all(&inner).unwrap();
+    std::fs::write(inner.join("entry"), "x").unwrap();
+    for (dir, mode) in [(&inner, 0o555), (&outer, 0o000)] {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    remove(&repo.project, &repo.place(WORK))
+        .await
+        .expect("the worktree is taken away");
+    assert!(!started.place.dir.exists());
+    let worktrees = run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
+    assert_eq!(worktrees.lines().filter(|l| l.starts_with("worktree ")).count(), 1);
+}
+
 #[tokio::test]
 async fn the_merge_puts_the_checked_commit_on_main_once() {
     let repo = Repo::new("true");

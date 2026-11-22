@@ -227,10 +227,42 @@ async fn take_away(project: &Project, place_dir: &Path) -> Result<(), String> {
             ours |= tokio::fs::canonicalize(listed).await.is_ok_and(|listed| listed == dir);
         }
         if ours {
-            git(repo, &["worktree", "remove", "--force", &text(place_dir)]).await?;
+            let removed = git(repo, &["worktree", "remove", "--force", &text(place_dir)]).await;
+            // A command run in the worktree may leave a directory that does not let its owner take a file out of it,
+            // which git cannot take away. The engine made the worktree and owns it, so it opens such directories up
+            // and takes it away once more; what then still fails is said as git says it.
+            if removed.is_err() {
+                let opened = dir.clone();
+                let _ = tokio::task::spawn_blocking(move || open_up(&opened)).await;
+                git(repo, &["worktree", "remove", "--force", &text(place_dir)]).await?;
+            }
         }
     }
     Ok(())
+}
+
+/// Gives the owner every right over the directory and each directory under it, links not followed, so that what is in
+/// them can be taken away. What cannot be changed is left: the removal that follows says what still stands in its way.
+fn open_up(dir: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Ok(meta) = std::fs::symlink_metadata(dir) else {
+            return;
+        };
+        if !meta.is_dir() {
+            return;
+        }
+        let mut permissions = meta.permissions();
+        permissions.set_mode(permissions.mode() | 0o700);
+        let _ = std::fs::set_permissions(dir, permissions);
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            open_up(&entry.path());
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
 }
 
 /// Where the local check runs, beside the work's worktree and named after it: a checkout of the commit checked and of
