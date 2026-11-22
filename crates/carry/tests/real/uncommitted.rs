@@ -119,6 +119,11 @@ async fn a_build_that_asks_for_a_call_with_a_tracked_file_changed_is_held_to_it_
         changes: " M greeting.txt".to_string(),
     };
     assert_eq!(kept.given.get(&(results, 2)), Some(&Given::SentBack(vec![left])));
+    assert_eq!(
+        kept.given.get(&(results, 3)),
+        None,
+        "the round that took the change back left nothing"
+    );
 }
 
 // A line that only reads changes nothing of the work, and a file its round touched is the outside's.

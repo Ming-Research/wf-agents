@@ -562,6 +562,9 @@ case "$first" in
         grep -q 'The results of what you asked for' "$log/$n.stdin" && results=yes
         checked=no
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
+        # A round told its return was sent back for a change not committed has nothing more to ask for.
+        sent_back=no
+        grep -q 'changes to tracked files that are not committed' "$log/$n.stdin" && sent_back=yes
         answered=no
         awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `build_questions`' && answered=yes
         if [ '{tree_question}' = yes ] && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
@@ -575,7 +578,7 @@ case "$first" in
             # It leaves all that ran it for after the answer.
             dealt=''
             out='"build_questions":[{{"name":"which_name","waits":true,"tree":{tree_mark},"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
-        elif [ "$results" = no ] && [ '{then_asks}' = yes ]; then
+        elif [ "$results" = no ] && [ "$sent_back" = no ] && [ '{then_asks}' = yes ]; then
             built
             calls='"query":[{{"sql":"select the check"}}]'
         elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ]; }}; then
