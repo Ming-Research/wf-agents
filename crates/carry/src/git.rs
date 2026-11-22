@@ -330,7 +330,7 @@ pub fn worktree(place: &Place) -> Result<PathBuf, String> {
 /// What a work's worktree holds that is not committed, as `git status --porcelain` lists it; nothing where all is. A
 /// file git does not track is not a change: it is in no commit, and is left as it is ([`untracked`]).
 pub(crate) async fn uncommitted(dir: &Path) -> Result<String, String> {
-    git(dir, &["status", "--porcelain"]).await
+    git(dir, &["status", "--porcelain", "--untracked-files=no"]).await
 }
 
 /// The files and directories of the worktree that git does not track and does not ignore, one to a line, a directory
