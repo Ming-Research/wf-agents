@@ -7,7 +7,9 @@
 //! As a round ends whose return writes a block handed in only with the owner's answers in the tree
 //! (`answers_in_the_tree` of its file), the engine also looks whether the work's own change against main changes the
 //! tree at all, where a question of the work marked `tree` has the owner's answer ([`unwritten`]): the return is sent
-//! back for each such question while it does not.
+//! back for each such question while it does not. The check before the merge makes the same look, and fails while it
+//! does not (`crate::acts`): an answer given after the change was handed in, taking the recommended option to a
+//! question that does not wait, runs no cell, so no return is held to it.
 
 use std::path::Path;
 
@@ -109,9 +111,10 @@ async fn between(dir: &Path, tree: &str, was: &str, now: &str) -> Result<Vec<Str
 
 /// The name of each question of the work whose answer the design tree in this directory of the checkout does not hold,
 /// as a round ends whose return writes a block handed in only with the answers there (`answers_in_the_tree` of its
-/// file), the return saying this beside its work: each question marked `tree` that has the owner's answer to its latest
-/// version ([`answered`]), where the work's own change against main changes no file of the tree; none where it changes
-/// one. In the order of their names. A question kept before questions said `tree` is marked by none.
+/// file), the return saying this beside its work, or as the check before the merge looks, with no return, which says
+/// nothing: each question marked `tree` that has the owner's answer to its latest version ([`answered`]), where the
+/// work's own change against main, at `main`, changes no file of the tree; none where it changes one. In the order of
+/// their names. A question kept before questions said `tree` is marked by none.
 pub(crate) async fn unwritten(
     project: &Project,
     place: &Place,
@@ -139,10 +142,10 @@ fn answered(work: &Work, said: &Said) -> Vec<String> {
         .collect()
 }
 
-/// Whether the work's own change against main, from where its branch left main as the reference `main` holds it to
-/// the branch's head, changes a file of the design tree in this directory of the checkout. Git is run as the look at
-/// the protected paths runs it: the configuration that could make it run a program is refused first, and no external
-/// diff or conversion is run.
+/// Whether the work's own change against main, from where its branch left main as `main` names it, a reference or a
+/// commit, to the branch's head, changes a file of the design tree in this directory of the checkout. Git is run as the
+/// look at the protected paths runs it: the configuration that could make it run a program is refused first, and no
+/// external diff or conversion is run.
 async fn changed_by_the_work(project: &Project, place: &Place, main: &str, tree: &str) -> Result<bool, String> {
     git::configuration(project, place).await?;
     let head = place.reference();
@@ -167,4 +170,4 @@ async fn changed_by_the_work(project: &Project, place: &Place, main: &str, tree:
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
