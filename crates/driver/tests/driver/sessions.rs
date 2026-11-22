@@ -2176,3 +2176,33 @@ fn no_session_of_a_cancelled_work_is_pinged_though_another_lines_round_was_under
     let todos = s.driver.tick(Time(at), None, None).unwrap();
     assert!(pings(&s, &todos).is_empty(), "a ping of a cancelled work");
 }
+
+// A stop of the engine holds no call and no keep-warm ping: the round under way as the stop is asked for, which asks
+// for a tool, has its call given, and the session that waits for its result is pinged when its ping is due, as with no
+// stop, so that the cache the engine's next start goes on from is kept; the engine may not end while the ping is under
+// way. Fails where a stop holds either, or lets the engine end with a ping under way. Milliseconds; no other test gives
+// a call or a ping under a stop.
+#[test]
+fn a_stop_holds_neither_a_call_nor_a_ping() {
+    let mut s = S::warmed(warm("opus"));
+    s.hands_in(100, true);
+    s.driver.ask_to_stop(Time(s.clock), false).expect("the stop is kept");
+    s.asks(100);
+    let calls = (s.driver.pending().iter())
+        .filter(|t| t.work == s.work && matches!(t.effect, Effect::Call { .. }))
+        .count();
+    assert_eq!(calls, 1, "the round's call is given under the stop");
+    let at = woken(&s);
+    let todos = s.driver.tick(Time(at), None, None).expect("the driver takes the time");
+    assert_eq!(
+        pings(&s, &todos),
+        [("engineer".to_string(), 0)],
+        "the waiting session is pinged under the stop"
+    );
+    assert!(!s.driver.may_end(), "a ping is under way");
+    s.clock = at + 5_000;
+    s.driver
+        .happened(Time(s.clock), s.work, pinged(Spent::default(), None))
+        .unwrap();
+    assert!(s.driver.may_end(), "nothing is under way once the ping has ended");
+}
