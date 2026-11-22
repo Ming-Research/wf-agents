@@ -82,6 +82,14 @@ impl Storage for Failing {
     fn keep_account(&mut self, record: &store::AccountRecord) -> Result<(), store::Fault> {
         self.store.keep_account(record)
     }
+
+    fn keep_flow(&mut self, kept: &store::KeptFlow) -> Result<(), store::Fault> {
+        self.store.keep_flow(kept)
+    }
+
+    fn outlines(&self) -> Result<Vec<store::KeptOutline>, store::Fault> {
+        self.store.outlines()
+    }
 }
 
 #[tokio::test(start_paused = true)]

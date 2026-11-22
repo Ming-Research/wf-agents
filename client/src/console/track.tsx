@@ -7,8 +7,9 @@ import type { WorkPage } from '../works-api';
 import { STATE } from '../works/words';
 
 /// What a stretch of a work's time was: a model at work, the tools running, or no round running while the work waited
-/// for the owner, was paused, waited for the items its item depends on, or for anything else.
-export type TrackKind = 'model' | 'tool' | 'owner' | 'paused' | 'items' | 'gap';
+/// for the owner, was paused, waited for the items its item depends on, or for anything else; or no round running
+/// while what the work waited for is not known, its flow's version not having been kept.
+export type TrackKind = 'model' | 'tool' | 'owner' | 'paused' | 'items' | 'gap' | 'unknown';
 
 /// One stretch of a track, from `left` for `width`, both in percent of the track.
 export type TrackSpan = { key: string; kind: TrackKind; left: number; width: number };
@@ -21,6 +22,7 @@ export const BAR_KINDS: Record<string, TrackKind> = {
   p: 'paused',
   w: 'items',
   '.': 'gap',
+  '?': 'unknown',
 };
 
 /// What each kind of stretch is, said on pointing at it: where nothing ran, the state the work stood in, in the words
@@ -32,6 +34,7 @@ export const TRACK_WORDS: Record<TrackKind, string> = {
   paused: STATE.paused,
   items: STATE.items,
   gap: 'Nothing ran',
+  unknown: 'Nothing ran; what the work waited for is not known, the version of the flow it ran on not having been kept',
 };
 
 const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0);
@@ -55,8 +58,8 @@ export function TimeTrack({ spans }: { spans: TrackSpan[] }) {
 
 /// The stretches of a track from the bar the engine lays a work's time out in (`Summary.bar`): one character for each
 /// cell of equal width, `m` where a model worked, `t` where the tools did, and where neither did what the work waited
-/// for, `o` the owner, `p` a pause, `w` the items it depends on, `.` anything else. A run of the same character is one
-/// block; the ends before the first block that is not `.` and after the last are left bare.
+/// for, `o` the owner, `p` a pause, `w` the items it depends on, `.` anything else, `?` not known. A run of the same
+/// character is one block; the ends before the first block that is not `.` and after the last are left bare.
 export function barSpans(bar: string): TrackSpan[] {
   const cells = [...bar];
   const first = cells.findIndex((c) => c !== '.');
@@ -82,7 +85,7 @@ const BAR_CELLS = 96;
 /// when it was done, are the tools'; the one under way is counted to `now`. What the work waited for is the engine's to
 /// say, and a stretch nothing ran in is `.` here.
 export function barOf(page: WorkPage, now = Date.now()): string {
-  const agent = new Set(page.flow.cells.filter((c) => c.act === null).map((c) => c.id));
+  const agent = new Set(page.outline.cells.filter((c) => c.agent).map((c) => c.id));
   const stretches: [number, number, boolean][] = [];
   for (const s of page.steps) {
     if (s.kind !== 'run') continue;

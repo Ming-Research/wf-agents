@@ -32,7 +32,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use decide::RunId;
 use decide::run::Failure;
-use flow::{Compiled, Kind};
+use flow::Outline;
 use store::WorkNumber;
 use work::{Back, Time, Work};
 
@@ -60,11 +60,11 @@ pub enum Service {
 }
 
 impl Service {
-    /// Whether the service serves the rounds of the cell of this kind.
-    fn serves(self, kind: Kind) -> bool {
+    /// Whether the service serves the rounds of a cell, an agent's or else an act of the engine's.
+    fn serves(self, agent: bool) -> bool {
         match self {
-            Service::Agents => kind == Kind::Agent,
-            Service::Host => kind == Kind::Engine,
+            Service::Agents => agent,
+            Service::Host => !agent,
         }
     }
 }
@@ -232,7 +232,7 @@ struct Taken {
 /// account in use was taken, is the driver's to add.
 pub fn outage<'a>(
     service: Service,
-    works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a Work)>,
+    works: impl IntoIterator<Item = (WorkNumber, &'a Outline, &'a Work)>,
     answered: &BTreeSet<(WorkNumber, RunId, usize)>,
     in_use: Option<&str>,
 ) -> Option<Outage> {
@@ -266,7 +266,7 @@ pub fn outage<'a>(
 /// The usage limit of each account that stands, by the account's name, whether or not the account is in use, from the
 /// records of these works and the rounds the agents' service answered while under way.
 pub fn limits<'a>(
-    works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a Work)>,
+    works: impl IntoIterator<Item = (WorkNumber, &'a Outline, &'a Work)>,
     answered: &BTreeSet<(WorkNumber, RunId, usize)>,
 ) -> BTreeMap<String, Limit> {
     let rounds = rounds(Service::Agents, works);
@@ -291,10 +291,10 @@ pub fn limits<'a>(
 }
 
 /// Every round of the works' runs of cells the service serves.
-fn rounds<'a>(service: Service, works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a Work)>) -> Vec<Taken> {
+fn rounds<'a>(service: Service, works: impl IntoIterator<Item = (WorkNumber, &'a Outline, &'a Work)>) -> Vec<Taken> {
     let mut rounds = Vec::new();
-    for (number, flow, work) in works {
-        rounds.extend(rounds_of(service, number, flow, work));
+    for (number, outline, work) in works {
+        rounds.extend(rounds_of(service, number, outline, work));
     }
     rounds
 }
@@ -346,9 +346,9 @@ struct Met<'a> {
     resets: Option<Time>,
 }
 
-/// Every round of the work's runs of cells the service serves, with the account its last try ran under, when it began
-/// and ended and what came back.
-fn rounds_of(service: Service, number: WorkNumber, flow: &Compiled, work: &Work) -> Vec<Taken> {
+/// Every round of the work's runs of cells the service serves, as the version the work is on has them, with the
+/// account its last try ran under, when it began and ended and what came back.
+fn rounds_of(service: Service, number: WorkNumber, outline: &Outline, work: &Work) -> Vec<Taken> {
     let r = &work.records;
     // The account of each round, by its run and number, as its last try recorded it: the tries in the order they began.
     let mut accounts: BTreeMap<(RunId, usize), Option<&str>> = BTreeMap::new();
@@ -357,7 +357,7 @@ fn rounds_of(service: Service, number: WorkNumber, flow: &Compiled, work: &Work)
     }
     let mut out = Vec::new();
     for started in &r.started {
-        let served = (flow.cells.iter()).any(|spec| spec.id == started.cell && service.serves(spec.kind));
+        let served = (outline.cell(&started.cell)).is_some_and(|cell| service.serves(cell.agent));
         if !served {
             continue;
         }

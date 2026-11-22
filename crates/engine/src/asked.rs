@@ -60,8 +60,13 @@ pub fn questions_of<'f>(flow: &'f Compiled, cell: &CellId) -> Option<&'f BlockId
 /// which an agent and the owner know it (decision a-version-is-numbered-within-its-datum). None where none was written
 /// with it, as of a cell with no questions of its own.
 pub fn number_of(flow: &Compiled, records: &Records, cell: &CellId, at: Seq) -> Option<u64> {
-    let block = questions_of(flow, cell)?;
-    records.number([block], Seq(at.0 + 1))
+    number_in(records, questions_of(flow, cell)?, at)
+}
+
+/// The number of the version of these questions of a cell that the engine wrote with this entry of the records, as
+/// [`number_of`] says, the cell's questions being named.
+pub fn number_in(records: &Records, questions: &BlockId, at: Seq) -> Option<u64> {
+    records.number([questions], Seq(at.0 + 1))
 }
 
 /// The block among the outputs of the cell of this id that this source of the engine's writes: a cell's own questions

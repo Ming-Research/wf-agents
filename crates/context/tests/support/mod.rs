@@ -467,6 +467,20 @@ impl Sim {
         });
     }
 
+    /// The work is put on another version of its flow, which reads each datum recorded before it by the first of these
+    /// names by the second, and its cells as they were.
+    pub fn moves(&mut self, renamed: &[(&str, &str)]) {
+        self.time += 1;
+        let reading = decide::Reading {
+            cells: BTreeMap::new(),
+            blocks: (renamed.iter())
+                .map(|(from, to)| (BlockId::from(*from), BlockId::from(*to)))
+                .collect(),
+        };
+        self.work
+            .onto(Time(self.time), Some(format!("moved at {}", self.time)), reading);
+    }
+
     /// The call has this result.
     pub fn done(&mut self, call: CallId, result: &str) {
         self.take(Event::Done {

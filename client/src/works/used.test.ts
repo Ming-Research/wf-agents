@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { cell, flowOf } from '../testing';
+import { cell, flowOf, outlineOf } from '../testing';
 import type { CallRow, Round, Spent, Step, WorkPage } from '../works-api';
 import { usageOf } from './used';
 
@@ -81,7 +81,7 @@ function work(): WorkPage {
     ),
     run(3, 'check', [round(1, 50, 52, 0, { session: null, tries: [], context: null })]),
   ];
-  return { steps, flow: FLOW } as WorkPage;
+  return { steps, flow: FLOW, outline: outlineOf(FLOW) } as WorkPage;
 }
 
 describe('what a work used', () => {

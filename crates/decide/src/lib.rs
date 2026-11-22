@@ -10,6 +10,7 @@
 //!
 //! - [`flow`]: the cells in their order, the blocks that run each and those it writes, and the named tests.
 //! - [`records`]: what ran and what was written, each list only added to.
+//! - [`reading`]: how what was recorded on one version of the flow reads on a later one.
 //! - [`questions`]: the questions put to the owner and the answers, as they stand.
 //! - [`walk`]: the decision: which cell runs, which run goes on.
 //! - [`run`]: what a run that goes on does next.
@@ -18,6 +19,7 @@
 
 pub mod flow;
 pub mod questions;
+pub mod reading;
 pub mod records;
 pub mod room;
 pub mod run;
@@ -25,6 +27,7 @@ pub mod view;
 pub mod walk;
 
 pub use flow::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName, Verdict};
+pub use reading::Reading;
 pub use records::{
     Abandoned, Answered, CallId, Called, Cause, Done, Finished, LetGo, Outsider, Pause, Pauser, PutIn, Questioned,
     RecordFault, Records, Returned, Round, RunId, Seq, Started, Who, Write, Written, holds_nothing,
@@ -32,6 +35,6 @@ pub use records::{
 pub use room::{Holder, Room, begun, taking_slot};
 pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, ruled_versions, versions, view, view_in};
 pub use walk::{
-    Abandoning, Decision, End, Judge, Maker, Stalling, Unrun, Waited, applies, decide, decide_in, hold, hold_in,
+    Abandoning, Decision, End, Judge, Maker, Stalling, Unrun, Waited, applies, decide, decide_in, ended, hold, hold_in,
     judges, keeping, new_to, owed, pause, paused, reached, told,
 };

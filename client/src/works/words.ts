@@ -333,6 +333,10 @@ export const STATE = {
   waiting: 'Waiting',
 } as const;
 
+/// What the history of a work on no version kept says over it: why its cells have no titles or lines (decision
+/// `a-works-past-is-drawn-from-its-outline`).
+export const NOT_KEPT = 'The flow this work ran on was not kept: its cells are named by the ids its records name.';
+
 /// A work that waits for whoever else gives what it waits for, by name.
 export const waitingFor = (who: string): string => `Waiting for ${who}`;
 

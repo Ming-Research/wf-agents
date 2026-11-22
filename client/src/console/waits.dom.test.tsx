@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { hashOf, routeOf } from '../route';
 import { standingOf } from '../system/standing';
+import { outlineOf } from '../testing';
 import { orderWorks } from '../works/placing';
 import { waitingCount, waitsOf, waitsOnOwner } from '../works/waiting';
 import { STATE, nowTone, stateOf } from '../works/words';
@@ -223,6 +224,7 @@ function draw(
     level: item.level,
     project: item.project,
     history: item.history,
+    outline: outlineOf(read.flow),
     flow: read.flow,
     cells: [],
     blocks: read.blocks,

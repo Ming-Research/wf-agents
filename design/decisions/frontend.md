@@ -129,3 +129,17 @@ A colour picked as the accent gives every tone of the default accent its hue and
 The page refuses a colour as the accent if any tone of it is within 45 degrees of hue of red, orange, yellow or green, or has less than 0.4 of the default's strength; the refusal names the nearest.
 - rejected: an agent proposed taking any colour the owner picks as the accent; the owner rejected it, because one meaning has one colour.
 - replaced: Refusing a colour near the teal of the time spent in tools was on main; the owner changed it, because the time spent in tools became yellow, like a call's mark, and teal then meant nothing.
+
+### decision a-works-past-is-drawn-from-its-outline
+A work's page and item window draw its history, cells, card, talk and each run's inputs from its version's outline, going on or ended; the whole flow is given only for a work going on.
+- replaced: Drawing every work on the flow installed was on main; the owner changed it, because a work was then read by a flow it never ran on, a cell added since read as skipped and runs at a cell since taken out drawn in no column (principle the-past-as-it-ran).
+- rejected: an agent proposed drawing a work from its whole flow while its version is installed and from its outline after; the owner rejected it, because the work would then change on the page when another flow was installed (principle owner-keeps-their-place).
+
+### decision a-cell-an-ended-work-never-ran-did-not-run
+A cell of a work that ended with no run takes the strip's dash, with the words "did not run".
+- replaced: Saying such a cell was skipped was on main; the owner changed it, because skipped is read by walking the whole flow again, the very reading that showed a cell of a flow the work never ran on as skipped.
+
+### decision a-work-on-no-version-is-drawn-from-its-records
+A work on no version has a column for each id its runs name, in the order they first ran, with no title or line; its card shows its item as added, with no talk, and says its flow was not kept.
+- rejected: an agent proposed naming its cells by the titles of the flow installed; the owner rejected it, because where an id was given again, a title would name another cell.
+- rejected: an agent proposed reading its talk with the owner from its records; the owner rejected it, because the records do not say which datum was which cell's talk.

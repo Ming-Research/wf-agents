@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use decide::{Decision, End, Pauser, Writer, decide};
+use decide::{Decision, End, Pauser, Writer};
 use driver::{Driver, Kept};
 use serde::{Deserialize, Serialize};
 
@@ -56,7 +56,7 @@ pub enum Standing {
 
 impl Standing {
     fn of(kept: &Kept<'_>) -> Standing {
-        match decide(&kept.flow.flow, &kept.work.records) {
+        match kept.decision() {
             Decision::Ended(End::Merged) => Standing::Merged,
             Decision::Ended(End::Cancelled) => Standing::Cancelled,
             Decision::Fault(_) => Standing::Fault,
@@ -391,7 +391,7 @@ impl Hits {
             };
             place(0, Field::Title, &kept.item.title);
             for (block, versions) in decide::versions(&kept.work.records) {
-                let people = kept.flow.blocks.get(&block).is_some_and(|b| b.writers.people);
+                let people = people_write(kept, &block);
                 let Some(latest) = versions.last().filter(|v| people && v.by == Writer::Person) else {
                     continue;
                 };
@@ -692,9 +692,42 @@ impl PlanChanges {
     }
 }
 
+/// Whether people write the block of the work, as the version the work is on says; of a work on none kept, which says
+/// nothing of its blocks, what a person wrote is found by the record alone.
+fn people_write(kept: Kept<'_>, block: &decide::BlockId) -> bool {
+    match kept.on.outline() {
+        Some(_) => kept.from(block) == Some(flow::OWNER),
+        None => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use decide::BlockId;
+    use work::Work;
+
     use super::*;
+    use crate::works::tests::{Stored, earlier, flow};
+
+    // People write a block of a work as the version the work is on says, and any of a work on none kept. The flow
+    // installed has people write the request and not the text; the earlier version, the text and not the request, so
+    // that a reading of the flow installed fails each case, and the work on none kept too. Milliseconds.
+    #[test]
+    fn people_write_a_block_as_the_version_its_work_is_on_says_and_any_of_a_work_on_none_kept() {
+        let installed = flow();
+        let mut outline = flow::Outline::of(&installed);
+        outline.from.remove(&BlockId::from("request"));
+        outline.from.insert(BlockId::from("text"), flow::OWNER.to_string());
+        let on = earlier(outline);
+        let work = Work::default();
+        let stored = Stored::new(&installed.name);
+        let kept = stored.kept(&installed, &on, &work);
+        assert!(people_write(kept, &BlockId::from("text")));
+        assert!(!people_write(kept, &BlockId::from("request")));
+        let none = driver::On::NotKept { end: End::Merged };
+        let kept = stored.kept(&installed, &none, &work);
+        assert!(people_write(kept, &BlockId::from("text")));
+    }
 
     #[test]
     fn a_mark_is_read_as_it_is_written_and_what_is_no_mark_is_refused() {

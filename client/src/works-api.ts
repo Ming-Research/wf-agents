@@ -37,7 +37,7 @@
 //   page reads again what it shows.
 
 import { read } from './api';
-import type { Flow } from './api';
+import type { Flow, GivenBlock, Read, SentPiece, Watch } from './api';
 
 export type Person = 'owner' | 'architect';
 
@@ -182,7 +182,16 @@ export interface Stalling {
 /// its run that takes its time, an engine cell's act or a tool's call; its run is at rest, or its act waits for the
 /// project's turn; its run's last round failed, and is given again once the work is let on; its condition is not met;
 /// it never finished a run; it has a record and runs again when the walk reaches it; its record knows everything.
-export type CellState = 'running' | 'calling' | 'resting' | 'failed' | 'skipped' | 'notYet' | 'again' | 'done';
+export type CellState =
+  | 'running'
+  | 'calling'
+  | 'resting'
+  | 'failed'
+  | 'skipped'
+  | 'notYet'
+  | 'again'
+  | 'done'
+  | 'notRun';
 
 export interface CellNow {
   cell: string;
@@ -651,6 +660,34 @@ export type SessionWhy =
   | { kind: 'lost' }
   | { kind: 'compacted' };
 
+/// The version of its flow a work runs on, as the outline kept of it has it; of a work on no version kept (`kept`
+/// false), its cells are the ids its runs name, with no title or line, and it has no lines, groups or words.
+export interface Outline {
+  kept: boolean;
+  /// In the order of the walk; then each cell a run names that the version has not, in the order they first ran.
+  cells: OutlineCell[];
+  /// Each line with its cells in the order of the walk.
+  lines: { name: string; cells: string[] }[];
+  groups: { name: string; blocks: string[] }[];
+  /// What the item's card shows.
+  card: string[];
+}
+
+/// A cell of the version a work runs on.
+export interface OutlineCell {
+  id: string;
+  /// What it is called; null of a cell the version does not have.
+  title: string | null;
+  line: string | null;
+  /// An agent runs it.
+  agent: boolean;
+  given: GivenBlock[];
+  watches: Watch[];
+  reads: Read[];
+  /// Its own words, where it has them: the datum, and what the engine writes of each version of it, by the text's name.
+  words: { block: string; writes: [string, SentPiece[]][] } | null;
+}
+
 /// One work: as it is now, and step by step from its start.
 export interface WorkPage {
   summary: Summary;
@@ -664,9 +701,12 @@ export interface WorkPage {
   tags?: string[];
   /// What its item was as it was added, and each change made to it since, as `Item` has them.
   history: ItemHistory;
-  /// The flow it runs on.
-  flow: Flow;
-  /// In the order of the walk.
+  /// The version of its flow it runs on, as its outline has it: what its history, its card and its talk with the owner
+  /// are drawn from, a work going on and one that ended alike.
+  outline: Outline;
+  /// The flow it runs on, for what the owner does with a work going on; null for a work that ended.
+  flow: Flow | null;
+  /// In the order of the walk; none for a work that ended.
   cells: CellDetail[];
   /// Every block that has a version, by name.
   blocks: Block[];

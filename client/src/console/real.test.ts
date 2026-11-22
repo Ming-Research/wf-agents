@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Block as FlowBlock, Flow } from '../api';
+import { outlineOf } from '../testing';
 import type { Step, Version, VersionPage, Wait, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
 import { readBody, readRulings } from './real';
@@ -87,6 +88,7 @@ describe("the item's body, read from the data the flow's card names", () => {
       level: item.level,
       project: item.project,
       history: item.history,
+      outline: outlineOf(flow),
       flow,
       cells: [],
       blocks: [
@@ -121,6 +123,7 @@ describe("the messages of a work, read from each cell's own words", () => {
       level: item.level,
       project: item.project,
       history: item.history,
+      outline: outlineOf(SPOKEN),
       flow: SPOKEN,
       cells: [],
       blocks: [
@@ -138,6 +141,9 @@ describe("the messages of a work, read from each cell's own words", () => {
       { who: 'owner', at: 5000, to: ['implement'], quote: 'Greet them.', text: 'By the first name.', taken: false },
       { who: 'implement', at: 9000, to: ['owner'], quote: null, text: 'Done.' },
     ]);
+    // A work that ended is given no flow: its card and its talk are read from its outline alone, as a work going on's.
+    const ended = await readBody({ ...page, flow: null }, load);
+    expect(ended).toEqual(body);
   });
 
   it("say of the owner's words whether a run of their cell has begun with them, or with a later version", async () => {
@@ -162,6 +168,7 @@ describe("the messages of a work, read from each cell's own words", () => {
       level: item.level,
       project: item.project,
       history: item.history,
+      outline: outlineOf(SPOKEN),
       flow: SPOKEN,
       cells: [],
       blocks: [
@@ -191,6 +198,7 @@ describe("the messages of a work, read from each cell's own words", () => {
       level: item.level,
       project: item.project,
       history: item.history,
+      outline: outlineOf(SPOKEN),
       flow: SPOKEN,
       cells: [],
       blocks: [
@@ -241,6 +249,7 @@ describe('what the owner may rule of a precondition the work waits for', () => {
       level: item.level,
       project: item.project,
       history: item.history,
+      outline: outlineOf(flow),
       flow,
       cells: [],
       blocks: [

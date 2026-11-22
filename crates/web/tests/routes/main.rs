@@ -24,6 +24,7 @@ mod stopped;
 mod stream;
 mod system;
 mod told;
+mod versions;
 mod works;
 
 use std::collections::BTreeSet;

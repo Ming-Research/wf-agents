@@ -1,0 +1,53 @@
+{
+  "name": "engineer",
+  "cells": [
+    {
+      "id": "S1",
+      "title": "Start",
+      "line": null,
+      "agent": false,
+      "given": [],
+      "watches": [{ "name": "start", "blocks": ["start"], "does": null }],
+      "reads": [],
+      "words": null
+    },
+    {
+      "id": "R1",
+      "title": "Initial research",
+      "line": "engineer",
+      "agent": true,
+      "given": [
+        { "block": "r1_questions", "kind": "all", "list": "every_agent" },
+        { "block": "background", "kind": "last_and_latest", "list": "watches" },
+        { "block": "tree", "kind": "latest", "list": "reads" }
+      ],
+      "watches": [
+        { "name": "background", "blocks": ["background"], "does": null },
+        { "name": "r1_words", "blocks": ["r1_words"], "does": "Answer the owner first." }
+      ],
+      "reads": [{ "name": "tree", "blocks": ["tree"] }],
+      "words": {
+        "block": "r1_words",
+        "writes": [
+          ["owner", "The owner:\n\n{words}"],
+          ["reply", "An agent:\n\n{reply}"]
+        ]
+      }
+    },
+    {
+      "id": "M1",
+      "title": "Merge",
+      "line": null,
+      "agent": false,
+      "given": [],
+      "watches": [{ "name": "plan", "blocks": ["plan_owner", "plan_agent"], "does": null }],
+      "reads": [],
+      "words": null
+    }
+  ],
+  "lines": [{ "name": "engineer" }],
+  "groups": [{ "name": "plan", "blocks": ["plan_owner", "plan_agent"] }],
+  "card": ["background", "plan_owner"],
+  "earlier_ids": [{ "ids": { "T2": "T4" } }, { "taken_out": ["T3"] }],
+  "own": ["{cell}_questions", "{cell}_words"]
+}

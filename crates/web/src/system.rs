@@ -16,7 +16,7 @@ use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use decide::{CallId, Decision, End, RunId};
+use decide::{CallId, CellId, Decision, End, RunId};
 use driver::{Driver, Kept};
 use serde::{Deserialize, Serialize};
 use service::Handle;
@@ -131,8 +131,22 @@ pub enum RanOn {
     Model { model: String },
     /// A round of the engine's own act, which runs on no model.
     Act,
-    /// An agent's round kept before the tries of a round were recorded, whose model is not known.
+    /// A round with no model recorded, not known to be an act's: an agent's round kept before the tries of a round were
+    /// recorded, or a round of a cell the version its work is on does not tell, of a work on none kept among them.
     NotRecorded,
+}
+
+impl RanOn {
+    /// What a round of a run of this cell of the work ran on: the model its last try recorded, where one did; else the
+    /// engine's act, where the version the work is on has the cell as an engine's. A cell that version has not, or any
+    /// of a work on none kept, is not known to be an act's, and its round is not recorded.
+    fn of(kept: Kept<'_>, cell: &str, model: Option<&String>) -> RanOn {
+        match model {
+            Some(model) => RanOn::Model { model: model.clone() },
+            None if (kept.cell(&CellId::from(cell))).is_some_and(|cell| !cell.agent) => RanOn::Act,
+            None => RanOn::NotRecorded,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -470,14 +484,7 @@ impl System {
                     }
                     let cell = by_cell.entry((kept.head.flow.clone(), run.cell.clone())).or_default();
                     *cell = cell.with(spent);
-                    let act = (kept.flow.cells.iter())
-                        .find(|spec| spec.id.as_str() == run.cell)
-                        .is_some_and(|spec| spec.act.is_some());
-                    let on = match models.get(&(run.run, round.number)) {
-                        Some(model) => RanOn::Model { model: model.clone() },
-                        None if act => RanOn::Act,
-                        None => RanOn::NotRecorded,
-                    };
+                    let on = RanOn::of(kept, &run.cell, models.get(&(run.run, round.number)));
                     let model = by_model.entry(on).or_default();
                     *model = model.with(spent);
                     if let Some(Back::Failed { why, failure, .. }) = &round.back {
@@ -608,5 +615,43 @@ pub(crate) async fn system(State(handle): State<Handle>, span: Result<Query<Span
             format!("The system cannot be shown: {}.", broken.0),
         ),
         Err(refusal) => refused(&refusal),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! What a round is said to have run on, as the version of the flow its work is on tells its cell.
+
+    use work::Work;
+
+    use super::*;
+    use crate::works::tests::{Stored, earlier, flow};
+
+    // A round with no model recorded is an act's where the version its work is on has its cell as an engine's, and is
+    // not recorded otherwise. The flow installed has the merge as an act and no cell `check`; the earlier version has
+    // the merge as an agent's and `check` as an act, so that a reading of the flow installed fails each case, and the
+    // work on none kept too. Milliseconds.
+    #[test]
+    fn a_round_with_no_model_is_an_acts_as_the_version_its_work_is_on_has_its_cell() {
+        let installed = flow();
+        let mut outline = flow::Outline::of(&installed);
+        let merge = (outline.cells.iter_mut())
+            .find(|c| c.id.as_str() == "merge")
+            .expect("the merge");
+        let mut check = merge.clone();
+        merge.agent = true;
+        check.id = CellId::from("check");
+        outline.cells.push(check);
+        let on = earlier(outline);
+        let work = Work::default();
+        let stored = Stored::new(&installed.name);
+        let kept = stored.kept(&installed, &on, &work);
+        assert_eq!(RanOn::of(kept, "check", None), RanOn::Act);
+        assert_eq!(RanOn::of(kept, "merge", None), RanOn::NotRecorded);
+        let model = "a-model".to_string();
+        assert_eq!(RanOn::of(kept, "merge", Some(&model)), RanOn::Model { model });
+        let none = driver::On::NotKept { end: End::Merged };
+        let kept = stored.kept(&installed, &none, &work);
+        assert_eq!(RanOn::of(kept, "merge", None), RanOn::NotRecorded);
     }
 }

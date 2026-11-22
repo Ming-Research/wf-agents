@@ -29,7 +29,7 @@
 use std::collections::BTreeMap;
 
 use decide::run::Failure;
-use decide::{Decision, Outsider, RunId, decide};
+use decide::{CellId, Decision, Outsider, RunId, decide};
 use engine::Event;
 use flow::CellSpec;
 use flow::agents::fill;
@@ -223,7 +223,10 @@ pub fn due(
     if let (Some(changed), Some(cell)) = (&policy.changed, cell)
         && changed(flow, number, item, cell, session)
     {
-        let context = crate::history::context_before(flow, work, line, session, work.tick());
+        let context = {
+            let line_of = |cell: &CellId| line_of_cell(flow, cell.as_str()).map(str::to_string);
+            crate::history::context_before(&line_of, work, line, session, work.tick())
+        };
         return Some(Event::Anew {
             line: line.to_string(),
             why: Why::Changed { context },

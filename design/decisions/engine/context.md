@@ -19,6 +19,11 @@ A cell gives each datum it watches or reads as its latest version, as the versio
 A datum given as the last and the latest is sent as what changed since the version the cell last worked from, if the session holds that version and the change is shorter; otherwise it is sent whole.
 - rejected: an agent proposed sending both versions whole; the owner rejected it, because the cell's task asks what changed, less is sent, and the whole versions are in the records.
 
+### decision a-datum-a-move-renamed-is-given-again-whole
+A session going on through a move is given whole each datum the move renamed, and each whose name a renumbering gave another cell's datum; what it was given before stays under its names then.
+- rejected: an agent proposed counting what the session holds under a datum's old name as held under its new one; the owner rejected it, because the agent would be told it holds a name it never saw, and could only guess.
+- rejected: an agent proposed telling the session each old name beside its new one; the owner rejected it, because that is a line of its own in every message, for what comes once a renumbering.
+
 ### decision why-you-are-run-tells-each-new-datum
 A message ends with "Why you are run": for each datum the cell watches that is new to it, its name, the version it last worked from, the latest, and what the cell does for it, the first time too.
 - rejected: an agent proposed putting what ran the cell first, with its versions, and then the data and the task; the owner rejected it, because the task says what the cell does, and then what ran it says what changed and what to do about it, in that order.
@@ -41,10 +46,11 @@ A cell is told the blocks it writes, each with the flow's words for it, once per
 - replaced: Telling every cell in the system prompt how to ask the owner was on main; the owner changed it, because cells that may not ask were told they may, and a question from one of them got the whole return sent back.
 
 ### decision a-version-is-told-by-the-line-that-wrote-it
-Each version a round is given names the line of the cell whose run wrote it, or says the owner wrote it; this is worked out from the records and the flow, and never stored.
+Each version a round is given names the line of the cell whose run wrote it, or says the owner wrote it, as the records and the outline of the work's version say; it is never stored.
 - replaced: Never telling a round who wrote a version was on main; the owner changed it, because a reopened session could not tell a point from a reply, two cells of one party misjudged whose turn it was, and a judge could not see that the owner had ruled.
 - rejected: the owner proposed naming the cell that wrote it; the owner rejected it, because one party may be two cells, a cell should not know the other cells, and cells get renamed.
 - rejected: an agent proposed naming the writer by its role, such as the judge, the maker or the doubter; the owner rejected it, because the roles need a mapping in the flow's files, and would mislabel what a cell wrote itself.
+- replaced: Reading the line from the flow installed was on main; the owner changed it, because a run was then told by the line its cell has in a flow the work never ran on (principle the-past-as-it-ran).
 
 ### decision a-compaction-gives-the-round-again-at-once
 When a session is compacted during a round, the program's hook gives it the round's whole message again as the compaction ends, and the session counts as reopened from there.

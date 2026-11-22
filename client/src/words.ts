@@ -228,6 +228,16 @@ export function faultWords(fault: Fault): string {
       return `The test ${w.test} reads ${w.block}, which ${w.cell}, a cell after this one, writes.`;
     case 'standingWrittenByTwo':
       return `The test ${w.test}, of what stands, reads ${w.block}, which ${w.cell} writes as well as a cell before it: a skipped cell's write would hide the other's word.`;
+    case 'notACellId':
+      return `${w.id} is no cell's id, its stage's initials and a number.`;
+    case 'idGivenTwice':
+      return `The renumbering gives ${w.id} to two cells.`;
+    case 'idToItself':
+      return `The renumbering gives ${w.id} the id it had.`;
+    case 'movedAndTakenOut':
+      return `The renumbering both moves ${w.id} and takes it out.`;
+    case 'idStillHeld':
+      return `The renumbering gives ${w.id}, which a cell of its stage still had: the same renumbering moves or takes out that cell.`;
     case 'flowRefused': {
       const at = w.cell ? ` (${w.cell})` : '';
       const why = {

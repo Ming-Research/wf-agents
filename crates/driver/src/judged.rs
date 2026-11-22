@@ -22,7 +22,7 @@
 
 use std::collections::BTreeMap;
 
-use decide::{CallId, CellId, RunId, Seq};
+use decide::{CallId, CellId, Reading, RunId, Seq};
 use flow::Compiled;
 use store::WorkNumber;
 use work::{Ask, Back, Call, Time, Work};
@@ -35,8 +35,11 @@ pub struct Of<'a> {
     pub number: WorkNumber,
     /// The name of the flow it runs on: the works on flows of one name are one history.
     pub flow: &'a str,
-    /// The flow as the work runs on it.
-    pub compiled: &'a Compiled,
+    /// The flow installed of that name, which tells each cell's id and whether an act carries it out; none where the
+    /// work is on no version kept, whose cells no flow tells (decision `a-work-kept-before-the-versions-is-on-none`).
+    pub compiled: Option<&'a Compiled>,
+    /// How the cells of a work on an earlier version read on the installed one; none for a work on the installed one.
+    pub reading: Option<&'a Reading>,
     pub work: &'a Work,
     /// Its rounds that are history, as the run guard takes them ([`crate::history::samples`]).
     pub samples: &'a [Sample],
@@ -189,12 +192,18 @@ fn rounds(work: &Work) -> Vec<(RunId, usize, Seq, Option<Seq>)> {
         .collect()
 }
 
-/// The cell of each run of the work, and whether an act of the engine's own carries it out, as the work's flow says.
+/// The cell of each run of the work, as it is on the flow installed, and whether an act of the engine's own carries it
+/// out, as that flow says: none of a run whose cell has no id there, and none of a work on no version kept.
 fn cells<'a>(of: &Of<'a>) -> BTreeMap<RunId, (&'a CellId, bool)> {
-    let (work, compiled) = (of.work, of.compiled);
+    let (work, Some(compiled)) = (of.work, of.compiled) else {
+        return BTreeMap::new();
+    };
     (work.records.started.iter())
         .filter_map(|started| {
-            let spec = compiled.cells.iter().find(|spec| spec.id == started.cell)?;
+            let cell = of
+                .reading
+                .map_or_else(|| started.cell.clone(), |r| r.cell(&started.cell));
+            let spec = compiled.cells.iter().find(|spec| spec.id == cell)?;
             Some((started.run, (&spec.id, spec.act.is_some())))
         })
         .collect()
@@ -373,13 +382,18 @@ impl<'a> History<'a> {
     fn each(&mut self, value: &Value<'a>, f: fn(&mut Vec<f64>, f64)) {
         match value.kind {
             Kind::Agent(sample) => {
+                // A round of a cell with no id on the flow installed counts in the flow's history alone.
                 if let Some(ms) = sample.ms {
-                    f(self.time_of_cell.entry(&sample.cell).or_default(), ms as f64);
+                    if let Some(cell) = &sample.cell {
+                        f(self.time_of_cell.entry(cell).or_default(), ms as f64);
+                    }
                     f(&mut self.time, ms as f64);
                 }
                 if let Some(model) = sample.model.as_deref() {
                     let (model, usd) = (model_of(model), sample.spent.usd_micros as f64);
-                    f(self.cost_of_cell.entry((&sample.cell, model)).or_default(), usd);
+                    if let Some(cell) = &sample.cell {
+                        f(self.cost_of_cell.entry((cell, model)).or_default(), usd);
+                    }
                     f(self.cost.entry(model).or_default(), usd);
                 }
             }

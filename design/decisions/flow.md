@@ -67,3 +67,17 @@ A per-cell or per-line datum, such as a cell's questions, is made for a cell or 
 ### decision a-cell-names-a-block-once
 A cell takes each block by one name, the block's own or one group's; the compiler refuses a block that a cell takes by two names: alone and through a group, or through two groups.
 - replaced: A cell naming a block both through its group and alone was on main; the owner changed it, because the block is then named twice with opposite meanings: watched, and only read.
+
+### decision the-table-of-earlier-ids-is-a-list-of-renumberings
+A flow's `earlier_ids` is a list of renumberings, oldest first, each naming by the ids they had the cells renumbered and every cell taken out, a stage's last too; it is only added to.
+- rejected: an agent proposed a table of the last renumbering alone; the owner rejected it, because a version the engine never started on would leave its renumbering out of what a work on an earlier one is read through.
+- rejected: an agent proposed giving each cell a name that never changes, so that no table is needed; the owner rejected it, because that changes principle cell-numbering, and the records kept name cells by their ids.
+
+### decision a-renumbering-that-gives-a-held-id-is-refused
+The compiler refuses a renumbering that gives an id of a stage it moves or takes out a cell of, at most the highest it moves or takes out there, without moving or taking out the cell that had it.
+- rejected: an agent proposed refusing a renumbering that gives an id to a cell without saying where that id's cell went; the owner rejected it, because the compiler sees only the new version, so it cannot tell, and it would refuse an ordinary move of a cell to a free id.
+
+### decision a-datum-made-for-a-cell-follows-its-cell
+A datum made for each cell by a file of `data/of_a_cell/` is read through a renumbering as the one made for the id its cell takes; no table names it.
+- rejected: an agent proposed reading only the cells through a renumbering, leaving the data made for them under their old names; the owner rejected it, because a renumbered cell's words and questions would then read as data no flow has.
+- rejected: an agent proposed listing such data in the table of earlier ids; the owner rejected it, because that copies what the file that makes them says.

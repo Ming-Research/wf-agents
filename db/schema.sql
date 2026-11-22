@@ -58,13 +58,53 @@ CREATE TABLE item_changes (
 );
 
 -- The work done for an item, on a flow: an item is added together with its one work. Its number is given by the
--- store, counting from one. `flow` is the flow's name only: which version of the flow the work ran on is not kept
--- yet.
+-- store, counting from one. `flow` is the flow's name; the versions of it the work ran on are in `on_flow`.
 CREATE TABLE works (
     number INTEGER PRIMARY KEY,
     item INTEGER NOT NULL REFERENCES items (number),
     flow TEXT NOT NULL,
     added INTEGER NOT NULL
+);
+
+-- A file of a version of a flow, kept once by the digest of its text, however many versions hold it.
+CREATE TABLE flow_files (
+    digest TEXT PRIMARY KEY,
+    text TEXT NOT NULL
+);
+
+-- A version of a flow, kept once as the engine starts with it, named by the digest of its files: the flow's name, the
+-- digest of each of its files by its path from the flow's directory (JSON), and its outline, what reading a work on it
+-- needs once another version is installed (JSON: each cell in order with its id, title and line, whether an agent runs
+-- it, what it is given, watches and reads, and its own words; the lines, each with the digest of what the version
+-- decides of its form; the groups; what the card shows; the table of earlier ids; how a datum is named for a cell).
+-- No version is compiled again.
+CREATE TABLE flows (
+    version TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    files TEXT NOT NULL,
+    outline TEXT NOT NULL
+);
+
+-- From this place on, the work ran on this version of its flow: as it was added, before every other entry, and again
+-- each time it went on with another version installed, or was reopened; null where the version it ran on was not
+-- kept, as of a work that had ended as the engine first kept versions. What the records name before an entry reads on
+-- its version through the renumberings of the table of earlier ids after the version before, the records keeping every
+-- name as it was recorded.
+CREATE TABLE on_flow (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    version TEXT REFERENCES flows (version),
+    PRIMARY KEY (work, at)
+);
+
+-- What the work's time went to from its first round to its last, kept as it ended (JSON: each stretch with when it
+-- began and ended, and `model`, `tools`, `owner`, `paused`, `items` or `other`). A work reopened and ended again keeps
+-- it again; the latest is the work's.
+CREATE TABLE kept_time (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    stretches TEXT NOT NULL,
+    PRIMARY KEY (work, at)
 );
 
 -- A run of the work began, of a cell, because of what `because` says (JSON: a list of causes).

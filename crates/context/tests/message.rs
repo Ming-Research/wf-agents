@@ -807,6 +807,74 @@ fn a_version_put_into_a_round_from_outside_is_told_by_no_line() {
     assert!(entered.text.contains(given), "{}", entered.text);
 }
 
+/// Whether the message fills the datum whole, at any version.
+fn fills_whole(entered: &Entered, block: &str) -> bool {
+    (entered.fills.iter()).any(|f| matches!(f, Fill::Whole { block: b, .. } if b.as_str() == block))
+}
+
+// A session that goes on through a move holds what it took in before it only under a name the move left as it was
+// (decision a-datum-a-move-renamed-is-given-again-whole): a move here reads what was written as the request as the code,
+// as a renumbering reads what T2 wrote as `t2_words` as `t4_words`, and leaves the plan as it was. The build reads the
+// code, and its session holds the request, filled into the plan's round, and the plan, which the session handed in.
+#[test]
+fn a_datum_a_move_renamed_is_given_whole_once_and_held_after_and_one_it_left_as_it_was_is_still_held() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    // Before the move, the engineer's session holds the plan it handed in and the request it was given.
+    let before = sim.enter(&round, false);
+    assert!(
+        !fills_whole(&before, "plan") && !fills_whole(&before, "request"),
+        "{}",
+        before.text
+    );
+    sim.moves(&[("request", "code")]);
+    assert!(sim.versions("request").is_empty(), "the request reads as the code");
+    let code = sim.version("code");
+    let entered = sim.enter(&round, false);
+    assert!(entered.fills.contains(&whole("code", code)), "{}", entered.text);
+    assert!(!fills_whole(&entered, "plan"), "{}", entered.text);
+    // Given whole once, after the move, it is held: the round, tried again in the session after its program took its
+    // message in, is not given it again.
+    sim.tries(&round, 1, entered.fills.clone());
+    sim.fails_as(&round, decide::run::Failure::UsageLimit, true);
+    let again = sim.round().expect("the build's round is tried again");
+    assert_eq!((again.run, again.number), (round.run, 2));
+    assert!(!sim.begins(&again), "the session goes on");
+    let entered = sim.enter(&again, false);
+    assert!(
+        !fills_whole(&entered, "code") && !fills_whole(&entered, "plan"),
+        "{}",
+        entered.text
+    );
+}
+
+// A datum a move gives the name of another the session held, as a new T2's `t2_words` after T2 was renumbered T4, is
+// given whole as it is written after the move, never as a change of what the session held under that name.
+#[test]
+fn a_datum_written_after_a_move_under_a_name_the_move_took_from_another_is_given_whole() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    // The plan's round fills the request into the engineer's session; the review hands in its verdict alone, so that
+    // nothing runs after it.
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    carry(&mut sim, &[("code", CODE, None)]);
+    carry(&mut sim, &[("verdict", "yes", Some("yes"))]);
+    // The move reads what was written as the request as the notes, and the name `request` is another datum's, which is
+    // written after it and runs the plan again, in the session that holds the request as it was filled.
+    sim.moves(&[("request", "notes"), ("notes", "request")]);
+    sim.writes("request", "Greet the user by name.");
+    let round = sim.round().expect("the plan is entered again");
+    assert_eq!(sim.cell(&round).id.as_str(), "plan");
+    let entered = sim.enter(&round, false);
+    let latest = sim.version("request");
+    assert_eq!(sim.versions("request"), [Seq(latest)]);
+    assert!(entered.fills.contains(&whole("request", latest)), "{}", entered.text);
+    let changed = |f: &Fill| matches!(f, Fill::Change { block, .. } if block.as_str() == "request");
+    assert!(!entered.fills.iter().any(changed), "{}", entered.text);
+}
+
 /// A maker and its judge on one line, the judge's verdict read by the test the flow's last cell requires, so that the
 /// judge's points are its dialogue with the maker, and the owner may rule in the judge's place.
 fn judged() -> flow::Compiled {

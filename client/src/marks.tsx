@@ -203,6 +203,7 @@ export const MARKS: Record<MarkKey, Entry> = {
   again: ofRun('again', 'runs again'),
   notYet: ofRun('notYet', 'not yet'),
   skipped: ofRun('skipped', 'skipped'),
+  notRun: ofRun('notRun', 'did not run'),
   cardStopped: { name: 'stopped', draw: () => <CardSample look="stopped" /> },
   cardRunning: { name: 'running', draw: () => <CardSample look="running" /> },
   cardWaiting: { name: 'waiting', draw: () => <CardSample look="waiting" /> },

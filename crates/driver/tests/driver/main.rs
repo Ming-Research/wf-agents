@@ -25,6 +25,7 @@ mod sessions;
 mod starting;
 mod stopped;
 mod stops;
+mod versions;
 
 use decide::{CallId, Decision, End, Outsider, Pauser, RunId, Waited, Who};
 use driver::{Driver, Failed, Fault, Todo};
