@@ -74,7 +74,7 @@ A flow's `earlier_ids` is a list of renumberings, oldest first, each naming by t
 - rejected: an agent proposed giving each cell a name that never changes, so that no table is needed; the owner rejected it, because that changes principle cell-numbering, and the records kept name cells by their ids.
 
 ### decision a-renumbering-that-gives-a-held-id-is-refused
-The compiler refuses a renumbering that gives an id of a stage it moves or takes out a cell of, at most the highest it moves there, without moving or taking out the cell that had it.
+The compiler refuses a renumbering that gives an id of a stage it moves or takes out a cell of, at most the highest it moves or takes out there, without moving or taking out the cell that had it.
 - rejected: an agent proposed refusing a renumbering that gives an id to a cell without saying where that id's cell went; the owner rejected it, because the compiler sees only the new version, so it cannot tell, and it would refuse an ordinary move of a cell to a free id.
 
 ### decision a-datum-made-for-a-cell-follows-its-cell
