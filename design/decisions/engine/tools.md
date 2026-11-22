@@ -36,6 +36,8 @@ A tool's result is not a datum: the run that asked for it goes on with it, and i
 - replaced: Running only the branch's last commit was on main; the owner changed it, because a new test could be shown red on the code before the change only by pushing a commit that broke the branch, and 14 of 20 commits of one work were such demonstrations.
 - replaced: Pushing the commit to the work's branch and opening its pull request for each run was on main; the owner changed it, because each push made GitHub run the full workflows on the pull request again, beside the run the engine asked for.
 - replaced: Running the full workflows where nothing is named was on main; the owner changed it, because the full workflows are run once before the merge, and the passed tests were about 252 KB of one such result of 256 KB.
+- rejected: an agent proposed pushing the work's branch and opening its pull request where the commit run is the branch's head, and a branch of its own for any other; the owner rejected it, because each run would still start another full run on the pull request, and there would be two ways to push.
+- rejected: an agent proposed still running the full workflows where nothing is named and only leaving the passed tests out of the result; the owner rejected it, because every call would still be a full run on the owner's machine, against running the full workflows once before the merge.
 
 ### decision run-tests-names-the-files-git-does-not-track
 Where no commit is named, `run_tests` on GitHub runs the last commit and names the untracked files before its result; a tracked file's uncommitted change refuses it. A named commit runs as it is.
