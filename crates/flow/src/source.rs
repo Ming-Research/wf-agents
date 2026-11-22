@@ -452,6 +452,9 @@ pub struct BlockFile {
     pub what: Option<String>,
     /// What a cell that writes the block is told of writing it, after the list of what it returns.
     pub words: Option<String>,
+    /// What a cell that writes the block is told after those words, where it also has a block it must hand in every
+    /// time.
+    pub words_if_marked: Option<String>,
     /// The shape a return holds the block to, where it is neither a text nor a choice.
     pub shape: Option<toml::Table>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
@@ -503,6 +506,9 @@ pub struct LaidOutBlockFile {
     pub what: Option<String>,
     /// What a cell that writes the block is told of writing it, after the list of what it returns.
     pub words: Option<String>,
+    /// What a cell that writes the block is told after those words, where it also has a block it must hand in every
+    /// time.
+    pub words_if_marked: Option<String>,
     /// The shape a return holds the block to, where it is neither a text nor a choice.
     pub shape: Option<toml::Table>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
@@ -544,6 +550,7 @@ impl From<LaidOutBlockFile> for BlockFile {
             default: block.default,
             what: block.what,
             words: block.words,
+            words_if_marked: block.words_if_marked,
             shape: block.shape,
             writes: block.writes,
             changed_by: block.changed_by,
@@ -633,7 +640,7 @@ pub struct CellFile {
 pub enum InputKind {
     /// Only the latest version.
     Latest,
-    /// The version the cell last consumed and the latest, so that the agent sees what changed between them.
+    /// The version the cell last worked from and the latest, so that the agent sees what changed between them.
     LastAndLatest,
     /// Every version.
     All,

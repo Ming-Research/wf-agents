@@ -58,12 +58,15 @@ the owner's pauses, when a work is at its end.
    no cell. A change stops there.
 
 10. Between two rounds of a cell a datum it watches may have gone on by several versions: two cells before it went back
-    and forth, or people wrote more than once. What a cell last worked from is therefore the version it consumed, which
-    need not be the one before the latest.
+    and forth, or people wrote more than once. What a cell last worked from is therefore a version of its own, which
+    need not be the one before the latest: the latest of what it consumed, what it wrote itself, and what the owner ruled
+    on (39), since a point the owner ruled on is new to no cell, and so what came before it is no change to the cell.
+    That is the version a round is told, and what is sent of a datum given the last and the latest is what changed since
+    it; which versions are new to the cell, and so run it, is decided from what it consumed (5).
 
 11. The engine tells each round which of the data it watches are new, and for each of them the version the cell last
-    consumed and the latest. What the cell does when a datum it watches is new is said with that datum in the cell's
-    definition, and the cell's task says how the agent brings its outputs up to date for it.
+    worked from (10) and the latest. What the cell does when a datum it watches is new is said with that datum in the
+    cell's definition, and the cell's task says how the agent brings its outputs up to date for it.
 
 12. Data that a cell watches or reads as one, such as the blocks of the plan, may be named together as a group. A new
     version of any of them is new to a cell that watches the group, and the round deals with the group as one, by its

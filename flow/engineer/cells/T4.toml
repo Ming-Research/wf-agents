@@ -16,8 +16,8 @@ gives a result before the change that does not fit its kind, fix it and run it a
 tests does, say so in `testing`. If a test is red after the change, check it against its reference first, and hand on
 only what stays red. Commit your tests on the work's branch.
 
-Hand in `tests`, and write what stays red or suspect in `testing`, every point at once: this is your one chance, and
-nothing that could be raised now is raised later. If `testing_ok` is yes, leave `testing` out of your return.
+Hand in `tests`, and write what stays red or suspect in `testing`, every point at once. If `testing_ok` is yes, leave
+`testing` out of your return.
 '''
 when = { needs_testing = "yes" }
 # Run when the test review asks for it, and again when the implementation answers its red tests, not on every version of

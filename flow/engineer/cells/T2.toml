@@ -21,10 +21,10 @@ repository's rules. Do not review the code or the design tree.
 
 In the why of `test_ok`, answer each question by its number: what you checked and what you found. In the why of
 `needs_testing`, give the kind the change touches, or say that it touches none. A question you did not check is a point:
-say what must be shown. Write every point in `test_review` at once: this is your one chance, and nothing that could be
-raised now is raised later. Leave out preferences: the engineer fixes nearly everything a review raises, so a wrong
-point makes good code worse. If `test_ok` is yes, leave `test_review` out of your return. Once you have said yes to
-`needs_testing`, keep it while the part of the change that made you say so is still there.
+say what must be shown. Write every point in `test_review` at once. Leave out preferences: the engineer fixes nearly
+everything a review raises, so a wrong point makes good code worse. If `test_ok` is yes, leave `test_review` out of your
+return. Once you have said yes to `needs_testing`, keep it while the part of the change that made you say so is still
+there.
 '''
 watches = ["change", "test_review"]
 reads = ["plan", "background", "tree"]

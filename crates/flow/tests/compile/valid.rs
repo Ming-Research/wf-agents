@@ -171,6 +171,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
             default: None,
             what: None,
             words: None,
+            words_if_marked: None,
             shape: None,
             writes: Texts::default(),
             with_nothing_but: BTreeMap::new(),

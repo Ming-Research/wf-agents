@@ -385,7 +385,7 @@ impl Read {
     }
 }
 
-/// What the context must hold of a block a cell is given: its latest version, the version the cell last consumed and
+/// What the context must hold of a block a cell is given: its latest version, the version the cell last worked from and
 /// the latest, or every version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

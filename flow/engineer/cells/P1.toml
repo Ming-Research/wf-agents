@@ -23,9 +23,9 @@ Judge it only by what it was made for (what `background` asks) and by the reposi
    question asks; a question not marked in `plan_owner`; a question marked wrongly, `tree` yes for a choice that is not
    the owner's by the tree's rules, or no for one that is.
 
-In the why of `plan_ok`, answer each point by its number: none, or what you found. Write everything the writer must
-deal with in `plan_review`, all at once: this is your one chance, and nothing that could be raised now is raised
-later. If `plan_ok` is yes, leave `plan_review` out of your return. Leave out anything you are not sure is better.
+In the why of `plan_ok`, answer each point by its number: none, or what you found. Write everything the writer must deal
+with in `plan_review`, all at once. If `plan_ok` is yes, leave `plan_review` out of your return. Leave out anything you
+are not sure is better.
 '''
 watches = ["plan", "plan_review"]
 reads = ["background", "found", "tree"]

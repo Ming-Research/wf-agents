@@ -619,7 +619,7 @@ fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_giv
     let answer = sim.content("r1_questions", entries[1]).to_string();
     assert_eq!(
         answer,
-        "`naming`, version 1, answered: option 2, The full name: Longer."
+        "`naming`, version 1, answered:\n- option 2, The full name: Longer"
     );
     // The answer is the one version of any cell's questions that changes their meaning, which runs the cell that asked.
     let answered: Vec<&str> = (sim.work.records.written.iter())
@@ -720,6 +720,103 @@ fn a_cell_that_returns_what_the_owner_reads_is_told_its_language_once_with_the_l
     assert_eq!(entered.text.matches(&told).count(), 1, "{}", entered.text);
     let list = entered.text.find("## What this cell returns").expect("the list");
     assert!(entered.text[list..].contains(&told), "{}", entered.text);
+}
+
+// The engine's words stand around the option's own words and put no stop of its own after them: an option written in
+// the owner's language, which ends in its own full stop, is not followed by a second.
+#[test]
+fn an_answer_to_an_option_written_with_a_full_stop_of_its_own_is_not_given_a_second() {
+    let (mut sim, round) = until("R1");
+    tried(&mut sim, &round);
+    let way = |does: &str, follows: &str| Way {
+        does: does.to_string(),
+        follows: follows.to_string(),
+    };
+    let question = Question::Asked {
+        name: "naming".to_string(),
+        waits: true,
+        tree: None,
+        recommends: Some(1),
+        ask: "\u{7528}\u{54ea}\u{4e2a}\u{540d}\u{5b57}\u{ff1f}".to_string(),
+        options: vec![
+            way("\u{5b8c}\u{6574}\u{540d}\u{5b57}", "\u{66f4}\u{957f}\u{3002}"),
+            way("\u{7b80}\u{79f0}", "\u{66f4}\u{77ed}\u{3002}"),
+        ],
+        about: None,
+        reasons: Default::default(),
+    };
+    let came = Came {
+        said: Said {
+            questions: vec![question],
+            ..Said::default()
+        },
+        ..Came::default()
+    };
+    sim.returns(&round, came, 0);
+    sim.take(Event::Answer {
+        question: "naming".to_string(),
+        version: 1,
+        option: 1,
+    });
+    let entries = sim.versions("r1_questions");
+    let answer = sim.content("r1_questions", entries[1]).to_string();
+    assert_eq!(
+        answer,
+        "`naming`, version 1, answered:\n- option 1, \u{5b8c}\u{6574}\u{540d}\u{5b57}: \u{66f4}\u{957f}\u{3002}"
+    );
+}
+
+// What a block marked "hand it in every time" is is told with the list of a cell that has one, once, and the cell that
+// may ask, or be spoken to, is told besides what that means for a return that only asks or answers; a cell with no
+// such block is told none of it, nor is a cell that asks nothing told of questions.
+#[test]
+fn what_a_marked_block_is_is_told_only_to_a_cell_that_has_one_and_what_it_means_for_a_question_only_to_one_that_asks() {
+    let every_time = |sim: &Sim| sim.words.returns.outputs.every_time.trim().to_string();
+    let mark = "hand it in every time";
+    let (sim, research) = until("R1");
+    let entered = sim.enter(&research, sim.begins(&research));
+    let said = every_time(&sim);
+    assert_eq!(entered.text.matches(&said).count(), 1, "{}", entered.text);
+    let at = |part: &str| {
+        entered
+            .text
+            .find(part)
+            .unwrap_or_else(|| panic!("{part} is not in {}", entered.text))
+    };
+    let (list, every, asks) = (
+        at("## What this cell returns"),
+        at(&said),
+        at("`r1_questions`: what you ask"),
+    );
+    assert!(list < every && every < asks, "{}", entered.text);
+    for leave_out in [
+        "A return with a question you wait for may leave out the blocks marked",
+        "That return may leave out the blocks marked",
+    ] {
+        assert_eq!(
+            entered.text.matches(leave_out).count(),
+            1,
+            "{leave_out}: {}",
+            entered.text
+        );
+    }
+    let (sim, build) = until("I1");
+    let entered = sim.enter(&build, sim.begins(&build));
+    assert!(!entered.text.contains(mark), "{}", entered.text);
+    assert!(!entered.text.contains(&every_time(&sim)), "{}", entered.text);
+    assert!(
+        entered.text.contains("`i1_questions`: what you ask"),
+        "{}",
+        entered.text
+    );
+    let (sim, review) = until("T1");
+    let entered = sim.enter(&review, sim.begins(&review));
+    assert_eq!(entered.text.matches(&every_time(&sim)).count(), 1, "{}", entered.text);
+    assert!(
+        !entered.text.contains("may leave out the blocks marked"),
+        "{}",
+        entered.text
+    );
 }
 
 /// A block as a return hands it in, mattering, with its value where it is a choice.

@@ -2,7 +2,7 @@
 //! one text serves the engine, which fills every place, and the page, which shows the places open. The pieces are the
 //! system prompt's ([`flow::system`]), so that the page shows every text sent alike.
 
-pub use flow::system::{Piece, as_written, fill, join, with_slots, written};
+pub use flow::system::{Piece, as_written, fenced, fill, join, with_slots, written};
 
 /// Pieces with the places these give filled, as [`fill`] fills them.
 pub fn filled(pieces: Vec<Piece>, known: &[(&str, &str)]) -> Vec<Piece> {
