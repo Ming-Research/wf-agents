@@ -21,7 +21,13 @@
 // screen; at those two edges the column under the pointer has a line of blue, faded in as the pointer comes. Only what
 // is on the screen is drawn. What it draws and how fast is kept in `stats`. An act of the engine's own under way keeps
 // its card running as a round does; a work that waits for the calls of tools the engine carries out is a work that
-// waits. Either way its cell's mark, in the yellow of a call, pulses as a running cell's does.
+// waits. Either way its cell's mark, in the yellow of a call, pulses as a running cell's does. An item with items under
+// it has, just past its card's right edge where the funnel to them leaves, the page's mark of a part that folds: a
+// press on it folds them away or shows them again, as the console is told, and selects nothing. A folded item says at
+// its row's right how many items stand under it, by how they stand; what its fold hides counts at it wherever the tree
+// marks what is under an item: the edge above a work, the lit way, the title of what has begun, and the map. A click
+// on the shadow of an item folded away, or the selection of one, has the console open the folds over it, and the item
+// is selected once it is drawn.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
 // every constant as they were. What changed: a card's second row draws the level the work's cell runs at, the works
@@ -41,7 +47,7 @@ import { LINES_LOOKS, levelLook, levelWords } from '../marks';
 import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
 import { NO_LEVEL, STATE, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
-import { type Shown, type ShownWork, age } from './items';
+import { STANDINGS, type Shown, type ShownWork, age } from './items';
 import { indexTree, type Tree } from './tree';
 
 export const NODE_W = 300;
@@ -214,6 +220,20 @@ const RING = 2;
 const CHOSEN_RING = 3;
 /// How far in from the side of the room an item brought into view stands.
 const INSET = 24;
+/// The mark of an item's fold: the page's mark of a part that folds (`FoldMark`, parts.tsx), a triangle in a box this
+/// wide, to the right while the items under it are folded away and turned down while they are shown, muted as the
+/// form tree's is; its box this far out from the card's right edge, its middle at the card's. A press this far out from
+/// the edge, within the card's height, is on it; under the pointer, its box this much wider each way is filled with the
+/// accent's tint, as what can be pressed is (principle quiet-motion): the tint the pointer's ribbons are drawn in.
+const FOLD_BOX = 12;
+const FOLD_OUT = 6;
+const FOLD_REACH = 24;
+const FOLD_PAD = 3;
+/// The triangle of the mark, folded and shown, as the corners of `FoldMark`'s path on its box, turned for the second.
+const FOLD_RIGHT = [4, 2.5, 4, 9.5, 9, 6];
+const FOLD_DOWN = [9.5, 4, 2.5, 4, 6, 9];
+/// What pointing at the mark says it does.
+export const FOLD_SAYS = { folded: 'Show the items under it', shown: 'Fold the items under it away' } as const;
 /// The soft light round the item under the pointer, and round the item selected: a fill of the item's own colour behind
 /// its card, this many pixels past its edge, blurred this much, at this strength, so that the light
 /// shows only as a narrow glow round the card; the item selected's a little wider and softer, so that it stands out
@@ -385,6 +405,12 @@ export function waysUp(running: Iterable<number>, parent: ArrayLike<number>): Se
     }
   }
   return on;
+}
+
+/// Whether an item under `item`, at any depth, folded away or not, is as `is` says; a shadow, whose item stands
+/// elsewhere, is not under it.
+export function beneath(item: Shown, is: (s: Shown) => boolean): boolean {
+  return item.children.some((c) => !c.shadow && (is(c) || beneath(c, is)));
 }
 
 /// How strong the links between the items are drawn, as bright as the items not lit are (`dim`): fully while nothing is
@@ -587,6 +613,14 @@ function vertical(colour: string, from: number, to: number): FillGradient {
 
 /// A node's height in pixels, of `rows` rows.
 const high = (rows: number) => rows * ROW - (ROW - NODE_H);
+
+/// The mark of an item's fold on its node: the triangle of `FoldMark` in its box [`FOLD_OUT`] past the card's right
+/// edge, its middle at the card's, to the right while what is under the item is folded away and turned down while it is
+/// shown.
+function foldMark(folded: boolean): Graphics {
+  const at = (v: number, n: number) => v + (n % 2 === 0 ? NODE_W + FOLD_OUT : -FOLD_BOX / 2);
+  return new Graphics().poly((folded ? FOLD_RIGHT : FOLD_DOWN).map(at)).fill(PALETTE.muted);
+}
 
 /// The colour of a work's age, three and no more: grey under half an hour, amber from half an hour to an hour, and red
 /// past an hour, however long.
@@ -794,6 +828,8 @@ export class SnapScene {
   private hoverGlow = new Graphics({ filters: [softBlur(SOFT_BLUR)] });
   /// The page's ground at each item a soft light reaches, over the lights and under the cards.
   private glowGround = new Graphics();
+  /// The box of the mark of the fold under the pointer, filled, under the mark.
+  private foldLight = new Graphics();
   /// The items, by their place in the tree, whose link to the one above them is on the way from an item whose work
   /// runs up to its root ([`waysUp`]); and how strong each of those links is drawn, eased from frame to frame towards
   /// what [`wayAims`] gives it.
@@ -878,14 +914,23 @@ export class SnapScene {
   private down: { x: number; y: number } | null = null;
   /// The item under the pointer at the last frame, by its index in the tree, or none.
   private under = -1;
+  /// The item whose fold's mark is under the pointer at the last frame, by its index in the tree, or none; and what the
+  /// canvas says on pointing at it, as last written.
+  private underFold = -1;
+  private foldSaid = '';
   /// Each item's place in the tree, a shadow's left out; and for each item, its shadows: what a shadow points to and
   /// what points to an item.
   private real = new Map<number, number>();
   /// The item selected, by its number, or none: it and the way from it to its root, and from each of its shadows to
   /// theirs, stay lit in the accent until it is let go.
   private selected: number | null = null;
+  /// The item selected by a click on its shadow while folds hid it, to bring to the middle once it is drawn; or none.
+  private toFocus: number | null = null;
   /// Told the item selected each time it changes, or is drawn afresh: the window beside the tree shows it.
   onSelect: ((item: Shown | null) => void) | null = null;
+  /// Told, at a press on the mark of an item's fold, the item's number and whether the items under it are now to be
+  /// folded away: the console keeps the choice and draws the tree again.
+  onFold: ((id: number, folded: boolean) => void) | null = null;
   /// The items as last shown, by their place in the tree.
   private shownItems: Shown[] = [];
   private shadowsOf = new Map<number, number[]>();
@@ -932,6 +977,7 @@ export class SnapScene {
       this.hoverGlow,
       this.chosenGlow,
       this.glowGround,
+      this.foldLight,
       this.layer,
       this.runEdges.far,
       this.runEdges.near,
@@ -1017,7 +1063,10 @@ export class SnapScene {
     for (const v of this.views) v.destroy({ children: true });
     this.shown = new Set();
     this.styles = makeStyles();
-    const { tree, items } = indexTree(roots, (i) => i.children);
+    // The items under an item folded are not drawn; what is under it counts at it, where the tree marks what is under
+    // an item.
+    const { tree, items } = indexTree(roots, (i) => (i.fold?.folded === true ? [] : i.children));
+    const hides = (k: number, is: (s: Shown) => boolean) => items[k].fold?.folded === true && beneath(items[k], is);
     this.tree = tree;
     this.ids = items.map((i) => i.id);
     this.shownItems = items;
@@ -1029,6 +1078,7 @@ export class SnapScene {
       else this.shadowsOf.set(it.id, [...(this.shadowsOf.get(it.id) ?? []), k]);
     });
     this.under = -1;
+    this.underFold = -1;
     this.rows = Float64Array.from(items, (i) =>
       i.work === null ? 1 : 1 + WORK_ROW,
     );
@@ -1037,13 +1087,16 @@ export class SnapScene {
       for (let r = 0; r < col.length; r += 1) p[r + 1] = p[r] + this.rows[col[r]];
       return p;
     });
-    this.asking = tree.columns.map((col) => col.flatMap((i, r) => (items[i].asks > 0 ? [r] : [])));
-    this.fresh = tree.columns.map((col) => col.flatMap((i, r) => (items[i].unseen ? [r] : [])));
+    const asks = (s: Shown) => s.asks > 0;
+    const unseen = (s: Shown) => s.unseen;
+    this.asking = tree.columns.map((col) => col.flatMap((i, r) => (asks(items[i]) || hides(i, asks) ? [r] : [])));
+    this.fresh = tree.columns.map((col) => col.flatMap((i, r) => (unseen(items[i]) || hides(i, unseen) ? [r] : [])));
     // The items a work goes on on, and those above them up to their roots: from the roots one sees which branches
     // have work on.
     this.lit = new Uint8Array(items.length);
+    const working = (s: Shown) => s.work !== null;
     items.forEach((i, k) => {
-      if (i.work === null) return;
+      if (!working(i) && !hides(k, working)) return;
       for (let p = k; p >= 0 && this.lit[p] === 0; p = tree.parent[p]) this.lit[p] = 1;
     });
     this.own = items.map((i, k) => {
@@ -1053,14 +1106,16 @@ export class SnapScene {
     });
     // The items whose work has begun, and those above them: an item with nothing begun on it or under it is quieter.
     this.begun = new Uint8Array(items.length);
+    const begun = (s: Shown) => s.begun;
     items.forEach((i, k) => {
-      if (!i.begun) return;
+      if (!begun(i) && !hides(k, begun)) return;
       for (let p = k; p >= 0 && this.begun[p] === 0; p = tree.parent[p]) this.begun[p] = 1;
     });
     this.pulses = new Map();
     this.beat = beatOf();
+    const running = (s: Shown) => !s.shadow && s.work !== null && moodOf(s.work) === 'running';
     this.runWays = waysUp(
-      items.flatMap((i, k) => (!i.shadow && i.work !== null && moodOf(i.work) === 'running' ? [k] : [])),
+      items.flatMap((i, k) => (running(i) || hides(k, running) ? [k] : [])),
       tree.parent,
     );
     this.runStrength = new Map();
@@ -1110,7 +1165,41 @@ export class SnapScene {
     this.buildMap(tree);
     this.stats.items = items.length;
     if (this.selected !== null && !this.real.has(this.selected)) this.selected = null;
+    // An item a click on its shadow asked for, once the folds over it are open, comes to the middle of the screen.
+    if (this.toFocus !== this.selected) this.toFocus = null;
+    const goal = this.toFocus === null ? undefined : this.real.get(this.toFocus);
+    if (goal !== undefined) {
+      this.focus(tree.depth[goal], tree.rank[goal]);
+      this.toFocus = null;
+    }
     this.announce();
+  }
+
+  /// Of the item numbered `id`, where folds hide it, the folded items over it, from its root down; none where it is
+  /// drawn, or stands nowhere in the tree.
+  private foldsOver(id: number): number[] {
+    const path: Shown[] = [];
+    const find = (items: Shown[]): boolean =>
+      items.some((s) => {
+        if (s.shadow) return false;
+        if (s.id === id) return true;
+        path.push(s);
+        if (find(s.children)) return true;
+        path.pop();
+        return false;
+      });
+    if (this.roots === null || this.real.has(id) || !find(this.roots)) return [];
+    return path.filter((s) => s.fold?.folded === true).map((s) => s.id);
+  }
+
+  /// Asks for the item numbered `id` where folds hide it: the console is told to unfold each folded item over it, and
+  /// the item is selected once it is drawn. Whether folds hid it.
+  private unfoldTo(id: number): boolean {
+    const over = this.foldsOver(id);
+    if (over.length === 0 || this.onFold === null) return false;
+    for (const f of over) this.onFold(f, false);
+    this.selected = id;
+    return true;
   }
 
   /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does
@@ -1118,7 +1207,9 @@ export class SnapScene {
   /// state's colour, its title, and at the right how many things its work waits for from the owner, white on red; on
   /// the second row, for an item whose work goes on, under the number the level its cell runs at, the strip of the
   /// work's cells as the works page draws it, the lines the work added and removed where it changed any, and how long
-  /// it has gone on. An item whose work has ended has its one row, with the lines its work changed at its right.
+  /// it has gone on. An item whose work has ended has its one row, with the lines its work changed at its right. An
+  /// item with items under it has the mark of its fold just past its right edge, and, folded, how many items stand
+  /// under it by how they stand, before its other marks.
   private node(item: Shown, k: number): Container {
     const s = this.styles as Styles;
     const view = new Container();
@@ -1149,6 +1240,7 @@ export class SnapScene {
         }),
       );
     }
+    if (item.fold != null) view.addChild(foldMark(item.fold.folded));
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
     const number = new BitmapText({
@@ -1232,6 +1324,12 @@ export class SnapScene {
       view.addChild(added, removed);
       right -= removed.width + gap + added.width + 8;
     }
+    // Folded, how many items stand under it by how they stand, before the other marks: each kind by its key, with its
+    // count, framed in grey as the lock is, `open 1 done 5 cancelled 2`, a kind with none left out.
+    const fold = item.fold;
+    if (fold?.folded === true)
+      for (const kind of [...STANDINGS].reverse())
+        if (fold.under[kind] > 0) tag(`${kind} ${fold.under[kind]}`, PALETTE.muted, null, false);
     // The title ends where the badges begin.
     fit(title, right - title.x);
     if (item.work === null || mood === null) return view;
@@ -1352,6 +1450,17 @@ export class SnapScene {
   /// for the strip ends; and the level under the number. None for an item whose card has no work.
   drawnStrip(id: number): DrawnStrip | null {
     return this.drawnStrips.get(id) ?? null;
+  }
+
+  /// Where the card of item `id` stands on the canvas, its left side and its middle, for the tests; none for an item
+  /// the tree does not draw.
+  cardAt(id: number): { x: number; y: number } | null {
+    const t = this.tree;
+    const i = this.real.get(id);
+    if (t === null || i === undefined) return null;
+    const d = t.depth[i];
+    const line = this.app.screen.height / 2;
+    return { x: this.left + d * PITCH, y: line + (this.middle(d, t.rank[i]) - this.columns[d].at) * ROW };
   }
 
   /// The shadow of an item under another item that depends on it besides its main one: a white card, its edge dashed,
@@ -1873,9 +1982,28 @@ export class SnapScene {
   /// The item under the pointer, by its index in the tree, or none: the card of column `d` whose box holds the
   /// pointer. `y` gives an item's middle on the screen.
   private pointed(t: Tree, x: (d: number) => number, y: (d: number, rank: number) => number): number {
+    return this.beside(t, x, y, 0, NODE_W);
+  }
+
+  /// The item whose fold's mark is under the pointer, by its index in the tree, or none: of an item with items under
+  /// it, the room past its card's right edge as far as [`FOLD_REACH`], as high as the card.
+  private foldPointed(t: Tree, x: (d: number) => number, y: (d: number, rank: number) => number): number {
+    const i = this.beside(t, x, y, NODE_W, NODE_W + FOLD_REACH);
+    return i >= 0 && this.shownItems[i].fold != null ? i : -1;
+  }
+
+  /// The item of column `d` level with the pointer, by its index in the tree, where the pointer is from `from` to `to`
+  /// pixels right of the column's left side and within the item's height; or none.
+  private beside(
+    t: Tree,
+    x: (d: number) => number,
+    y: (d: number, rank: number) => number,
+    from: number,
+    to: number,
+  ): number {
     const p = this.pointer;
     const d = this.hovered;
-    if (p === null || d < 0 || p.x < x(d) || p.x > x(d) + NODE_W) return -1;
+    if (p === null || d < 0 || p.x < x(d) + from || p.x > x(d) + to) return -1;
     const c = this.columns[d];
     const line = this.app.screen.height / 2;
     const rank = this.rankAt(d, (p.y - line) / ROW + c.at);
@@ -1896,13 +2024,28 @@ export class SnapScene {
     const d = this.down;
     this.down = null;
     if (d === null || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4 || this.tree === null) return;
+    // A click on the mark of an item's fold folds the items under it away, or shows them again, and selects nothing;
+    // the item's column becomes the one the others follow, so that the items shown under it come level with it.
+    const f = this.underFold;
+    const fold = f < 0 ? null : this.shownItems[f].fold;
+    if (fold != null) {
+      const c = this.tree.depth[f];
+      this.driver = c;
+      this.columns[c].aim = this.columns[c].at;
+      this.onFold?.(this.ids[f], !fold.folded);
+      return;
+    }
     // A click on an item selects it, and on it again, or on no item, lets it go. A click on a shadow selects the item
     // it points to and brings it to the middle of the screen, so that the columns come to where it stands.
     const i = this.under;
     if (i < 0) this.selected = null;
     else if (this.shadows[i] === 1) {
       const to = this.real.get(this.ids[i]);
-      if (to === undefined) return;
+      // Where folds hide the item it points to, they are opened, and the item comes to the middle once it is drawn.
+      if (to === undefined) {
+        if (this.unfoldTo(this.ids[i])) this.toFocus = this.ids[i];
+        return;
+      }
       this.selected = this.ids[to];
       this.focus(this.tree.depth[to], this.tree.rank[to]);
     } else this.selected = this.selected === this.ids[i] ? null : this.ids[i];
@@ -1931,6 +2074,8 @@ export class SnapScene {
 
   /// Selects the item numbered `id`, or none.
   select(id: number | null): void {
+    // An item folds hide is selected once the folds over it are opened and it is drawn.
+    if (id !== null && !this.real.has(id) && this.unfoldTo(id)) return;
     this.selected = id !== null && this.real.has(id) ? id : null;
     this.announce();
   }
@@ -2066,6 +2211,23 @@ export class SnapScene {
       return set;
     };
     this.under = this.pointed(t, x, y);
+    this.underFold = this.under >= 0 ? -1 : this.foldPointed(t, x, y);
+    // The mark of the fold under the pointer: its box filled, the pointer a hand, and what it does said on pointing.
+    this.foldLight.clear();
+    const fold = this.underFold < 0 ? null : this.shownItems[this.underFold].fold;
+    if (fold != null) {
+      const [d, r] = [t.depth[this.underFold], t.rank[this.underFold]];
+      const side = FOLD_BOX + 2 * FOLD_PAD;
+      this.foldLight
+        .roundRect(x(d) + NODE_W + FOLD_OUT - FOLD_PAD, y(d, r) - side / 2, side, side, CARD_CORNER)
+        .fill(PALETTE.hoverRibbon);
+    }
+    const said = fold == null ? '' : FOLD_SAYS[fold.folded ? 'folded' : 'shown'];
+    if (said !== this.foldSaid) {
+      this.foldSaid = said;
+      this.app.canvas.title = said;
+      this.app.canvas.style.cursor = said === '' ? '' : 'pointer';
+    }
     const chain = lit(this.under);
     // The item selected, the same way, in the accent; only the item itself glows, those lit with it are only ringed,
     // so that it stands out among them.

@@ -1,14 +1,15 @@
 // @vitest-environment happy-dom
 // What the canvas draws of a work on its card, apart from drawing it: the colour of its age, how its rings move and the
-// mood its card takes.
+// mood its card takes; and what a fold hides, which counts at the item folded.
 
 import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Now } from '../works-api';
 import { stateOf } from '../works/words';
-import { age } from './items';
+import { age, type Shown } from './items';
 import {
   beatOf,
+  beneath,
   DIM,
   eased,
   gatherAt,
@@ -61,6 +62,33 @@ describe("a card's mood", () => {
     const act: Now = { kind: 'round', cell: 'M2', run: 2, round: 1, since: 0 };
     expect(stateOf({ now: act, cells: at, waits: [] }).tone).toBe('running');
     expect(moodOf({ now: act, cells: at, waits: [] })).toBe('running');
+  });
+});
+
+describe('what a fold hides', () => {
+  const item = (id: number, children: Shown[] = [], shadow = false): Shown => ({
+    id,
+    title: `Item ${id}`,
+    standing: 'open',
+    asks: 0,
+    deliver: false,
+    blocked: 0,
+    unseen: false,
+    unread: 0,
+    begun: false,
+    shadow,
+    work: null,
+    children,
+  });
+  // 1 holds 2, which holds 3, folded away under 2, and a shadow of 4.
+  const folded = { folded: true, under: { open: 1, done: 0, cancelled: 0 } };
+  const tree = item(1, [{ ...item(2, [item(3), item(4, [], true)]), fold: folded }]);
+
+  it('is what stands under an item at any depth, folded away or not, and no shadow, whose item stands elsewhere', () => {
+    expect(beneath(tree, (s) => s.id === 3)).toBe(true);
+    expect(beneath(tree, (s) => s.id === 2)).toBe(true);
+    expect(beneath(tree, (s) => s.id === 4)).toBe(false);
+    expect(beneath(tree, (s) => s.id === 1)).toBe(false);
   });
 });
 

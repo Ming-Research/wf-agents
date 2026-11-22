@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Item, Items, Now, Summary, Wait } from '../works-api';
-import { asksOf, shownTree, type Shown } from './items';
+import { asksOf, STANDINGS, shownTree, type Shown } from './items';
 import { indexTree } from './tree';
 
 const CELLS = ['plan', 'implement', 'merge'];
@@ -47,9 +47,30 @@ function item(number: number, standing: 'open' | 'done' | 'cancelled', dependsOn
   };
 }
 
+/// Item `i`, which came to no longer depend on each item of `on` at the time given with it, in turn.
+const dropping = (i: Item, ...on: [number, number][]): Item => ({
+  ...i,
+  history: {
+    first: { ...i.history.first, dependsOn: [...i.dependsOn, ...on.map(([n]) => n)].sort((a, b) => a - b) },
+    changes: on.map(([n, time]) => ({ time, why: null, what: { kind: 'noLongerDependsOn', item: n } })),
+  },
+});
+
 /// A tree as lines: each item's number, indented by its depth, a shadow's marked.
 const lines = (roots: Shown[], depth = 0): string[] =>
   roots.flatMap((r) => [`${'  '.repeat(depth)}${r.id}${r.shadow ? ' shadow' : ''}`, ...lines(r.children, depth + 1)]);
+
+/// A tree as the console draws it: as `lines`, without what a folded item folds away, the folded item marked with how
+/// many stand under it by how they stand.
+const drawnLines = (roots: Shown[], depth = 0): string[] =>
+  roots.flatMap((r) => {
+    const head = `${'  '.repeat(depth)}${r.id}${r.shadow ? ' shadow' : ''}`;
+    if (r.fold?.folded !== true) return [head, ...drawnLines(r.children, depth + 1)];
+    const under = r.fold.under;
+    return [`${head} folded${STANDINGS.filter((s) => under[s] > 0).map((s) => ` ${s} ${under[s]}`).join('')}`];
+  });
+
+const ALL = new Set(STANDINGS);
 
 describe('the tree the console shows', () => {
   // 1 needs 2 and 3, and 4 needs 3 too, its main dependent 1, the first by number; 3 needs 5, which is cancelled; 6 and
@@ -127,6 +148,125 @@ describe('the tree the console shows', () => {
     expect(shown[0].children.map((s) => [s.id, s.standing])).toEqual([
       [9, 'open'],
       [10, 'cancelled'],
+    ]);
+  });
+});
+
+describe('where an item that ended stands', () => {
+  // 1 depends on 2. 3, cancelled, was depended on by 1 until 10, and by 4 and 5 until 20, as it was cancelled. 6,
+  // cancelled, was never depended on. 7, done, is still depended on by 8, though 1 depended on it until 30. 9, done,
+  // was depended on by 2 until 5.
+  const data: Items = {
+    items: [
+      dropping(item(1, 'open', [2]), [3, 10], [7, 30]),
+      dropping(item(2, 'open'), [9, 5]),
+      item(3, 'cancelled'),
+      dropping(item(4, 'open'), [3, 20]),
+      dropping(item(5, 'open'), [3, 20]),
+      item(6, 'cancelled'),
+      item(7, 'done'),
+      item(8, 'open', [7]),
+      item(9, 'done'),
+    ],
+  };
+
+  it('stands under the item that last depended on it, the first by number of those that stopped at once; one never depended on stands at the top, and one still depended on where it stood', () => {
+    expect(lines(shownTree(data, ALL))).toEqual(['1', '  2', '    9', '4', '  3', '5', '6', '8', '  7']);
+  });
+
+  it('is left out with the others while the boxes ticked show neither it nor anything under it', () => {
+    expect(lines(shownTree(data))).toEqual(['1', '  2', '4', '5', '8']);
+  });
+
+  it('stays at the top where the item that last depended on it stands under it, so that no item is lost in a loop', () => {
+    // 1, cancelled, depends on 2, done, which depended on 1 until 5. 3, cancelled, was last depended on by 4, cancelled,
+    // and 4 by 5. 6 and 7, both cancelled, were each last depended on by the other.
+    const looped: Items = {
+      items: [
+        item(1, 'cancelled', [2]),
+        dropping(item(2, 'done'), [1, 5]),
+        item(3, 'cancelled'),
+        dropping(item(4, 'cancelled'), [3, 5]),
+        dropping(item(5, 'open'), [4, 6]),
+        dropping(item(6, 'cancelled'), [7, 7]),
+        dropping(item(7, 'cancelled'), [6, 7]),
+      ],
+    };
+    expect(lines(shownTree(looped, ALL))).toEqual(['1', '  2', '5', '  4', '    3', '7', '  6']);
+  });
+});
+
+describe('the folds of the tree', () => {
+  // 10, open, depends on 11 and 12. 11, done, depends on 13 and 14, both done. 12, done, depends on 15, done, which
+  // depends on 16, done, and depended on 17 until it was cancelled. 18, open, depends on 19, open, and 20, done. 21,
+  // cancelled, depends on 22, open.
+  const data: Items = {
+    items: [
+      item(10, 'open', [11, 12]),
+      item(11, 'done', [13, 14]),
+      item(12, 'done', [15]),
+      item(13, 'done'),
+      item(14, 'done'),
+      dropping(item(15, 'done', [16]), [17, 1]),
+      item(16, 'done'),
+      item(17, 'cancelled'),
+      item(18, 'open', [19, 20]),
+      item(19, 'open'),
+      item(20, 'done'),
+      item(21, 'cancelled', [22]),
+      item(22, 'open'),
+    ],
+  };
+
+  it('fold an item where neither it nor anything under it is open, and leave the others unfolded, each counting what stands under it by how it stands', () => {
+    expect(drawnLines(shownTree(data, ALL))).toEqual([
+      '10',
+      '  11 folded done 2',
+      '  12 folded done 2 cancelled 1',
+      '18',
+      '  19',
+      '  20',
+      '21',
+      '  22',
+    ]);
+    // A folded item still holds what stands under it; an item with nothing under it has no fold.
+    const [ten] = shownTree(data, ALL);
+    expect(ten.fold).toEqual({ folded: false, under: { open: 0, done: 6, cancelled: 1 } });
+    expect(ten.children[0].children.map((c) => c.id)).toEqual([13, 14]);
+    expect(ten.children[0].children[0].fold).toBeNull();
+  });
+
+  it('fold or unfold an item as the owner last chose, over their own rule', () => {
+    const chosen = new Map([
+      [12, false],
+      [21, true],
+    ]);
+    expect(drawnLines(shownTree(data, ALL, chosen))).toEqual([
+      '10',
+      '  11 folded done 2',
+      '  12',
+      '    15 folded done 1 cancelled 1',
+      '18',
+      '  19',
+      '  20',
+      '21 folded open 1',
+    ]);
+  });
+
+  it('count and fold only what the boxes ticked show, and hide what is under an item whatever the boxes show', () => {
+    expect(drawnLines(shownTree(data))).toEqual(['10', '18', '  19', '21', '  22']);
+    expect(drawnLines(shownTree(data, new Set(['done'])))).toEqual([
+      '10',
+      '  11 folded done 2',
+      '  12 folded done 2',
+      '18',
+      '  20',
+    ]);
+    expect(drawnLines(shownTree(data, new Set(['open']), new Map([[18, true]])))).toEqual([
+      '10',
+      '18 folded open 1',
+      '21',
+      '  22',
     ]);
   });
 });

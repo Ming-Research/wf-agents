@@ -1,5 +1,5 @@
 // Made-up items for looking at the console with no server behind it (`console.html?fixtures`), and for its tests: some
-// twenty items, each with its one work, depending on each other in four layers, their works in every state a work can
+// thirty items, each with its one work, depending on each other in four layers, their works in every state a work can
 // be in, on one made-up flow of an engineer's work; most of the project `wf-agents`, two of another, and one, added
 // before items had projects, of none. What the owner does to a work changes it here, and the console is told as the
 // interface's stream of changes would tell it.
@@ -13,6 +13,7 @@ import type {
   Changed,
   Ends,
   Item,
+  ItemChange,
   Items,
   Now,
   Pauser,
@@ -272,8 +273,25 @@ const BARS = [
 const begun = (now: Now, cells: CellNow[]) =>
   now.kind === 'round' || cells.some((c) => c.state !== 'notYet' && c.state !== 'skipped');
 
-/// A made-up item: its project is `wf-agents` where it names none.
-type Made = { title: string; project?: string | null; dependsOn: number[]; work: Omit<Summary, 'item' | 'flow'> };
+/// A made-up item: its project is `wf-agents` where it names none; the changes of its dependencies made since it was
+/// added, none where none is given.
+type Made = {
+  title: string;
+  project?: string | null;
+  dependsOn: number[];
+  changes?: ItemChange[];
+  work: Omit<Summary, 'item' | 'flow'>;
+};
+
+/// What an item depended on as it was added: what it depends on now, before `changes` were made to it.
+function firstDependsOn(now: number[], changes: ItemChange[]): number[] {
+  const first = new Set(now);
+  for (const c of [...changes].reverse()) {
+    if (c.what.kind === 'dependsOn') first.delete(c.what.item);
+    if (c.what.kind === 'noLongerDependsOn') first.add(c.what.item);
+  }
+  return [...first].sort((a, b) => a - b);
+}
 
 /// The made-up items, as they stand when the page opens; `start` is the time it is taken from.
 export function fixtureItems(start = Date.now()): Items {
@@ -566,6 +584,74 @@ export function fixtureItems(start = Date.now()): Items {
         waits: [ruling(REQUEST_READ, 'request_read')],
       }),
     },
+    // Items that ended, standing where they stood, and folds. 26 is open, its work not begun; under it 27, done, folded
+    // as nothing under it is open; 28, open, unfolded over 32, whose work runs; and 29, cancelled, which 26 depended on
+    // until 29 was cancelled, folded over 33, done, and 34, cancelled, which 29 depended on until 34 was cancelled. 35
+    // is cancelled, and no item ever depended on it.
+    26: {
+      title: 'Fold the items under an item',
+      dependsOn: [27, 28],
+      changes: [
+        {
+          time: start - 20 * HOUR,
+          why: 'Cancelled: placing an ended item where it stood does it',
+          what: { kind: 'noLongerDependsOn', item: 29 },
+        },
+      ],
+      work: work({ kind: 'next', cell: 'research' }, notStarted, { hours: 40, dollars: 0, rounds: 0 }),
+    },
+    27: {
+      title: 'Count the items under a fold',
+      dependsOn: [30, 31],
+      work: work({ kind: 'merged' }, cellsAt(null, 'done', false), { hours: 30, dollars: 3.4, rounds: 25 }),
+    },
+    28: {
+      title: 'Place an ended item where it stood',
+      dependsOn: [32],
+      work: work({ kind: 'next', cell: 'research' }, notStarted, { hours: 6, dollars: 0, rounds: 0 }),
+    },
+    29: {
+      title: 'Hide the cancelled roots',
+      dependsOn: [33],
+      changes: [
+        {
+          time: start - 30 * HOUR,
+          why: 'Cancelled: a column of their own would take the room of the tree',
+          what: { kind: 'noLongerDependsOn', item: 34 },
+        },
+      ],
+      work: work({ kind: 'cancelled' }, cellsAt('deep_research', 'notYet'), { hours: 50, dollars: 0.6, rounds: 4 }),
+    },
+    30: {
+      title: 'Draw the mark of a fold',
+      dependsOn: [],
+      work: work({ kind: 'merged' }, cellsAt(null, 'done', false), { hours: 36, dollars: 2.1, rounds: 18 }),
+    },
+    31: {
+      title: 'Keep what the owner folds',
+      dependsOn: [],
+      work: work({ kind: 'merged' }, cellsAt(null, 'done'), { hours: 34, dollars: 1.7, rounds: 15 }),
+    },
+    32: {
+      title: 'Read where an item last stood',
+      dependsOn: [],
+      work: work(round('implement', 9), cellsAt('implement', 'running'), { hours: 5, dollars: 2.6, rounds: 21 }),
+    },
+    33: {
+      title: 'List the cancelled items apart',
+      dependsOn: [],
+      work: work({ kind: 'merged' }, cellsAt(null, 'done', false), { hours: 60, dollars: 1.2, rounds: 10 }),
+    },
+    34: {
+      title: 'Show the cancelled items in a column of their own',
+      dependsOn: [],
+      work: work({ kind: 'cancelled' }, cellsAt('research', 'notYet'), { hours: 70, dollars: 0.2, rounds: 2 }),
+    },
+    35: {
+      title: 'Try the tree as a flat list',
+      dependsOn: [],
+      work: work({ kind: 'cancelled' }, cellsAt('research', 'notYet'), { hours: 80, dollars: 0.3, rounds: 2 }),
+    },
   };
   return {
     items: Object.entries(items).map(
@@ -576,7 +662,10 @@ export function fixtureItems(start = Date.now()): Items {
         project: m.project === undefined ? 'wf-agents' : m.project,
         added: m.work.added,
         dependsOn: m.dependsOn,
-        history: { first: { title: m.title, level: '2', dependsOn: m.dependsOn }, changes: [] },
+        history: {
+          first: { title: m.title, level: '2', dependsOn: firstDependsOn(m.dependsOn, m.changes ?? []) },
+          changes: m.changes ?? [],
+        },
         work: { ...m.work, item: Number(n), flow: FLOW.name },
       }),
     ),
