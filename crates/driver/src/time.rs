@@ -58,81 +58,125 @@ pub fn ran(work: &Work, model: &dyn Fn(RunId) -> bool, now: Time) -> Vec<Stretch
 }
 
 /// What the work's time went to as the flow installed decides it, as `kept` holds it, as of `now`: what ran ([`ran`]),
-/// and between, each stretch nothing ran all through, what the work waited for as its records stood then, with the
-/// pause of everything as `spans` say it held, and the agents' wait where their command line could not run, since the
-/// time `cannot_run` gives, with what it said ([`waited`]). None for a work no round of which began.
+/// and between, each stretch nothing ran all through, what the work waited for then ([`Waits::at`]). None for a work no
+/// round of which began.
 pub fn stretches(kept: &Kept<'_>, spans: &[Span], cannot_run: Option<(Time, &str)>, now: Time) -> Vec<Stretch> {
-    let (flow, work) = (kept.flow, kept.work);
-    let agent = |run: RunId| {
-        let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
-        (flow.cells.iter()).any(|spec| Some(&spec.id) == cell && spec.act.is_none())
-    };
-    let mut out = ran(work, &agent, now);
-    let (Some(from), Some(until)) = (out.iter().map(|s| s.from).min(), out.iter().map(|s| s.until).max()) else {
+    let mut waits = Waits::new(*kept, spans, cannot_run, now);
+    let mut out = waits.ran.clone();
+    let (Some(from), Some(until)) = (waits.from, waits.until) else {
         return out;
     };
-    // What ran, as stretches that do not overlap, in order.
-    let mut busy: Vec<(Time, Time)> = out.iter().map(|s| (s.from, s.until)).collect();
-    busy.sort();
-    let mut merged: Vec<(Time, Time)> = Vec::new();
-    for (a, b) in busy {
-        match merged.last_mut() {
-            Some(last) if a <= last.1 => last.1 = last.1.max(b),
-            _ => merged.push((a, b)),
-        }
-    }
     // Where what holds the work may change: as something happened to it, and as what holds every work changed.
     let mut points: Vec<Time> = vec![from, until];
-    points.extend(work.moments.iter().map(|m| m.at));
+    points.extend(kept.work.moments.iter().map(|m| m.at));
     points.extend(spans.iter().flat_map(|span| [Some(span.from), span.until]).flatten());
     points.extend(cannot_run.map(|(since, _)| since));
     points.retain(|at| *at >= from && *at <= until);
     points.sort();
     points.dedup();
-    let everything_at = |at: Time| {
-        (spans.iter())
-            .find(|span| span.from <= at && span.until.is_none_or(|until| at < until))
-            .map(|span| span.by)
-    };
-    // What the work waited for in a stretch, by the place of the first entry after its start, the records as they stood
-    // then being those before it, by who set the pause of everything then, and by whether the agents' command line could
-    // run: the stretches of one wait share these, and each is decided once.
-    let mut decided: BTreeMap<(Option<Seq>, Option<bool>, bool), Went> = BTreeMap::new();
-    let mut waits: Vec<Stretch> = Vec::new();
+    let mut stretches: Vec<Stretch> = Vec::new();
     for pair in points.windows(2) {
         let (a, b) = (pair[0], pair[1]);
-        if merged.iter().any(|(x, y)| *x <= a && b <= *y) {
+        // Nothing that holds the work changes within the stretch, so what it waited for at its start it waited for
+        // all through.
+        let Some(went) = waits.at(a) else {
             continue;
-        }
-        let place = (work.moments.iter()).find(|m| m.at > a).map(|m| m.from);
-        let everything = everything_at(a);
-        let could_not_run = cannot_run.filter(|(since, _)| *since <= a).map(|(_, why)| why);
-        let key = (
-            place,
-            everything.map(|by| by == Pauser::Engine),
-            could_not_run.is_some(),
-        );
-        let went = *decided.entry(key).or_insert_with(|| {
-            let then = owner::Shared {
-                everything,
-                cannot_run: could_not_run,
-            };
-            match place {
-                Some(place) => waited(kept, &work.records.before(place), then),
-                None => waited(kept, &work.records, then),
-            }
-        });
-        match waits.last_mut() {
+        };
+        match stretches.last_mut() {
             Some(last) if last.until == a && last.went == went => last.until = b,
-            _ => waits.push(Stretch {
+            _ => stretches.push(Stretch {
                 from: a,
                 until: b,
                 went,
             }),
         }
     }
-    out.extend(waits);
+    out.extend(stretches);
     out
+}
+
+/// What a work waited for at each time of its span that nothing of it ran, as the flow installed decides on its records
+/// as they stood then, with the pause of everything as `spans` say it held, and the agents' wait where their command
+/// line could not run, since the time `cannot_run` gives, with what it said ([`waited`]). The times of one wait share
+/// the place of the first entry after them, who set the pause of everything then, and whether the agents could run,
+/// and each such wait is decided once: the bar of a work going on asks it at the middle of each of its cells, as many
+/// as it has, and what it kept as it ended at the start of each stretch, so that the two read alike.
+pub struct Waits<'a> {
+    kept: Kept<'a>,
+    spans: &'a [Span],
+    cannot_run: Option<(Time, &'a str)>,
+    /// What ran ([`ran`]), as of the time given.
+    pub ran: Vec<Stretch>,
+    /// What ran, as stretches that do not overlap, in order.
+    busy: Vec<(Time, Time)>,
+    /// When the work's first round began.
+    pub from: Option<Time>,
+    /// When the last of what ran ended.
+    pub until: Option<Time>,
+    decided: BTreeMap<(Option<Seq>, Option<bool>, bool), Went>,
+}
+
+impl<'a> Waits<'a> {
+    /// The waits of the work `kept` holds, as of `now`.
+    pub fn new(kept: Kept<'a>, spans: &'a [Span], cannot_run: Option<(Time, &'a str)>, now: Time) -> Waits<'a> {
+        let (flow, work) = (kept.flow, kept.work);
+        let agent = |run: RunId| {
+            let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
+            (flow.cells.iter()).any(|spec| Some(&spec.id) == cell && spec.act.is_none())
+        };
+        let ran = ran(work, &agent, now);
+        let mut busy: Vec<(Time, Time)> = ran.iter().map(|s| (s.from, s.until)).collect();
+        busy.sort();
+        let mut merged: Vec<(Time, Time)> = Vec::new();
+        for (a, b) in busy {
+            match merged.last_mut() {
+                Some(last) if a <= last.1 => last.1 = last.1.max(b),
+                _ => merged.push((a, b)),
+            }
+        }
+        Waits {
+            kept,
+            spans,
+            cannot_run,
+            from: ran.iter().map(|s| s.from).min(),
+            until: ran.iter().map(|s| s.until).max(),
+            ran,
+            busy: merged,
+            decided: BTreeMap::new(),
+        }
+    }
+
+    /// What the work waited for at this time: none where something of it ran then, or the time is outside its span.
+    pub fn at(&mut self, at: Time) -> Option<Went> {
+        let (Some(from), Some(until)) = (self.from, self.until) else {
+            return None;
+        };
+        if at < from || at >= until || self.busy.iter().any(|(x, y)| *x <= at && at < *y) {
+            return None;
+        }
+        let work = self.kept.work;
+        let place = (work.moments.iter()).find(|m| m.at > at).map(|m| m.from);
+        let everything = (self.spans.iter())
+            .find(|span| span.from <= at && span.until.is_none_or(|until| at < until))
+            .map(|span| span.by);
+        let could_not_run = self.cannot_run.filter(|(since, _)| *since <= at).map(|(_, why)| why);
+        let key = (
+            place,
+            everything.map(|by| by == Pauser::Engine),
+            could_not_run.is_some(),
+        );
+        let kept = self.kept;
+        Some(*self.decided.entry(key).or_insert_with(|| {
+            let then = owner::Shared {
+                everything,
+                cannot_run: could_not_run,
+            };
+            match place {
+                Some(place) => waited(&kept, &work.records.before(place), then),
+                None => waited(&kept, &work.records, then),
+            }
+        }))
+    }
 }
 
 /// What a work on these records waited for, with what held every work at once then: the owner, where the one

@@ -2242,23 +2242,54 @@ impl HeldAll {
     }
 }
 
-/// What the work's time went to ([`driver::time`]), and whether what it waited for is known: what it kept as it last
-/// ended, where it has not been reopened since; else, for a work the flow installed decides, as that flow reads it now;
-/// else what ran alone, read from its records, a round a model's where it had a try, and what it waited for not known
-/// (decision `a-work-keeps-what-its-time-went-to`).
-fn stretches(kept: Kept<'_>, all: &HeldAll, now: Time) -> (Vec<Stretch>, bool) {
-    let work = kept.work;
-    let kept_time = (work.kept_time.last()).filter(|k| !work.records.reopens.iter().any(|reopen| *reopen > k.at));
-    if let Some(kept_time) = kept_time {
-        return (kept_time.stretches.clone(), true);
+/// What a work's bar is drawn from (decision `a-work-keeps-what-its-time-went-to`).
+enum TimeOf<'a> {
+    /// What it kept as it last ended, where it has not been reopened since.
+    Kept(&'a [Stretch]),
+    /// For a work the flow installed decides, what it waited for as that flow reads it now, asked at each time.
+    Decided(driver::time::Waits<'a>),
+    /// Else what ran alone, read from its records, a round a model's where it had a try: what it waited for is not
+    /// known.
+    Ran(Vec<Stretch>),
+}
+
+impl<'a> TimeOf<'a> {
+    fn of(kept: Kept<'a>, all: &'a HeldAll, now: Time) -> TimeOf<'a> {
+        let work = kept.work;
+        let kept_time = (work.kept_time.last()).filter(|k| !work.records.reopens.iter().any(|reopen| *reopen > k.at));
+        if let Some(kept_time) = kept_time {
+            return TimeOf::Kept(&kept_time.stretches);
+        }
+        if kept.on.installed() {
+            let cannot_run = all.cannot_run.as_ref().map(|(since, why)| (*since, why.as_str()));
+            return TimeOf::Decided(driver::time::Waits::new(kept, &all.everything, cannot_run, now));
+        }
+        let tried = |run: RunId| work.ran.iter().any(|ran| ran.run == run);
+        let end = work.moments.last().map_or(now, |moment| moment.at);
+        TimeOf::Ran(driver::time::ran(work, &tried, end))
     }
-    if kept.on.installed() {
-        let cannot_run = all.cannot_run.as_ref().map(|(since, why)| (*since, why.as_str()));
-        return (driver::time::stretches(&kept, &all.everything, cannot_run, now), true);
+
+    /// Each stretch that ran: a model's, or the tools'.
+    fn ran(&self) -> Vec<&Stretch> {
+        let ran = |s: &&Stretch| matches!(s.went, Went::Model | Went::Tools);
+        match self {
+            TimeOf::Kept(stretches) => stretches.iter().filter(ran).collect(),
+            TimeOf::Decided(waits) => waits.ran.iter().collect(),
+            TimeOf::Ran(stretches) => stretches.iter().collect(),
+        }
     }
-    let tried = |run: RunId| work.ran.iter().any(|ran| ran.run == run);
-    let end = work.moments.last().map_or(now, |moment| moment.at);
-    (driver::time::ran(work, &tried, end), false)
+
+    /// The character of what the work waited for at this time, `.` where nothing says, and `?` where it is not known.
+    fn waited_at(&mut self, at: Time) -> char {
+        let went = match self {
+            TimeOf::Kept(stretches) => (stretches.iter())
+                .find(|s| !matches!(s.went, Went::Model | Went::Tools) && s.from <= at && at < s.until)
+                .map(|s| s.went),
+            TimeOf::Decided(waits) => waits.at(at),
+            TimeOf::Ran(_) => return '?',
+        };
+        went.map_or('.', mark)
+    }
 }
 
 /// The character of the bar for what a stretch of the work's time went to.
@@ -2276,20 +2307,18 @@ fn mark(went: Went) -> char {
 /// The work's time bar ([`Summary::bar`]): its span from its first round's begin to the end of its last round or
 /// tool's call cut into [`BAR_CELLS`] equal cells, each the character of what ran most of it: a model, or the tools. A
 /// cell less than half of which ran is the character of what the work waited for at its middle, `.` where nothing
-/// says, and `?` where what it waited for is not known ([`stretches`]). What is under way is counted to `now`, by the
+/// says, and `?` where what it waited for is not known ([`TimeOf`]). What is under way is counted to `now`, by the
 /// loop's clock.
 fn bar(kept: Kept<'_>, all: &HeldAll, now: Time) -> String {
-    let (stretches, known) = stretches(kept, all, now);
-    let ran = |s: &&Stretch| matches!(s.went, Went::Model | Went::Tools);
-    let from = stretches.iter().filter(ran).map(|s| s.from.0).min();
-    let until = stretches.iter().filter(ran).map(|s| s.until.0).max();
+    let mut went = TimeOf::of(kept, all, now);
+    let stretches: Vec<(u64, u64, bool)> = (went.ran().into_iter())
+        .map(|s| (s.from.0, s.until.0, s.went == Went::Model))
+        .collect();
+    let from = stretches.iter().map(|s| s.0).min();
+    let until = stretches.iter().map(|s| s.1).max();
     let (Some(from), Some(until)) = (from, until) else {
         return String::new();
     };
-    let waits: Vec<&Stretch> = stretches.iter().filter(|s| !ran(s)).collect();
-    let stretches: Vec<(u64, u64, bool)> = (stretches.iter().filter(ran))
-        .map(|s| (s.from.0, s.until.0, s.went == Went::Model))
-        .collect();
     let span = until.saturating_sub(from);
     if span == 0 {
         return String::new();
@@ -2316,16 +2345,9 @@ fn bar(kept: Kept<'_>, all: &HeldAll, now: Time) -> String {
             }
         }
     }
-    // What the work waited for in a cell: the wait that held at the cell's middle.
-    let waited_in = |i: u64| {
-        let middle = from + (span * (2 * i + 1)) / (2 * BAR_CELLS);
-        let wait = waits.iter().find(|s| s.from.0 <= middle && middle < s.until.0);
-        match wait {
-            Some(wait) => mark(wait.went),
-            None if known => '.',
-            None => '?',
-        }
-    };
+    // What the work waited for in a cell: the wait that held at the cell's middle, decided there for a work going on as
+    // it was decided at the start of the stretch that holds it for what a work kept as it ended.
+    let mut waited_in = |i: u64| went.waited_at(Time(from + (span * (2 * i + 1)) / (2 * BAR_CELLS)));
     (in_cell.iter().zip(0..))
         .map(|(&(model, tool), i)| {
             if (model + tool) * 2 < span {
@@ -4045,6 +4067,78 @@ pub(crate) mod tests {
             ..Has::default()
         };
         compile(&source, &has).expect("the deliver flow compiles")
+    }
+
+    // The bar of a work going on is the one it keeps as it ends (decision a-work-keeps-what-its-time-went-to): drawn
+    // live, each cell less than half of which ran is decided at its middle alone, and drawn from what the work kept,
+    // read in the stretch that holds the middle. Seven times the writer's round fails, the owner lets the work on while
+    // the agents' wait holds its round back, and pauses everything a while within that wait, each a little longer than
+    // the last, so that the waits begin and end within cells. Milliseconds; the one test that the two drawings agree.
+    #[test]
+    fn the_bar_of_a_work_going_on_is_the_one_it_keeps_as_it_ends() {
+        use decide::run::Failure;
+        use engine::{Effect, Event, Gate};
+
+        let flow = flow();
+        let mut work = Work::default();
+        let wrote = Event::Wrote {
+            block: "request".into(),
+            by: Outsider::Person,
+            content: "Greet.".to_string(),
+            matters: true,
+            value: None,
+        };
+        let round = |effects: &[Effect]| {
+            effects.iter().find_map(|effect| match effect {
+                Effect::Round { run, .. } => Some(*run),
+                _ => None,
+            })
+        };
+        let effects = engine::handle(&flow, &mut work, Time(0), wrote).expect("the request is taken");
+        let mut run = round(&effects).expect("the writer's round begins");
+        let mut everything = Vec::new();
+        let mut t = 0;
+        for i in 0..7_u64 {
+            t += 700 + 130 * i;
+            let failed = Event::Failed {
+                run,
+                why: "it broke".to_string(),
+                failure: Failure::Other,
+                resets: None,
+                spent: work::Spent::default(),
+            };
+            engine::handle(&flow, &mut work, Time(t), failed).expect("the round fails");
+            t += 400 + 90 * i;
+            let free = decide::Room::FREE;
+            engine::handle_held(&flow, &mut work, Time(t), Event::Resumed, free, Gate::Agents).expect("it is let on");
+            everything.push(driver::Span {
+                from: Time(t + 150),
+                until: Some(Time(t + 350 + 50 * i)),
+                by: decide::Pauser::Owner,
+            });
+            t += 600 + 70 * i;
+            let effects =
+                engine::handle_held(&flow, &mut work, Time(t), Event::Look, free, Gate::Open).expect("it is looked at");
+            run = round(&effects).expect("the round begins again");
+        }
+        let now = Time(t + 500);
+        let all = HeldAll {
+            everything,
+            cannot_run: None,
+        };
+        let stored = Stored::new(&flow.name);
+        let on = driver::On::installed_flow(&flow);
+        let live = bar(stored.kept(&flow, &on, &work), &all, now);
+        let stretches = driver::time::stretches(&stored.kept(&flow, &on, &work), &all.everything, None, now);
+        let mut ended = work.clone();
+        ended.kept_time.push(work::KeptTime {
+            at: work.tick(),
+            stretches,
+        });
+        assert_eq!(live, bar(stored.kept(&flow, &on, &ended), &all, now));
+        for went in ['m', 'o', 'p', '.'] {
+            assert!(live.contains(went), "{live}");
+        }
     }
 
     // A new session begun because what a new one would begin with changed is given to the page with the tokens of
