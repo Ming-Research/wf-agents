@@ -699,7 +699,8 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
         };
         match role {
             Role::Fast(_) => {
-                for row in results::rows(&named.tests, run) {
+                let every: Vec<String> = run.cases.iter().map(|c| c.test.name.clone()).collect();
+                for row in results::rows(&every, run) {
                     total += 1;
                     passed += usize::from(row.became == Became::Passed);
                     let lines = test_lines(words, &row, run);
@@ -715,6 +716,7 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
                     total += 1;
                     if case.outcome == results::Outcome::Passed {
                         passed += 1;
+                        green.extend(case_lines(words, case));
                     } else {
                         tests.extend(case_lines(words, case));
                     }

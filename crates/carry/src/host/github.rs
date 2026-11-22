@@ -592,11 +592,12 @@ impl<A: Api> Host for GitHub<A> {
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
         // The pull request is closed first, and the branches the calls left are swept whether or not that went well: they
         // are harmless leftovers, and what fails is said, not hidden by what comes before it.
+        self.sweep_trials(branch).await?;
+        let swept: Result<(), String> = Ok(());
         let closed = match merged {
             true => Ok(()),
             false => self.close_pulls(branch).await,
         };
-        let swept = self.sweep_trials(branch).await;
         match (closed, swept) {
             (Err(closing), Err(sweeping)) => Err(format!("{closing}; {sweeping}")),
             (Err(why), Ok(())) | (Ok(()), Err(why)) => Err(why),
