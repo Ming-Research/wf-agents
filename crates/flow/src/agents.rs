@@ -1240,6 +1240,10 @@ pub struct Found {
     pub merging: String,
     pub uncommitted: String,
     pub conflict: String,
+    /// Questions of the work marked `tree` have the owner's answer to their latest version, and the work's change
+    /// against main changes nothing in the design tree: `{questions}` their names, one to a line, and `{main}` the main
+    /// branch's name. Said after `conflict` where both are found, a blank line between.
+    pub tree_unchanged: String,
     /// The work's own change touches paths the project protects, and the owner has not let it merge.
     pub protected: String,
     /// The change under the paths the project protects could not be looked at.
