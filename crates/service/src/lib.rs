@@ -102,11 +102,11 @@ pub struct Service {
     changed: broadcast::Sender<Changed>,
     /// When the driver is to be told the time next, with the timer that will tell the loop so.
     wake: Option<(Wake, tokio::task::AbortHandle)>,
-    /// The works a keep-warm ping of which is under way: how many are, and what else is to be done for the work, held
-    /// back until none is, so that nothing of the work runs beside its ping: no round, no call, and no letting go of
-    /// what it holds, as its worktree, under the program the ping runs. Lost in a stop, when the driver gives what is
-    /// to be done again.
-    pinging: BTreeMap<WorkNumber, (usize, Vec<Todo>)>,
+    /// The works a keep-warm ping of which is under way: how many are, for each line of the work, and what is to be
+    /// done for the work that waits for them, so that nothing runs beside a ping that it must not: no round of the
+    /// ping's line, whose session the ping's program is in, and no letting go of what the work holds, as its
+    /// worktree, under the program the ping runs. Lost in a stop, when the driver gives what is to be done again.
+    pinging: BTreeMap<WorkNumber, Pinging>,
     /// The lock every handle takes to add an account.
     adding: Arc<tokio::sync::Mutex<()>>,
     /// The usage limit of each account that stands, as last told to whoever listens: told again once it changed.
@@ -408,16 +408,20 @@ impl Service {
             }
             Message::Happened { work, event } => {
                 let now = self.now()?;
-                let pinged = matches!(event, Event::Pinged { .. });
+                let pinged = match &event {
+                    Event::Pinged { line, .. } => Some(line.clone()),
+                    _ => None,
+                };
                 let mut todos = self
                     .driver
                     .happened(now, work, event)
                     .map_err(|failed| answer(work, failed))?;
-                // What was held back for the work's pings goes on once the last of them has ended.
-                if pinged && let Some((under_way, held)) = self.pinging.get_mut(&work) {
-                    *under_way = under_way.saturating_sub(1);
-                    if *under_way == 0 {
-                        todos.extend(std::mem::take(held));
+                // What was held back for the work's pings goes on once nothing holds it back.
+                if let Some(line) = &pinged
+                    && let Some(pinging) = self.pinging.get_mut(&work)
+                {
+                    todos.extend(pinging.ended(line));
+                    if pinging.lines.is_empty() {
                         self.pinging.remove(&work);
                     }
                 }
@@ -796,21 +800,28 @@ impl Service {
     fn hand(&mut self, now: Time, todos: Vec<Todo>) -> Result<(), Fault> {
         let mut queue = VecDeque::from(todos);
         while let Some(todo) = queue.pop_front() {
-            // A ping runs beside nothing else of its work: what else is to be done for the work waits for its pings to
-            // end, and a round stopped before it was given is not given.
+            // A ping runs beside no round of its line and no letting go of what its work holds: these wait for the
+            // pings that hold them to end, and a round stopped before it was given is not given. Everything else
+            // is done beside it.
             match &todo.effect {
-                Effect::Ping { .. } => self.pinging.entry(todo.work).or_default().0 += 1,
+                Effect::Ping { line, .. } => self.pinging.entry(todo.work).or_default().begins(line),
                 Effect::Stop { run } => {
-                    if let Some((_, held)) = self.pinging.get_mut(&todo.work) {
-                        held.retain(|t| !matches!(t.effect, Effect::Round { run: r, .. } if r == *run));
+                    if let Some(pinging) = self.pinging.get_mut(&todo.work) {
+                        pinging
+                            .held
+                            .retain(|(_, t)| !matches!(t.effect, Effect::Round { run: r, .. } if r == *run));
                     }
                 }
-                _ => {
-                    if let Some((_, held)) = self.pinging.get_mut(&todo.work) {
-                        held.push(todo);
+                Effect::Round { .. } | Effect::Release { .. } => {
+                    let line = self.line_of(&todo);
+                    if let Some(pinging) = self.pinging.get_mut(&todo.work)
+                        && pinging.holds(line.as_deref(), &todo.effect)
+                    {
+                        pinging.held.push((line, todo));
                         continue;
                     }
                 }
+                _ => {}
             }
             if let Some(event) = self.give(&todo)? {
                 let more = (self.driver.happened(now, todo.work, event)).map_err(|failed| answer(todo.work, failed))?;
@@ -818,6 +829,17 @@ impl Service {
             }
         }
         Ok(())
+    }
+
+    /// The line whose session the round of the todo runs in, as the version of the flow the work is on places its cell;
+    /// none of any other todo, and of a round of an engine's act or of a cell that version has not.
+    fn line_of(&self, todo: &Todo) -> Option<String> {
+        let Effect::Round { cell, .. } = &todo.effect else {
+            return None;
+        };
+        let kept = self.driver.work(todo.work)?;
+        let flow = self.flows.get(&kept.head.flow)?;
+        cell_spec(flow, cell)?.line.clone()
     }
 
     /// Gives one todo to what carries it out, with what it needs read from the driver now; or gives what the loop
@@ -1497,6 +1519,47 @@ fn cell_spec<'a>(flow: &'a Compiled, cell: &CellId) -> Option<&'a CellSpec> {
     flow.cells.iter().find(|spec| spec.id == *cell)
 }
 
+/// The keep-warm pings of a work that are under way, and what is held back for them.
+#[derive(Default)]
+struct Pinging {
+    /// How many pings are under way, of each line.
+    lines: BTreeMap<String, usize>,
+    /// What waits for them, each with the line of the round it is, none for a letting go: in the order it came.
+    held: Vec<(Option<String>, Todo)>,
+}
+
+impl Pinging {
+    /// A ping of the line is under way.
+    fn begins(&mut self, line: &str) {
+        *self.lines.entry(line.to_string()).or_default() += 1;
+    }
+
+    /// Whether a ping holds the todo back: a round of a cell of a line whose session is pinged, and the letting go of
+    /// what the work holds while any ping of it is under way.
+    fn holds(&self, line: Option<&str>, effect: &Effect) -> bool {
+        match effect {
+            Effect::Round { .. } => line.is_some_and(|line| self.lines.contains_key(line)),
+            Effect::Release { .. } => !self.lines.is_empty(),
+            _ => false,
+        }
+    }
+
+    /// A ping of the line has ended: what nothing holds back now, in the order it came.
+    fn ended(&mut self, line: &str) -> Vec<Todo> {
+        if let Some(under_way) = self.lines.get_mut(line) {
+            *under_way -= 1;
+            if *under_way == 0 {
+                self.lines.remove(line);
+            }
+        }
+        let (free, held): (Vec<_>, Vec<_>) = std::mem::take(&mut self.held)
+            .into_iter()
+            .partition(|(line, todo)| !self.holds(line.as_deref(), &todo.effect));
+        self.held = held;
+        free.into_iter().map(|(_, todo)| todo).collect()
+    }
+}
+
 /// Who runs the cell of the work, an agent or the engine's act, as the version the work is on has it: none of a cell
 /// that version has not, or of a work on none kept, whose round both carriers are asked of.
 fn kind_of(kept: &driver::Kept<'_>, cell: &CellId) -> Option<Kind> {
@@ -1538,7 +1601,7 @@ fn stopped(refusal: &Refusal) -> Option<Fault> {
 #[cfg(test)]
 mod tests {
     //! Which carrier a round of a work is read from, and what a fork of it reads its session by, as the version of the
-    //! flow the work is on has them.
+    //! flow the work is on has them, and what a keep-warm ping holds back.
 
     use std::path::Path;
 
@@ -1660,5 +1723,59 @@ mod tests {
                     .to_string()
             )
         );
+    }
+
+    fn round(run: u64) -> Todo {
+        Todo {
+            work: WorkNumber(1),
+            effect: Effect::Round {
+                run: RunId(run),
+                cell: CellId::from("V1"),
+                number: 1,
+                given: work::Given::Task,
+            },
+        }
+    }
+
+    fn release() -> Todo {
+        Todo {
+            work: WorkNumber(1),
+            effect: Effect::Release { end: End::Merged },
+        }
+    }
+
+    // A ping holds back the rounds of its own line and the letting go of what the work holds, and nothing else: a round
+    // of another line, of an act, and every other todo go on beside it.
+    #[test]
+    fn a_ping_holds_back_the_rounds_of_its_line_and_the_letting_go_and_no_other_todo() {
+        let mut pinging = Pinging::default();
+        pinging.begins("engineer");
+        let (round, release) = (round(1), release());
+        assert!(pinging.holds(Some("engineer"), &round.effect), "its own line's round");
+        assert!(!pinging.holds(Some("review"), &round.effect), "another line's round");
+        assert!(!pinging.holds(None, &round.effect), "a round of an act");
+        assert!(pinging.holds(None, &release.effect), "the letting go");
+        let call = Effect::Withdraw { call: CallId(1) };
+        assert!(!pinging.holds(None, &call), "a call is no session's program");
+    }
+
+    // What waits for pings goes on as the pings that hold it end: a round of a line once its own line's last ping has
+    // ended, the letting go once none of the work's is under way, each in the order it came.
+    #[test]
+    fn what_waits_for_pings_goes_on_as_the_pings_that_hold_it_end() {
+        let mut pinging = Pinging::default();
+        pinging.begins("engineer");
+        pinging.begins("engineer");
+        pinging.begins("review");
+        pinging.held.push((Some("engineer".to_string()), round(1)));
+        pinging.held.push((None, release()));
+        pinging.held.push((Some("review".to_string()), round(2)));
+        // One of the engineer's two pings ends: nothing waits for less than all of a line's.
+        assert!(pinging.ended("engineer").is_empty());
+        // The review's ends: its round goes on, and the engineer's and the letting go still wait.
+        assert_eq!(pinging.ended("review"), [round(2)]);
+        // The engineer's last ends: its round goes on, then the letting go, as none is under way.
+        assert_eq!(pinging.ended("engineer"), [round(1), release()]);
+        assert!(pinging.lines.is_empty() && pinging.held.is_empty());
     }
 }
