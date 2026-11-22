@@ -184,6 +184,53 @@ fn every_test_of_a_run_is_reported_as_junit_in_the_artifact_test_results() {
     assert!(fast.contains("--reporter=junit"), "fast.yml reads no JUnit of the page");
 }
 
+/// Where a job of ci.yml names its results (`RESULTS`, in the step that names them) and the path its upload takes.
+fn results_and_upload(text: &str, job: &str, artifact: &str) -> (String, String) {
+    let jobs = block(text, "jobs");
+    let lines = under(&jobs, job);
+    let value = |key: &str, after: usize| {
+        let line = lines[after..]
+            .iter()
+            .find(|l| l.trim().starts_with(key))
+            .unwrap_or_else(|| panic!("{job}: no {key}"));
+        line.trim()[key.len()..].trim().to_string()
+    };
+    let upload = lines
+        .iter()
+        .position(|l| l.trim() == format!("name: {artifact}"))
+        .unwrap_or_else(|| panic!("{job}: no upload of {artifact}"));
+    (value("RESULTS:", 0), value("path:", upload))
+}
+
+// The file a job's step `Name the results` writes (`RESULTS`) is the file the job's upload takes. The upload ignores a
+// path that holds no file (`if-no-files-found: ignore`), so a job whose two places differ uploads nothing and is read as
+// one that reported nothing; and a job whose results stand where a run keeps nothing from an earlier one is the one
+// whose results are this run's: both jobs name theirs in the runner's temporary directory, which GitHub empties as each
+// job begins (the variable `RUNNER_TEMP` of GitHub's documented default variables). The same reading of a text whose
+// step names the results somewhere else finds the two places differ. Under a millisecond.
+#[test]
+fn each_job_uploads_the_file_it_names_its_results_in_and_keeps_it_in_the_runners_temporary_directory() {
+    let text = workflow("ci.yml");
+    for (job, artifact) in [("page", "junit-page"), ("test", "junit-${{ matrix.partition }}")] {
+        let (results, path) = results_and_upload(&text, job, artifact);
+        assert_eq!(results, path, "{job}: the file named is not the file uploaded");
+        assert!(
+            results.starts_with("${{ runner.temp }}/"),
+            "{job}: the results are named at {results}, not in the runner's temporary directory"
+        );
+    }
+    let elsewhere = text
+        .replace("RESULTS: ${{ runner.temp }}/test", "RESULTS: target/nextest/ci/test")
+        .replace("RESULTS: ${{ runner.temp }}/page.xml", "RESULTS: page.xml");
+    for (job, artifact) in [("page", "junit-page"), ("test", "junit-${{ matrix.partition }}")] {
+        let (results, path) = results_and_upload(&elsewhere, job, artifact);
+        assert_ne!(
+            results, path,
+            "{job}: a step that names its results elsewhere is not seen"
+        );
+    }
+}
+
 // The fast workflow runs by hand and by nothing else: it runs on the owner's machine, and a trigger by a push or a pull
 // request would run anyone's code there. It has no job named as a check a merge counts, so that a head only it has run
 // is not one that may merge; and no concurrency group, since every run of it is a request an agent waits for, which
