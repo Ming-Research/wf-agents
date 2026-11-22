@@ -321,10 +321,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
         let mut beside = flow::agents::read(&root).expect("what is written beside the flows is read");
         let github = beside.tools["run_tests"].words.clone();
-        assert!(
-            github.contains("with none, it is the last commit of the work's branch"),
-            "{github}"
-        );
+        assert!(github.contains("the last commit of the work's branch"), "{github}");
         crate::projects::local_words(&mut beside);
         let local = &beside.tools["run_tests"].words;
         assert!(

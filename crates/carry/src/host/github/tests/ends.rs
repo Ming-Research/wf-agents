@@ -313,6 +313,22 @@ async fn a_work_that_ended_without_merging_has_its_pull_request_closed_saying_so
     );
 }
 
+// Two rounds of the check asked for at once go through one pull request: the one that read the list of them before the
+// other's was opened finds the other's where its own is refused.
+#[tokio::test]
+async fn two_rounds_of_the_check_at_once_go_through_one_pull_request() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.green(&head);
+    hub.verdict(&head).await.unwrap().expect("checked");
+    hub.github().hide_pulls_once();
+    hub.verdict(&head)
+        .await
+        .expect("checked through the one opened")
+        .expect("nothing stopped it");
+    assert_eq!(hub.opened(), 1);
+}
+
 // A call of `run_tests` that the engine stopped before it read the result left a branch of its own on GitHub: it is the
 // work's, and goes when the work ends, merged or not, whatever other works have left.
 #[tokio::test]

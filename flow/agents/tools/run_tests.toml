@@ -1,11 +1,12 @@
 # Runs tests and checks in the project's CI, run by the engine.
 words = '''
 `run_tests`: runs the tests and checks you name in the project's CI, on a commit the engine pushes. Ask as
-  `{"tests": [...], "checks": [...], "commit": "..."}`. Name tests as `project.test_names` says, and checks among
-  {named_checks}; only what you name is run, and a request that names neither runs nothing. `commit` is the commit to
-  run on, as git names one in your worktree; with none, it is the last commit of the work's branch, and anything not
-  committed is not run. It gives each test you named, passed or failed, with the time it took and what a failed one
-  said, and each job, with how it ended and its wall time.'''
+  `{"tests": [...], "checks": [...], "commit": "..."}`. Name tests as `project.test_names` says,
+  and checks among {named_checks}; only what you name is run, and a request that names neither runs nothing.
+  `commit` is the commit to run on, as git names one in your worktree; with none, it is
+  the last commit of the work's branch, and anything not committed is not run. It gives each test you named,
+  passed or failed, with the time it took and what a failed one said, and each job, with how it ended and its
+  wall time.'''
 
 # What it says in place of `words` where the host is the local repository.
 words_local = '''

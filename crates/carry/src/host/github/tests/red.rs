@@ -158,6 +158,8 @@ async fn a_test_that_fails_again_and_passes_on_mains_head_fails_the_commit() {
         failed.ends_with("These failed again on the commit, but not on the head of main: `tools::tests::b`."),
         "{failed}"
     );
+    // The full workflows ran `tools::tests::a` too, and it passed: only what did not pass is said of them.
+    assert!(!failed.contains("tools::tests::a"), "{failed}");
 }
 
 // A check the full workflows found red beside a failed test is red again on the commit: the commit fails, whatever
