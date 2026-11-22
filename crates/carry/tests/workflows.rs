@@ -407,7 +407,7 @@ fn the_pages_tests_are_found_by_the_names_vitest_lists_and_chromium_starts_only_
     assert_eq!(read(&temp.join("test-results/none.xml")), "<testsuites/>\n");
 }
 
-// What `check` gives of a job that did not pass is that job's own log, which the engine then reads in `check`'s. The
+// What `check` prints of a job that did not pass is that job's own log; the engine reads each failed job's log itself. The
 // log of a job holds the escapes that colour cargo's output, and gh gives no answer that holds any unless told to: the
 // first time a job was red, `check` printed gh's refusal in place of each log, and the agent would have been told that
 // the lint and a job of the tests failed and nothing of which test or which line.
