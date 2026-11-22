@@ -793,6 +793,12 @@ fn scope_says_whether_the_commit_differs_from_main_only_under_the_design_tree() 
     assert_eq!(says(), "tree_only=true\n", "nothing differs");
     change(&["design/a.md", "design/new.md"]);
     assert_eq!(says(), "tree_only=true\n", "files under design/ differ");
+    // A main that cannot be fetched, though an earlier fetch left a main that would say yes: nothing is taken from it.
+    let url = git(&work, &["remote", "get-url", "origin"]);
+    let gone = root.path().join("gone");
+    git(&work, &["remote", "set-url", "origin", gone.to_str().unwrap()]);
+    assert_eq!(says(), "tree_only=false\n", "main cannot be fetched");
+    git(&work, &["remote", "set-url", "origin", url.trim()]);
     change(&["design/a.md", "crates/b.rs"]);
     assert_eq!(says(), "tree_only=false\n", "a file elsewhere differs too");
     change(&[]);
@@ -804,17 +810,6 @@ fn scope_says_whether_the_commit_differs_from_main_only_under_the_design_tree() 
     std::fs::write(origin.join("c.txt"), "moved\n").unwrap();
     git(&origin, &["commit", "-q", "-a", "-m", "main moves"]);
     assert_eq!(says(), "tree_only=false\n", "main moved on");
-    // A main that cannot be fetched.
-    git(
-        &work,
-        &[
-            "remote",
-            "set-url",
-            "origin",
-            root.path().join("gone").to_str().unwrap(),
-        ],
-    );
-    assert_eq!(says(), "tree_only=false\n", "main cannot be fetched");
 }
 
 // The job `check` is red unless `scope` and the tree's check passed and each other job did, or was left out by `scope`
