@@ -2445,8 +2445,6 @@ mod tests {
         assert!(!git::checking(&started.place).exists(), "the checkout is taken away");
     }
 
-    // A run of the check that was stopped with the engine may leave its checkout, which the next run of the work's
-    // check takes away first, and the work's end takes away with its worktree.
     /// A work with one commit in a repository whose check command writes `started` in its data directory, waits for
     /// `release` there and writes `ended`, so that a test can act while the command runs; with the host that runs it,
     /// the commit, and the three files.
@@ -2549,6 +2547,8 @@ mod tests {
         );
     }
 
+    // A run of the check that was stopped with the engine may leave its checkout, which the next run of the work's
+    // check takes away first, and the work's end takes away with its worktree.
     #[tokio::test]
     async fn a_checkout_a_stopped_engine_left_is_taken_away_before_the_next_is_made_and_with_the_work() {
         let repo = Repo::new("test -f farewell.txt");
