@@ -80,4 +80,4 @@ The compiler refuses a renumbering that gives an id of a stage it moves or takes
 ### decision a-datum-made-for-a-cell-follows-its-cell
 A datum made for each cell by a file of `data/of_a_cell/` is read through a renumbering as the one made for the id its cell takes; no table names it.
 - rejected: an agent proposed reading only the cells through a renumbering, leaving the data made for them under their old names; the owner rejected it, because a renumbered cell's words and questions would then read as data no flow has.
-- rejected: an agent proposed listing such data in the table of earlier ids; the owner rejected it, because that copies what the file that makes them says (principle one-thing-one-place).
+- rejected: an agent proposed listing such data in the table of earlier ids; the owner rejected it, because that copies what the file that makes them says.

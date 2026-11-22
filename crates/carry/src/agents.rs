@@ -1744,6 +1744,7 @@ impl Inner {
             .envs(cli::environment(agents, &profile, std::env::vars(), token))
             .current_dir(dir);
         // The program counts a session it goes on with from all it cost, whatever message the fork begins at.
+        let line_of = |cell: &CellId| fork.outline.cell(cell).and_then(|c| c.line.clone());
         let before = session_cost(&line_of, &fork.kept, line, of_session);
         let mut stream = cli::Stream::default();
         let mut lines = Vec::new();
