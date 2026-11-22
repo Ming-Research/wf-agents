@@ -1,6 +1,6 @@
 //! What the GitHub host asks of GitHub, apart from what `git` pushes and fetches: the pull requests of a branch and
 //! their text, the merge and the closing of a pull request, and a workflow run by
-//! hand with its runs, their jobs and what they uploaded. [`Gh`](super::gh::Gh) asks GitHub with the
+//! hand with its runs, their jobs, what they uploaded and the log of a job. [`Gh`](super::gh::Gh) asks GitHub with the
 //! `gh` command line; the tests ask a fake.
 
 use std::future::Future;
@@ -40,6 +40,8 @@ pub enum State {
 /// One job of a run of a workflow, by its name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Check {
+    /// GitHub's id of the job, by which its log is read.
+    pub id: u64,
     pub name: String,
     pub outcome: Outcome,
     /// Where a person sees it, where it says.
@@ -132,6 +134,9 @@ pub trait Api: Send + Sync + 'static {
 
     /// The files of the artifact of this name that the run uploaded; none where it uploaded none so named.
     fn artifact(&self, run: u64, name: &str) -> impl Future<Output = Result<Option<Vec<File>>, Failed>> + Send;
+
+    /// The log of the job of this id, as GitHub keeps it: plain text, each line after the time it was written.
+    fn log(&self, job: u64) -> impl Future<Output = Result<String, Failed>> + Send;
 
     /// Gives the pull request this title and body.
     fn edit(&self, number: u64, title: &str, body: &str) -> impl Future<Output = Result<(), Failed>> + Send;

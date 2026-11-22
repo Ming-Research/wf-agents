@@ -458,6 +458,9 @@ export type Unmet =
   | { kind: 'notAnswered'; name: string }
   | { kind: 'unexplained'; path: string }
   | { kind: 'notATest'; path: string }
+  /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
+  /// change changes nothing in the design tree.
+  | { kind: 'treeUnchanged'; name: string }
   | { kind: 'unanswered'; block: string }
   /// It names as dealt with a dialogue it holds as the maker, woken by a point in it, and answers none of its points
   /// there, changes none of what the other side watches and asks no question the work waits for.
@@ -632,12 +635,14 @@ export type Step =
   | { kind: 'session'; at: number; time: number; line: string; why: SessionWhy };
 
 /// Why a line began a new session: its context was past the limit the engine held it to; its rounds run on another
-/// model or under another account than its session's ran on; the owner asked; the service's safety check flagged the
-/// line's last round; the run guard stopped it; the agents' program had lost the one before; the agents' program
-/// compacted it during a round.
+/// model or under another account than its session's ran on; the system prompt or the form of return a new session
+/// would begin with is not what its session began with, the tokens of context of the session left with it where one was
+/// told; the owner asked; the service's safety check flagged the line's last round; the run guard stopped it; the
+/// agents' program had lost the one before; the agents' program compacted it during a round.
 export type SessionWhy =
   | { kind: 'limit'; context: number; limit: number }
   | { kind: 'model'; was: string }
+  | { kind: 'changed'; context: number | null }
   | { kind: 'account' }
   | { kind: 'owner' }
   | { kind: 'flagged' }
@@ -689,6 +694,8 @@ export interface Question {
   /// The cell waits for the answer: the work goes past it to no later cell until it is answered; else it goes on by
   /// the option it recommends.
   waits: boolean;
+  /// Its latest version is marked `tree`: the option taken goes into the design tree.
+  tree: boolean;
   /// The latest version withdraws it, for this reason; none while it stands.
   withdrawn: string | null;
   /// What it asks, its options and the one it recommends, counted from one; of a question withdrawn, none.

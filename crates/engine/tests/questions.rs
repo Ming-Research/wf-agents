@@ -146,6 +146,7 @@ fn asked(name: &str, waits: bool, recommends: Option<u64>, n: usize) -> Question
     Question::Asked {
         name: name.to_string(),
         waits,
+        tree: None,
         recommends,
         ask: format!("Which way for {name}, the {n}th time?"),
         options: vec![way("the short way"), way("the long way")],

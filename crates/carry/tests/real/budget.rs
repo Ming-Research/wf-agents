@@ -1,6 +1,6 @@
 //! A work that has spent more than it may is paused as a round ends, the round's return taken, and the words beside it
 //! say what it spent, what it may spend and what letting it on allows; and each letting-on of a work the engine paused
-//! so allows it what the settings say beyond its budget, so that the work goes on rather than stopping at every
+//! so allows it what the settings say beyond what it had spent, so that the work goes on rather than stopping at every
 //! round.
 
 use decide::Decision;
@@ -38,9 +38,9 @@ async fn a_work_let_on_after_its_budget_paused_it_is_held_to_what_the_letting_on
     real.until(|real| real.finished(work) == ["plan"] && matches!(real.decision(work), Decision::Paused { .. }))
         .await;
     assert_eq!((real.holds, real.calls().len()), (1, 1));
-    // Let on after that pause, the work is held to the twenty dollars beyond its budget that these settings allow a
-    // letting-on: its rounds after it, at eight dollars and at twelve, are under the twenty-three it may now spend,
-    // and it goes on round after round rather than stopping at each.
+    // Let on after that pause, the work is held to the twenty dollars beyond the four it had spent that these settings
+    // allow a letting-on: its rounds after it, at eight dollars and at twelve, are under the twenty-four it may now
+    // spend, and it goes on round after round rather than stopping at each.
     real.act(work, Act::Resume);
     real.until(|real| real.calls().len() == 3 || real.paused(work)).await;
     assert!(

@@ -11,7 +11,7 @@ Where the plan does not hold, I1 does not work around it: it says where and why 
 - replaced: A list in which the implementation declared where it departed from the design was on main; the owner changed it, because an implementation that knows it departs from the design should fix that, not leave it for the review to challenge.
 
 ### decision the-implementation-writes-the-tree-from-the-owners-choices
-I1 writes into the design tree what each of the owner's choices settles, as the tree's rules say; an entry may follow main's tree in wording and place, but never in meaning.
+I1 writes into the design tree the option taken in each answered question marked `tree`, as the tree's rules say; an entry may follow main's tree in wording and place, but never in meaning.
 - replaced: I1 writing into `design/` what `tree_edits` held was on main; the owner changed it, because a change to the tree is only the result of the owner's answer.
 - rejected: an agent proposed that the engine write the approved entries mechanically, sending the work back when main's text no longer matched; the owner rejected it, because a mechanical rule is too strict, and the review of the change catches any drift.
 
@@ -44,7 +44,7 @@ T1 asks whether each change to a file the project protects is one the work needs
 - replaced: No review of changes to protected files, with the plan's tree review looking only for a principle changed without asking, was on main; the owner changed it, because the reviews must judge such changes too.
 
 ### decision the-design-tree-review-of-the-change-asks-four-things
-T3 asks what in the tree the change goes against unasked, whether each tree change comes from an owner's choice or an entry made untrue, which of his choices it made unasked, and what is left untrue.
+T3 asks what in the tree the change goes against unasked, whether each answer marked `tree` is written and each other tree change mends an untrue entry, what it chose unasked, and what is left untrue.
 - replaced: Checking the entries against `tree_edits`, and looking for an approach turned down, something done on purpose or a relation between two places left unrecorded, was on main; the owner changed it, because every choice of his goes into the tree, and nothing else does.
 - rejected: an agent proposed that T3 also ask whether an entry is longer than it needs to be; the owner rejected it, because a work goes back from T3 no further than I1, while R1 and D1 write `tree_edits`, so the writer must know what to leave out.
 

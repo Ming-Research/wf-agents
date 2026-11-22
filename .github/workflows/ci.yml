@@ -340,8 +340,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         # Where no job of the tests kept its results (each was cancelled, say), there is nothing to list, and the step
-        # ends without an error all the same: the engine gives an agent every step of this log that holds one. Results
-        # kept half written end it so too, the status of the lines below being that of `tee`.
+        # ends without an error all the same: the engine reads why a job failed from that job's own log. Results kept
+        # half written end it so too, the status of the lines below being that of `tee`.
         run: |
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'junit-[123]' --dir "$RUNNER_TEMP/junit" \
             || { echo "No job of the tests kept its results."; exit 0; }

@@ -1,7 +1,7 @@
 //! The project's two workflows, which the engine runs by hand through the project's declaration (`ci` in
 //! `flow/project.toml`), always by their files on main, given the commit to run on, each run found by a value its
 //! name holds, which is worked out from what asked for it; and what each reports, read from the JUnit XML it uploads
-//! (`results`) and never from a log.
+//! (`results`), never guessed from a log.
 //!
 //! The value is the same each time the same call of `run_tests` or the same round of the check asks for the same
 //! workflow on the same commit, and is had by no other: given again after the engine started again, the request
@@ -15,7 +15,9 @@
 //!
 //! What is said of a run: each test, with what became of it, how long it took and what a failed one said; and each
 //! job of the workflow, with how it ended and, where it ran to a conclusion, the wall time GitHub records for it. A
-//! run that uploaded no JUnit the engine can read is said so: no result is guessed from a log.
+//! run that uploaded no JUnit the engine can read is said so: no result is guessed from a log. A job that failed with
+//! no failed test of its own to say why, as a lint, is said with the end of what the step that failed it printed, read
+//! from its log on GitHub with the engine's token (`log`); a log that cannot be read is said so, and nothing else.
 
 use std::time::Duration;
 
@@ -25,7 +27,7 @@ use uuid::Uuid;
 
 use super::api::{Api, Check, Outcome, Run};
 use super::results::{self, Became, Case};
-use super::{GitHub, output};
+use super::{GitHub, log, output};
 use crate::git;
 use crate::held::Stop;
 use crate::host::{Asking, Failed, Named, Verdict};
@@ -50,11 +52,32 @@ struct Plan<'a> {
     limit: Duration,
 }
 
-/// What a run of a workflow came to.
+/// What a run of a workflow came to: its jobs, its results, and what the log of each job that failed with nothing in
+/// the results to say why says of it ([`unexplained`]).
 struct Ran {
     run: Run,
     jobs: Vec<Check>,
     results: Result<results::Run, String>,
+    ends: Vec<StepEnd>,
+}
+
+/// What the log of a job says of the step that failed it: the end of what the step printed ([`log::failed_step`]), or
+/// why the log could not be read.
+struct StepEnd {
+    job: u64,
+    said: Result<String, String>,
+}
+
+/// The jobs of a run that failed with nothing in its results to say why: each that judged the code and found it
+/// wanting and reported no failed test of its own, in results of its own as the names of their files tell
+/// ([`results::job_of`]), as a lint that reports no test, or a job whose own step failed before its tests; and each
+/// that failed, where the results could not be read.
+fn unexplained<'a>(jobs: &'a [Check], read: &'a Result<results::Run, String>) -> impl Iterator<Item = &'a Check> {
+    let own_failed = move |job: &Check| {
+        (read.as_ref())
+            .is_ok_and(|run| (run.cases.iter()).any(|c| c.job == job.name && c.outcome == results::Outcome::Failed))
+    };
+    (jobs.iter()).filter(move |&job| matches!(job.outcome, Outcome::Failed(_)) && !own_failed(job))
 }
 
 /// The full workflows red with failed tests alone: what they found, said as the check says it, the names of the tests
@@ -577,7 +600,13 @@ impl<A: Api> GitHub<A> {
                         "the run did not complete within {}, the time it may take, and the engine cancelled it",
                         super::span(plan.limit)
                     ));
-                    return Ok(Some(Ran { run, jobs, results }));
+                    let ends = self.step_ends(&jobs, &results).await;
+                    return Ok(Some(Ran {
+                        run,
+                        jobs,
+                        results,
+                        ends,
+                    }));
                 }
                 _ => {}
             }
@@ -592,7 +621,27 @@ impl<A: Api> GitHub<A> {
             Ok(None) => Err(format!("the run uploaded no artifact {}", plan.results)),
             Err(why) => Err(format!("the artifact {} could not be fetched: {why}", plan.results)),
         };
-        Ok(Some(Ran { run, jobs, results }))
+        let ends = self.step_ends(&jobs, &results).await;
+        Ok(Some(Ran {
+            run,
+            jobs,
+            results,
+            ends,
+        }))
+    }
+
+    /// What the log of each job of a run that failed with nothing in the results to say why says of the step that
+    /// failed it ([`unexplained`]); a log that cannot be read is said so, and fails nothing else.
+    async fn step_ends(&self, jobs: &[Check], read: &Result<results::Run, String>) -> Vec<StepEnd> {
+        let mut ends = Vec::new();
+        for job in unexplained(jobs, read) {
+            let said = match self.api.log(job.id).await {
+                Ok(text) => Ok(log::failed_step(&text)),
+                Err(failed) => Err(failed.why),
+            };
+            ends.push(StepEnd { job: job.id, said });
+        }
+        ends
     }
 
     /// The runs by hand of the plan's workflow on main whose name holds the plan's value; none where it was told to
@@ -706,10 +755,11 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
             .collect(),
         Role::Full(_) => Vec::new(),
     };
-    // Every job of the runs, with how it ended and how long it took; only those that did not pass where only what did
-    // not pass is said, the others being the note of the check.
+    // Every job of the runs, with how it ended and how long it took, and beneath one whose log was read what it says;
+    // only those that did not pass where only what did not pass is said, the others being the note of the check.
+    let ends: Vec<&StepEnd> = ran.iter().flat_map(|r| &r.ends).collect();
     let shown = jobs.iter().filter(|j| !red_only || red_job(j));
-    let mut said_jobs: Vec<String> = shown.map(|j| job_line(words, j)).collect();
+    let mut said_jobs: Vec<String> = shown.map(|j| job_said(words, j, &ends)).collect();
     said_jobs.extend(missing.iter().map(|c| {
         fill(
             &words.job,
@@ -748,6 +798,23 @@ fn job_line(words: &ResultWords, job: &Check) -> String {
         &words.job,
         &[("name", &job.name), ("how", &how), ("time", &time), ("link", &link)],
     )
+}
+
+/// A job's line ([`job_line`]), and beneath a job whose log was read, the end of what the step that failed it printed,
+/// or why its log could not be read, in one line.
+fn job_said(words: &ResultWords, job: &Check, ends: &[&StepEnd]) -> String {
+    let line = job_line(words, job);
+    let Some(end) = ends.iter().find(|end| end.job == job.id) else {
+        return line;
+    };
+    let below = match &end.said {
+        Ok(said) => fill(&words.step_end, &[("said", &output::fenced(said))]),
+        Err(why) => {
+            let why: Vec<&str> = why.split_whitespace().collect();
+            fill(&words.log_unread, &[("why", &why.join(" "))])
+        }
+    };
+    format!("{line}\n{below}")
 }
 
 /// Whether a job did not pass: one that did not run, its condition false, passed nothing and failed nothing.

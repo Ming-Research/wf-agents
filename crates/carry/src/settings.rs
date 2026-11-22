@@ -374,13 +374,13 @@ pub struct Agents {
     pub subagents: Subagents,
     /// What a work's rounds may spend in all, in dollars, before the work waits for the owner; with none, no limit.
     pub work_budget_usd: Option<f64>,
-    /// What each letting-on of a work the engine paused for its budget allows it beyond that budget, in dollars, so
-    /// that a work let on has room to go on and does not wait for the owner again at its next round.
+    /// What each letting-on of a work the engine paused for its budget allows it beyond what it had spent by then, in
+    /// dollars, so that a work let on has room to go on and does not wait for the owner again at its next round.
     #[serde(default = "let_on_allowance")]
     pub let_on_allowance_usd: f64,
 }
 
-/// What a letting-on allows a work beyond its budget where the settings name no number, in dollars.
+/// What a letting-on allows a work beyond what it had spent where the settings name no number, in dollars.
 fn let_on_allowance() -> f64 {
     20.0
 }
@@ -583,8 +583,9 @@ const FAST_MOVED: &str = "github.fast: the fast workflow is the project's, not t
      github.runners the runners this installation has";
 
 /// What the settings are told where they name `github.log`, which the engine no longer reads.
-const LOG_GONE: &str = "github.log: the engine reads no log: a test's result and what it said come from the JUnit its \
-     workflow uploads; delete the table";
+const LOG_GONE: &str = "github.log: the engine reads no log by a project's patterns: a test's result and what it said \
+     come from the JUnit its workflow uploads, and a job that failed with no test of its own to say why is given the end \
+     of its failed step, read in the same way for every project; delete the table";
 
 /// What the settings are told where they name `github.checks`, which the project's full workflows are now.
 const CHECKS_MOVED: &str = "github.checks: the checks that count are the jobs of the project's full workflows, declared in \
@@ -901,7 +902,8 @@ impl Settings {
 
     /// When a line begins a new session, where the model its session's rounds ran on is not the one its rounds run on
     /// now; and how its sessions are kept warm while it waits. A session past the installation's context is compacted
-    /// by the agents' program, not replaced, so the number is no part of the policy.
+    /// by the agents' program, not replaced, so the number is no part of the policy. Whether a new session would begin
+    /// with another system prompt or form is what the agents that keep the sessions say ([`crate::Agents`]): none here.
     pub fn policy(&self) -> Policy {
         let settings = self.clone();
         let sessions = &self.sessions;
@@ -921,6 +923,7 @@ impl Settings {
                     .ok()
                     .map(|(_, model)| model)
             }),
+            changed: None,
             warm,
         }
     }

@@ -7,6 +7,21 @@ use crate::support::{at, compiled, edit, faults, faults_with, has, unreadable, v
 
 const PLAN_WATCHES: &str = r#"watches = ["request", "opinions"]"#;
 
+// A block whose return is held to the owner's answers marked `tree` being in the design tree says so in its file
+// (`answers_in_the_tree`), and is compiled so; a block that says nothing of it is not held.
+#[test]
+fn a_block_handed_in_only_with_the_answers_in_the_tree_is_compiled_so() {
+    let source = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.design]\n",
+        "[blocks.design]\nanswers_in_the_tree = true\n",
+    );
+    let compiled = compiled(&source);
+    assert!(compiled.blocks[&"design".into()].answers_in_the_tree);
+    assert!(!compiled.blocks[&"plan".into()].answers_in_the_tree);
+}
+
 #[test]
 fn every_block_a_cell_reads_or_writes_is_declared() {
     let source = edit(

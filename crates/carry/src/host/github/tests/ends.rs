@@ -5,9 +5,10 @@
 use super::super::api::{Check, Outcome};
 use super::*;
 
-/// A check of a GitHub Actions job, at its own link.
+/// A check of a GitHub Actions job of this id, at its own link.
 fn job(name: &str, id: u64, outcome: Outcome) -> Check {
     Check {
+        id,
         url: Some(format!("https://github.example/actions/runs/1/job/{id}")),
         ..check(name, outcome)
     }

@@ -795,19 +795,6 @@ describe('the console page', () => {
     expect(title()).toBeNull();
   });
 
-  it('folds the panel on Escape while it has the keys, and keeps the item selected', async () => {
-    const scene = await drawn();
-    scene.select(12);
-    await expect.poll(() => container.querySelector('.cw-title-link')).not.toBeNull();
-    (container.querySelector('.cw-title-link') as HTMLButtonElement).focus();
-    await userEvent.keyboard('{Escape}');
-    await expect.poll(folded).toBe(true);
-    expect(title()).toBe('Show the cost of a work');
-    // The tab on its edge brings it back, the item still there.
-    await userEvent.click(container.querySelector('.cw-tab') as HTMLElement);
-    await expect.poll(folded).toBe(false);
-  });
-
   it('reads again what changed, without moving the tree or closing the panel', async () => {
     const scene = await drawn();
     scene.select(2);

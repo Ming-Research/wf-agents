@@ -147,6 +147,12 @@ export function sessionWords(why: SessionWhy): string {
       return `a new one, its context having been ${tokens(why.context)} tokens, past the limit of ${tokens(why.limit)}`;
     case 'model':
       return `a new one, its rounds running on another model than ${why.was}`;
+    case 'changed': {
+      const changed = 'a new one, the rules or the form of return its agents are given having changed since it began';
+      return why.context === null
+        ? changed
+        : `${changed}, the session it left holding ${tokens(why.context)} tokens of context`;
+    }
     case 'account':
       return 'a new one, its rounds running under another account';
     case 'owner':
@@ -666,6 +672,8 @@ export function unmetWords(unmet: Unmet): string {
       return `it left ${unmet.path}, a file the project protects, changed, and said not why`;
     case 'notATest':
       return `it changed ${unmet.path}, which is none of the project's tests`;
+    case 'treeUnchanged':
+      return `it handed in the change, which changes nothing in the design tree, while ${unmet.name}, marked tree, has the owner's answer`;
     case 'unanswered':
       return `it dealt with ${unmet.block}, and committed nothing and asked nothing`;
     case 'wordOwed':

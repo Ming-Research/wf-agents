@@ -253,6 +253,7 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
     let policy = driver::Policy {
         samples: 2,
         model: Box::new(|_, _| Some(opus().model)),
+        changed: None,
         warm: None,
     };
     let (mut driver, _) =

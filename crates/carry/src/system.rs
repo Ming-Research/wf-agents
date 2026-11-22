@@ -8,9 +8,12 @@
 //! one ([`of_session`]), so that a change of the files by the work's own commits or by main taken in reaches a session
 //! only when it is reopened, as a new session. The form of return the program is given with every call is the system
 //! prompt sent another way, and is kept beside it by the same means ([`Begun`]): a flow installed since reaches a
-//! session only as a new one (principle one-form-of-return-for-a-session). A file of the project is never read through a symbolic link
-//! ([`read_within`]). The engine fills three places of the texts ([`Filling`]): `{your_line}`, what the line may do in
-//! the worktree ([`Permissions::told`](crate::permissions::Permissions::told)); `{store}`, what the engine's records
+//! session only as a new one (principle one-form-of-return-for-a-session). So a line begins a new session at its next
+//! round where its session began with another system prompt or form than a new one would begin with now, or where a
+//! new one cannot be made ([`changed`]; decision `a-changed-system-prompt-or-form-begins-a-new-session`). A file of
+//! the project is never read through a symbolic link ([`read_within`]). The engine fills three places of the texts
+//! ([`Filling`]): `{your_line}`, what the line may do in the worktree
+//! ([`Permissions::told`](crate::permissions::Permissions::told)); `{store}`, what the engine's records
 //! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks an agent may name to
 //! `run_tests`, in the words its file gives for how the installation runs the project's CI. Each setting the texts name, but in a file of the project, is given with
 //! its value beside it: the project's from its `project.toml`, and the installation's that `agents/installation.toml`
@@ -76,6 +79,23 @@ pub(crate) fn of_session(at: &Path, make: impl FnOnce() -> Result<String, String
     std::fs::write(&writing, &made).map_err(named)?;
     std::fs::rename(&writing, at).map_err(named)?;
     Ok(made)
+}
+
+/// Whether the session would be given otherwise than a new session would begin with now: the system prompt or the form
+/// it began with, kept in the data directory, is not what `make` makes of it now, byte for byte, or `make` cannot make
+/// it. One the session keeps none of is made as it is given ([`of_session`]), and so is given as a new session would
+/// be: a session that began with neither kept, as one whose first round has not begun, is given nothing else, and its
+/// line begins no new session for it. Where one kept cannot be read, no: the round that reads it fails, saying why.
+pub(crate) fn changed(data: &Path, session: Uuid, make: impl Fn(Begun) -> Result<String, String>) -> bool {
+    let mut kept = Vec::new();
+    for what in [Begun::System, Begun::Form] {
+        match std::fs::read_to_string(kept_at(data, session, what)) {
+            Ok(text) => kept.push((what, text)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return false,
+        }
+    }
+    (kept.into_iter()).any(|(what, kept)| !make(what).is_ok_and(|now| now == kept))
 }
 
 /// The text of the file at `path` within `root`: refused where the path is not within it, or where the file or a

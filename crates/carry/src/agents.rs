@@ -6,9 +6,11 @@
 //! (`permissions`). The system prompt and the form are made as a session begins and kept with it, alike, so that every
 //! round of the session is given those it began with, whatever the work's branch or the flow installed has changed
 //! since; a round whose system prompt or form cannot be made, as for a file of the project's that is not in the
-//! worktree, fails, saying why. What came back is read against the cell the round was entered for
-//! ([`returns`](crate::returns)). How many run at once is the engine's to bound: it gives at most as many rounds at
-//! once as the settings give slots, and holds the others back in its own order.
+//! worktree, fails, saying why. Where a new session of a line would begin with other ones now, or with ones that cannot
+//! be made, the policy the agents give says so, and the line begins a new session at its next round (decision
+//! `a-changed-system-prompt-or-form-begins-a-new-session`). What came back is read against the cell the round was
+//! entered for ([`returns`](crate::returns)). How many run at once is the engine's to bound: it gives at most as many
+//! rounds at once as the settings give slots, and holds the others back in its own order.
 //!
 //! A round is run with the project of its work's item ([`crate::projects`]): its declaration in place of the one beside
 //! the flows, the settings its texts name filled from it, and main's head as its host last gave it. A round of a work
@@ -64,7 +66,10 @@
 //! ([`protected`](crate::protected)). As a round of a line that changes only the project's tests ends with a return of
 //! either kind, what the work itself changed from the version of its head the run began on to its head as the round
 //! ended is held to the tests, and the return is found wanting for each file that is none of them; a look that cannot
-//! be made, a read of the branch that failed among them, fails the round ([`tests_only`](crate::tests_only)).
+//! be made, a read of the branch that failed among them, fails the round ([`tests_only`](crate::tests_only)). As a
+//! round ends whose return writes a block handed in only with the owner's answers in the design tree, the return is
+//! found wanting for each question marked `tree` that has the owner's answer, while the work's change against main
+//! changes nothing in the tree; a look that cannot be made fails the round ([`tree`](crate::tree)).
 //!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
@@ -190,6 +195,30 @@ impl Of {
             beside,
             filling,
             main,
+        }
+    }
+
+    /// What a new session of the cell's line begins with: its system prompt, which tells the line what `permissions`
+    /// let it do and holds the project's files as the worktree at `dir` has them, or its form of return; or why it
+    /// cannot be made. A round makes it as its session begins, and the policy makes it to say whether a session would
+    /// begin with another one now.
+    pub(crate) fn begins_with(
+        &self,
+        flow: &flow::Compiled,
+        cell: &flow::CellSpec,
+        permissions: &Permissions,
+        dir: &Path,
+        what: system::Begun,
+    ) -> Result<String, String> {
+        let line = (cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", cell.id))?;
+        match what {
+            system::Begun::System => {
+                let read = |path: &str| system::read_within(dir, path);
+                let tests = cell.tests_only.then(|| tests_only::paths(&self.beside.project));
+                let your_line = permissions.told(&self.beside.your_line, &self.beside.project.protected.paths, tests);
+                system::of_line(&self.beside, &self.filling, flow, cell, &your_line, read)
+            }
+            system::Begun::Form => flow::form::form(flow, &self.beside, line),
         }
     }
 }
@@ -349,7 +378,13 @@ impl Rounds for Agents {
     }
 
     fn policy(&self) -> Option<Policy> {
-        Some(self.inner.settings.policy())
+        let mut policy = self.inner.settings.policy();
+        let inner = self.inner.clone();
+        let changed = move |flow: &flow::Compiled, work, item: &store::Item, cell: &flow::CellSpec, session| {
+            inner.changed(flow, work, item, cell, session)
+        };
+        policy.changed = Some(Box::new(changed));
+        Some(policy)
     }
 
     fn fork(
@@ -378,6 +413,42 @@ impl Rounds for Agents {
 }
 
 impl Inner {
+    /// What the program is let run for a round of the cell, of the project.
+    fn permissions(&self, of: &Of, cell: &flow::CellSpec) -> Permissions {
+        let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
+        let refused = permissions::refused_commands(&of.beside);
+        Permissions::of(cell.reads_only, args, &refused, added)
+    }
+
+    /// Whether the line of the cell, in the work, for the item, would begin a new session of it with another system
+    /// prompt or form of return now than its session of this number began with, or with one that cannot be made
+    /// ([`system::changed`]). No where the round would fail before either is made, saying why: where the item has no
+    /// project of the settings, or the work has no worktree, which the cell that starts the work makes.
+    fn changed(
+        &self,
+        flow: &flow::Compiled,
+        work: WorkNumber,
+        item: &store::Item,
+        cell: &flow::CellSpec,
+        number: u32,
+    ) -> bool {
+        let Some(line) = cell.line.as_deref() else {
+            return false;
+        };
+        let Ok(of) = crate::projects::of(&self.projects, item) else {
+            return false;
+        };
+        let place = git::place(&self.data, &git::tag(&self.installation), work);
+        let Ok(dir) = git::worktree(&place) else {
+            return false;
+        };
+        let permissions = self.permissions(of, cell);
+        let session = session::session(self.installation, work, line, number);
+        system::changed(&self.data, session, |what| {
+            of.begins_with(flow, cell, &permissions, &dir, what)
+        })
+    }
+
     /// Runs the round's program, and gives what came back and what it took; or that the round failed, why, of what
     /// kind and what it took; or, where it could not be run for a cause before its program, only why.
     async fn carry(&self, round: &Round, teller: &Teller, stop: &mut Stop) -> Result<Carried, String> {
@@ -460,9 +531,7 @@ impl Inner {
                 .await
                 .map_err(|e| format!("{}: {e}", parent.display()))?;
         }
-        let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
-        let refused = permissions::refused_commands(&of.beside);
-        let permissions = Permissions::of(round.cell.reads_only, args, &refused, added);
+        let permissions = self.permissions(of, &round.cell);
         // One program at a time in a work: a keep-warm ping of it under way ends first, so that what its session holds
         // and cost is worked out with the ping in.
         let lock = self.lock(round.work);
@@ -483,18 +552,11 @@ impl Inner {
         // The system prompt and the form of return are the session's: made from the worktree and the flow as it begins,
         // and kept, so that every try of every round of it is given those it began with.
         let begun_with = || -> Result<(String, String), String> {
-            let made = || {
-                let read = |path: &str| system::read_within(&dir, path);
-                let tests = round.cell.tests_only.then(|| tests_only::paths(&of.beside.project));
-                let your_line = permissions.told(&of.beside.your_line, &of.beside.project.protected.paths, tests);
-                system::of_line(&of.beside, &of.filling, flow, &round.cell, &your_line, read)
+            let of_session = |what: system::Begun| {
+                let made = || of.begins_with(flow, &round.cell, &permissions, &dir, what);
+                system::of_session(&system::kept_at(&self.data, session, what), made)
             };
-            let kept_at = |what| system::kept_at(&self.data, session, what);
-            let system = system::of_session(&kept_at(system::Begun::System), made)?;
-            let form = system::of_session(&kept_at(system::Begun::Form), || {
-                flow::form::form(flow, &of.beside, line)
-            })?;
-            Ok((system, form))
+            Ok((of_session(system::Begun::System)?, of_session(system::Begun::Form)?))
         };
         // A compaction within the round is marked, and the round's whole message, as a session that holds nothing is
         // sent it, is given again.
@@ -743,6 +805,26 @@ impl Inner {
                 came.engine.extend(looked.asks);
                 let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });
                 came.found.extend(unexplained);
+                // A return that writes a block handed in only with the owner's answers in the design tree is held to
+                // each question marked `tree` that has an answer, while the work's change leaves the tree as main has
+                // it. A look that cannot be made fails the round, as the look at the tests does, rather than take the
+                // change as holding them.
+                let with_the_tree =
+                    (came.writes.iter()).any(|h| (flow.blocks.get(&h.block)).is_some_and(|b| b.answers_in_the_tree));
+                if with_the_tree {
+                    let (project, tree) = (&of.project, of.project.tree.as_str());
+                    match crate::tree::unwritten(project, &place, &of.main, tree, &round.kept, &came.said).await {
+                        Ok(names) => (came.found).extend(names.into_iter().map(|name| Unmet::TreeUnchanged { name })),
+                        Err(why) => {
+                            return Ok(Carried::Failed(
+                                why,
+                                Failure::Other,
+                                failure::Said::default(),
+                                read.spent,
+                            ));
+                        }
+                    }
+                }
                 // Every return of a line that changes only the project's tests is held to what its run changed, one
                 // that asks for calls as well: taken, it ends the run, and the run entered for the results begins on
                 // the head it left.

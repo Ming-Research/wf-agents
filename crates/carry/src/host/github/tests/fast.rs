@@ -1,6 +1,7 @@
 //! The agents' `run_tests` on the GitHub host with the tests and checks they name, run by the project's fast workflow,
 //! and with none named, run by its full workflows: workflows run by hand on main's file with the commit given, whose
-//! JUnit results say each test's own result and time.
+//! JUnit results say each test's own result and time, and whose jobs' logs say why a job failed that no test of its own
+//! says.
 
 use super::super::api::{Check, Outcome};
 use super::*;
@@ -30,9 +31,80 @@ pub(super) fn junit_green() -> Vec<(String, Vec<u8>)> {
     vec![("test.xml".to_string(), xml.as_bytes().to_vec())]
 }
 
-pub(super) fn job(name: &str, outcome: Outcome, _: u64) -> Check {
-    check(name, outcome)
+/// A check of this id.
+pub(super) fn job(name: &str, outcome: Outcome, id: u64) -> Check {
+    Check {
+        id,
+        ..check(name, outcome)
+    }
 }
+
+/// The log of a lint job that failed on one error of clippy's, as GitHub keeps it: each line after the time it was
+/// written, the first after the mark of UTF-8 that begins the file; the runner's set-up, the checkout, the format,
+/// which passed, then clippy, coloured as cargo colours it, and the clean-up after it.
+pub(super) fn clippy_log() -> String {
+    let lines = [
+        "Current runner version: '2.329.0'",
+        "##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "with:",
+        "  persist-credentials: false",
+        "##[endgroup]",
+        "##[group]Run cargo fmt --all --check",
+        "cargo fmt --all --check",
+        "shell: /usr/bin/bash -e {0}",
+        "##[endgroup]",
+        "##[group]Run cargo clippy --workspace --all-targets --locked -- -D warnings",
+        "cargo clippy --workspace --all-targets --locked -- -D warnings",
+        "shell: /usr/bin/bash -e {0}",
+        "##[endgroup]",
+        "\x1b[1m\x1b[92m    Checking\x1b[0m driver v0.1.0 (/runner/work/r/r/crates/driver)",
+        "\x1b[0m\x1b[1m\x1b[91merror\x1b[0m\x1b[0m\x1b[1m: this `if` statement can be collapsed\x1b[0m",
+        "\x1b[0m    \x1b[0m\x1b[1m\x1b[94m--> \x1b[0mcrates/driver/src/lib.rs:1533:9",
+        "\x1b[1m\x1b[94m     |\x1b[0m",
+        "\x1b[1m\x1b[94m1533\x1b[0m \x1b[1m\x1b[94m|\x1b[0m \x1b[1m\x1b[91m/\x1b[0m         if held {",
+        "\x1b[1m\x1b[94m1534\x1b[0m \x1b[1m\x1b[94m|\x1b[0m \x1b[1m\x1b[91m|\x1b[0m             if ended {",
+        "\x1b[1m\x1b[94m     |\x1b[0m \x1b[1m\x1b[91m|_________^\x1b[0m",
+        "     = note: `-D clippy::collapsible-if` implied by `-D warnings`",
+        "\x1b[1m\x1b[96mhelp\x1b[0m: collapse nested if block",
+        "1533 ~         if held",
+        "1534 ~             && ended {",
+        "",
+        "\x1b[1m\x1b[91merror\x1b[0m\x1b[1m:\x1b[0m could not compile `driver` (lib) due to 1 previous error",
+        "##[error]Process completed with exit code 101.",
+        "Post job cleanup.",
+        "[command]/usr/bin/git version",
+        "git version 2.43.0",
+        "Cleaning up orphan processes",
+    ];
+    let stamped: String = (lines.iter().enumerate())
+        .map(|(n, line)| {
+            let fraction = n * 13_717;
+            format!("2026-11-21T09:48:{n:02}.{fraction:07}Z {line}\n")
+        })
+        .collect();
+    format!("\u{feff}{stamped}")
+}
+
+/// The end of the failed step of [`clippy_log`], as a reader of what a job said is given it: clippy's step, from its
+/// command to the error that ended it, without its colours and times.
+pub(super) const CLIPPY_STEP: &str = "##[group]Run cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo clippy --workspace --all-targets --locked -- -D warnings
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+    Checking driver v0.1.0 (/runner/work/r/r/crates/driver)
+error: this `if` statement can be collapsed
+    --> crates/driver/src/lib.rs:1533:9
+     |
+1533 | /         if held {
+1534 | |             if ended {
+     | |_________^
+     = note: `-D clippy::collapsible-if` implied by `-D warnings`
+help: collapse nested if block
+1533 ~         if held
+1534 ~             && ended {
+
+error: could not compile `driver` (lib) due to 1 previous error
+##[error]Process completed with exit code 101.";
 
 impl Hub {
     async fn named_check(&self, named: &Named) -> Result<Option<String>, String> {
@@ -160,18 +232,29 @@ async fn a_name_is_the_name_its_results_give_and_no_part_of_it_names_a_test() {
     );
 }
 
+// A check that reports no test, as the lint, failed with nothing in the results to say why: it is said with the end of
+// what the step that failed it printed, read from its log, without the colours and the times GitHub's log holds, and
+// without the steps before it and the clean-up after it. Well under a second alone, a repository on disk and GitHub in
+// memory; the one test of a job's log on `run_tests`.
 #[tokio::test]
-async fn a_check_named_runs_beside_the_tests_and_a_red_one_is_said_failed_with_no_log_read() {
+async fn a_check_named_runs_beside_the_tests_and_a_red_one_is_said_with_the_end_of_its_failed_step() {
     let hub = Hub::new();
     let head = hub.committed().await;
     let lint = job("lint", Outcome::Failed("failure".into()), 9);
     hub.github().fast(&head, vec![lint], None);
+    hub.github().logged(9, &clippy_log());
     let said = hub.named_check(&named(&[], &["lint"])).await.unwrap().expect("run");
     assert!(said.contains("): 0 of the 1 checks passed."), "{said}");
+    let lint = format!(
+        "The jobs:\n- lint: failed (failure) in 60 s https://github.example/checks/lint\n  The end of what its failed \
+         step printed:\n```\n{CLIPPY_STEP}\n```"
+    );
+    assert!(said.ends_with(&lint), "{said}");
     assert!(
-        said.ends_with("The jobs:\n- lint: failed (failure) in 60 s https://github.example/checks/lint"),
+        !said.contains('\u{1b}') && !said.contains("2026-11-21T09:48:"),
         "{said}"
     );
+    assert_eq!(hub.github().logs_asked(), [9]);
     let asked = match hub.dispatched_as_said().as_slice() {
         [Asked::Dispatch { inputs, .. }] => inputs.clone(),
         other => panic!("{other:?}"),
@@ -195,8 +278,11 @@ async fn a_check_the_fast_workflow_does_not_run_by_name_is_refused_before_anythi
     assert!(hub.github().asked().is_empty(), "GitHub was asked nothing");
 }
 
+// A run that uploaded no results is said so, and a job of it that failed has its log read; a log GitHub does not give
+// is said in one line, and the rest of the result is given. Well under a second alone, a repository on disk and GitHub
+// in memory; the one test of a log that cannot be read on `run_tests`.
 #[tokio::test]
-async fn a_run_that_uploads_no_junit_is_said_so_and_its_log_is_not_read() {
+async fn a_run_that_uploads_no_junit_is_said_so_and_a_log_that_cannot_be_read_is_said_in_one_line() {
     let hub = Hub::new();
     let head = hub.committed().await;
     hub.github()
@@ -210,9 +296,13 @@ async fn a_run_that_uploads_no_junit_is_said_so_and_its_log_is_not_read() {
         "{said}"
     );
     assert!(
-        said.ends_with("The jobs:\n- test: failed (failure) in 60 s https://github.example/checks/test"),
-        "a job that failed with nothing to say why is said failed: {said}"
+        said.ends_with(
+            "The jobs:\n- test: failed (failure) in 60 s https://github.example/checks/test\n  Its log could not be \
+             read: HTTP 404: Not Found"
+        ),
+        "{said}"
     );
+    assert_eq!(hub.github().logs_asked(), [5]);
 }
 
 #[tokio::test]

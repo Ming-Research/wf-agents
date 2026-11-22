@@ -266,6 +266,127 @@ fn a_session_cut_off_and_begun_again_keeps_its_prompt() {
     assert!(!of_session(&at, make).unwrap().contains("Changed."));
 }
 
+/// A session of the engineer's line of a work, in a directory of its own: the work's worktree, with the project's
+/// files, and the data directory its session's system prompt and form are kept in.
+struct Line {
+    dir: tempfile::TempDir,
+    of: crate::Of,
+    flow: Compiled,
+}
+
+impl Line {
+    fn new() -> Line {
+        let dir = tempfile::tempdir().expect("a directory");
+        std::fs::create_dir_all(dir.path().join("worktree/design")).unwrap();
+        for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+            std::fs::write(dir.path().join("worktree").join(path), project(path).unwrap()).unwrap();
+        }
+        let settings = settings();
+        let project = settings.projects["example"].clone();
+        let of = crate::Of::new(&settings, project, beside(), "refs/heads/main".to_string());
+        Line {
+            dir,
+            of,
+            flow: engineer(),
+        }
+    }
+
+    fn worktree(&self) -> PathBuf {
+        self.dir.path().join("worktree")
+    }
+
+    /// Where the session of this id keeps what it began with.
+    fn kept(&self, session: Uuid, what: Begun) -> PathBuf {
+        kept_at(&self.dir.path().join("data"), session, what)
+    }
+
+    /// What a new session of the line begins with now, as a round makes it.
+    fn now(&self, what: Begun) -> Result<String, String> {
+        let cell = cell(&self.flow, "engineer");
+        let permissions = Permissions::of(cell.reads_only, &[], &[], &Default::default());
+        self.of
+            .begins_with(&self.flow, cell, &permissions, &self.worktree(), what)
+    }
+
+    /// The session of this id begins, as its first round begins it: what it begins with is made and kept.
+    fn begin(&self, session: Uuid) {
+        for what in [Begun::System, Begun::Form] {
+            of_session(&self.kept(session, what), || self.now(what)).expect("it is made");
+        }
+    }
+
+    /// Whether the session of this id would be given otherwise than a new one would begin with now.
+    fn changed(&self, session: Uuid) -> bool {
+        changed(&self.dir.path().join("data"), session, |what| self.now(what))
+    }
+}
+
+// A session is given otherwise than a new one would begin with now where the system prompt or the form it began with,
+// either alone, is not what is made now, byte for byte, as a change of the project's files in the worktree makes it;
+// it is not where each is, as for a session just begun from the same worktree and flow, which two makings give alike;
+// and one that began with neither kept, as one whose first round has not begun, is given nothing else. Runs on
+// temporary files in milliseconds; only this test makes the check of real prompts and forms, whose bytes must not
+// differ from one making to the next, or every round of a line would begin a new session.
+#[test]
+fn a_session_is_given_otherwise_than_a_new_one_would_be_where_what_it_began_with_differs_from_what_is_made_now() {
+    let line = Line::new();
+    let session = Uuid::nil();
+    assert!(!line.changed(session), "a session that has not begun");
+    line.begin(session);
+    for what in [Begun::System, Begun::Form] {
+        let (once, again) = (line.now(what), line.now(what));
+        assert_eq!(once, again, "{what:?} is made alike twice");
+    }
+    assert!(!line.changed(session), "a session just begun");
+    for what in [Begun::System, Begun::Form] {
+        let began = std::fs::read_to_string(line.kept(session, what)).unwrap();
+        std::fs::write(
+            line.kept(session, what),
+            format!("{began}\nAs an earlier flow made it."),
+        )
+        .unwrap();
+        assert!(line.changed(session), "the kept {what:?} differs alone");
+        std::fs::write(line.kept(session, what), &began).unwrap();
+        assert!(!line.changed(session), "the kept {what:?} is what is made now again");
+    }
+    // A session that keeps only its system prompt, its form made as it is given, is compared by that alone.
+    std::fs::remove_file(line.kept(session, Begun::Form)).unwrap();
+    assert!(!line.changed(session));
+    std::fs::write(
+        line.worktree().join("AGENTS.md"),
+        "# Working here\n\nChanged by the work.\n",
+    )
+    .unwrap();
+    assert!(line.changed(session), "the work changed its guide");
+    // A new session, begun after the change, begins with what a new one does.
+    line.begin(Uuid::max());
+    assert!(!line.changed(Uuid::max()));
+}
+
+// A session whose kept system prompt or form can be read, where a new one cannot be made now, as for a file of the
+// project the worktree has lost, is given otherwise than a new one: its line begins a new session, whose first round
+// fails to make it and says why. That new session keeps nothing, so it is given nothing else, and its line begins no
+// other for it. A kept one that cannot be read is no reason for one: the round that reads it fails, saying why. Runs on
+// temporary files in milliseconds; only this test holds the check to what a round does with each fault.
+#[test]
+fn a_session_whose_new_prompt_cannot_be_made_is_given_otherwise_and_one_whose_kept_prompt_cannot_be_read_is_not() {
+    let line = Line::new();
+    let (session, renewed) = (Uuid::nil(), Uuid::max());
+    line.begin(session);
+    std::fs::remove_file(line.worktree().join("design/README.md")).unwrap();
+    assert!(line.now(Begun::System).is_err(), "no system prompt can be made");
+    assert!(line.changed(session));
+    assert!(!line.changed(renewed), "the new session keeps nothing");
+    // What its first round finds: no system prompt is made, and nothing is kept for it.
+    assert!(of_session(&line.kept(renewed, Begun::System), || line.now(Begun::System)).is_err());
+    assert!(!line.changed(renewed));
+    // The first session's kept system prompt cannot be read, here a directory in its place: though no new one can be
+    // made, its line begins no new session for it.
+    std::fs::remove_file(line.kept(session, Begun::System)).unwrap();
+    std::fs::create_dir_all(line.kept(session, Begun::System)).unwrap();
+    assert!(!line.changed(session));
+}
+
 // A project's file that is not in the worktree makes no system prompt: it is said, with its path.
 #[test]
 fn a_projects_file_the_worktree_lacks_is_said() {

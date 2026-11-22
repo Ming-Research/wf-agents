@@ -12,7 +12,8 @@ The run guard stops a round only when its context grows, or its first prompt jum
 - rejected: an agent proposed cutting off a long round at a threshold line and handing its session over to a new one in the same cell; the owner rejected it, because how an agent uses its own tools is not the system's efficiency, and the system's efficiency is what needs fixing.
 
 ### decision a-letting-on-allows-what-the-installation-says
-A work may spend its budget, plus `agents.let_on_allowance_usd` each time the owner let it run again after the engine paused it because of its spending; the words beside it say how much more.
+Each time the owner lets on a work the engine paused for its spending, it may spend `agents.let_on_allowance_usd` more than it had spent then; the words beside it say how much more.
+- replaced: Adding the allowance to the bar the work had been paused at was on main; the owner changed it, because a round that spent more than the allowance left the work over its new bar, and a work let on was paused again at its next round's end.
 - replaced: Letting a work paused for its budget run again with nothing more to spend was on main; the owner changed it, because one press then bought a single round, and the work was paused again at its end.
 - replaced: Words beside a work paused for its budget that said only how much it had spent over its budget was on main; the owner changed it, because they should say how much letting it run again adds.
 

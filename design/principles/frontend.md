@@ -3,8 +3,8 @@
 What the owner's page holds and how it treats the owner.
 
 ### principle the-console-is-where-the-owner-works
-The owner does everything day to day in the console, where each question, approval and word to a line shows and is answered on its own item, and on no other page. No part of the owner's page is designed or changed without his yes: an agent only proposes.
-Why: The owner works from one place and must find everything there. The page is judged by the owner's use (principle owner-taste-judges), and a change made without asking undid what the owner had settled. (Article 8)
+The owner does everything day to day in the console, where each question, approval and word to a line shows and is answered on its own item; the command line is never the only way. No part of the owner's page is designed or changed without his yes.
+Why: The owner works from one place and must find everything there, and does not like a command line: editing the configuration and the database by hand failed. The page is judged by the owner's use (principle owner-taste-judges), and a change made without asking undid what he had settled. (Article 8)
 
 ### principle owner-taste-judges
 A design on the owner's page is judged by the owner's taste and use; user research and general design guidelines are no argument against them.
@@ -74,14 +74,10 @@ Why: Without the words the owner cannot read the marks.
 What is drawn as a link and opens something on the page can be selected and copied as text.
 Why: The owner copies what the page shows to say what is wrong, and a copied panel had lost every name of a round and of a cell.
 
-### principle the-head-says-what-holds-it
-Where a work is both paused and waiting for the owner, its head says what really holds it.
-Why: With one place saying it is paused and another that it waits for the owner, the owner cannot tell which of the two stops it.
-
 ### principle one-catalogue-of-words
 All the page's own words are in English and come from one catalogue.
 Why: The owner reads the page in English, and one catalogue makes the name of each thing the same wherever the page shows it.
 
 ### principle one-count-of-what-waits
-The owner is shown one count of what waits on them, and each thing it counts is shown where the owner can act on it: every count, mark and notification of what waits reads one list of it (principle one-thing-one-place).
+The owner is shown one count of what waits on them, and each thing it counts is shown where the owner can act on it: every count, mark and notification of what waits reads one list of it.
 Why: Counts with different meanings did not agree, and nobody trusted them; a count with nothing to act on behind it left the owner searching for what it counted.

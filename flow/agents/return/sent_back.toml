@@ -55,6 +55,10 @@ unexplained = "`{path}` is a file the project protects. The work's branch change
 # A file, `{path}`, that the run of a line that changes only the project's tests changed on the work's branch, and that
 # is none of the project's tests (`[tests]` of `project.toml`).
 not_a_test = "`{path}` is not one of the project's tests, which are the only files your line changes: take back what this run changed in it."
+# A question of the work, `{name}`, marked `tree`, with the owner's answer to its latest version, where the return
+# writes a block whose file says `answers_in_the_tree` and the work's change against main changes nothing in the
+# project's design tree.
+tree_unchanged = "`{name}` is marked `tree` and has the owner's answer, but the work's change against main changes nothing in the design tree: write the option taken into the tree, as its rules say."
 # Of a return of the form before a return said what it dealt with, which asked for calls and named none.
 asks_nothing = "The return asks for calls, but names none."
 # A block an act of the engine's after the cell wrote, `{block}`, dealt with by a return that leaves new nothing that

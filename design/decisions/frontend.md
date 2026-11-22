@@ -22,6 +22,10 @@ A work the engine halted is marked in the red of a fault, and a work the owner p
 - replaced: One word, stopped, for every halt was on main; the owner changed it, because a pause is someone's choice and the list's filters called it paused, while red says there is a problem to look at.
 - replaced: The same dot for a pause of all works, whether the engine or the owner made it, was on main; the owner changed it, because a pause the engine made by itself, not one he made, should show at least some red.
 
+### decision the-owners-pause-stands-beside-the-state
+In the list of works and the System view, Paused stands beside a work's state while the owner's pause holds it and the state says something else; the engine's pause is the state itself.
+- replaced: One place saying a work was paused and another that it waited for the owner was on main; the owner changed it, because he could not tell which of the two stopped the work.
+
 ### decision red-is-the-one-colour-of-a-stop
 Red is the only colour of a stop: a work that waits for the owner and a work halted by a fault are red in every view.
 - replaced: Orange for what waits for the owner on the Works page and in the bar, but red on the console, was on main; the owner changed it, because one meaning has one colour, and he had chosen red for every stop.

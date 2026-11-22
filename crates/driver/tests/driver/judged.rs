@@ -13,6 +13,7 @@ fn policy() -> driver::Policy {
     driver::Policy {
         samples: 2,
         model: Box::new(|_, _| Some(on().model)),
+        changed: None,
         warm: None,
     }
 }

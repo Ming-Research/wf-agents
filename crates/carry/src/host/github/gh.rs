@@ -271,6 +271,19 @@ impl Api for Gh {
         Ok((!files.is_empty()).then_some(files))
     }
 
+    async fn log(&self, job: u64) -> Result<String, Failed> {
+        let path = format!("repos/{}/actions/jobs/{job}/logs", self.repository);
+        // GitHub answers with a redirect to the log's text, which `gh` follows. The log holds the escapes that colour
+        // what the job printed, and `gh` refuses an answer that holds any unless told to allow them: the reader of the
+        // log takes them out.
+        let answer = (self.ask_with("GET", &path, None, &["--allow-escape-sequences"])).await?;
+        if answer.status == 200 {
+            Ok(answer.body)
+        } else {
+            Err(refused(&answer))
+        }
+    }
+
     async fn delete(&self, branch: &str) -> Result<(), Failed> {
         let path = format!("repos/{}/git/refs/heads/{branch}", self.repository);
         // A branch that is not there is answered 422, "Reference does not exist".
@@ -479,7 +492,8 @@ fn run(run: &Value) -> Option<Run> {
     })
 }
 
-/// A job of a run as a check; none for a job that has no name. A job that did not run is a check that was skipped.
+/// A job of a run as a check; none for a job that has no id or no name. A job that did not run is a check that was
+/// skipped.
 fn job(job: &Value) -> Option<Check> {
     let outcome = match (job["status"].as_str(), job["conclusion"].as_str()) {
         (Some("completed"), Some("skipped")) => Outcome::Skipped,
@@ -498,6 +512,7 @@ fn job(job: &Value) -> Option<Check> {
         _ => None,
     };
     Some(Check {
+        id: job["id"].as_u64()?,
         name: job["name"].as_str()?.to_string(),
         outcome,
         url: job["html_url"].as_str().map(str::to_string),
