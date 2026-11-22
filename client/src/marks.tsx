@@ -31,6 +31,7 @@ export type MarkKey =
   | 'outputs'
   | 'wakes'
   | 'wayBack'
+  | 'sentBackWay'
   | 'mainPath'
   | 'fromOutside'
   | 'when'
@@ -81,9 +82,10 @@ export function StateMark({ state, title }: { state: RunState; title?: string })
 }
 
 /// A line between cells, as the flowchart draws it and a work's history along its rows: an arrow a write runs to a
-/// cell that watches what it writes, thin in the colour of the data's lines; a way back, thick in the accent; the main
-/// path, thick in the text's colour; an arrow from what is written outside the cells, dashed.
-function LineSample({ kind }: { kind: 'wakes' | 'back' | 'main' | 'outside' }) {
+/// cell that watches what it writes, thin in the colour of the data's lines; a way back, thick in the accent, and on a
+/// work's history, where it is a send-back, in red; the main path, thick in the text's colour; an arrow from what is
+/// written outside the cells, dashed.
+function LineSample({ kind }: { kind: 'wakes' | 'back' | 'sent' | 'main' | 'outside' }) {
   return <span className={`legend-line ${kind}`} aria-hidden="true" />;
 }
 
@@ -182,6 +184,7 @@ export const MARKS: Record<MarkKey, Entry> = {
   outputs: { name: 'outputs', draw: () => data({ write: true }) },
   wakes: { name: 'wakes', draw: () => <LineSample kind="wakes" /> },
   wayBack: { name: 'way back', draw: () => <LineSample kind="back" /> },
+  sentBackWay: { name: 'way back', draw: () => <LineSample kind="sent" /> },
   mainPath: { name: 'main path', draw: () => <LineSample kind="main" /> },
   fromOutside: { name: 'from outside', draw: () => <LineSample kind="outside" /> },
   when: { name: 'when', draw: () => <NodeSample /> },

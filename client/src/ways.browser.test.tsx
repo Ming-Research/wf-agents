@@ -1,7 +1,8 @@
 // The way back in every view, in a real browser (Chromium), in light and in dark: on the flowchart its line, thicker
-// than an arrow a write runs, its head and its sample in the legend, and in a work's history the line and the arrow
-// from a later cell's column to the run it woke, are each drawn in the accent, as the matrix's way back is (decision
-// the-way-back-is-in-the-accent); the history's arrow a write runs to a later cell is not.
+// than an arrow a write runs, its head and its sample in the legend are each drawn in the accent, as the matrix's way
+// back is (decision the-way-back-is-in-the-accent); in a work's history, where it is a send-back, the line and the arrow
+// from a later cell's column to the run it woke, and the history's legend sample, are drawn in red (decision
+// a-wake-is-an-arrow-from-the-writer); the history's arrow a write runs to a later cell is in neither.
 
 import './styles/tokens.css';
 import './styles/chart.css';
@@ -39,7 +40,7 @@ describe('the way back in every view', () => {
   });
 
   for (const theme of ['light', 'dark']) {
-    it(`is in the accent in ${theme}: the flowchart's line, head and legend, and the history's line and arrow`, () => {
+    it(`is in the accent in ${theme} on the flowchart, its line, head and legend, and in red on the history`, () => {
       document.documentElement.setAttribute('data-theme', theme);
       host = document.createElement('div');
       // The flowchart's way back, as the drawing gives it: its line and the head its marker draws, and an arrow a
@@ -52,6 +53,7 @@ describe('the way back in every view', () => {
             <path class="graph-edge graph-edge-data" d="M 0 0 L 10 10" />
           </svg>
           <span class="legend-line back"></span>
+          <span class="legend-line sent"></span>
         </div>
         <table class="matrix flow history"><tbody><tr>
           <td class="spot back"><span class="seg seg-left back"></span>
@@ -68,9 +70,14 @@ describe('the way back in every view', () => {
       expect(look('.graph-head-back path').fill).toBe(accent);
       expect(look('.legend-line.back').backgroundColor).toBe(accent);
       expect(look('.legend-line.back').height).toBe(sizeOf('--chart-back'));
-      expect(look('.seg.back').backgroundColor).toBe(accent);
-      expect(look('.seg.back').height).toBe(sizeOf('--chart-back'));
-      expect(look('.row-arrow.back .part.arrow').fill).toBe(accent);
+      // On the history, a send-back's line, its arrow and its legend sample are red, the line as thick.
+      const red = drawnIn('--red');
+      expect(red).not.toBe(accent);
+      expect(look('.history .seg.back').backgroundColor).toBe(red);
+      expect(look('.history .seg.back').height).toBe(sizeOf('--chart-back'));
+      expect(look('.history .row-arrow.back .part.arrow').fill).toBe(red);
+      expect(look('.legend-line.sent').backgroundColor).toBe(red);
+      expect(look('.legend-line.sent').height).toBe(sizeOf('--chart-back'));
       // An arrow a write runs to a later cell is in the colour of the data's lines.
       const data = drawnIn('--chart-data');
       expect(data).not.toBe(accent);

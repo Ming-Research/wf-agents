@@ -337,6 +337,17 @@ tr.row.chosen > .block-head {
   fill: var(--chart-data);
 }
 
+/* In a work's history, a way back is a send-back, a run of a cell for what a cell after it wrote, which the cell's
+   limit counts: in red, its line and its arrow, so that which send-backs were counted is seen at once. The flow's own
+   chart keeps the accent, as it draws the flow and not what happened. */
+.history .seg.back {
+  background: var(--red);
+}
+
+.history .row-arrow.back .part.arrow {
+  fill: var(--red);
+}
+
 .glyph {
   display: block;
   position: relative;
@@ -443,6 +454,12 @@ tr.row.chosen > .block-head {
 .legend-line.back {
   height: var(--chart-back);
   background: var(--accent);
+}
+
+/* The way back on a work's history, a send-back: in red, as the history draws it. */
+.legend-line.sent {
+  height: var(--chart-back);
+  background: var(--red);
 }
 
 .legend-line.main {
