@@ -1021,7 +1021,9 @@ describe('the console page', () => {
     expect(panel().classList.contains('shown')).toBe(false);
     expect(look().pointerEvents).toBe('none');
     expect(look().visibility).toBe('hidden');
-    await userEvent.hover(mark);
+    // The pointer comes onto the mark and leaves it as the page takes it: the browser's own pointer first waits for
+    // the mark to stand still over two frames of a canvas drawn in software, which a loaded machine stretches.
+    mark.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: document.body }));
     await expect.poll(() => panel().classList.contains('shown')).toBe(true);
     expect(look().pointerEvents).toBe('auto');
     expect(look().visibility).toBe('visible');
@@ -1044,7 +1046,7 @@ describe('the console page', () => {
     expect(marks).toHaveLength(CONSOLE_MARKS.length);
     CONSOLE_MARKS.forEach((key, k) => expect(marks[k]?.endsWith(` ${MARKS[key].name}`)).toBe(true));
     // Once the pointer leaves, it takes the pointer no more at once, and is hidden once it has faded.
-    await userEvent.unhover(mark);
+    mark.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
     await expect.poll(() => panel().classList.contains('shown')).toBe(false);
     expect(look().pointerEvents).toBe('none');
     await expect.poll(() => look().visibility).toBe('hidden');
