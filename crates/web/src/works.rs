@@ -3954,13 +3954,14 @@ pub(crate) mod tests {
             format!(
                 "title = \"{title}\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Do it.\"\n\
                  watches = [\"request\", \"{own}_questions\", \"{own}_words\"]\n\
-                 outputs = [\"{block}\", \"{own}_questions\", \"{own}_words\"]\n{when}[kinds]\n\
+                 outputs = [\"{block}\", \"{own}_questions\", \"{own}_words\"]\n{when}{reads}[kinds]\n\
                  request = \"last_and_latest\"\n{own}_questions = \"all\"\n{own}_words = \"all\"\n",
                 when = if own == "design" {
                     "when = { deep = \"yes\" }\n"
                 } else {
                     ""
-                }
+                },
+                reads = if own == "write" { "reads = [\"design\"]\n" } else { "" }
             )
         };
         let (design, write) = (asks("Design", "design", "design"), asks("Write", "text", "write"));
