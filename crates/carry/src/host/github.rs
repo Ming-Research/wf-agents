@@ -19,11 +19,14 @@
 //!
 //! - `api`: what is asked of GitHub besides pushing and fetching, and `gh`, which asks it with the `gh` command line.
 //! - `output`: what a test said, as a reader wants it.
+//! - `log`: what a job's log says of the step that failed it, which is said of a job that failed with no failed test
+//!   of its own to say why.
 //! - `fake`: GitHub for the tests, with a bare repository on disk to push to.
 
 mod api;
 mod fast;
 mod gh;
+mod log;
 mod output;
 mod results;
 mod workflow;

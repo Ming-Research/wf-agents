@@ -891,6 +891,10 @@ pub struct ResultWords {
     pub job_untimed: String,
     /// A check named that the run has no job of.
     pub job_missing: String,
+    /// What is said beneath a job that failed with no failed test of its own to say why: `{said}` the end of what the
+    /// step that failed it printed, as its log holds it; or, where its log could not be read, `{why}`.
+    pub step_end: String,
+    pub log_unread: String,
     /// The run uploaded no JUnit it can read, so no test's result is known: `{why}`.
     pub no_junit: String,
     /// What the check before a merge was judged by: `{urls}` the runs.

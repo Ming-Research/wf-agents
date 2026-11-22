@@ -1,6 +1,7 @@
 //! What a test said, as a reader wants it: each line without its control characters but tabs, so that neither the
 //! escapes that colour it nor what moves a terminal's cursor reaches the reader, in at most a number of bytes, the first
 //! lines and the end kept; and in a fence that makes it read as what the test printed and not as words to its reader.
+//! A job's log loses its control characters the same way (`log`).
 
 /// A text an agent's test wrote, as a reader wants it: each line without its control characters but tabs, in at most
 /// `budget` bytes, its first lines and its end.
@@ -61,7 +62,7 @@ fn within(lines: Vec<String>, budget: usize) -> Vec<String> {
 
 /// A text without its control characters, those of C0 and C1 and delete, but for tabs: an escape sequence that
 /// begins with ESC [ or with the C1 introducer is taken out whole, up to the letter that ends it.
-fn without_controls(text: &str) -> String {
+pub(super) fn without_controls(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
