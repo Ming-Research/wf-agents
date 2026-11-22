@@ -260,7 +260,8 @@ export function shownTree(
       title: i?.title ?? '',
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w),
-      ahead: w?.ahead ?? 0,
+      // Only a work that goes on has questions to answer.
+      ahead: w !== undefined && live(w) ? (w.ahead ?? 0) : 0,
       deliver: deliverable || w?.delivers === true,
       // New to the owner exactly when something is unread: one fact, not two.
       unseen: (mock?.unread ?? 0) > 0,
@@ -311,6 +312,20 @@ export function shownTree(
     .filter((i) => !above.has(i.number) && keep(i.number))
     .sort((a, b) => a.number - b.number)
     .map((i) => make(i.number));
+}
+
+/// The items of the tree `roots` in its order, each before the items under it, with how many stops each has: each
+/// thing its red and its orange counts count, which n and N walk on the console. A shadow stands for an item placed
+/// elsewhere, and is left out.
+export function walkOrder(roots: Shown[]): { id: number; stops: number }[] {
+  const order: { id: number; stops: number }[] = [];
+  const go = (s: Shown) => {
+    if (s.shadow) return;
+    order.push({ id: s.id, stops: s.asks + s.ahead });
+    s.children.forEach(go);
+  };
+  roots.forEach(go);
+  return order;
 }
 
 /// The fold of an item that stands as `own` stands, with `children` standing under it and `shadows` shadows beside

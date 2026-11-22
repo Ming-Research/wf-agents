@@ -40,11 +40,13 @@
 import './console.css';
 
 import {
+  createContext,
   Fragment,
   type MouseEvent,
   type ReactNode,
   type RefObject,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -346,7 +348,38 @@ export type ItemPanelProps = {
   /// The card of what the work waits for that the window is to show, by its key (`Wait.key`), where the address names
   /// one.
   wait?: string;
+  /// The stop of the work the window is to bring to the top of what it shows, by its place among the stops it draws,
+  /// -1 for the last; asked again each time `seq` changes ([`STOP`]).
+  stop?: { at: number; seq: number };
+  /// Told how many stops the window draws, each time that changes.
+  onStops?: (count: number) => void;
+  /// Told that the owner pressed the button under the stop at `at`, which goes to the next stop as n does; with none,
+  /// the stops draw no such button.
+  onNextStop?: (at: number) => void;
 };
+
+/// The stops of a work as the window draws them, in its order from the top: each card of what the work waits on the
+/// owner for, and each question to answer, whether or not it holds the work; not a question answered. They are what
+/// the red and the orange counts of the item's card count, and what n and N walk on the console.
+const STOP = '.cw-choice[data-wait]:not(.cw-choice-done)';
+
+/// The keys of the stops the window draws, in its order, and what the button under one does.
+const StopsContext = createContext<{ keys: string[]; next?: (at: number) => void }>({ keys: [] });
+
+/// Under a stop of the work, the button that goes to the next, as n does, saying which of the item's stops this one is
+/// and how many there are; none under the last, and none where the window has no walk.
+function NextStop({ at }: { at: string | undefined }) {
+  const { keys, next } = useContext(StopsContext);
+  const k = at === undefined ? -1 : keys.indexOf(at);
+  if (next === undefined || k < 0 || k === keys.length - 1) return null;
+  return (
+    <div className="cw-stop-acts">
+      <Button title="Go to the next question, as n does" onClick={() => next(k)}>
+        {`Next question (${k + 1}/${keys.length})`}
+      </Button>
+    </div>
+  );
+}
 
 /// The window's item. Its lines and its body are the item's own: what one item was sending, or was refused, is not
 /// shown under another.
@@ -368,6 +401,9 @@ function ItemView({
   tab: chosenTab,
   onTab,
   wait,
+  stop,
+  onStops,
+  onNextStop,
 }: ItemPanelProps) {
   const work = item.work;
   const read = pageIn(page);
@@ -443,6 +479,29 @@ function ItemView({
     box.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     box.current?.focus({ preventScroll: true });
   }, [discussed]);
+  // The stops the window draws, as they stand after each drawing, told to the page when they change.
+  const [stops, setStops] = useState<string[]>([]);
+  useLayoutEffect(() => {
+    const keys = [...(inner.current?.querySelectorAll<HTMLElement>(STOP) ?? [])].map((c) => c.dataset.wait ?? '');
+    if (keys.join('\n') !== stops.join('\n')) setStops(keys);
+  });
+  useEffect(() => onStops?.(stops.length), [stops, onStops]);
+  const walk = useMemo(() => ({ keys: stops, next: onNextStop }), [stops, onNextStop]);
+  // The stop the page asks for is brought to the top of what the window shows, on the tab that draws the body, once it
+  // is drawn, once each time it is asked.
+  const shownStop = useRef(0);
+  useEffect(() => {
+    if (stop === undefined || shownStop.current === stop.seq) return;
+    if (tab !== 'item') {
+      if (chosenTab === undefined) setTab('item');
+      return;
+    }
+    const cards = [...(inner.current?.querySelectorAll<HTMLElement>(STOP) ?? [])];
+    const card = cards[stop.at < 0 ? cards.length - 1 : stop.at];
+    if (card === undefined) return;
+    shownStop.current = stop.seq;
+    card.scrollIntoView({ block: 'start' });
+  });
   // The card the address names is brought into view once it is drawn, once.
   const shownWait = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -645,149 +704,151 @@ function ItemView({
     setQuote(null);
   };
   return (
-    <div className="cw-item" ref={inner}>
-      <header className="drawer-head">
-        <span className="drawer-id">{item.number}</span>
-        <h2 className="drawer-title">
-          {titleHref !== undefined ? (
-            <a className="cw-title-link" href={titleHref} title="Open it in the console">
-              {item.title}
-            </a>
-          ) : (
-            <button type="button" className="cw-title-link" title="Show it in the tree" onClick={onTitle}>
-              {item.title}
-            </button>
-          )}
-        </h2>
-        {item.project !== null && <span className="drawer-belongs mono">{item.project}</span>}
-      </header>
-      <ItemLine
-        item={item}
-        goal={goal}
-        tier={mock.tier}
-        level={<LevelMark level={work.level ?? null} raise={work.raise ?? 0} />}
-      >
-        <Progress w={work} page={read} />
-      </ItemLine>
-      <WorkLine w={work} page={read} />
-      {!ended(work) && <Acts paused={work.paused === 'owner'} act={send} />}
-      <StopCards work={work} act={send} />
-      <div className="drawer-body">
-        <div className="cw-tabs">
-          <Tabs
-            label="What the window shows"
-            choices={WINDOW_TABS.map((value) => ({ value, name: TAB_NAMES[value] }))}
-            value={tab}
-            onChange={setTab}
-          />
-        </div>
-        {fresh ? (
-          <div className="cw-fresh">
-            <span>
-              {changes === 0
-                ? 'New to you'
-                : changes === 1
-                  ? '1 passage changed since you last read it'
-                  : `${changes} passages changed since you last read it`}
-            </span>
-            <button type="button" className="link" aria-keyshortcuts="r" onClick={markAsRead}>
-              {keyed('Mark as read', 'r')}
-            </button>
+    <StopsContext.Provider value={walk}>
+      <div className="cw-item" ref={inner}>
+        <header className="drawer-head">
+          <span className="drawer-id">{item.number}</span>
+          <h2 className="drawer-title">
+            {titleHref !== undefined ? (
+              <a className="cw-title-link" href={titleHref} title="Open it in the console">
+                {item.title}
+              </a>
+            ) : (
+              <button type="button" className="cw-title-link" title="Show it in the tree" onClick={onTitle}>
+                {item.title}
+              </button>
+            )}
+          </h2>
+          {item.project !== null && <span className="drawer-belongs mono">{item.project}</span>}
+        </header>
+        <ItemLine
+          item={item}
+          goal={goal}
+          tier={mock.tier}
+          level={<LevelMark level={work.level ?? null} raise={work.raise ?? 0} />}
+        >
+          <Progress w={work} page={read} />
+        </ItemLine>
+        <WorkLine w={work} page={read} />
+        {!ended(work) && <Acts paused={work.paused === 'owner'} act={send} />}
+        <StopCards work={work} act={send} />
+        <div className="drawer-body">
+          <div className="cw-tabs">
+            <Tabs
+              label="What the window shows"
+              choices={WINDOW_TABS.map((value) => ({ value, name: TAB_NAMES[value] }))}
+              value={tab}
+              onChange={setTab}
+            />
           </div>
-        ) : null}
-        {tab === 'step' ? (
-          read === null ? (
-            <Unread page={page} />
+          {fresh ? (
+            <div className="cw-fresh">
+              <span>
+                {changes === 0
+                  ? 'New to you'
+                  : changes === 1
+                    ? '1 passage changed since you last read it'
+                    : `${changes} passages changed since you last read it`}
+              </span>
+              <button type="button" className="link" aria-keyshortcuts="r" onClick={markAsRead}>
+                {keyed('Mark as read', 'r')}
+              </button>
+            </div>
+          ) : null}
+          {tab === 'step' ? (
+            read === null ? (
+              <Unread page={page} />
+            ) : (
+              <StepTab page={read} row={stepRow} sessions={sessions} reader={reader} shown={open} />
+            )
+          ) : tab === 'usage' ? (
+            read === null ? <Unread page={page} /> : <UsageTab page={read} />
+          ) : tab === 'work' ? (
+            <WorkFacts w={work} page={read} verdicts={mock.verdicts} reader={reader} />
           ) : (
-            <StepTab page={read} row={stepRow} sessions={sessions} reader={reader} shown={open} />
-          )
-        ) : tab === 'usage' ? (
-          read === null ? <Unread page={page} /> : <UsageTab page={read} />
-        ) : tab === 'work' ? (
-          <WorkFacts w={work} page={read} verdicts={mock.verdicts} reader={reader} />
-        ) : (
-          <>
-            <div className="cw-body" onMouseUp={selected}>
-              {bodyFailed !== null && <p className="failed small">The page could not read the item: {bodyFailed}</p>}
-              {sections.slice(0, -1).map((s) => (
+            <>
+              <div className="cw-body" onMouseUp={selected}>
+                {bodyFailed !== null && <p className="failed small">The page could not read the item: {bodyFailed}</p>}
+                {sections.slice(0, -1).map((s) => (
+                  <Section
+                    key={s.title}
+                    title={s.title}
+                    parts={s.parts}
+                    empty={nothingYet}
+                    pointers={(i) => pointersOf(partKey(s.title, i))}
+                    links={pointersOf(null)}
+                    askedBy={askedBy}
+                  />
+                ))}
                 <Section
-                  key={s.title}
-                  title={s.title}
-                  parts={s.parts}
-                  empty={nothingYet}
-                  pointers={(i) => pointersOf(partKey(s.title, i))}
+                  title={last?.title}
+                  parts={asked}
+                  keep={rulings.length > 0 || toAnswer.length > 0}
+                  empty={last === undefined ? undefined : nothingYet}
+                  choose={body.choicesWait || toAnswer.length > 0 ? choose : undefined}
+                  write={toAnswer.length > 0 ? write : undefined}
+                  discuss={discuss}
+                  about={about}
+                  jump={jump}
+                  pointers={(i) => pointersOf(last === undefined ? null : partKey(last.title, i))}
                   links={pointersOf(null)}
                   askedBy={askedBy}
+                  after={
+                    <>
+                      {body.choicesWait || toAnswer.length > 0 ? (
+                        <button
+                          type="button"
+                          className="button button-primary cw-confirm"
+                          disabled={answering.waiting || count.picked < count.all}
+                          onClick={() => void confirm()}
+                        >
+                          {count.all > 0 ? `Confirm (${count.picked}/${count.all})` : 'Confirm'}
+                        </button>
+                      ) : null}
+                      {answering.refused !== null && <p className="failed small">{answering.refused}</p>}
+                      {confirmed !== null ? <p className="cw-done">{confirmed}</p> : null}
+                      {rulings.map((r) => (
+                        <RulingBox key={r.key} ruling={r} act={send} links={pointersOf(null)} />
+                      ))}
+                    </>
+                  }
                 />
-              ))}
-              <Section
-                title={last?.title}
-                parts={asked}
-                keep={rulings.length > 0 || toAnswer.length > 0}
-                empty={last === undefined ? undefined : nothingYet}
-                choose={body.choicesWait || toAnswer.length > 0 ? choose : undefined}
-                write={toAnswer.length > 0 ? write : undefined}
-                discuss={discuss}
-                about={about}
-                jump={jump}
-                pointers={(i) => pointersOf(last === undefined ? null : partKey(last.title, i))}
-                links={pointersOf(null)}
-                askedBy={askedBy}
-                after={
-                  <>
-                    {body.choicesWait || toAnswer.length > 0 ? (
-                      <button
-                        type="button"
-                        className="button button-primary cw-confirm"
-                        disabled={answering.waiting || count.picked < count.all}
-                        onClick={() => void confirm()}
-                      >
-                        {count.all > 0 ? `Confirm (${count.picked}/${count.all})` : 'Confirm'}
-                      </button>
-                    ) : null}
-                    {answering.refused !== null && <p className="failed small">{answering.refused}</p>}
-                    {confirmed !== null ? <p className="cw-done">{confirmed}</p> : null}
-                    {rulings.map((r) => (
-                      <RulingBox key={r.key} ruling={r} act={send} links={pointersOf(null)} />
-                    ))}
-                  </>
-                }
+              </div>
+              {offer !== null ? (
+                <button
+                  type="button"
+                  className="button cw-quote-offer"
+                  style={{ left: offer.x, top: offer.y }}
+                  onMouseDown={(e: MouseEvent) => e.preventDefault()}
+                  onClick={() => {
+                    setQuote(offer.text);
+                    setOffer(null);
+                    window.getSelection()?.removeAllRanges();
+                    box.current?.focus();
+                  }}
+                >
+                  <QuoteSign />
+                  Quote
+                </button>
+              ) : null}
+              <Discussion
+                work={work}
+                page={page}
+                messages={messages}
+                pointers={(i) => pointersOf(messages[i]?.who === 'owner' ? null : messageKey(i))}
+                messageTo={messageTo}
+                setMessageTo={setMessageTo}
+                quote={quote}
+                unquote={() => setQuote(null)}
+                box={box}
+                act={send}
+                sent={sent}
               />
-            </div>
-            {offer !== null ? (
-              <button
-                type="button"
-                className="button cw-quote-offer"
-                style={{ left: offer.x, top: offer.y }}
-                onMouseDown={(e: MouseEvent) => e.preventDefault()}
-                onClick={() => {
-                  setQuote(offer.text);
-                  setOffer(null);
-                  window.getSelection()?.removeAllRanges();
-                  box.current?.focus();
-                }}
-              >
-                <QuoteSign />
-                Quote
-              </button>
-            ) : null}
-            <Discussion
-              work={work}
-              page={page}
-              messages={messages}
-              pointers={(i) => pointersOf(messages[i]?.who === 'owner' ? null : messageKey(i))}
-              messageTo={messageTo}
-              setMessageTo={setMessageTo}
-              quote={quote}
-              unquote={() => setQuote(null)}
-              box={box}
-              act={send}
-              sent={sent}
-            />
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </StopsContext.Provider>
   );
 }
 
@@ -1010,6 +1071,7 @@ function StopCard({ wait, why, children }: { wait?: string; why: string; childre
           </p>
         </div>
         {children}
+        <NextStop at={wait} />
       </div>
     </div>
   );
@@ -1341,6 +1403,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
           ) : null}
         </div>
       ) : null}
+      <NextStop at={pick === undefined ? undefined : waitKeyOf(p)} />
       {open ? (
         <button type="button" className="cw-choice-turn" onClick={turn}>
           Fold it
@@ -1416,6 +1479,7 @@ function RulingBox({ ruling, act, links }: {
               </Button>
             </div>
           )}
+          <NextStop at={ruling.key} />
         </div>
       </div>
       {refused !== null && <p className="failed small">{refused}</p>}

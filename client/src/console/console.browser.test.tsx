@@ -964,6 +964,7 @@ describe('the console page', () => {
     expect(listed("The console's keys")).toEqual([
       '/ search',
       'e fold or unfold the card under the pointer',
+      'n / N next / previous question',
       'Esc close',
     ]);
     const marks = listed("The console's marks");
@@ -987,6 +988,76 @@ describe('the console page', () => {
       await expect.poll(() => window.location.hash).toBe('#/console/items/2');
       scene.select(null);
       await expect.poll(() => window.location.hash).toBe('#/console');
+    } finally {
+      history.replaceState(null, '', was === '' ? window.location.pathname : was);
+    }
+  });
+
+  /// A key pressed on the page, as the owner presses it.
+  const key = (k: string, keys: KeyboardEventInit = {}, on: Element = document.body) =>
+    on.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...keys }));
+  /// The item the address says is selected.
+  const inAddress = () => Number(/#\/console\/items\/(\d+)/.exec(window.location.hash)?.[1] ?? Number.NaN);
+
+  it("walks the stops with n and N in the tree's order, an item's own in turn, round from the last to the first and back, but not in a field or with Ctrl", async () => {
+    await drawn();
+    const was = window.location.hash;
+    /// Presses `k` and waits until the item `id` is selected and the page has taken it in.
+    const walkTo = async (k: string, id: number) => {
+      key(k, k === 'N' ? { shiftKey: true } : {});
+      await expect.poll(inAddress).toBe(id);
+      await drew();
+    };
+    try {
+      // With Ctrl held, or while the owner types in a field, n goes nowhere.
+      key('n', { ctrlKey: true });
+      key('n', {}, field());
+      await drew();
+      expect(title()).toBeNull();
+      // The items with stops, in the tree's order: 1 (two), 15 under 5 under it, 7, 20 (two), 12, 4 and 25. With
+      // nothing selected, n goes to item 1's first stop; then to its second; then to 15's.
+      await walkTo('n', 1);
+      await walkTo('n', 1);
+      await walkTo('n', 15);
+      // From 15's first stop, N goes back to item 1's last, then to its first, and from there round to the last stop
+      // of all, item 25's; n from there goes round to item 1 again.
+      await walkTo('N', 1);
+      await walkTo('N', 1);
+      await walkTo('N', 25);
+      await walkTo('n', 1);
+      expect(title()).toBe('Run works without anyone watching');
+    } finally {
+      history.replaceState(null, '', was === '' ? window.location.pathname : was);
+    }
+  });
+
+  it("puts under each of an item's stops but its last a button to the next, saying its place, and brings the card of a stop gone to onto the screen", async () => {
+    const scene = await drawn();
+    const was = window.location.hash;
+    const nexts = () =>
+      [...container.querySelectorAll('.cw-item button')]
+        .map((b) => b.textContent ?? '')
+        .filter((t) => t.startsWith('Next question'));
+    try {
+      // Item 20 waits for an answer and for a ruling: the first of its two stops has the button, the last none.
+      scene.select(20);
+      await expect.poll(title).toBe('Keep one stream open for each page');
+      await expect.poll(nexts).toEqual(['Next question (1/2)']);
+      // With nothing selected, N goes to the last stop of all, item 25's, and its card is brought onto the screen,
+      // within what the window beside the tree leaves of it.
+      scene.select(null);
+      await expect.poll(title).toBeNull();
+      key('N', { shiftKey: true });
+      await expect.poll(inAddress).toBe(25);
+      await expect.poll(title).toBe('Say which cell a note goes to');
+      settle(scene);
+      const card = scene.cardAt(25) as { x: number; y: number };
+      const { width, height } = scene.place();
+      const room = width - (container.querySelector('aside.cw') as HTMLElement).offsetWidth;
+      expect(card.x).toBeGreaterThanOrEqual(0);
+      expect(card.x + NODE_W).toBeLessThanOrEqual(room);
+      expect(card.y).toBeGreaterThan(0);
+      expect(card.y).toBeLessThan(height);
     } finally {
       history.replaceState(null, '', was === '' ? window.location.pathname : was);
     }
