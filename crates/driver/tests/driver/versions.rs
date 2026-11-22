@@ -9,6 +9,7 @@ use engine::Why;
 use flow::Compiled;
 use rusqlite::Connection;
 use store::Storage;
+use work::Measures;
 
 use super::*;
 
@@ -126,6 +127,51 @@ fn followed() -> Compiled {
         &["text", "reviewed", "note"],
         &[("T1", WRITE), ("T2", REVIEW), ("M1", MERGE), ("N1", NOTE)],
     )
+}
+
+/// A version that takes the review T2 out, the merge taking the text as it is written.
+fn shortened() -> Compiled {
+    staged(
+        "[{ taken_out = [\"T2\"] }]",
+        &["main"],
+        &["text"],
+        &[("T1", WRITE), ("M1", MERGE_TEXT)],
+    )
+}
+
+/// The round of the work under way hands in these blocks, its one try having run on a model and said what its calls
+/// came to: a round that is history.
+fn measured(h: &mut H, work: WorkNumber, blocks: &[(&str, Option<&str>)]) {
+    let (run, ..) = h.round(work);
+    let on = engine::RanOn {
+        level: "1".to_string(),
+        model: "opus".to_string(),
+        effort: None,
+        directory: None,
+        account: None,
+    };
+    h.on(work, Event::Ran { run, attempt: 1, on });
+    let measures = Measures {
+        calls: 3,
+        added: 100,
+        ..Measures::default()
+    };
+    h.on(
+        work,
+        Event::Measured {
+            run,
+            attempt: 1,
+            measures,
+        },
+    );
+    h.hands_in(work, blocks);
+}
+
+/// The cell of each round of the history of the flow `staged`, in order, as the flow installed names it.
+fn history_cells(h: &H) -> Vec<Option<String>> {
+    (h.d().history("staged").iter())
+        .map(|s| s.cell.as_ref().map(|c| c.to_string()))
+        .collect()
 }
 
 /// The version a work is on, as the driver holds it.
@@ -353,4 +399,30 @@ fn a_work_that_ends_keeps_what_its_time_went_to_which_a_later_install_leaves_as_
     assert!(!kept[0].stretches.is_empty());
     h.install(vec![followed()]);
     assert_eq!(h.d().work(work).expect("the work is there").work.kept_time, kept);
+}
+
+// Acceptance 4: a round counts in the history of the cell it is on the version installed, read through the
+// renumberings since its own version; a round of a cell taken out since, or of a work on no version, counts in the
+// flow's history alone (decision `a-round-is-judged-as-the-cell-it-is-now`).
+#[test]
+fn a_round_counts_in_the_history_of_the_cell_it_is_now_and_one_of_no_cell_there_in_the_flows_alone() {
+    let mut h = H::with(vec![first()]);
+    let mut works = Vec::new();
+    for title in ["a", "b"] {
+        let (_, work) = h.add_let_on(new_item(title, &[], "staged"));
+        measured(&mut h, work, &[("text", None)]);
+        measured(&mut h, work, &[("reviewed", None)]);
+        h.through(work);
+        works.push(work);
+    }
+    let t = |id: &str| Some(id.to_string());
+    assert_eq!(history_cells(&h), [t("T1"), t("T2"), t("T1"), t("T2")]);
+    // The second work is put on no version, as one kept before the versions that had ended.
+    let db = Connection::open(&h.db.path).expect("the database opens");
+    db.execute("UPDATE on_flow SET version = NULL WHERE work = ?1", [works[1].0])
+        .expect("the work is put on none");
+    h.install(vec![renumbered()]);
+    assert_eq!(history_cells(&h), [t("T1"), t("T3"), None, None]);
+    h.install(vec![shortened()]);
+    assert_eq!(history_cells(&h), [t("T1"), None, None, None]);
 }

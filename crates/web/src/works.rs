@@ -3780,4 +3780,85 @@ mod tests {
         assert_eq!(named("write_questions", 11), owner);
         assert_eq!(named("write_questions", 13), outside);
     }
+
+    // Acceptance 13: a work on no version kept no stretches as it ended and is decided by no flow, so its bar is drawn
+    // from its records alone: a round a model's where it had a try and the tools' where it had none, and what it waited
+    // for between them not known (decision a-work-keeps-what-its-time-went-to).
+    #[test]
+    fn the_bar_of_a_work_on_no_version_is_its_rounds_from_its_records_and_its_waits_not_known() {
+        use decide::{Returned, Round, Started};
+        use work::Moment;
+        use work::sessions::{Ran, RanOn};
+
+        let flow = flow();
+        let mut work = Work::default();
+        let r = &mut work.records;
+        for (run, cell, begun) in [(1, "write", 1), (2, "merge", 3)] {
+            r.started.push(Started {
+                run: RunId(run),
+                cell: cell.into(),
+                at: Seq(begun),
+                because: Vec::new(),
+                basis: BTreeMap::new(),
+            });
+            r.rounds.push(Round {
+                run: RunId(run),
+                at: Seq(begun),
+            });
+            r.returned.push(Returned {
+                run: RunId(run),
+                at: Seq(begun + 1),
+            });
+        }
+        // The first round ran from 0 to 1 s, the second from 2 s to 3 s, and nothing ran between.
+        work.moments = (1..=4)
+            .map(|place| Moment {
+                from: Seq(place),
+                at: Time((place - 1) * 1000),
+            })
+            .collect();
+        work.ran.push(Ran {
+            at: Seq(1),
+            run: RunId(1),
+            round: 1,
+            attempt: 1,
+            on: RanOn {
+                level: "2".to_string(),
+                model: "a-model".to_string(),
+                effort: None,
+                directory: None,
+                account: None,
+            },
+        });
+        let first = store::First {
+            title: "Kept before".to_string(),
+            level: None,
+            project: None,
+            depends_on: Vec::new(),
+            tags: Vec::new(),
+        };
+        let item = store::Item::new(ItemNumber(1), Time(0), first, Vec::new());
+        let head = store::WorkHead {
+            number: WorkNumber(1),
+            item: ItemNumber(1),
+            flow: flow.name.clone(),
+            added: Time(0),
+        };
+        let on = driver::On::NotKept { end: End::Merged };
+        let kept = Kept {
+            head: &head,
+            item: &item,
+            flow: &flow,
+            on: &on,
+            work: &work,
+        };
+        let all = HeldAll {
+            everything: Vec::new(),
+            cannot_run: None,
+        };
+        let third = (BAR_CELLS / 3) as usize;
+        let drawn = bar(kept, &all, Time(10_000));
+        let expected = "m".repeat(third) + &"?".repeat(third) + &"t".repeat(third);
+        assert_eq!(drawn, expected);
+    }
 }
