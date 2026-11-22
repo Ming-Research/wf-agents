@@ -115,6 +115,12 @@ mod merging;
 mod reading;
 mod single;
 
+// The reading of the records that judges where a work stands (`Reading::rest`) is the histories' own of crate
+// `reading`, which this crate's tests do not depend on; its one file is taken in as it is.
+#[allow(dead_code)]
+#[path = "../../../reading/src/lib.rs"]
+mod whole;
+
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -1616,31 +1622,32 @@ impl History {
                 reached.push(CELL_LIMIT.to_string());
             }
             Decision::Ended(_) => self.ended = true,
-            // Stalled on a key that reads what the check wrote as it failed: only the owner speaking to a cell would
-            // move it. A work stalled before the check ran, which stands at the first gate that does not hold, the
-            // merge's where the check's own hold, is not at the check's.
-            Decision::Stalled { at, on, .. } => {
-                let check = &flow.cells()[self.roles.check].id;
-                let failed: Vec<&BlockId> = (self.roles.check_passes(&self.d.flow))
-                    .filter(|(b, pass)| {
-                        (reading.record(check)).is_some_and(|f| {
-                            f.writes
-                                .iter()
-                                .any(|w| &w.block == *b && w.value.as_ref() != Some(*pass))
-                        })
-                    })
-                    .map(|(b, _)| b)
-                    .collect();
-                if on
-                    .iter()
-                    .any(|key| key_reads(&self.d.flow, key).iter().any(|b| failed.contains(b)))
-                {
-                    stalled = Some(format!(
-                        "the work stalled at {at} on {on:?}, which only the check writes"
-                    ));
-                }
-            }
             _ => {}
+        }
+        // Stalled on a key that reads what the check wrote as it failed: only the owner speaking to a cell would move
+        // it. Where the work stands is read from the records alone, never from what the deciding code calls it. A
+        // work stalled before the check ran, which stands at the first gate that does not hold, the merge's where the
+        // check's own hold, is not at the check's.
+        if let whole::Rest::Stalled { at, on } = whole::Reading::new(flow, records).rest(flow) {
+            let check = &flow.cells()[self.roles.check].id;
+            let failed: Vec<&BlockId> = (self.roles.check_passes(&self.d.flow))
+                .filter(|(b, pass)| {
+                    (reading.record(check)).is_some_and(|f| {
+                        f.writes
+                            .iter()
+                            .any(|w| &w.block == *b && w.value.as_ref() != Some(*pass))
+                    })
+                })
+                .map(|(b, _)| b)
+                .collect();
+            if on
+                .iter()
+                .any(|key| key_reads(&self.d.flow, key).iter().any(|b| failed.contains(b)))
+            {
+                stalled = Some(format!(
+                    "the records read the work stalled at {at} on {on:?}, which only the check writes"
+                ));
+            }
         }
         for r in reached {
             self.reach(r);

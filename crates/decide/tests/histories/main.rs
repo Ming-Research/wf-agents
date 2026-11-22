@@ -1369,8 +1369,7 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
                 steps += 1;
                 assert!(steps <= bound, "the work has not come to rest within {bound} steps");
             }
-            let rest = h.decide();
-            properties::reaches(&mut h.verdict, &h.w.flow, &h.w.records, &rest, &h.moments);
+            properties::reaches(&mut h.verdict, &h.w.flow, &h.w.records, &h.moments);
         }
         properties::replay(&mut h.verdict, &h.w.flow, &h.w.records, &h.moments);
         h.count_blocks();
