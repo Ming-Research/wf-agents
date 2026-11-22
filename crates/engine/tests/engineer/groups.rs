@@ -168,7 +168,9 @@ fn each_datum_or_group_a_cell_watches_named_as_dealt_with_is_taken_for_any_block
                             waits: false,
                             questions: Vec::new(),
                             read: Vec::new(),
+                            protected: Default::default(),
                         }),
+                        sent_back: Vec::new(),
                     }],
                     ..Log::default()
                 };

@@ -219,6 +219,11 @@ pub enum Back {
         waits_for: Option<BlockId>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         read: Vec<Handed>,
+        /// Why the return says the work changes each file the project protects, by the file's path, where it says; a
+        /// return sent back is completed by the returns after it, which need not say it again. Returns kept before it
+        /// was kept have none.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        protected: BTreeMap<String, String>,
     },
     /// Nothing came back: the round failed, for this reason, as whatever carried it out says, with the kind of cause
     /// it told apart. The run's next round is given what this one was given, as the kind's handling lets it (crate

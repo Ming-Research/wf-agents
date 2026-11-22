@@ -459,6 +459,7 @@ mod tests {
                 engine: Vec::new(),
                 waits_for: None,
                 read: Vec::new(),
+                protected: Default::default(),
             },
         );
         for (i, (name, waits)) in asked.iter().enumerate() {

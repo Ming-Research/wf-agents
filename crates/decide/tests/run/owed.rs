@@ -40,7 +40,9 @@ fn committed(read: &[&str]) -> Round {
             waits: false,
             questions: Vec::new(),
             read: read.iter().map(|&b| b.into()).collect(),
+            protected: Default::default(),
         }),
+        sent_back: Vec::new(),
     }
 }
 
@@ -170,6 +172,7 @@ fn a_judge_woken_by_neither_an_answer_nor_a_change_owes_points_only_for_a_fail_t
         told: Some(Seq(5)),
         latest: Some(Seq(5)),
         value: Some("no".to_string()),
+        empty: false,
         added: false,
     };
     s.told.outputs.insert("verdict".into(), failed);

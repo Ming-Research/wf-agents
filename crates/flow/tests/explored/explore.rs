@@ -405,7 +405,10 @@ impl Explorer<'_> {
         s.logs.insert(
             run,
             run::Log {
-                rounds: vec![run::Round { returned: None }],
+                rounds: vec![run::Round {
+                    returned: None,
+                    sent_back: Vec::new(),
+                }],
                 let_go: 0,
                 let_on: 0,
             },
@@ -585,7 +588,13 @@ impl Explorer<'_> {
                         });
                     }
                 }
-                log.rounds.push(run::Round { returned: None });
+                if let Some(last) = log.rounds.last_mut() {
+                    last.sent_back = unmet.clone();
+                }
+                log.rounds.push(run::Round {
+                    returned: None,
+                    sent_back: Vec::new(),
+                });
             }
             Step::AtLimit(limit) => {
                 self.reach("a run reached its limit of returns sent back".to_string());

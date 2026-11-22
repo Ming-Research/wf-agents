@@ -58,6 +58,7 @@ fn version(at: Seq, by: Writer, meaning: Seq, value: Option<&str>) -> VersionVie
         value: value.map(str::to_string),
         empty: false,
         ruled: false,
+        held: None,
     }
 }
 

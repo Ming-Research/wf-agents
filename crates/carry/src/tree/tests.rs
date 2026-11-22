@@ -236,6 +236,7 @@ pub(crate) fn asked_in(questions: Vec<(Question, bool)>) -> Work {
         engine: Vec::new(),
         waits_for: None,
         read: Vec::new(),
+        protected: Default::default(),
     };
     work.back.insert((run, 1), back);
     work
@@ -258,7 +259,8 @@ pub(crate) fn withdrawn(mut work: Work, name: &str) -> Work {
 /// The questions whose answer the tree does not hold, as a round ends with the work's branch as it is, its return
 /// saying this beside its work, main where the reference `main` holds it.
 async fn unwritten_in(repo: &Repo, place: &Place, work: &Work, said: &Said) -> Result<Vec<String>, String> {
-    unwritten(&repo.project, place, "main", "design/", work, said).await
+    let asked: Vec<String> = said.questions.iter().map(|q| q.name().to_string()).collect();
+    unwritten(&repo.project, place, "main", "design/", work, &asked).await
 }
 
 // The work's own change is held against main where the branch left it: main changing its own tree since is not the
@@ -335,14 +337,6 @@ async fn a_question_kept_before_questions_said_tree_is_read_as_not_marked_and_na
 async fn a_look_that_cannot_be_made_says_why() {
     let (repo, place) = started().await;
     let work = asked_in(vec![(asked("placement", Some(true)), true)]);
-    let looked = unwritten(
-        &repo.project,
-        &place,
-        "no-such-main",
-        "design/",
-        &work,
-        &Said::default(),
-    )
-    .await;
+    let looked = unwritten(&repo.project, &place, "no-such-main", "design/", &work, &[]).await;
     assert!(matches!(&looked, Err(why) if why.contains("merge-base")), "{looked:?}");
 }

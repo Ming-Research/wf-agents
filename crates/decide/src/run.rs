@@ -140,6 +140,10 @@ pub enum Pausing {
 pub struct Round {
     /// What came back at the end of the round; `None` while the round is under way.
     pub returned: Option<Return>,
+    /// What the return was sent back for, as the round after it was told: none where no round after it began, or it
+    /// was not sent back. The round after it is told only what is wrong, and the rest of what was returned stands
+    /// ([`together`]).
+    pub sent_back: Vec<Unmet>,
 }
 
 /// What came back at the end of a round.
@@ -165,6 +169,8 @@ pub enum Return {
         /// The blocks of the work's branch the carrier read new as the round ended, as what the round committed: the
         /// run writes each as it finishes, beside the blocks it writes itself.
         read: Vec<BlockId>,
+        /// Why it says the work changes each file the project protects, by the file's path.
+        protected: BTreeMap<String, String>,
     },
     /// The round failed: nothing came back, for this kind of cause, said so.
     Failed {
@@ -180,6 +186,8 @@ pub enum Return {
 pub struct Asking {
     pub name: String,
     pub withdrawn: bool,
+    /// Whether the question waits for the owner's answer.
+    pub waits: bool,
 }
 
 /// A question of the work as a round of a cell is told of it: whether it is the cell's own, which the cell's agent
@@ -235,6 +243,8 @@ pub struct Standing {
     pub latest: Option<Seq>,
     /// The latest version's value, where the block is a choice.
     pub value: Option<String>,
+    /// The latest version holds nothing: no value, and its content is empty or only whitespace.
+    pub empty: bool,
     /// A version written of it is an entry added to a record ([`crate::Flow::adds_entries`]): it replaces no version
     /// before it, and so writes over none the round was not told of.
     pub added: bool,
@@ -347,10 +357,12 @@ pub enum Unmet {
     },
     /// What came back could not be read as a return, for this reason, as whatever carried the round out says.
     Unreadable { why: String },
-    /// The return names the block, or the group of this name, as dealt with, and it did not run the round: neither the
-    /// block nor any of the group's is among what ran it.
+    /// The return named the block, or the group of this name, as dealt with, and it did not run the round. Returns are
+    /// no longer sent back for it: it changes nothing, and is left out of what they deal with ([`standing_names`]). Kept
+    /// to read the reasons of rounds sent back before.
     NotRunBy { block: BlockId },
-    /// The return names the block, or the group of this name, as dealt with twice.
+    /// The return named the block, or the group of this name, as dealt with twice. Returns are no longer sent back for
+    /// it, as for [`Unmet::NotRunBy`].
     DealtWithTwice { block: BlockId },
     /// Something ran the round, and the return deals with none of it, asks for no call and has no question that waits
     /// for the owner's answer: the cell would be entered again at once for the same.
@@ -378,13 +390,14 @@ pub enum Unmet {
         value: String,
         name: BlockId,
     },
-    /// The return names as dealt with a name that is none of what its cell watches, as it wrote it. Kept under its
+    /// The return names as dealt with a name that is none of what its cell is given, as it wrote it. Kept under its
     /// earlier name too, in the reasons of rounds sent back before.
     #[serde(alias = "NotATrigger")]
     NotWatched { name: String },
     /// The return asks for a tool its cell may not ask for, as it wrote it.
     NotATool { name: String },
-    /// The return names the block as written with its meaning unchanged, and does not write it.
+    /// The return names a block as written with its meaning unchanged, and that is none of the blocks its cell writes.
+    /// (Named, and a block of the cell's, it changes nothing when it is not written: no return is sent back for it.)
     UnchangedNotWritten { block: BlockId },
     /// The return writes a question of this name that is not its cell's own: another cell's, or one the engine asked.
     QuestionTaken { name: String },
@@ -453,6 +466,151 @@ pub enum Hold {
     Rounds,
 }
 
+/// The names a return gives as dealt with that ran the round, each once and in its order: a datum or group the cell
+/// watches that stands for a block that ran the round ([`flow::ran`]). What it names beside, as it was given to the cell
+/// or was written again, changes nothing and is none of what a check reads.
+fn standing_names(dealt_with: &[BlockId], requires: Requires) -> Vec<BlockId> {
+    let mut names: Vec<BlockId> = Vec::new();
+    for named in dealt_with {
+        let ran = flow::ran(flow::stands_on(requires.groups, named), &requires.told.ran_by)
+            .next()
+            .is_some();
+        if ran && !names.contains(named) {
+            names.push(named.clone());
+        }
+    }
+    names
+}
+
+/// What the returns of a run that came back come to taken together (decision
+/// a-sent-back-return-is-completed-by-what-is-missing): the last return, and, before it, what the returns sent back
+/// earlier said and the round after each was not told was wrong, each part by its name replaced by a later return's of
+/// the same name.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Together {
+    pub dealt_with: Vec<BlockId>,
+    pub writes: Vec<Write>,
+    pub calls: usize,
+    pub found: Vec<Unmet>,
+    pub waits: bool,
+    pub questions: Vec<Asking>,
+    pub read: Vec<BlockId>,
+    pub protected: BTreeMap<String, String>,
+}
+
+impl Unmet {
+    /// The blocks of what was returned that this says are wrong: what the next return gives anew, if it means them.
+    fn wrong_blocks(&self) -> Vec<&BlockId> {
+        match self {
+            Unmet::NotAnOutput { block }
+            | Unmet::WrittenTwice { block }
+            | Unmet::NoValue { block }
+            | Unmet::NotAValue { block, .. }
+            | Unmet::NotAChoice { block }
+            | Unmet::WrittenOver { block, .. }
+            | Unmet::ChoiceChanged { block } => vec![block],
+            Unmet::NothingBut { block, besides, .. } => std::iter::once(block).chain(besides).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The question of what was returned that this says is wrong.
+    fn wrong_question(&self) -> Option<&str> {
+        match self {
+            Unmet::QuestionTaken { name }
+            | Unmet::NoSuchQuestion { name }
+            | Unmet::QuestionTwice { name }
+            | Unmet::NotAnOption { name }
+            | Unmet::NotAnswerable { name } => Some(name),
+            _ => None,
+        }
+    }
+}
+
+impl Together {
+    /// What of this the faults it was sent back for do not name: the blocks and questions they name are left out, and
+    /// what it found as it was read is the return's own.
+    fn carried(mut self, faults: &[Unmet]) -> Together {
+        let wrong: Vec<&BlockId> = faults.iter().flat_map(Unmet::wrong_blocks).collect();
+        self.writes.retain(|w| !wrong.contains(&&w.block));
+        let questions: Vec<&str> = faults.iter().filter_map(Unmet::wrong_question).collect();
+        self.questions.retain(|q| !questions.contains(&q.name.as_str()));
+        self
+    }
+
+    /// This, carried, completed by a later return: a part of the later one replaces the one of its name.
+    fn completed_by(mut self, later: Together) -> Together {
+        for name in later.dealt_with {
+            if !self.dealt_with.contains(&name) {
+                self.dealt_with.push(name);
+            }
+        }
+        self.writes.retain(|w| !later.writes.iter().any(|l| l.block == w.block));
+        self.writes.extend(later.writes);
+        self.questions
+            .retain(|q| !later.questions.iter().any(|l| l.name == q.name));
+        self.questions.extend(later.questions);
+        self.protected.extend(later.protected);
+        self.waits = self.questions.iter().any(|q| q.waits && !q.withdrawn) || later.waits;
+        self.calls = later.calls;
+        self.found = later.found;
+        self.read = later.read;
+        self
+    }
+}
+
+/// What the returns of the rounds that came back come to taken together, with the faults the last of them was sent back
+/// for; none where none came back. A round that failed leaves what came before it as it was. Nothing is carried out of a
+/// return that asks for calls, nor into one: a return that asks for calls asks for nothing else.
+fn fold(rounds: &[Round]) -> Option<(Together, &[Unmet])> {
+    let mut last: Option<(Together, &[Unmet])> = None;
+    for round in rounds {
+        let Some(Return::Came {
+            dealt_with,
+            writes,
+            calls,
+            found,
+            waits,
+            questions,
+            read,
+            protected,
+        }) = &round.returned
+        else {
+            continue;
+        };
+        let now = Together {
+            dealt_with: dealt_with.clone(),
+            writes: writes.clone(),
+            calls: *calls,
+            found: found.clone(),
+            waits: *waits,
+            questions: questions.clone(),
+            read: read.clone(),
+            protected: protected.clone(),
+        };
+        let now = match last.take() {
+            Some((before, faults)) if before.calls == 0 && now.calls == 0 => before.carried(faults).completed_by(now),
+            _ => now,
+        };
+        last = Some((now, &round.sent_back));
+    }
+    last
+}
+
+/// What the returns of the rounds that came back come to taken together; none where none did.
+pub fn together(rounds: &[Round]) -> Option<Together> {
+    fold(rounds).map(|(taken, _)| taken)
+}
+
+/// What the next return of the run completes: what the returns that came back come to taken together, but for what the
+/// faults the last of them was sent back for name; nothing where none came back, or the last asked for calls.
+pub fn carried(rounds: &[Round]) -> Together {
+    match fold(rounds) {
+        Some((taken, faults)) if taken.calls == 0 => taken.carried(faults),
+        _ => Together::default(),
+    }
+}
+
 /// The blocks a return that is taken deals with: of each datum or group it names, in its order, the blocks it stands
 /// for that ran the round, each once. A group is dealt with for each of its blocks that ran the round, and so each of
 /// their versions the round was told of is consumed.
@@ -517,29 +675,24 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
         // whose cause every work shares has its next round once agents' rounds may begin again; one that paused the
         // work, once it is let on.
         Return::Failed { .. } => return held(Step::Retry, hold),
-        Return::Came {
-            dealt_with,
-            writes,
-            calls,
-            found,
-            waits,
-            questions,
-            read,
-        } => {
+        Return::Came { .. } => {
+            // What the run has returned, taken together: the last round's return, with what the returns sent back
+            // before it did not name as wrong.
+            let taken = together(&log.rounds).unwrap_or_default();
             let came = Came {
-                dealt_with,
-                writes,
-                calls: *calls,
-                found,
-                waits: *waits,
-                questions,
-                read,
+                dealt_with: &taken.dealt_with,
+                writes: &taken.writes,
+                calls: taken.calls,
+                found: &taken.found,
+                waits: taken.waits,
+                questions: &taken.questions,
+                read: &taken.read,
             };
             let unmet = unmet(&came, requires);
             if unmet.is_empty() {
                 // What the round committed is the run's too, as the carrier read it of the branch.
-                let committed = (read.iter())
-                    .filter(|block| !writes.iter().any(|w| &w.block == *block))
+                let committed = (taken.read.iter())
+                    .filter(|block| !taken.writes.iter().any(|w| &w.block == *block))
                     .map(|block| Write {
                         block: block.clone(),
                         meaning_unchanged: false,
@@ -548,8 +701,8 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
                         empty: false,
                     });
                 return Step::Finish {
-                    dealt_with: consumed(dealt_with, requires),
-                    writes: writes.iter().cloned().chain(committed).collect(),
+                    dealt_with: consumed(&taken.dealt_with, requires),
+                    writes: taken.writes.iter().cloned().chain(committed).collect(),
                 };
             }
             unmet
@@ -637,8 +790,10 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
     }
 }
 
-/// Each way in which what came back does not meet what the flow requires, in one pass (principle `report-all-at-once`):
-/// first what was found as it was read, in the order found; then what it says it dealt with, in its order; then one
+/// Each way in which what came back, taken together with what the returns sent back before it did not name as wrong
+/// ([`together`]), does not meet what the flow requires, in one pass (principle `report-all-at-once`): first what was
+/// found as it was read, in the order found; then whether it names the cell's own words as dealt with and writes no
+/// answer in them, what it names that did not run the round being left out ([`standing_names`]); then one
 /// for each write, in the order of the writes; then, of each choice it writes with a value that stands with nothing but
 /// some blocks, what else it holds; then whether it asks for calls beside doing the cell's work; then whether it deals
 /// with nothing while something ran its round, asks for no call and has no question that waits for the owner's answer;
@@ -659,15 +814,16 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     } = *came;
     let told = requires.told;
     let mut unmet = found.to_vec();
-    for (i, named) in dealt_with.iter().enumerate() {
-        if dealt_with[..i].contains(named) {
-            unmet.push(Unmet::DealtWithTwice { block: named.clone() });
-        } else if flow::ran(flow::stands_on(requires.groups, named), &told.ran_by)
-            .next()
-            .is_none()
-        {
-            unmet.push(Unmet::NotRunBy { block: named.clone() });
-        }
+    // What the return names as dealt with that ran the round, each once: a name that did not, or that is written again,
+    // changes nothing and is left out of every check that follows.
+    let named = standing_names(dealt_with, requires);
+    let dealt_with: &[BlockId] = &named;
+    // A return that names the cell's own words as dealt with writes an answer in them.
+    if let Some(own) = requires.words
+        && dealt_with.contains(own)
+        && !writes.iter().any(|w| w.block == *own && !w.empty)
+    {
+        unmet.push(Unmet::NotAnswered { name: own.to_string() });
     }
     for (i, write) in writes.iter().enumerate() {
         let block = || write.block.clone();
@@ -760,7 +916,9 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
             let standing = told.outputs.get(&w.block).filter(|s| s.latest.is_some());
             let over = standing.map(|s| s.value.as_deref());
             let saw = standing.is_none_or(|s| s.added || s.told == s.latest);
-            crate::walk::gives_meaning(w.value.as_deref(), over, !w.meaning_unchanged, saw)
+            let nothing =
+                crate::walk::says_nothing(w.empty, standing.map(|s| s.empty), standing.is_some_and(|s| s.added));
+            crate::walk::gives_meaning(w.value.as_deref(), over, !w.meaning_unchanged, saw, nothing)
         };
         let said = || (writes.iter()).filter(|w| changes(w)).map(|w| &w.block);
         for (dialogue, watched) in requires.dialogues {

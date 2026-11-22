@@ -804,19 +804,39 @@ impl Inner {
             Ok(reading) => {
                 let mut came = reading.came;
                 came.read = committed;
-                let looked = self.protected(round, &place, of, reading.protected.as_ref()).await;
+                // What the returns of the run sent back before this one, which it completes, said and was not told was
+                // wrong, which the look at the protected paths and the tree check hold what it says to as well as what
+                // it says itself (`decide::run::carried`). A return that asks for calls completes nothing.
+                let carried = if came.asks.is_empty() {
+                    engine::carried(flow, work, round.run)
+                } else {
+                    Default::default()
+                };
+                let mut said_why = reading.protected.clone();
+                if let Some(said) = said_why.as_mut() {
+                    for (path, why) in &carried.protected {
+                        said.entry(path.clone()).or_insert_with(|| why.clone());
+                    }
+                }
+                let looked = self.protected(round, &place, of, said_why.as_ref()).await;
                 came.engine.extend(looked.asks);
                 let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });
                 came.found.extend(unexplained);
                 // A return that writes a block handed in only with the owner's answers in the design tree is held to
                 // each question marked `tree` that has an answer, while the work's change leaves the tree as main has
-                // it. A look that cannot be made fails the round, as the look at the tests does, rather than take the
-                // change as holding them.
-                let with_the_tree =
-                    (came.writes.iter()).any(|h| (flow.blocks.get(&h.block)).is_some_and(|b| b.answers_in_the_tree));
+                // it; so is one completed by a return before it that wrote it. A look that cannot be made fails the
+                // round, as the look at the tests does, rather than take the change as holding them.
+                let tree_block =
+                    |block: &decide::BlockId| flow.blocks.get(block).is_some_and(|b| b.answers_in_the_tree);
+                let with_the_tree = (came.writes.iter()).any(|h| tree_block(&h.block))
+                    || (carried.writes.iter()).any(|w| tree_block(&w.block));
                 if with_the_tree {
                     let (project, tree) = (&of.project, of.project.tree.as_str());
-                    match crate::tree::unwritten(project, &place, &of.main, tree, &round.kept, &came.said).await {
+                    let rewritten: Vec<String> = (came.said.questions.iter())
+                        .map(|q| q.name().to_string())
+                        .chain(carried.questions.iter().map(|q| q.name.clone()))
+                        .collect();
+                    match crate::tree::unwritten(project, &place, &of.main, tree, &round.kept, &rewritten).await {
                         Ok(names) => (came.found).extend(names.into_iter().map(|name| Unmet::TreeUnchanged { name })),
                         Err(why) => {
                             return Ok(Carried::Failed(

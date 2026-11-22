@@ -7,7 +7,7 @@
 //! crate `decide` and the exploration of the repository's own flow (crate `flow`, `tests/explored`), so it is one crate
 //! they share.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{
     BlockId, CallId, Cause, Cell, CellId, Condition, Finished, Flow, Outsider, Questioned, Records, RunId, Seq,
@@ -54,6 +54,8 @@ pub enum Reason {
 
 pub struct Reading<'a> {
     pub records: &'a Records,
+    /// The blocks whose versions are entries added to a record, which replace none: the flow says which.
+    pub entries: BTreeSet<BlockId>,
     /// Of each judge of the flow, each verdict it hands in with the dialogue it writes its points in, as the flow pairs
     /// them: (the judge, the verdict, the dialogue).
     pub rulings: Vec<(CellId, BlockId, BlockId)>,
@@ -116,7 +118,11 @@ impl<'a> Reading<'a> {
         for e in entries {
             let of_block = versions.entry(e.block.clone()).or_default();
             let own = Some(e.at);
+            // A write that holds nothing says nothing where no version is before it, where the one before holds nothing
+            // too, and where the block adds entries, which replace none (design document `data-and-context`, 9).
+            let nothing = e.empty && (flow.adds_entries(e.block) || of_block.last().is_none_or(|over| over.empty));
             let meaning = match of_block.last() {
+                _ if nothing => of_block.last().and_then(|over| over.meaning),
                 // Handed in as changing nothing, with no version before it, a version says nothing: a person's prose
                 // and a choice excepted, whose meaning their writer does not tell.
                 None if e.value.is_none() && e.by != Writer::Person && !e.matters => None,
@@ -153,8 +159,14 @@ impl<'a> Reading<'a> {
         let rulings = (flow.cells().iter())
             .flat_map(|c| (c.verdicts.iter()).map(|(verdict, of)| (c.id.clone(), verdict.clone(), of.dialogue.clone())))
             .collect();
+        let entries = (flow.cells().iter())
+            .flat_map(|c| c.outputs.iter().chain(&c.runs_on))
+            .filter(|b| flow.adds_entries(b))
+            .cloned()
+            .collect();
         Self {
             records,
+            entries,
             rulings,
             versions,
             started,
@@ -193,7 +205,13 @@ impl<'a> Reading<'a> {
     /// would write over; and a first version but one handed in as changing nothing, which says nothing (design
     /// document `data-and-context`, 9).
     pub fn would_change(&self, run: RunId, write: &Write) -> bool {
-        let Some(over) = self.current(&write.block) else {
+        let over = self.current(&write.block);
+        // A write that holds nothing says nothing where none is before it, where the one before holds nothing too, and
+        // where the block adds entries.
+        if write.empty && (self.entries.contains(&write.block) || over.is_none_or(|over| over.empty)) {
+            return false;
+        }
+        let Some(over) = over else {
             return write.value.is_some() || !write.meaning_unchanged;
         };
         if write.value.is_some() || over.value.is_some() {
@@ -249,14 +267,67 @@ impl<'a> Reading<'a> {
             .max()
     }
 
+    /// The calls the run asked for as its return was taken: those made after its last round ended and before it
+    /// finished; none of a run that has not.
+    pub fn calls_of(&self, run: RunId) -> Vec<CallId> {
+        let Some(f) = self.finished.get(&run) else {
+            return Vec::new();
+        };
+        let ended = (self.records.returned.iter())
+            .filter(|r| r.run == run)
+            .map(|r| r.at)
+            .max();
+        (self.records.called.iter())
+            .filter(|c| c.run == run && c.at < f.at && ended.is_none_or(|e| c.at > e))
+            .map(|c| c.call)
+            .collect()
+    }
+
+    /// Whether, at this place, the chain of the calls the run asked for has not ended: no run of its cell that was
+    /// entered for the results of those calls has finished and asked for none, nor the last of the chain after it has;
+    /// a run entered for anything else is none of the chain (decision
+    /// a-version-written-at-a-call-is-held-from-other-cells).
+    pub fn chain_open(&self, run: RunId, place: Seq) -> bool {
+        let calls = self.calls_of(run);
+        if calls.is_empty() {
+            return false;
+        }
+        let cell = &self.started[&run].cell;
+        let next = (self.started.values())
+            .filter(|s| &s.cell == cell && s.at < place)
+            .filter(|s| !self.records.abandoned.iter().any(|a| a.run == s.run))
+            .filter(|s| {
+                (s.because.iter())
+                    .any(|r| matches!(r, Cause::Results { calls: of } if of.iter().any(|c| calls.contains(c))))
+            })
+            .max_by_key(|s| s.at);
+        match next {
+            Some(next) if self.finished.get(&next.run).is_some_and(|f| f.at < place) => {
+                !self.calls_of(next.run).is_empty() && self.chain_open(next.run, place)
+            }
+            _ => true,
+        }
+    }
+
+    /// The cell that holds this version back at this place, where one does: it wrote the version while its run asked
+    /// for calls, and the chain of those calls has not ended. No cell but it has the version new to it meanwhile.
+    pub fn held(&self, version: &Version, place: Seq) -> Option<&CellId> {
+        match &version.by {
+            Writer::Cell(cell, run) if self.chain_open(*run, place) => Some(cell),
+            _ => None,
+        }
+    }
+
     /// The versions of the block written before this place that are new to the cell: after the one it consumed,
-    /// changing what the block says, not written by a run of the cell itself, and no judge's point ruled on.
+    /// changing what the block says, not written by a run of the cell itself, no judge's point ruled on, and none held
+    /// back from it.
     pub fn new_to(&self, cell: &CellId, block: &BlockId, place: Seq) -> Vec<&Version> {
         let was = self.consumed(cell, block, place);
         (self.of(block).iter())
             .filter(|v| v.at < place && Some(v.at) > was && v.changed_meaning())
             .filter(|v| !matches!(&v.by, Writer::Cell(c, _) if c == cell))
             .filter(|v| !self.ruled(block, v, place))
+            .filter(|v| self.held(v, place).is_none_or(|holder| holder == cell))
             .collect()
     }
 

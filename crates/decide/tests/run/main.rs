@@ -5,6 +5,7 @@
 
 mod answers;
 mod calls;
+mod completing;
 mod failing;
 mod handing_in;
 mod limits;
@@ -66,6 +67,7 @@ fn spec() -> Spec {
         told: Some(Seq(at)),
         latest: Some(Seq(at)),
         value: value.map(str::to_string),
+        empty: false,
         added: false,
     };
     Spec {
@@ -179,7 +181,10 @@ fn valued(block: &str, value: &str) -> Write {
 
 /// A round under way.
 fn under_way() -> Round {
-    Round { returned: None }
+    Round {
+        returned: None,
+        sent_back: Vec::new(),
+    }
 }
 
 /// A round that failed for a cause of this kind, the engine having made no wait after it.
@@ -201,6 +206,7 @@ fn waited_after(failure: Failure, waits: &[(u64, bool)]) -> Round {
                 })
                 .collect(),
         }),
+        sent_back: Vec::new(),
     }
 }
 
@@ -226,7 +232,9 @@ fn came(dealt_with: &[&str], writes: Vec<Write>, found: Vec<Unmet>, waits: bool)
             waits,
             questions: Vec::new(),
             read: Vec::new(),
+            protected: Default::default(),
         }),
+        sent_back: Vec::new(),
     }
 }
 
@@ -243,9 +251,12 @@ fn asks_beside(dealt_with: &[&str], writes: Vec<Write>, waits: bool) -> Round {
             questions: vec![Asking {
                 name: "which".to_string(),
                 withdrawn: false,
+                waits,
             }],
             read: Vec::new(),
+            protected: Default::default(),
         }),
+        sent_back: Vec::new(),
     }
 }
 
@@ -257,9 +268,13 @@ fn finish(writes: Vec<Write>) -> Step {
     }
 }
 
-/// A round that handed in what meets nothing: the plan with a value.
+/// A round that handed in what meets nothing: the plan with a value. Where another round follows it, that round was
+/// told what `wanting_unmet` says.
 fn wanting() -> Round {
-    handed_in(vec![valued("plan", "yes")])
+    Round {
+        sent_back: wanting_unmet(),
+        ..handed_in(vec![valued("plan", "yes")])
+    }
 }
 
 /// What `wanting` does not meet.
@@ -278,13 +293,19 @@ fn asks(calls: usize) -> Round {
             waits: false,
             questions: Vec::new(),
             read: Vec::new(),
+            protected: Default::default(),
         }),
+        sent_back: Vec::new(),
     }
 }
 
-/// A round whose return dealt with nothing, wrote nothing and asked for nothing.
+/// A round whose return dealt with nothing, wrote nothing and asked for nothing. Where another round follows it, that
+/// round was told it dealt with nothing.
 fn asks_nothing() -> Round {
-    asks(0)
+    Round {
+        sent_back: vec![Unmet::DealtWithNothing],
+        ..asks(0)
+    }
 }
 
 /// What a run finishes with whose return asked for calls: it dealt with nothing and writes nothing.

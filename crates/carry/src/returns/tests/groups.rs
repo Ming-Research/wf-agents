@@ -161,11 +161,18 @@ fn a_return_that_names_the_group_once_deals_with_each_of_its_blocks_that_ran_its
 }
 
 #[test]
-fn a_return_that_names_the_group_where_none_of_its_blocks_ran_its_round_is_sent_back() {
+fn a_return_that_names_the_group_where_none_of_its_blocks_ran_its_round_is_taken_for_what_did_run_it() {
     let mut w = W::new();
     let run = w.written(&["write_words"]);
-    let unmet = vec![Unmet::NotRunBy { block: "brief".into() }];
-    assert_eq!(w.returns(run, &["write_words", "brief"]), Some(unmet));
+    assert_eq!(w.returns(run, &["write_words", "brief"]), None);
+    assert_eq!(w.dealt_with(run), Some(vec!["write_words".into()]));
+}
+
+#[test]
+fn a_return_that_names_only_the_group_where_none_of_its_blocks_ran_its_round_deals_with_nothing() {
+    let mut w = W::new();
+    let run = w.written(&["write_words"]);
+    assert_eq!(w.returns(run, &["brief"]), Some(vec![Unmet::DealtWithNothing]));
 }
 
 #[test]

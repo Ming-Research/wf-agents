@@ -75,6 +75,9 @@ pub struct VersionView {
     /// A judge's point the owner ruled on, as the walk reads it by the flow ([`ruled_versions`]): new to no cell from
     /// the ruling on (design document `data-and-context`, 39). Never so where read without the flow ([`versions`]).
     pub ruled: bool,
+    /// The cell that wrote it while its run asked for calls, where the chain of those calls has not ended: the version
+    /// is new to no other cell until it has (decision a-version-written-at-a-call-is-held-from-other-cells).
+    pub held: Option<CellId>,
 }
 
 /// Who wrote a version of a block.
@@ -134,14 +137,14 @@ pub fn view_in(flow: &Flow, records: &Records, room: Room) -> View {
 /// Every version of every block that has one, in the order they were written, read from the records alone, with no
 /// flow.
 pub fn versions(records: &Records) -> BTreeMap<BlockId, Vec<VersionView>> {
-    shown(&read_versions(records, &read_runs(records)))
+    shown(&read_versions(records, &read_runs(records), None))
 }
 
 /// The versions of each block as the walk reads them by the flow, each judge's point the owner ruled on marked, as
 /// what reads which versions are new to a cell must take them.
 pub fn ruled_versions(flow: &Flow, records: &Records) -> BTreeMap<BlockId, Vec<VersionView>> {
     let runs = read_runs(records);
-    let mut versions = read_versions(records, &runs);
+    let mut versions = read_versions(records, &runs, Some(flow));
     rule(flow, &runs, &mut versions);
     shown(&versions)
 }
@@ -162,6 +165,7 @@ fn shown(versions: &BTreeMap<&BlockId, Vec<Version<'_>>>) -> BTreeMap<BlockId, V
                     value: v.value.map(str::to_string),
                     empty: v.empty,
                     ruled: v.ruled,
+                    held: v.held.clone(),
                 })
                 .collect();
             ((*block).clone(), versions)

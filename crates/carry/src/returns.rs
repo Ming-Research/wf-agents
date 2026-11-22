@@ -2,7 +2,7 @@
 //! one form, made of the flow and of what is written beside it ([`flow::form`]), which the agents' program is given
 //! with every call: one of two kinds, a return that asks the engine for tools or one that does the cell's work. A
 //! return is put into the form's shape where it is not in it but means it, as the old engine read one, and then read:
-//! what it dealt with, by the names of what the cell watches, each datum by its name and a group by the group's; each
+//! what it dealt with, by the names of what the cell is given, each datum by its name and a group by the group's; each
 //! block it writes in `outputs`, a choice with its value and its line of why kept as its content, and the cell's own
 //! questions, the block the engine's source of answers writes ([`flow::ANSWER`]), read as the questions it asks, which
 //! are kept with it and, once its run finishes, become data of their own and versions of the cell's questions; the
@@ -10,10 +10,13 @@
 //! with it; and why it says the work changes each file the project protects, which the engine's look at the work's
 //! branch takes as the round ends and asks the owner with, and which is not kept with the return
 //! ([`crate::protected`]). What only its reading can see wrong with it against the cell is found as it is read and kept
-//! with it: a return of both kinds, a name in `dealt_with` that is none of what the cell watches, a tool the cell may
-//! not ask for, a name in `meaning_unchanged` it does not write, a block it writes in `outputs` that is not among the
-//! cell's outputs or in a shape it does not take, the cell's own words named as dealt with and not answered in them,
-//! and a question that recommends none of its options or has the name of a question the engine itself asks. The run's
+//! with it: a return of both kinds, a name in `dealt_with` that is none of what the cell is given, a tool the cell may
+//! not ask for, a name in `meaning_unchanged` that is none of the cell's blocks, a block it writes in `outputs` that is
+//! not among the cell's outputs or in a shape it does not take, and a question that recommends none of its options or
+//! has the name of a question the engine itself asks. What a return names as dealt with that the cell is given and
+//! that did not run the round, or names twice, and a block of the cell's that it names as written with its meaning
+//! unchanged and does not write, change nothing, and are no fault; the run's check leaves them out, and finds the
+//! cell's own words named and not answered in them (crate `decide`, module `run`). The run's
 //! check names these with everything else wrong with the return, in one send-back (crate `decide`, module `run`). Why
 //! what came back cannot be read at all is said in the words of `agents/return/sent_back.toml`.
 
@@ -237,20 +240,24 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
     let both = r.tools.is_some() && r.outcome.is_some();
     let mut protected = None;
     if let Some(mut outcome) = r.outcome {
-        protected = Some(std::mem::take(&mut outcome.protected_changes));
+        let said = std::mem::take(&mut outcome.protected_changes);
+        came.protected = said.clone();
+        protected = Some(said);
         let (dealt_with, none) = cell.dealt_with(&outcome.dealt_with);
         found.extend(none.into_iter().map(|name| Unmet::NotWatched { name }));
         came.dealt_with = Some(dealt_with);
         let (writes, asked) = writes(&outcome, flow, cell, &mut found);
         came.writes = writes;
+        // A block named as written with its meaning unchanged that the cell writes and the return does not write changes
+        // nothing; a name that is none of the cell's blocks is, most likely, a block's name written wrong.
+        let place = flow.flow.place(&cell.id);
+        let outputs = place.map_or(&[][..], |p| &flow.flow.cells()[p].outputs[..]);
         for name in &outcome.meaning_unchanged {
-            if !outcome.outputs.contains_key(name) {
-                found.push(Unmet::UnchangedNotWritten {
-                    block: BlockId(name.clone()),
-                });
+            let block = BlockId(name.clone());
+            if !outcome.outputs.contains_key(name) && !outputs.contains(&block) {
+                found.push(Unmet::UnchangedNotWritten { block });
             }
         }
-        answered(&outcome, flow, cell, &mut found);
         let mut questions = Vec::new();
         for value in asked {
             let asked: Vec<QuestionIn> = serde_json::from_value(value).map_err(not_of_its_form)?;
@@ -270,19 +277,6 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
     }
     came.found = found;
     Ok(Reading { came, protected })
-}
-
-/// Where the return names the cell's own words as dealt with and writes no words in them in `outputs`: the owner's
-/// words are answered there (design document `data-and-context`, 35).
-fn answered(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<Unmet>) {
-    let Some(own) = engine::spoken::words_of(flow, &cell.id) else {
-        return;
-    };
-    let named = (outcome.dealt_with.iter()).any(|name| name == own.as_str());
-    let words = matches!(outcome.outputs.get(own.as_str()), Some(Value::String(w)) if !w.trim().is_empty());
-    if named && !words {
-        found.push(Unmet::NotAnswered { name: own.to_string() });
-    }
 }
 
 /// What is wrong with the questions the return asks that its reading sees, in the order it wrote them: one that
