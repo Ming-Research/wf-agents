@@ -343,8 +343,7 @@ fn judging<'a>(of: &Of<'a>, now: Time) -> Vec<Judging<'a>> {
         let ended = done.and_then(|done| work.time_of(done.at));
         let size = done
             .and_then(|done| work.results.get(&done.call))
-            .map(|r| r.len() as f64)
-            .or(Some(0.0));
+            .map(|r| r.len() as f64);
         out.push(Judging {
             began: made.0,
             work: of.number,
