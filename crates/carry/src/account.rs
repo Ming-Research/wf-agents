@@ -9,7 +9,7 @@
 //!
 //! The program's directory of settings and sessions is the engine's, [`PROFILE`] in the data directory, which holds the
 //! program's sessions under every account; the program is given it in a variable of its own, and its settings file
-//! there may name no credential ([`credential_in`]). What the service says of an account's usage, the program's stream
+//! there may name no credential and no permission mode ([`settings_file_faults`]). What the service says of an account's usage, the program's stream
 //! carries in each response's rate limit event, which is read here ([`said`]).
 
 use std::path::{Path, PathBuf};
@@ -57,26 +57,34 @@ pub fn profile(data: &Path) -> PathBuf {
     data.join(PROFILE)
 }
 
-/// Why the program's own settings file in this directory would have it run under a credential that is none of the
-/// owner's accounts, in a sentence: a command that gives it a key ([`KEY_HELPER`]), or a credential above the token in
-/// its `env`; or why the file cannot be told of, where it is there and cannot be read as JSON. None where it names
-/// none, or there is no file. The engine does not start while there is a reason.
-pub fn credential_in(profile: &Path) -> Option<String> {
+/// The key of the program's settings that names the permission mode it starts in.
+pub const DEFAULT_MODE: &str = "defaultMode";
+
+/// Every reason the program's own settings file in this directory is wrong, each a sentence; none where there is no
+/// file or it is right. The file is read and parsed once. A file that cannot be read, or is no JSON, gives that one
+/// reason, since nothing else about it can be told. Otherwise: a credential that is none of the owner's accounts, a
+/// command that gives the program a key ([`KEY_HELPER`]) or a credential above the token in its `env`, and a
+/// permission mode (`permissions.`[`DEFAULT_MODE`], whatever its value), which has no effect, since the program
+/// starts in default permission mode under [`crate::cli::SCRUB`], which the carrier always sets. The engine does not
+/// start while there is a reason.
+pub fn settings_file_faults(profile: &Path) -> Vec<String> {
     let at = profile.join(SETTINGS);
     let text = match std::fs::read_to_string(&at) {
         Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(e) => return Some(format!("{} cannot be read: {e}.", at.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(e) => return vec![format!("{} cannot be read: {e}.", at.display())],
     };
     let settings: Value = match serde_json::from_str(&text) {
         Ok(settings) => settings,
         Err(e) => {
-            return Some(format!(
-                "{} is no JSON, so whether it gives the agents' program a credential cannot be told: {e}.",
+            return vec![format!(
+                "{} is no JSON, so whether it gives the agents' program a credential or a permission mode cannot be \
+                 told: {e}.",
                 at.display()
-            ));
+            )];
         }
     };
+    let mut faults = Vec::new();
     let mut named: Vec<String> = Vec::new();
     if settings.get(KEY_HELPER).is_some() {
         named.push(KEY_HELPER.to_string());
@@ -86,14 +94,24 @@ pub fn credential_in(profile: &Path) -> Option<String> {
             .filter(|name| settings["env"].get(**name).is_some())
             .map(|name| format!("env.{name}")),
     );
-    (!named.is_empty()).then(|| {
-        format!(
+    if !named.is_empty() {
+        faults.push(format!(
             "{} names {}, which would have the agents' program run under a credential other than the owner's accounts: \
              take it out of the file.",
             at.display(),
             named.join(" and ")
-        )
-    })
+        ));
+    }
+    if settings["permissions"].get(DEFAULT_MODE).is_some() {
+        faults.push(format!(
+            "{} names permissions.{DEFAULT_MODE}, which has no effect: the engine runs the program with {}, which \
+             makes it start in default permission mode whatever is given; take it out of the file, and {}.",
+            at.display(),
+            crate::cli::SCRUB,
+            crate::cli::PERMISSION_ADVICE
+        ));
+    }
+    faults
 }
 
 /// The token of the account of this name, as what keeps the tokens gives it, off the threads that carry the rounds; or
@@ -228,35 +246,63 @@ mod tests {
     }
 
     // Microseconds, one small file read: the engine must not start where the program's own settings would put it
-    // under a credential of no account's.
+    // under a credential of no account's, or name a permission mode the program ignores under the variable the
+    // carrier sets.
     #[test]
-    fn the_programs_settings_file_that_names_a_credential_of_no_account_is_said_in_a_sentence() {
+    fn the_programs_settings_file_that_names_a_credential_or_a_permission_mode_is_said_in_sentences() {
         let dir = tempfile::tempdir().unwrap();
         let at = dir.path().join("settings.json");
-        assert_eq!(credential_in(dir.path()), None, "no file");
-        std::fs::write(&at, r#"{"cleanupPeriodDays":365000,"env":{"HTTPS_PROXY":"x"}}"#).unwrap();
-        assert_eq!(credential_in(dir.path()), None, "nothing of a credential");
+        assert_eq!(settings_file_faults(dir.path()), Vec::<String>::new(), "no file");
+        std::fs::write(
+            &at,
+            r#"{"cleanupPeriodDays":365000,"env":{"HTTPS_PROXY":"x"},"permissions":{"allow":["Edit(./**)"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            settings_file_faults(dir.path()),
+            Vec::<String>::new(),
+            "no credential and no mode, though it holds permission rules"
+        );
+        let credential = format!(
+            "{} names apiKeyHelper and env.ANTHROPIC_API_KEY and env.ANTHROPIC_AUTH_TOKEN, which would have the \
+             agents' program run under a credential other than the owner's accounts: take it out of the file.",
+            at.display()
+        );
+        let mode = format!(
+            "{} names permissions.defaultMode, which has no effect: the engine runs the program with \
+             CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, which makes it start in default permission mode whatever is given; \
+             take it out of the file, and allow what agents may do with --allowedTools rules in agents.args, such \
+             as Edit(./**).",
+            at.display()
+        );
         std::fs::write(
             &at,
             r#"{"apiKeyHelper":"./key.sh","env":{"ANTHROPIC_API_KEY":"k","ANTHROPIC_AUTH_TOKEN":"t"}}"#,
         )
         .unwrap();
-        assert_eq!(
-            credential_in(dir.path()),
-            Some(format!(
-                "{} names apiKeyHelper and env.ANTHROPIC_API_KEY and env.ANTHROPIC_AUTH_TOKEN, which would have the \
-                 agents' program run under a credential other than the owner's accounts: take it out of the file.",
-                at.display()
-            ))
-        );
+        assert_eq!(settings_file_faults(dir.path()), vec![credential.clone()]);
+        // A mode is refused whatever its value, as the arguments' --permission-mode is.
+        for value in ["acceptEdits", "default"] {
+            std::fs::write(&at, format!(r#"{{"permissions":{{"defaultMode":"{value}"}}}}"#)).unwrap();
+            assert_eq!(settings_file_faults(dir.path()), vec![mode.clone()], "{value}");
+        }
+        // Both are said together, in one list.
+        std::fs::write(
+            &at,
+            r#"{"apiKeyHelper":"./key.sh","env":{"ANTHROPIC_API_KEY":"k","ANTHROPIC_AUTH_TOKEN":"t"},
+                "permissions":{"defaultMode":"plan"}}"#,
+        )
+        .unwrap();
+        assert_eq!(settings_file_faults(dir.path()), [credential, mode]);
+        // A file that is no JSON gives that one reason, since nothing else of it can be told.
         std::fs::write(&at, "{").unwrap();
         assert_eq!(
-            credential_in(dir.path()),
-            Some(format!(
-                "{} is no JSON, so whether it gives the agents' program a credential cannot be told: EOF while \
-                 parsing an object at line 1 column 1.",
+            settings_file_faults(dir.path()),
+            [format!(
+                "{} is no JSON, so whether it gives the agents' program a credential or a permission mode cannot be \
+                 told: EOF while parsing an object at line 1 column 1.",
                 at.display()
-            ))
+            )]
         );
     }
 }
