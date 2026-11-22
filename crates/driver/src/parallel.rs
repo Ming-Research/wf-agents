@@ -17,7 +17,7 @@ use flow::Compiled;
 use flow::agents::fill;
 use store::{Item, ItemNumber, WorkNumber};
 
-use crate::{Driver, Held};
+use crate::{Driver, Held, Standing};
 
 /// The source of the block that holds the list of a project's works under way.
 pub const PARALLEL: &str = "parallel";
@@ -171,7 +171,7 @@ impl Driver {
         }
         let mut lists: BTreeMap<String, (Words, Vec<Listed>)> = BTreeMap::new();
         for (number, held) in &self.works {
-            if held.work.records.started.is_empty() {
+            if held.standing != Standing::Going || held.work.records.started.is_empty() {
                 continue;
             }
             let Some(project) = held.item.project.clone() else {
