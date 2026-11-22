@@ -22,8 +22,9 @@
 //!    committed to, the branch is at the head the check last passed, and each judge that the head runs and that
 //!    applies, a cell that writes a block the check's preconditions read, was told of a version that says that head
 //!    by a run of it that dealt with it.
-//! 7. A work never stalls at the check's gate: after every step, the deciding code does not find it stalled on a key
-//!    that reads a choice the check's record wrote as it failed, which only the owner speaking to a cell would move.
+//! 7. A work never stalls at the check's gate: after every step, the records alone (`Reading::rest`), not the deciding
+//!    code, do not read it as stalled on a key that reads a choice the check's record wrote as it failed, which only
+//!    the owner speaking to a cell would move.
 //!
 //! The first two are judged as each round of the merge begins, and the sixth as the merge finishes, by the histories'
 //! own reading of the records as they were then (`reading`), never by the deciding code's tests.
@@ -49,8 +50,9 @@
 //!   value that stands with nothing but some blocks (`with_nothing_but`), those alone, and no question. A return that
 //!   hands in names as dealt with each thing its round was told ran it, by its name, as an agent writes it. Beside
 //!   such a hand-in, the agent of a cell an answer runs writes in the record of the questions a question of its own in
-//!   three of a hundred, which waits in one of five, the return then handing in each block its cell must write; asks
-//!   one of its own that stands anew in two of a hundred, and withdraws one in two of a hundred. In one history of
+//!   five of a hundred, which waits in one of two, the return then leaving out each block its cell must write in one
+//!   of two, as the decision a-return-hands-in-what-its-cell-must-every-time lets it; asks one of its own that stands
+//!   anew in two of a hundred, and withdraws one in two of a hundred. In one history of
 //!   five the agents are sloppy: half their returns ask for nothing and are sent back, so that runs reach their limit
 //!   of returns;
 //! - an act of the engine's own hands in every block its cell may write: each choice with the value a precondition of
@@ -69,7 +71,12 @@
 //!
 //! Seven histories of ten are steered, drawn by a generator of their own so that the other draws keep their order, each
 //! taking every random step it may; in them a judge's verdict, where a return hands one in, is its refusal in one of
-//! ten only, so that they reach the check past the five judges before it. In three of ten, the work is paused while the
+//! ten only, so that they reach the check past the five judges before it, a choice a judge's own condition waits for
+//! (whether the change needs adversarial testing) is that value in seven of ten, and the owner only lets the work go
+//! on: answers each question at once, lets a cell go on at its limit, resumes a paused work, writes what the outside
+//! writes, and answers a question that stands anew; it does not cancel, pause, write a choice or prose a person writes,
+//! commit, speak to a line or remark on a question, which in the histories not steered end or rework a work before the
+//! check. In three of ten, the work is paused while the
 //! check's round is under way; once
 //! the check passed, a person writes, while the pause holds the merge back, for a judge that applies, who then refuses,
 //! or writes a verdict as its refusal, a coin of its own deciding; then the work is let on. In one of ten the check
@@ -103,7 +110,9 @@
 //! Among the random steps, the owner now and then speaks to a line.
 //!
 //! Every situation the properties are about is counted over all histories (`required`), and the test fails if one was
-//! never reached. A failing case prints its seed and its steps; `one_history(&flow, seed, ..)` replays it.
+//! reached in fewer than `FLOOR` histories: the histories run in batches of `SEEDS` (up to `BATCHES`), and the first
+//! batch after which each was reached in `FLOOR` is the last. A failing case prints its seed and its steps;
+//! `one_history(&flow, seed, ..)` replays it.
 
 // The histories use only part of the driver the tests of histories share.
 #[allow(dead_code)]
@@ -344,6 +353,9 @@ struct Roles {
     judges: Vec<(usize, BlockId)>,
     /// Each choice a precondition of kind `all` reads, with the value it looks for.
     passing: BTreeMap<BlockId, String>,
+    /// Each choice a judge's own condition waits for, with the value it waits for: a steered history draws it more
+    /// often, so that the judge runs in the histories that are steered to what follows a judge.
+    gates: BTreeMap<BlockId, String>,
     /// Each block a test of content reads.
     contents: BTreeSet<BlockId>,
     /// The block of the work's head, where the flow has one.
@@ -366,9 +378,18 @@ impl Roles {
                 refusals.insert(b.clone(), is.clone());
             }
         }
-        let judges = (refusals.keys())
+        let judges: Vec<(usize, BlockId)> = (refusals.keys())
             .flat_map(|b| {
                 (flow.blocks[b].writers.cells.iter()).map(move |c| (flow.flow.place(c).expect("a cell"), b.clone()))
+            })
+            .collect();
+        let gates = (judges.iter())
+            .flat_map(|(j, _)| &cells[*j].applies)
+            .filter_map(|key| match key {
+                Condition::Is { block, value } if flow.blocks[block].values.is_some() => {
+                    Some((block.clone(), value.clone()))
+                }
+                _ => None,
             })
             .collect();
         // What a precondition waits for of a block: its value, as a key on the block or as a test of kind `all`.
@@ -410,6 +431,7 @@ impl Roles {
             refusals,
             judges,
             passing,
+            gates,
             contents,
             head,
             head_judges,
@@ -800,13 +822,18 @@ impl Random {
                     // A steered history's judges pass in nine of ten, so that it reaches the check past the judges
                     // before it, the plan's and the change's.
                     let refusal = self.roles.refusals.get(b).filter(|_| self.steer != Steer::Not);
-                    let value = match refusal {
-                        Some(refusal) if d.rng.chance(90) => {
+                    // A steered history's choice that a judge's condition waits for is that value in seven of ten.
+                    let gate = (self.roles.gates.get(b))
+                        .filter(|_| self.steer != Steer::Not)
+                        .filter(|_| d.rng.chance(70));
+                    let value = match (refusal, gate) {
+                        (Some(refusal), _) if d.rng.chance(90) => {
                             values.iter().find(|v| *v != refusal).unwrap_or(refusal).clone()
                         }
-                        Some(refusal) => refusal.clone(),
-                        None if values.len() == 1 || d.rng.chance(55) => values[0].clone(),
-                        None => values[1 + d.rng.below(values.len() - 1)].clone(),
+                        (Some(refusal), _) => refusal.clone(),
+                        (None, Some(gate)) => gate.clone(),
+                        (None, None) if values.len() == 1 || d.rng.chance(55) => values[0].clone(),
+                        (None, None) => values[1 + d.rng.below(values.len() - 1)].clone(),
                     };
                     handed_in.push(handed(b, cell, true, Some(value)));
                 }
@@ -1049,6 +1076,15 @@ impl Random {
                     true => self.questions(d, i, cell, force),
                     false => Vec::new(),
                 };
+                // A return whose question waits hands in as much of what its cell must write as the draw gives (decision
+                // a-return-hands-in-what-its-cell-must-every-time): each such block is left out in one of two.
+                if questions
+                    .iter()
+                    .any(|q| matches!(q, Question::Asked { waits: true, .. }))
+                {
+                    let must = d.flow.cells[i].must_write.clone();
+                    handed_in.retain(|h| !must.contains(&h.block) || d.rng.chance(50));
+                }
                 let mut came = hands_in(d, run, i, handed_in);
                 came.said.questions = questions;
                 came
@@ -1057,11 +1093,9 @@ impl Random {
     }
 
     /// What the agent of the cell at this place writes in the record of the questions beside its hand-in, where an
-    /// answer runs its cell: a question of its own in three of a hundred, which waits in one of five, and always one
+    /// answer runs its cell: a question of its own in five of a hundred, which waits in one of two, and always one
     /// that does not wait where `force` says so; one of its own that stands asked anew, as it was, in two of a
-    /// hundred; one withdrawn in two of a hundred; nothing otherwise. A return whose question waits hands in as much
-    /// of what its cell must write as the draw gives, which may be none of it (decision
-    /// a-return-hands-in-what-its-cell-must-every-time).
+    /// hundred; one withdrawn in two of a hundred; nothing otherwise.
     fn questions(&self, d: &mut Driver, i: usize, cell: &str, force: bool) -> Vec<Question> {
         let spec = &d.flow.cells[i];
         if !(spec.watches.iter()).any(|t| t.of_source(&d.flow, flow::ANSWER).is_some()) {
@@ -1075,9 +1109,9 @@ impl Random {
         let drawn = if force { None } else { Some(d.rng.below(100)) };
         let (name, waits) = match drawn {
             None => (fresh, false),
-            Some(0..=2) => (fresh, d.rng.chance(20)),
-            Some(3..=4) if !own.is_empty() => (own[d.rng.below(own.len())].clone(), false),
-            Some(5..=6) if !own.is_empty() => {
+            Some(0..=4) => (fresh, d.rng.chance(50)),
+            Some(5..=6) if !own.is_empty() => (own[d.rng.below(own.len())].clone(), false),
+            Some(7..=8) if !own.is_empty() => {
                 let name = own[d.rng.below(own.len())].clone();
                 let why = "Settled.".to_string();
                 return vec![Question::Withdrawn { name, why }];
@@ -1170,7 +1204,9 @@ impl Random {
             .filter(|(_, q)| q.unanswered())
             .map(|(name, q)| (name.to_string(), latest_number(&d.flow, &d.work.records, &q)))
             .collect();
-        if !unanswered.is_empty() && d.rng.chance(50) {
+        // A steered history's owner answers each as soon as it can, so that the check is not held back by one.
+        let quiet = self.steer != Steer::Not;
+        if !unanswered.is_empty() && (quiet || d.rng.chance(50)) {
             let (question, version) = unanswered[d.rng.below(unanswered.len())].clone();
             let option = 1 + d.rng.below(2) as u64;
             return Event::Answer {
@@ -1179,7 +1215,16 @@ impl Random {
                 option,
             };
         }
-        let event = match d.rng.below(100) {
+        // A steered history's owner leaves the work as it is, but for what lets it go on: no cancelling, no pausing
+        // (the steering pauses it where it must), no writing of a choice or prose a person writes, no commit, no word to
+        // a line and no remark on a question. The steering has to reach the check, which a cancelled or reworked work
+        // seldom does in the steps there are.
+        let roll = match d.rng.below(100) {
+            0..=36 | 77..=89 if quiet => 100,
+            67..=76 if quiet && !paused => 100,
+            n => n,
+        };
+        let event = match roll {
             0 => Some(Event::Cancelled { why: None }),
             1..=21 => pick(&mut d.rng, people_choices).map(|b| {
                 let values = blocks[&b].values.clone().expect("a choice");
