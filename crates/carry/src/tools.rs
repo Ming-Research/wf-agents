@@ -1,8 +1,9 @@
 //! The tools an agent may ask for: `query`, one read-only SQL query on the store, run in a thread of its own and
 //! interrupted where it is withdrawn (the module `query`); and `run_tests`, which runs the tests and checks the request
-//! names, or the whole CI where it names none, as the host runs them ([`Host::run_tests`]): the project's check command
-//! in the work's worktree where the local repository is the host, the CI of the last commit of the work's branch where
-//! GitHub is. A tool's result is all an agent learns of it, so what goes wrong in running it is said in its result,
+//! names, as the host runs them ([`Host::run_tests`]): the project's check command in the work's worktree where the
+//! local repository is the host, the fast workflow of the project's CI, on the commit the request names or else the
+//! last commit of the work's branch, where GitHub is; a request that names neither a test nor a check runs nothing on
+//! GitHub. A tool's result is all an agent learns of it, so what goes wrong in running it is said in its result,
 //! once: it is not tried again here, and the agent may ask again. Withdrawn, what runs it is stopped. A `run_tests` of
 //! a branch that does not merge into main's head is answered at once with the files in conflict (the module
 //! `conflict`). The result is kept whole in the records, and a result too long for a message in a file of the
@@ -333,7 +334,8 @@ async fn run_tests(
     host.run_tests(branch, named, asking, stop).await.map_err(could_not)
 }
 
-/// A request of `run_tests`: the tests and the checks it names, each list left out where it names none.
+/// A request of `run_tests`: the tests and the checks it names, each list left out where it names none, and the commit
+/// to run them on, left out for the last commit of the work's branch.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
@@ -341,6 +343,8 @@ struct Request {
     tests: Vec<String>,
     #[serde(default)]
     checks: Vec<String>,
+    #[serde(default)]
+    commit: Option<String>,
 }
 
 /// What a request names, each name trimmed and taken once, a blank one left out; an input with nothing in it names
@@ -362,6 +366,7 @@ fn asked(input: &str) -> Result<Named, String> {
     Ok(Named {
         tests: once(request.tests),
         checks: once(request.checks),
+        commit: (request.commit.map(|c| c.trim().to_string())).filter(|c| !c.is_empty()),
     })
 }
 
@@ -673,9 +678,9 @@ mod tests {
     }
 
     #[test]
-    fn a_request_names_tests_and_checks_each_once_or_nothing_for_the_whole() {
+    fn a_request_names_tests_checks_and_a_commit_each_once_or_nothing() {
         let input = r#"{"tests": ["tools::tests::a", "  src/x.test.ts > a describe > its title ", "tools::tests::a", " "],
-                        "checks": ["lint"]}"#;
+                        "checks": ["lint"], "commit": " HEAD~1 "}"#;
         assert_eq!(
             asked(input).expect("read"),
             Named {
@@ -684,12 +689,18 @@ mod tests {
                     "src/x.test.ts > a describe > its title".to_string()
                 ],
                 checks: vec!["lint".to_string()],
+                commit: Some("HEAD~1".to_string()),
             }
         );
-        for whole in ["", "  ", "{}", r#"{"tests": [], "checks": []}"#] {
+        for whole in ["", "  ", "{}", r#"{"tests": [], "checks": [], "commit": " "}"#] {
             assert_eq!(asked(whole).unwrap(), Named::default(), "{whole:?}");
         }
-        for wrong in [r#"{"test": ["a"]}"#, r#"{"tests": "a"}"#, "tools::tests::a"] {
+        for wrong in [
+            r#"{"test": ["a"]}"#,
+            r#"{"tests": "a"}"#,
+            r#"{"commit": ["a"]}"#,
+            "tools::tests::a",
+        ] {
             assert!(asked(wrong).is_err(), "{wrong:?}");
         }
     }
@@ -718,6 +729,7 @@ mod tests {
         let named = Named {
             tests: vec!["a".to_string()],
             checks: vec!["lint".to_string()],
+            commit: None,
         };
         assert_eq!(
             host.asked(),
@@ -736,6 +748,17 @@ mod tests {
                  all is well` passed."
             ),
             "{said}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_commit_named_where_the_check_runs_on_the_worktree_is_refused_and_the_command_is_not_run() {
+        let repo = Repo::new("echo all is well");
+        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let said = answered_with(&repo, RUN_TESTS, r#"{"tests": ["a"], "commit": "HEAD"}"#, &[]).await;
+        assert_eq!(
+            said,
+            "Nothing was run: the check runs on your worktree as it is, so no commit can be named. Ask again with none."
         );
     }
 

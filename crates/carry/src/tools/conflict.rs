@@ -1,6 +1,6 @@
 //! What the agents' tool `run_tests` answers at once, pushing nothing and waiting for no verdict, where the last commit of
-//! the work's branch does not merge into main's head as the host last gave it: GitHub starts no CI for a pull request
-//! in conflict, so tests run then would wait for a CI that never starts, and the work could not merge anyway.
+//! the work's branch does not merge into main's head as the host last gave it: the work could not merge anyway, and the
+//! agent is told what is in conflict before it spends a run on it.
 
 use crate::git::{self, Place};
 use crate::settings::Project;

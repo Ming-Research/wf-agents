@@ -32,12 +32,13 @@ check = "./test.sh"
 # followed by `*`.
 # allowed_config = ["filter.lfs.*"]
 
-# The repository on GitHub, where GitHub is the host: with this table, the check before a work's merge and the agents'
-# tool `run_tests` push the work's branch to GitHub, open its pull request into the main branch where it has none, and
-# run the project's workflows on the pushed commit; nothing is run on this machine. A request of `run_tests` that names
-# tests or checks has only those run, by the project's fast workflow, and one that names none is run by the project's
-# full workflows, as is the check before the merge, on the commit to merge, once; both are declared in the project's
-# flow/project.toml. The merge merges the work's pull request. Without this table, the local repository is the host.
+# The repository on GitHub, where GitHub is the host: with this table, the check before a work's merge pushes the work's
+# branch to GitHub, opens its pull request into the main branch where it has none, and runs the project's full
+# workflows on the pushed commit, once; the agents' tool `run_tests` pushes the commit it runs to a branch of its own,
+# deleted when the run's result is read, and has only the tests and checks a request names run, by the project's fast
+# workflow, on the commit the request names or else the work's last commit; nothing is run on this machine. Both
+# workflows are declared in the project's flow/project.toml. The merge merges the work's pull request. Without this
+# table, the local repository is the host.
 # The engine needs `git` and `gh`, and its own token for GitHub in its environment: a fine-grained token for the
 # project's repository, with Contents and Pull requests read and write, Checks and Commit statuses read, and Actions
 # read and write, for the workflows it runs by hand. The engine itself never pushes a change to the project's workflow

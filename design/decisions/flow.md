@@ -53,7 +53,7 @@ The compiler refuses a block that says who changes what its source writes, when 
 - replaced: A key saying who changes what a block's source writes, on a block that no source outside the work writes, was on main; the owner changed it, because the compiler silently dropped the key.
 
 ### decision the-checks-words-are-its-own
-What the check before the merge writes about the tests it runs again is in its act's file, `check.toml`, not in the file of the agents' tool `run_tests`.
+What the check before the merge writes, of the tests it runs again and of the workflows it cannot run, is in its act's file, `check.toml`, not in that of the tool `run_tests`.
 - rejected: an agent proposed putting those words in the file of the tool `run_tests`; the owner rejected it, because they are the check's words, which an agent calling the tool never uses.
 
 ### decision every-agent-takes-is-the-flows

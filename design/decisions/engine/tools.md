@@ -27,28 +27,35 @@ A tool's result is not a datum: the run that asked for it goes on with it, and i
 - rejected: an agent proposed a sentence in the design of data saying that a run's own results and send-backs continue that run; the owner rejected it, because that sentence was itself a new mechanism.
 
 ### decision tests-run-where-the-host-checks
-An agent has its tests run by asking for `run_tests`: on GitHub it runs the project's workflows on the branch's last commit, which the engine pushes, and on a local host the host's check command.
+`run_tests` runs the tests an agent names: on GitHub by the fast workflow, on the commit named or else the branch's last, pushed to a branch of its own; on a local host by the check command.
 - rejected: an agent proposed letting an agent's tests run on the machine the agents run on; the owner rejected it, because the old system ran them only in CI.
 - rejected: an agent proposed that agents build and test on a machine of their own; the owner rejected it, because a run in CI and a local one differ in nothing essential, and tests run locally fight the owner for the processor.
 - rejected: an agent proposed running a work's named tests directly on the owner's build machine over SSH; the owner rejected it, because his computer is not always on the local network.
 - rejected: an agent proposed leaving the push to the agent and taking only `gh` from it; the owner rejected it, because once GitHub is the engine's, everything done there is the engine's, including the push.
 - rejected: an agent proposed naming the tool `check`; the owner rejected it, because `check` already names the engine's check of a return, the check before the merge and CI's format checks, and does not say what the tool does.
+- replaced: Running only the branch's last commit was on main; the owner changed it, because a new test could be shown red on the code before the change only by pushing a commit that broke the branch, and 14 of 20 commits of one work were such demonstrations.
+- replaced: Pushing the commit to the work's branch and opening its pull request for each run was on main; the owner changed it, because each push made GitHub run the full workflows on the pull request again, beside the run the engine asked for.
+- replaced: Running the full workflows where nothing is named was on main; the owner changed it, because the full workflows are run once before the merge, and the passed tests were about 252 KB of one such result of 256 KB.
+- rejected: an agent proposed pushing the work's branch and opening its pull request where the commit run is the branch's head, and a branch of its own for any other; the owner rejected it, because each run would still start another full run on the pull request, and there would be two ways to push.
+- rejected: an agent proposed still running the full workflows where nothing is named and only leaving the passed tests out of the result; the owner rejected it, because every call would still be a full run on the owner's machine, against running the full workflows once before the merge.
 
 ### decision run-tests-names-the-files-git-does-not-track
-Where the worktree holds files git does not track, `run_tests` on GitHub runs the commit and names them before its result as not in the run; a tracked file's uncommitted change still refuses it.
+Where no commit is named, `run_tests` on GitHub runs the last commit and names the untracked files before its result; a tracked file's uncommitted change refuses it. A named commit runs as it is.
 - replaced: Refusing to run while the worktree held anything not committed, untracked files included, was on main; the owner changed it, because a cache a local command left stopped the tool though the commit was sound, and a forgotten new file is named instead.
+- rejected: an agent proposed refusing an uncommitted change where a commit is named too; the owner rejected it, because the agent has said which commit to run, and a demonstration commit is made while the changes it is made from are still uncommitted.
 
 ### decision no-cell-runs-the-tests
 No cell of a flow runs the tests a cell asks for: they stay a call within that cell's run.
 - rejected: an agent proposed a cell of the engine that runs the tests each cell asks for, with the request and the result as data; the owner rejected it, because it was there only to show a cell's CI run on the page, and a row for each tool on the chart shows that just as well.
 
 ### decision every-project-meets-one-contract-for-its-tests
-Every project meets one contract for its tests: results as JUnit XML, one name by which a test is asked for and filtered, and a fast and a full workflow that its declaration names.
+Every project meets one contract for its tests: results as JUnit XML, one name by which a test is asked for and filtered, and, if its declaration has `[ci]`, a fast and a full workflow it names.
 - rejected: an agent proposed that each project describe its own CI (its workflows, and how they are dispatched, read and name their tests) and the engine run it as described; the owner rejected it, because the projects are all his, and any of them can be changed to one general, reasonable design.
 - replaced: Matching a named test to a log's tests by its whole name, a `::` ending or its binary's name was on main; the owner changed it, because the name the results give a test is the name an agent asks for it by and the name the fast workflow filters by.
 - replaced: The fast workflow running lint besides the named tests was on main; the owner changed it, because a fast run should only build and run the tests needed, and everything else goes to the full workflows, run once at the end.
 - replaced: The fast workflow declared in the installation's settings was on main; the owner changed it, because the installation keeps only what belongs to the machine: its tokens and the runners it has.
 - rejected: an agent proposed having no fast workflow, with every check running the whole suite, which took two or three minutes; the owner rejected it, because much work had gone into the fast CI, with a machine of his kept to run what an agent needs within half a minute.
+- replaced: A declaration that may leave out the fast or the full workflow was on main; the owner changed it, because `run_tests` runs only the fast workflow and the check before the merge only the full ones, so a project without one cannot have its tests run or its work checked.
 
 ### decision each-workflow-runs-where-the-project-says
 Each of a project's workflows runs on the runner its declaration names, and is not asked for when the installation has no such runner for the repository.

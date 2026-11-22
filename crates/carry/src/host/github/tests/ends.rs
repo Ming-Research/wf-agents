@@ -313,6 +313,65 @@ async fn a_work_that_ended_without_merging_has_its_pull_request_closed_saying_so
     );
 }
 
+// Two rounds of the check asked for at once go through one pull request: the one that read the list of them before the
+// other's was opened finds the other's where its own is refused.
+#[tokio::test]
+async fn two_rounds_of_the_check_at_once_go_through_one_pull_request() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.green(&head);
+    hub.verdict(&head).await.unwrap().expect("checked");
+    hub.github().hide_pulls_once();
+    hub.verdict(&head)
+        .await
+        .expect("checked through the one opened")
+        .expect("nothing stopped it");
+    assert_eq!(hub.opened(), 1);
+}
+
+// A call of `run_tests` that the engine stopped before it read the result left a branch of its own on GitHub: it is the
+// work's, and goes when the work ends, merged or not, whatever other works have left.
+#[tokio::test]
+async fn a_work_that_ended_has_the_branches_its_calls_of_run_tests_left_deleted_merged_or_not() {
+    for merged in [true, false] {
+        let hub = Hub::new();
+        let head = hub.committed().await;
+        let place = hub.place();
+        let bare = hub.github().bare.display().to_string();
+        let left = format!("wf-try/{}/call/9", place.branch);
+        for name in [left.as_str(), "wf-try/another-work/call/1"] {
+            run(
+                &hub.repo.project.repo,
+                &["push", "-q", &bare, &format!("{head}:refs/heads/{name}")],
+            );
+        }
+        hub.host.end(&branch(&place), merged).await.expect("it ends");
+        let deleted: Vec<Asked> = (hub.github().asked().into_iter())
+            .filter(|a| matches!(a, Asked::Delete(_)))
+            .collect();
+        assert_eq!(deleted, [Asked::Delete(left)], "merged: {merged}");
+    }
+}
+
+// The branches a call left are harmless beside the pull request: where they cannot be listed, the work's pull request is
+// closed all the same, and the failure is said.
+#[tokio::test]
+async fn a_work_whose_left_branches_cannot_be_listed_has_its_pull_request_closed_all_the_same_and_it_is_said() {
+    let mut hub = Hub::new();
+    let head = hub.committed().await;
+    hub.green(&head);
+    hub.verdict(&head).await.unwrap().unwrap();
+    let place = hub.place();
+    hub.host.config.url = hub.repo.data.join("no-such-repository.git").display().to_string();
+    let why = hub
+        .host
+        .end(&branch(&place), false)
+        .await
+        .expect_err("the listing fails");
+    assert!(why.contains("could not be listed on GitHub"), "{why}");
+    assert_eq!(hub.github().pull_requests()[0].state, State::Closed);
+}
+
 #[tokio::test]
 async fn a_reopened_work_has_the_pull_request_its_cancel_closed_opened_again_once_however_often_it_starts() {
     let hub = Hub::new();
