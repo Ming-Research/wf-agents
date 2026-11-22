@@ -356,14 +356,23 @@ fn a_work_kept_before_the_versions_is_put_on_none_where_it_ended_and_on_the_vers
     assert!(h.d().work(going).expect("the work is there").on.installed());
 }
 
-// Acceptance 6: a work reopened is put on the version installed.
+// Acceptance 6: a work reopened is put on the version installed, its records read through the renumberings since its
+// version, or as recorded where it was on none.
 #[test]
 fn a_work_reopened_on_an_earlier_version_or_on_none_is_put_on_the_version_installed() {
     let mut h = H::with(vec![first()]);
-    let (earlier, on_earlier) = h.add(new_item("a", &[], "staged"));
-    let (unkept, on_none) = h.add(new_item("b", &[], "staged"));
-    for item in [earlier, unkept] {
-        let (_, todos) = h.changes(vec![(item, Asked::Cancel)]).expect("the item is cancelled");
+    // Each ran at T1, and was at T2 as it was cancelled.
+    let (earlier, on_earlier) = h.add_let_on(new_item("a", &[], "staged"));
+    h.hands_in(on_earlier, &[("text", None)]);
+    let (unkept, on_none) = h.add_let_on(new_item("b", &[], "staged"));
+    h.hands_in(on_none, &[("text", None)]);
+    for (item, work) in [(earlier, on_earlier), (unkept, on_none)] {
+        let (run, ..) = h.round(work);
+        h.changes(vec![(item, Asked::Cancel)]).expect("the item is cancelled");
+        // The round under way, stopped, ends, and the work lets go of what it held.
+        let spent = h.spent();
+        let came = Came::default();
+        let todos = h.on(work, Event::Returned { run, came, spent });
         h.released(todos);
     }
     let db = Connection::open(&h.db.path).expect("the database opens");
@@ -378,6 +387,10 @@ fn a_work_reopened_on_an_earlier_version_or_on_none_is_put_on_the_version_instal
         h.changes(vec![(item, Asked::Reopen)]).expect("the item is reopened");
     }
     let installed = version_of(&h, on_earlier);
+    // What the work on the earlier version recorded reads through the renumbering; what the work on none recorded, as
+    // recorded, the nearest reading there is.
+    assert_eq!(ran_at(&h, on_earlier)[..2], ["T1", "T3"]);
+    assert_eq!(ran_at(&h, on_none)[..2], ["T1", "T2"]);
     for work in [on_earlier, on_none] {
         assert!(h.d().work(work).expect("the work is there").on.installed());
         let stored = h.reader.load(work).expect("the work loads");
