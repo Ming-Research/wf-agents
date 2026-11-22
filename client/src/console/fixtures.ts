@@ -676,6 +676,13 @@ const QUESTIONS: Record<number, Question[]> = {
   ],
 };
 
+/// How many of `questions` stand unanswered and hold the work at nothing that `waits` lists, as the engine counts a
+/// work's questions the owner may answer ahead (`Summary.ahead`).
+function aheadOf(questions: Question[], waits: Wait[]): number {
+  const open = (q: Question) => q.withdrawn === null && q.ask !== null && q.version !== null && q.answer === null;
+  return questions.filter((q) => open(q) && !waits.some((w) => w.key === `answer-${q.name}`)).length;
+}
+
 /// A work as its page gives it: the details the console does not read are left empty.
 function pageOf(item: Item, summary: Summary, questions: Record<number, Question[]>): WorkPage {
   const cells: CellDetail[] = FLOW.cells.map((c) => ({
@@ -758,7 +765,12 @@ export function fixtureSource(start = Date.now()): Source {
     }
   };
   return {
-    loadItems: () => Promise.resolve(structuredClone(data)),
+    // Each work with the questions the owner may answer ahead counted as the engine counts them, from the questions as
+    // they stand now.
+    loadItems: () => {
+      for (const i of data.items) i.work.ahead = aheadOf(questions[i.number] ?? [], i.work.waits ?? []);
+      return Promise.resolve(structuredClone(data));
+    },
     loadWork: (work) => {
       try {
         const { item, summary } = find(work);

@@ -379,14 +379,15 @@
   border-top: var(--hairline) solid var(--line);
 }
 
-/* A choice that waits for the owner: a frame in the accent on its tint; once confirmed, settled, a hairline on the
-   ground. While it waits its options are buttons: the one picked ringed in the accent, the one under the pointer on the
-   accent's tint. */
+/* A choice that waits for the owner and holds the work at nothing yet, which the owner may answer ahead: a frame in
+   orange on its tint, as its count is orange on the item's card in the tree; one that holds the work is red, below;
+   once confirmed, settled, a hairline on the ground. While it waits its options are buttons: the one picked ringed in
+   the accent, the one under the pointer on the accent's tint. */
 .cw-choice {
   margin: var(--space-8) 0;
   padding: var(--space-12);
-  border: var(--hairline) solid var(--accent);
-  background: var(--accent-tint);
+  border: var(--hairline) solid var(--orange);
+  background: var(--orange-tint);
   /* A fieldset keeps the width of its widest content unless it is told it may shrink. */
   min-width: 0;
   /* How a card is folded and unfolded: the window's own motion as it slides in, so that the panel moves one way. */
@@ -404,7 +405,7 @@
 }
 
 /* A question whose answer goes into the design tree says so after who asked it: the key `tree` as the page's tag, in
-   the accent of the card's frame, so that such a question is told from the others at a glance. */
+   the accent, so that such a question is told from the others at a glance. */
 .cw-choice-tree {
   margin-inline-start: var(--space-8);
   background: var(--accent);
@@ -453,7 +454,7 @@
 }
 
 /* The button that ends a stop is in the stop's colour, red, as its frame is, so that it belongs to the card; a card
-   framed in the accent keeps the accent's. */
+   framed in orange keeps the accent's. */
 .cw-choice-holds .button-primary:not(:disabled) {
   border-color: var(--red);
   background-color: var(--red);

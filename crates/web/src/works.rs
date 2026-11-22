@@ -273,6 +273,11 @@ pub struct Summary {
     /// says ([`driver::owner`]): what the count, the marks, the cards and the notifications of the pages read.
     #[serde(default)]
     pub waits: Vec<Wait>,
+    /// How many of its questions put to the owner stand unanswered and hold the work at nothing now, so that the owner
+    /// may answer them ahead, as one the merge will wait for: those the item window draws as not holding the work
+    /// ([`QuestionPage::ahead`]). A question that holds it counts in `waits` alone.
+    #[serde(default)]
+    pub ahead: usize,
     /// The level its rounds run at, by the rule that gives a round its level ([`Levels::of_round`]): its item's, or
     /// the default where its item has none; none where that rule refuses it, the item's level being none an item may
     /// be at.
@@ -791,6 +796,16 @@ pub struct AnswerPage {
 }
 
 impl QuestionPage {
+    /// How many of `questions` stand to be answered and hold the work at nothing that `waits` lists: each not withdrawn,
+    /// asking something, of a version an answer names and not answered, with no wait of the key `answer-<name>`. The
+    /// item window reads a question so, from the work's page and the work's waits, to draw it as holding the work or not.
+    pub(crate) fn ahead(questions: &[QuestionPage], waits: &[Wait]) -> usize {
+        let open =
+            |q: &&QuestionPage| q.withdrawn.is_none() && q.ask.is_some() && q.version.is_some() && q.answer.is_none();
+        let holds = |q: &QuestionPage| (waits.iter()).any(|w| w.key == format!("answer-{}", q.name));
+        (questions.iter()).filter(open).filter(|q| !holds(q)).count()
+    }
+
     /// Each question of the work, as it stands, numbered as the version the work is on names each cell's questions.
     fn all(kept: &Kept<'_>) -> Vec<QuestionPage> {
         let work = kept.work;
@@ -2128,6 +2143,10 @@ impl Summary {
             number: pulled.number,
             url: pulled.url.clone(),
         });
+        let waits: Vec<Wait> = (driver.waits_on_owner_at(number, view, held, &every.at_once).into_iter())
+            .map(Wait::of)
+            .collect();
+        let ahead = QuestionPage::ahead(&QuestionPage::all(&kept), &waits);
         Ok(Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
@@ -2135,9 +2154,8 @@ impl Summary {
             delivers: delivers(kept),
             added: kept.head.added.0,
             paused: decide::pause(&work.records).map(|pause| Pauser::of(pause.by)),
-            waits: (driver.waits_on_owner_at(number, view, held, &every.at_once).into_iter())
-                .map(Wait::of)
-                .collect(),
+            waits,
+            ahead,
             now,
             cells,
             spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
@@ -3553,6 +3571,49 @@ pub(crate) mod tests {
     use flow::{Has, Source, compile};
 
     use super::*;
+
+    /// A question is one to answer ahead while it stands unanswered and no wait of the work names it: not once it is
+    /// answered or withdrawn, and not while the work waits for it, where the waits alone count it.
+    #[test]
+    fn a_question_is_answered_ahead_while_it_stands_and_holds_nothing() {
+        let question = |name: &str| QuestionPage {
+            name: name.to_string(),
+            cell: "merge".to_string(),
+            version: Some(1),
+            engine: false,
+            waits: false,
+            tree: false,
+            withdrawn: None,
+            ask: Some("Let it merge?".to_string()),
+            options: Vec::new(),
+            recommends: None,
+            answer: None,
+        };
+        let answered = QuestionPage {
+            answer: Some(AnswerPage {
+                option: 1,
+                at: 0,
+                why: None,
+            }),
+            ..question("answered")
+        };
+        let withdrawn = QuestionPage {
+            withdrawn: Some("Not needed.".to_string()),
+            ask: None,
+            ..question("withdrawn")
+        };
+        let questions = [question("ahead"), question("held"), answered, withdrawn];
+        let held = Wait {
+            key: "answer-held".to_string(),
+            why: "Let it merge?".to_string(),
+            ends: Ends::Answer {
+                question: "held".to_string(),
+                version: Some(1),
+            },
+        };
+        assert_eq!(QuestionPage::ahead(&questions, &[held]), 1);
+        assert_eq!(QuestionPage::ahead(&questions, &[]), 2);
+    }
 
     /// A writer the owner's request runs, and the merge, with the repository's words beside it.
     pub(crate) fn flow() -> flow::Compiled {

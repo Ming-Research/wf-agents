@@ -22,6 +22,7 @@ export const CONSOLE_MARKS: MarkKey[] = [
   'cardDelivers',
   'cardElsewhere',
   'forYou',
+  'answerAhead',
   'sentBack',
   'level',
   'cells',

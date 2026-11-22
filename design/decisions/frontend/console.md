@@ -47,6 +47,10 @@ A card has one row, with its number and its title, and a second row only once it
 - rejected: an agent proposed two rows on every card; the owner rejected it, because two rows on every card waste room.
 - replaced: A second row for a work that had run no round, while it was paused, at fault or waited, was on main; the owner changed it, because items brought over that never ran showed a strip and a red age, and looked like works that had stopped partway.
 
+### decision a-card-counts-the-questions-to-answer-ahead
+Beside the red count of what holds its work, a card counts in orange its work's questions that hold it at nothing yet, as decision a-question-that-holds-the-work-is-red draws them.
+- replaced: A card that counted only what held its work was on main; the owner changed it, because he could not see where something would wait on him until it turned red and the work stopped.
+
 ### decision a-cards-strip-shows-every-cell
 A card's strip draws every cell of its flow, the marks of the whole tree made smaller by one factor until the longest strip fits, and never larger than on the works page.
 - replaced: Marks at the works page's size, the strip cut where the card's room ended with a count of the cells left out, was on main; the owner changed it, because the engineer flow's last cells were hidden behind the count.

@@ -56,6 +56,7 @@ export type ConsoleMark =
   | 'cardElsewhere'
   | 'cardDelivers'
   | 'forYou'
+  | 'answerAhead'
   | 'sentBack'
   | 'level'
   | 'cells'
@@ -213,6 +214,14 @@ export const MARKS: Record<MarkKey, Entry> = {
     name: 'for you',
     draw: () => (
       <span className="tag legend-for-you" aria-hidden="true">
+        1
+      </span>
+    ),
+  },
+  answerAhead: {
+    name: 'to answer ahead',
+    draw: () => (
+      <span className="tag legend-ahead" aria-hidden="true">
         1
       </span>
     ),

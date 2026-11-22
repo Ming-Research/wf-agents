@@ -74,6 +74,9 @@ export type Shown = {
   endedLines?: Lines | null;
   /// How many things its work waits on the owner for, as the engine's one list of it counts them.
   asks: number;
+  /// How many questions put to the owner its work has standing that hold it at nothing yet, which the owner may answer
+  /// ahead, as the engine counts them (`Summary.ahead`): none that `asks` counts.
+  ahead: number;
   /// It is a deliverable: an item that says what is to be delivered and is made of the items under it, with no work
   /// of its own to show. Its flow says so (`deliver`); until the engine has that flow, the page's rule above does.
   deliver: boolean;
@@ -248,6 +251,7 @@ export function shownTree(
       title: i?.title ?? '',
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w),
+      ahead: w?.ahead ?? 0,
       deliver: deliverable || w?.delivers === true,
       // New to the owner exactly when something is unread: one fact, not two.
       unseen: (mock?.unread ?? 0) > 0,
@@ -285,6 +289,7 @@ export function shownTree(
     title: byId.get(id)?.title ?? '',
     standing: standing(id),
     asks: 0,
+    ahead: 0,
     deliver: false,
     unseen: false,
     unread: 0,

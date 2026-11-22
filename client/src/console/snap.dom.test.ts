@@ -83,6 +83,7 @@ describe('what a fold hides', () => {
     title: `Item ${id}`,
     standing: 'open',
     asks: 0,
+    ahead: 0,
     deliver: false,
     unseen: false,
     unread: 0,

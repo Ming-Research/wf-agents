@@ -380,6 +380,8 @@ const LIGHT = {
   halted: '#e5484d',
   amber: '#b45309',
   red: '#e5484d',
+  /// What the owner may answer ahead, which holds the work at nothing yet: the page's orange.
+  orange: '#f5840c',
   green: '#2f9e6e',
   /// The pointer's blue: the lines at the edges of the column under it, and the own colour of an item with no work of
   /// its own above a work, ringed and lit in it.
@@ -590,6 +592,7 @@ export function themed(): typeof LIGHT {
     calling: token('--yellow', LIGHT.calling),
     halted: token('--red', LIGHT.halted),
     red: token('--red', LIGHT.red),
+    orange: token('--orange', LIGHT.orange),
     green: token('--green', LIGHT.green),
     amber: token('--orange-text', LIGHT.amber),
     onTag: token('--on-colour', LIGHT.onTag),
@@ -1534,7 +1537,8 @@ export class SnapScene {
     title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
     view.addChild(number, title);
     // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
-    // mark a card has, as what the owner looks for first; its messages unread, white on the accent; and its returns
+    // mark a card has, as what the owner looks for first; beside it, how many questions the owner may answer ahead,
+    // which hold the work at nothing yet, white on orange; its messages unread, white on the accent; and its returns
     // sent back, framed in grey. What an item waits for stands under it in the tree, and no tag counts it again.
     let right = NODE_W - 8;
     const tag = (text: string, fill: string, sign: 'back' | null, solid: boolean) => {
@@ -1564,6 +1568,7 @@ export class SnapScene {
     // What waits for the owner in red, the strongest, as the engine's one list counts it; how much is new to read in the
     // colour of the line at the card's left that says something is new.
     if (item.asks > 0) tag(String(item.asks), PALETTE.red, null, true);
+    if (item.ahead > 0) tag(String(item.ahead), PALETTE.orange, null, true);
     if (item.unread > 0) tag(String(item.unread), PALETTE.unseen, null, true);
     if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, 'back', false);
     // Of an item whose work has ended, the lines that work added and removed, at the right of its one row, each in its

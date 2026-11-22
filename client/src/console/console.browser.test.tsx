@@ -44,6 +44,7 @@ const card = (id: number, children: Shown[] = []): Shown => ({
   unread: 0,
   standing: 'open',
   asks: 0,
+  ahead: 0,
   deliver: false,
   begun: false,
   shadow: false,
@@ -899,80 +900,29 @@ describe('the console page', () => {
     expect(container.querySelector('.console-found')).toBeNull();
   });
 
-  /// For one run in CI only: how long each step of a test took, the scene's frames, the page's long tasks and its keys.
-  function stamps(test: string) {
-    const t0 = performance.now();
-    let was = t0;
-    const at = () => Math.round(performance.now() - t0);
-    const stats = () => {
-      const s = (window as { consoleScene?: SnapScene }).consoleScene?.stats;
-      return `frames ${s?.fps} fps, mean ${s?.meanMs} ms, p95 ${s?.p95Ms} ms`;
-    };
-    const long = new PerformanceObserver((list) => {
-      for (const e of list.getEntries())
-        console.log(`[${test}] long task at ${Math.round(e.startTime - t0)} ms for ${Math.round(e.duration)} ms`);
-    });
-    try {
-      long.observe({ type: 'longtask', buffered: false });
-    } catch {
-      // No long tasks told.
-    }
-    const key = (e: KeyboardEvent) => console.log(`[${test}] ${e.type} ${e.key} at ${at()} ms`);
-    window.addEventListener('keydown', key, true);
-    window.addEventListener('keyup', key, true);
-    return {
-      step(name: string) {
-        const now = performance.now();
-        console.log(`[${test}] ${name}: ${Math.round(now - was)} ms (at ${at()} ms); ${stats()}`);
-        was = now;
-      },
-      end() {
-        long.disconnect();
-        window.removeEventListener('keydown', key, true);
-        window.removeEventListener('keyup', key, true);
-      },
-    };
-  }
-
   it('opens the folds over an item it picks, ticking the box of its kind where it was not, and selects it', async () => {
-    const s = stamps('picks');
     await drawn();
-    s.step('drawn');
     expect(box('Done').checked).toBe(false);
     // Item 30 is done, and folded away under 27, done too.
     await userEvent.keyboard('/');
-    s.step('/');
     await userEvent.fill(field(), '26-27-30');
-    s.step('fill');
     await expect.poll(found).toEqual(['26-27-30']);
-    s.step('found');
     await userEvent.keyboard('{Enter}');
-    s.step('Enter');
     await expect.poll(title).toBe('Draw a fold as a dot');
-    s.step('title');
     expect(box('Done').checked).toBe(true);
     expect(JSON.parse(localStorage.getItem('wf-agents.console-folds') ?? '{}')).toEqual({ 27: 'unfolded' });
     expect(field().value).toBe('');
-    s.end();
   });
 
   it('ticks Cancelled for a cancelled item it picks with a click, and selects it', async () => {
-    const s = stamps('cancelled');
     await drawn();
-    s.step('drawn');
     expect(box('Cancelled').checked).toBe(false);
     await userEvent.keyboard('/');
-    s.step('/');
     await userEvent.fill(field(), 'flat list');
-    s.step('fill');
     await expect.poll(found).toEqual(['35']);
-    s.step('found');
     await userEvent.click(container.querySelector('.console-found-row') as HTMLElement);
-    s.step('click');
     await expect.poll(title).toBe('Try the tree as a flat list');
-    s.step('title');
     expect(box('Cancelled').checked).toBe(true);
-    s.end();
   });
 
   it('fades in what the marks and the keys mean while the pointer is on the question mark at the bottom left, and fades it out once it leaves, taking the pointer no more', async () => {
@@ -1026,6 +976,28 @@ describe('the console page', () => {
     } finally {
       history.replaceState(null, '', was === '' ? window.location.pathname : was);
     }
+  });
+
+  it('frames a question that holds the work at nothing yet in orange, as its count on the card, and one that holds it in red', async () => {
+    const scene = await drawn();
+    // Item 1 waits for the answer to stale-runs; stale-limit, asked as well, holds it at nothing yet.
+    const items = await fixtureSource().loadItems();
+    const one = items.items.find((i) => i.number === 1);
+    expect([one?.work.waits?.map((w) => w.key), one?.work.ahead]).toEqual([['answer-stale-runs'], 1]);
+    scene.select(1);
+    await expect.poll(title).toBe('Run works without anyone watching');
+    const frame = (key: string) => container.querySelector(`.cw-choice[data-wait="${key}"]`) as HTMLElement | null;
+    await expect.poll(() => frame('answer-stale-limit')).not.toBeNull();
+    /// What the page's token `name` resolves to as a colour.
+    const colour = (name: string) => {
+      const probe = container.appendChild(document.createElement('span'));
+      probe.style.color = `var(${name})`;
+      const got = getComputedStyle(probe).color;
+      probe.remove();
+      return got;
+    };
+    expect(getComputedStyle(frame('answer-stale-limit') as HTMLElement).borderTopColor).toBe(colour('--orange'));
+    expect(getComputedStyle(frame('answer-stale-runs') as HTMLElement).borderTopColor).toBe(colour('--red'));
   });
 
   it('brings the panel out with the item selected, and on Escape lets the item go and folds the panel', async () => {
