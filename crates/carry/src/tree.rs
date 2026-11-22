@@ -134,7 +134,7 @@ fn answered(work: &Work, said: &Said) -> Vec<String> {
     let marked = |q: &Standing<'_>| matches!(work.question(q.latest), Some(Question::Asked { tree: Some(true), .. }));
     let rewritten = |name: &str| said.questions.iter().any(|q| q.name() == name);
     (questions(&work.records).into_iter())
-        .filter(|(name, q)| q.stands() && q.answer.is_some() && marked(q) && !rewritten(*name))
+        .filter(|(name, q)| q.stands() && q.answer.is_some() && marked(q) && !rewritten(name))
         .map(|(name, _)| name.to_string())
         .collect()
 }
