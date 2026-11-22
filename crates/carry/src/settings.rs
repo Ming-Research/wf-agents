@@ -465,7 +465,8 @@ const SOURCES_IN_THE_WORKTREE: [&str; 2] = ["project", "local"];
 
 impl Agents {
     /// What is wrong with these settings of the agents, each in words with its key: arguments that would undo or
-    /// swallow those the engine gives after them, settings files read from the worktree, and a command of the added
+    /// swallow those the engine gives after them, a permission mode or skip-permissions flag the program ignores,
+    /// settings files read from the worktree, and a command of the added
     /// permissions that names nothing or could be read as more than one rule.
     fn wrong(&self) -> Vec<String> {
         let mut wrong = Vec::new();
@@ -481,6 +482,26 @@ impl Agents {
             wrong.push(
                 "agents.args: --permission-prompt-tool would have a tool approve what no rule refuses".to_string(),
             );
+        }
+        // The program starts in default permission mode whatever it is given, since the carrier always sets
+        // `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` (decision permissions-are-rules-not-a-mode).
+        for flag in ["--permission-mode", "--dangerously-skip-permissions"] {
+            if given(flag) {
+                wrong.push(format!(
+                    "agents.args: {flag} has no effect: the engine runs the program with {}, which makes it start in \
+                     default permission mode whatever is given; {}",
+                    crate::cli::SCRUB,
+                    crate::cli::PERMISSION_ADVICE
+                ));
+            }
+        }
+        if given("--allow-dangerously-skip-permissions") {
+            wrong.push(format!(
+                "agents.args: --allow-dangerously-skip-permissions selects no permission mode, and the program \
+                 starts in default mode under {}; {}",
+                crate::cli::SCRUB,
+                crate::cli::PERMISSION_ADVICE
+            ));
         }
         if given("--autocompact") {
             wrong.push("agents.args: --autocompact is set by sessions.compact_at".to_string());
@@ -1317,7 +1338,21 @@ mod tests {
             ("\"--settings\", \"{}\"", "--settings"),
             ("\"--settings={}\"", "--settings"),
             ("\"--\"", "-- would"),
+            ("\"--permission-mode\"", "--permission-mode has no effect"),
             ("\"--permission-mode\"", "--permission-mode, last"),
+            (
+                "\"--permission-mode\", \"acceptEdits\"",
+                "--permission-mode has no effect",
+            ),
+            ("\"--permission-mode=plan\"", "--permission-mode has no effect"),
+            (
+                "\"--dangerously-skip-permissions\"",
+                "--dangerously-skip-permissions has no effect",
+            ),
+            (
+                "\"--allow-dangerously-skip-permissions\"",
+                "--allow-dangerously-skip-permissions selects no permission mode",
+            ),
             ("\"--tools\"", "--tools, last"),
             ("\"--permission-prompt-tool\"", "--permission-prompt-tool, last"),
             ("\"--setting-sources\", \"user,project\"", "--setting-sources"),
@@ -1342,8 +1377,15 @@ mod tests {
             let refused = Settings::read(&with(args)).expect_err(args);
             assert!(refused.contains(says), "{args}: {refused}");
         }
+        // Each refusal says what to write instead, and rules that allow what agents may do are no mode.
+        let refused = Settings::read(&with("\"--permission-mode\", \"acceptEdits\"")).expect_err("a mode");
+        assert!(
+            refused.contains("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB") && refused.contains("--allowedTools rules"),
+            "{refused}"
+        );
         // A flag that takes no value may come last, and one that takes a value may come before its value.
         for args in [
+            "\"--allowedTools\", \"Edit(./**)\", \"Write(//tmp/**)\"",
             "\"--verbose\"",
             "\"--model\", \"claude-haiku-5-5\"",
             "\"--model=claude-haiku-5-5\"",
