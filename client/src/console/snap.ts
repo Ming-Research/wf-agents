@@ -68,6 +68,11 @@ const MAP_APART = 5;
 const MAP_HIGH = 72;
 const MAP_INSET = 12;
 const MAP_PAD = 8;
+/// On the map: the gap between two items' pieces of a column, where each is tall enough to keep one; how far the frame
+/// of what the screen shows stands out past the bars it holds; and how strong the ground in it is.
+const MAP_GAP = 0.5;
+const MAP_FRAME_OUT = 2;
+const MAP_FRAME_FILL = 0.06;
 /// How quickly the blue lines at a column's edges come and go as the pointer comes over it and leaves: the
 /// milliseconds in which it goes about two thirds of the way.
 const TURN = 140;
@@ -824,6 +829,10 @@ function cellLooks(): { measures: { side: number; gap: number }; looks: Record<C
   return { measures: { side, gap: length(MARK.gap) }, looks };
 }
 
+/// An item's piece of a column's bar on the map, as it was drawn: the item, its column, its top on the map and how
+/// tall, and its colour.
+export type MapPiece = { id: number; column: number; y: number; height: number; colour: string };
+
 /// One mark of a card's strip as it was drawn: its cell and state; its top left, from the card's left and its middle;
 /// its width, height and corners; its fill and its ring's colour and width; and whether it pulses.
 export type DrawnMark = {
@@ -967,6 +976,11 @@ export class SnapScene {
   private mapMask = new Graphics();
   /// The map's height of a row: the longest column fits it twice, as a column may stand with either end in the middle.
   private mapRow = 1;
+  /// What the map drew at the last frame ([`drawnMap`]).
+  private mapDrawn: { frame: { x: number; y: number; width: number; height: number } | null; pieces: MapPiece[] } = {
+    frame: null,
+    pieces: [],
+  };
   private tree: Tree | null = null;
   /// Each item's number, in the tree's order.
   private ids: number[] = [];
@@ -1016,8 +1030,7 @@ export class SnapScene {
   private measures = { side: 0, gap: 0 };
   private looks = {} as Record<CellState, CellLook>;
   private drawnStrips = new Map<number, DrawnStrip>();
-  /// For each column, the ranks of its items whose works wait for the owner, which the map marks.
-  private asking: number[][] = [];
+  /// For each column, the ranks of its items new to the owner, or with one under them folded away, which the map marks.
   private fresh: number[][] = [];
   private columns: Column[] = [];
   private shown = new Set<Container>();
@@ -1252,9 +1265,7 @@ export class SnapScene {
       i.work === null || i.work.from === null ? 1 : 1 + WORK_ROW,
     );
     this.shape();
-    const asks = (s: Shown) => s.asks > 0;
     const unseen = (s: Shown) => s.unseen;
-    this.asking = tree.columns.map((col) => col.flatMap((i, r) => (asks(items[i]) || hides(i, asks) ? [r] : [])));
     this.fresh = tree.columns.map((col) => col.flatMap((i, r) => (unseen(items[i]) || hides(i, unseen) ? [r] : [])));
     // The items a work goes on on, and those above them up to their roots: from the roots one sees which branches
     // have work on.
@@ -2232,26 +2243,32 @@ export class SnapScene {
     this.map.addChild(this.mapFrame, this.mapMask, this.mapBars);
   }
 
-  /// Draws each column on the map as one bar from its first item to its last, moved as the column is: in a light accent,
-  /// or a deeper blue while the pointer is over it, marked red where works wait for the owner, and in the accent where
-  /// the item selected stands.
+  /// Draws each column on the map as the items it holds, moved as the column is: each item a piece of the column's bar
+  /// as tall as its rows, a hairline apart where there is room, in the colour of how its card stands ([`mapColour`]);
+  /// in the accent across the bar where items are new to the owner; and where the item selected stands, the accent over
+  /// every other mark. Over the bars, in a thin light line round a faint ground that the bars show through, the part of
+  /// the tree the screen shows: from the first column it shows of to the last, as many rows as it holds round the
+  /// middle, where each column's place on the screen is. What it drew is kept, for the tests.
   private drawMap(t: Tree) {
     const mid = MAP_HIGH / 2;
+    const { width, height } = this.app.screen;
+    const barAt = (d: number) => MAP_PAD + d * (MAP_STRIP + MAP_APART);
     this.mapBars.clear();
+    const pieces: MapPiece[] = [];
     this.columns.forEach((c, d) => {
-      const from = mid + (0 - c.at) * this.mapRow;
-      const n = t.columns[d].length;
-      const to = mid + (this.slot(d, n - 1) + this.rowsAt(d, n - 1) - c.at) * this.mapRow;
-      const left = MAP_PAD + d * (MAP_STRIP + MAP_APART);
-      this.mapBars.rect(left, from, MAP_STRIP, Math.max(1, to - from)).fill(mix(PALETTE.mapBar, PALETTE.over, c.warm));
-      // Where items are new to the owner, the accent across the bar; where works wait for the owner, red, over it.
+      const left = barAt(d);
+      t.columns[d].forEach((k, r) => {
+        const from = mid + (this.slot(d, r) - c.at) * this.mapRow;
+        const tall = this.rowsAt(d, r) * this.mapRow;
+        const gap = tall > 3 * MAP_GAP ? MAP_GAP : 0;
+        const colour = this.mapColour(k);
+        this.mapBars.rect(left, from, MAP_STRIP, Math.max(0.5, tall - gap)).fill(colour);
+        pieces.push({ id: this.ids[k], column: d, y: from, height: tall, colour });
+      });
+      // Where items are new to the owner, the accent across the bar.
       for (const r of this.fresh[d] ?? []) {
         const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at) * this.mapRow;
         this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.accent);
-      }
-      for (const r of this.asking[d] ?? []) {
-        const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at) * this.mapRow;
-        this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.red);
       }
     });
     // Where the item selected stands, the accent across its column's bar, over every other mark, a little wider, so that
@@ -2261,8 +2278,46 @@ export class SnapScene {
       const [d, r] = [t.depth[chosen], t.rank[chosen]];
       const c = this.columns[d];
       const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at) * this.mapRow;
-      this.mapBars.rect(MAP_PAD + d * (MAP_STRIP + MAP_APART) - 2, at - 1.5, MAP_STRIP + 4, 3).fill(PALETTE.chosen);
+      this.mapBars.rect(barAt(d) - 2, at - 1.5, MAP_STRIP + 4, 3).fill(PALETTE.chosen);
     }
+    // The part of the tree on the screen: the columns any of whose cards' room is on it, and round the middle the rows
+    // it holds.
+    const shown = this.columns.flatMap((_, d) => {
+      const x = this.left + d * PITCH;
+      return x + NODE_W > 0 && x < width ? [d] : [];
+    });
+    let frame: { x: number; y: number; width: number; height: number } | null = null;
+    if (shown.length > 0) {
+      const [first, last] = [shown[0], shown[shown.length - 1]];
+      const half = (height / ROW / 2) * this.mapRow;
+      frame = {
+        x: barAt(first) - MAP_FRAME_OUT,
+        y: mid - half,
+        width: barAt(last) + MAP_STRIP - barAt(first) + 2 * MAP_FRAME_OUT,
+        height: 2 * half,
+      };
+      this.mapBars
+        .rect(frame.x, frame.y, frame.width, frame.height)
+        .fill({ color: PALETTE.ink, alpha: MAP_FRAME_FILL })
+        .stroke({ color: PALETTE.faint, width: 1 });
+    }
+    this.mapDrawn = { frame, pieces };
+  }
+
+  /// The colour an item's piece of the map takes, as its card stands: of its work's state while a work is drawn on it,
+  /// running, in a call, for the owner or halted, or paused or waiting; the light grey of an item whose work has not
+  /// begun, or a shadow; the faint grey of a done or cancelled item, as its card is dim.
+  private mapColour(k: number): string {
+    const item = this.shownItems[k];
+    if (!item.shadow && item.work !== null) return WORK()[moodOf(item.work)];
+    if (!item.shadow && item.standing !== 'open') return PALETTE.hair;
+    return PALETTE.pale;
+  }
+
+  /// What the map drew at the last frame, for the tests: the part of the tree the screen shows, on the map, and each
+  /// item's piece, by its column, from its top on the map and how tall, in its colour.
+  drawnMap(): { frame: { x: number; y: number; width: number; height: number } | null; pieces: MapPiece[] } {
+    return this.mapDrawn;
   }
 
   /// A scroll of `dy` pixels over column `d`: it moves the column, which the others then follow, as far as leaves

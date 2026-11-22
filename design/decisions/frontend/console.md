@@ -99,3 +99,7 @@ A field under the boxes finds any item by its number, its path from its root or 
 ### decision the-owner-walks-the-stops-by-keys
 n goes to the next of what the red and orange counts count, N to the one before, in the tree's order and each window's, round from the last; a button under each but an item's last does as n.
 - replaced: Finding each thing to handle by looking for a card with a count and scrolling its window was on main; the owner changed it, because he works by those counts, and wanted to go from one thing he handles to the next by keys.
+
+### decision the-map-draws-each-item-and-the-screen
+The map draws each item as a piece of its column's bar in the colour of its card's state, and frames in a thin light line the part of the tree the screen shows.
+- replaced: Each column as one light bar, with red marks where works waited for the owner, was on main; the owner changed it, because the map should show how each item stands and where the screen is in the tree.

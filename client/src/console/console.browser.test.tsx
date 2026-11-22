@@ -302,6 +302,77 @@ describe('the tree in columns', () => {
     endsAtCard();
   });
 
+  it("draws each item on the map in the colour of its card's state: running, in a call, for the owner, halted, paused, not begun, done or cancelled", () => {
+    const now = Date.now();
+    const call: Now = {
+      kind: 'waits',
+      at: 'implement',
+      on: [{ kind: 'call', call: 1, who: null, what: { kind: 'tool', name: 'ci', input: 'the tests' } }],
+    };
+    const asks = [{ key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } }];
+    const paused: Now = { kind: 'paused', at: 'implement', by: 'owner', why: null };
+    const items: Shown[] = [
+      { ...card(1), begun: true, work: running(1) },
+      { ...card(2), begun: true, work: { ...running(2), now: call } },
+      { ...card(3), begun: true, work: { ...running(3), waits: asks } },
+      { ...card(4), begun: true, work: { ...running(4), now: { kind: 'fault', words: 'No session' } } },
+      { ...card(5), begun: true, work: { ...running(5), now: paused, paused: 'owner', from: now } },
+      card(6),
+      { ...card(7), standing: 'done' },
+      { ...card(8), standing: 'cancelled' },
+    ];
+    scene.show(items);
+    settle(scene);
+    const colour = new Map(scene.drawnMap().pieces.map((p) => [p.id, p.colour]));
+    const p = themed();
+    expect([1, 2, 3, 4, 5, 6, 7, 8].map((id) => colour.get(id))).toEqual([
+      p.running,
+      p.calling,
+      p.halted,
+      p.halted,
+      p.paused,
+      p.pale,
+      p.hair,
+      p.hair,
+    ]);
+  });
+
+  it("frames on the map the part of the tree the screen shows, round the middle where each column's place is, after a scroll and a pan", async () => {
+    // Thirty roots in the first column, the first with an item under it and one under that: three columns.
+    const roots = Array.from({ length: 30 }, (_, k) => card(k + 1, k === 0 ? [card(100, [card(101)])] : []));
+    scene.show(roots);
+    settle(scene);
+    const barAt = (d: number) => 8 + d * (12 + 5);
+    /// The frame drawn holds, round the map's middle, the pieces of the first column's items whose cards are on the
+    /// screen, and stands over the columns from `first` to `last`.
+    const holds = (first: number, last: number) => {
+      const { frame, pieces } = scene.drawnMap();
+      if (frame === null) throw new Error('no frame on the map');
+      expect(frame.x).toBeCloseTo(barAt(first) - 2, 6);
+      expect(frame.x + frame.width).toBeCloseTo(barAt(last) + 12 + 2, 6);
+      expect(frame.y + frame.height / 2).toBeCloseTo(72 / 2, 6);
+      for (const piece of pieces.filter((q) => q.column === 0)) {
+        const stands = scene.cardAt(piece.id) as { y: number };
+        const middle = piece.y + piece.height / 2;
+        const inside = middle > frame.y && middle < frame.y + frame.height;
+        if (stands.y > ROW && stands.y < HEIGHT - ROW) expect(inside).toBe(true);
+        if (stands.y < -ROW || stands.y > HEIGHT + ROW) expect(inside).toBe(false);
+      }
+    };
+    holds(0, 2);
+    // A scroll over the first column moves its pieces under the frame, which stays round the middle.
+    move(50, line);
+    wheel(0, 8 * ROW);
+    await drew();
+    settle(scene);
+    holds(0, 2);
+    // A pan that takes the first column off the screen takes the frame off its bar.
+    wheel(PITCH + 100, 0);
+    await drew();
+    settle(scene);
+    holds(1, 2);
+  });
+
   it('draws a card whose work halted before its first round in red, as one that halted after it, with no second row', () => {
     const fault: Now = { kind: 'fault', words: 'No session' };
     const halted = (k: number, from: number | null): Shown => ({ ...card(k), work: { ...running(k), now: fault, from } });
