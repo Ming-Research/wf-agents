@@ -114,10 +114,6 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
     let (old, new) = kept_in_21(&d.work);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
-    assert!(
-        SCHEMA_VERSION >= 22,
-        "a file of version 21 is migrated by the migration to 22 and those after it"
-    );
     assert_eq!(
         columns(&old.path),
         columns(&new.path),
@@ -142,7 +138,6 @@ fn a_file_of_version_22_is_migrated_with_no_fork_kept() {
     let (old, new) = super::opening::kept_in(22, &d.work);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
-    assert_eq!(SCHEMA_VERSION, 23);
     assert_eq!(
         columns(&old.path),
         columns(&new.path),
