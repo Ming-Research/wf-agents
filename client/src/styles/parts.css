@@ -280,6 +280,26 @@ button {
   text-overflow: ellipsis;
 }
 
+/* The version of the flow the engine runs, beside the flow's name, with the mark that says the files read now differ. */
+.view-installed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0 var(--space-8);
+  flex: none;
+}
+
+/* The mark of files that differ from those the engine started with: framed in grey, in the text's colour, strong. */
+.files-changed {
+  display: inline-flex;
+  align-items: center;
+  height: var(--tag);
+  padding: 0 var(--space-4);
+  border: var(--hairline) solid var(--muted);
+  border-radius: var(--corner);
+  color: var(--text);
+  font-weight: var(--weight-strong);
+}
+
 .view-end {
   display: flex;
   align-items: center;
