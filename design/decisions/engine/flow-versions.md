@@ -33,3 +33,7 @@ A work kept before versions were is on no version where it had ended as the flow
 As a work ends, the engine keeps what its time went to as its version reads it, and an ended work's bar is drawn from that; one that kept none shows its waits as not known.
 - rejected: an agent proposed drawing the bar of a work that ended from its records alone, a pause as a pause and every other wait as not known; the owner rejected it, because no ended work would show what waited on the owner or on items, and reading those again would need a second definition.
 - replaced: Reading what a work's time went to anew from its whole flow at each look was on main; the owner changed it, because a version no longer installed is compiled no more, so what its time went to could not be read again.
+
+### decision a-live-bar-asks-at-its-cells-middles
+The bar of a work going on asks what the work waited for only at the middle of each cell less than half of which ran, by the one decision its kept stretches are made by.
+- rejected: an agent proposed drawing it at each request from the work's exact stretches; the owner rejected it, because each wait is then decided over the records before it, and at 200 waits it took ten times main's time (data: `research/flow-versions/bar-cost.md`).
