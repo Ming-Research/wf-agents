@@ -66,3 +66,32 @@ fn a_renumbering_that_names_no_id_gives_one_twice_or_to_itself_or_moves_and_take
         ]
     );
 }
+
+// Principle cell-numbering: a stage numbers its cells in running order with no gap, so a cell taken out of the middle
+// of its stage renumbers each after it, and a cell moved before another swaps their ids. Each such renumbering gives
+// only ids whose cells leave, so it compiles, and each cell recorded on the version before reads as the one it is now,
+// the one taken out as itself at that renumbering. A cell of another stage given an id of a stage the renumbering takes
+// a cell out of is refused where that id's cell stays: the highest the renumbering names there counts what it takes
+// out, not only what it moves. Runs in milliseconds.
+#[test]
+fn a_renumbering_that_takes_out_a_cell_in_the_middle_of_its_stage_or_swaps_two_reads_each_as_it_is_now() {
+    let read = |table: &str| flow::reading(&flow::Outline::of(&compiled(&with_table(table))), 0).cells;
+    let pairs = |pairs: &[(&str, &str)]| -> std::collections::BTreeMap<CellId, CellId> {
+        pairs
+            .iter()
+            .map(|(a, b)| (CellId::from(*a), CellId::from(*b)))
+            .collect()
+    };
+    assert_eq!(
+        read(r#"[{ ids = { T3 = "T2", T4 = "T3" }, taken_out = ["T2"] }]"#),
+        pairs(&[("T2", "T2@1"), ("T3", "T2"), ("T4", "T3")])
+    );
+    assert_eq!(
+        read(r#"[{ ids = { T2 = "T3", T3 = "T2" } }]"#),
+        pairs(&[("T2", "T3"), ("T3", "T2")])
+    );
+    assert_eq!(
+        faults(&with_table(r#"[{ ids = { D1 = "T2" }, taken_out = ["T3"] }]"#)),
+        vec![at(FLOW_FILE, "earlier_ids[0].ids.D1", IdStillHeld { id: "T2".into() })]
+    );
+}

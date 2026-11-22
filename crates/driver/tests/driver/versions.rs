@@ -136,6 +136,36 @@ fn renumbered() -> Compiled {
     )
 }
 
+/// A proofing of the checked text, which a third version adds after the check.
+const PROOF: &str = r#"
+    title = "Proof"
+    kind = "agent"
+    effort = "high"
+    line = "main"
+    task = "Proof the checked text."
+    watches = ["checked"]
+    outputs = ["proofed"]
+    [kinds]
+    checked = "last_and_latest"
+"#;
+
+/// A third version, after [`renumbered`]: its table holds that version's renumbering and one after it, which moves the
+/// review T3 on to T4, a new T3, a proofing, standing before it; the check stays T2.
+fn renumbered_twice() -> Compiled {
+    staged(
+        "[{ ids = { T2 = \"T3\" } }, { ids = { T3 = \"T4\" } }]",
+        &["main"],
+        &["text", "reviewed", "checked", "proofed"],
+        &[
+            ("T1", WRITE),
+            ("T2", CHECK),
+            ("T3", PROOF),
+            ("T4", REVIEW),
+            ("M1", MERGE),
+        ],
+    )
+}
+
 /// The first version with a note after its last cell, on a line of its own.
 fn followed() -> Compiled {
     staged(
@@ -668,4 +698,78 @@ fn a_datum_made_for_a_cell_follows_its_cell_through_the_renumbering_and_its_cond
     h.hands_in(work, &[("checked", None)]);
     // The review handed its work in as T2, so it does not run again on the new text: the merge comes next.
     assert_eq!(h.round(work).1, "M1");
+}
+
+// A work moved at two starts in turn reads what it recorded on each version through the renumberings after that
+// version's own, and only those: what it recorded on the first through both, what it recorded on the second through the
+// second alone (decision `a-move-is-read-through-the-renumberings`). Fails where the moves kept in the store are not
+// read as the work loads, or where a move is read from a version other than the one the work was on before it: the
+// check, recorded at T2 of the second version, would then read as T4. Runs in memory in milliseconds.
+#[test]
+fn a_work_moved_at_two_starts_reads_what_it_recorded_on_each_version_through_the_renumberings_after_that_version() {
+    let mut h = H::with(vec![first()]);
+    let (_, work) = h.add_let_on(new_item("a", &[], "staged"));
+    h.hands_in(work, &[("text", None)]);
+    assert_eq!(h.round(work).1, "T2");
+    h.install(vec![renumbered()]);
+    h.lift_the_starts_pause();
+    h.hands_in(work, &[("reviewed", None)]);
+    // The check, new on the second version, runs at its T2.
+    assert_eq!(h.round(work).1, "T2");
+    assert_eq!(ran_at(&h, work), ["T1", "T3", "T2"]);
+    let todos = h.install(vec![renumbered_twice()]);
+    assert!(h.d().work(work).expect("the work is there").on.installed());
+    // The review, recorded at T2 of the first version, reads as T4; the check, recorded at T2 of the second, as T2.
+    assert_eq!(ran_at(&h, work), ["T1", "T4", "T2"]);
+    let stored = h.reader.load(work).expect("the work loads");
+    let recorded: Vec<&str> = stored.records.started.iter().map(|s| s.cell.as_str()).collect();
+    assert_eq!(recorded, ["T1", "T2", "T2"], "the store keeps every name as recorded");
+    assert_eq!(stored.flows.len(), 3, "added on the first version, moved twice");
+    // The check's round under way is given again at the cell it is at now.
+    let at = |t: &Todo| matches!(&t.effect, Effect::Round { cell, .. } if cell.as_str() == "T2");
+    assert!(todos.iter().any(at), "{todos:?}");
+    h.lift_the_starts_pause();
+    h.hands_in(work, &[("checked", None)]);
+    // The proofing, new at T3, has no record and runs on what the check wrote.
+    assert_eq!(h.round(work).1, "T3");
+}
+
+// The start check reads every version a work is on, one a work ended on too, whose cells are read through the table
+// installed wherever the work is shown and counted (decision `a-table-that-misreads-a-kept-version-is-refused`). Fails
+// where only the works the start moves are checked. Runs in memory in milliseconds.
+#[test]
+fn the_engine_does_not_start_on_a_table_that_misreads_the_version_a_work_ended_on() {
+    let mut h = H::with(vec![first()]);
+    let (_, work) = h.add_let_on(new_item("a", &[], "staged"));
+    h.through(work);
+    let version = version_of(&h, work);
+    h.install(vec![followed()]);
+    assert!(!h.d().work(work).expect("the work is there").on.installed());
+    // T1 is given the id T2 where a T2 stands still: the merged work's T1 and T2 would read as one.
+    let two = staged(
+        "[{ ids = { T1 = \"T2\" } }]",
+        &["main"],
+        &["text", "reviewed"],
+        &[("T1", WRITE), ("T2", REVIEW), ("M1", MERGE)],
+    );
+    let Fault::EarlierIds {
+        flow,
+        version: of,
+        works,
+        why,
+    } = refused_on(&h, vec![two])
+    else {
+        panic!("another fault")
+    };
+    assert_eq!(
+        (flow.as_str(), of.as_str(), works),
+        ("staged", version.as_str(), vec![work])
+    );
+    assert_eq!(
+        *why,
+        Misread::TwoAsOne {
+            cells: vec!["T1".into(), "T2".into()],
+            reads_as: "T2".into()
+        }
+    );
 }
