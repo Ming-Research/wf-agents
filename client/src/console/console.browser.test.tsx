@@ -10,8 +10,8 @@
 // once destroyed, the scene listens to nothing. The pointer and the wheel are events sent to the canvas at the points
 // the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
 // browser's own. They pin as well what the old console did not do: a click on an item's funnel folds what is under it
-// into a dot and a click on the dot shows it again, both selecting nothing, the fold turning over its time; and the
-// console keeps that choice over its own rule.
+// into a dot and a click on the dot shows it again, both selecting nothing, the fold turning over its time; the
+// console keeps that choice over its own rule; and a lit way turns into the cards it joins along its own curve.
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
@@ -51,6 +51,25 @@ const card = (id: number, children: Shown[] = []): Shown => ({
   children,
 });
 const shadow = (id: number): Shown => ({ ...card(id), shadow: true });
+/// The work numbered `number`, running its implement cell since now.
+const running = (number: number): Shown['work'] => {
+  const now = Date.now();
+  return {
+    number,
+    now: { kind: 'round', cell: 'implement', run: 1, round: 1, since: now },
+    paused: null,
+    cells: [{ cell: 'implement', state: 'running', finished: 0, record: null, open: 1 }],
+    waits: [],
+    from: now,
+    bar: '',
+    sentBack: 0,
+    usdMicros: 0,
+    last: null,
+    level: '2',
+    raise: 0,
+    lines: null,
+  };
+};
 
 const frame = () => new Promise<void>((done) => requestAnimationFrame(() => done()));
 /// Two frames: one in which the scene has surely drawn, whichever of its frame and the test's came first.
@@ -256,25 +275,11 @@ describe('the tree in columns', () => {
   });
 
   it('draws the lit way into a running item under a turning fold with its card, ending where the card is drawn at each frame', () => {
-    const now = Date.now();
-    const work: Shown['work'] = {
-      number: 2,
-      now: { kind: 'round', cell: 'implement', run: 1, round: 1, since: now },
-      paused: null,
-      cells: [{ cell: 'implement', state: 'running', finished: 0, record: null, open: 1 }],
-      waits: [],
-      from: now,
-      bar: '',
-      sentBack: 0,
-      usdMicros: 0,
-      last: null,
-      level: '2',
-      raise: 0,
-      lines: null,
-    };
     const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
     // Under 1, item 2, whose work runs.
-    const tree = (folded: boolean) => [{ ...card(1, [{ ...card(2), begun: true, work }]), fold: { folded, under } }];
+    const tree = (folded: boolean) => [
+      { ...card(1, [{ ...card(2), begun: true, work: running(2) }]), fold: { folded, under } },
+    ];
     /// The way into item 2 is lit, and ends where item 2 is drawn, smaller than whole.
     const endsAtCard = () => {
       const way = scene.litWays().find((w) => w.id === 2);
@@ -294,6 +299,43 @@ describe('the tree in columns', () => {
     scene.show(tree(true));
     for (let k = 0; k < FOLD_MS / 32; k += 1) scene.step(16);
     endsAtCard();
+  });
+
+  it('turns a lit way that leaves an open card steeply into the edges it joins along its own curve, with no stub beside it', () => {
+    // Under 1, shown, item 2, whose work runs, and eleven items more: 2 stands rows above 1, so that its way rises
+    // steeply out of 1's edge.
+    const rest = Array.from({ length: 11 }, (_, k) => card(3 + k));
+    const under = { open: 12, done: 0, cancelled: 0, elsewhere: 0 };
+    const two = { ...card(2), begun: true, work: running(2) };
+    scene.show([{ ...card(1, [two, ...rest]), fold: { folded: false, under } }]);
+    settle(scene);
+    const way = scene.litWays().find((w) => w.id === 2);
+    const [one, item] = [scene.cardAt(1), scene.cardAt(2)];
+    if (way === undefined || one === null || item === null) throw new Error('the way into 2 is not drawn');
+    // The way starts at the middle of 1's right edge and ends at the middle of 2's left edge, well above it.
+    expect(way.from[0]).toBeCloseTo(one.x + NODE_W, 6);
+    expect(way.from[1]).toBeCloseTo(one.y, 6);
+    expect(way.to[0]).toBeCloseTo(item.x, 6);
+    expect(way.to[1]).toBeCloseTo(item.y, 6);
+    expect(one.y - item.y).toBeGreaterThan(4 * ROW);
+    // Each turn into a card begins on the way's curve as drawn, off the card's middle where the way has already
+    // turned, and heads along the curve to bend on the card's edge.
+    for (const [turn, edge] of [[way.turns[0], way.from], [way.turns[1], way.to]] as const) {
+      let best = { off: Infinity, along: [0, 0] as [number, number] };
+      for (let n = 0; n + 1 < way.curve.length; n += 1) {
+        const [a, b] = [way.curve[n], way.curve[n + 1]];
+        const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+        const len = Math.hypot(dx, dy);
+        const k = Math.min(1, Math.max(0, ((turn.from[0] - a[0]) * dx + (turn.from[1] - a[1]) * dy) / (len * len)));
+        const off = Math.hypot(turn.from[0] - (a[0] + dx * k), turn.from[1] - (a[1] + dy * k));
+        if (off < best.off) best = { off, along: [dx / len, dy / len] };
+      }
+      expect(best.off).toBeLessThan(1e-6);
+      expect(Math.abs(turn.from[1] - edge[1])).toBeGreaterThan(0.5);
+      expect(turn.bend[0]).toBeCloseTo(edge[0], 6);
+      const [hx, hy] = [turn.bend[0] - turn.from[0], turn.bend[1] - turn.from[1]];
+      expect(Math.abs(hx * best.along[1] - hy * best.along[0]) / Math.hypot(hx, hy)).toBeLessThan(1e-6);
+    }
   });
 
   it('draws a fold as it stands at the end of its turn in the first frame after its time, however far apart the frames come', () => {

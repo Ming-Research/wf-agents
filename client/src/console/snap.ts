@@ -465,6 +465,38 @@ export function grounded(item: number, x: number, y: number, h: number, boxed: b
 /// one pixel long, to which a strand beside it is moved out.
 type Way = { points: [number, number][]; along: number[]; across: [number, number][] };
 
+/// Where a way's line turns into a card's edge, at the way's start (`start`) or at its end. The turn leaves the way
+/// `reach` along it from the card, at the way's own place there (`from`). It bends at `bend`, where the way's direction
+/// at that place, followed on to the card, meets the card's edge. A curve from `from` through `bend` to the edge so
+/// leaves the way along it and meets the edge along it, however steeply the way turns near the card. A turn begun level
+/// with the card's middle would stand off a way that has already turned, as a stub beside it. The bend is kept on the
+/// edge between the places the turn runs to, `reach` up and down it, so that neither half of the turn runs back.
+function turnOf(way: Way, start: boolean, reach: number): { from: [number, number]; bend: [number, number] } {
+  const { points, along } = way;
+  const last = points.length - 1;
+  const at = Math.min(along[last], Math.max(0, start ? reach : along[last] - reach));
+  let n = 0;
+  while (n < last - 1 && along[n + 1] < at) n += 1;
+  const [a, b] = [points[n], points[n + 1]];
+  const len = along[n + 1] - along[n];
+  const k = len > 0 ? (at - along[n]) / len : 0;
+  const from: [number, number] = [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+  const [ex, ey] = points[start ? 0 : last];
+  const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+  const by = dx === 0 ? ey : from[1] + (dy * (ex - from[0])) / dx;
+  return { from, bend: [ex, Math.min(ey + reach, Math.max(ey - reach, by))] };
+}
+
+/// A lit way as it was drawn, for the tests: the item it runs into, where it began and ended, the points its curve was
+/// drawn through, and its turns into the cards it joins ([`turnOf`]), out of the one above and into the item.
+export type LitWay = {
+  id: number;
+  from: [number, number];
+  to: [number, number];
+  curve: [number, number][];
+  turns: { from: [number, number]; bend: [number, number] }[];
+};
+
 /// The light on a stretch `length` long that begins `dist` down from the left side of its root's card, the light's
 /// head `head` down from it now: the pieces the light is drawn in, each from and to how far along the stretch it
 /// stands, with how brightly it is drawn, from its tail (0) to its head (1). The stretch is a way between two cards,
@@ -494,6 +526,12 @@ export function headAt(part: number, whole: number): number {
 export function sparkAt(dist: number, head: number): number {
   const near = lightOn(dist - RUN.portNear, RUN.portNear * 2, head).reduce((a, { bright }) => Math.max(a, bright), 0);
   return RUN.portRest + (1 - RUN.portRest) * near;
+}
+
+/// How far the glint at a spark has come, from 0 to 1, as it burns at `burn` ([`sparkAt`]): the glint comes only
+/// with the light itself, so that at rest the way's end is lit, not glinting.
+function glintOf(burn: number): number {
+  return Math.max(0, (burn - RUN.portRest) / (1 - RUN.portRest));
 }
 
 /// How thick the way's line is drawn `u` along it, from 0 to 1, as a part of its width: thinnest at its ends.
@@ -939,9 +977,9 @@ export class SnapScene {
   private litDots: number[] = [];
   /// How each item, by its place in the tree, was moved and sized at the last frame while folds turned ([`movedNow`]);
   /// none else, when each is drawn where it stands, whole. And the lit ways drawn at the last frame, each by the item
-  /// it runs into, from where it began to where it ended; for the tests.
+  /// it runs into, from where it began to where it ended, with its curve and its turns into the cards; for the tests.
   private drawnMoved: { a: Float64Array; bx: Float64Array; by: Float64Array } | null = null;
-  private waysDrawn: { id: number; from: [number, number]; to: [number, number] }[] = [];
+  private waysDrawn: LitWay[] = [];
   /// For each item, whether a work goes on on it or under it: the edges of the cards above a work are lit.
   private lit: Uint8Array = new Uint8Array(0);
   /// For each item, whether a work has begun on it or under it: the title of one with none is greyer.
@@ -1664,8 +1702,8 @@ export class SnapScene {
   }
 
   /// The lit ways drawn at the last frame, each by the number of the item it runs into, from where it began to where
-  /// it ended, for the tests.
-  litWays(): { id: number; from: [number, number]; to: [number, number] }[] {
+  /// it ended, with its curve and its turns into the cards, for the tests.
+  litWays(): LitWay[] {
     return [...this.waysDrawn];
   }
 
@@ -1907,35 +1945,49 @@ export class SnapScene {
     coat(this.runEdges.line, this.lineWidth, RUN.lineAlpha, core);
   }
 
-  /// The light where a way meets a card, at `(x, y)` on the card's edge, `half` its height, the way coming in against
-  /// `inward`, at `strength`, `burn` from 0 to 1 as the light goes through it: it lies along the edge the way meets,
-  /// burning brighter as the light comes and fading out as it goes each way along it, in the light's colour as it goes
-  /// through (`tint`). Along the way itself the way's own line carries it.
+  /// The line a spark is drawn in: white where the page is dark, the hottest of the light; where it is light, the
+  /// way's ink line `line`, which the glint reads within.
+  private flareLine(line: number): number {
+    return this.adds ? Number.parseInt(PALETTE.glowTo.slice(1), 16) : line;
+  }
+
+  /// A way's line turning into a card's edge at `(x, y)`, up and down it, from where it leaves the way through where it
+  /// bends ([`turnOf`]): lit as the spark there is, at `strength`, `burn` from 0 to 1 as the light goes through it.
+  /// Each way turns in along its own curve, however many ways meet the card there.
+  private turnIn(
+    x: number,
+    y: number,
+    turn: { from: [number, number]; bend: [number, number] },
+    tint: (bright: number) => number,
+    line: number,
+    strength: number,
+    burn: number,
+  ) {
+    const [[fx, fy], [bx, by]] = [turn.from, turn.bend];
+    const lay = (g: Graphics) => {
+      for (const side of [-1, 1]) g.moveTo(fx, fy).quadraticCurveTo(bx, by, x, y + side * RUN.fillet);
+    };
+    this.coats(lay, tint(glintOf(burn)), this.flareLine(line), strength * burn, RUN.portWide);
+  }
+
+  /// The light where a way meets a card, at `(x, y)` on the card's edge, `half` its height, at `strength`, `burn` from
+  /// 0 to 1 as the light goes through it: it lies along the edge the way meets, burning brighter as the light comes and
+  /// fading out as it goes each way along it, in the light's colour as it goes through (`tint`). Along the way itself
+  /// the way's own line carries it, and the way's turn into the edge ([`turnIn`]).
   private spark(
     x: number,
     y: number,
     half: number,
-    inward: number,
     tint: (bright: number) => number,
     line: number,
     glint: number,
     strength: number,
     burn: number,
   ) {
-    // The glint comes only with the light itself: at rest the way's end is lit, not glinting.
-    const going = Math.max(0, (burn - RUN.portRest) / (1 - RUN.portRest));
+    const going = glintOf(burn);
     const reach = RUN.portHold * half;
-    // The flare's own line is white where the page is dark, the hottest of the light; where it is light, the way's
-    // ink line, which the glint reads within.
     const white = Number.parseInt(PALETTE.glowTo.slice(1), 16);
-    const core = this.adds ? white : line;
-    // The way's line turning into the edge, up and down it, from where the way comes in from outside the card.
-    const turn = (g: Graphics) => {
-      for (const side of [-1, 1]) {
-        g.moveTo(x - inward * RUN.fillet, y).quadraticCurveTo(x, y, x, y + side * RUN.fillet);
-      }
-    };
-    this.coats(turn, tint(going), core, strength * burn, RUN.portWide);
+    const core = this.flareLine(line);
     for (let n = 0; n < RUN.portPieces; n += 1) {
       const [near, far] = [(reach * n) / RUN.portPieces, (reach * (n + 1)) / RUN.portPieces];
       const fade = (1 - (n + 0.5) / RUN.portPieces) ** RUN.portFall;
@@ -2584,8 +2636,9 @@ export class SnapScene {
       const { px, py, cx, iy } = ends(i);
       if (cx < 0 || px > width) continue;
       if (Math.max(py, iy) < 0 || Math.min(py, iy) > height) continue;
-      this.waysDrawn.push({ id: this.ids[i], from: [px, py], to: [cx, iy] });
       const { way, len, dist } = wayDown(i);
+      const turns = [turnOf(way, true, RUN.fillet), turnOf(way, false, RUN.fillet)];
+      this.waysDrawn.push({ id: this.ids[i], from: [px, py], to: [cx, iy], curve: way.points, turns });
       // How long the way's curve is, and how far along it the place stands that is `across` the page from its start.
       const curve = way.along[RUN.pieces];
       const on = (across: number) => this.arcAt(way, across);
@@ -2635,18 +2688,22 @@ export class SnapScene {
       // card the way ends at, lit from its left side to its right as the light crosses it. Where the way comes from
       // a root, the root's own card is crossed before any way.
       // The light where the way meets each card: on the parent's right side, going into it, and on the item's left.
-      // Each card's own end is lit once, however many running ways meet it there.
+      // The way turns into each along its own curve; each card's own end is lit once, however many running ways meet
+      // it there.
       // A card drawn smaller under a turning fold has its ends lit at its size, and its edge crossed by no light
       // until it is drawn whole.
+      const [out, into] = [sparkAt(dist, head), sparkAt(dist + len, head)];
+      this.turnIn(px, py, turns[0], tint, lineColour, strength, out);
+      this.turnIn(cx, iy, turns[1], tint, lineColour, strength, into);
       if (!sparked.has(p * 2)) {
         sparked.add(p * 2);
         const ph = (high(this.base[p]) / 2) * size(p);
-        this.spark(px, py, ph, -1, tint, lineColour, glintColour, strength, sparkAt(dist, head));
+        this.spark(px, py, ph, tint, lineColour, glintColour, strength, out);
       }
       if (!sparked.has(i * 2 + 1)) {
         sparked.add(i * 2 + 1);
         const ih = (high(this.base[i]) / 2) * size(i);
-        this.spark(cx, iy, ih, 1, tint, lineColour, glintColour, strength, sparkAt(dist + len, head));
+        this.spark(cx, iy, ih, tint, lineColour, glintColour, strength, into);
       }
       if (t.parent[p] < 0 && !crossed.has(p)) {
         crossed.add(p);
