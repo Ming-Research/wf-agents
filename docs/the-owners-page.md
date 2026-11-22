@@ -28,7 +28,7 @@ and those of its look.
 
 5. What an item depends on can be changed on the page, while its work has started no run (decision
    dependencies-until-the-work-starts): the owner needs no command line for it (principle
-   owner-never-needs-the-command-line).
+   the-console-is-where-the-owner-works).
 
 6. The owner's words can carry pictures, picked or pasted, sent with the words as one message and shown with them,
    and shown in the rounds that were given them: what the owner sees of a problem can be shown to the agent as it is.
