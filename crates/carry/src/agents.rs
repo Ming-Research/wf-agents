@@ -3244,6 +3244,39 @@ mod tests {
         assert_eq!(under.len(), none.len() + 1);
     }
 
+    // What a work spent on forks counts against its budget as a keep-warm ping's spend does: a round that took a dollar
+    // ends a work over the sample's five-dollar budget where its forks cost six, and not where it has none. Two checks on
+    // a carrier with no program run: a few milliseconds.
+    #[test]
+    fn the_budget_counts_what_the_work_spent_on_forks() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), Work::default(), Default::default());
+        let spent = Spent {
+            usd_micros: 1_000_000,
+            ..Spent::default()
+        };
+        assert_eq!(agents.inner.over_budget(&round, &spent), None);
+        let mut kept = Work::default();
+        kept.forked.push(work::Forked {
+            at: Seq(3),
+            run: RunId(7),
+            round: 1,
+            usd_micros: 6_000_000,
+            input_tokens: 0,
+            cached_tokens: 0,
+            output_tokens: 0,
+        });
+        let round = Round {
+            kept: Arc::new(kept),
+            ..round
+        };
+        let said = agents
+            .inner
+            .over_budget(&round, &spent)
+            .expect("the work is over its budget");
+        assert!(said.contains("7.00"), "{said}");
+    }
+
     /// A line of a stream: the program's first, which says it took its message in.
     const INIT: &str = r#"{"type":"system","subtype":"init","claude_code_version":"9.9.9"}"#;
 
