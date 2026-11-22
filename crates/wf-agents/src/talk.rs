@@ -589,7 +589,7 @@ fn stop_said(system: &System, stopped: Stopped) -> String {
     let rounds: Vec<&UnderWay> = (system.under_way.iter())
         .filter(|u| matches!(u, UnderWay::Round { .. }))
         .collect();
-    let mut latest = Rest::Expected { ms: 0 };
+    let latest = web::system::rest_of_rounds(&system.under_way);
     let mut listed = Vec::new();
     for under_way in &rounds {
         let UnderWay::Round {
@@ -604,10 +604,6 @@ fn stop_said(system: &System, stopped: Stopped) -> String {
             continue;
         };
         let rest = rest.unwrap_or(Rest::Longer {});
-        latest = match (latest, rest) {
-            (Rest::Expected { ms: a }, Rest::Expected { ms: b }) => Rest::Expected { ms: a.max(b) },
-            _ => Rest::Longer {},
-        };
         let to_come = match rest {
             Rest::Expected { ms } => format!("about {} more", duration(ms)),
             Rest::Longer {} => "longer than any round of its history".to_string(),
@@ -1789,7 +1785,17 @@ fn waited(waited: &Waited) -> String {
         Waited::Slot {} => "a free slot".to_string(),
         Waited::Answer { question } => format!("the owner to answer the question {question}"),
         Waited::Turn { holder, .. } => format!("the project's turn to check and merge, which work {holder} holds"),
-        Waited::Agents { outage: o } => format!("the agents' rounds to begin again, as {}", cause(o)),
+        Waited::Agents { outage: o } => match o.first {
+            Some(first) => {
+                let what = if o.service == web::works::Service::Host {
+                    "act"
+                } else {
+                    "round"
+                };
+                format!("W{first}'s {what} to come back: it is well again, and that {what} goes first")
+            }
+            None => format!("the agents' rounds to begin again, as {}", cause(o)),
+        },
         Waited::Stopping { since } => format!(
             "the engine to start again, as it was asked to stop {} ago",
             duration(clock().saturating_sub(*since))
@@ -2390,6 +2396,43 @@ mod tests {
         outage.until = Until::Well { at: 2 * hour };
         outage.holds = false;
         assert!(list(&waiting, &Listing::default()).starts_with("#1 "));
+    }
+
+    // A work the wait every work shares holds while one round goes first says it waits for that round, not for the
+    // cause the check found gone, and for the act that goes first where the wait is the acts'. Microseconds.
+    #[test]
+    fn a_work_held_while_one_round_goes_first_says_it_waits_for_that_one() {
+        let mut outage = Outage {
+            service: web::works::Service::Agents,
+            failure: Failure::Offline,
+            why: "Unable to connect to API".to_string(),
+            work: 1,
+            run: 2,
+            round: 1,
+            since: 0,
+            checked: Some(Checked {
+                at: 30_000,
+                taken: 1,
+                found: Found::Well,
+            }),
+            until: Until::Well { at: 30_000 },
+            holds: true,
+            first: Some(3),
+        };
+        assert_eq!(
+            waited(&Waited::Agents { outage: outage.clone() }),
+            "W3's round to come back: it is well again, and that round goes first"
+        );
+        outage.service = web::works::Service::Host;
+        assert_eq!(
+            waited(&Waited::Agents { outage: outage.clone() }),
+            "W3's act to come back: it is well again, and that act goes first"
+        );
+        outage.first = None;
+        assert!(
+            waited(&Waited::Agents { outage }).starts_with("the agents' rounds to begin again, as "),
+            "a wait no round goes first in says its cause"
+        );
     }
 
     // `wait` says what the owner does about the agents' command line once, on the line of the wait every work shares,

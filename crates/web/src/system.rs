@@ -134,6 +134,18 @@ impl Rest {
     }
 }
 
+/// How much longer the rounds of what is under way are expected to take, all of them: the latest of their rests, a
+/// round with none taken as longer than any before, and none to come where no round is under way. A stop that waits
+/// for them ends then.
+pub fn rest_of_rounds(under_way: &[UnderWay]) -> Rest {
+    (under_way.iter())
+        .filter_map(|under_way| match under_way {
+            UnderWay::Round { rest, .. } => Some(rest.unwrap_or(Rest::Longer {})),
+            UnderWay::Call { .. } => None,
+        })
+        .fold(Rest::Expected { ms: 0 }, Rest::latest)
+}
+
 /// A week: what its rounds took, and how many of each thing that is counted happened in it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -650,12 +662,7 @@ impl System {
         system.stopping = driver.stopping().map(|stop| Stop {
             since: stop.since.0,
             at_once: stop.at_once,
-            rest: (system.under_way.iter())
-                .filter_map(|under_way| match under_way {
-                    UnderWay::Round { rest, .. } => Some(rest.unwrap_or(Rest::Longer {})),
-                    UnderWay::Call { .. } => None,
-                })
-                .fold(Rest::Expected { ms: 0 }, Rest::latest),
+            rest: rest_of_rounds(&system.under_way),
         });
         Ok(system)
     }

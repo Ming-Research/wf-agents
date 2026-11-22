@@ -83,6 +83,9 @@ describe('the words of a round that failed and of the waits that follow', () => 
     );
     const act = outage({ service: 'host', failure: 'offline', until: { kind: 'looked', at: 0 }, first: 2 });
     expect(outageWords(act)).toMatch(/W2's act goes first, and the rest begin once it comes back\.$/);
+    // Each work the wait holds meanwhile says it waits for that one, not for the cause the check found gone.
+    expect(waitedWords({ kind: 'agents', outage: first })).toBe("W5's round to come back: it is well again, and that round goes first");
+    expect(waitedWords({ kind: 'agents', outage: act })).toBe("W2's act to come back: it is well again, and that act goes first");
   });
 
   it('says the wait every work shares as what the agents\' rounds wait for', () => {

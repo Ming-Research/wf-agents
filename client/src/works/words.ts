@@ -302,8 +302,14 @@ export function waitedWords(waited: Waited): string {
       }`;
     case 'slot':
       return 'a free slot, which the engine gives in its order';
-    case 'agents':
-      return `the agents' rounds to begin again, as ${failureWords(outageDown(waited.outage).failure)}`;
+    case 'agents': {
+      const outage = waited.outage;
+      if (outage.first != null) {
+        const what = outage.service === 'host' ? 'act' : 'round';
+        return `W${outage.first}'s ${what} to come back: it is well again, and that ${what} goes first`;
+      }
+      return `the agents' rounds to begin again, as ${failureWords(outageDown(outage).failure)}`;
+    }
     case 'stopping':
       return `the engine to start again, as it was asked to stop at ${clock(waited.since)}`;
     case 'answer':

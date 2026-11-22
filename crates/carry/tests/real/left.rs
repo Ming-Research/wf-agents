@@ -265,6 +265,48 @@ async fn words_the_hook_gave_a_try_its_engine_did_not_see_end_are_put_into_its_r
     assert!(put(&real), "the words the hook gave are not put into the round");
 }
 
+// The owner's words the hook gave a round's program before its engine ended are the round's when the round is stopped
+// after, as when it is given again: the stop reads what the hook gave from the round's files, and the words are put into
+// the round before it ends, its session known to hold them. Under two seconds alone; the test before holds such a round
+// given again, and no other test one stopped.
+#[tokio::test]
+async fn words_the_hook_gave_a_try_whose_round_is_stopped_after_its_engine_ended_are_put_into_its_round() {
+    let fake = Fake {
+        build_hears_once_begun: 30,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    // The first process of the engine ends before it stops anything: its stops are dropped.
+    real.deafen();
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| matches!(real.decision(work), Decision::Busy { cell, .. } if cell.as_str() == "build"))
+        .await;
+    real.wait(|real| real.calls().iter().any(|call| call.of("Build"))).await;
+    let build = real.run_of(work, "build");
+    let base = real.data.join(format!("rounds/{}/{}-1", work.0, build.0));
+    let stream = base.with_extension("stream.jsonl");
+    real.wait(|_| std::fs::read_to_string(&stream).is_ok_and(|s| s.contains(r#""type":"assistant""#)))
+        .await;
+    let to = engine::spoken::To::Cell("build".into());
+    real.act(
+        work,
+        Act::Say {
+            to,
+            words: "Greet them warmly.".to_string(),
+        },
+    );
+    let given = base.with_extension("given.1.json");
+    real.wait(|_| given.exists()).await;
+    real.act(work, Act::Cancel { why: None });
+
+    // Started again, the stop finds nothing held, and ends the round with what its hook gave.
+    real.restart();
+    real.until(|real| real.ended_rounds(work, build)).await;
+    let put = (real.work(work).records.put_in.iter()).any(|p| p.run == build && p.block.as_str() == "build_words");
+    assert!(put, "the words the hook gave are not put into the stopped round");
+}
+
 // Pinned as it stands: a return the program wrote, which the command line took, before its engine ended and before the
 // program printed its result, is not taken, the stream holding no result. The round fails in passing, and the run's
 // next round is told only what its session lacks, its task as held; nothing tells the agent that its return was not

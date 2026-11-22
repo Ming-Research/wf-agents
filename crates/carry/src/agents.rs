@@ -355,6 +355,11 @@ impl Rounds for Agents {
                 process::stop_left(&group, &dir).await;
                 let teller = reply.teller();
                 let spent = inner.left_spent(&round, (!here).then_some(&teller)).await;
+                // What the hook gave a try a process that ended left is the round's, as for a round given again; a
+                // round given here had it said as its carrying ended.
+                if !here {
+                    inner.hook_gave(&round, &teller).await;
+                }
                 reply.ended(Came::hands_in(Vec::new()), spent);
             });
         }
@@ -1199,6 +1204,14 @@ impl Inner {
         };
         let mut state = state.lock().await;
         state.ended = true;
+        self.hook_gave(round, teller).await;
+    }
+
+    /// Takes back what waits for the round's hook, whose program has ended, and says what the hook gave the round, as
+    /// its files of words keep it: those versions are put into it, and what waited and was never given stays new to the
+    /// cell. It reads only the files, so that a round this process gave and one a process that ended left, given again
+    /// or stopped, are read alike.
+    async fn hook_gave(&self, round: &Round, teller: &Teller) {
         let words = words(&self.kept(round));
         let unread = |why: String| {
             eprintln!(
