@@ -106,7 +106,7 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           JOB: page
-          RESULTS: ${{ runner.temp }}/page.xml
+          RESULTS: page.xml
           TESTED: ${{ steps.tests.outcome }} Test the page
           STEPS: |
             ${{ steps.checkout.outcome }} Check out the commit
@@ -134,7 +134,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: junit-page
-          path: ${{ runner.temp }}/page.xml
+          path: page.xml
           if-no-files-found: ignore
 
   # The Rust format, the form of the design tree's files and clippy with warnings as errors, beside the tests.
