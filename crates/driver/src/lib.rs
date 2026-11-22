@@ -28,8 +28,9 @@
 //! The driver writes one more kind of block of a work: a block of a flow whose source is [`SESSION`], which a cell
 //! reads that loads into a line's session what the line's other cells work from, each line its own. As a line of a work
 //! begins a new session, the driver records it and writes the block its cells read, so that the cell runs again before
-//! the line goes on; when a line begins one is the installation's [`Policy`], worked out of the work's records after
-//! each thing that happens and before the walk (module [`sessions`]).
+//! the line goes on; when a line begins one is the installation's [`Policy`], worked out of the work's records, and of
+//! what the carriers say a new session of the line would begin with, after each thing that happens and before the walk
+//! (module [`sessions`]).
 //!
 //! What another source outside the works says of a project, such as the head of the project's main branch, the driver
 //! is told ([`Driver::outside`]), and writes into the block of that source of each work of that project's items that
@@ -811,9 +812,9 @@ impl Driver {
             };
             let (room, gate) = (self.room(Some(work), true), self.gate_of(work));
             let held = works.entry(work).or_insert_with(|| self.works[&work].clone());
-            let (item, policy) = (&held.item, self.policy.as_ref());
+            let (number, item, policy) = (work, &held.item, self.policy.as_ref());
             let then = |flow: &Compiled, work: &Work| {
-                let mut events = sessions::follow(flow, work, item, policy);
+                let mut events = sessions::follow(flow, number, work, item, policy);
                 events.extend(start(flow, work));
                 events
             };
@@ -1402,6 +1403,7 @@ impl Driver {
             }
             for due in warm::due(
                 &held.flow,
+                *number,
                 &held.work,
                 &held.item,
                 policy,
@@ -1439,6 +1441,7 @@ impl Driver {
             .flat_map(|(number, held)| {
                 (warm::kept(
                     &held.flow,
+                    *number,
                     &held.work,
                     &held.item,
                     policy,
@@ -1915,9 +1918,9 @@ fn step(
     gate: Gate,
 ) -> Result<Vec<Effect>, Halt> {
     let before = held.work.tick();
-    let item = &held.item;
+    let (number, item) = (held.head.number, &held.item);
     let then = |flow: &Compiled, work: &Work| {
-        let mut events = sessions::follow(flow, work, item, policy);
+        let mut events = sessions::follow(flow, number, work, item, policy);
         events.extend(start(flow, work));
         events
     };

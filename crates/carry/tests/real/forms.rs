@@ -1,6 +1,7 @@
 //! The form of return the agents' program is given: the one the flow and what is written beside it make for the line
 //! of the cell entered (`flow::form`), made as the session begins and kept with it, as the system prompt is, so that
-//! every call of a session, which is a line's, is given the same bytes.
+//! every call of a session, which is a line's, is given the same bytes; a line whose session began with another form
+//! than a new session would begin with now begins a new session at its next round.
 
 use service::Act;
 
@@ -43,11 +44,14 @@ async fn every_call_of_a_line_is_given_the_form_of_that_line_as_the_files_beside
     assert_eq!(real.form_given(3), reviewer, "the review's call");
 }
 
-// A session is given on every call the form and the system prompt it began with, though the flow changed in the
-// meantime: the engine started again with a flow whose plan may ask for one more tool, which would change both, gives
-// the build's later calls, in the session the plan began, what the plan's call was given.
+// A session is given on every call the form and the system prompt it began with, and a line whose session began with
+// another form or system prompt than a new session would begin with now begins a new session at its next round
+// (decision `a-changed-system-prompt-or-form-begins-a-new-session`): the engine started again with a flow whose plan
+// may ask for one more tool, which changes both, and the build, entered again for the owner's answer, begins a new
+// session under another id, given the new form and system prompt, and goes on in it with the same bytes. Seconds, with
+// the fake program, like the tests beside it; the one test that sees the program's command line after a renewal.
 #[tokio::test]
-async fn every_call_of_a_session_is_given_the_form_and_the_system_prompt_it_began_with_after_the_flow_changed() {
+async fn a_line_whose_session_began_on_a_flow_since_changed_begins_a_new_one_with_the_new_form_and_prompt() {
     let mut real = Real::trial(Fake {
         question_first: true,
         ..Fake::default()
@@ -66,24 +70,44 @@ async fn every_call_of_a_session_is_given_the_form_and_the_system_prompt_it_bega
     real.answer(work);
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
-    let session: Vec<(usize, &Call)> = (calls.iter().enumerate())
+    let line: Vec<(usize, &Call)> = (calls.iter().enumerate())
         .filter(|(_, call)| call.of("Plan") || call.of("Build"))
         .map(|(i, call)| (i + 1, call))
         .collect();
-    assert!(session.len() > 2, "the build is entered again after the answer");
-    for &(n, call) in &session[1..] {
-        assert!(
-            call.args.iter().any(|a| a == "--resume"),
-            "call {n} goes on in the session"
+    // The plan's call and the build's that asked the owner, before the engine started again, are in the session the
+    // plan began; every later call of the line is in the new one.
+    let first = line[0].1.session().1;
+    let (old, new): (Vec<(usize, &Call)>, Vec<(usize, &Call)>) =
+        line.iter().copied().partition(|(_, call)| call.session().1 == first);
+    assert_eq!(old.len(), 2, "the plan, and the build that asked the owner");
+    assert!(
+        new.len() > 1,
+        "the build is entered again for the answer, and for its query's result"
+    );
+    assert_eq!(new[0].1.session().0, "--session-id", "the build begins the new session");
+    for &(n, call) in &new[1..] {
+        assert_eq!(
+            call.session(),
+            ("--resume", new[0].1.session().1),
+            "call {n} goes on in it"
         );
-        assert_eq!(real.form_given(n), before, "call {n}");
-        assert_eq!(system(call), system(session[0].1), "call {n}");
+    }
+    for (session, form) in [(&old, &before), (&new, &after)] {
+        for &(n, call) in session {
+            assert_eq!(&real.form_given(n), form, "call {n}");
+            assert_eq!(system(call), system(session[0].1), "call {n}");
+        }
     }
     // The words of a tool begin with its name, as the list of the tools gives them.
     let told = "`run_tests`: ";
     assert!(crate::beside().tools["run_tests"].words.trim_start().starts_with(told));
-    assert!(
-        !(session.iter()).any(|(_, call)| system(call).iter().any(|l| l.contains(told))),
-        "no call of the session is told of the tool the changed flow names"
-    );
+    let tells = |call: &Call| system(call).iter().any(|l| l.contains(told));
+    assert!(!tells(old[0].1), "the session the plan began is not told of the tool");
+    assert!(tells(new[0].1), "the new session is told of it");
+    let kept = real.work(work);
+    let renewed: Vec<&work::Why> = (kept.sessions.iter())
+        .filter(|s| s.line == "engineer")
+        .map(|s| &s.why)
+        .collect();
+    assert!(matches!(renewed.as_slice(), [work::Why::Changed { .. }]), "{renewed:?}");
 }

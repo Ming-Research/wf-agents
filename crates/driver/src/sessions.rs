@@ -3,13 +3,17 @@
 //! the line's next round is given.
 //!
 //! With the installation's [`Policy`], a line begins a new session at its next round when the model its session's
-//! rounds ran on, as the work's records say, is not the one its rounds run on now. No line begins one for the account
-//! its rounds run under: the session lives in the one directory of the program's, and the service takes a session made
-//! under another account, so the line goes on in it, its next round writing its context to that account's cache
-//! (decision a-line-goes-on-in-its-session-under-another-account). Nor for the context its session holds: the agents'
-//! program compacts the session at the installation's own number, given it on every round's command line, and the line
-//! goes on in it (decision `a-session-is-compacted-at-the-installations-number`). A new session begins at once, and a
-//! round whose run ran in the session before is told what the run was doing.
+//! rounds ran on, as the work's records say, is not the one its rounds run on now; or when what a new session of it
+//! would begin with now, its system prompt or its form of return, as the carriers make it from the flow and the work's
+//! worktree, is not what its session began with, or cannot be made ([`Policy::changed`]): a session keeps what it
+//! began with, so a flow installed since, main taken in or the work's own change of the project's files reaches the
+//! line only in a new session (decision `a-changed-system-prompt-or-form-begins-a-new-session`). No line begins one for
+//! the account its rounds run under: the session lives in the one directory of the program's, and the service takes a
+//! session made under another account, so the line goes on in it, its next round writing its context to that account's
+//! cache (decision a-line-goes-on-in-its-session-under-another-account). Nor for the context its session holds: the
+//! agents' program compacts the session at the installation's own number, given it on every round's command line, and
+//! the line goes on in it (decision `a-session-is-compacted-at-the-installations-number`). A new session begins at
+//! once, and a round whose run ran in the session before is told what the run was doing.
 //!
 //! Whatever the policy, a line a round of whose session the service's safety check flagged, the run guard stopped, or
 //! whose prompt was too long for the model, begins a new session, in which that round is tried again, so that none is
@@ -30,7 +34,7 @@ use engine::Event;
 use flow::CellSpec;
 use flow::agents::fill;
 use flow::{Compiled, Texts};
-use store::Item;
+use store::{Item, WorkNumber};
 use work::sessions::{began_on, number_at, of_line, start};
 use work::{Back, Why, Work};
 
@@ -43,6 +47,11 @@ pub struct Policy {
     /// The model a round of the cell, for the item, runs on now; none where it cannot run.
     #[allow(clippy::type_complexity)]
     pub model: Box<dyn Fn(&Item, &CellSpec) -> Option<String> + Send>,
+    /// Whether a new session of the cell's line, in the work, for the item, would begin with another system prompt or
+    /// form of return now than the line's session of this number began with, as the carriers kept them, or with one
+    /// that cannot be made: no where the session began with none kept. None where the carriers keep no sessions.
+    #[allow(clippy::type_complexity)]
+    pub changed: Option<Box<dyn Fn(&Compiled, WorkNumber, &Item, &CellSpec, u32) -> bool + Send>>,
     /// How the sessions of lines that wait are kept warm; none where the agents' program keeps no prompt cache.
     pub warm: Option<Warm>,
 }
@@ -67,10 +76,10 @@ pub struct Warm {
 /// what the line's other cells work from into the session, a line's own where the flow gives each line one.
 pub const SESSION: &str = "session";
 
-/// What follows, from outside the work, from the work as it now is: each new session the policy says a line begins,
-/// and the write of each [`SESSION`] block where a line that has a cell reading it began one since the block was last
-/// written.
-pub fn follow(flow: &Compiled, work: &Work, item: &Item, policy: Option<&Policy>) -> Vec<Event> {
+/// What follows, from outside the work of this number, from the work as it now is: each new session the policy says a
+/// line begins, and the write of each [`SESSION`] block where a line that has a cell reading it began one since the
+/// block was last written.
+pub fn follow(flow: &Compiled, number: WorkNumber, work: &Work, item: &Item, policy: Option<&Policy>) -> Vec<Event> {
     // Nothing more is written to a work that has ended, whose sessions will run no round.
     if matches!(decide(&flow.flow, &work.records), Decision::Ended(_)) {
         return Vec::new();
@@ -81,7 +90,7 @@ pub fn follow(flow: &Compiled, work: &Work, item: &Item, policy: Option<&Policy>
                 line: line.to_string(),
                 why,
             }),
-            None => policy.and_then(|policy| due(flow, work, item, line, policy)),
+            None => policy.and_then(|policy| due(flow, number, work, item, line, policy)),
         })
         .collect();
     let mut writes = Vec::new();
@@ -176,11 +185,21 @@ fn line_of_run<'a>(flow: &'a Compiled, work: &Work, run: RunId) -> Option<&'a st
     line_of_cell(flow, started.cell.as_str())
 }
 
-/// The new session the line begins at its next round, as the policy says: where its session's rounds ran on another
-/// model than the line's rounds run on now. One whose rounds ran under another account goes on (decision
-/// a-line-goes-on-in-its-session-under-another-account), and a session past the installation's context is compacted by
-/// the agents' program and goes on (decision `a-session-is-compacted-at-the-installations-number`).
-pub fn due(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy) -> Option<Event> {
+/// The new session the line of the work of this number begins at its next round, as the policy says: where its
+/// session's rounds ran on another model than the line's rounds run on now; or where a new session of it would begin
+/// with another system prompt or form of return than its session began with, or with one that cannot be made, the
+/// record holding the context of the session it leaves where one was told. One whose rounds ran under another account
+/// goes on (decision a-line-goes-on-in-its-session-under-another-account), and a session past the installation's
+/// context is compacted by the agents' program and goes on (decision
+/// `a-session-is-compacted-at-the-installations-number`).
+pub fn due(
+    flow: &Compiled,
+    number: WorkNumber,
+    work: &Work,
+    item: &Item,
+    line: &str,
+    policy: &Policy,
+) -> Option<Event> {
     let on_line = |run: RunId| line_of_run(flow, work, run) == Some(line);
     let session = number_at(work, line, work.tick());
     let began = began_on(work, line, on_line, session);
@@ -197,6 +216,17 @@ pub fn due(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Polic
             why: Why::Model {
                 was: began.model.clone(),
             },
+        });
+    }
+    // The system prompt and the form are the same for every cell of the line, so any cell of it stands for the line
+    // here too.
+    if let (Some(changed), Some(cell)) = (&policy.changed, cell)
+        && changed(flow, number, item, cell, session)
+    {
+        let context = crate::history::context_before(flow, work, line, session, work.tick());
+        return Some(Event::Anew {
+            line: line.to_string(),
+            why: Why::Changed { context },
         });
     }
     None

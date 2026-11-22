@@ -901,7 +901,8 @@ impl Settings {
 
     /// When a line begins a new session, where the model its session's rounds ran on is not the one its rounds run on
     /// now; and how its sessions are kept warm while it waits. A session past the installation's context is compacted
-    /// by the agents' program, not replaced, so the number is no part of the policy.
+    /// by the agents' program, not replaced, so the number is no part of the policy. Whether a new session would begin
+    /// with another system prompt or form is what the agents that keep the sessions say ([`crate::Agents`]): none here.
     pub fn policy(&self) -> Policy {
         let settings = self.clone();
         let sessions = &self.sessions;
@@ -921,6 +922,7 @@ impl Settings {
                     .ok()
                     .map(|(_, model)| model)
             }),
+            changed: None,
             warm,
         }
     }
