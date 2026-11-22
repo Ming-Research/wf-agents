@@ -290,17 +290,15 @@ impl OutlineView {
             .collect();
         let gone: Vec<OutlineCell> = (ran.iter())
             .filter(|id| !outline.cells.iter().any(|cell| cell.id.as_str() == id.as_str()))
-            .map(
-                |id| match came_from(&decide::CellId::from(id.as_str())).filter(|_| false) {
-                    Some(was) => OutlineCell {
-                        title: Some(was.title),
-                        line: was.line,
-                        agent: was.agent,
-                        ..bare(id)
-                    },
-                    None => bare(id),
+            .map(|id| match came_from(&decide::CellId::from(id.as_str())) {
+                Some(was) => OutlineCell {
+                    title: Some(was.title),
+                    line: was.line,
+                    agent: was.agent,
+                    ..bare(id)
                 },
-            )
+                None => bare(id),
+            })
             .collect();
         cells.extend(gone);
         let mut lines: Vec<OutlineLine> = Vec::new();
