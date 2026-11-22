@@ -19,6 +19,11 @@ describe('a segmented switch', () => {
   afterEach(() => host.remove());
 
   it('looks pressable on hover only in the choices not taken', async () => {
+    // DEMONSTRATION, removed with the fix: a hover's tint that a busy machine delays.
+    const slow = Object.assign(document.createElement('style'), {
+      textContent: '.switch-choice { transition-delay: 1500ms !important }',
+    });
+    document.head.append(slow);
     host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
@@ -49,5 +54,6 @@ describe('a segmented switch', () => {
     expect(look(other).cursor).toBe('pointer');
     expect(look(other).ground).not.toBe(still.other.ground);
     root.unmount();
+    slow.remove();
   });
 });

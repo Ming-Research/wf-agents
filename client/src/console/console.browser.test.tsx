@@ -887,7 +887,11 @@ describe('the console page, when a work cannot be read', () => {
       <ConsolePage
         source={{
           ...source,
-          loadWork: (n) => (fails ? Promise.reject(new Error(`/api/v1/works/${n} answered 500`)) : source.loadWork(n)),
+          // DEMONSTRATION, removed with the fix: a read that a busy machine answers late.
+          loadWork: (n) =>
+            fails
+              ? new Promise<never>((_, no) => setTimeout(() => no(new Error(`/api/v1/works/${n} answered 500`)), 1500))
+              : source.loadWork(n),
           changes: (on) => {
             reopened = () => on('everything');
             return () => undefined;
