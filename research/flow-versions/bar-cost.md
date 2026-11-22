@@ -53,4 +53,19 @@ Written before this run. The branch's bar decides at most once for each cell les
 The proposal is rejected if, at 100 or at 200 waits, the median of head's draws is more than 1.5 times the median of
 main's.
 
-Results: to be filled in from the run.
+Run 44981915143, on a79189665, which is the branch's code with the measuring test added:
+
+| waits | moments | head median (min, max) | main median (min, max) | head / main |
+|---|---|---|---|---|
+| 20 | 41 | 0.40 ms (0.39, 0.84) | 0.36 ms (0.36, 0.78) | 1.09 |
+| 100 | 201 | 0.26 ms (0.25, 0.29) | 3.00 ms (3.00, 3.02) | 0.09 |
+| 200 | 401 | 7.32 ms (7.30, 7.41) | 6.35 ms (6.33, 6.36) | 1.15 |
+
+The two bars drew the same characters on each work. The proposal is not rejected: at 200 waits head took 1.15 times
+main's median, and at 100 waits less than main. That it took less at 100 waits was not looked into further. A likely
+cause, not tested: there a cell's middle often falls in a round in a cell less than half of which ran. Main decides at
+such a middle, and the branch asks nothing there. Both draw `.` for such a cell.
+
+Two runs between, on commits that also turned off a reading for a test, timed variants of this bar. They are not the
+code that merges, so they are left out of the table: f2d90c5f7 asked at the cells' starts (run 44981439705), and
+3b4a3fe5c read a moment at the time asked (run 44981819599).
