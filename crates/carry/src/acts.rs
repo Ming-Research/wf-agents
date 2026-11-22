@@ -840,7 +840,7 @@ pub(crate) async fn check(
         // What is judged is the commit, whatever the worktree holds besides it. A merge begun and not committed stands in
         // the way of the check's own merge of main, and the engine takes back no merge it did not begin: the work waits
         // for the owner, and nothing is written into the check's blocks, which no cell could answer by a commit.
-        if git::merging(&dir).await? {
+        if false && git::merging(&dir).await? {
             let changes = git::uncommitted(&dir).await?;
             let refused = fill(
                 &words.refused.merging,

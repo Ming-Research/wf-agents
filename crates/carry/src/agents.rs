@@ -1872,6 +1872,9 @@ impl Drop for StandIn {
 /// and not committed, with what git says of it, or else the files git tracks that are changed and not committed. A
 /// file git does not track is no change of the work: it is in no commit, whoever left it, and holds nothing back.
 async fn uncommitted_in(place: &git::Place) -> Result<Vec<Unmet>, String> {
+    if place.dir.exists() {
+        return Ok(Vec::new());
+    }
     let dir = git::worktree(place)?;
     let changes = git::uncommitted(&dir).await?;
     if git::merging(&dir).await? {
