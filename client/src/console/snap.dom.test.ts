@@ -10,6 +10,10 @@ import { age, type Shown } from './items';
 import {
   beatOf,
   beneath,
+  DOT_AT,
+  DOT_R,
+  FOLD_PAD,
+  FOLD_REACH,
   foldWords,
   inFunnel,
   turnEase,
@@ -84,7 +88,7 @@ describe('what a fold hides', () => {
     children,
   });
   // 1 holds 2, which holds 3, folded away under 2, and a shadow of 4.
-  const folded = { folded: true, under: { open: 1, done: 0, cancelled: 0 } };
+  const folded = { folded: true, under: { open: 1, done: 0, cancelled: 0, elsewhere: 0 } };
   const tree = item(1, [{ ...item(2, [item(3), item(4, [], true)]), fold: folded }]);
 
   it('is what stands under an item at any depth, folded away or not, and no shadow, whose item stands elsewhere', () => {
@@ -96,6 +100,13 @@ describe('what a fold hides', () => {
 });
 
 describe('a fold', () => {
+  it("folds into a dot 9 pixels across, its middle 12 pixels past the card's edge, within the room a press on it takes", () => {
+    expect({ across: 2 * DOT_R, out: DOT_AT }).toEqual({ across: 9, out: 12 });
+    // The dot, and the disc of the pointer's tint round it, lie past the card's edge and within the room of a press.
+    expect(DOT_AT - DOT_R - FOLD_PAD).toBeGreaterThan(0);
+    expect(DOT_AT + DOT_R + FOLD_PAD).toBeLessThanOrEqual(FOLD_REACH);
+  });
+
   it("turns in the page's motion for opening and closing a part: from none of the way to all of it, most of it early, never back and never past its end", () => {
     expect([turnEase(-1), turnEase(0), turnEase(1), turnEase(2)]).toEqual([0, 0, 1, 1]);
     // cubic-bezier(0.2, 0.8, 0.2, 1): half its time gone, some 95% of the way.
@@ -111,12 +122,19 @@ describe('a fold', () => {
     expect([at(335, 43), at(335, 107), at(369, 0), at(299, 0), at(371, 150)]).toEqual(Array(5).fill(false));
   });
 
-  it('says on pointing what a click on it does, then how many items stand under it by kind, a kind with none left out', () => {
-    expect(foldWords({ folded: false, under: { open: 2, done: 4, cancelled: 0 } })).toBe(
+  it('says on pointing what a click on it does, then how many items stand under it by kind and how many shadows, any with none left out', () => {
+    expect(foldWords({ folded: false, under: { open: 2, done: 4, cancelled: 0, elsewhere: 0 } })).toBe(
       'Fold the items under it away: open 2, done 4',
     );
-    expect(foldWords({ folded: true, under: { open: 0, done: 1, cancelled: 2 } })).toBe(
+    expect(foldWords({ folded: true, under: { open: 0, done: 1, cancelled: 2, elsewhere: 0 } })).toBe(
       'Show the items under it: done 1, cancelled 2',
+    );
+    // The shadows under it are counted apart, after the items, as their items are shown elsewhere.
+    expect(foldWords({ folded: false, under: { open: 0, done: 0, cancelled: 0, elsewhere: 1 } })).toBe(
+      'Fold the items under it away: 1 shown elsewhere',
+    );
+    expect(foldWords({ folded: false, under: { open: 2, done: 0, cancelled: 0, elsewhere: 1 } })).toBe(
+      'Fold the items under it away: open 2, 1 shown elsewhere',
     );
   });
 });

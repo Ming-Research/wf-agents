@@ -221,15 +221,16 @@ const RING = 2;
 const CHOSEN_RING = 3;
 /// How far in from the side of the room an item brought into view stands.
 const INSET = 24;
-/// The dot the funnel from an item to the items under it folds into: this wide across, its middle this far out from
-/// the card's right edge at the card's middle, where the funnel began; in the funnel's grey, or, where a running item
-/// is folded in it, as the end of the lit way. A press this far out from the edge, within the card's height, is on the
-/// dot of a folded item; under the pointer, the dot is set in a disc this much wider, and the funnel filled, in the
-/// accent's tint, as what can be pressed is (principle quiet-motion): the tint the pointer's ribbons are drawn in.
-export const DOT_R = 3;
-export const DOT_AT = 6;
-const FOLD_REACH = 24;
-const FOLD_PAD = 3;
+/// The dot the funnel from an item to the items under it folds into: a disc of this radius, 9 pixels across, its
+/// middle this far out from the card's right edge at the card's middle, where the funnel folds into it and grows out
+/// of it; in the funnel's grey, or, where a running item is folded in it, as the end of the lit way. A press this far
+/// out from the edge, within the card's height, is on the dot of a folded item; under the pointer, the dot is set in a
+/// disc this much wider, and the funnel filled, in the accent's tint, as what can be pressed is (principle
+/// quiet-motion): the tint the pointer's ribbons are drawn in.
+export const DOT_R = 4.5;
+export const DOT_AT = 12;
+export const FOLD_REACH = 24;
+export const FOLD_PAD = 3;
 /// How a fold turns: the funnel and the items under it draw in to the dot, or grow back out of it, in the page's
 /// motion for opening and closing a part, the window's as it slides (styles/parts.css, `.cw`) and a question card's as
 /// it folds (`--turn-time`, `--turn-ease`): this many milliseconds, on this cubic Bézier.
@@ -634,10 +635,11 @@ export function turnEase(t: number): number {
 }
 
 /// What pointing at the funnel or the dot of an item's fold says: what a click does, then how many items stand under
-/// the item, each kind by its key with its count, a kind with none left out: `Fold the items under it away: open 2,
-/// done 4`.
+/// the item, each kind by its key with its count, and apart how many shadows there point to items shown elsewhere,
+/// any with none left out: `Fold the items under it away: open 2, done 4, 1 shown elsewhere`.
 export function foldWords(fold: Fold): string {
   const counts = STANDINGS.filter((s) => fold.under[s] > 0).map((s) => `${s} ${fold.under[s]}`);
+  if (fold.under.elsewhere > 0) counts.push(`${fold.under.elsewhere} shown elsewhere`);
   return `${FOLD_SAYS[fold.folded ? 'folded' : 'shown']}: ${counts.join(', ')}`;
 }
 
@@ -2341,7 +2343,7 @@ export class SnapScene {
     const nowShown = new Set<Container>();
     const drawn: number[] = [];
     const rows = Math.ceil(height / ROW / 2) + 2;
-    // The funnel under the pointer, of an item with items under it, as it is drawn.
+    // The funnel under the pointer, as it is drawn: every funnel folds, one over shadows alone as well.
     const pointer = this.pointer;
     let funnelled: { k: number; shape: [number, number, number, number, number, number] } | null = null;
     for (let d = 0; d < t.columns.length; d += 1) {

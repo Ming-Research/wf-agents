@@ -164,7 +164,7 @@ describe('the tree in columns', () => {
     const told = vi.fn<(item: Shown | null) => void>();
     const turned = vi.fn<(id: number, folded: boolean) => void>();
     scene.onFold = turned;
-    const under = { open: 1, done: 0, cancelled: 0 };
+    const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
     const tree = (folded: boolean) => [{ ...card(1, [card(2)]), fold: { folded, under } }];
     scene.show(tree(false));
     expect(scene.stats.items).toBe(2);
@@ -207,8 +207,30 @@ describe('the tree in columns', () => {
     expect(canvas().title).toBe('');
   });
 
+  it('folds a card with shadows alone under it at a click on their funnel, as it folds items, counting them apart', async () => {
+    const turned = vi.fn<(id: number, folded: boolean) => void>();
+    scene.onFold = turned;
+    const under = { open: 0, done: 0, cancelled: 0, elsewhere: 1 };
+    // Under 1, the shadow of 3 alone; under 2, item 3.
+    const tree = (folded: boolean) => [{ ...card(1, [shadow(3)]), fold: { folded, under } }, card(2, [card(3)])];
+    scene.show(tree(false));
+    expect(scene.stats.items).toBe(4);
+    settle(scene);
+    // Item 1 stands in the middle of the first column: its funnel leaves its right edge there.
+    const left = scene.place().left;
+    await click(left + NODE_W + 4, line);
+    expect(turned).toHaveBeenLastCalledWith(1, true);
+    expect(canvas().title).toBe('Fold the items under it away: 1 shown elsewhere');
+    scene.show(tree(true));
+    settle(scene);
+    expect(scene.stats.items).toBe(3);
+    await click(left + NODE_W + DOT_AT, line);
+    expect(turned).toHaveBeenLastCalledWith(1, false);
+    expect(canvas().title).toBe('Show the items under it: 1 shown elsewhere');
+  });
+
   it('draws a fold as it stands at the end of its turn in the first frame after its time, however far apart the frames come', () => {
-    const under = { open: 1, done: 0, cancelled: 0 };
+    const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
     const tree = (folded: boolean) => [{ ...card(1, [card(2)]), fold: { folded, under } }];
     scene.show(tree(false));
     settle(scene);
@@ -234,7 +256,7 @@ describe('the tree in columns', () => {
     const told = vi.fn<(item: Shown | null) => void>();
     const turned = vi.fn<(id: number, folded: boolean) => void>();
     scene.onFold = turned;
-    const under = { open: 1, done: 0, cancelled: 0 };
+    const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
     // Under 1, folded or not, item 2; under 3, a shadow of 2.
     const tree = (folded: boolean) => [{ ...card(1, [card(2)]), fold: { folded, under } }, card(3, [shadow(2)])];
     scene.show(tree(true));

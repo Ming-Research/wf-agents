@@ -3,10 +3,10 @@
 // standing there, a shadow of it that points to its place. A done or cancelled item that no item depends on any more
 // stands under the item that last depended on it, as the items' changes record it. The tree holds the items that stand
 // as one of the kinds the owner ticks, and what stands over them. Each item with items under it folds them away, as the
-// owner last chose or else where neither it nor any of them is open, and counts them by how they stand. Each item
-// carries its own state, its work while it goes on, whether the work has begun, and how many of the things its work
-// waits for wait for the owner; and a work's age and what it has taken, as a card and the item's window say them. Pure,
-// so that it is tested on its own.
+// owner last chose or else where neither it nor any of them is open, and counts them by how they stand, and apart the
+// shadows among them, which fold with them. Each item carries its own state, its work while it goes on, whether the
+// work has begun, and how many of the things its work waits for wait for the owner; and a work's age and what it has
+// taken, as a card and the item's window say them. Pure, so that it is tested on its own.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/items.ts`), reading the items as
 // `works-api.ts` gives them. The interface does not say which of an item's dependents is its main one: the first of
@@ -53,9 +53,9 @@ export type ShownWork = {
 /// The lines a work added and removed, and in how many files.
 export type Lines = { added: number; removed: number; files: number };
 
-/// How many items stand under an item, at every depth, by how they stand: a shadow, whose item stands elsewhere, is
-/// not counted.
-export type Under = Record<ItemStanding, number>;
+/// How many items stand under an item, at every depth, by how they stand; and apart, how many shadows stand there,
+/// each of an item that stands elsewhere and is counted where it stands.
+export type Under = Record<ItemStanding, number> & { elsewhere: number };
 
 /// Whether the items under an item are folded away, and how many stand there by how they stand.
 export type Fold = { folded: boolean; under: Under };
@@ -94,8 +94,8 @@ export type Shown = {
   work: ShownWork | null;
   /// Every item under it, whether or not they are folded away.
   children: Shown[];
-  /// Of an item with items standing under it: whether they are folded away, and how many stand there as the tree
-  /// holds them. None for an item with none under it, and for a shadow.
+  /// Of an item with items or shadows under it: whether they are folded away, and how many stand there as the tree
+  /// holds them. None for an item with nothing under it, and for a shadow.
   fold?: Fold | null;
 };
 
@@ -218,6 +218,10 @@ export function shownTree(
       .filter((c) => keep(c) && !making.has(c))
       .sort((a, b) => a - b)
       .map(make);
+    const shadows = [...(besides.get(id) ?? [])]
+      .filter(keep)
+      .sort((a, b) => a - b)
+      .map(shadow);
     const shown: Shown = {
       id,
       title: i?.title ?? '',
@@ -249,14 +253,9 @@ export function shownTree(
             }
           : null,
       endedLines: w !== undefined && !drawn(w) ? linesOf(w) : null,
-      children: [
-        ...children,
-        ...[...(besides.get(id) ?? [])]
-          .filter(keep)
-          .sort((a, b) => a - b)
-          .map(shadow),
-      ],
-      fold: children.length === 0 ? null : foldOf(standing(id), children, folds.get(id)),
+      children: [...children, ...shadows],
+      fold:
+        children.length + shadows.length === 0 ? null : foldOf(standing(id), children, shadows.length, folds.get(id)),
     };
     making.delete(id);
     return shown;
@@ -281,14 +280,16 @@ export function shownTree(
     .map((i) => make(i.number));
 }
 
-/// The fold of an item that stands as `own` stands, with `children` standing under it: how many items stand under it by
-/// how they stand, at every depth; folded as the owner last chose (`chosen`), or else where neither it nor any of them
-/// is open, so that what still has open work in it shows how far it has come.
-function foldOf(own: ItemStanding, children: Shown[], chosen: boolean | undefined): Fold {
-  const under: Under = { open: 0, done: 0, cancelled: 0 };
+/// The fold of an item that stands as `own` stands, with `children` standing under it and `shadows` shadows beside
+/// them: how many items stand under it by how they stand, at every depth, and how many shadows; folded as the owner
+/// last chose (`chosen`), or else where neither it nor any item under it is open, so that what still has open work in
+/// it shows how far it has come. A shadow's item, which stands elsewhere, does not count for that.
+function foldOf(own: ItemStanding, children: Shown[], shadows: number, chosen: boolean | undefined): Fold {
+  const under: Under = { open: 0, done: 0, cancelled: 0, elsewhere: shadows };
   for (const c of children) {
     under[c.standing] += 1;
     for (const s of STANDINGS) under[s] += c.fold?.under[s] ?? 0;
+    under.elsewhere += c.fold?.under.elsewhere ?? 0;
   }
   return { folded: chosen ?? (own !== 'open' && under.open === 0), under };
 }

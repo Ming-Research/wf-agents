@@ -67,7 +67,9 @@ const drawnLines = (roots: Shown[], depth = 0): string[] =>
     const head = `${'  '.repeat(depth)}${r.id}${r.shadow ? ' shadow' : ''}`;
     if (r.fold?.folded !== true) return [head, ...drawnLines(r.children, depth + 1)];
     const under = r.fold.under;
-    return [`${head} folded${STANDINGS.filter((s) => under[s] > 0).map((s) => ` ${s} ${under[s]}`).join('')}`];
+    const counts = STANDINGS.filter((s) => under[s] > 0).map((s) => ` ${s} ${under[s]}`);
+    if (under.elsewhere > 0) counts.push(` elsewhere ${under.elsewhere}`);
+    return [`${head} folded${counts.join('')}`];
   });
 
 const ALL = new Set(STANDINGS);
@@ -231,7 +233,7 @@ describe('the folds of the tree', () => {
     ]);
     // A folded item still holds what stands under it; an item with nothing under it has no fold.
     const [ten] = shownTree(data, ALL);
-    expect(ten.fold).toEqual({ folded: false, under: { open: 0, done: 6, cancelled: 1 } });
+    expect(ten.fold).toEqual({ folded: false, under: { open: 0, done: 6, cancelled: 1, elsewhere: 0 } });
     expect(ten.children[0].children.map((c) => c.id)).toEqual([13, 14]);
     expect(ten.children[0].children[0].fold).toBeNull();
   });
@@ -251,6 +253,33 @@ describe('the folds of the tree', () => {
       '  20',
       '21 folded open 1',
     ]);
+  });
+
+  it('fold the shadows under an item as well, an item with shadows alone under it too, counting them apart', () => {
+    // 1, open, depends on 2 and 3, both open, which stand under it; 4, done, depends on 2, and 5, open, on 3: a shadow
+    // of each stands under them, alone. 6, done, depends on 7, done, and on 2, its shadow beside 7.
+    const shadowed: Items = {
+      items: [
+        item(1, 'open', [2, 3]),
+        item(2, 'open'),
+        item(3, 'open'),
+        item(4, 'done', [2]),
+        item(5, 'open', [3]),
+        item(6, 'done', [7, 2]),
+        item(7, 'done'),
+      ],
+    };
+    expect(drawnLines(shownTree(shadowed, ALL))).toEqual([
+      '1',
+      '  2',
+      '  3',
+      '4 folded elsewhere 1',
+      '5',
+      '  3 shadow',
+      '6 folded done 1 elsewhere 1',
+    ]);
+    const five = shownTree(shadowed, ALL).find((s) => s.id === 5);
+    expect(five?.fold).toEqual({ folded: false, under: { open: 0, done: 0, cancelled: 0, elsewhere: 1 } });
   });
 
   it('count and fold only what the boxes ticked show, and hide what is under an item whatever the boxes show', () => {
