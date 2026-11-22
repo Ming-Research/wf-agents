@@ -34,7 +34,7 @@ A done or cancelled item that no item depends on any more stands under the item 
 - replaced: An ended item that no item depended on any more standing at the top was on main; the owner changed it, because every item that depends on an item stops depending on it as it is cancelled, so the cancelled items, once ticked, filled the screen as roots.
 
 ### decision an-item-folds-what-stands-under-it
-An item with items under it folds them away at a mark past its card's right edge, its row then counting them by how they stand; it is folded where nothing in it is open, or as the owner chose.
+An item with items under it folds them away at a knob past its card's edge that its lines run through, its row then counting them by kind; folded where nothing in it is open, or as the owner chose.
 - replaced: The whole tree always drawn, with no way to fold a part of it, was on main; the owner changed it, because the tree grows with every item added, and would keep growing.
 - rejected: an agent proposed folding the done rows by default, showing only their count; the owner rejected it, because he often needs to see the overall progress.
 

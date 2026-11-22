@@ -1,7 +1,7 @@
 // The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`snap.ts`), as they stand, drawn
 // again as they change; with `?fixtures` in the page's address, made-up items that show every state the drawing has
 // (`fixtures.ts`): those that stand as the boxes over the tree's corner tick, open, done or cancelled, and what stands
-// over them. A press on the mark of an item's fold folds the items under it away or shows them again, a choice kept in
+// over them. A press on the knob of an item's fold folds the items under it away or shows them again, a choice kept in
 // the browser for that item, which wins over the tree's own rule. Beside the tree, a window shows the item selected
 // (`ItemWindow.tsx`). Selecting an item slides the window out; letting it go slides the window back, unless the tab
 // stuck to its left edge brought it out, in which case it stays until the tab takes it back. The tab takes it back
@@ -128,7 +128,7 @@ export function ConsolePage({
             return w.byHand ? w : { open: false, byHand: false };
           });
         };
-        // A press on the mark of an item's fold is the owner's choice for that item, kept, and the tree is drawn again.
+        // A press on the knob of an item's fold is the owner's choice for that item, kept, and the tree is drawn again.
         s.onFold = (id, folded) => turnFoldNow.current(id, folded);
         if (latestData.current !== undefined)
           s.show(shownTree(latestData.current, showsNow.current, foldsNow.current));

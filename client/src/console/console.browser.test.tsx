@@ -9,7 +9,7 @@
 // level, and never faster than half again the one it follows; the view stands through a change of height or theme; and
 // once destroyed, the scene listens to nothing. The pointer and the wheel are events sent to the canvas at the points
 // the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
-// browser's own. They pin as well what the old console did not do: a click on the mark of an item's fold folds what
+// browser's own. They pin as well what the old console did not do: a click on the knob of an item's fold folds what
 // is under it away or shows it again, selecting nothing, and the console keeps that choice over its own rule.
 
 import '../styles/tokens.css';
@@ -159,7 +159,7 @@ describe('the tree in columns', () => {
     expect(told).toHaveBeenLastCalledWith(null);
   });
 
-  it("tells a click on the mark past a card's right edge as a fold of the items under it, selecting nothing, and draws none of what is folded away", async () => {
+  it("tells a click on the knob past a card's right edge as a fold of the items under it, selecting nothing, and draws none of what is folded away", async () => {
     const told = vi.fn<(item: Shown | null) => void>();
     const turned = vi.fn<(id: number, folded: boolean) => void>();
     scene.onFold = turned;
@@ -168,18 +168,19 @@ describe('the tree in columns', () => {
     expect(scene.stats.items).toBe(2);
     settle(scene);
     scene.onSelect = told;
-    // Item 1 stands in the middle of the first column, the mark of its fold just past its right edge.
-    const mark = scene.place().left + NODE_W + 12;
-    await click(mark, line);
+    // Item 1 stands in the middle of the first column, the knob of its fold just past its right edge, its middle 8
+    // pixels out.
+    const knob = scene.place().left + NODE_W + 8;
+    await click(knob, line);
     expect(turned).toHaveBeenLastCalledWith(1, true);
     expect(told).not.toHaveBeenCalled();
     expect(canvas().title).toBe('Fold the items under it away');
     expect(canvas().style.cursor).toBe('pointer');
-    // Folded, it is drawn alone, and a click on the mark shows what is under it again.
+    // Folded, it is drawn alone, and a click on the knob shows what is under it again.
     scene.show([{ ...card(1, [card(2)]), fold: { folded: true, under } }]);
     expect(scene.stats.items).toBe(1);
     settle(scene);
-    await click(mark, line);
+    await click(knob, line);
     expect(turned).toHaveBeenLastCalledWith(1, false);
     expect(canvas().title).toBe('Show the items under it');
     // A click on the card selects it and folds nothing; past the edge of an item with nothing under it, no fold.
@@ -187,7 +188,7 @@ describe('the tree in columns', () => {
     expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 1 }));
     scene.show([card(1)]);
     settle(scene);
-    await click(mark, line);
+    await click(knob, line);
     expect(turned).toHaveBeenCalledTimes(2);
     expect(canvas().title).toBe('');
   });
@@ -546,21 +547,21 @@ describe('the console page', () => {
     expect(localStorage.getItem('wf-agents.console-shows')).toBe('done,cancelled');
   });
 
-  it('folds what has no open item in it, unfolds it at a click on the mark of its fold, and keeps that over the rule for the next page', async () => {
+  it('folds what has no open item in it, unfolds it at a click on the knob of its fold, and keeps that over the rule for the next page', async () => {
     let scene = await drawn();
     const done = [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')]
       .find((l) => l.textContent === 'Done')
       ?.querySelector('input') as HTMLInputElement;
     done.click();
     await expect.poll(() => scene.stats.items).toBe(32);
-    /// A click on the mark of the fold of item `id`, brought into view.
+    /// A click on the middle of the knob of the fold of item `id`, brought into view.
     const press = async (id: number) => {
       scene.reveal(id, scene.place().width);
       settle(scene);
       const stands = scene.cardAt(id) as { x: number; y: number };
       const canvas = container.querySelector('canvas') as HTMLCanvasElement;
       const r = canvas.getBoundingClientRect();
-      const at: PointerEventInit = { clientX: r.left + stands.x + NODE_W + 12, clientY: r.top + stands.y, bubbles: true };
+      const at: PointerEventInit = { clientX: r.left + stands.x + NODE_W + 8, clientY: r.top + stands.y, bubbles: true };
       canvas.dispatchEvent(new PointerEvent('pointermove', at));
       await drew();
       canvas.dispatchEvent(new PointerEvent('pointerdown', at));

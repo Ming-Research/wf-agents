@@ -623,7 +623,7 @@ export function fixtureItems(start = Date.now()): Items {
       work: work({ kind: 'cancelled' }, cellsAt('deep_research', 'notYet'), { hours: 50, dollars: 0.6, rounds: 4 }),
     },
     30: {
-      title: 'Draw the mark of a fold',
+      title: 'Draw the knob of a fold',
       dependsOn: [],
       work: work({ kind: 'merged' }, cellsAt(null, 'done', false), { hours: 36, dollars: 2.1, rounds: 18 }),
     },
