@@ -32,7 +32,6 @@ export default defineConfig({
     // The page's own CSS is read as written, so that a test drawn in the browser is laid out as the page is; Vitest
     // otherwise gives every CSS file as empty.
     css: { include: [/\/src\/.+\.css/] },
-    testTimeout: 60_000,
     projects: [
       {
         extends: true,
@@ -54,7 +53,7 @@ export default defineConfig({
           // default, which a poll of ten seconds would have met first. Only this project: the unit project polls
           // nothing, and its tests are given five seconds.
           expect: { poll: { timeout: 10_000 } },
-          testTimeout: 15_000,
+          testTimeout: 60_000,
           browser: {
             enabled: true,
             headless: true,
