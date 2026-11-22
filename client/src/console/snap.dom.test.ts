@@ -16,6 +16,8 @@ import {
   FOLD_REACH,
   foldWords,
   inFunnel,
+  sizeOf,
+  type Turn,
   turnEase,
   DIM,
   eased,
@@ -112,6 +114,15 @@ describe('a fold', () => {
     // cubic-bezier(0.2, 0.8, 0.2, 1): half its time gone, some 95% of the way.
     expect(turnEase(0.5)).toBeCloseTo(0.946, 2);
     for (let t = 0; t < 1; t += 0.05) expect(turnEase(t + 0.05)).toBeGreaterThanOrEqual(turnEase(t));
+  });
+
+  it('shrinks through the sizes it grows through, in the other order, so that a fold shows as much of its turn as an unfold', () => {
+    const grows: Turn = { to: 1, from: 0, at: 0, ms: 240 };
+    const shrinks: Turn = { to: 0, from: 1, at: 0, ms: 240 };
+    for (let at = 0; at <= 240; at += 16) expect(sizeOf(shrinks, at)).toBeCloseTo(sizeOf(grows, 240 - at), 6);
+    expect([sizeOf(shrinks, 0), sizeOf(shrinks, 240), sizeOf(shrinks, 999)]).toEqual([1, 0, 0]);
+    // Half its time gone, a fold still draws its items at most of their size, as an unfold has drawn them.
+    expect(sizeOf(shrinks, 120)).toBeGreaterThan(0.9);
   });
 
   it('is pressed in its funnel, between the curves the funnel is drawn with, and nowhere past either end of it', () => {

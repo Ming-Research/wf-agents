@@ -673,11 +673,18 @@ export function inFunnel(
 
 /// A fold turning: towards which size the items under its item go, 0 folded away or 1 shown, from which, since when
 /// on the scene's clock, and over how many milliseconds.
-type Turn = { to: number; from: number; at: number; ms: number };
+export type Turn = { to: number; from: number; at: number; ms: number };
 
-/// How large the items under a turning fold are drawn at the scene's time `clock`, from 0 folded away to 1 shown.
-const sizeOf = (turn: Turn, clock: number) =>
-  turn.from + (turn.to - turn.from) * turnEase(turn.ms <= 0 ? 1 : (clock - turn.at) / turn.ms);
+/// How large the items under a turning fold are drawn at the scene's time `clock`, from 0 folded away to 1 shown. A
+/// fold that grows runs the curve of its turn forward, and one that shrinks runs it backwards, so that folding shows
+/// the frames of unfolding in the other order: run forward, the curve goes most of its way in its first frames, and a
+/// shrink would lose nearly all its size at once.
+export function sizeOf(turn: Turn, clock: number): number {
+  const t = turn.ms <= 0 ? 1 : (clock - turn.at) / turn.ms;
+  return turn.to >= turn.from
+    ? turn.from + (turn.to - turn.from) * turnEase(t)
+    : turn.to + (turn.from - turn.to) * turnEase(1 - t);
+}
 
 /// The colour of a work's age, three and no more: grey under half an hour, amber from half an hour to an hour, and red
 /// past an hour, however long.
@@ -926,6 +933,9 @@ export class SnapScene {
   private wasFolded = new Map<number, boolean>();
   /// The items, by their place in the tree, whose dot ends the lit way of a running item folded in it.
   private litDots: number[] = [];
+  /// How large each item, by its place in the tree, was drawn at the last frame while folds turned; none else, when
+  /// each is drawn whole.
+  private drawnSize: Float64Array | null = null;
   /// For each item, whether a work goes on on it or under it: the edges of the cards above a work are lit.
   private lit: Uint8Array = new Uint8Array(0);
   /// For each item, whether a work has begun on it or under it: the title of one with none is greyer.
@@ -1161,6 +1171,7 @@ export class SnapScene {
     });
     this.under = -1;
     this.underFold = -1;
+    this.drawnSize = null;
     this.base = Float64Array.from(items, (i) =>
       i.work === null ? 1 : 1 + WORK_ROW,
     );
@@ -1629,15 +1640,16 @@ export class SnapScene {
     return this.drawnStrips.get(id) ?? null;
   }
 
-  /// Where the card of item `id` stands on the canvas, its left side and its middle, for the tests; none for an item
-  /// the tree does not draw.
-  cardAt(id: number): { x: number; y: number } | null {
+  /// Where the card of item `id` stands on the canvas, its left side and its middle, and how large it was drawn at the
+  /// last frame, for the tests; none for an item the tree does not draw.
+  cardAt(id: number): { x: number; y: number; size: number } | null {
     const t = this.tree;
     const i = this.real.get(id);
     if (t === null || i === undefined) return null;
     const d = t.depth[i];
     const line = this.app.screen.height / 2;
-    return { x: this.left + d * PITCH, y: line + (this.middle(d, t.rank[i]) - this.columns[d].at) * ROW };
+    const y = line + (this.middle(d, t.rank[i]) - this.columns[d].at) * ROW;
+    return { x: this.left + d * PITCH, y, size: this.drawnSize?.[i] ?? 1 };
   }
 
   /// The shadow of an item under another item that depends on it besides its main one: a white card, its edge dashed,
@@ -2345,6 +2357,7 @@ export class SnapScene {
     // While a fold turns, what is under it is drawn in towards its dot, or grows back out of it: where a point of an
     // item `k` is drawn, and how large the item is.
     const m = this.turns.size === 0 ? null : this.movedNow(t, x, y);
+    this.drawnSize = m === null ? null : m.a;
     const at = (k: number, px: number, py: number): [number, number] =>
       m === null ? [px, py] : [m.a[k] * px + m.bx[k], m.a[k] * py + m.by[k]];
     const size = (k: number) => (m === null ? 1 : m.a[k]);
