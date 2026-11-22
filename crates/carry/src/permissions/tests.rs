@@ -177,9 +177,8 @@ fn a_lock_command_is_the_settings_alone() {
 #[test]
 fn what_the_installation_allows_under_a_heavy_command_stays_refused() {
     let installed = args(&[
-        "--permission-mode",
-        "acceptEdits",
         "--allowedTools",
+        "Edit(./**)",
         "Bash(git *)",
         "Bash(rustfmt *)",
         "Bash(cargo fmt *)",
@@ -190,6 +189,7 @@ fn what_the_installation_allows_under_a_heavy_command_stays_refused() {
     assert_eq!(
         allows(&installed),
         [
+            "Edit(./**)",
             "Bash(git *)",
             "Bash(rustfmt *)",
             "Bash(cargo fmt *)",
@@ -209,18 +209,13 @@ fn what_the_installation_allows_under_a_heavy_command_stays_refused() {
     let refused = of(false, &exact).refused;
     assert!(refused.iter().any(|r| r == "Bash(cargo fmt --check)"), "{refused:?}");
     assert!(refused.iter().any(|r| r == "Bash(npm install foo:*)"), "{refused:?}");
-    // The whole of a heavy command allowed, every command allowed, or the permission checks skipped or left to the
-    // command line's own judgment: every heavy command the arguments allow whole stays refused whole, and the lock
-    // commands under it are neither allowed nor told; the others are.
+    // The whole of a heavy command allowed, or every command allowed: every heavy command the arguments allow whole
+    // stays refused whole, and the lock commands under it are neither allowed nor told; the others are.
     let npm = "npm install --package-lock-only --ignore-scripts".to_string();
-    let cases: [(&[&str], Vec<String>); 7] = [
+    let cases: [(&[&str], Vec<String>); 3] = [
         (&["--allowedTools", "Bash(cargo:*)"], vec![npm.clone()]),
         (&["--allowedTools", "Bash"], vec![]),
         (&["--allowedTools", "Bash(* --version)"], vec![]),
-        (&["--dangerously-skip-permissions"], vec![]),
-        (&["--permission-mode", "bypassPermissions"], vec![]),
-        (&["--permission-mode", "auto"], vec![]),
-        (&["--permission-mode=auto"], vec![]),
     ];
     for (given, kept) in cases {
         let permissions = of(false, &args(given));
@@ -232,12 +227,35 @@ fn what_the_installation_allows_under_a_heavy_command_stays_refused() {
         assert_eq!(npm_whole, kept.is_empty(), "{given:?}");
         assert!(permissions.refused.iter().any(|r| r == "Bash(git push *)"), "{given:?}");
     }
-    // The permission mode the sample's installation runs in leaves every lock command allowed.
+    // The rules the sample's installation gives leave every lock command allowed.
     assert_eq!(of(false, &installed).locks, LOCKS);
     // A line that only reads keeps every heavy command whole whatever the arguments allow, and refuses no rule of
     // theirs.
     let review = of(true, &installed).refused;
     assert!(review.iter().any(|r| r == "Bash(cargo *)") && !review.iter().any(|r| r == "Bash(cargo fmt *)"));
+}
+
+// The program starts in default permission mode whatever it is given, so a permission mode or a flag that skips the
+// checks allows no command: the permissions are those of no such argument.
+#[test]
+fn a_permission_mode_allows_no_command() {
+    for given in [
+        &["--dangerously-skip-permissions"][..],
+        &[
+            "--allow-dangerously-skip-permissions",
+            "--permission-mode",
+            "bypassPermissions",
+        ],
+        &["--permission-mode", "bypassPermissions"],
+        &["--permission-mode", "auto"],
+        &["--permission-mode=auto"],
+    ] {
+        let given = args(given);
+        assert_eq!(allows(&given), Vec::<String>::new(), "{given:?}");
+        let permissions = of(false, &given);
+        assert_eq!(permissions.locks, LOCKS, "{given:?}");
+        assert_eq!(permissions, of(false, &[]), "{given:?}");
+    }
 }
 
 /// Whether a command matches a pattern of the command line's tool rules, in which `*` stands for any text.
@@ -326,7 +344,7 @@ fn an_agent_is_told_what_its_line_may_do() {
         "Make your changes there and commit them there. To update a lock file, run \
          `npm install --package-lock-only --ignore-scripts`, with your arguments after it."
     );
-    let none = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &[], None);
+    let none = of(false, &args(&["--allowedTools", "Bash"])).told(&words(), &[], None);
     assert_eq!(none, "Make your changes there and commit them there.");
 }
 
@@ -339,13 +357,13 @@ fn a_line_that_writes_is_told_the_paths_the_project_protects() {
         "flow/".to_string(),
         ".github/workflows/".to_string(),
     ];
-    let writes = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &protected, None);
+    let writes = of(false, &args(&["--allowedTools", "Bash"])).told(&words(), &protected, None);
     assert_eq!(
         writes,
         "Make your changes there and commit them there. The project protects `AGENTS.md`, `flow/` and \
          `.github/workflows/`: change what is there only where the work needs it."
     );
-    let one = of(false, &args(&["--dangerously-skip-permissions"])).told(&words(), &protected[..1], None);
+    let one = of(false, &args(&["--allowedTools", "Bash"])).told(&words(), &protected[..1], None);
     assert!(
         one.ends_with(" The project protects `AGENTS.md`: change what is there only where the work needs it."),
         "{one}"
