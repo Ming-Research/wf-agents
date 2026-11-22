@@ -16,10 +16,11 @@
 //!   merged or were cancelled, and its text names those still waited for; the block of a work that has ended was not
 //!   written after it ended; no work began a run while its block said it waited, where its flow holds it for them, nor
 //!   merged while an item it depends on had not ended; and a work never let on has started no run;
-//! - no more rounds that take a slot are under way than the driver has slots, as the driver says; no work waits for a
-//!   slot while one is free; and while the pause of everything holds, the owner's or the driver's own as it opened on
-//!   works going on, no work began a round after it was set but of a run for a note a person wrote, and none given
-//!   again after it failed; the driver holds the pause of everything the store holds.
+//! - no call begins a round that takes a slot and leaves more such rounds under way than the driver has slots, so more
+//!   are under way only where the slots were made fewer under them; the driver says how many it has and how many are
+//!   taken; no work waits for a slot while one is free; and while the pause of everything holds, the owner's or the
+//!   driver's own as it opened on works going on, no work began a round after it was set but of a run for a note a
+//!   person wrote, and none given again after it failed; the driver holds the pause of everything the store holds.
 //!
 //! When the driver says it stopped, the harness checks that what it says was kept is what the store holds.
 
@@ -619,8 +620,10 @@ pub struct H {
     pub faulty: BTreeSet<WorkNumber>,
     /// The flows the driver is opened with, each time.
     pub flows: Vec<Compiled>,
-    /// The slots the driver is opened with, each time.
+    /// The slots the driver is opened with, each time, and was last given.
     pub slots: usize,
+    /// How many rounds that take a slot the driver's last call began.
+    pub begun: usize,
     /// What makes the policy of the lines' sessions the driver is opened with, each time; none for no policy.
     pub policy: Option<fn() -> driver::Policy>,
 }
@@ -674,6 +677,7 @@ impl H {
             faulty: BTreeSet::new(),
             flows,
             slots,
+            begun: 0,
             policy,
         }
     }
@@ -893,6 +897,23 @@ impl H {
         }
     }
 
+    /// The owner sets the slots, which the driver must take; and gives what is to be done. The driver is opened with
+    /// them from then on, as what the owner set them in keeps them.
+    pub fn set_slots(&mut self, slots: usize) -> Vec<Todo> {
+        let now = self.now();
+        self.slots = slots;
+        match self.dm().set_slots(now, slots) {
+            Ok(todos) => {
+                self.given(&todos);
+                if self.checking {
+                    self.check();
+                }
+                todos
+            }
+            Err(failed) => panic!("the slots were refused: {failed:?}"),
+        }
+    }
+
     /// The driver stopped with this fault: once stopped, it shows nothing and says why.
     fn stopped(&self, fault: &Fault) {
         let d = self.d();
@@ -962,6 +983,7 @@ impl H {
         let (driver, todos) = opened.expect("the driver opens on the flows installed");
         self.driver = Some(driver);
         self.calls = calls;
+        self.begun = self.beginning(&todos);
         self.outstanding = (todos.iter())
             .filter(|t| !matches!(t.effect, Effect::Tell { .. } | Effect::Ping { .. }))
             .cloned()
@@ -1005,6 +1027,7 @@ impl H {
         let (driver, todos) = opened.expect("the driver opens again");
         self.driver = Some(driver);
         self.calls = calls;
+        self.begun = self.beginning(&todos);
         if whole {
             assert_eq!(
                 todos, before,
@@ -1117,9 +1140,23 @@ impl H {
         }
     }
 
+    /// How many of these todos begin a round of an agent's cell, which takes a slot: one never given before.
+    fn beginning(&self, todos: &[Todo]) -> usize {
+        (todos.iter())
+            .filter(|todo| match &todo.effect {
+                Effect::Round { cell, .. } => {
+                    !self.ever.contains(&self.once(todo))
+                        && (self.d().work(todo.work)).is_some_and(|kept| !engine_cell(kept.flow, cell.as_str()))
+                }
+                _ => false,
+            })
+            .count()
+    }
+
     /// Takes what the driver gave to be done. A round or a call is given once; a stop replaces the round it stops, and
     /// a withdrawal the call it withdraws. Each is kept before it is given.
     fn given(&mut self, todos: &[Todo]) {
+        self.begun = self.beginning(todos);
         for todo in todos {
             match &todo.effect {
                 // Words told to a round are handed to it, and no one answers them: nothing is kept of them.
@@ -1336,12 +1373,15 @@ impl H {
         assert_eq!(slots.taken, taking, "the driver says {} slots are taken", slots.taken);
         assert_eq!(
             slots.slots, self.slots,
-            "the driver has other slots than it was opened with"
+            "the driver has other slots than it was last given"
         );
+        // More are under way than there are slots only where the slots were made fewer under them, and then no round
+        // that takes one begins until fewer are under way.
         assert!(
-            taking <= self.slots,
-            "{taking} rounds take a slot, of {} slots",
-            self.slots
+            taking <= self.slots || self.begun == 0,
+            "{taking} rounds take a slot, of {} slots, {} of them begun by the last call",
+            self.slots,
+            self.begun
         );
         if taking < self.slots {
             for kept in d.works() {

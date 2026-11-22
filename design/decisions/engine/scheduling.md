@@ -11,6 +11,10 @@ An item and its one work are added in one transaction, with the work paused, and
 The engine starts an agent's round only when a slot is free, and otherwise the work's walk says that the work waits for a slot; what carries out the rounds sets no limit of its own.
 - replaced: Each step of a work counting the free slots by itself was on main; the owner changed it, because two steps that count at the same time see the same free slot, and either use more than the slots or hold each other back.
 
+### decision the-slots-change-at-once
+The slots set on the Settings view take effect at once and are written to the file: added ones go to the works that wait; with fewer, no round is stopped, and none begins until fewer are under way.
+- replaced: Slots read from the installation's file as the engine started, and kept until it started again, was on main; the owner changed it, because a change of the slots must never need a restart.
+
 ### decision begun-works-first
 A slot that comes free goes to a work that has started an agent's round before one that has not, each in the order of its number; a work that goes straight on keeps its slot.
 - replaced: Giving a free slot by the works' numbers alone, whether they had begun or not, was on main; the owner changed it, because works already under way waited twenty or thirty minutes for a slot while new ones started.

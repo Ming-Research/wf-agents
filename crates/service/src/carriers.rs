@@ -658,8 +658,8 @@ pub struct Carriers {
     /// The rounds of the cells that are the engine's own acts.
     pub acts: Arc<dyn Rounds>,
     pub tools: Arc<dyn Tools>,
-    /// How many rounds of agents may go on at once: the engine gives the agents no more than this, and the others wait
-    /// for a slot in the engine's order. The engine's own acts take none.
+    /// How many rounds of agents may go on at once as the engine starts: it gives the agents no more than this, until the
+    /// owner sets other slots, and the others wait for a slot in the engine's order. The engine's own acts take none.
     pub slots: usize,
     /// The check of the outside the agents' rounds need, while they wait for it.
     pub outside: Arc<dyn Outside>,

@@ -20,7 +20,7 @@ fn item(title: &str) -> Value {
 }
 
 /// Adds an item of the trial flow, its work being the next by number, and has the owner let its work on.
-async fn add_let_on(router: &axum::Router, title: &str, work: u64) {
+pub(crate) async fn add_let_on(router: &axum::Router, title: &str, work: u64) {
     assert_eq!(post(router, "/api/v1/items", &item(title)).await.0, StatusCode::OK);
     assert_eq!(
         post(
