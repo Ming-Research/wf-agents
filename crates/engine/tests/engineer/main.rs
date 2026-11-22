@@ -149,6 +149,11 @@ const SEEDS: u64 = 500;
 /// that loses it loses the check without a sign.
 const FLOOR: u64 = 10;
 
+/// How many batches of [`SEEDS`] histories are run at most: the first batch in which each situation the properties are
+/// about was reached in [`FLOOR`] histories is the last, and the test fails if the last batch leaves one short of it.
+/// The seeds are the same each time.
+const BATCHES: u64 = 10;
+
 /// How many random steps, at most, a history takes before the content continuation.
 const RANDOM: usize = 200;
 
@@ -2109,10 +2114,10 @@ type Case = (u64, String, Vec<String>);
 /// before it fails, and two tests side by side would each take the other's.
 static HOOK: Mutex<()> = Mutex::new(());
 
-/// Runs `f` on each seed below `seeds` on as many threads as the machine has cores, and gives the results in seed
-/// order.
-fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
-    let next = std::sync::atomic::AtomicU64::new(0);
+/// Runs `f` on each seed from `from` to below `to` on as many threads as the machine has cores, and gives the results
+/// in seed order.
+fn in_parallel<T: Send>(from: u64, to: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
+    let next = std::sync::atomic::AtomicU64::new(from);
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
     let mut done: Vec<(u64, T)> = std::thread::scope(|scope| {
         let workers: Vec<_> = (0..threads)
@@ -2121,7 +2126,7 @@ fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
                     let mut mine = Vec::new();
                     loop {
                         let seed = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        if seed >= seeds {
+                        if seed >= to {
                             return mine;
                         }
                         mine.push((seed, f(seed)));
@@ -2144,40 +2149,49 @@ fn histories() {
     let roles = Roles::new(&flow);
     let hook = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
-    let mut reached: BTreeMap<String, u64> = required(&flow, &roles).into_iter().map(|r| (r, 0)).collect();
+    let must = required(&flow, &roles);
+    let mut reached: BTreeMap<String, u64> = must.iter().map(|r| (r.clone(), 0)).collect();
     let mut runs: BTreeMap<CellId, (u64, u64)> = BTreeMap::new();
     let mut broken: BTreeMap<&str, Vec<Case>> = BTreeMap::new();
     let mut continued = 0;
     let mut most = (0, 1);
-    let results = in_parallel(SEEDS, |seed| {
-        let mut log = Vec::new();
-        let verdict = match panic::catch_unwind(AssertUnwindSafe(|| one_history(&flow, seed, &mut log))) {
-            Ok(verdict) => verdict,
-            Err(e) => {
-                let mut verdict = Verdict::default();
-                verdict.broken.insert(DRIVER, message(e.as_ref()));
-                verdict
+    let mut ran = 0;
+    while ran < SEEDS * BATCHES {
+        let batch = ran..ran + SEEDS;
+        let results = in_parallel(batch.start, batch.end, |seed| {
+            let mut log = Vec::new();
+            let verdict = match panic::catch_unwind(AssertUnwindSafe(|| one_history(&flow, seed, &mut log))) {
+                Ok(verdict) => verdict,
+                Err(e) => {
+                    let mut verdict = Verdict::default();
+                    verdict.broken.insert(DRIVER, message(e.as_ref()));
+                    verdict
+                }
+            };
+            (verdict, log)
+        });
+        for (seed, (verdict, log)) in batch.clone().zip(results) {
+            for r in verdict.reached {
+                *reached.entry(r).or_default() += 1;
             }
-        };
-        (verdict, log)
-    });
-    for (seed, (verdict, log)) in (0..SEEDS).zip(results) {
-        for r in verdict.reached {
-            *reached.entry(r).or_default() += 1;
-        }
-        for (cell, (all, nothing)) in verdict.runs {
-            let total = runs.entry(cell).or_default();
-            total.0 += all;
-            total.1 += nothing;
-        }
-        if let Some((steps, bound)) = verdict.steps {
-            continued += 1;
-            if steps * most.1 > most.0 * bound {
-                most = (steps, bound);
+            for (cell, (all, nothing)) in verdict.runs {
+                let total = runs.entry(cell).or_default();
+                total.0 += all;
+                total.1 += nothing;
+            }
+            if let Some((steps, bound)) = verdict.steps {
+                continued += 1;
+                if steps * most.1 > most.0 * bound {
+                    most = (steps, bound);
+                }
+            }
+            for (property, what) in verdict.broken {
+                broken.entry(property).or_default().push((seed, what, log.clone()));
             }
         }
-        for (property, what) in verdict.broken {
-            broken.entry(property).or_default().push((seed, what, log.clone()));
+        ran = batch.end;
+        if broken.values().any(|cases| !cases.is_empty()) || must.iter().all(|r| reached[r] >= FLOOR) {
+            break;
         }
     }
     panic::set_hook(hook);
@@ -2186,7 +2200,7 @@ fn histories() {
     let mut err = std::io::stderr();
     let _ = writeln!(
         err,
-        "{SEEDS} histories, {continued} with a content continuation; the most of its bound one took: {most:?}"
+        "{ran} histories, {continued} with a content continuation; the most of its bound one took: {most:?}"
     );
     let _ = writeln!(err, "reached, in how many histories:");
     for (what, n) in &reached {
@@ -2213,14 +2227,14 @@ fn histories() {
         ));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
-    let unreached: Vec<String> = (reached.iter())
-        .filter(|(_, n)| **n < FLOOR)
-        .map(|(r, n)| format!("{r}: {n}"))
+    let unreached: Vec<String> = (must.iter())
+        .filter(|r| reached[*r] < FLOOR)
+        .map(|r| format!("{r}: {}", reached[r]))
         .collect();
     let all: Vec<String> = reached.iter().map(|(r, n)| format!("{r}: {n}")).collect();
     assert!(
         unreached.is_empty(),
-        "fewer than {FLOOR} of {SEEDS} histories reached these, so the properties about them pin nothing: \
+        "fewer than {FLOOR} of {ran} histories reached these, so the properties about them pin nothing: \
          {unreached:?}\nin how many histories each situation was reached: {all:?}"
     );
 }
