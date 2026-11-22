@@ -712,8 +712,7 @@ fn the_plan_changed_by_the_owner_s_words(sim: &mut Sim, words: &str, plan: &str)
 
 // The owner's ruling in the design review's place (design document `data-and-context`, 39). The review fails the plan
 // with points A and B, and the owner writes its verdict at yes before the research has taken them; the plan changes
-// since, by the owner's words to the research, and the review fails again with A' and C, the review against the tree
-// passing the same plan in the pass (6). The points the review
+// since, by the owner's words to the research, and the review fails again with A' and C. The points the review
 // wrote before the ruling are new to no cell from then on, in the walk, in the points a round is told and in what the
 // context manager tells a round is new to it alike (5, 11): the research, which writes the plan and answers in the
 // dialogue, owes a word for A' and C alone, and is told the dialogue is new to it since the points the owner ruled on.
@@ -760,7 +759,6 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
         ],
     );
     let a_and_c = Seq(sim.version("plan_review"));
-    next(&mut sim, "P2", &[("tree_ok", "", Some("yes"))]);
     // What the walk, the round and the context manager each take as new to the research, which runs next.
     let check = |sim: &Sim, failures: &mut Vec<String>, ruled: &[Seq], unruled: &[Seq], since: Seq| {
         let round = sim.round().expect("a round is given");
@@ -836,7 +834,6 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
         ],
     );
     let e = Seq(sim.version("plan_review"));
-    next(&mut sim, "P2", &[("tree_ok", "", Some("yes"))]);
     check(&sim, &mut failures, &[a_and_b, a_and_c, d], &[answer, e], d);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

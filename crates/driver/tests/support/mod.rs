@@ -143,8 +143,6 @@ pub fn judged() -> Compiled {
         [kinds]
         text = "last_and_latest"
     "#;
-    // The merge waits for the judge's yes: a gate is reached only by a walk from the start, so a way back the judge's
-    // points make runs before it (design document `data-and-context`, 6).
     let merge = r#"
         title = "Merge"
         kind = "engine"

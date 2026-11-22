@@ -13,8 +13,7 @@
 //!   stopped or abandoned consume nothing.
 //! - `entered-only-for-what-is-new`: a cell is entered only when something new runs it, or the results of the calls it
 //!   waits for are all in, or the owner turned to it; the cell entered is the first in the order that something new
-//!   runs and that the flow lets run, but that a way back waits while a cell after it, short of the next cell with
-//!   preconditions, is to run for something else, has a run at rest or waits for its calls; a version handed in as
+//!   runs and that the flow lets run, whether a cell before it or after it wrote what is new; a version handed in as
 //!   changing nothing in meaning, or a cell's own write, runs no cell.
 //! - `one-round-of-a-work-at-a-time`: no work has two rounds under way at once, and a round under way is stopped only
 //!   for the owner turning to a cell before it.
@@ -51,7 +50,7 @@ use reading::{Reading, Reason, Writer};
 pub const UNSEEN: &str = "nothing is written over unseen";
 pub const CONSUMED: &str = "a datum is consumed only by a return that dealt with it";
 pub const ENTERED: &str = "a cell is entered only for what is new to it";
-pub const FIRST: &str = "the cell entered is the first that something new runs, a way back waiting for the pass";
+pub const FIRST: &str = "the cell entered is the first that something new runs";
 pub const STOPPED: &str = "a round is stopped only for the owner turning to a cell before it";
 pub const SPOKE: &str = "who wrote what is new is counted right";
 pub const PURE: &str = "the decision is a function of the records";
@@ -84,7 +83,7 @@ pub const REACHED: &[&str] = &[
     RESULTS_ENTERED,
     TURNED_TO_WHILE_WAITING,
     STOPS,
-    WAY_BACK_WAITS,
+    WAY_BACK_FIRST,
     LIMITS_CHECKED,
     CALL_LIMITS_CHECKED,
     WAYS_ROUND_BOUNDED,
@@ -124,7 +123,7 @@ const CAUSES_CHECKED: &str = "the reasons of a run as it starts";
 const RESULTS_ENTERED: &str = "a cell is entered for the results of its calls";
 const TURNED_TO_WHILE_WAITING: &str = "a cell waiting for the results of its calls is entered for the owner's words";
 const STOPS: &str = "a round under way is stopped for the owner turning to a cell before it";
-const WAY_BACK_WAITS: &str = "a way back waits while a cell after it runs in the pass";
+const WAY_BACK_FIRST: &str = "a way back is entered while a cell after it has something of its own to run for";
 const LIMITS_CHECKED: &str = "a work waits at a cell's limit of ways round";
 const CALL_LIMITS_CHECKED: &str = "a work waits at a cell's limit of calls";
 const WAYS_ROUND_BOUNDED: &str = "a way round starts";
@@ -662,11 +661,12 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                     Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } | Waited::Outside { .. } => {}
                 }
             }
-            first_entered(v, flow, reading, i, false);
+            first_entered(v, flow, reading, i);
         }
         Decision::Run { cell, .. } => {
             let i = flow.place(cell).expect("a cell of the flow");
-            first_entered(v, flow, reading, i, true);
+            first_entered(v, flow, reading, i);
+            way_back_first(v, flow, reading, i);
         }
         Decision::GoOn { run, .. } => {
             v.count(GOING_ON);
@@ -679,7 +679,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                 );
             }
             if let Some(i) = i {
-                first_entered(v, flow, reading, i, false);
+                first_entered(v, flow, reading, i);
             }
         }
         Decision::Abandon { run, because, .. } => abandoned(v, flow, reading, *run, because),
@@ -732,16 +732,10 @@ fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision)
     }
 }
 
-/// Whether the cell at place `i`, entered for these reasons, is a way back that waits for the pass: a way round, by
-/// the histories' reading, not run by the results of its own calls as well (design document `data-and-context`, 6).
-fn waits_for_the_pass(flow: &Flow, reading: &Reading, i: usize, reasons: &[Reason], now: Seq) -> bool {
-    reading.way_round(flow, i, reasons, now) && !reasons.iter().any(|r| matches!(r, Reason::Results { .. }))
-}
-
 /// Property entered-only-for-what-is-new, the order: where the walk enters a cell, goes on with its run or waits at it,
 /// no cell before it that applies has a run of its own at rest, anything to be entered for, calls it waits for, or a
-/// precondition that does not hold, by the histories' own reading.
-fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, entered: bool) {
+/// precondition that does not hold, by the histories' own reading, whoever wrote what is new to it.
+fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
     let now = Seq(u64::MAX);
     let cells = flow.cells();
     for (j, cell) in cells[..i].iter().enumerate() {
@@ -752,17 +746,6 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, ente
         let entering = reading.entering(flow, cell, now);
         let owed_open = reading.owed(&cell.id, now).iter().any(|c| !reading.done(*c, now));
         let unmet = cell.requires.iter().any(|key| !reading.key_holds(flow, key, j));
-        // A way back waits for the pass (design document `data-and-context`, 6): the walk may pass it for a cell after
-        // it, none of the cells between them, that cell included, having preconditions.
-        let way_back = !at_rest
-            && !owed_open
-            && !unmet
-            && waits_for_the_pass(flow, reading, j, &entering, now)
-            && cells[j + 1..=i].iter().all(|c| c.requires.is_empty());
-        if way_back {
-            v.count(WAY_BACK_WAITS);
-            continue;
-        }
         if at_rest || !entering.is_empty() || owed_open || unmet {
             v.fail(
                 FIRST,
@@ -774,43 +757,25 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, ente
             );
         }
     }
-    // Where the walk enters a way back, no cell after it, short of the next cell with preconditions and of one the walk
-    // would stop at, is to be entered for something that is no way back of its own and at no limit of calls, has a run
-    // at rest, or waits only for the results of its calls.
-    if !entered || !waits_for_the_pass(flow, reading, i, &reading.entering(flow, &cells[i], now), now) {
+}
+
+/// Counts where the walk enters the cell at place `i` only for what cells after it wrote, a way back, while a cell after
+/// it that applies has something of its own to be entered for, by the histories' own reading: the case in which the
+/// walk could take the later cell first, which [`first_entered`] holds it not to.
+fn way_back_first(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
+    let now = Seq(u64::MAX);
+    let cells = flow.cells();
+    let reasons = reading.entering(flow, &cells[i], now);
+    let results = reasons.iter().any(|r| matches!(r, Reason::Results { .. }));
+    if results || !reading.way_round(flow, i, &reasons, now) {
         return;
     }
-    for (k, cell) in cells.iter().enumerate().skip(i + 1) {
-        if !cell.requires.is_empty() {
-            return;
-        }
-        let held = reading.held(&cell.id, now);
-        if !reading.applies(flow, k) {
-            if held {
-                return;
-            }
-            continue;
-        }
-        let owed_open = reading.owed(&cell.id, now).iter().any(|c| !reading.done(*c, now));
-        let entering = reading.entering(flow, cell, now);
-        let results = entering.iter().any(|r| matches!(r, Reason::Results { .. }));
-        let at_calls_limit = results && asked_in_a_row(reading, &cell.id, now) >= cell.calls as usize;
-        let forward = !entering.is_empty() && !waits_for_the_pass(flow, reading, k, &entering, now) && !at_calls_limit;
-        let passed_for = at_rest(reading, &cell.id) || (owed_open && !held) || (forward && !held);
-        if passed_for {
-            v.fail(
-                FIRST,
-                format!(
-                    "the walk enters {}, run only by ways back, though {} after it is to run for {entering:?}, is at \
-                     rest or waits for its calls",
-                    cells[i].id, cell.id
-                ),
-            );
-            return;
-        }
-        if held || owed_open || at_calls_limit {
-            return;
-        }
+    let own = |k: usize| {
+        let entering = reading.entering(flow, &cells[k], now);
+        !entering.is_empty() && !reading.way_round(flow, k, &entering, now)
+    };
+    if ((i + 1)..cells.len()).any(|k| reading.applies(flow, k) && own(k)) {
+        v.count(WAY_BACK_FIRST);
     }
 }
 
@@ -883,7 +848,7 @@ fn stalled(
         }
         cell.runs_on.clone()
     } else {
-        first_entered(v, flow, reading, i, false);
+        first_entered(v, flow, reading, i);
         (on.iter())
             .flat_map(|key| match key {
                 Condition::Test(test) => flow.tests()[test].reads.clone(),

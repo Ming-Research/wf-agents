@@ -20,7 +20,6 @@ mod meaning;
 mod named_tests;
 mod opinions;
 mod order;
-mod pass;
 mod paused_answers;
 mod preconditions;
 mod questions;
@@ -30,6 +29,7 @@ mod skipping;
 mod stalling;
 mod stopping;
 mod waiting;
+mod ways_back;
 mod written_over;
 
 use std::collections::BTreeMap;
