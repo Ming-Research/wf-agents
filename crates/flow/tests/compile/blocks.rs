@@ -22,6 +22,33 @@ fn a_block_handed_in_only_with_the_answers_in_the_tree_is_compiled_so() {
     assert!(!compiled.blocks[&"plan".into()].answers_in_the_tree);
 }
 
+// The block the source of the works under way writes says in what block of the flow a work's plan names the files it will
+// touch (`planned_in`), which the engine reads of each work by that name and not by one of its own; a name the flow
+// does not declare is refused where it is written, and a block that says nothing of it names none.
+#[test]
+fn a_block_says_in_what_block_a_plan_names_its_files_and_the_block_must_be_declared() {
+    let named = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.main]\noutside = \"main\"",
+        "[blocks.main]\noutside = \"main\"\nplanned_in = \"plan\"",
+    );
+    let compiled = compiled(&named);
+    assert_eq!(compiled.blocks[&"main".into()].planned_in, Some("plan".into()));
+    assert_eq!(compiled.blocks[&"plan".into()].planned_in, None);
+
+    let lost = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.main]\noutside = \"main\"",
+        "[blocks.main]\noutside = \"main\"\nplanned_in = \"nowhere\"",
+    );
+    let what = NoSuchBlock {
+        block: "nowhere".to_string(),
+    };
+    assert_eq!(faults(&lost), [at(FLOW_FILE, "blocks.main.planned_in", what)]);
+}
+
 #[test]
 fn every_block_a_cell_reads_or_writes_is_declared() {
     let source = edit(
@@ -272,6 +299,7 @@ fn the_blocks_entries_are_added_to_are_each_cell_s_own_questions_and_words() {
             "asked",
             "dependencies",
             "handed_in",
+            "parallel",
             "main",
             "session",
             "start",
@@ -315,6 +343,7 @@ fn a_datum_of_a_cell_s_own_named_only_in_a_condition_is_made_for_that_cell() {
             "asked",
             "dependencies",
             "handed_in",
+            "parallel",
             "main",
             "session",
             "start",
@@ -353,6 +382,7 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
             "asked",
             "dependencies",
             "handed_in",
+            "parallel",
             "main",
             "session",
             "start",

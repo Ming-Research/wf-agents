@@ -695,15 +695,17 @@ fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
 /// withdrawn and as the owner answers one; `asked`, as the questions and their answers come to stand otherwise;
 /// `handed_in`, written by the engine's loop as the first run of a cell that dealt with something finishes; `main`,
 /// written by the acts' watch of main on the host; `tree` and `head`, read by the carriers of the design tree and of the
-/// work's head on a work's branch, written from outside or handed in with the round that committed them; and `words`,
-/// written by the engine's loop as the owner speaks to a cell, the cell's own words.
-const SOURCES: [&str; 10] = [
+/// work's head on a work's branch, written from outside or handed in with the round that committed them; `parallel`,
+/// written by the engine's loop as the list of the project's works under way changes; and `words`, written by the
+/// engine's loop as the owner speaks to a cell, the cell's own words.
+const SOURCES: [&str; 11] = [
     "answer",
     "asked",
     "dependencies",
     "handed_in",
     "head",
     "main",
+    "parallel",
     "session",
     "start",
     "tree",

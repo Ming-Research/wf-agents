@@ -2463,6 +2463,7 @@ mod tests {
                 "asked",
                 "dependencies",
                 "handed_in",
+                "parallel",
                 "main",
                 "session",
                 "start",

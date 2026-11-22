@@ -36,6 +36,7 @@ fn engineer(root: &Path) -> Compiled {
             "answer",
             "asked",
             "handed_in",
+            "parallel",
             "words",
             DEPENDENCIES,
             "main",
@@ -93,6 +94,18 @@ fn a_start_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() 
     assert_eq!(faults.len(), 1, "{faults:?}");
     assert!(faults[0].contains("data/start.toml"), "{}", faults[0]);
     assert!(faults[0].ends_with("its writes must give text"), "{}", faults[0]);
+}
+
+// The list of the works under way gives every text its entries are made of: where its file lacks one, the fault names
+// that file and the text.
+#[test]
+fn a_list_of_the_works_under_way_that_gives_no_words_is_a_fault_on_the_file_that_holds_them() {
+    let dir = copied();
+    without(dir.path(), "data/parallel.toml", "unread = ");
+    let faults = driver::faults(&engineer(dir.path()));
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(faults[0].contains("data/parallel.toml"), "{}", faults[0]);
+    assert!(faults[0].ends_with("its writes must give unread"), "{}", faults[0]);
 }
 
 // The block that says a cell has handed in gives the words the engine writes with its yes: where its file gives none,

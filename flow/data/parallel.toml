@@ -1,0 +1,20 @@
+# The engine writes a version where the list of the project's works under way differs from the last: the files each
+# one's branch has changed, as the engine reads them from the project's repository, and the files its plan names,
+# which its writer wrote in the block named by `planned_in`. Every work of the project that has the block is given the
+# same list. A work is on the list while it has started a run, has not ended, and has the block named by `planned_in`.
+# A cell is given it as any datum it lacks; a new version runs no cell.
+what = "The works of the project under way: for each, the files its branch has changed and the files its plan names."
+from = "parallel"
+planned_in = "plan_files"
+
+# What the engine writes, each text by its name: `work` a work's line, with `{work}` its number and `{item}` its item's;
+# `changed` and `planned` the lines that name the two parts of its entry, each followed by its files, one to a line;
+# `none_yet` and `not_stated` what stands for the files where there are none; and `unread` what stands for the files
+# its branch has changed where the repository could not be read, with `{why}` the reason.
+[writes]
+work = "W{work} (#{item})"
+changed = "changed:"
+planned = "planned:"
+none_yet = "nothing yet"
+not_stated = "not stated"
+unread = "could not be read: {why}"

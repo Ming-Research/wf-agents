@@ -468,6 +468,9 @@ pub struct BlockFile {
     /// latest version and the work's change against main changes nothing in the project's design tree.
     #[serde(default)]
     pub answers_in_the_tree: bool,
+    /// Of a block the source of the works under way writes, the block of a work in which its plan names the files it
+    /// will touch: a block of the flow.
+    pub planned_in: Option<String>,
 }
 
 /// Who changes what a source outside the work writes of a block, by their acts: the owner, as the record of the
@@ -520,6 +523,9 @@ pub struct LaidOutBlockFile {
     /// latest version and the work's change against main changes nothing in the project's design tree.
     #[serde(default)]
     pub answers_in_the_tree: bool,
+    /// Of a block the source of the works under way writes, the block of a work in which its plan names the files it
+    /// will touch: a block of the flow.
+    pub planned_in: Option<String>,
 }
 
 /// Who writes a block from outside the cells, as `from` says it: whether the owner does, and the source outside the
@@ -549,6 +555,7 @@ impl From<LaidOutBlockFile> for BlockFile {
             changed_by: block.changed_by,
             with_nothing_but: block.with_nothing_but,
             answers_in_the_tree: block.answers_in_the_tree,
+            planned_in: block.planned_in,
         }
     }
 }

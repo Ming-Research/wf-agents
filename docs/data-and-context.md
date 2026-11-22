@@ -17,7 +17,8 @@ the owner's pauses, when a work is at its end.
 2. A new version comes from outside or from a cell. From outside: whoever made the item writes its background; the
    owner answers, speaks or rules; the owner lets the work on, first or after the item was reopened (`start`); the
    items the work depends on merge or are cancelled (`dependencies`); the branch the works merge into moves (`main`);
-   the design tree of the project changes (`tree`); a cell's specification changes (design document
+   the design tree of the project changes (`tree`); the works of the project under way, the files each branch has
+   changed and each plan names, change (`parallel`); a cell's specification changes (design document
    `changed-flow-walks-the-records`); a session is reopened (25). Each of these says that something happened
    outside the work, and runs a cell only where a cell watches it. From a cell: what it hands in when a round of it
    ends. The code a round commits is handed in by that round, read from the branch as it ends (`head`). Two data are
@@ -282,8 +283,8 @@ new session lacks it.
 
 ## The engineer flow, laid out by this design
 
-45. The engineer flow, cell by cell, in the order of the walk. "Plan" is the group of `plan_owner`, `plan_agent` and
-    `acceptance`; "change" the group of `code`, `title`, `decisions`, `evidence`, `tests` and `head`.
+45. The engineer flow, cell by cell, in the order of the walk. "Plan" is the group of `plan_owner`, `plan_agent`,
+    `acceptance` and `plan_files`; "change" the group of `code`, `title`, `decisions`, `evidence`, `tests` and `head`.
     A dialogue is named by the datum its two sides write. Every agent's cell reads every cell's questions and every
     cell's words (33, 35); each cell that may ask also watches its own questions and its own words (30, 35); a cell that
     reads `tree` reads it first where its session has not (25). None of this is repeated in the table, and a blank
@@ -297,7 +298,7 @@ new session lacks it.
     | R2 Is there a better way | no deep research, and R2 has not handed in | plan, `better_found` | `background`, `tree` | a better way in `better_found`, where it finds one |
     | D1 Deep research | deep research | `background`, `found`, `better_found`, `plan_review`, `tree_review`, `plan_doubts`, R1's questions | `tree` | plan, answers in its dialogues, questions |
     | D2 Is there a better way | deep research, and D2 has not handed in | plan, `better_found` | `background`, `tree` | a better way in `better_found`, where it finds one |
-    | P1 Design review | | plan, `plan_review` | `background`, `found`, `tree` | `plan_ok` every time; points in `plan_review` where it fails |
+    | P1 Design review | | plan, `plan_review` | `background`, `found`, `tree`, `parallel` | `plan_ok` every time; points in `plan_review` where it fails |
     | P2 Design tree review | | plan, `tree_review` | `background`, `tree` | `tree_ok` every time; points in `tree_review` where it fails |
     | I1 Implement | `plan_ok` and `tree_ok` are yes | plan, `plan_doubts`, `review`, `test_review`, `design_review`, `testing`, `check` | `background`, `tree` | `code`, `title`, `decisions`, `evidence`, `acceptance`, `head` by its commits; answers in `review`, `test_review`, `design_review` and `testing`; doubts in `plan_doubts`; questions, which hold the engine's (34) |
     | T1 Code review | | change, `review` | plan, `background`, `tree` | `review_ok` every time; points in `review` where it fails |

@@ -298,6 +298,9 @@ pub struct Block {
     /// latest version and the work's change against main changes nothing in the project's design tree, as its file
     /// says (`answers_in_the_tree`).
     pub answers_in_the_tree: bool,
+    /// Of a block the source of the works under way writes, the block of a work in which its plan names the files it
+    /// will touch, as its file says (`planned_in`); none of any other.
+    pub planned_in: Option<BlockId>,
     /// Who writes it.
     pub writers: Writers,
     /// Who reads it.
@@ -1575,6 +1578,12 @@ impl<'a> Definition<'a> {
             } else if block.note && block.values.is_some() {
                 faults.push(at("note", FaultKind::NoteIsAChoice { block: name.clone() }));
             }
+            if let Some(planned) = &block.planned_in
+                && !self.flow.blocks.contains_key(planned)
+            {
+                let what = FaultKind::NoSuchBlock { block: planned.clone() };
+                faults.push(at("planned_in", what));
+            }
             if block.changed_by.is_some() && block.outside.is_none() {
                 faults.push(at(
                     "changed_by",
@@ -2622,6 +2631,7 @@ impl<'a> Definition<'a> {
                         .map(|(value, blocks)| (value.clone(), blocks.iter().map(|b| BlockId(b.clone())).collect()))
                         .collect(),
                     answers_in_the_tree: declared.answers_in_the_tree,
+                    planned_in: declared.planned_in.clone().map(BlockId),
                     writers: Writers {
                         cells: ids(&writers),
                         people: declared.people,

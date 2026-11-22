@@ -300,6 +300,7 @@ fn compiled(source: &Source) -> Compiled {
             "words",
             "dependencies",
             "handed_in",
+            "parallel",
             "main",
             "session",
             "start",
