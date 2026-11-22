@@ -73,3 +73,7 @@ Why: The machine that runs the engine is always on.
 ### principle protected-files-are-the-owners
 The paths a project protects, such as the agents' guide, constitution, flow and how checks run, are the owner's. The engine holds an agent's change to one at the merge: the agent takes it back or says why, and the engine asks the owner, again for each new change; after a yes it governs that work.
 Why: What an agent writes must not change what governs it unless the owner says yes. A rule in the project's guide, left to the engineer and the review to keep, was missed by both and the change merged (Article 7). The project's configuration names the paths, not the flow (Article 1).
+
+### principle test-problems-are-fixed-in-the-tests
+Code that is not a test may help a test read what it does, but never does anything differently so that a test or CI passes. A test that fails because CI is slow or unlike the owner's machine is fixed in the test or in CI, never in the code it tests.
+Why: Code changed for a test no longer does what it would do on its own, so the test checks something else, and the change ships with the code. A fault of CI or of a test belongs there; that no one would notice the change is no reason to make it.
