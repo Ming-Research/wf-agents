@@ -47,6 +47,27 @@ fn a_cell_whose_condition_is_met_again_is_passed_when_nothing_is_new_to_it() {
 }
 
 #[test]
+fn the_keys_that_keep_a_cell_from_applying_are_the_keys_of_its_condition_that_do_not_hold() {
+    let mut w = World::with_gate(vec![
+        cell("ask", &["brief"], &[]),
+        when("more", "yes", cell("extra", &["brief"], &[])),
+    ]);
+    w.person_writes("brief");
+    let on = |w: &World, cell: &str| decide::skipped_on(&w.flow, &w.records, &cell.into());
+    assert_eq!(
+        on(&w, "extra"),
+        vec![Condition::Is {
+            block: "more".into(),
+            value: "yes".to_string()
+        }]
+    );
+    assert_eq!(on(&w, "ask"), vec![], "a cell with no condition applies");
+    assert_eq!(on(&w, "nowhere"), vec![], "the flow has no such cell");
+    w.person_sets("more", "yes");
+    assert_eq!(on(&w, "extra"), vec![], "its condition holds");
+}
+
+#[test]
 fn a_condition_on_a_block_that_has_no_version_is_not_met() {
     let mut w = World::with_gate(vec![
         cell("ask", &["brief"], &[]),

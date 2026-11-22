@@ -441,6 +441,13 @@ pub fn applies(flow: &Flow, records: &Records, cell: &CellId) -> bool {
     flow.place(cell).is_some_and(|i| walk.applies(i))
 }
 
+/// The keys of the cell's condition that do not hold now, which keep it from applying: none where it applies or where
+/// the flow has no such cell.
+pub fn skipped_on(flow: &Flow, records: &Records, cell: &CellId) -> Vec<Condition> {
+    let walk = Walk::new(flow, records);
+    (flow.place(cell)).map_or_else(Vec::new, |i| walk.skipped_on(i))
+}
+
 /// The blocks that keep this key of the cell's preconditions from holding now, by the value each has: a write of any of
 /// them can make it hold. None where it holds, or where the flow has no such cell.
 pub fn keeping(flow: &Flow, records: &Records, cell: &CellId, key: &Condition) -> Vec<BlockId> {
@@ -821,6 +828,15 @@ impl<'a> Walk<'a> {
         (self.flow.cells()[i].applies.iter()).all(|key| self.keeping(key, i).is_empty())
     }
 
+    /// The keys of the condition of the cell at this place that do not hold now, in the order the cell names them: none
+    /// where the cell applies, and, where it does not, each of the keys that keep it from applying.
+    fn skipped_on(&self, i: usize) -> Vec<Condition> {
+        (self.flow.cells()[i].applies.iter())
+            .filter(|key| !self.keeping(key, i).is_empty())
+            .cloned()
+            .collect()
+    }
+
     /// The blocks that keep one key of a condition or of the preconditions of the cell at this place from holding, by
     /// the value each has now; none where it holds. A write of any of them can change whether it holds.
     fn keeping(&self, key: &'a Condition, i: usize) -> Vec<&'a BlockId> {
@@ -1078,11 +1094,7 @@ impl<'a> Walk<'a> {
                 let why = if j >= i {
                     Unrun::Held
                 } else if !self.applies(j) {
-                    let on = (cell.applies.iter())
-                        .filter(|key| !self.keeping(key, j).is_empty())
-                        .cloned()
-                        .collect();
-                    Unrun::Skipped { on }
+                    Unrun::Skipped { on: self.skipped_on(j) }
                 } else {
                     Unrun::NothingNew
                 };

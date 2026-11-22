@@ -790,6 +790,10 @@ pub struct QuestionPage {
     pub recommends: Option<u64>,
     /// The owner's answer to the latest version.
     pub answer: Option<AnswerPage>,
+    /// Why its cell does not run now, said as a stalled work says it, where its condition does not hold; none while it
+    /// does. A question of a cell that does not run holds the work at no cell.
+    #[serde(default)]
+    pub skipped: Option<String>,
 }
 
 /// An option of a question.
@@ -821,7 +825,7 @@ impl QuestionPage {
     }
 
     /// Each question of the work, as it stands, numbered as the version the work is on names each cell's questions.
-    fn all(kept: &Kept<'_>) -> Vec<QuestionPage> {
+    fn all(kept: &Kept<'_>) -> Result<Vec<QuestionPage>, Broken> {
         let work = kept.work;
         (decide::questions::questions(&work.records).into_iter())
             .map(|(name, q)| {
@@ -844,7 +848,17 @@ impl QuestionPage {
                     Some(work::Question::Withdrawn { why, .. }) => (None, Vec::new(), None, Some(why.clone()), false),
                     None => (None, Vec::new(), None, None, false),
                 };
-                QuestionPage {
+                let skipped = decide::skipped_on(&kept.flow.flow, &work.records, &q.latest.cell);
+                let skipped = match skipped.is_empty() {
+                    true => None,
+                    false => {
+                        let on: Vec<CellKey> = (skipped.iter())
+                            .map(|key| key_of(kept, key))
+                            .collect::<Result<_, Broken>>()?;
+                        Some(skipped_words(&kept.flow.waits.stalled, &q.latest.cell.to_string(), &on))
+                    }
+                };
+                Ok(QuestionPage {
                     name: name.to_string(),
                     cell: q.latest.cell.to_string(),
                     version: kept.question_version(&q.latest.cell, q.latest.at),
@@ -860,7 +874,8 @@ impl QuestionPage {
                         at: a.at.0,
                         why: a.why.clone(),
                     }),
-                }
+                    skipped,
+                })
             })
             .collect()
     }
@@ -2166,7 +2181,7 @@ impl Summary {
         let waits: Vec<Wait> = (driver.waits_on_owner_at(number, view, held, &every.at_once).into_iter())
             .map(Wait::of)
             .collect();
-        let ahead = QuestionPage::ahead(&QuestionPage::all(&kept), &waits);
+        let ahead = QuestionPage::ahead(&QuestionPage::all(&kept)?, &waits);
         Ok(Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
@@ -2580,34 +2595,56 @@ impl Now {
 /// cell it stands at is said beside it by every reader, and the sentence does not name it.
 fn stalled_words(words: &flow::agents::StalledWords, on: &[CellKey], by: &[Stalling]) -> String {
     use flow::agents::fill;
-    let name = |name: &str| fill(&words.name, &[("name", name)]);
-    let keys = |keys: &[CellKey]| {
-        keys.iter()
-            .map(|key| name(&key.words))
-            .collect::<Vec<_>>()
-            .join(&words.and)
-    };
     let writers = match by.is_empty() {
         true => words.none.clone(),
         false => {
-            let cells: Vec<String> = by.iter().map(|stalling| name(&stalling.cell)).collect();
+            let cells: Vec<String> = by.iter().map(|stalling| name_words(words, &stalling.cell)).collect();
             fill(&words.only, &[("cells", &cells.join(&words.or))])
         }
     };
     let waits = match on.is_empty() {
-        false => fill(&words.waits, &[("keys", &keys(on)), ("writers", &writers)]),
+        false => fill(&words.waits, &[("keys", &keys_words(words, on)), ("writers", &writers)]),
         true => fill(&words.last, &[("writers", &writers)]),
     };
     let unrun = (by.iter()).map(|stalling| {
         let why = match &stalling.why {
-            Unrun::Skipped { on } => fill(&words.skipped, &[("keys", &keys(on))]),
+            Unrun::Skipped { on } => skipped_why(words, on),
             Unrun::NothingNew {} => words.nothing_new.clone(),
             Unrun::Held {} => words.held.clone(),
         };
-        fill(&words.unrun, &[("cell", &name(&stalling.cell)), ("why", &why)])
+        unrun_words(words, &stalling.cell, &why)
     });
     let parts: Vec<String> = std::iter::once(waits).chain(unrun).collect();
     flow::agents::sentence(&parts.join(&words.then))
+}
+
+/// Why a cell does not run where its condition does not hold, in one sentence in the words of a stalled work: the cell,
+/// and the keys of its `when` that keep it from running.
+fn skipped_words(words: &flow::agents::StalledWords, cell: &str, on: &[CellKey]) -> String {
+    flow::agents::sentence(&unrun_words(words, cell, &skipped_why(words, on)))
+}
+
+/// A cell that does not run, and why, in the words of a stalled work.
+fn unrun_words(words: &flow::agents::StalledWords, cell: &str, why: &str) -> String {
+    flow::agents::fill(&words.unrun, &[("cell", &name_words(words, cell)), ("why", why)])
+}
+
+/// That a cell is skipped, its keys not holding, in the words of a stalled work.
+fn skipped_why(words: &flow::agents::StalledWords, on: &[CellKey]) -> String {
+    flow::agents::fill(&words.skipped, &[("keys", &keys_words(words, on))])
+}
+
+/// A key or a cell, in the words of a stalled work.
+fn name_words(words: &flow::agents::StalledWords, name: &str) -> String {
+    flow::agents::fill(&words.name, &[("name", name)])
+}
+
+/// Keys joined as a stalled work says them.
+fn keys_words(words: &flow::agents::StalledWords, keys: &[CellKey]) -> String {
+    (keys.iter())
+        .map(|key| name_words(words, &key.words))
+        .collect::<Vec<_>>()
+        .join(&words.and)
 }
 
 /// A key of a cell's `when` or `requires` as the page shows it: a named test with its words, or a key on a block's value
@@ -2831,7 +2868,7 @@ impl WorkPage {
             cells: if ended { Vec::new() } else { cells },
             blocks,
             steps,
-            questions: QuestionPage::all(&kept),
+            questions: QuestionPage::all(&kept)?,
             speaking: if ended { Vec::new() } else { Speaking::all(&kept) },
         }))
     }
@@ -3617,6 +3654,7 @@ pub(crate) mod tests {
             options: Vec::new(),
             recommends: None,
             answer: None,
+            skipped: None,
         };
         let answered = QuestionPage {
             answer: Some(AnswerPage {
@@ -3769,6 +3807,22 @@ pub(crate) mod tests {
             of(Some("3"), &at("write")),
             (None, None, Some(0)),
             "above the highest an item may be at"
+        );
+    }
+
+    // A question of a cell that does not run says why in the words a stalled work says a cell does not run in, so that
+    // the same thing reads the same wherever it is said.
+    #[test]
+    fn a_question_of_a_skipped_cell_says_why_in_the_words_of_a_stalled_work() {
+        let flow = flow();
+        let words = &flow.waits.stalled;
+        let key = |words: &str| CellKey {
+            test: words.to_string(),
+            words: words.to_string(),
+        };
+        assert_eq!(
+            skipped_words(words, "review", &[key("big = yes"), key("ready")]),
+            "`review` does not run, because it is skipped, `big = yes` and `ready` not holding."
         );
     }
 
@@ -4083,7 +4137,7 @@ pub(crate) mod tests {
         let (installed, on, work) = asked_on_an_earlier_version();
         let stored = Stored::new("asking");
         let kept = stored.kept(&installed, &on, &work);
-        let numbered: Vec<_> = (QuestionPage::all(&kept).into_iter())
+        let numbered: Vec<_> = (QuestionPage::all(&kept).expect("the questions are read").into_iter())
             .map(|q| (q.name, q.version))
             .collect();
         assert_eq!(numbered, [("which".to_string(), Some(1))]);
