@@ -544,10 +544,9 @@ fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_fa
             assert!(named.contains(&error), "{named}");
         }
     }
-    // The results of an earlier run, which `target/` keeps between runs, are never taken for this run's: the job is
-    // red for a step before its tests, which then did not run, or for a build of its tests that failed. Either way its
-    // results hold the error naming that step, and nothing of what was left (a `junit.xml` a cancelled run did not
-    // move, say).
+    // The results of an earlier run, which `target/` keeps between runs, are never taken for this run's: where a step
+    // before the tests failed, and the tests did not run, the results hold the error naming that step, and nothing of
+    // what was left (a `junit.xml` a cancelled run did not move, say).
     let stale =
         r#"<testsuites><testsuite name="carry"><testcase name="left_by_an_earlier_run"/></testsuite></testsuites>"#;
     let left = |dir: &Path| {
@@ -577,25 +576,6 @@ fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_fa
         named.contains(&error("Build the page")) && !named.contains("left_by_an_earlier_run"),
         "{named}"
     );
-    // The build of the tests failed: the tests step of ci.yml, its `cargo` standing in as one that builds nothing.
-    let tests: Vec<String> = (scripts(&workflow("ci.yml")).into_iter())
-        .map(|(_, script)| script)
-        .filter(|script| script.contains("cargo nextest run"))
-        .collect();
-    assert_eq!(tests.len(), 1, "scripts of ci.yml that run the tests: {}", tests.len());
-    let dir = tempfile::tempdir().unwrap();
-    left(dir.path());
-    let cargo = dir.path().join("cargo.sh");
-    std::fs::write(&cargo, "cargo() { return 101; }\n").unwrap();
-    let env = [("BASH_ENV", cargo.to_str().unwrap()), ("PARTITION", "2")];
-    let (ok, said) = try_script(&tests[0], dir.path(), &env);
-    assert!(!ok, "the build fails the step: {said}");
-    let named = said_by(dir.path(), "failure Test", None);
-    assert!(
-        named.contains(&error("Test")) && !named.contains("left_by_an_earlier_run"),
-        "{named}"
-    );
-
     // The page's job: its tests passed and its build after them failed, which is said in the file the tests wrote.
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("page.xml");
@@ -616,6 +596,51 @@ fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_fa
     let named = read(&file);
     assert!(
         named.contains(r#"<testcase name="a"/></testsuite><testsuite name="page"><error message="the step Build the page of the job failed"/></testsuite></testsuites>"#),
+        "{named}"
+    );
+}
+
+// The build of the tests of a job fails, and `target/` holds a `junit.xml` that an earlier run left (a cancelled run's,
+// which its `Name the results` did not move): the tests step takes it away as it begins, so that the results the job
+// names hold the error naming `Test` and nothing of the earlier run. The step of ci.yml that runs the tests is run
+// with a `cargo` that builds nothing and exits 101, as a build that fails does. A few milliseconds under bash.
+#[test]
+fn a_build_of_the_tests_that_fails_leaves_no_results_of_an_earlier_run_to_be_uploaded() {
+    let tests: Vec<String> = (scripts(&workflow("ci.yml")).into_iter())
+        .map(|(_, script)| script)
+        .filter(|script| script.contains("cargo nextest run"))
+        .collect();
+    assert_eq!(tests.len(), 1, "scripts of ci.yml that run the tests: {}", tests.len());
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("target/nextest/ci")).unwrap();
+    std::fs::write(
+        dir.path().join("target/nextest/ci/junit.xml"),
+        r#"<testsuites><testsuite name="carry"><testcase name="left_by_an_earlier_run"/></testsuite></testsuites>"#,
+    )
+    .unwrap();
+    let cargo = dir.path().join("cargo.sh");
+    std::fs::write(&cargo, "cargo() { return 101; }\n").unwrap();
+    let env = [("BASH_ENV", cargo.to_str().unwrap()), ("PARTITION", "2")];
+    let (ok, said) = try_script(&tests[0], dir.path(), &env);
+    assert!(!ok, "the build fails the step: {said}");
+    let job = "test 2 of 3";
+    let results = dir.path().join("temp").join(format!("{job}.xml"));
+    std::fs::create_dir_all(results.parent().unwrap()).unwrap();
+    let steps = ["Check out the commit", "Check the version of nextest", "Build the page"]
+        .map(|step| format!("success {step}"))
+        .join("\n");
+    let env = [
+        ("JOB", job),
+        ("RESULTS", results.to_str().unwrap()),
+        ("TESTED", "failure Test"),
+        ("STEPS", steps.as_str()),
+    ];
+    run_script(&naming_script(true), dir.path(), &env);
+    let named = read(&results);
+    assert!(
+        named.contains(&format!(
+            r#"<testsuite name="{job}"><error message="the step Test of the job failed"/></testsuite>"#
+        )) && !named.contains("left_by_an_earlier_run"),
         "{named}"
     );
 }

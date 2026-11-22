@@ -2,7 +2,7 @@
 // the page's tests a name asks for (`.github/workflows/fast.yml`, the step that finds the page tests named): each test
 // with the name its results give it (its describes and its title joined by ` > `) and its file, from the real vitest, so
 // that a version of it that changes the file's form or the option's meaning fails here and not in a run that names a
-// test. About 1 to 2 s alone: one process of vitest, with no browser project.
+// test. About 0.4 s alone: one process of vitest, with no browser project.
 
 import { execFile } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
