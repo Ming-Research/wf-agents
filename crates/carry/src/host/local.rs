@@ -92,13 +92,16 @@ impl Host for Local {
         repository: &Mutex<()>,
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
-        let _ = repository;
         let check = &self.project.check;
+        let held = repository.lock().await;
         let dir = git::check_out(&self.project, branch.place, commit).await?;
         let ran = process::run(process::shell(check, &dir, &self.env), None, None, stop).await;
-        let taken = git::take_away_check(&self.project, branch.place)
-            .await
-            .map_err(|why| format!("the checkout the check ran on could not be taken away: {why}"));
+        drop(held);
+        let taken = {
+            let _held = repository.lock().await;
+            git::take_away_check(&self.project, branch.place).await
+        }
+        .map_err(|why| format!("the checkout the check ran on could not be taken away: {why}"));
         let failed = match ran? {
             Ran::Ended { status, stdout, .. } if !status.success() => Some(format!(
                 "The check `{check}` failed ({status}). The end of what it said:\n{}",
