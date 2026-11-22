@@ -279,8 +279,8 @@ impl Hold {
         let by_gate = match self.gate {
             Gate::Open => false,
             Gate::Every => true,
-            Gate::Agents => spec.is_some_and(|spec| spec.kind == Kind::Engine),
-            Gate::Acts => spec.is_some_and(|spec| spec.kind == Kind::Agent),
+            Gate::Agents => spec.is_some_and(|spec| spec.kind == Kind::Agent),
+            Gate::Acts => spec.is_some_and(|spec| spec.kind == Kind::Engine),
         };
         by_gate
             || spec
