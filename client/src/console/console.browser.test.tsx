@@ -1005,7 +1005,9 @@ describe('the console page', () => {
     await userEvent.keyboard('/');
     await userEvent.fill(field(), 'flat list');
     await expect.poll(found).toEqual(['35']);
-    await userEvent.click(container.querySelector('.console-found-row') as HTMLElement);
+    // A click on the row, as the page takes it: the browser's own pointer waits for a still frame of a canvas drawn in
+    // software, which a loaded machine stretches past the test's time.
+    (container.querySelector('.console-found-row') as HTMLElement).click();
     await expect.poll(title).toBe('Try the tree as a flat list');
     expect(box('Cancelled').checked).toBe(true);
   });

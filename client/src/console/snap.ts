@@ -2459,6 +2459,11 @@ export class SnapScene {
   }
 
   /// Selects the item numbered `id`, or none.
+  /// The item selected, by its number, or none: as soon as it is asked for, though folds over it still open.
+  selectedId(): number | null {
+    return this.selected;
+  }
+
   select(id: number | null): void {
     this.ask();
     // An item folds hide is selected once the folds over it are opened and it is drawn.

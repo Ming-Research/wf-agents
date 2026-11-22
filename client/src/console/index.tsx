@@ -197,11 +197,12 @@ export function ConsolePage({
   const walk = useRef<{ item: number; at: number } | null>(null);
   const drawnStops = useRef<{ item: number; count: number } | null>(null);
   const [stopAsked, setStopAsked] = useState<{ item: number; at: number; seq: number } | null>(null);
-  const selectedNow = useRef<number | null>(null);
+  // The item selected, as the scene holds it at this moment, which the page's own state follows a render later.
+  const selectedNow = () => scene.current?.selectedId() ?? null;
   const goStop = (item: number, at: number) => {
     walk.current = { item, at };
     setStopAsked((was) => ({ item, at, seq: (was?.seq ?? 0) + 1 }));
-    if (item !== selectedNow.current) pick(item);
+    if (item !== selectedNow()) pick(item);
   };
   const walkOn = (way: 1 | -1) => {
     const d = latestData.current;
@@ -220,7 +221,7 @@ export function ConsolePage({
       return null;
     };
     const w = walk.current;
-    const sel = selectedNow.current;
+    const sel = selectedNow();
     if (w !== null && w.item === sel) {
       const count = stopsOf(w.item);
       const at = (w.at < 0 ? count - 1 : w.at) + way;
@@ -239,9 +240,6 @@ export function ConsolePage({
   useEffect(() => {
     walkOnNow.current = walkOn;
   });
-  useEffect(() => {
-    selectedNow.current = selected?.id ?? null;
-  }, [selected]);
 
   /// The width of the tree that the window leaves to be seen: all of it while the window is in.
   const room = (out: boolean) => {
