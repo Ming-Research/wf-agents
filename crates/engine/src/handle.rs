@@ -11,7 +11,7 @@ use decide::{
 use flow::{Compiled, Kind};
 
 use crate::asked;
-use crate::event::{Effect, Event, Gate, Hold, Refused};
+use crate::event::{Effect, Event, Gate, Refused};
 use crate::handed_in;
 use crate::spoken;
 use work::{Ask, Back, Call, Filled, Given, Measured, Moment, Pinged, Pulled, Ran, Session, Time, Work};
@@ -50,17 +50,17 @@ pub fn handle_with(
 }
 
 /// Takes one thing that happened to the work as [`handle`] does, in the room the engine leaves it ([`handle_in`]) and
-/// with the rounds held as the hold says: a gate alone ([`handle_with`]), which is the wait every work shares, or that
-/// and the lines whose session is pinged ([`Hold`]). What either holds back waits, and everything else is done.
+/// with the rounds held as the gate of the wait every work shares says ([`handle_with`]): what either holds back
+/// waits, and everything else is done.
 pub fn handle_held(
     flow: &Compiled,
     work: &mut Work,
     now: Time,
     event: Event,
     room: Room,
-    hold: impl Into<Hold>,
+    gate: Gate,
 ) -> Result<Vec<Effect>, Refused> {
-    handle_then(flow, work, now, event, room, hold, &|_, _| Vec::new())
+    handle_then(flow, work, now, event, room, gate, &|_, _| Vec::new())
 }
 
 /// Takes one thing that happened to the work as [`handle_held`] does, and then, before the deciding code is asked what
@@ -72,10 +72,9 @@ pub fn handle_then(
     now: Time,
     event: Event,
     room: Room,
-    hold: impl Into<Hold>,
+    gate: Gate,
     then: &dyn Fn(&Compiled, &Work) -> Vec<Event>,
 ) -> Result<Vec<Effect>, Refused> {
-    let hold: Hold = hold.into();
     let returned = match &event {
         Event::Returned { run, .. } => Some(*run),
         _ => None,
@@ -107,12 +106,7 @@ pub fn handle_then(
     for event in then(flow, work) {
         take(flow, work, event, &mut effects)?;
     }
-    let at = At {
-        from,
-        now,
-        room,
-        hold: &hold,
-    };
+    let at = At { from, now, room, gate };
     advance(flow, work, at, &mut effects)?;
     // A work that has just ended withdraws the calls its cells were waiting on: no cell is entered for their results.
     // Those of a run abandoned were withdrawn as it was.
@@ -681,16 +675,16 @@ fn reopened_since(work: &Work) -> Result<(), Refused> {
 }
 
 /// When something that happened is taken: the first place given to its entries, the time, the room the engine leaves
-/// the work, and which rounds may begin.
+/// the work, and whether the agents' rounds may begin.
 #[derive(Clone, Copy)]
-struct At<'a> {
+struct At {
     from: Seq,
     now: Time,
     room: Room,
-    hold: &'a Hold,
+    gate: Gate,
 }
 
-impl At<'_> {
+impl At {
     /// When the entry at this place was added: now, for one added for what is being taken.
     fn time_of(self, work: &Work, place: Seq) -> Time {
         if place >= self.from {
@@ -699,9 +693,15 @@ impl At<'_> {
         work.time_of(place).unwrap_or(self.now)
     }
 
-    /// Whether the rounds of the cell are held ([`Hold::holds`]).
+    /// Whether the gate holds the rounds of the cell: it holds every round, or an agent's and the cell is one an agent
+    /// carries out.
     fn holds(self, flow: &Compiled, cell: &CellId) -> bool {
-        self.hold.holds(flow, cell)
+        match self.gate {
+            Gate::Open => false,
+            Gate::Every => true,
+            Gate::Agents => (flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent),
+            Gate::Acts => (flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Engine),
+        }
     }
 }
 
@@ -710,7 +710,7 @@ impl At<'_> {
 /// finishes, makes a wait or rests at a limit: so no more often than twice the runs the work has started, and once
 /// for each cell besides. Going round more often, the deciding code decides without end on these records, which is
 /// refused with what it decided last, rather than the engine holding the process for ever.
-fn advance(flow: &Compiled, work: &mut Work, at: At<'_>, effects: &mut Vec<Effect>) -> Result<(), Refused> {
+fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) -> Result<(), Refused> {
     let bound = 2 * work.records.started.len() + flow.cells.len() + 2;
     let mut passes = 0;
     loop {
@@ -762,7 +762,7 @@ fn advance(flow: &Compiled, work: &mut Work, at: At<'_>, effects: &mut Vec<Effec
 
 /// Does what the run does next. Says whether the deciding code is to be asked again: it is when the run finished, had
 /// a wait made or came to rest for the owner at a limit, and not when a round of it began or is held.
-fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At<'_>, effects: &mut Vec<Effect>) -> bool {
+fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<Effect>) -> bool {
     let choices = choices(flow);
     let nothing_but = nothing_but(flow);
     let answers = answers(flow, work, run);
