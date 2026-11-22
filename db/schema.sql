@@ -98,8 +98,8 @@ CREATE TABLE on_flow (
 );
 
 -- What the work's time went to from its first round to its last, kept as it ended (JSON: each stretch with when it
--- began and ended, and `model`, `tools`, `owner`, `paused`, `items` or `other`). A work reopened and ended again keeps
--- it again; the latest is the work's.
+-- began and ended, and `model`, `tools`, `owner`, `paused`, `stopping`, `items` or `other`). A work reopened and ended
+-- again keeps it again; the latest is the work's.
 CREATE TABLE kept_time (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
