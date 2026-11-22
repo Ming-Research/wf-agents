@@ -43,8 +43,8 @@ The flow is audited or redone one cell at a time, each finished before the next,
 Why: Cells added one at a time, each reasonable alone, drift apart, and only going through all of them shows it; cells settled in a draft came out different in the definition. With each cell's problem and cost written down, taking a capability from a cell shows which problem must be met elsewhere.
 
 ### principle flow-change-spares-works
-A flow change is made so that returns already handed in still pass where it can, and what installing it does to each work in progress is shown before it is approved.
-Why: Every tightening of an early cell's output sends each work that went past it back to do the cell again; the owner approves a flow change with that cost in view. (Article 3)
+A flow change applies to the cells a work has not yet passed; a cell a work has already passed is not run again because its definition changed.
+Why: What a work handed in was right by the flow it ran on; running it again for a change of the flow spends rounds on work that is done. (Article 3)
 
 ### principle a-defect-is-seen-before-it-is-fixed
 A defect is fixed only once seen where it shows, as in a real browser or the program on its own data, by a test or else a probe, a log or the owner. If no tool shows it, the work stops at research, going no deeper, and asks the owner: fix the inferred cause, give the conditions, or close the item.

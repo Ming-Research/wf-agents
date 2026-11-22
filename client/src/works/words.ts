@@ -375,6 +375,10 @@ export const waitCounted = (n: number): string => `${n === 1 ? 'thing waits' : '
 /// How many things wait for the owner, the one count, said one way wherever it is said.
 export const waitCount = (n: number): string => `${n} ${waitCounted(n)}`;
 
+/// How many questions the owner may answer ahead, which hold no work yet, said one way wherever it is said.
+export const aheadCount = (n: number): string =>
+  `${n} ${n === 1 ? 'question' : 'questions'} you may answer ahead`;
+
 /// Who gives what a work waits for that is not the owner's: the architect for a question put to them, the engine for a
 /// call it makes, a slot and the wait every work shares, the source outside the work, or else the cells, for a
 /// precondition only they make hold, the source a work waits on, and the work that holds the project's turn. None for

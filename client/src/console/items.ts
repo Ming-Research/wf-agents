@@ -13,7 +13,7 @@
 
 import type { CellNow, Item, Items, Now, Pauser, Summary, Wait } from '../works-api';
 import { mocksShown } from '../mock-data';
-import { waitsOf } from '../works/waiting';
+import { aheadOf, waitsOf } from '../works/waiting';
 import { stateOf } from '../works/words';
 import { itemOf } from './real';
 
@@ -261,7 +261,7 @@ export function shownTree(
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w),
       // Only a work that goes on has questions to answer.
-      ahead: w !== undefined && live(w) ? (w.ahead ?? 0) : 0,
+      ahead: w === undefined ? 0 : aheadOf(w),
       deliver: deliverable || w?.delivers === true,
       // New to the owner exactly when something is unread: one fact, not two.
       unseen: (mock?.unread ?? 0) > 0,

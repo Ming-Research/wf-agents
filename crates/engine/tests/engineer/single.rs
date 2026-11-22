@@ -317,7 +317,7 @@ fn dealt_with(w: &W) -> Vec<(String, Option<Vec<BlockId>>)> {
         .collect()
 }
 
-// A flow change is made so that the returns already handed in still pass where it can (principle
+// A cell a work has passed is not run again because the flow changed (principle
 // flow-change-spares-works). A work may hold a version of a block the installed flow no longer has, written by a cell
 // that is still in the flow: here the research wrote `tree_edits` with its plan on a flow that had it, and the flow
 // without it is installed before the next round. The walk passes over that version as if it were not there. Each cell
