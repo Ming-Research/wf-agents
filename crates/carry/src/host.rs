@@ -231,8 +231,10 @@ pub trait Host: Send + Sync + 'static {
     ) -> impl Future<Output = Result<Option<String>, String>> + Send;
 
     /// Lets go of what the host holds for the work, which has ended with nothing of it under way: its pull request
-    /// where it did not merge, closed with a word that its work ended ([`CLOSED`]). What is gone, closed or merged
-    /// already is left as it is, and the work's own branch stays.
+    /// where it did not merge, closed with a word that its work ended ([`CLOSED`]), and, merged or not, the branches
+    /// that calls of [`Host::run_tests`] left (`wf-try/<the work's branch>/…`), deleted after the pull request is
+    /// closed, whether or not that went well. What is gone, closed or merged already is left as it is, and the work's
+    /// own branch stays.
     fn end(&self, branch: &Branch<'_>, merged: bool) -> impl Future<Output = Result<(), String>> + Send;
 
     /// Takes up again what the host held for a work that was cancelled and reopened, as the work makes its place

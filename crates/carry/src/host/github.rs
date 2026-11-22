@@ -355,6 +355,26 @@ impl<A: Api> GitHub<A> {
             .collect())
     }
 
+    /// Closes the work's open pull request into main, saying its work ended. Only that one is the work's: one into
+    /// another branch is a person's.
+    async fn close_pulls(&self, branch: &Branch<'_>) -> Result<(), String> {
+        let pulls = self.api.pulls(&branch.place.branch).await?;
+        for open in (pulls.iter()).filter(|p| p.state == State::Open && p.base == self.project.main) {
+            (self.api.close(open.number, super::CLOSED).await)
+                .map_err(|why| format!("GitHub did not close the pull request {}: {why}", open.url))?;
+        }
+        Ok(())
+    }
+
+    /// Deletes what the calls of `run_tests` left of the branches they pushed commits to, where the engine stopped
+    /// before it read the result: they are the work's, whether or not it merged.
+    async fn sweep_trials(&self, branch: &Branch<'_>) -> Result<(), String> {
+        for left in self.trials(branch).await? {
+            (self.api.delete(&left).await).map_err(|why| format!("GitHub did not delete the branch {left}: {why}"))?;
+        }
+        Ok(())
+    }
+
     /// Deletes the work's branch on GitHub, where the settings say to.
     async fn delete(&self, branch: &Branch<'_>) -> Result<(), Failed> {
         if self.config.delete_branch {
@@ -570,21 +590,18 @@ impl<A: Api> Host for GitHub<A> {
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
-        // What a call of `run_tests` left of the branches it pushed commits to, where the engine stopped before it read
-        // the result: they are the work's, whether or not it merged.
-        for left in self.trials(branch).await? {
-            (self.api.delete(&left).await).map_err(|why| format!("GitHub did not delete the branch {left}: {why}"))?;
+        // The pull request is closed first, and the branches the calls left are swept whether or not that went well: they
+        // are harmless leftovers, and what fails is said, not hidden by what comes before it.
+        let closed = match merged {
+            true => Ok(()),
+            false => self.close_pulls(branch).await,
+        };
+        let swept = self.sweep_trials(branch).await;
+        match (closed, swept) {
+            (Err(closing), Err(sweeping)) => Err(format!("{closing}; {sweeping}")),
+            (Err(why), Ok(())) | (Ok(()), Err(why)) => Err(why),
+            (Ok(()), Ok(())) => Ok(()),
         }
-        if merged {
-            return Ok(());
-        }
-        // Only the work's pull request into main is the work's: one into another branch is a person's.
-        let pulls = self.api.pulls(&branch.place.branch).await?;
-        for open in (pulls.iter()).filter(|p| p.state == State::Open && p.base == self.project.main) {
-            (self.api.close(open.number, super::CLOSED).await)
-                .map_err(|why| format!("GitHub did not close the pull request {}: {why}", open.url))?;
-        }
-        Ok(())
     }
 
     fn pull_at(&self, number: u64) -> Option<String> {
