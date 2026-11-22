@@ -50,6 +50,100 @@
   color: var(--red-text);
 }
 
+/* The search, under the boxes: the page's field, and under it what it finds, on the card in a hairline frame, each a
+   list row of one line, the item's path, its title cut at the edge, and how it stands: under the pointer a step
+   darker, the row the arrow keys stand on in the accent's tint, as a row chosen is. */
+.console-find {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.console-found {
+  max-width: var(--wide-cell);
+  border: var(--hairline) solid var(--line);
+  background: var(--card);
+  font-size: var(--size-small);
+}
+
+.console-found-row {
+  flex-wrap: nowrap;
+  padding: var(--space-4) var(--space-8);
+  cursor: pointer;
+  transition: background-color var(--hover-time);
+}
+
+.console-found-row:hover {
+  background: var(--step);
+}
+
+.console-found-row.chosen {
+  background: var(--accent-tint);
+}
+
+.console-found-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-found-standing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--muted);
+}
+
+.console-found-none {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+/* What the marks and keys mean: the page's button with the question mark drawn, at the tree's bottom left corner, and
+   over it, while the pointer or the keys are there, the legend of the console's marks and its keys in a column, on
+   the card in a hairline frame. */
+.console-help {
+  position: absolute;
+  bottom: var(--space-12);
+  left: var(--space-12);
+  z-index: 1;
+}
+
+.console-help-mark {
+  padding: 0 var(--space-4);
+  color: var(--muted);
+}
+
+.console-help-panel {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-12);
+  border: var(--hairline) solid var(--line);
+  background: var(--card);
+  white-space: nowrap;
+}
+
+.console-help-panel .legend {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
+}
+
+.console-help-key {
+  display: inline-block;
+  min-width: var(--space-16);
+  color: var(--text);
+}
+
 /* The item in the window, laid out as the page's panel (styles/parts.css): its head (`.drawer-head`), its status lines
    (`.status-line`), the buttons of what the owner does to the work, and under a hairline its body (`.drawer-body`):
    the switch between its tabs, and their sections (`.cw-fold`). What follows is only what the page's parts do not

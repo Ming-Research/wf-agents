@@ -1,11 +1,11 @@
 // Every mark the page draws, in one table: what draws each, one part for each look, and its name, one or two words in
 // the system's own terms; and the legend, which draws a list of them on one line. The flow's matrix, the flowchart, the
-// strip of a work's cells, a work's history and the observations each list in their legend the marks they draw, so
-// that one thing has one name and one look in every view (Article 8). What the flow's files define is named by its key
-// (principle definitions-shown-as-written); how a run ended or stands has one set of marks, which the strip draws for
-// each cell, as its run stands, and the history for each run (`works/state-marks.ts`). Beside the table, the looks of
-// the level a work's cell runs at and of a work's lines added and removed, which the page and the console's cards both
-// draw from.
+// strip of a work's cells, a work's history, the observations and the console each list in their legend the marks they
+// draw, so that one thing has one name and one look in every view (Article 8). What the flow's files define is named by
+// its key (principle definitions-shown-as-written); how a run ended or stands has one set of marks, which the strip
+// draws for each cell, as its run stands, and the history for each run (`works/state-marks.ts`). Beside the table, the
+// looks of the level a work's cell runs at and of a work's lines added and removed, which the page and the console's
+// cards both draw from.
 
 import type { ReactNode } from 'react';
 
@@ -39,7 +39,32 @@ export type MarkKey =
   | 'outside'
   | 'shown'
   | 'unread'
-  | RunState;
+  | RunState
+  | ConsoleMark;
+
+/// A mark of the console's tree, drawn on its canvas (`console/snap.ts`) and here as a sample for its legend: a card by
+/// how its work stands, a shadow, the tags and rows of a card, what joins the cards, and the map of the columns.
+export type ConsoleMark =
+  | 'cardStopped'
+  | 'cardRunning'
+  | 'cardWaiting'
+  | 'cardPaused'
+  | 'cardAbove'
+  | 'cardMerged'
+  | 'cardCancelled'
+  | 'cardElsewhere'
+  | 'cardDelivers'
+  | 'forYou'
+  | 'sentBack'
+  | 'waitsFor'
+  | 'level'
+  | 'cells'
+  | 'lines'
+  | 'age'
+  | 'funnel'
+  | 'folded'
+  | 'litWay'
+  | 'map';
 
 /// How a run ended or stands, as a square of its look, a round running and waiting for a call pulsing; `title` says
 /// it on pointing at it, its name where none is given.
@@ -65,6 +90,70 @@ function LineSample({ kind }: { kind: 'wakes' | 'back' | 'main' | 'outside' }) {
 /// writes what the chosen cell takes.
 function NodeSample({ lit = false }: { lit?: boolean }) {
   return <span className={`legend-node${lit ? ' lit' : ''}`} aria-hidden="true" />;
+}
+
+type CardLook = 'stopped' | 'running' | 'waiting' | 'paused' | 'above' | 'elsewhere' | 'delivers';
+
+/// A card of the console's tree, as a sample: filled and edged by how its work stands, as the canvas draws it,
+/// stopped in red, running in the accent; waiting for a call edged in its yellow, paused edged in grey, above a work
+/// edged in the accent's light step; a shadow of an item shown elsewhere edged in dashes; an item that delivers no
+/// card, only a line under it.
+function CardSample({ look }: { look: CardLook }) {
+  return <span className={`legend-card ${look}`} aria-hidden="true" />;
+}
+
+/// An item's number on a card whose work ended, as a sample: green where it merged, a pale grey where it was cancelled.
+function NumberSample({ look }: { look: 'merged' | 'cancelled' }) {
+  return (
+    <span className={`mono legend-number ${look}`} aria-hidden="true">
+      12
+    </span>
+  );
+}
+
+/// A tag at a card's right framed in grey, as a sample: the lock with how many items the item waits for, or the arrow
+/// turning back with how many of its work's returns were sent back; drawn as the canvas draws them.
+function FramedTag({ sign, count }: { sign: 'lock' | 'back'; count: number }) {
+  return (
+    <span className="legend-tag" aria-hidden="true">
+      <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.2">
+        {sign === 'lock' ? (
+          <>
+            <rect x="1.5" y="4.5" width="7" height="5" rx="1" />
+            <path d="M3 4.5v-2a2 2 0 0 1 4 0v2" />
+          </>
+        ) : (
+          <path d="M8 1.5v5H2M4 4.5 2 6.5l2 2" />
+        )}
+      </svg>
+      {count}
+    </span>
+  );
+}
+
+/// What joins a card to the items under it, as a sample: the grey funnel; the dot it folds into; or the lit way into a
+/// running item, ending in the dot that ends it while the item is folded away.
+function JoinSample({ look }: { look: 'funnel' | 'lit' }) {
+  return look === 'funnel' ? (
+    <svg className="legend-funnel" viewBox="0 0 16 12" width="16" height="12" aria-hidden="true">
+      <path d="M0 3C8 3 8 0 16 0V12C8 12 8 9 0 9Z" />
+    </svg>
+  ) : (
+    <svg className="legend-lit" viewBox="0 0 16 12" width="16" height="12" aria-hidden="true">
+      <path d="M0 6H11" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="12.5" cy="6" r="2.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+/// How long a work has gone on, as a sample: grey under half an hour, amber to an hour, red past it.
+function AgeSample() {
+  return (
+    <span className="mono" aria-hidden="true">
+      <span style={{ color: 'var(--muted)' }}>12m</span> <span style={{ color: 'var(--orange-text)' }}>45m</span>{' '}
+      <span style={{ color: 'var(--red)' }}>3h</span>
+    </span>
+  );
 }
 
 /// The mark of an observation not yet read: a dot in the text's colour.
@@ -114,6 +203,42 @@ export const MARKS: Record<MarkKey, Entry> = {
   again: ofRun('again', 'runs again'),
   notYet: ofRun('notYet', 'not yet'),
   skipped: ofRun('skipped', 'skipped'),
+  cardStopped: { name: 'stopped', draw: () => <CardSample look="stopped" /> },
+  cardRunning: { name: 'running', draw: () => <CardSample look="running" /> },
+  cardWaiting: { name: 'waiting', draw: () => <CardSample look="waiting" /> },
+  cardPaused: { name: 'paused', draw: () => <CardSample look="paused" /> },
+  cardAbove: { name: 'a work under it', draw: () => <CardSample look="above" /> },
+  cardMerged: { name: 'merged', draw: () => <NumberSample look="merged" /> },
+  cardCancelled: { name: 'cancelled', draw: () => <NumberSample look="cancelled" /> },
+  cardElsewhere: { name: 'shown elsewhere', draw: () => <CardSample look="elsewhere" /> },
+  cardDelivers: { name: 'delivers', draw: () => <CardSample look="delivers" /> },
+  forYou: {
+    name: 'for you',
+    draw: () => (
+      <span className="tag legend-for-you" aria-hidden="true">
+        1
+      </span>
+    ),
+  },
+  sentBack: { name: 'sent back', draw: () => <FramedTag sign="back" count={2} /> },
+  waitsFor: { name: 'waits for', draw: () => <FramedTag sign="lock" count={2} /> },
+  level: { name: 'level', draw: () => <LevelMark level="2" raise={0} /> },
+  cells: {
+    name: 'cells',
+    draw: () => (
+      <span className="legend-cells" aria-hidden="true">
+        <StateMark state="handedIn" />
+        <StateMark state="running" />
+        <StateMark state="notYet" />
+      </span>
+    ),
+  },
+  lines: { name: 'lines', draw: () => <LinesChanged added={210} removed={40} /> },
+  age: { name: 'age', draw: () => <AgeSample /> },
+  funnel: { name: 'items under it', draw: () => <JoinSample look="funnel" /> },
+  folded: { name: 'folded', draw: () => <span className="dot" aria-hidden="true" /> },
+  litWay: { name: 'lit way', draw: () => <JoinSample look="lit" /> },
+  map: { name: 'map', draw: () => <span className="legend-map" aria-hidden="true" /> },
 };
 
 /// A mark's name.

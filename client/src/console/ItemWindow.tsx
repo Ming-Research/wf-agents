@@ -124,7 +124,7 @@ import {
 
 const ago = (at: number) => age(Date.now() - at).label;
 
-const STANDING_WORDS: Record<ItemStanding, string> = { open: 'Open', done: 'Done', cancelled: 'Cancelled' };
+export const STANDING_WORDS: Record<ItemStanding, string> = { open: 'Open', done: 'Done', cancelled: 'Cancelled' };
 
 /// Whether a work has ended: merged or cancelled.
 const ended = (s: Summary) => s.now.kind === 'merged' || s.now.kind === 'cancelled';
@@ -239,7 +239,7 @@ type Tone = ItemStanding | WorkTone;
 /// The dot of each tone, as the look's status line colours it: red for a stop, a work that waits for the owner or one
 /// the engine halted, as its card is; the yellow of a call for one that waits for the calls of tools; grey for one that
 /// waits for anything else.
-const DOT: Record<Tone, string> = {
+export const DOT: Record<Tone, string> = {
   open: 'dot dot-running',
   running: 'dot dot-running',
   calling: 'dot dot-calling',

@@ -463,6 +463,103 @@ tr.row.chosen > .block-head {
   border-color: var(--accent);
 }
 
+/* The console's marks, as samples (marks.tsx), as its canvas draws them (console/snap.ts). A card, filled and edged by
+   how its work stands: stopped in red, running in the accent; waiting for a call edged in its yellow, paused in grey,
+   above a work in the accent's light step; a shadow edged in dashes; an item that delivers, only a line under it. */
+.legend-card {
+  display: inline-block;
+  width: var(--space-16);
+  height: var(--space-8);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: var(--card);
+}
+
+.legend-card.stopped {
+  border-color: var(--red);
+  background: var(--red-tint);
+}
+
+.legend-card.running {
+  border-color: var(--running);
+  background: var(--running-tint);
+}
+
+.legend-card.waiting {
+  border-color: var(--yellow);
+}
+
+.legend-card.paused {
+  border-color: var(--muted);
+}
+
+.legend-card.above {
+  border-color: var(--mark-done);
+}
+
+.legend-card.elsewhere {
+  border-style: dashed;
+  border-color: var(--option-edge);
+}
+
+.legend-card.delivers {
+  border-width: 0 0 var(--hairline);
+  border-color: var(--option-edge);
+  border-radius: 0;
+  background: none;
+}
+
+/* The number of an item whose work ended: green where it merged, pale where it was cancelled. */
+.legend-number.merged {
+  color: var(--green);
+}
+
+.legend-number.cancelled {
+  color: var(--option-edge);
+}
+
+/* A card's tags: how many things its work waits for from the owner, white on red; and framed in grey, the lock with
+   how many items it waits for, and the arrow back with how many returns were sent back. */
+.legend-for-you {
+  background: var(--red);
+}
+
+.legend-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--tag);
+  padding: 0 var(--space-4);
+  border: var(--hairline) solid var(--muted);
+  border-radius: var(--corner);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--size-label);
+}
+
+.legend-cells {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+/* What joins the cards: the funnel to the items under one, in the grey of the canvas's funnels; the lit way, in the
+   running colour. */
+.legend-funnel path {
+  fill: var(--track-ground);
+}
+
+.legend-lit {
+  color: var(--running);
+}
+
+/* A column on the map at the console's corner, in the light step of the accent its bars are drawn in. */
+.legend-map {
+  display: inline-block;
+  width: var(--space-4);
+  height: var(--space-12);
+  background: var(--mark-done);
+}
+
 /* The faults of a definition that does not compile, in place of the chart. */
 .faults-view {
   padding: var(--space-12);

@@ -22,8 +22,10 @@ import { userEvent } from 'vitest/browser';
 
 import { DEFAULT_ACCENT, pickAccent, PRESETS, tones } from '../accent';
 import { apart, lchOf } from '../colour';
+import { MARKS } from '../marks';
 import type { Items } from '../works-api';
 import { fixtureSource } from './fixtures';
+import { CONSOLE_MARKS } from './help';
 import type { Heard } from './source';
 import { ConsolePage } from './index';
 import type { Shown } from './items';
@@ -767,6 +769,85 @@ describe('the console page', () => {
     await drew();
     expect(turnedItems()).toBe(32);
     expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'folded' });
+  });
+
+  /// The search's field, and the paths of the rows it finds.
+  const field = () => container.querySelector('.console-find input') as HTMLInputElement;
+  const found = () => [...container.querySelectorAll('.console-found-row > .mono')].map((s) => s.textContent);
+  /// The box of a kind of item over the tree.
+  const box = (name: string) =>
+    [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')]
+      .find((l) => l.textContent === name)
+      ?.querySelector('input') as HTMLInputElement;
+
+  it('gives the keys to the search at `/`, finds by number, by path and by a part of the title, and empties at Escape', async () => {
+    await drawn();
+    await userEvent.keyboard('/');
+    expect(document.activeElement).toBe(field());
+    expect(field().value).toBe('');
+    // By its number: item 27, done, shown by its path under 26, its root.
+    await userEvent.keyboard('27');
+    await expect.poll(found).toEqual(['26-27']);
+    expect(container.querySelector('.console-found-row .console-found-standing')?.textContent).toBe('Done');
+    // By a path from its root: the item it names, and the items under it.
+    await userEvent.clear(field());
+    await userEvent.keyboard('26-27');
+    await expect.poll(found).toEqual(['26-27', '26-27-30', '26-27-31']);
+    // By a part of the title, in any case, over every item, done or not.
+    await userEvent.clear(field());
+    await userEvent.keyboard('FOLD');
+    await expect.poll(found).toEqual(['26', '26-27', '26-27-30', '26-27-31']);
+    // Escape empties the field and gives the keys back.
+    await userEvent.keyboard('{Escape}');
+    expect(field().value).toBe('');
+    expect(document.activeElement).not.toBe(field());
+    expect(container.querySelector('.console-found')).toBeNull();
+  });
+
+  it('opens the folds over an item it picks, ticking the box of its kind where it was not, and selects it', async () => {
+    await drawn();
+    expect(box('Done').checked).toBe(false);
+    // Item 30 is done, and folded away under 27, done too.
+    await userEvent.keyboard('/');
+    await userEvent.keyboard('26-27-30');
+    await expect.poll(found).toEqual(['26-27-30']);
+    await userEvent.keyboard('{Enter}');
+    await expect.poll(title).toBe('Draw a fold as a dot');
+    expect(box('Done').checked).toBe(true);
+    expect(JSON.parse(localStorage.getItem('wf-agents.console-folds') ?? '{}')).toEqual({ 27: 'unfolded' });
+    expect(field().value).toBe('');
+  });
+
+  it('ticks Cancelled for a cancelled item it picks with a click, and selects it', async () => {
+    await drawn();
+    expect(box('Cancelled').checked).toBe(false);
+    await userEvent.keyboard('/');
+    await userEvent.keyboard('flat list');
+    await expect.poll(found).toEqual(['35']);
+    await userEvent.click(container.querySelector('.console-found-row') as HTMLElement);
+    await expect.poll(title).toBe('Try the tree as a flat list');
+    expect(box('Cancelled').checked).toBe(true);
+  });
+
+  it('shows what the marks and the keys mean while the pointer is on the question mark at the bottom left', async () => {
+    await drawn();
+    const mark = container.querySelector('.console-help-mark') as HTMLElement;
+    const panel = () => container.querySelector('.console-help-panel');
+    expect(panel()).toBeNull();
+    await userEvent.hover(mark);
+    await expect.poll(panel).not.toBeNull();
+    const listed = (label: string) =>
+      [...container.querySelectorAll(`.console-help-panel ul[aria-label="${label}"] > li`)].map((li) => li.textContent);
+    expect(listed("The console's keys")).toEqual([
+      '/ search',
+      'e fold or unfold the card under the pointer',
+      'Esc close',
+    ]);
+    const marks = listed("The console's marks");
+    expect(marks).toHaveLength(CONSOLE_MARKS.length);
+    CONSOLE_MARKS.forEach((key, k) => expect(marks[k]?.endsWith(` ${MARKS[key].name}`)).toBe(true));
+    await userEvent.unhover(mark);
+    await expect.poll(panel).toBeNull();
   });
 
   it('writes the item selected into the address, so that the tab of the console leads back to it', async () => {

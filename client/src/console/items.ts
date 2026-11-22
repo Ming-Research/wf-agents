@@ -125,6 +125,68 @@ const drawn = (w: Summary) =>
     w.now.kind === 'waits' ||
     w.now.kind === 'stalled');
 
+/// Each item's main dependent, which it stands under in the tree: the first by number of the items that depend on it.
+function mainDependents(data: Items): Map<number, number> {
+  const known = new Set(data.items.map((i) => i.number));
+  const main = new Map<number, number>();
+  for (const i of [...data.items].sort((a, b) => a.number - b.number))
+    for (const d of i.dependsOn) if (known.has(d) && !main.has(d)) main.set(d, i.number);
+  return main;
+}
+
+/// Each item's path in the tree: the numbers of the items it stands under, from its root down, and its own last, as the
+/// tree places an item, under its main dependent; an item met again on its own way up, which only a cycle of
+/// dependencies does, ends the path.
+export function itemPaths(data: Items): Map<number, number[]> {
+  const main = mainDependents(data);
+  return new Map(
+    data.items.map((i) => {
+      const path = [i.number];
+      for (let p = main.get(i.number); p !== undefined && !path.includes(p); p = main.get(p)) path.unshift(p);
+      return [i.number, path];
+    }),
+  );
+}
+
+/// An item's path as the page writes it, its numbers joined by `-` from its root down: `53-27-23`.
+export const pathWords = (path: number[]): string => path.join('-');
+
+/// What the search of the console finds for `query`, at most `most`, each item with its path: where the query is a
+/// number, `65` or `#65`, the item of that number; where it is a path from a root, `53-27-23` or `53-27`, the item it
+/// names; each with the items under it, in the tree's order; then every item whose title holds the query, in any case,
+/// by number. Every item counts, open, done or cancelled.
+export function findItems(data: Items, query: string, most = 8): { item: Item; path: number[] }[] {
+  const q = query.trim();
+  if (q === '') return [];
+  const paths = itemPaths(data);
+  const found: { item: Item; path: number[] }[] = [];
+  const taken = new Set<number>();
+  const take = (item: Item) => {
+    if (taken.has(item.number)) return;
+    taken.add(item.number);
+    found.push({ item, path: paths.get(item.number) ?? [item.number] });
+  };
+  const byNumber = [...data.items].sort((a, b) => a.number - b.number);
+  const asked = /^#?\d+(-\d+)*$/.test(q) ? q.replace(/^#/, '').split('-').map(Number) : null;
+  if (asked !== null) {
+    const named = asked.length === 1 ? byNumber.find((i) => i.number === asked[0]) : undefined;
+    if (named !== undefined) take(named);
+    const starts = (path: number[]) => asked.length <= path.length && asked.every((n, k) => path[k] === n);
+    const order = (a: number[], b: number[]) => {
+      for (let k = 0; k < Math.min(a.length, b.length); k += 1) if (a[k] !== b[k]) return a[k] - b[k];
+      return a.length - b.length;
+    };
+    const below = byNumber
+      .map((item) => ({ item, path: paths.get(item.number) ?? [item.number] }))
+      .filter(({ path }) => starts(path))
+      .sort((a, b) => order(a.path, b.path));
+    for (const { item } of below) take(item);
+  }
+  const words = q.toLocaleLowerCase();
+  for (const item of byNumber) if (item.title.toLocaleLowerCase().includes(words)) take(item);
+  return found.slice(0, most);
+}
+
 /// The tree of the items that stand as one of `shown` stands, and what stands over them; each item the owner folded or
 /// unfolded in `folds` as he last chose, the others folded where neither they nor anything under them is open.
 export function shownTree(
@@ -134,10 +196,7 @@ export function shownTree(
 ): Shown[] {
   const byId = new Map(data.items.map((i) => [i.number, i]));
   const standing = (id: number): ItemStanding => standingOf(byId.get(id));
-  // Each item's main dependent: the first by number of the items that depend on it.
-  const main = new Map<number, number>();
-  for (const i of [...data.items].sort((a, b) => a.number - b.number))
-    for (const d of i.dependsOn) if (byId.has(d) && !main.has(d)) main.set(d, i.number);
+  const main = mainDependents(data);
   const under = new Map<number, number[]>();
   const besides = new Map<number, number[]>();
   const above = new Set<number>();

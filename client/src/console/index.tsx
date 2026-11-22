@@ -3,16 +3,19 @@
 // (`fixtures.ts`): those that stand as the boxes over the tree's corner tick, open, done or cancelled, and what stands
 // over them. A press on the funnel or the dot of an item's fold folds the items under it away or shows them again, as
 // `e` does over its card, except while the owner types in a field or holds Ctrl, Alt or Meta: a choice kept in the
-// browser for that item, which wins over the tree's own rule. Beside the tree, a window shows the item selected
-// (`ItemWindow.tsx`). Selecting an item slides the window out; letting it go slides the window back, unless the tab
-// stuck to its left edge brought it out, in which case it stays until the tab takes it back. The tab takes it back
-// without letting the item go, and the next item selected brings it out again. The window coming out over the item
-// selected, or an item selected half under it or half off the screen, moves the tree only until the item is wholly
-// within what the window leaves. Escape lets the item go while the tree has the keys, and slides the window in while it
-// has them. Each time the interface says something happened, the items are read again, at most one read at a time and
-// one more after it, and drawn where they stand, the item selected and the panel as they were; when the stream opens
-// again after a cut, everything is. An item the address names is selected once the tree shows it, as from a
-// notification of a question it waits on. The page's shell mounts it lazily (`lazy.tsx`).
+// browser for that item, which wins over the tree's own rule. Under the boxes, a search finds any item (`find.tsx`),
+// which `/` gives the keys to as `e` folds; an item picked from it is selected as one the address names, its box ticked
+// first where its kind is not. At the tree's bottom left, a question mark shows what the marks and the keys mean
+// (`help.tsx`). Beside the tree, a window shows the item selected (`ItemWindow.tsx`). Selecting an item slides the
+// window out; letting it go slides the window back, unless the tab stuck to its left edge brought it out, in which case
+// it stays until the tab takes it back. The tab takes it back without letting the item go, and the next item selected
+// brings it out again. The window coming out over the item selected, or an item selected half under it or half off the
+// screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item go while the
+// tree has the keys, and slides the window in while it has them. Each time the interface says something happened, the
+// items are read again, at most one read at a time and one more after it, and drawn where they stand, the item selected
+// and the panel as they were; when the stream opens again after a cut, everything is. An item the address names is
+// selected once the tree shows it, as from a notification of a question it waits on. The page's shell mounts it lazily
+// (`lazy.tsx`).
 //
 // Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
 // the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel and a
@@ -29,7 +32,9 @@ import type { Items, WorkPage } from '../works-api';
 import { oneAtATime } from '../works/source';
 import { goalMock } from './mock';
 import { fakeShown } from './fake';
-import { type ItemStanding, STANDINGS, type Shown, shownTree } from './items';
+import { Find } from './find';
+import { ConsoleHelp } from './help';
+import { type ItemStanding, STANDINGS, type Shown, shownTree, standingOf } from './items';
 import { ItemPanel, type PageState } from './ItemWindow';
 import { SnapScene } from './snap';
 import { type Heard, type Source, inOrder, pageSource } from './source';
@@ -171,6 +176,17 @@ export function ConsolePage({
     toSelect.current = named;
     selectNamed();
   }, [named]);
+  // The search's field, which `/` gives the keys to. An item picked from it is selected as one the address names: the
+  // folds over it open, and where its kind is not ticked, its box is ticked first, so that the tree shows it.
+  const findField = useRef<HTMLInputElement>(null);
+  const pick = (id: number) => {
+    const found = latestData.current?.items.find((i) => i.number === id);
+    if (found === undefined) return;
+    toSelect.current = id;
+    const standing = standingOf(found);
+    if (showsNow.current.has(standing)) selectNamed();
+    else tick(standing, true);
+  };
 
   /// The width of the tree that the window leaves to be seen: all of it while the window is in.
   const room = (out: boolean) => {
@@ -193,12 +209,16 @@ export function ConsolePage({
     if (!active) return;
     const key = (e: KeyboardEvent) => {
       // `e` folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or
-      // its dot does; not while the owner types in a field, nor with Ctrl, Alt or Meta held.
-      if (e.key === 'e') {
+      // its dot does; `/` gives the keys to the search. Neither while the owner types in a field, nor with Ctrl, Alt or
+      // Meta held.
+      if (e.key === 'e' || e.key === '/') {
         const to = e.target as HTMLElement | null;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         if (to && (to.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(to.tagName))) return;
-        if (scene.current?.foldPointedCard() === true) e.preventDefault();
+        if (e.key === '/') {
+          e.preventDefault();
+          findField.current?.focus();
+        } else if (scene.current?.foldPointedCard() === true) e.preventDefault();
         return;
       }
       // Escape answers a question the page asks, and nothing else.
@@ -256,9 +276,11 @@ export function ConsolePage({
               </label>
             ))}
           </div>
+          <Find data={data} field={findField} onPick={pick} />
           {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
           {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}
         </div>
+        <ConsoleHelp />
       </div>
       <Drawer
         open={open}

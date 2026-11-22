@@ -57,7 +57,7 @@ Every view draws a way back in the accent: a thick line and arrow on the matrix 
 - replaced: A separate line for the way round in a run's panel was on main; the owner changed it, because the matrix's arrow back already shows it.
 
 ### decision every-mark-is-in-one-table
-Every mark the page draws is defined once, with a name of a word or two, in one table, and each view's legend lists on one line only the marks that view draws.
+Every mark the page draws is defined once, with a name of a word or two, in one table, and each view's legend lists only the marks that view draws, on one line, or on the console in a panel.
 - replaced: Separate marks and legends in each view, which named one thing in several ways, was on main; the owner changed it, because a legend's words had grown too long for its line, and things that were alike looked different from view to view.
 
 ### decision the-page-draws-markdown-itself

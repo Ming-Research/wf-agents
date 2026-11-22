@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Item, Items, Now, Summary, Wait } from '../works-api';
-import { asksOf, STANDINGS, shownTree, type Shown } from './items';
+import { asksOf, findItems, itemPaths, pathWords, STANDINGS, shownTree, type Shown } from './items';
 import { indexTree } from './tree';
 
 const CELLS = ['plan', 'implement', 'merge'];
@@ -244,6 +244,55 @@ describe('the folds of the tree', () => {
       '21',
       '  22',
     ]);
+  });
+});
+
+describe('the search of the items', () => {
+  // 1 depends on 2 and 3, and 2 on 4: the paths 1-2, 1-3 and 1-2-4. 5, cancelled, and 65 stand alone.
+  const named = (i: Item, title: string): Item => ({ ...i, title });
+  const data: Items = {
+    items: [
+      named(item(1, 'open', [2, 3]), 'Find an item'),
+      named(item(2, 'done', [4]), 'Show the legend'),
+      named(item(3, 'open'), '搜索条目'),
+      named(item(4, 'done'), 'Draw the marks'),
+      named(item(5, 'cancelled'), 'Find nothing'),
+      named(item(65, 'open'), 'Read the record'),
+    ],
+  };
+  const found = (query: string) => findItems(data, query).map((f) => pathWords(f.path));
+
+  it('writes each item by its path in the tree, from its root down, as the tree places it', () => {
+    const paths = itemPaths(data);
+    const words = [1, 2, 3, 4, 5, 65].map((n) => pathWords(paths.get(n) ?? []));
+    expect(words).toEqual(['1', '1-2', '1-3', '1-2-4', '5', '65']);
+  });
+
+  it('finds an item by its number, with or without #', () => {
+    expect(found('65')).toEqual(['65']);
+    expect(found('#65')).toEqual(['65']);
+    expect(found(' 3 ')).toEqual(['1-3']);
+  });
+
+  it('finds the item a path from its root names, and the items under it, in the order of the tree', () => {
+    expect(found('1-2')).toEqual(['1-2', '1-2-4']);
+    expect(found('1-2-4')).toEqual(['1-2-4']);
+    expect(found('1')).toEqual(['1', '1-2', '1-2-4', '1-3']);
+    // A path that does not begin at a root names nothing.
+    expect(found('2-4')).toEqual([]);
+  });
+
+  it('finds the items whose title holds what is typed, in any case and as Chinese is typed, open, done or cancelled', () => {
+    expect(found('find')).toEqual(['1', '5']);
+    expect(found('LEGEND')).toEqual(['1-2']);
+    expect(found('搜索')).toEqual(['1-3']);
+    expect(found('nowhere')).toEqual([]);
+  });
+
+  it('finds nothing for nothing typed, and at most eight', () => {
+    expect(found('  ')).toEqual([]);
+    const many: Items = { items: Array.from({ length: 12 }, (_, k) => named(item(k + 1, 'open'), `Fix ${k + 1}`)) };
+    expect(findItems(many, 'fix')).toHaveLength(8);
   });
 });
 
