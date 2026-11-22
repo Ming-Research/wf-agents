@@ -33,6 +33,8 @@ export type Part =
       changed?: boolean;
       asks?: { cell: string; call: number } | { cell: string; question: string; version: number };
       holds?: boolean;
+      /// Its answer goes into the design tree: the question is marked `tree`.
+      tree?: boolean;
       /// What the owner wrote as the answer to a question with no options, which is answered in words.
       answer?: string;
     };

@@ -410,6 +410,11 @@ pub enum Unmet {
     /// of the project's tests, which are all the cell's line changes: as the engine found it, looking at the branch as
     /// the round ended.
     NotATest { path: String },
+    /// The return writes a block handed in only with the owner's answers in the design tree (`answers_in_the_tree` of
+    /// its file), the question of this name is marked `tree` and has the owner's answer to its latest version, and the
+    /// work's change against main changes nothing in the project's design tree: as the engine found it, looking at the
+    /// branch as the round ended.
+    TreeUnchanged { name: String },
     /// The return deals with what an act of the engine's after its cell wrote, the block, and leaves new nothing that
     /// runs that act, neither by what it hands in, the work's head it committed among it, nor by a question that
     /// stands for the owner's answer, and nothing that runs it is new to it already ([`Answer`]): the act reads no

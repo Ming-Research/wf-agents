@@ -435,6 +435,7 @@ mod tests {
             .map(|(name, waits)| Question::Asked {
                 name: name.to_string(),
                 waits: *waits,
+                tree: None,
                 recommends: Some(1),
                 ask: format!("Which way for {name}?"),
                 options: Vec::new(),

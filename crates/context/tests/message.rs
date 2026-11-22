@@ -436,6 +436,29 @@ fn a_return_whose_run_changed_a_file_that_is_no_test_on_a_line_of_tests_is_sent_
     assert!(entered.text.contains(said), "{}", entered.text);
 }
 
+// A return the engine found handing in the change while a question marked `tree` has the owner's answer and the
+// change leaves the design tree as main has it is sent back naming the question, in the words of the files beside the
+// flows.
+#[test]
+fn a_return_that_hands_in_the_change_without_an_answer_marked_tree_in_the_tree_is_sent_back_naming_the_question() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    let mut came = Came::hands_in(Vec::new());
+    came.found = vec![Unmet::TreeUnchanged {
+        name: "placement".to_string(),
+    }];
+    sim.returns(&round, came, 0);
+    let again = sim.round().expect("the build's round after it was sent back");
+    assert_eq!((again.run, again.number), (round.run, 2));
+    let entered = sim.enter(&again, false);
+    let said = "## Sent back\n\n- `placement` is not in the tree: write it.\n";
+    assert!(entered.text.contains(said), "{}", entered.text);
+}
+
 #[test]
 fn main_taken_in_is_told_to_a_cell_that_takes_it_in_in_one_line_in_the_words_of_its_part() {
     let mut sim = Sim::new();

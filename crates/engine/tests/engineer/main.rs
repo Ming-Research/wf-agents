@@ -1088,6 +1088,7 @@ impl Random {
         vec![Question::Asked {
             name,
             waits,
+            tree: None,
             recommends: Some(1),
             ask,
             options: vec![

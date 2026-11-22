@@ -220,11 +220,13 @@ fn branch(place: &Place) -> Branch<'_> {
     }
 }
 
-/// A check, at its own link; one that ran to a conclusion took a minute, as GitHub's job would say, and any other has
-/// no time.
+/// A check, at its own link, with an id made of its name, so that jobs of two names never share one; one that ran to a
+/// conclusion took a minute, as GitHub's job would say, and any other has no time.
 fn check(name: &str, outcome: Outcome) -> Check {
     let took = matches!(outcome, Outcome::Passed | Outcome::Failed(_)).then_some(60);
+    let id = (name.bytes()).fold(0u64, |id, b| id.wrapping_mul(257).wrapping_add(u64::from(b)));
     Check {
+        id,
         name: name.to_string(),
         outcome,
         url: Some(format!("https://github.example/checks/{name}")),
@@ -504,6 +506,41 @@ async fn a_red_test_and_a_red_job_hold_the_work_and_are_said_with_what_the_test_
         failed.ends_with("The jobs:\n- test: failed (failure) in 60 s https://github.example/checks/test"),
         "{failed}"
     );
+    assert!(
+        hub.github().logs_asked().is_empty(),
+        "a job whose own test says why it failed has its log read neither on the commit nor run again"
+    );
+}
+
+// Beside a job whose own failed test says why, the check says a job that failed with nothing in the results to say why
+// by the end of what the step that failed it printed, as its log holds it without colours and times, and a job whose
+// log cannot be read in one line; the first job's log is not read. Well under a second alone, a repository on disk and
+// GitHub in memory; the one test of a job's log on the check before a merge.
+#[tokio::test]
+async fn the_check_says_a_job_that_failed_with_no_failed_test_of_its_own_by_the_end_of_its_failed_step() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let red = || Outcome::Failed("failure".into());
+    let jobs = vec![
+        fast::job("test", red(), 1),
+        fast::job("lint", red(), 2),
+        fast::job("docs", red(), 3),
+    ];
+    hub.github().fast(&head, jobs, Some(("test-results", fast::junit())));
+    hub.github().logged(2, &fast::clippy_log());
+    let failed = hub.verdict(&head).await.unwrap().unwrap().failed.expect("it failed");
+    assert!(
+        failed.contains("- tools::tests::b: failed in 0.3 s\n  What it said:\n```\nthread 'tools::tests::b' panicked"),
+        "{failed}"
+    );
+    let jobs = format!(
+        "The jobs:\n- test: failed (failure) in 60 s https://github.example/checks/test\n- lint: failed (failure) in \
+         60 s https://github.example/checks/lint\n  The end of what its failed step printed:\n```\n{}\n```\n- docs: \
+         failed (failure) in 60 s https://github.example/checks/docs\n  Its log could not be read: HTTP 404: Not Found",
+        fast::CLIPPY_STEP
+    );
+    assert!(failed.ends_with(&jobs), "{failed}");
+    assert_eq!(hub.github().logs_asked(), [2, 3]);
 }
 
 #[tokio::test]

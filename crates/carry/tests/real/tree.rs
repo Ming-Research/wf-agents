@@ -1,9 +1,12 @@
 //! The design tree on the work's branch as a block of the work: a version where the start made the branch, where the
-//! branch took main in, and where a round of the work committed to the tree, which that round's run hands in.
+//! branch took main in, and where a round of the work committed to the tree, which that round's run hands in; and a
+//! change handed in only with the owner's answers to the questions marked `tree` in the tree.
 
 use decide::Writer;
+use decide::run::Unmet;
 use service::Act;
 use store::WorkNumber;
+use work::Given;
 
 use crate::{Fake, On, Real, ended, git_in};
 
@@ -108,4 +111,36 @@ async fn the_check_that_takes_main_in_makes_a_version() {
         "{subject}"
     );
     assert_eq!(parents, 2);
+}
+
+// The build asks the owner a question marked `tree`, and once the owner answers, hands in its change with the design
+// tree as main has it: the return is sent back for the question, naming it, and taken once the build writes the answer
+// into the tree, the work then going on to its end.
+#[tokio::test]
+async fn a_change_handed_in_while_an_answer_marked_tree_is_not_in_the_design_tree_is_sent_back_until_it_is() {
+    let fake = Fake {
+        question_first: true,
+        tree_question: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.waited_question(work).is_some()).await;
+    real.answer(work);
+    real.until(|real| ended(&real.decision(work))).await;
+    let kept = real.work(work);
+    let build = real.run_of(work, "build");
+    let unchanged = Unmet::TreeUnchanged {
+        name: "which_name".to_string(),
+    };
+    assert_eq!(kept.given.get(&(build, 2)), Some(&Given::SentBack(vec![unchanged])));
+    assert_eq!(kept.given.get(&(build, 3)), None, "taken at its second round");
+    let sent_back = "- `which_name` is marked `tree` and has the owner's answer, but the work's change against main \
+                     changes nothing in the design tree: write the option taken into the tree, as its rules say.";
+    let calls = real.calls();
+    let told = calls
+        .iter()
+        .filter(|call| call.of("Build") && call.stdin.contains(sent_back));
+    assert_eq!(told.count(), 1, "the build is told once why its return was sent back");
 }

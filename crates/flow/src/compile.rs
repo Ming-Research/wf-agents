@@ -294,6 +294,10 @@ pub struct Block {
     /// Of a choice, by a value of it, the other blocks a return that writes it with that value may hold, and no more of
     /// what its cell may write, as its file says (`with_nothing_but`); none where it says none.
     pub with_nothing_but: BTreeMap<String, Vec<BlockId>>,
+    /// A return that writes it is sent back while a question of the work marked `tree` has the owner's answer to its
+    /// latest version and the work's change against main changes nothing in the project's design tree, as its file
+    /// says (`answers_in_the_tree`).
+    pub answers_in_the_tree: bool,
     /// Who writes it.
     pub writers: Writers,
     /// Who reads it.
@@ -2617,6 +2621,7 @@ impl<'a> Definition<'a> {
                     with_nothing_but: (declared.with_nothing_but.iter())
                         .map(|(value, blocks)| (value.clone(), blocks.iter().map(|b| BlockId(b.clone())).collect()))
                         .collect(),
+                    answers_in_the_tree: declared.answers_in_the_tree,
                     writers: Writers {
                         cells: ids(&writers),
                         people: declared.people,

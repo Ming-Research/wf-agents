@@ -13,8 +13,8 @@ only for these questions.
 
 1. Does the change go against a principle or a decision of the tree, where no question asked the owner about that
    change?
-2. Does every change the work makes to the design tree come from a choice of the owner's, or from an entry the change
-   made untrue, written as the tree's rules say?
+2. Is the option taken in each question marked `tree` written into the tree, and does every other change of the tree
+   mend an entry the change made untrue?
 3. Did the work make a choice that the tree's rules give the owner, in the plan, in `decisions` or in the code, that no
    question put to him?
 4. Does the change leave an entry of the tree untrue, or a comment that goes against the tree?

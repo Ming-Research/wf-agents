@@ -34,9 +34,9 @@ pub const WAITING: &str = "waiting";
 /// The value of an [`ASKED`] block while every question that stands has the owner's answer to its latest version.
 pub const ANSWERED: &str = "answered";
 /// The texts of a cell's questions that the engine fills, one for each kind of version and each part of one: an
-/// answer, `text`; a question asked, `asked`, or asked anew, `asked_anew`, with `option`, `recommends`, and `waits` or
-/// `goes_on`; a question withdrawn, `withdrawn`, with `why`.
-pub const ENTRIES: [&str; 9] = [
+/// answer, `text`; a question asked, `asked`, or asked anew, `asked_anew`, with `option`, `recommends`, `waits` or
+/// `goes_on`, and `tree`; a question withdrawn, `withdrawn`, with `why`.
+pub const ENTRIES: [&str; 10] = [
     "text",
     "why",
     "asked",
@@ -45,6 +45,7 @@ pub const ENTRIES: [&str; 9] = [
     "recommends",
     "waits",
     "goes_on",
+    "tree",
     "withdrawn",
 ];
 
@@ -106,9 +107,10 @@ pub(crate) fn record(flow: &Compiled, work: &mut Work, run: RunId, cell: &CellId
 /// A version of a question as a version of the cell's questions, in the words of their `writes`: asked, `asked`, or
 /// asked anew in place of the version `was`, `asked_anew`, each with `{question}` its name, `{version}` this version,
 /// `{ask}` what it asks, `{options}` each option as `option` says it, `{recommends}` as `recommends` says it where it
-/// recommends one, and `{waits}` as `waits` says it where its cell waits for the answer, else as `goes_on` does;
-/// withdrawn, `withdrawn`, with `{was}` the version withdrawn and `{why}` why, as `why` says it. Each version is told
-/// by its number among the versions of the cell's questions.
+/// recommends one, `{waits}` as `waits` says it where its cell waits for the answer, else as `goes_on` does, and
+/// `{tree}` as `tree` says it where the question is marked `tree`, else nothing; withdrawn, `withdrawn`, with `{was}`
+/// the version withdrawn and `{why}` why, as `why` says it. Each version is told by its number among the versions of
+/// the cell's questions.
 fn entry(writes: &flow::Texts, question: &Question, version: u64, was: Option<u64>) -> String {
     let text = |name: &str| writes.get(name).unwrap_or_default();
     let version = version.to_string();
@@ -117,6 +119,7 @@ fn entry(writes: &flow::Texts, question: &Question, version: u64, was: Option<u6
         Question::Asked {
             name,
             waits,
+            tree,
             recommends,
             ask,
             options,
@@ -137,6 +140,7 @@ fn entry(writes: &flow::Texts, question: &Question, version: u64, was: Option<u6
                 fill(text("recommends"), &[("option", r.to_string().as_str())])
             });
             let waits = text(if *waits { "waits" } else { "goes_on" });
+            let tree = if *tree == Some(true) { text("tree") } else { "" };
             let asked = if was.is_empty() { "asked" } else { "asked_anew" };
             let places = [
                 ("question", name.as_str()),
@@ -146,6 +150,7 @@ fn entry(writes: &flow::Texts, question: &Question, version: u64, was: Option<u6
                 ("options", options.as_str()),
                 ("recommends", recommends.as_str()),
                 ("waits", waits),
+                ("tree", tree),
             ];
             fill(text(asked), &places)
         }

@@ -110,6 +110,10 @@ pub struct Fake {
     pub build_loses_its_branch: bool,
     /// Whether every call says, before its result, how much of the account's week is used: [`USED`].
     pub says_usage: bool,
+    /// Whether the build's question, where it asks one (`question_first`), is marked `tree`, the owner's answer going
+    /// into the design tree; and whether a round of the build told that its change holds nothing of that answer in the
+    /// tree commits a file of the tree with its own.
+    pub tree_question: bool,
 }
 
 /// How much of the account's week every call that says its usage says is used.
@@ -142,6 +146,7 @@ impl Default for Fake {
             build_then_asks: false,
             build_loses_its_branch: false,
             says_usage: false,
+            tree_question: false,
         }
     }
 }
@@ -370,6 +375,11 @@ fn compiled(on: On) -> Compiled {
         let mut whole = toml::Table::new();
         whole.insert("blocks".to_string(), blocks.into());
         source.flow = (source.flow).replacen("\n[limits]", "\nengine_asks_in = \"build\"\n\n[limits]", 1);
+        // Its code is handed in only with the owner's answers to its questions marked `tree` in the design tree, as the
+        // implementation's is in the engineer's flow.
+        let code = "\n[blocks.code]\n";
+        assert!(source.flow.contains(code), "the trial flow has the block of the code");
+        source.flow = (source.flow).replacen(code, "\n[blocks.code]\nanswers_in_the_tree = true\n", 1);
         source.flow.push('\n');
         source
             .flow
@@ -510,10 +520,17 @@ case "$first" in
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
         answered=no
         awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `build_questions`' && answered=yes
-        if [ "$results" = no ] && [ "$answered" = no ] && [ '{question}' = yes ]; then
+        if [ '{tree_question}' = yes ] && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
+            # Told that its change holds nothing of the owner's answer in the design tree, it writes the answer there.
+            mkdir -p design
+            echo 'The owner chose the first name.' > design/answered.md
+            git add design/answered.md
+            built
+            out="\"code\":\"A greeting, the answer written into the tree.\""
+        elif [ "$results" = no ] && [ "$answered" = no ] && [ '{question}' = yes ]; then
             # It leaves all that ran it for after the answer.
             dealt=''
-            out='"build_questions":[{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
+            out='"build_questions":[{{"name":"which_name","waits":true,"tree":{tree_mark},"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
         elif [ "$results" = no ] && [ '{then_asks}' = yes ]; then
             built
             calls='"query":[{{"sql":"select the check"}}]'
@@ -599,6 +616,8 @@ fi
         then_asks = yes(fake.build_then_asks),
         loses_branch = yes(fake.build_loses_its_branch),
         says_usage = yes(fake.says_usage),
+        tree_question = yes(fake.tree_question),
+        tree_mark = fake.tree_question,
         used = USED,
         gave_up = GAVE_UP,
         name = NAMED,

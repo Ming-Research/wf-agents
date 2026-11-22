@@ -677,6 +677,8 @@ export function unmetWords(unmet: Unmet): string {
       return `it left ${unmet.path}, a file the project protects, changed, and said not why`;
     case 'notATest':
       return `it changed ${unmet.path}, which is none of the project's tests`;
+    case 'treeUnchanged':
+      return `it handed in the change, which changes nothing in the design tree, while ${unmet.name}, marked tree, has the owner's answer`;
     case 'unanswered':
       return `it dealt with ${unmet.block}, and committed nothing and asked nothing`;
     case 'wordOwed':

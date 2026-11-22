@@ -468,6 +468,9 @@ export type Unmet =
   | { kind: 'notAnswered'; name: string }
   | { kind: 'unexplained'; path: string }
   | { kind: 'notATest'; path: string }
+  /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
+  /// change changes nothing in the design tree.
+  | { kind: 'treeUnchanged'; name: string }
   | { kind: 'unanswered'; block: string }
   /// It names as dealt with a dialogue it holds as the maker, woken by a point in it, and answers none of its points
   /// there, changes none of what the other side watches and asks no question the work waits for.
@@ -731,6 +734,8 @@ export interface Question {
   /// The cell waits for the answer: the work goes past it to no later cell until it is answered; else it goes on by
   /// the option it recommends.
   waits: boolean;
+  /// Its latest version is marked `tree`: the option taken goes into the design tree.
+  tree: boolean;
   /// The latest version withdraws it, for this reason; none while it stands.
   withdrawn: string | null;
   /// What it asks, its options and the one it recommends, counted from one; of a question withdrawn, none.

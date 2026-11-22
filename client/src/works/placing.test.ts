@@ -214,6 +214,7 @@ describe('the rows of a history', () => {
       version: 1,
       engine: false,
       waits: true,
+      tree: false,
       withdrawn: null,
       ask: 'Which scope?',
       options: [{ does: 'All', follows: '' }],

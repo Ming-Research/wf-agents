@@ -548,6 +548,7 @@ const question = (name: string, o: Partial<Question> = {}): Question => ({
   version: 30,
   engine: false,
   waits: false,
+  tree: false,
   withdrawn: null,
   ask: `What of ${name}?`,
   options: [

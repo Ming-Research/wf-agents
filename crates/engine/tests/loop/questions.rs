@@ -128,6 +128,7 @@ pub(super) fn asked(name: &str, waits: bool) -> Question {
     Question::Asked {
         name: name.to_string(),
         waits,
+        tree: None,
         recommends: Some(1),
         ask: format!("Which way for {name}?"),
         options: vec![
