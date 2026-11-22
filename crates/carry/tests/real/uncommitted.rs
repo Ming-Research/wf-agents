@@ -163,6 +163,8 @@ async fn a_cache_left_in_the_worktree_stops_neither_the_check_nor_the_merge_and_
         .await;
     assert_eq!(real.decision(work), Decision::Ended(End::Merged));
     assert_eq!(real.finished(work), ["start", "build", "check", "merge"]);
+    // What the work held is let go once it has ended, as the engine's own effect: the worktrees are looked at after.
+    real.until(|real| real.work(work).records.released().is_some()).await;
     let tree = git_in(&real.repo, &["ls-tree", "-r", "--name-only", "main"]);
     assert!(!tree.lines().any(|line| line == "cache.txt"), "{tree}");
     let worktrees = git_in(&real.repo, &["worktree", "list", "--porcelain"]);

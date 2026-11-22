@@ -213,7 +213,8 @@ pub async fn remove(project: &Project, place: &Place) -> Result<(), String> {
     Ok(())
 }
 
-/// Takes away the worktree of the repository that is at this directory, as [`remove`] does, and prunes nothing.
+/// Takes away the worktree of the repository that is at this directory, as [`remove`] does, and prunes nothing but
+/// the name of one whose directories a command left unwritable, which it takes away itself.
 async fn take_away(project: &Project, place_dir: &Path) -> Result<(), String> {
     let repo = &project.repo;
     if place_dir.exists() && !a_link(place_dir) {
@@ -228,13 +229,21 @@ async fn take_away(project: &Project, place_dir: &Path) -> Result<(), String> {
         }
         if ours {
             let removed = git(repo, &["worktree", "remove", "--force", &text(place_dir)]).await;
-            // A command run in the worktree may leave a directory that does not let its owner take a file out of it,
-            // which git cannot take away. The engine made the worktree and owns it, so it opens such directories up
-            // and takes it away once more; what then still fails is said as git says it.
-            if removed.is_err() {
+            if let Err(why) = removed {
+                // A command run in the worktree may leave a directory that does not let its owner take a file out of
+                // it, which git cannot take away, and git has taken away part of the worktree by then, so that it
+                // cannot be asked again. The engine made the worktree and owns it: where that was why git failed, it
+                // opens the directories up, takes the rest away itself and has the repository drop its name. Any other
+                // failure is said as git says it.
                 let opened = dir.clone();
-                let _ = tokio::task::spawn_blocking(move || open_up(&opened)).await;
-                git(repo, &["worktree", "remove", "--force", &text(place_dir)]).await?;
+                let opened_up = tokio::task::spawn_blocking(move || open_up(&opened)).await;
+                if !opened_up.unwrap_or(false) {
+                    return Err(why);
+                }
+                tokio::fs::remove_dir_all(&dir)
+                    .await
+                    .map_err(|e| format!("{}: {e}", dir.display()))?;
+                git(repo, &["worktree", "prune"]).await?;
             }
         }
     }
@@ -242,27 +251,38 @@ async fn take_away(project: &Project, place_dir: &Path) -> Result<(), String> {
 }
 
 /// Gives the owner every right over the directory and each directory under it, links not followed, so that what is in
-/// them can be taken away. What cannot be changed is left: the removal that follows says what still stands in its way.
-fn open_up(dir: &Path) {
+/// them can be taken away; whether any of them lacked one. What cannot be changed is left: the removal that follows
+/// says what still stands in its way.
+fn open_up(dir: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let Ok(meta) = std::fs::symlink_metadata(dir) else {
-            return;
+            return false;
         };
         if !meta.is_dir() {
-            return;
+            return false;
         }
         let mut permissions = meta.permissions();
-        permissions.set_mode(permissions.mode() | 0o700);
-        let _ = std::fs::set_permissions(dir, permissions);
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
-        for entry in entries.flatten() {
-            open_up(&entry.path());
+        let lacked = permissions.mode() & 0o700 != 0o700;
+        if lacked {
+            permissions.set_mode(permissions.mode() | 0o700);
+            let _ = std::fs::set_permissions(dir, permissions);
         }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return lacked;
+        };
+        let mut opened = lacked;
+        for entry in entries.flatten() {
+            opened |= open_up(&entry.path());
+        }
+        opened
     }
     #[cfg(not(unix))]
-    let _ = dir;
+    {
+        let _ = dir;
+        false
+    }
 }
 
 /// Where the local check runs, beside the work's worktree and named after it: a checkout of the commit checked and of
