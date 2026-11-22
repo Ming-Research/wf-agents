@@ -154,13 +154,16 @@ struct Inner {
     /// runs beside a round of it, a round waits for a ping of its line to end, and a ping that finds a round of its line
     /// under way is given up; a fork of a session is the same. The rounds and pings of the work's other lines hold
     /// locks of their own.
-    in_work: std::sync::Mutex<BTreeMap<(WorkNumber, String), Arc<tokio::sync::Mutex<()>>>>,
+    in_work: std::sync::Mutex<Locks>,
     /// What the owner said to each round given and not yet ended that its hook is to give it, by the round; one
     /// telling of a round, or its end, at a time, so that what waits for its hook is known.
     said: std::sync::Mutex<Tellings>,
     /// What keeps the tokens of the accounts the rounds run under.
     tokens: Arc<dyn Tokens>,
 }
+
+/// The lock of each line of each work, by the work and the line's name.
+type Locks = BTreeMap<(WorkNumber, String), Arc<tokio::sync::Mutex<()>>>;
 
 /// What the owner said to each round, by the round, each behind a lock of its own.
 type Tellings = BTreeMap<(WorkNumber, RunId, usize), Arc<tokio::sync::Mutex<Said>>>;

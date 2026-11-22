@@ -1670,11 +1670,11 @@ fn only_the_lines_the_work_can_come_back_to_and_none_while_a_round_of_its_own_li
 }
 
 /// The owner's remarks, which run the review's `look` cell of [`remarks`].
-fn remark() -> Event {
+fn remark(text: &str) -> Event {
     Event::Wrote {
         block: "remarks".into(),
         by: Outsider::Person,
-        content: "A remark.".to_string(),
+        content: text.to_string(),
         matters: true,
         value: None,
     }
@@ -1698,9 +1698,28 @@ fn awaiting_a_tool() -> (S, u64) {
 #[test]
 fn a_session_is_kept_warm_by_its_own_last_call_while_a_round_of_another_line_is_under_way() {
     let (mut s, build_ended) = awaiting_a_tool();
-    // The owner's remarks run the review's look while the build waits on its tool: a round of another line is under
-    // way, and the engineer's session is kept warm by its own last call all the same.
-    s.on(remark());
+    // The owner's remarks run the review's look while the build waits on its tool, and it ends: the review's session,
+    // called last as the round ended, is kept warm from that call, beside the engineer's, kept from its own.
+    s.on(remark("one"));
+    assert_eq!(s.round().1, "look");
+    s.hands_in(100, true);
+    let look_ended = s.clock;
+    let kept = kept_warm(&s);
+    assert_eq!(lines_kept(&s), ["engineer", "review"]);
+    assert_eq!(
+        kept[0].at.0,
+        build_ended + 3_300_000,
+        "55 minutes after the engineer's own last call"
+    );
+    assert_eq!(
+        kept[1].at.0,
+        look_ended + 3_300_000,
+        "55 minutes after the review's own last call"
+    );
+    // A second remark runs the look again: a round of the review's line is under way, which has a last call of its
+    // own. Its session is not pinged while its program runs, and the engineer's is kept warm by its own last call all
+    // the same, as if the round were none.
+    s.on(remark("two"));
     assert_eq!(s.round().1, "look");
     s.began();
     let kept = kept_warm(&s);
@@ -1709,29 +1728,13 @@ fn a_session_is_kept_warm_by_its_own_last_call_while_a_round_of_another_line_is_
         ["engineer"],
         "the review's own line has its round under way"
     );
-    assert_eq!(
-        kept[0].at.0,
-        build_ended + 3_300_000,
-        "55 minutes after the engineer's own last call"
-    );
-    // The look ends: its line's session, called last as the round ended, is kept warm from that call, beside the
-    // engineer's, which the look changed nothing of.
-    s.hands_in(100, true);
-    let look_ended = s.clock;
-    let kept = kept_warm(&s);
-    assert_eq!(lines_kept(&s), ["engineer", "review"]);
     assert_eq!(kept[0].at.0, build_ended + 3_300_000);
-    assert_eq!(
-        kept[1].at.0,
-        look_ended + 3_300_000,
-        "55 minutes after the review's own last call"
-    );
 }
 
 #[test]
 fn a_ping_is_given_while_a_round_of_another_line_is_under_way() {
     let (mut s, build_ended) = awaiting_a_tool();
-    s.on(remark());
+    s.on(remark("a remark"));
     s.began();
     // The engineer's ping falls due while the review's look is under way: it is given, and the review's own line,
     // whose round is under way, is not.
@@ -1750,7 +1753,7 @@ fn a_round_of_another_line_begins_while_a_session_is_pinged() {
     // The owner's remarks run the review's look while the engineer's session is pinged: its round begins at once, on
     // a line whose session the ping is not in.
     let rounds = s.kept().records.rounds.len();
-    s.on(remark());
+    s.on(remark("a remark"));
     assert_eq!(
         s.kept().records.rounds.len(),
         rounds + 1,
@@ -1771,7 +1774,7 @@ fn a_round_of_another_line_begins_while_a_session_is_pinged() {
 #[test]
 fn no_session_of_a_work_cancelled_while_a_round_of_it_is_being_stopped_is_kept_warm() {
     let (mut s, _) = awaiting_a_tool();
-    s.on(remark());
+    s.on(remark("a remark"));
     s.began();
     assert_eq!(lines_kept(&s), ["engineer"]);
     // Cancelled, the work stops the look's round, which has not ended: the run is abandoned and its program still
