@@ -346,6 +346,17 @@ pub async fn pass(ms: u64) {
     tokio::time::sleep(Duration::from_millis(ms)).await;
 }
 
+/// The next event of a stream of server-sent events, past the comments that keep it open.
+pub async fn next(body: &mut Body) -> String {
+    loop {
+        let frame = body.frame().await.unwrap().unwrap();
+        let text = String::from_utf8(frame.into_data().unwrap().to_vec()).unwrap();
+        if !text.starts_with(':') {
+            return text;
+        }
+    }
+}
+
 /// The trial item, added held at the start and let on a second later: by 2.5 seconds its plan has asked the owner its
 /// question (call 2), and the work waits for the answer.
 pub async fn greeted(router: &Router) {

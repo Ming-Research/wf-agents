@@ -2,11 +2,15 @@
 //! until the owner reads it; those an architect adds, with their projects, titles and tags; the changes made to them,
 //! all or none, each with its reason; and the count of each tag.
 
-use axum::http::StatusCode;
+use std::time::Duration;
+
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
 use serde_json::{Value, json};
 use store::Store;
+use tower::ServiceExt;
 
-use crate::{Running, START, get_json, pass, post, running_scripted};
+use crate::{Running, START, get_json, next, pass, post, running_scripted};
 
 /// The trial flow's script with the plan's first round handing in its plan and saying two observations.
 const SCRIPT: &str = r#"
@@ -348,4 +352,69 @@ async fn the_tags_route_counts_observations() {
             { "tag": "tests", "carrying": 2, "unhandled": 1 },
         ] })
     );
+}
+
+/// The next event of the stream that says the observations changed, past those the loop says of its works.
+async fn observed(body: &mut Body) -> String {
+    loop {
+        let event = next(body).await;
+        if event.contains("\"observations\":true") {
+            return event;
+        }
+    }
+}
+
+/// What the stream says when the observations changed and nothing else did.
+const OBSERVATIONS_CHANGED: &str =
+    "data: {\"works\":[],\"items\":false,\"copies\":false,\"accounts\":false,\"observations\":true}\n\n";
+
+#[tokio::test(start_paused = true)]
+async fn the_stream_says_that_the_observations_changed_after_one_is_added_or_changed_and_not_after_a_refusal_or_no_change()
+ {
+    let running = planned().await;
+    let router = &running.router;
+    let request = Request::builder().uri("/api/v1/changes").body(Body::empty()).unwrap();
+    let mut body = router.clone().oneshot(request).await.unwrap().into_body();
+    // As it opens it says that everything may have changed, the observations too.
+    observed(&mut body).await;
+
+    let title = |title: &str| json!([{ "kind": "title", "observation": 1, "title": title }]);
+    assert_eq!(
+        post(router, "/api/v1/observations", &architects("trial", "trial"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(observed(&mut body).await, OBSERVATIONS_CHANGED);
+    assert_eq!(
+        changing(&running, "Titling.", title("A good title")).await,
+        (StatusCode::OK, json!({ "changed": [true] }))
+    );
+    assert_eq!(observed(&mut body).await, OBSERVATIONS_CHANGED);
+
+    // The same title again changes nothing, and what is refused is not made: the stream says nothing of any of them.
+    assert_eq!(
+        changing(&running, "Again.", title("A good title")).await,
+        (StatusCode::OK, json!({ "changed": [false] }))
+    );
+    let missing = json!([{ "kind": "tag", "observation": 99, "tag": "flow" }]);
+    assert_eq!(
+        changing(&running, "Missing.", missing).await.0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        post(router, "/api/v1/observations", &architects("nowhere", "trial"))
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let quiet = tokio::time::timeout(Duration::from_secs(10), observed(&mut body)).await;
+    assert!(quiet.is_err(), "the stream said {quiet:?}");
+
+    // The stream is still open: a change that changes something says so.
+    assert_eq!(
+        changing(&running, "Retitling.", title("Another title")).await,
+        (StatusCode::OK, json!({ "changed": [true] }))
+    );
+    assert_eq!(observed(&mut body).await, OBSERVATIONS_CHANGED);
 }

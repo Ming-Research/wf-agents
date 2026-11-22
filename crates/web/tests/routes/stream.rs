@@ -2,23 +2,11 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use http_body_util::BodyExt;
 use serde_json::json;
 use tower::ServiceExt;
 
 use crate::copies::serving_with_handle;
-use crate::{post, running};
-
-/// The next event of the stream, past the comments that keep it open.
-async fn next(body: &mut Body) -> String {
-    loop {
-        let frame = body.frame().await.unwrap().unwrap();
-        let text = String::from_utf8(frame.into_data().unwrap().to_vec()).unwrap();
-        if !text.starts_with(':') {
-            return text;
-        }
-    }
-}
+use crate::{next, post, running};
 
 #[tokio::test(start_paused = true)]
 async fn the_stream_says_as_it_opens_that_everything_may_have_changed_and_then_each_change() {

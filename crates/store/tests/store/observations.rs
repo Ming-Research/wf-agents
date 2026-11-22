@@ -265,14 +265,15 @@ fn adding(text: &str) -> NewObservation {
     }
 }
 
-/// The changes of the observation of this number the database keeps, in order: the change as it is kept, and why.
-fn kept_changes(path: &Path, number: u64) -> Vec<(String, String)> {
+/// The changes of the observation of this number the database keeps, in order: when each was made, the change as it is
+/// kept, and why.
+fn kept_changes(path: &Path, number: u64) -> Vec<(u64, String, String)> {
     let db = Connection::open(path).expect("the database opens");
     let mut query = db
-        .prepare("SELECT change, why FROM observation_changes WHERE observation = ?1 ORDER BY n")
+        .prepare("SELECT at, change, why FROM observation_changes WHERE observation = ?1 ORDER BY n")
         .expect("the changes are read");
     let rows = query
-        .query_map([number], |row| Ok((row.get(0)?, row.get(1)?)))
+        .query_map([number], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .expect("the changes are read");
     rows.collect::<Result<_, _>>().expect("the changes are read")
 }
@@ -362,7 +363,8 @@ fn a_title_and_tags_are_kept_as_changes_with_why_and_the_observation_reads_as_th
     let all = observations.all().expect("the observations are read");
     assert_eq!(all[0].title.as_deref(), Some("Second"));
     assert_eq!(all[0].tags, ["y"]);
-    let said = |change: &str| (change.to_string(), "Sorting.".to_string());
+    // Each is kept with the time of the call that made it, and the one reason.
+    let said = |change: &str| (9, change.to_string(), "Sorting.".to_string());
     assert_eq!(
         kept_changes(&db.path, 1),
         [
@@ -397,7 +399,7 @@ fn a_deleted_observation_is_not_listed_and_is_kept_with_why_and_takes_no_change(
     assert_eq!(text, "Out of date.");
     assert_eq!(
         kept_changes(&db.path, 1),
-        [("\"Deleted\"".to_string(), "A fix removed it.".to_string())]
+        [(3, "\"Deleted\"".to_string(), "A fix removed it.".to_string())]
     );
     // It takes no change after.
     let titled = [(1, ObservationChange::Titled("Late.".to_string()))];
@@ -507,7 +509,7 @@ fn a_batch_of_changes_is_all_or_none_and_names_every_refusal() {
     );
     // The good change before them was not made either.
     assert_eq!(observations.all().expect("read")[0].title, None);
-    assert_eq!(kept_changes(&db.path, 1), Vec::<(String, String)>::new());
+    assert_eq!(kept_changes(&db.path, 1), Vec::<(u64, String, String)>::new());
     // A number too large for the store names no observation.
     let large = [(u64::MAX, ObservationChange::Deleted)];
     assert_eq!(
@@ -544,37 +546,71 @@ fn the_tags_count_the_live_observations_that_carry_them_and_those_not_handled() 
     assert_eq!(observations.tags(), Ok(vec![count("x", 2, 1), count("y", 1, 0)]));
 }
 
-#[test]
-fn an_item_of_another_project_or_of_none_takes_no_observation_in() {
-    let (db, mut store, _) = with_an_item();
-    let item_of = |project: Option<&str>| store::First {
+/// An item of this project, or of none, as it is added.
+fn an_item_of(project: Option<&str>) -> store::First {
+    store::First {
         title: "another".to_string(),
         level: Some("2".to_string()),
         project: project.map(str::to_string),
         depends_on: Vec::new(),
         tags: Vec::new(),
-    };
+    }
+}
+
+/// The refusal of taking observation 1 in by this item, as the one change asked for.
+fn of_another_project(item: u64) -> Result<Result<Vec<bool>, Vec<NotMade>>, store::Fault> {
+    Ok(Err(vec![NotMade {
+        at: 0,
+        observation: 1,
+        why: Refusal::ItemOfAnotherProject(ItemNumber(item)),
+    }]))
+}
+
+#[test]
+fn an_item_of_another_project_or_of_none_takes_no_observation_in() {
+    let (db, mut store, _) = with_an_item();
     for project in [Some("other"), None] {
         store
-            .add(&item_of(project), "judged", Time(START + 1), &Work::default())
+            .add(&an_item_of(project), "judged", Time(START + 1), &Work::default())
             .expect("the item is added");
     }
     let observations = Observations::open(&db.path).expect("the observations open");
     observations.add(&adding("Of `one`."), Time(1)).expect("added");
-    let not_made = |item: u64| {
-        Ok(Err(vec![NotMade {
-            at: 0,
-            observation: 1,
-            why: Refusal::ItemOfAnotherProject(ItemNumber(item)),
-        }]))
-    };
     for item in [2, 3] {
         let taken = [(1, ObservationChange::TakenIn(ItemNumber(item)))];
-        assert_eq!(observations.change("Not its project.", &taken, Time(2)), not_made(item));
+        assert_eq!(
+            observations.change("Not its project.", &taken, Time(2)),
+            of_another_project(item)
+        );
     }
-    // An item of the project it is of takes it in; so does one for an observation a run kept in its item's project.
+    // An item of the project it is of takes it in.
     let taken = [(1, ObservationChange::TakenIn(ItemNumber(1)))];
     assert_eq!(observations.change("Its project.", &taken, Time(3)), Ok(Ok(vec![true])));
+}
+
+#[test]
+fn an_observation_a_run_kept_is_taken_in_only_by_an_item_of_its_items_project() {
+    let mut d = Driver::saved();
+    d.wrote("request", Outsider::Person, None);
+    d.end(handing_in(&[("text", None)], &["From the run."]));
+    let s = d.saving.as_mut().expect("saved");
+    let path = s.db.path.clone();
+    s.store
+        .add(&an_item_of(Some("other")), "judged", Time(START + 1), &Work::default())
+        .expect("the item is added");
+    // The run's item is of the project `one`, and so is the observation: it has no project of its own but that.
+    assert_eq!(kept(&path)[0].project.as_deref(), Some("one"));
+    let observations = Observations::open(&path).expect("the observations open");
+    let by_other = [(1, ObservationChange::TakenIn(ItemNumber(2)))];
+    assert_eq!(
+        observations.change("Not its project.", &by_other, Time(2)),
+        of_another_project(2)
+    );
+    let by_its_item = [(1, ObservationChange::TakenIn(ItemNumber(1)))];
+    assert_eq!(
+        observations.change("Its item.", &by_its_item, Time(3)),
+        Ok(Ok(vec![true]))
+    );
 }
 
 #[test]
