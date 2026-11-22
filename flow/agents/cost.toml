@@ -60,14 +60,14 @@ between = " "
 
 # What a keep-warm ping sends a session whose line waits, so that the prompt cache does not let the session go: the
 # whole message, `message`, whose answer is not read. Why one failed, kept with the ping: `under_way`, a round of its
-# work being under way; `no_round`, with `{line}`, no round of the line having run; `no_system`, with `{why}`, the
+# line being under way; `no_round`, with `{line}`, no round of the line having run; `no_system`, with `{why}`, the
 # session's system prompt not being kept; `stopped`, with `{minutes}`, its not ending while the cache kept the session;
 # and where its program ended with no result, as `[program]` says.
 [ping]
 message = """# Keep-warm ping
 
 Your line is waiting for its next round. This message only keeps your session's prompt cache from expiring. Do nothing and use no tools: hand in the smallest return the format allows."""
-under_way = "a round of the work is under way"
+under_way = "a round of its line is under way"
 no_round = "no round of the line `{line}` has run"
 no_system = "the session's system prompt is not kept: {why}"
 stopped = "the ping did not end within {minutes} minutes, while the cache kept the session, and was stopped"
