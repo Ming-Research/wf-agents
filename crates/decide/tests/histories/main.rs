@@ -1410,13 +1410,22 @@ fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
     done.into_iter().map(|(_, t)| t).collect()
 }
 
-/// Runs this many histories drawn so, and fails if one breaks a property, or if none reached one of these situations.
+/// In how many histories each situation a test must reach has to be reached. A situation that one history of hundreds
+/// reaches pins nothing: a rule broken only there is found by that one history, and a change of the draws that loses
+/// it loses the check without a sign. Ten is what the least reached of them were steered to; a test counts histories,
+/// not how often each reached the situation.
+const FLOOR: u64 = 10;
+
+/// Runs this many histories drawn so, and fails if one breaks a property, or if fewer than [`FLOOR`] of them reached one
+/// of these situations.
 fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
     let _hook = HOOK.lock().unwrap_or_else(PoisonError::into_inner);
     let hook = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
     let mut failures = Vec::new();
     let mut seen = Seen::default();
+    // In how many histories each situation was reached.
+    let mut in_histories: BTreeMap<&'static str, u64> = BTreeMap::new();
     let mut broken: BTreeMap<&str, Vec<u64>> = BTreeMap::new();
     let results = in_parallel(seeds, |seed| {
         let mut log = Vec::new();
@@ -1426,6 +1435,11 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
     });
     for (seed, (verdict, outcome, log)) in (0..seeds).zip(results) {
         seen.add(&verdict.seen);
+        for (what, n) in &verdict.seen.0 {
+            if *n > 0 {
+                *in_histories.entry(what).or_default() += 1;
+            }
+        }
         let mut message = match outcome {
             Err(e) => (e.downcast_ref::<String>().cloned())
                 .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_string()))
@@ -1476,16 +1490,26 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
         "the deciding code's histories reached: {}",
         counts.join("; ")
     );
-    // And how often each of what they must reach was, so that a rare one shows how close it is to none.
+    // And in how many histories each of what they must reach was, so that a rare one shows how close it is to the floor.
+    let histories_of = |what: &str| in_histories.get(what).copied().unwrap_or(0);
     let must: Vec<String> = reached
         .iter()
-        .map(|what| format!("{what}: {}", seen.get(what)))
+        .map(|what| format!("{what}: {}", histories_of(what)))
         .collect();
-    let _ = writeln!(std::io::stderr(), "of what they must reach: {}", must.join("; "));
-    let unreached: Vec<_> = reached.iter().filter(|what| seen.get(what) == 0).collect();
+    let _ = writeln!(
+        std::io::stderr(),
+        "of what they must reach, in how many of {seeds} histories: {}",
+        must.join("; ")
+    );
+    let unreached: Vec<String> = (reached.iter())
+        .filter(|what| histories_of(what) < FLOOR)
+        .map(|what| format!("{what}: {}", histories_of(what)))
+        .collect();
+    let all: Vec<String> = in_histories.iter().map(|(what, n)| format!("{what}: {n}")).collect();
     assert!(
         unreached.is_empty(),
-        "no history reached these, so the properties about them check nothing: {unreached:?}"
+        "fewer than {FLOOR} of {seeds} histories reached these, so the properties about them pin nothing: \
+         {unreached:?}\nin how many histories each situation was reached: {all:?}"
     );
 }
 
@@ -1505,5 +1529,5 @@ fn rounds_failing_often_while_people_pause_and_write_keep_the_engines_properties
 
 #[test]
 fn a_judge_running_while_the_cell_it_judges_is_skipped_keeps_the_engines_properties() {
-    histories(SKIPPED_JUDGED, 600, &[]);
+    histories(SKIPPED_JUDGED, 600, &[properties::SKIPPED_NO_PASSES]);
 }

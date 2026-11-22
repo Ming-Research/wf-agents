@@ -144,6 +144,11 @@ use support::{Driver, Part, Rng, lacking_a_must_write};
 /// How many histories are run.
 const SEEDS: u64 = 500;
 
+/// In how many histories each situation the properties are about has to be reached. A situation that one history of
+/// hundreds reaches pins nothing: a rule broken only there is found by that one history, and a change of the draws
+/// that loses it loses the check without a sign.
+const FLOOR: u64 = 10;
+
 /// How many random steps, at most, a history takes before the content continuation.
 const RANDOM: usize = 200;
 
@@ -433,6 +438,7 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             CONTENT_ON_A_REFUSAL,
             ENGINE_STOPPED,
             LACKING_SENT_BACK,
+            LACKING_TAKEN_WITH_A_QUESTION,
             MERGED_A_REVIEWED_HEAD,
             CHECK_GATED,
             MERGE_ON_A_MOVED_HEAD,
@@ -511,6 +517,8 @@ const CONTENT_ON_A_REFUSAL: &str = "the content continuation began as a judge's 
 const OWNER_ASKED_A_CELL: &str = "the owner had a cell write again a choice a precondition waits on";
 const ENGINE_STOPPED: &str = "the engine stopped";
 const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must write was sent back";
+const LACKING_TAKEN_WITH_A_QUESTION: &str =
+    "a hand-in that lacked a block its cell must write was taken, with a question its cell waits for";
 const MERGED_A_REVIEWED_HEAD: &str = "the merge merged a head the work committed and the review dealt with";
 const CHECK_GATED: &str = "the check failed in passing on a head a judge of it had not dealt with";
 const MERGE_ON_A_MOVED_HEAD: &str = "the merge failed in passing on a head moved since the check passed";
@@ -1033,7 +1041,7 @@ impl Random {
                 let force = self.steer == Steer::FailCheckLeft && first;
                 // A value that stands with nothing but some blocks is handed in with no question beside it.
                 let questions = match may_ask(&d.flow, i, &handed_in) {
-                    true => self.questions(d, i, cell, &mut handed_in, force),
+                    true => self.questions(d, i, cell, force),
                     false => Vec::new(),
                 };
                 let mut came = hands_in(d, run, i, handed_in);
@@ -1046,17 +1054,10 @@ impl Random {
     /// What the agent of the cell at this place writes in the record of the questions beside its hand-in, where an
     /// answer runs its cell: a question of its own in three of a hundred, which waits in one of five, and always one
     /// that does not wait where `force` says so; one of its own that stands asked anew, as it was, in two of a
-    /// hundred; one withdrawn in two of a hundred; nothing otherwise. A return whose question waits may leave out the
-    /// blocks its cell must write, which the histories' check of them does not allow for (`lacking_a_must_write`):
-    /// such a return hands each of them in.
-    fn questions(
-        &self,
-        d: &mut Driver,
-        i: usize,
-        cell: &str,
-        handed_in: &mut Vec<Handed>,
-        force: bool,
-    ) -> Vec<Question> {
+    /// hundred; one withdrawn in two of a hundred; nothing otherwise. A return whose question waits hands in as much
+    /// of what its cell must write as the draw gives, which may be none of it (decision
+    /// a-return-hands-in-what-its-cell-must-every-time).
+    fn questions(&self, d: &mut Driver, i: usize, cell: &str, force: bool) -> Vec<Question> {
         let spec = &d.flow.cells[i];
         if !(spec.watches.iter()).any(|t| t.of_source(&d.flow, flow::ANSWER).is_some()) {
             return Vec::new();
@@ -1078,14 +1079,6 @@ impl Random {
             }
             _ => return Vec::new(),
         };
-        if waits {
-            let missing: Vec<BlockId> = (d.flow.cells[i].must_write.iter())
-                .filter(|b| !handed_in.iter().any(|h| &h.block == *b))
-                .cloned()
-                .collect();
-            let stands = self.as_it_stands(d, i, cell, false);
-            handed_in.extend(stands.into_iter().filter(|h| missing.contains(&h.block)));
-        }
         let way = |does: &str, follows: &str| Way {
             does: does.to_string(),
             follows: follows.to_string(),
@@ -1829,6 +1822,24 @@ impl History {
         if self.d.seen.lacking > 0 {
             reached.push(LACKING_SENT_BACK.to_string());
         }
+        // A run that finished lacking a block its cell must write, which asked no call and asked a question its cell
+        // waits for: the engine took it, as the decision allows.
+        let waiting_ask = |run: RunId| {
+            (records.questions.iter()).any(|q| q.run == run && !q.engine && q.waits && !q.withdrawn)
+                && !records.called.iter().any(|c| c.run == run)
+        };
+        let lacking_taken = records.finished.iter().any(|f| {
+            let cell = &records.started.iter().find(|s| s.run == f.run).expect("a run").cell;
+            let spec = flow
+                .cells
+                .iter()
+                .find(|c| &c.id == cell)
+                .expect("the cell is in the flow");
+            waiting_ask(f.run) && spec.must_write.iter().any(|b| !f.writes.iter().any(|w| &w.block == b))
+        });
+        if lacking_taken {
+            reached.push(LACKING_TAKEN_WITH_A_QUESTION.to_string());
+        }
         if self.d.seen.stops > 0 {
             reached.push(ENGINE_STOPPED.to_string());
         }
@@ -2202,10 +2213,15 @@ fn histories() {
         ));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
-    let unreached: Vec<&String> = reached.iter().filter(|(_, n)| **n == 0).map(|(r, _)| r).collect();
+    let unreached: Vec<String> = (reached.iter())
+        .filter(|(_, n)| **n < FLOOR)
+        .map(|(r, n)| format!("{r}: {n}"))
+        .collect();
+    let all: Vec<String> = reached.iter().map(|(r, n)| format!("{r}: {n}")).collect();
     assert!(
         unreached.is_empty(),
-        "no history reached these, so the properties about them check nothing: {unreached:?}"
+        "fewer than {FLOOR} of {SEEDS} histories reached these, so the properties about them pin nothing: \
+         {unreached:?}\nin how many histories each situation was reached: {all:?}"
     );
 }
 
