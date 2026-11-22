@@ -122,32 +122,28 @@ fn while_the_checks_find_the_outside_down_no_round_begins_and_the_checks_grow_lo
     }
 }
 
-// A check that finds the outside well lets every work go on from where it was: the round that met the failure is run
-// again, and a work that waited to begin begins. The wait stands, holding nothing, until a round begun after it comes
-// back.
+// A check that finds the outside well lets one round go first: that of the work whose round met the cause first, run
+// again, which tries the outside for every work. The wait holds every other round until the service answers that one
+// or it comes back, which ends it, and the others go on from where they were. Here the second work met the cause first.
 #[test]
-fn a_check_that_finds_the_outside_well_lets_every_work_go_on_from_where_it_was() {
+fn a_check_that_finds_the_outside_well_lets_the_round_that_met_it_first_go_first_and_the_rest_once_it_comes_back() {
     for failure in OUTSIDE {
         let (mut h, a, b) = two();
-        fails(&mut h, a, failure, None);
         fails(&mut h, b, failure, None);
+        fails(&mut h, a, failure, None);
         let first = next_check(&h);
         h.tick(first, Some(down(failure)));
         let well = next_check(&h);
         let todos = h.tick(well, Some(Found::Well));
-        let mut given = agents_rounds(&todos);
-        given.sort();
-        assert_eq!(
-            given,
-            vec![(a, "write".to_string(), 2), (b, "write".to_string(), 2)],
-            "{failure:?}"
-        );
+        assert_eq!(agents_rounds(&todos), vec![(b, "write".to_string(), 2)], "{failure:?}");
         let outage = h.d().outage().expect("the wait stands until a round comes back");
-        assert!(!outage.holds());
         assert_eq!(outage.until(), Until::Well { at: well });
         assert_eq!(h.d().wake(), None, "nothing more is checked");
-        h.hands_in(a, &[("text", None)]);
+        // A look meanwhile begins nothing more.
+        assert_eq!(agents_rounds(&h.tick(Time(well.0 + 1), None)), vec![], "{failure:?}");
+        let todos = h.hands_in(b, &[("text", None)]);
         assert_eq!(h.d().outage(), None, "{failure:?}");
+        assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)], "{failure:?}");
         assert!(!decide::paused(&h.d().work(a).unwrap().work.records));
     }
 }
@@ -266,7 +262,7 @@ fn an_act_that_fails_for_want_of_its_hosts_network_holds_the_acts_alone_until_a_
     let todos = h.hands_in(b, &[("text", None)]);
     assert_eq!(rounds(&todos), vec![]);
     assert!(h.d().host_outage().is_some());
-    // A look at the host that does not reach it lets nothing on; one that does, every act at once.
+    // A look at the host that does not reach it lets nothing on.
     assert_eq!(h.tick_host(at, false), vec![]);
     assert_eq!(
         h.d().wake(),
@@ -276,13 +272,16 @@ fn an_act_that_fails_for_want_of_its_hosts_network_holds_the_acts_alone_until_a_
             look_at_host: true
         })
     );
+    // One that does lets the act that met it go first, and every other act once that one comes back.
     let todos = h.tick_host(Time(at.0 + PROBE), true);
-    assert_eq!(
-        rounds(&todos),
-        vec![(a, "merge".to_string(), 2), (b, "merge".to_string(), 1)]
+    assert_eq!(rounds(&todos), vec![(a, "merge".to_string(), 2)]);
+    assert!(
+        h.d().host_outage().is_some(),
+        "the wait stands until the act comes back"
     );
-    h.hands_in(a, &[("merged", None)]);
+    let todos = h.hands_in(a, &[("merged", None)]);
     assert_eq!(h.d().host_outage(), None);
+    assert_eq!(rounds(&todos), vec![(b, "merge".to_string(), 1)]);
 }
 
 #[test]
@@ -324,8 +323,10 @@ fn a_wait_is_over_once_the_service_answers_a_round_begun_after_the_check() {
         fails(&mut h, b, failure, None);
         let at = next_check(&h);
         h.tick(at, Some(Found::Well));
-        assert_eq!(h.service_answers(a), vec![], "{failure:?}");
+        // The round that met the cause first went first; once the service answers it, the other begins.
+        let todos = h.service_answers(a);
         assert_eq!(h.d().outage(), None, "{failure:?}");
+        assert_eq!(agents_rounds(&todos), vec![(b, "write".to_string(), 2)], "{failure:?}");
         // Answered again, it changes nothing.
         assert_eq!(h.service_answers(a), vec![]);
     }

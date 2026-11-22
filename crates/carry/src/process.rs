@@ -820,6 +820,35 @@ mod tests {
         );
     }
 
+    // A program run here that ends by itself has what it left running in its group stopped before its end is given:
+    // nobody reads what that does once the program has ended. Under half a second alone, most of it the leftover's
+    // ending on TERM; no other test holds a program that ends leaving something in its group.
+    #[tokio::test]
+    async fn what_a_program_that_ends_by_itself_left_in_its_group_is_stopped() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 30 >/dev/null 2>&1 & echo $!"]);
+        let ran = run(command, None, None, &mut Stop::never())
+            .await
+            .expect("the program runs");
+        let Ran::Ended { stdout, .. } = ran else {
+            panic!("the program was stopped");
+        };
+        let left: u32 = (String::from_utf8_lossy(&stdout).trim().parse()).expect("what the program left");
+        let running = runs(left).await;
+        let _ = std::process::Command::new("kill")
+            .args(["-s", "KILL", &left.to_string()])
+            .status();
+        assert!(
+            !running,
+            "what the program left in its group runs on after its end was given"
+        );
+    }
+
+    /// Whether the process runs: it is there, and not a zombie waiting to be reaped.
+    async fn runs(process: u32) -> bool {
+        (ps(&["-o", "stat=", "-p", &process.to_string()]).await).is_some_and(|stat| !stat.starts_with('Z'))
+    }
+
     #[tokio::test]
     async fn a_left_group_is_stopped_though_its_first_process_has_ended() {
         let dir = tempfile::tempdir().unwrap();
