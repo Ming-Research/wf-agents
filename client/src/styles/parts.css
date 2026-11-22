@@ -176,6 +176,11 @@ button {
   line-height: var(--tag);
 }
 
+/* Beside it, left of it as on a card, how many questions the owner may answer ahead: white on orange. */
+.bar-count.ahead {
+  background: var(--orange);
+}
+
 /* The engine's part of the bar: its state, the switch of every work, Keep warm and the slots, in one row. */
 .engine,
 .engine-state,
