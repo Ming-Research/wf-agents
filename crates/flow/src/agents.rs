@@ -753,8 +753,8 @@ pub struct Unread {
 
 /// The words of each thing that can be wrong with a return, by its kind. In a text, `{block}` is a block's name,
 /// `{name}` a name as the return wrote it or, of what it dealt with, the datum's or the group's name, `{value}` a value it wrote,
-/// `{values}` the values of a choice, each between backticks, `{version}` a version's number and `{why}` why what came
-/// back could not be read.
+/// `{values}` the values of a choice, each between backticks, `{version}` a version's number, `{why}` why what came
+/// back could not be read and `{changes}` what git says the worktree holds that is not committed.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SentBackFaults {
@@ -789,6 +789,11 @@ pub struct SentBackFaults {
     pub unexplained: String,
     /// `{path}` a file that the run of a line that changes only the project's tests changed, and that is none of them.
     pub not_a_test: String,
+    /// `{changes}` what git says the worktree holds of files it tracks that are not committed, where the round of a
+    /// line that may change the work ended with a return that asks for no call.
+    pub uncommitted: String,
+    /// `{changes}` the same, where a merge is under way in the worktree, begun and not committed.
+    pub merging: String,
     /// `{name}` a question of the work marked `tree`, with the owner's answer to its latest version, where the return
     /// writes a block handed in only with the answer in the design tree (`answers_in_the_tree`) and the work's change
     /// against main changes nothing in the tree.
@@ -922,8 +927,11 @@ pub struct ResultWords {
 pub struct GithubWords {
     /// A merge is under way in the worktree: `{changes}`.
     pub merge_under_way: String,
-    /// The worktree has changes not committed: `{changes}`.
+    /// The worktree has changes to files git tracks that are not committed: `{changes}`.
     pub uncommitted: String,
+    /// The worktree holds files git does not track, which are not in the run: `{files}` one to a line, a directory
+    /// holding only such files as its name with a slash. Said before the result.
+    pub untracked: String,
     /// The branch has no commit of its own beyond main: `{main}`.
     pub no_own_commit: String,
     /// Tests or checks are named and the project declares no fast workflow.
@@ -1223,6 +1231,7 @@ pub struct Check {
     pub tests_between: String,
     pub values: CheckValues,
     pub found: Found,
+    pub refused: CheckRefused,
 }
 
 /// The values the check writes in its choice.
@@ -1237,8 +1246,6 @@ pub struct CheckValues {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Found {
-    pub merging: String,
-    pub uncommitted: String,
     pub conflict: String,
     /// Questions of the work marked `tree` have the owner's answer to their latest version, and the work's change
     /// against main changes nothing in the design tree: `{questions}` their names, one to a line, and `{main}` the main
@@ -1252,6 +1259,15 @@ pub struct Found {
     pub unreviewed: String,
     /// The commit checked changes nothing against main: there is nothing to merge.
     pub empty: String,
+}
+
+/// What the check says where it cannot go on: shown to the owner, whom the work waits for, and written into no block.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckRefused {
+    /// A merge begun in the worktree is not committed, and the engine takes back no merge it did not begin: `{main}` the
+    /// main branch's name, `{changes}` what git says the worktree holds uncommitted.
+    pub merging: String,
 }
 
 /// A piece of a text of the engine's words: what is sent as written, or a place filled in a run, by its name.

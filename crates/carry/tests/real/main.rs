@@ -25,6 +25,7 @@ mod sessions;
 mod stopping;
 mod testing;
 mod tree;
+mod uncommitted;
 
 use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt;
@@ -90,7 +91,8 @@ pub struct Fake {
     /// Whether its first call prints a stream in which it refused every attempt at the return, the last writing the
     /// plan's hand-ins as a string, gave up on the return, and exits with 1.
     pub refuses_first: bool,
-    /// Whether the plan adds a line to the project's guide in the worktree, as a work's own change of it would.
+    /// Whether the plan, once, commits a line to the project's guide in the worktree, as a work's own change of it
+    /// would, saying why in its return.
     pub plan_edits_guide: bool,
     /// Whether the build commits a file of the design tree.
     pub design: bool,
@@ -105,6 +107,16 @@ pub struct Fake {
     /// Whether the build commits its file and then asks for the query of the check, in each round of its runs until one
     /// is given the result, and the run entered for the result hands in what was committed, committing nothing.
     pub build_then_asks: bool,
+    /// Whether the build edits a file git tracks and leaves the edit out of its commit, until a round of it is told its
+    /// return was sent back for that, which takes the edit back.
+    pub build_leaves_an_edit: bool,
+    /// Whether the build leaves a file git does not track in the worktree, which nothing sends it back for.
+    pub build_leaves_a_file: bool,
+    /// Whether the build begins a merge and leaves it uncommitted, until a round of it is told its return was sent back
+    /// for that, which takes the merge back.
+    pub build_leaves_a_merge: bool,
+    /// Whether the review, which only reads, edits a file git tracks and leaves the edit in the worktree.
+    pub review_leaves_an_edit: bool,
     /// Whether the build, as it hands in, deletes the reference of the work's branch after it commits, so that the
     /// branch cannot be read as its round ends.
     pub build_loses_its_branch: bool,
@@ -144,6 +156,10 @@ impl Default for Fake {
             moves_main: false,
             build_beside_tests: false,
             build_then_asks: false,
+            build_leaves_an_edit: false,
+            build_leaves_a_file: false,
+            build_leaves_a_merge: false,
+            review_leaves_an_edit: false,
             build_loses_its_branch: false,
             says_usage: false,
             tree_question: false,
@@ -474,6 +490,29 @@ built() {{
     git add "$file"
     git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'Build the greeting'
 }}
+# What the build leaves of its work out of its commit, and takes back, before it commits, once the round is told its
+# return was sent back for it. A file git does not track is left every round, and nothing sends it back for that.
+takes_back() {{
+    if grep -q 'changes to tracked files that are not committed' "$log/$n.stdin"; then
+        git checkout -q -- greeting.txt
+    fi
+    if grep -q 'A merge is under way in the worktree and is not committed' "$log/$n.stdin"; then
+        git merge --abort
+    fi
+}}
+leaves() {{
+    if [ '{leaves_edit}' = yes ] && ! grep -q 'changes to tracked files that are not committed' "$log/$n.stdin"; then
+        echo "$n" >> greeting.txt
+    fi
+    if [ '{leaves_merge}' = yes ] && ! grep -q 'A merge is under way in the worktree and is not committed' "$log/$n.stdin"; then
+        # A commit of the same tree whose parent is not in the branch's history: merged with no commit made.
+        other=$(git -c user.name=Fake -c user.email=fake@example.com commit-tree "$(git rev-parse 'HEAD^{{tree}}')" -p "$(git rev-parse HEAD~1)" -m 'A side')
+        git -c user.name=Fake -c user.email=fake@example.com merge --no-commit --no-ff "$other" > /dev/null
+    fi
+    if [ '{leaves_file}' = yes ]; then
+        echo "$n" > cache.txt
+    fi
+}}
 case "$first" in
     Plan)
         if [ '{sleeps}' != 0 ] && [ ! -f "$log/slept" ]; then
@@ -499,11 +538,16 @@ case "$first" in
             unchanged='"plan"'
         fi
         touch "$log/planned"
-        if [ '{edits_guide}' = yes ]; then
+        if [ '{edits_guide}' = yes ] && [ ! -f "$log/plan_guided" ]; then
+            touch "$log/plan_guided"
             printf 'A line the work added.\n' >> '{guide}'
+            git add '{guide}'
+            git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'The plan changes the guide'
+            protected='"protected_changes":{{"{guide}":"The plan needs the line."}},'
         fi
         out='"plan":"Greet by name."' ;;
     Build)
+        takes_back
         if [ '{committed_sleeps}' != 0 ] && [ ! -f "$log/committed" ]; then
             touch "$log/committed"
             printf '%s\n' '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}'
@@ -518,6 +562,9 @@ case "$first" in
         grep -q 'The results of what you asked for' "$log/$n.stdin" && results=yes
         checked=no
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
+        # A round told its return was sent back for a change not committed has nothing more to ask for.
+        sent_back=no
+        grep -q 'changes to tracked files that are not committed' "$log/$n.stdin" && sent_back=yes
         answered=no
         awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `build_questions`' && answered=yes
         if [ '{tree_question}' = yes ] && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
@@ -531,7 +578,7 @@ case "$first" in
             # It leaves all that ran it for after the answer.
             dealt=''
             out='"build_questions":[{{"name":"which_name","waits":true,"tree":{tree_mark},"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
-        elif [ "$results" = no ] && [ '{then_asks}' = yes ]; then
+        elif [ "$results" = no ] && [ "$sent_back" = no ] && [ '{then_asks}' = yes ]; then
             built
             calls='"query":[{{"sql":"select the check"}}]'
         elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ]; }}; then
@@ -573,8 +620,13 @@ case "$first" in
             if printf '%s\n' "$text" | grep -q '^- `title`'; then
                 out="$out,\"title\":\"{name}\""
             fi
-        fi ;;
-    Review) out='"verdict":{{"value":"yes","why":"Fine."}}' ;;
+        fi
+        leaves ;;
+    Review)
+        if [ '{review_leaves}' = yes ]; then
+            echo "$n" >> greeting.txt
+        fi
+        out='"verdict":{{"value":"yes","why":"Fine."}}' ;;
 esac
 if [ -n "$calls" ]; then
     structured="{{\"tools\":{{$calls}}}}"
@@ -614,6 +666,10 @@ fi
         moves = yes(fake.moves_main),
         beside_tests = yes(fake.build_beside_tests),
         then_asks = yes(fake.build_then_asks),
+        leaves_edit = yes(fake.build_leaves_an_edit),
+        leaves_file = yes(fake.build_leaves_a_file),
+        leaves_merge = yes(fake.build_leaves_a_merge),
+        review_leaves = yes(fake.review_leaves_an_edit),
         loses_branch = yes(fake.build_loses_its_branch),
         says_usage = yes(fake.says_usage),
         tree_question = yes(fake.tree_question),

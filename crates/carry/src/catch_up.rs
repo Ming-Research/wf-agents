@@ -113,8 +113,7 @@ async fn tried(project: &Project, place: &Place, main: &str, run: RunId) -> Resu
     git::on_branch(place).await?;
     let repo = &project.repo;
     let main = git::git(repo, &["rev-parse", "--verify", main]).await?;
-    // Files git does not track are left out: a build's output not ignored would otherwise hold every run.
-    let changes = git::git(&dir, &["status", "--porcelain", "--untracked-files=no"]).await?;
+    let changes = git::uncommitted(&dir).await?;
     let merging = git::merging(&dir).await?;
     if merging || !changes.is_empty() {
         return Ok(Outcome::Uncommitted { main, changes, merging });

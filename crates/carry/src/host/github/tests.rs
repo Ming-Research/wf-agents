@@ -152,7 +152,14 @@ impl Hub {
         let place = self.place();
         let main = self.main_on_github();
         self.host
-            .verdict(&branch(&place), commit, &main, self.round(), &mut Stop::never())
+            .verdict(
+                &branch(&place),
+                commit,
+                &main,
+                self.round(),
+                &Mutex::new(()),
+                &mut Stop::never(),
+            )
             .await
     }
 
@@ -715,9 +722,10 @@ async fn a_stopped_wait_gives_nothing() {
         tokio::time::sleep(Duration::from_millis(100)).await;
         held.stop(1, ());
     };
-    let (branch, main) = (branch(&place), hub.main_on_github());
+    let (branch, main, repository) = (branch(&place), hub.main_on_github(), Mutex::new(()));
     let (verdict, ()) = tokio::join!(
-        hub.host.verdict(&branch, &head, &main, hub.round(), &mut stop),
+        hub.host
+            .verdict(&branch, &head, &main, hub.round(), &repository, &mut stop),
         stopping
     );
     assert_eq!(verdict, Ok(None));

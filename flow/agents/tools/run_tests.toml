@@ -73,7 +73,8 @@ all_skipped = "each test it names was skipped"
 # What it says where the host is GitHub.
 [github]
 merge_under_way = "A merge is under way in the worktree and is not committed: finish it and commit it, or take it back. Nothing was pushed.\n{changes}"
-uncommitted = "The worktree has changes that are not committed, and only what is committed is run: commit them, and ask again. Nothing was pushed.\n{changes}"
+uncommitted = "The worktree has changes to tracked files that are not committed, and only what is committed is run: commit them, or take them back, and ask again. Nothing was pushed.\n{changes}"
+untracked = "These files are not tracked by git, so they are not in the run, which runs only what is committed. Commit those that belong to the change:\n{files}"
 no_own_commit = "The work's branch has no commit of its own beyond {main}: commit your change, and ask again. Nothing was pushed."
 no_fast = "Nothing was run: you named tests or checks, but the project declares no fast workflow, and only a fast workflow runs just what is named. Name none to run the full workflows."
 no_full = "Nothing was run: the project declares no full workflows; name the tests to run."

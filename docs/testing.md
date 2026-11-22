@@ -201,10 +201,11 @@ of each part.
 28. What is read of each round is read where it shows: its inputs on the round's panel, as they were sent, and in its
     line's system prompt, against what its cell names and the order the flow declares (principle cache-order); its
     return, what was sent back and why, and the engine's reason for what runs next, on the work's page; what its agent
-    reported in `observations`, in the Observations view; its numbers on the same panel, each against the line of its
-    own history (principle judged-by-own-history), and in the System view what went past those lines; and in the
-    engine's log, what the engine met outside any work. The assistant reads the same through the commands that show a
-    work (principle a-look-brings-back-little).
+    reported in `observations`, in the Observations view; its numbers on the same panel, and each against the line of
+    its own history (principle judged-by-own-history) in the data the page is given, with what went past those lines in
+    the System data and in `wf-agents system`, none of it drawn on the page (decision
+    what-went-past-its-line-is-given-in-data-only); and in the engine's log, what the engine met outside any work. The
+    assistant reads the same through the commands that show a work (principle a-look-brings-back-little).
 
 29. Every return sent back, and every way round between the same two cells after the first, is a finding (principles
     converging-fixes and report-all-at-once). Each finding is recorded at once, as an observation or an item. A fault of

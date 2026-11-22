@@ -467,6 +467,8 @@ export type Unmet =
   | { kind: 'notAnswered'; name: string }
   | { kind: 'unexplained'; path: string }
   | { kind: 'notATest'; path: string }
+  | { kind: 'uncommitted'; changes: string }
+  | { kind: 'merging'; changes: string }
   /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
   /// change changes nothing in the design tree.
   | { kind: 'treeUnchanged'; name: string }
@@ -532,7 +534,8 @@ export interface Judged {
   time: Against | null;
 }
 
-/// A measure against the line of its history: millionths of a dollar for a cost, milliseconds for a time.
+/// A measure against the line of its history: millionths of a dollar for a cost, milliseconds for a time, bytes for a
+/// size.
 export interface Against {
   value: number;
   line: Line;
@@ -595,6 +598,9 @@ export interface CallRow {
   /// How long a call of a tool took, or has taken so far while it has no result, against the line of the calls of its
   /// tool as it stood when it was made.
   time: Against | null;
+  /// How long the result of a call of a tool is, in bytes, against the line of the results of the calls of its tool as
+  /// it stood when it was made; none while it has no result.
+  size: Against | null;
 }
 
 export type RunEnd =

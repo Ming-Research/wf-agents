@@ -410,6 +410,13 @@ pub enum Unmet {
     /// of the project's tests, which are all the cell's line changes: as the engine found it, looking at the branch as
     /// the round ended.
     NotATest { path: String },
+    /// The round ended with a return that asks for no call, in a line that may change the work, and the worktree holds
+    /// these changes to files git tracks that are not committed, as `git status` lists them: as the engine found it,
+    /// looking at the worktree as the round ended. A file git does not track is none.
+    Uncommitted { changes: String },
+    /// The round ended so, and a merge is under way in the worktree, begun and not committed, with these changes: as the
+    /// engine found it, looking at the worktree as the round ended.
+    Merging { changes: String },
     /// The return writes a block handed in only with the owner's answers in the design tree (`answers_in_the_tree` of
     /// its file), the question of this name is marked `tree` and has the owner's answer to its latest version, and the
     /// work's change against main changes nothing in the project's design tree: as the engine found it, looking at the

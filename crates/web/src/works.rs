@@ -1099,7 +1099,7 @@ pub struct Judged {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Against {
-    /// The measure: millionths of a dollar for a cost, milliseconds for a time.
+    /// The measure: millionths of a dollar for a cost, milliseconds for a time, bytes for a size.
     pub value: u64,
     /// Its line, in the same units.
     pub line: Line,
@@ -1303,6 +1303,10 @@ pub enum Unmet {
     Unexplained { path: String },
     /// The run of a line that changes only the project's tests changed this file, which is none of them.
     NotATest { path: String },
+    /// A round that asks for no call ended with changes to tracked files that are not committed.
+    Uncommitted { changes: String },
+    /// A round that asks for no call ended with a merge begun in the worktree and not committed.
+    Merging { changes: String },
     /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
     /// change changes nothing in the design tree.
     TreeUnchanged { name: String },
@@ -1368,6 +1372,11 @@ pub struct CallRow {
     /// of the calls of its tool as it stood when it was made. Worked out for a work's page only.
     #[serde(default)]
     pub time: Option<Against>,
+    /// How long the result of a call of a tool is, in bytes, as the engine keeps it and tells an agent it is cut,
+    /// against the line of the results of the calls of its tool as it stood when it was made: none while it has no
+    /// result. Worked out for a work's page only.
+    #[serde(default)]
+    pub size: Option<Against>,
 }
 
 /// How a run ended.
@@ -3214,6 +3223,12 @@ impl Unmet {
             UnmetOf::NotAnswered { name } => Unmet::NotAnswered { name: name.clone() },
             UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
             UnmetOf::NotATest { path } => Unmet::NotATest { path: path.clone() },
+            UnmetOf::Uncommitted { changes } => Unmet::Uncommitted {
+                changes: changes.clone(),
+            },
+            UnmetOf::Merging { changes } => Unmet::Merging {
+                changes: changes.clone(),
+            },
             UnmetOf::TreeUnchanged { name } => Unmet::TreeUnchanged { name: name.clone() },
             UnmetOf::Unanswered { block } => Unmet::Unanswered {
                 block: block.to_string(),
@@ -3253,7 +3268,9 @@ fn in_detail(
         let run = RunId(r.run);
         let line = line_of(run);
         for call in &mut r.calls {
-            call.time = judged.calls.get(&(of_work, CallId(call.call))).map(Against::of);
+            let against = judged.calls.get(&(of_work, CallId(call.call)));
+            call.time = against.and_then(|against| against.time.as_ref()).map(Against::of);
+            call.size = against.and_then(|against| against.size.as_ref()).map(Against::of);
         }
         for round in &mut r.rounds {
             let number = round.number;
@@ -3396,6 +3413,7 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 done: done.map(|done| time(work, done.at)).transpose()?,
                 chars: work.results.get(&called.call).map(|result| result.chars().count()),
                 time: None,
+                size: None,
             });
         }
         let finished = records.finished.iter().find(|finished| finished.run == run);
