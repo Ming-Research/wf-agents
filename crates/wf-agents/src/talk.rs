@@ -1834,8 +1834,7 @@ fn writer(writer: &Writer) -> String {
 }
 
 /// What of the run went past the lines of its history, a line each: a round whose cost or time did, one under way
-/// that has taken longer so far than its line, and a call of a tool whose time did, or whose result's size did, or that
-/// has waited longer for its result.
+/// that has taken longer so far than its line, and a call of a tool that did, or has waited longer for its result.
 fn past_of(run: &Run) -> Vec<String> {
     let mut lines = Vec::new();
     for round in &run.rounds {
@@ -1855,39 +1854,20 @@ fn past_of(run: &Run) -> Vec<String> {
         }
     }
     for call in &run.calls {
-        let Call::Tool { name, .. } = &call.what else {
+        let (Call::Tool { name, .. }, Some(time)) = (&call.what, call.time.filter(|time| time.past)) else {
             continue;
         };
-        let said = call_past(call.done.is_some(), call.time, call.size);
-        if !said.is_empty() {
-            lines.push(format!("    call {} of the tool {name} {}", call.call, said.join("; ")));
-        }
+        let took = match call.done {
+            Some(_) => "took",
+            None => "has waited for its result for",
+        };
+        lines.push(format!(
+            "    call {} of the tool {name} {}",
+            call.call,
+            time_past(took, &time)
+        ));
     }
     lines
-}
-
-/// What of a call of a tool went past its line, a clause each: its time, as it took, or has waited for its result so
-/// far, and the size of its result.
-fn call_past(done: bool, time: Option<Against>, size: Option<Against>) -> Vec<String> {
-    let mut said = Vec::new();
-    if let Some(time) = time.filter(|time| time.past) {
-        let took = if done { "took" } else { "has waited for its result for" };
-        said.push(time_past(took, &time));
-    }
-    if let Some(size) = size.filter(|size| size.past) {
-        said.push(size_past(&size));
-    }
-    said
-}
-
-/// The size of a result past its line, as a clause.
-fn size_past(size: &Against) -> String {
-    format!(
-        "returned {} bytes, past the line of {} bytes that {}",
-        size.value,
-        size.line.value,
-        given_by(&size.line)
-    )
 }
 
 /// A cost past its line, as a clause.
@@ -1980,11 +1960,10 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                 tool,
                 done,
                 time,
-                size,
             } => format!(
                 "  W{work} of #{item}, call {call} of the tool {tool} by run {run} of {cell}, done {}: {}",
                 utc(*done),
-                call_past(true, *time, *size).join("; ")
+                time_past("took", time)
             ),
         });
     }
@@ -2754,64 +2733,6 @@ mod tests {
         );
         assert_eq!(lines[12], "  And 2 more: wf-agents system --days 7 --limit 12");
         assert_eq!(lines[13], "Nothing is under way.");
-    }
-
-    #[test]
-    fn a_call_past_its_line_by_the_size_of_its_result_is_said_with_its_bytes_beside_its_time() {
-        let line = |value| web::works::Line {
-            value,
-            samples: 2,
-            scope: web::works::Scope::Tool,
-        };
-        let against = |value, line_at, past| Against {
-            value,
-            line: line(line_at),
-            past,
-        };
-        let call = |time, size| Past::Call {
-            work: 7,
-            item: 3,
-            cell: "I1".to_string(),
-            run: 2,
-            call: 9,
-            tool: "run_tests".to_string(),
-            done: 0,
-            time,
-            size,
-        };
-        let system = System {
-            now: 0,
-            from: Some(0),
-            spent: Spent::default(),
-            pinged: Spent::default(),
-            weeks: Vec::new(),
-            by_cell: Vec::new(),
-            by_model: Vec::new(),
-            by_work: Vec::new(),
-            merged: Vec::new(),
-            cancelled: Vec::new(),
-            added: Vec::new(),
-            sent_back: Vec::new(),
-            failed: Vec::new(),
-            past: vec![
-                call(Some(against(2_000, 2_000, false)), Some(against(60_000, 12_500, true))),
-                call(
-                    Some(against(100_000, 25_000, true)),
-                    Some(against(60_000, 12_500, true)),
-                ),
-            ],
-            under_way: Vec::new(),
-        };
-        let said = system_said(&system, 7, 10);
-        let lines: Vec<&str> = said.lines().collect();
-        let head = "  W7 of #3, call 9 of the tool run_tests by run 2 of I1, done 1970-01-01 00:00 UTC: ";
-        let size = "returned 60000 bytes, past the line of 12500 bytes that 2 calls of its tool give";
-        assert_eq!(lines[2], format!("{head}{size}"), "{said}");
-        assert_eq!(
-            lines[3],
-            format!("{head}took 1m 40s, past the line of 25s that 2 calls of its tool give; {size}"),
-            "{said}"
-        );
     }
 
     #[test]

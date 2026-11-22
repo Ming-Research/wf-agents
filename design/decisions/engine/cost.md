@@ -1,6 +1,6 @@
 # What rounds cost
 
-How the engine judges what rounds, tool calls and works take, the size of a tool call's result included, where what went past its line is given, and how it tells that a round missed its cache.
+How the engine judges what rounds, tool calls and works take, and how it tells that a round missed its cache.
 
 ### decision a-line-comes-from-the-history-of-its-kind
 Every threshold line that a round, an act or a tool call is judged by is worked out from the history of its kind on the flow; where there are too few of them, nothing is judged.
@@ -20,11 +20,3 @@ Each time the owner lets on a work the engine paused for its spending, it may sp
 ### decision a-miss-is-told-from-the-records
 A round missed its session's cache if, while the cache was alive, its first call read under half of what the session held: expected if what precedes the messages changed, else wf-agents' fault.
 - rejected: an agent proposed counting a miss in the cost figures a project's architect reads; the owner rejected it, because the project being run need not be wf-agents, and a miss is wf-agents' to fix, so it should come to him.
-
-### decision what-went-past-its-line-is-given-in-data-only
-What went past the line of its history (a round's cost or time, a call's time or result size) is given in the System data and by wf-agents system; the page draws none of it.
-- rejected: an agent proposed marking a call's result size past its line on the Step and listing such calls in the System view; the owner rejected it, because the page's marks for the three kinds of line are to be designed together, so that like content looks alike.
-
-### decision a-calls-kind-is-its-tool
-A call of a tool is judged, for its time and for the size of its result, against the earlier calls of the same tool, whatever it was asked for.
-- rejected: an agent proposed judging a call against the earlier calls of its tool whose requests fill the same fields; the owner rejected it, because it is a new rule that also changes how time is judged, thins each kind's history, and still misses a full result as large as the other full ones.

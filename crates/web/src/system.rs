@@ -81,7 +81,7 @@ pub struct System {
     /// The rounds of the span that failed, the latest first.
     pub failed: Vec<FailedRound>,
     /// What ended in the span past the line of its history, the latest first: a round whose cost or time went past
-    /// its line, and a call of a tool whose time or whose result's size did.
+    /// its line, and a call of a tool whose time did.
     #[serde(default)]
     pub past: Vec<Past>,
     /// The rounds and the calls of tools under way now, the oldest first, each with how long it has taken so far
@@ -228,8 +228,7 @@ pub enum Past {
         ended: u64,
         judged: Judged,
     },
-    /// A call of the tool by a run of the cell, which had its result then, its time or the size of its result past its
-    /// line: each as judged.
+    /// A call of the tool by a run of the cell, which had its result then, its time past its line.
     Call {
         work: u64,
         item: u64,
@@ -238,8 +237,7 @@ pub enum Past {
         call: u64,
         tool: String,
         done: u64,
-        time: Option<Against>,
-        size: Option<Against>,
+        time: Against,
     },
 }
 
@@ -396,9 +394,7 @@ impl System {
                     let Call::Tool { name, .. } = &call.what else {
                         continue;
                     };
-                    let against = judged.calls.get(&(number, CallId(call.call)));
-                    let time = against.and_then(|against| against.time.as_ref()).map(Against::of);
-                    let size = against.and_then(|against| against.size.as_ref()).map(Against::of);
+                    let time = (judged.calls.get(&(number, CallId(call.call)))).map(Against::of);
                     match call.done {
                         // A call being withdrawn with its run or its work is not under way.
                         None if driver::judged::withdrawn(kept.work, CallId(call.call)) => {}
@@ -413,8 +409,7 @@ impl System {
                             time,
                         }),
                         Some(done) if within(done) => {
-                            let past = |against: Option<Against>| against.is_some_and(|a| a.past);
-                            if past(time) || past(size) {
+                            if let Some(time) = time.filter(|time| time.past) {
                                 system.past.push(Past::Call {
                                     work,
                                     item,
@@ -424,7 +419,6 @@ impl System {
                                     tool: name.clone(),
                                     done,
                                     time,
-                                    size,
                                 });
                             }
                         }

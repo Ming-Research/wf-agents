@@ -356,7 +356,6 @@ class History {
           done: result === null ? null : this.time + Math.round((ask.after ?? 0.2) * MINUTE),
           chars: result === null ? null : result.length,
           time: null,
-          size: null,
         };
         run.calls.push(row);
         this.callPages.set(row.call, { call: row.call, what, result });
@@ -380,7 +379,7 @@ class History {
   /// The run rests at a call the engine makes for it: the owner letting it go on at its limit.
   atLimit(run: RunStep, limit: CallRow['what'] & { kind: 'atLimit' }) {
     this.calls += 1;
-    const row: CallRow = { call: this.calls, what: limit, made: this.time, done: null, chars: null, time: null, size: null };
+    const row: CallRow = { call: this.calls, what: limit, made: this.time, done: null, chars: null, time: null };
     run.calls.push(row);
     this.callPages.set(row.call, { call: row.call, what: limit, result: null });
     return row.call;

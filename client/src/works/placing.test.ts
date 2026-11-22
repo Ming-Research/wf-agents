@@ -207,7 +207,6 @@ describe('the rows of a history', () => {
       done: 17_000,
       chars: 3,
       time: null,
-      size: null,
     };
     const scope: Question = {
       name: 'scope',
