@@ -125,7 +125,6 @@ fn line_busy(flow: &Compiled, work: &Work, line: &str) -> bool {
     let r = &work.records;
     let on_line: BTreeSet<RunId> = (r.started.iter())
         .filter(|s| line_of_run(flow, work, s.run) == Some(line))
-        .filter(|s| !r.abandoned.iter().any(|a| a.run == s.run))
         .map(|s| s.run)
         .collect();
     let mut open: BTreeMap<RunId, isize> = BTreeMap::new();
