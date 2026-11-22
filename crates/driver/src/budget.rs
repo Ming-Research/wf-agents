@@ -3,7 +3,9 @@
 //! A work whose rounds and keep-warm pings have spent more than it may waits for the owner as its round ends (crate
 //! `carry`). Held to its budget alone, such a work ended the round after each letting-on over the budget too and was
 //! paused again, so a letting-on bought one round and no more; so each letting-on of a work the engine paused for its
-//! budget allows it [`Budget::let_on`] beyond it.
+//! budget allows it [`Budget::let_on`] beyond what it had spent by then. Counted beyond the bar it was paused at
+//! instead, a round that spent more than the allowance left the work over its new bar the moment it was let on, and it
+//! was paused again at the end of its next round.
 //!
 //! The bar a work is held to is worked out from its records, nothing of it being stored (principle
 //! `state-from-records`): the pauses in order, a pause of the engine's where the work had spent more than it then
@@ -24,8 +26,8 @@ pub struct Budget {
 }
 
 impl Budget {
-    /// The most the work may spend now: its budget, and the allowance once more for each time the owner let it on
-    /// after the engine paused it for spending more than it may.
+    /// The most the work may spend now: its budget, until the owner lets it on after the engine paused it for
+    /// spending more than it may; from then, what it had spent by that letting-on and the allowance more.
     pub fn bar(&self, work: &Work) -> u64 {
         let mut bar = self.work;
         // Whether the pause that holds the work now is the engine's for the budget: the letting-on that lifts such a
@@ -36,7 +38,7 @@ impl Budget {
                 true => for_the_budget = pause.by == Pauser::Engine && spent_by(work, pause.at) > bar,
                 false => {
                     if for_the_budget {
-                        bar = bar.saturating_add(self.let_on);
+                        bar = spent_by(work, pause.at).saturating_add(self.let_on);
                     }
                     for_the_budget = false;
                 }
@@ -121,24 +123,44 @@ mod tests {
     }
 
     #[test]
-    fn each_letting_on_after_a_pause_of_the_engines_for_the_budget_allows_the_allowance_more() {
-        // Two rounds of sixty cents, then of twenty, with the engine pausing the work as each took it over what it
+    fn each_letting_on_after_a_pause_of_the_engines_for_the_budget_allows_the_allowance_beyond_what_was_spent() {
+        // Two rounds of sixty cents, then two of thirty, with the engine pausing the work as one took it over what it
         // then might spend and the owner letting it on after.
-        let rounds = [(10, 600_000), (20, 600_000), (30, 200_000), (40, 200_000)];
+        let rounds = [(10, 600_000), (20, 600_000), (30, 300_000), (40, 300_000)];
         let once = [(21, Pauser::Engine, true), (22, Pauser::Owner, false)];
-        assert_eq!(BUDGET.bar(&work(&rounds, &once)), 1_500_000, "$1.20 of its dollar");
-        // Its third round, at twenty cents, leaves it under the $1.50 it may now spend, and its fourth takes it over.
+        assert_eq!(
+            BUDGET.bar(&work(&rounds, &once)),
+            1_700_000,
+            "$1.20 spent, and fifty cents more"
+        );
+        // Its third round, at thirty cents, leaves it under the $1.70 it may now spend, and its fourth takes it over.
         let under = [once[0], once[1], (31, Pauser::Engine, true), (32, Pauser::Owner, false)];
         assert_eq!(
             BUDGET.bar(&work(&rounds, &under)),
-            1_500_000,
-            "$1.40 of its $1.50: no pause for the budget"
+            1_700_000,
+            "$1.50 of its $1.70: no pause for the budget"
         );
         let twice = [once[0], once[1], (41, Pauser::Engine, true), (42, Pauser::Owner, false)];
-        assert_eq!(BUDGET.bar(&work(&rounds, &twice)), 2_000_000, "$1.60 of its $1.50");
+        assert_eq!(
+            BUDGET.bar(&work(&rounds, &twice)),
+            2_300_000,
+            "$1.80 of its $1.70, and fifty cents more"
+        );
         // Its pause holding, the bar is the one the pause was judged by: the letting-on that lifts it raises it.
         let holding = [once[0], once[1], (41, Pauser::Engine, true)];
-        assert_eq!(BUDGET.bar(&work(&rounds, &holding)), 1_500_000);
+        assert_eq!(BUDGET.bar(&work(&rounds, &holding)), 1_700_000);
+    }
+
+    #[test]
+    fn a_letting_on_after_a_round_that_spent_more_than_the_allowance_leaves_the_work_room_to_go_on() {
+        // A round of a dollar and a half takes the work from sixty cents to $2.10, past its dollar by more than the
+        // fifty cents a letting-on allows. Counted from the bar it was paused at, the work would still be over its
+        // new bar as it was let on, and paused again at the end of its next round.
+        let rounds = [(10, 600_000), (20, 1_500_000)];
+        let paused = [(21, Pauser::Engine, true), (22, Pauser::Owner, false)];
+        let bar = BUDGET.bar(&work(&rounds, &paused));
+        assert_eq!(bar, 2_600_000, "$2.10 spent, and fifty cents more");
+        assert!(bar > 2_100_000, "room to go on");
     }
 
     #[test]
@@ -165,13 +187,13 @@ mod tests {
         );
         assert_eq!(BUDGET.bar(&work), 1_000_000, "its pause holding");
         work.records.pauses.push(pause(false, 4, Pauser::Owner));
-        assert_eq!(BUDGET.bar(&work), 1_500_000);
+        assert_eq!(BUDGET.bar(&work), 1_700_000, "$1.20 spent, and fifty cents more");
     }
 
     #[test]
     fn a_keep_warm_ping_counts_in_what_the_work_had_spent_at_a_pause() {
         // One round of ninety cents and a ping of twenty: the engine paused the work as the ping ended, over its
-        // dollar, and the letting-on after allows fifty cents more.
+        // dollar, and the letting-on after allows fifty cents beyond the $1.10 spent.
         let mut work = work(
             &[(10, 900_000)],
             &[(21, Pauser::Engine, true), (22, Pauser::Owner, false)],
@@ -186,6 +208,6 @@ mod tests {
             },
             failed: None,
         });
-        assert_eq!(BUDGET.bar(&work), 1_500_000);
+        assert_eq!(BUDGET.bar(&work), 1_600_000);
     }
 }
