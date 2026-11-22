@@ -374,13 +374,13 @@ pub struct Agents {
     pub subagents: Subagents,
     /// What a work's rounds may spend in all, in dollars, before the work waits for the owner; with none, no limit.
     pub work_budget_usd: Option<f64>,
-    /// What each letting-on of a work the engine paused for its budget allows it beyond that budget, in dollars, so
-    /// that a work let on has room to go on and does not wait for the owner again at its next round.
+    /// What each letting-on of a work the engine paused for its budget allows it beyond what it had spent by then, in
+    /// dollars, so that a work let on has room to go on and does not wait for the owner again at its next round.
     #[serde(default = "let_on_allowance")]
     pub let_on_allowance_usd: f64,
 }
 
-/// What a letting-on allows a work beyond its budget where the settings name no number, in dollars.
+/// What a letting-on allows a work beyond what it had spent where the settings name no number, in dollars.
 fn let_on_allowance() -> f64 {
     20.0
 }
