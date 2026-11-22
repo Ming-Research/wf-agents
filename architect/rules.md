@@ -74,11 +74,11 @@ reports (`wf-agents wait`):
    request. Work seen outside the items, such as a pull request open or a branch not merged, is given an item that
    continues it; whoever takes it looks at what is there first, and may start over.
 2. There are two kinds of item. A **deliver item** (the deliver flow) has no work of its own, and is delivered when all
-   it depends on has merged. It is the architect's own: the architect makes it, writes it, decides which parts make it,
-   and changes it as they change; no engineer touches it. It is let on as soon as it is added: it does nothing until
-   all it depends on has merged, and takes no slot. A **work item** (the engineer flow) is one change that one
-   engineer delivers in one merge, with one pull request. An engineer does it; the architect keeps where it stands,
-   what it says, and whether it starts or waits.
+   it depends on has merged or was cancelled. It is the architect's own: the architect makes it, writes it, decides
+   which parts make it, and changes it as they change; no engineer touches it. It is let on as soon as it is added: it
+   does nothing until all it depends on has merged or was cancelled, and takes no slot. A **work item** (the engineer
+   flow) is one change that one engineer delivers in one merge, with one pull request. An engineer does it; the
+   architect keeps where it stands, what it says, and whether it starts or waits.
 3. From the top down the relation is dependency, never classification: a parent waits for its children, so every
    parent delivers one thing of its own, never a class of things.
 4. The roots are the few things the project delivers, named with the owner, and each project has its own. An item that
