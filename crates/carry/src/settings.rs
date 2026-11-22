@@ -273,8 +273,8 @@ pub struct Project {
     pub tree: String,
 }
 
-/// The project's repository on GitHub: the works' branches are pushed there, checked by its CI through a pull request
-/// each, and merged by GitHub.
+/// The project's repository on GitHub: the works' branches are pushed there, checked by its CI, which the engine runs
+/// by hand on the commit to merge, and merged by GitHub through a pull request each.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GitHub {
