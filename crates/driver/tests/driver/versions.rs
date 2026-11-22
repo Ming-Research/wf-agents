@@ -136,7 +136,7 @@ fn renumbered() -> Compiled {
     )
 }
 
-/// The first version with a note after its last cell, on a line of its own: the form of the line `main` is as it was.
+/// The first version with a note after its last cell, on a line of its own.
 fn followed() -> Compiled {
     staged(
         "[]",
@@ -267,10 +267,19 @@ fn ran_at(h: &H, work: WorkNumber) -> Vec<String> {
     (kept.work.records.started.iter()).map(|s| s.cell.to_string()).collect()
 }
 
-/// Whether a session of the work began for a move to another version.
-fn began_for_a_move(h: &H, work: WorkNumber) -> bool {
-    let kept = h.d().work(work).expect("the work is there");
-    (kept.work.sessions.iter()).any(|s| matches!(s.why, Why::Flow { .. }))
+/// The policy of the lines' sessions under which a new session of a line would begin otherwise than the line's first
+/// session began only on the version [`renumbered`] makes: the carriers say so of that session alone, and only where
+/// they are asked with that version's flow.
+fn changed_on_the_renumbered_version() -> driver::Policy {
+    let renumbered = work::version_of(&renumbered().files).version;
+    driver::Policy {
+        samples: 1,
+        model: Box::new(|_, _| Some("opus".to_string())),
+        changed: Some(Box::new(move |flow, _, _, _, session| {
+            session == 0 && work::version_of(&flow.files).version == renumbered
+        })),
+        warm: None,
+    }
 }
 
 /// Why the engine refuses to start on these flows, over the store of the harness.
@@ -301,7 +310,7 @@ fn a_work_that_merged_stays_ended_on_its_version_when_a_cell_follows_its_last_an
     assert_eq!(version_of(&h, work), version);
 }
 
-// Acceptance 2 and 12: a work going on is put on the version installed, what it recorded read through the renumbering.
+// Acceptance 2: a work going on is put on the version installed, what it recorded read through the renumbering.
 #[test]
 fn a_work_going_on_is_put_on_the_version_installed_its_runs_read_as_the_cells_they_ran_at_there() {
     let mut h = H::with(vec![first()]);
@@ -318,24 +327,34 @@ fn a_work_going_on_is_put_on_the_version_installed_its_runs_read_as_the_cells_th
     // The round under way is given again at the cell it is at now.
     let at = |t: &Todo| matches!(&t.effect, Effect::Round { cell, .. } if cell.as_str() == "T3");
     assert!(todos.iter().any(at), "{todos:?}");
-    // The new T2 writes what the line wrote nothing of before: the line's form changed, and its session begins anew.
-    assert!(began_for_a_move(&h, work));
     h.lift_the_starts_pause();
     h.hands_in(work, &[("reviewed", None)]);
     // The new T2 has no record, and runs.
     assert_eq!(h.round(work).1, "T2");
 }
 
-// Acceptance 12: a move that leaves a line's form as it was keeps its session.
+// Acceptance 12: a work put on the version installed is asked, with that version's flow, whether a new session of each
+// of its lines would begin otherwise than the line's session began, and a line of which the carriers say so begins one
+// before the work's round under way is given again (decision `a-changed-system-prompt-or-form-begins-a-new-session`).
+// The tests of sessions show that check on a work that did not move; this one fails where a moved work is asked with
+// another flow, of another session, or not at all. Runs in memory in milliseconds.
 #[test]
-fn a_move_that_leaves_a_line_s_form_as_it_was_keeps_its_session() {
-    let mut h = H::with(vec![first()]);
+fn a_work_put_on_the_version_installed_begins_anew_a_line_whose_session_began_otherwise_before_its_round_goes_on() {
+    let mut h = H::with_policy(vec![first()], SLOTS, Some(changed_on_the_renumbered_version));
     let (_, work) = h.add_let_on(new_item("a", &[], "staged"));
     h.hands_in(work, &[("text", None)]);
-    h.install(vec![followed()]);
+    assert_eq!(h.round(work).1, "T2");
     let kept = h.d().work(work).expect("the work is there");
-    assert!(kept.on.installed());
-    assert!(!began_for_a_move(&h, work));
+    assert!(kept.work.sessions.is_empty(), "{:?}", kept.work.sessions);
+    let todos = h.install(vec![renumbered()]);
+    let kept = h.d().work(work).expect("the work is there");
+    let moved = kept.work.flows.last().expect("the work was moved").at;
+    let begun: Vec<(&str, bool)> = (kept.work.sessions.iter())
+        .map(|s| (s.line.as_str(), matches!(s.why, Why::Changed { .. }) && s.at > moved))
+        .collect();
+    assert_eq!(begun, [("main", true)]);
+    let at = |t: &Todo| matches!(&t.effect, Effect::Round { cell, .. } if cell.as_str() == "T3");
+    assert!(todos.iter().any(at), "{todos:?}");
 }
 
 // Acceptance 17: the engine does not start on a table that would misread a version a work is on.

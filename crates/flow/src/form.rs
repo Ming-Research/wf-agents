@@ -56,30 +56,6 @@ pub fn form(flow: &Compiled, agents: &Agents, line: &str) -> Result<String, Stri
     Ok(json(&top(tools, outcome), 0))
 }
 
-/// What the flow itself decides of the form of a return of the line's cells, as JSON: the blocks the line's cells write,
-/// each under its name in its shape ([`blocks`]), and the names of the tools the flow names ([`tools`]). What is beside
-/// the flows gives every form alike, the engine's fields and each tool's shape, and is no part of it, so that a change
-/// of that is no change of what a version of the flow decides (decision
-/// `a-move-that-changes-a-lines-form-begins-its-session-anew`).
-pub fn decided(flow: &Compiled, line: &str) -> String {
-    let mut blocks = toml::Table::new();
-    for block in self::blocks(flow, line) {
-        if let Some(declared) = flow.blocks.get(block) {
-            blocks.insert(block.as_str().to_string(), shape(declared));
-        }
-    }
-    let tools = (tools(flow).into_iter())
-        .map(|tool| toml::Value::String(tool.to_string()))
-        .collect();
-    json(
-        &table([
-            ("blocks", toml::Value::Table(blocks)),
-            ("tools", toml::Value::Array(tools)),
-        ]),
-        0,
-    )
-}
-
 /// The form of a return of the line's cells, in its three parts, each as JSON as [`form`] writes it: together they are
 /// the form, and nothing is in two of them.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -3,19 +3,12 @@
 //! version, through the renumberings after the one it was recorded on (decisions
 //! `a-version-is-kept-as-its-files-and-its-outline` and `a-datum-made-for-a-cell-follows-its-cell`).
 
-// The compile's tests use all of the support; these use what builds a definition and compiles it.
-#[allow(dead_code)]
-#[path = "support/mod.rs"]
-mod support;
-
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use decide::{BlockId, CellId};
 use flow::outline::{Outline, OutlinedCell, taken_out};
-use flow::{Compiled, Has, Renumbering, form, reading};
-
-use support::{compiled, laid_out, set};
+use flow::{Compiled, Has, Renumbering, reading};
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has for it.
 fn engineer() -> Compiled {
@@ -72,8 +65,7 @@ fn pairs<T: From<&'static str> + Ord>(pairs: &[(&'static str, &'static str)]) ->
 #[test]
 fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_it_needs() {
     let flow = engineer();
-    // The digest of a line's form stands as the text itself, so that what it is made of is seen.
-    let outline = Outline::of(&flow, str::to_string);
+    let outline = Outline::of(&flow);
     let ids: Vec<&str> = outline.cells.iter().map(|c| c.id.as_str()).collect();
     assert_eq!(
         ids,
@@ -107,7 +99,7 @@ fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_i
         cell("T1").words.is_none(),
         "a review asks nothing and is spoken to in nothing"
     );
-    // Each line with what the flow decides of its form; the groups, the card, the table and the data made for a cell.
+    // Each line by its name; the groups, the card, the table and the data made for a cell.
     let lines: Vec<&str> = outline.lines.iter().map(|l| l.name.as_str()).collect();
     assert_eq!(
         lines,
@@ -119,8 +111,6 @@ fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_i
             "tester"
         ]
     );
-    let engineer_line = outline.line("engineer").expect("the engineer's line");
-    assert_eq!(engineer_line.form, form::decided(&flow, "engineer"));
     let groups: Vec<&str> = outline.groups.iter().map(|g| g.name.as_str()).collect();
     assert_eq!(groups, ["change", "plan"]);
     assert_eq!(outline.card, [BlockId::from("background"), BlockId::from("plan_owner")]);
@@ -130,20 +120,6 @@ fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_i
     // Kept as JSON, it reads back as it was.
     let kept = serde_json::to_string(&outline).expect("the outline is written");
     assert_eq!(serde_json::from_str::<Outline>(&kept).expect("and read"), outline);
-}
-
-#[test]
-fn what_a_version_decides_of_a_line_s_form_changes_with_a_block_s_shape_and_with_nothing_beside_the_flow() {
-    let before = compiled(&laid_out());
-    let shaped = compiled(&set(laid_out(), "blocks/plan.toml", "shape = { type = \"array\" }"));
-    assert_ne!(form::decided(&before, "engineer"), form::decided(&shaped, "engineer"));
-    // The review's line writes none of the plan, and what is decided of its form stays.
-    assert_eq!(form::decided(&before, "review"), form::decided(&shaped, "review"));
-    // It names the blocks and the tools alone: nothing of the engine's fields, which `agents/return/` gives every form.
-    let decided: serde_json::Value = serde_json::from_str(&form::decided(&before, "engineer")).expect("JSON");
-    let keys: Vec<&String> = decided.as_object().expect("an object").keys().collect();
-    assert_eq!(keys, ["blocks", "tools"]);
-    assert!(decided["blocks"].get("plan").is_some());
 }
 
 #[test]

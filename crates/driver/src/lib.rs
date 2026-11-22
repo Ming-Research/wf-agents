@@ -713,7 +713,7 @@ impl Driver {
                             }
                         }
                         None => {
-                            versions::put_on(&mut work, now, Some((version.as_str(), &*outline)), &installed);
+                            versions::put_on(&mut work, now, Some(&*outline), &installed);
                             installed.on()
                         }
                     }
@@ -931,11 +931,10 @@ impl Driver {
                 && let Some(installed) = self.flows.get(&held.head.flow)
             {
                 let from = match &held.on {
-                    On::Earlier { version, outline, .. } => Some((version.clone(), outline.clone())),
+                    On::Earlier { outline, .. } => Some(outline.clone()),
                     On::Installed { .. } | On::NotKept { .. } => None,
                 };
-                let from = from.as_ref().map(|(version, outline)| (version.as_str(), &**outline));
-                versions::put_on(&mut held.work, now, from, installed);
+                versions::put_on(&mut held.work, now, from.as_deref(), installed);
                 held.on = installed.on();
             }
             let (number, item, policy) = (work, &held.item, self.policy.as_ref());

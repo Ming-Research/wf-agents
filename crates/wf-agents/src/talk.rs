@@ -1016,9 +1016,6 @@ fn session_why(why: &SessionWhy) -> String {
         SessionWhy::TooLong => "a new one, its last round's prompt having been too long for the model".to_string(),
         SessionWhy::Lost => "begun again, the agents' program having lost it".to_string(),
         SessionWhy::Compacted => "compacted: it holds only a summary of what it read".to_string(),
-        SessionWhy::Flow => {
-            "a new one, the work having been put on a version of its flow that decides its form otherwise".to_string()
-        }
     }
 }
 

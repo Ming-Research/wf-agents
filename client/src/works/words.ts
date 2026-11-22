@@ -167,8 +167,6 @@ export function sessionWords(why: SessionWhy): string {
       return "begun again, the agents' program having lost it";
     case 'compacted':
       return 'it holds only a summary of what it read';
-    case 'flow':
-      return 'a new one, the work having been put on a version of its flow that decides its form otherwise';
   }
 }
 

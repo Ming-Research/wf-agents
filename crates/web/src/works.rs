@@ -995,8 +995,6 @@ pub enum SessionWhy {
     Lost,
     /// The agents' program compacted the line's session during a round.
     Compacted,
-    /// The work was put on another version of its flow, which decides the line's form otherwise.
-    Flow,
 }
 
 impl SessionWhy {
@@ -1015,7 +1013,6 @@ impl SessionWhy {
             Why::TooLong => SessionWhy::TooLong,
             Why::Lost => SessionWhy::Lost,
             Why::Compacted => SessionWhy::Compacted,
-            Why::Flow { .. } => SessionWhy::Flow,
         }
     }
 }

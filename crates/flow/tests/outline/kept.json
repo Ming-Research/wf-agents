@@ -45,7 +45,7 @@
       "words": null
     }
   ],
-  "lines": [{ "name": "engineer", "form": "8a2b5e0c1f7d4e9a3b6c0d2e5f8a1b4c7d0e3f6a" }],
+  "lines": [{ "name": "engineer" }],
   "groups": [{ "name": "plan", "blocks": ["plan_owner", "plan_agent"] }],
   "card": ["background", "plan_owner"],
   "earlier_ids": [{ "ids": { "T2": "T4" } }, { "taken_out": ["T3"] }],

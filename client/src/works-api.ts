@@ -648,8 +648,7 @@ export type Step =
 /// model or under another account than its session's ran on; the system prompt or the form of return a new session
 /// would begin with is not what its session began with, the tokens of context of the session left with it where one was
 /// told; the owner asked; the service's safety check flagged the line's last round; the run guard stopped it; the
-/// agents' program had lost the one before; the agents' program compacted it during a round; the work was put on a
-/// version of its flow that decides the line's form otherwise.
+/// agents' program had lost the one before; the agents' program compacted it during a round.
 export type SessionWhy =
   | { kind: 'limit'; context: number; limit: number }
   | { kind: 'model'; was: string }
@@ -660,8 +659,7 @@ export type SessionWhy =
   | { kind: 'guarded' }
   | { kind: 'tooLong' }
   | { kind: 'lost' }
-  | { kind: 'compacted' }
-  | { kind: 'flow' };
+  | { kind: 'compacted' };
 
 /// The version of its flow a work runs on, as the outline kept of it has it; of a work on no version kept (`kept`
 /// false), its cells are the ids its runs name, with no title or line, and it has no lines, groups or words.

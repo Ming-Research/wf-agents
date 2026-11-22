@@ -4,18 +4,16 @@
 //! outline of every version kept: what reading a work on one needs, for no version but the installed one is compiled.
 //! A work's records are read through each of its moves in turn (decision `a-move-is-read-through-the-renumberings`).
 //! A work that ended stays on the version it ended on, and is held by its end alone where that version is not the one
-//! installed; every other work is put on the installed version, with each of its lines whose form the move changes
-//! beginning a new session (decision `a-move-that-changes-a-lines-form-begins-its-session-anew`). The driver does not
-//! start while the installed table of earlier ids would misread a version a work is on (decision
-//! `a-table-that-misreads-a-kept-version-is-refused`).
+//! installed; every other work is put on the installed version. The driver does not start while the installed table
+//! of earlier ids would misread a version a work is on (decision `a-table-that-misreads-a-kept-version-is-refused`).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use decide::{CellId, End, Reading, Records};
 use flow::{Compiled, Outline};
 use store::{KeptFlow, Storage, WorkNumber};
-use work::{Session, Time, Why, Work};
+use work::{Time, Work};
 
 /// The version installed of a flow, as the driver opened with it: the flow compiled, the version its files make, and
 /// its outline.
@@ -59,7 +57,7 @@ impl On {
     pub fn installed_flow(flow: &Compiled) -> On {
         On::Installed {
             version: work::version_of(&flow.files).version,
-            outline: Arc::new(Outline::of(flow, work::digest)),
+            outline: Arc::new(Outline::of(flow)),
         }
     }
 
@@ -117,7 +115,7 @@ pub enum Misread {
 /// as installed.
 pub(crate) fn keep(store: &mut dyn Storage, flow: Compiled) -> Result<Installed, store::Fault> {
     let version = work::version_of(&flow.files);
-    let outline = Outline::of(&flow, work::digest);
+    let outline = Outline::of(&flow);
     let files = (flow.files.iter())
         .map(|(path, text)| {
             let digest = version.files.get(path).cloned().unwrap_or_else(|| work::digest(text));
@@ -222,33 +220,14 @@ pub(crate) fn ended_unkept(records: &Records) -> End {
     }
 }
 
-/// Puts the work on the installed version at this time from the version it is on, `from`, with its outline, none
-/// where it was on none kept: what it recorded before reads through the renumberings between the two, and each of its
-/// lines that has run begins a new session where the two versions decide its form otherwise, or where the version it
-/// was on is not kept, which says nothing of the form.
-pub(crate) fn put_on(work: &mut Work, now: Time, from: Option<(&str, &Outline)>, to: &Installed) {
-    let reading = from.map_or_else(Reading::default, |(_, outline)| {
+/// Puts the work on the installed version at this time from the version it is on, by that version's outline, none
+/// where it was on none kept: what it recorded before reads through the renumberings between the two. The move is all
+/// that is recorded: a line whose session began with another system prompt or form than a new one would begin with on
+/// the installed version begins a new session as the driver next follows the work's sessions, as for any other change
+/// of them (decision `a-changed-system-prompt-or-form-begins-a-new-session`).
+pub(crate) fn put_on(work: &mut Work, now: Time, from: Option<&Outline>, to: &Installed) {
+    let reading = from.map_or_else(Reading::default, |outline| {
         flow::reading(&to.outline, outline.earlier_ids.len())
     });
     work.onto(now, Some(to.version.clone()), reading);
-    let line_of = |cell: &CellId| to.outline.cell(cell).and_then(|c| c.line.clone());
-    let r = &work.records;
-    let ran: BTreeSet<String> = (r.rounds.iter())
-        .filter_map(|round| r.started.iter().find(|s| s.run == round.run))
-        .filter_map(|started| line_of(&started.cell))
-        .collect();
-    for line in &to.outline.lines {
-        let other = from.is_none_or(|(_, outline)| outline.line(&line.name).is_none_or(|was| was.form != line.form));
-        if other && ran.contains(&line.name) {
-            let at = work.tick();
-            work.sessions.push(Session {
-                at,
-                line: line.name.clone(),
-                why: Why::Flow {
-                    from: from.map(|(version, _)| version.to_string()),
-                    to: to.version.clone(),
-                },
-            });
-        }
-    }
 }

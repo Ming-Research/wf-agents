@@ -12,7 +12,6 @@ use decide::{BlockId, CellId, Reading};
 use serde::{Deserialize, Serialize};
 
 use crate::compile::Compiled;
-use crate::form;
 use crate::source::{InputKind, Kind, Listed};
 
 /// A renumbering of the table of earlier ids: the cells whose id changed then, by the id each had, with the id it took,
@@ -108,12 +107,10 @@ pub struct OutlinedWords {
     pub writes: Vec<(String, String)>,
 }
 
-/// A line of a version: its name, and the digest of what the version decides of the form of its returns
-/// ([`form::decided`]).
+/// A line of a version, by its name: an object, so that a later version can give it parts of its own.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutlinedLine {
     pub name: String,
-    pub form: String,
 }
 
 /// A group of a version's blocks.
@@ -124,8 +121,8 @@ pub struct OutlinedGroup {
 }
 
 impl Outline {
-    /// The outline of a compiled flow, each line's form told by this digest of what the flow decides of it.
-    pub fn of(flow: &Compiled, digest: impl Fn(&str) -> String) -> Outline {
+    /// The outline of a compiled flow.
+    pub fn of(flow: &Compiled) -> Outline {
         let words = |id: &CellId| {
             let place = flow.flow.place(id)?;
             let outputs = &flow.flow.cells()[place].outputs;
@@ -170,10 +167,7 @@ impl Outline {
             name: flow.name.clone(),
             cells,
             lines: (flow.lines.keys())
-                .map(|name| OutlinedLine {
-                    name: name.clone(),
-                    form: digest(&form::decided(flow, name)),
-                })
+                .map(|name| OutlinedLine { name: name.clone() })
                 .collect(),
             groups: (flow.groups.iter())
                 .map(|(name, blocks)| OutlinedGroup {
@@ -205,11 +199,6 @@ impl Outline {
     /// The cell of this id.
     pub fn cell(&self, id: &CellId) -> Option<&OutlinedCell> {
         self.cells.iter().find(|cell| &cell.id == id)
-    }
-
-    /// The line of this name.
-    pub fn line(&self, name: &str) -> Option<&OutlinedLine> {
-        self.lines.iter().find(|line| line.name == name)
     }
 
     /// The datum each file of `../data/of_a_cell/` this version names makes for the cell of this id.

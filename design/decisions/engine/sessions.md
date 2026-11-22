@@ -51,17 +51,13 @@ A session's system prompt is made as it starts, from the project's files as they
 The form of return a session is given is made when the session starts, from the flow installed at that time, and kept with the session beside its system prompt, in the same way.
 - replaced: Making the form anew for every round from the installed flow was on main; the owner changed it, because the form is part of the system prompt sent by another route, and the two must be kept alike.
 
-### decision a-move-that-changes-a-lines-form-begins-its-session-anew
-A work put on another version begins anew each line whose session began on a version deciding the line's form otherwise, in the blocks its cells write, their shapes or the flow's tools.
-- replaced: A session going on with the form it began with when its work came to run on another flow was on main; the owner changed it, because a cell then could not hand in a block the new version has it write (decision the-form-is-kept-as-the-system-prompt-is).
-- rejected: an agent proposed beginning every line's session anew at every move; the owner rejected it, because that pays again for sessions whose form is unchanged (principle keep-what-was-paid-for).
-- rejected: an agent proposed counting what `agents/` gives every form as part of a version's; the owner rejected it, because it is no part of a version, and each change of it would begin every line anew at the next move.
-
 ### decision a-changed-system-prompt-or-form-begins-a-new-session
 A line begins a new session at its next round, as for a change of model, when the system prompt or form a new session would begin with now differs from its session's, or cannot be made.
 - replaced: Leaving a line on the system prompt and form its session began with, until something else began a new session, was on main; the owner changed it, because a work under way then ran every later round on replaced rules and form, and an old form cannot hand in a field made required since.
 - rejected: an agent proposed sending the change to the open session as a message, or renewing only its form; the owner rejected it, because a resumed session keeps its first system prompt, old rules beside new, and a new form loses the whole cache (data: `research/system-prompt-on-resume.md`).
 - rejected: an agent proposed an action of the owner's to begin the sessions of a work anew; the owner rejected it, because that action was taken out before, and it would have the owner click each work after each install.
+- rejected: an agent proposed beginning anew, at a move to another version, each line whose two versions' outlines digest its form otherwise; the owner rejected it, because this check covers a move by what each session began with, and a second mechanism for it would drift from this one.
+- rejected: an agent proposed beginning every line's session anew at every move; the owner rejected it, because that pays again for sessions whose form is unchanged (principle keep-what-was-paid-for).
 
 ### decision a-fork-keeps-the-sessions-tools
 A fork of a round's session runs through the engine on the session's whole command line, including its system prompt, form of return and tools, with a hook refusing every tool but the return.
