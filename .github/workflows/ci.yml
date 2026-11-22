@@ -268,7 +268,6 @@ jobs:
         env:
           PARTITION: ${{ matrix.partition }}
         run: |
-          rm -f target/nextest/ci/junit.xml
           cargo nextest run --workspace --locked --cargo-profile ci --profile ci --no-fail-fast \
             --partition "count:$PARTITION/3"
       # What became of each test of the job, in a file named by the job, so that the engine tells what each job
