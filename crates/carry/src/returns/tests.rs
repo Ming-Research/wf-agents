@@ -271,6 +271,7 @@ fn what_a_return_says_beside_its_work_is_kept() {
                 Question::Asked {
                     name: "which_name".to_string(),
                     waits: true,
+                    tree: None,
                     recommends: Some(1),
                     ask: "Which name?".to_string(),
                     options: vec![Way {
@@ -309,6 +310,43 @@ fn a_question_is_kept_as_the_agent_wrote_it_and_asks_for_no_call_whether_or_not_
     assert_eq!((ask.as_str(), *recommends), ("Which name? {options}", Some(2)));
     assert_eq!(came.said.questions.len(), 2);
     assert!(came.found.is_empty(), "{:?}", came.found);
+}
+
+// A question says in `tree` whether the option taken goes into the design tree, and is kept with it. One written with
+// no `tree`, or with it null, as by a session whose form was made before questions said it, is kept as not marked; one
+// with a `tree` that is no yes or no is not of the form.
+#[test]
+fn a_question_is_kept_with_its_tree_mark_and_one_written_with_none_as_not_marked() {
+    let option = json!([{"does": "blue", "follows": "calm"}]);
+    let mut r = work();
+    r["outcome"]["outputs"]["write_questions"] = json!([
+        {"name": "yes", "waits": false, "tree": true, "recommends": 1, "ask": "Which?", "options": option},
+        {"name": "no", "waits": false, "tree": false, "recommends": 1, "ask": "Which?", "options": option},
+        {"name": "before", "waits": false, "recommends": 1, "ask": "Which?", "options": option},
+        {"name": "null", "waits": false, "tree": null, "recommends": 1, "ask": "Which?", "options": option},
+    ]);
+    let came = read(&r).expect("it is read");
+    let marks: Vec<(&str, Option<bool>)> = (came.said.questions.iter())
+        .map(|q| match q {
+            Question::Asked { name, tree, .. } => (name.as_str(), *tree),
+            Question::Withdrawn { name, .. } => panic!("{name} is not withdrawn"),
+        })
+        .collect();
+    assert_eq!(
+        marks,
+        [
+            ("yes", Some(true)),
+            ("no", Some(false)),
+            ("before", None),
+            ("null", None)
+        ]
+    );
+    assert!(came.found.is_empty(), "{:?}", came.found);
+    let mut r = work();
+    r["outcome"]["outputs"]["write_questions"] = json!([
+        {"name": "q", "waits": false, "tree": "yes", "recommends": 1, "ask": "Which?", "options": option},
+    ]);
+    assert!(read(&r).is_err(), "a `tree` that is no yes or no is taken");
 }
 
 #[test]

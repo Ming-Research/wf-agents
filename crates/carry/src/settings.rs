@@ -583,8 +583,9 @@ const FAST_MOVED: &str = "github.fast: the fast workflow is the project's, not t
      github.runners the runners this installation has";
 
 /// What the settings are told where they name `github.log`, which the engine no longer reads.
-const LOG_GONE: &str = "github.log: the engine reads no log: a test's result and what it said come from the JUnit its \
-     workflow uploads; delete the table";
+const LOG_GONE: &str = "github.log: the engine reads no log by a project's patterns: a test's result and what it said \
+     come from the JUnit its workflow uploads, and a job that failed with no test of its own to say why is given the end \
+     of its failed step, read in the same way for every project; delete the table";
 
 /// What the settings are told where they name `github.checks`, which the project's full workflows are now.
 const CHECKS_MOVED: &str = "github.checks: the checks that count are the jobs of the project's full workflows, declared in \

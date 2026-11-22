@@ -399,6 +399,7 @@ fn history(d: &mut Driver) {
     came.said.questions = vec![engine::Question::Asked {
         name: "which".to_string(),
         waits: false,
+        tree: None,
         recommends: Some(1),
         ask: "Which way?".to_string(),
         options: vec![

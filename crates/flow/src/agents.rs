@@ -789,6 +789,10 @@ pub struct SentBackFaults {
     pub unexplained: String,
     /// `{path}` a file that the run of a line that changes only the project's tests changed, and that is none of them.
     pub not_a_test: String,
+    /// `{name}` a question of the work marked `tree`, with the owner's answer to its latest version, where the return
+    /// writes a block handed in only with the answer in the design tree (`answers_in_the_tree`) and the work's change
+    /// against main changes nothing in the tree.
+    pub tree_unchanged: String,
     /// `{block}` what an act of the engine's wrote, dealt with by a return that leaves nothing new that runs the act.
     pub unanswered: String,
     /// `{name}` a dialogue the cell answers as the maker, named as dealt with and answered in nothing, and `{watched}`
@@ -891,6 +895,10 @@ pub struct ResultWords {
     pub job_untimed: String,
     /// A check named that the run has no job of.
     pub job_missing: String,
+    /// What is said beneath a job that failed with no failed test of its own to say why: `{said}` the end of what the
+    /// step that failed it printed, as its log holds it; or, where its log could not be read, `{why}`.
+    pub step_end: String,
+    pub log_unread: String,
     /// The run uploaded no JUnit it can read, so no test's result is known: `{why}`.
     pub no_junit: String,
     /// What the check before a merge was judged by: `{urls}` the runs.

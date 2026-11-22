@@ -1,6 +1,6 @@
 //! GitHub for the tests of the GitHub host: a bare repository on disk that the host pushes to and fetches from, and
-//! in memory the pull requests, the jobs and results each commit's runs by hand are given, the merges and the
-//! closings. It keeps what it was asked.
+//! in memory the pull requests, the jobs and results each commit's runs by hand are given, the logs of the jobs, the
+//! merges and the closings. It keeps what it was asked.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -41,6 +41,8 @@ struct Kept {
     queued: bool,
     /// Whether the runs by hand start and go on until they are finished or cancelled, as a run that takes minutes.
     going: bool,
+    /// The log of each job given one, by the job's id; GitHub has no log of any other.
+    logs: BTreeMap<u64, String>,
     asked: Vec<Asked>,
 }
 
@@ -101,6 +103,7 @@ pub(crate) enum Asked {
     },
     Reopen(u64),
     Cancel(u64),
+    Log(u64),
 }
 
 impl Fake {
@@ -134,6 +137,21 @@ impl Fake {
         let artifact = artifact.map(|(name, files)| (name.to_string(), files));
         let key = (workflow.to_string(), commit.to_string());
         self.kept().of_workflow.insert(key, (jobs, artifact));
+    }
+
+    /// Gives the job of this id this log, as GitHub keeps it.
+    pub(crate) fn logged(&self, job: u64, log: &str) {
+        self.kept().logs.insert(job, log.to_string());
+    }
+
+    /// The jobs whose logs were asked for, in order.
+    pub(crate) fn logs_asked(&self) -> Vec<u64> {
+        (self.kept().asked.iter())
+            .filter_map(|asked| match asked {
+                Asked::Log(job) => Some(*job),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Refuses every run by hand, with these words.
@@ -436,6 +454,7 @@ impl Api for Fake {
         if asked.another || asked.run.cancelled {
             let how = if asked.another { ANOTHER_CALLS } else { "cancelled" };
             return Ok(vec![Check {
+                id: 0,
                 name: "test".to_string(),
                 outcome: super::api::Outcome::Broken(how.to_string()),
                 url: None,
@@ -450,6 +469,12 @@ impl Api for Fake {
         let asked = (kept.runs.iter()).find(|d| d.run.id == run && !d.another && !d.run.cancelled);
         let artifact = asked.and_then(|d| kept.given(d).and_then(|(_, a)| a.clone()));
         Ok(artifact.filter(|(n, _)| n == name).map(|(_, files)| files))
+    }
+
+    async fn log(&self, job: u64) -> Result<String, Failed> {
+        let mut kept = self.kept();
+        kept.asked.push(Asked::Log(job));
+        (kept.logs.get(&job).cloned()).ok_or_else(|| answered("HTTP 404: Not Found"))
     }
 
     async fn edit(&self, number: u64, title: &str, body: &str) -> Result<(), Failed> {

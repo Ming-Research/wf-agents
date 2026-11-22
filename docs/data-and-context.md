@@ -40,10 +40,9 @@ the owner's pauses, when a work is at its end.
    is consumed yet, and everything it watches is new.
 
 6. The engine chooses by this. Going through the flow from its start, it takes the first cell that watches a datum new
-   to it and that the flow lets run, and runs it for one round; but a cell run only by what cells after it wrote waits
-   while one after it, short of the next cell with preconditions, has something else to run for or waits for the
-   results of its calls. So the cells a change reaches run in one pass, and what they send back is answered after it,
-   all at once. Entering a cell means this: each round is one entering.
+   to it and that the flow lets run, whether a cell before it or after it wrote that datum, and runs it for one round.
+   So a judge's point reaches the maker before the next judge looks, and that judge sees what the maker made of it.
+   Entering a cell means this: each round is one entering.
 
 7. Nothing else runs a cell (principle a-cell-knows-only-its-data). The engine knows nothing of sessions either: a
    session that is reopened reaches it only as a new version of data (25), and it chooses as always.
@@ -169,11 +168,14 @@ new session lacks it.
 ## Questions to the owner
 
 30. A cell that may ask the owner a question has a datum of its own for its questions, which it writes and watches. A
-    question asks for a choice and says whether the work waits for the answer (principle a-question-is-a-choice). The
-    owner's answer is the option taken and nothing else, written as the next version of that datum. A version that
-    asks, whoever wrote it, is new to no cell: an answer is new to the cells that watch the questions it answers, the
-    cell whose questions they are and the one that took charge from it (28), and the one that acts follows the option
-    taken. A session reopened is filled with the answer as with any datum.
+    question asks for a choice and says whether the work waits for the answer (principle a-question-is-a-choice). It
+    also says, in `tree`, whether the answer settles a choice the design tree's rules give the owner, so that the option
+    taken goes into the tree; a return that hands in the change (in the engineer flow, the implementation's `code`) is
+    sent back while a question so marked has the owner's answer and the work's change against main changes nothing in
+    the tree. The owner's answer is the option taken and nothing else, written as the next version of that datum. A
+    version that asks, whoever wrote it, is new to no cell: an answer is new to the cells that watch the questions it
+    answers, the cell whose questions they are and the one that took charge from it (28), and the one that acts follows
+    the option taken. A session reopened is filled with the answer as with any datum.
 
 31. An answer that changes nothing the cell goes by is kept, and is new to no cell (9): one that takes the option the
     cell recommends, to a question the work does not wait for; and one to a question as it was asked before it was

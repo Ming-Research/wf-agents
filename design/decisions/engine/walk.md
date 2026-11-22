@@ -3,21 +3,17 @@
 What decides, from a work's records and the flow, which cell runs next, and what holds a work where it stands.
 
 ### decision the-walk-goes-from-the-first-cell
-Each time something happens to a work, the walk goes through the flow's cells from the first one, passing each cell that nothing new runs, and does not store where the work stands.
+Each time something happens to a work, the walk goes through the cells from the first, enters the first that something new runs, whoever wrote it, and does not store where the work stands.
 - replaced: Rows back drawn as routes of the state chart, with the rules for sending a work back kept outside the chart, was on main; the owner changed it, because then a refused approval is only something made stale and a new walk from the start.
 - rejected: an agent proposed a work as its products alone, with no cells and no position, its next step worked out from what is missing or stale; the owner rejected it, because he shapes the flow with cells, as by adding a review after the design, and products would carry the state machine anyway.
 - rejected: an agent proposed that a cell that runs again makes every cell after it stale; the owner rejected it, because only a changed input a cell depends on makes it stale, and an output that did not change runs nothing after it.
+- replaced: A cell run only by later cells' writes waiting while a later cell before the next gate was due was on main; the owner changed it, because P1 and P2 reviewed a plan R2 had a better way for, and a second look costs a fraction of a first (data: `research/a-review-looks-again-for-less.md`).
+- rejected: the owner proposed running as a batch every cell that had something new when the batch began, then the next batch from what they wrote; the owner rejected it, because the records alone give the same with no batch recorded, and what a cell of the pass makes new runs in that pass.
+- rejected: an agent proposed that the maker answers only once every review of what it made has seen its latest version; the owner rejected it, because the rules have only reads, writes and the runs that reads bring, and a condition made for reviews would be a new mechanism.
 
 ### decision conditions-and-preconditions
 The walk passes a cell whose condition does not hold, and what it wrote still counts until a newer version; a precondition holds the work at its cell, is worked out at each walk and is never stored.
 - rejected: an agent proposed that what a cell wrote no longer counts while the walk passes it; the owner rejected it, because a cell that is not run leaves what it wrote valid, and only a veto, such as his refused approval, voids something.
-
-### decision a-way-back-waits-for-the-pass
-A cell that would run only because of what later cells wrote waits while a later cell, before the next cell with preconditions, is due to run for another reason, has a run at rest or waits for calls.
-- replaced: Entering, at each walk, the first cell from the start that had something new was on main; the owner changed it, because then each judge's point went back to the plan's writer before the next judge saw the plan, and three cells ran four times each in one work.
-- rejected: the owner proposed running as a batch every cell that had something new when the batch began, then the next batch from what they wrote; the owner rejected it, because the records alone give the same with no batch recorded, and what a cell of the pass makes new runs in that pass.
-- rejected: an agent proposed that the maker answers only once every review of what it made has seen its latest version; the owner rejected it, because the rules have only reads, writes and the runs that reads bring, and a condition made for reviews would be a new mechanism.
-- rejected: an agent proposed that a cell later in the pass is given the versions as they were when the pass began; the owner rejected it, because two cells that change the code must not build on different code.
 
 ### decision meaning-told-by-the-writer
 A choice or a list of names changes its meaning when its value changes; prose changes it only when its writer says the change matters, and a version said not to matter is kept and runs no cell.
