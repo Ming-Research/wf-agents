@@ -2205,6 +2205,7 @@ mod tests {
             }),
             until: Until::Checked { at: 3 * hour },
             holds: true,
+            may_move: false,
         });
         let said = list(&waiting, &Listing::default());
         let first = said.lines().next().unwrap_or_default();
@@ -2239,6 +2240,7 @@ mod tests {
             checked: None,
             until: Until::Checked { at: 3 * hour },
             holds: true,
+            may_move: false,
         };
         let line = Line::Agents {
             since: hour,

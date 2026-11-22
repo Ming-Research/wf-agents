@@ -24,3 +24,8 @@ Beside them the Settings view lists the accounts: the one in use marked, each ot
 An account's Usage, its table's second column, shows on one line each window the service names, how much of it is used, and how long until it resets and when, counting down while the view is open.
 - replaced: The columns Account, Added, Token lasts until and Usage, with a reset given as a date, was on main; the owner changed it, because the day added and the token's end were of no use, and he wanted to see how long until each reset.
 - replaced: A usage limit shown only for an account under which a round had hit it was on main; the owner changed it, because when switching he most wants to know which account has the most left.
+
+### decision the-switch-and-the-engines-moves-stand-with-the-accounts
+The Settings view puts the switch Move on at the limit above the accounts and, once the engine has moved, lists its latest five moves below, each with the account it left and when that limit resets.
+- rejected: an agent proposed only the switch, each move shown on the in-use mark as it is pointed at; the owner rejected it, because only the latest move would be kept, and an earlier one, or the account it left, could not be found.
+- rejected: an agent proposed the record of moves in the System view's section on what is going on now; the owner rejected it, because the switch and its record would stand on two pages, and a thing is shown in one place.

@@ -521,6 +521,46 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
     assert_eq!(store.accounts(), Ok(Vec::new()));
 }
 
+// An account taken before the engine could take one was the owner's, and no reset of a limit it left was said; the
+// engine may not move to another account until it is switched on.
+#[test]
+fn a_file_of_version_22_is_migrated_keeping_its_accounts_as_the_owners_with_no_reset_and_moving_on_off() {
+    let db = Db::new();
+    {
+        let file = Connection::open(&db.path).expect("the database opens");
+        file.execute_batch(SCHEMA_1).expect("the first schema is made");
+        file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+            .expect("its version is written");
+        store::migrate(&file, 1, 22).expect("the migrations run");
+        assert_eq!(versions(&db.path), [22]);
+        for (name, what, time) in [("work", "Added", 1), ("home", "Added", 2), ("home", "Taken", 3)] {
+            file.execute(
+                "INSERT INTO accounts (name, what, time) VALUES (?1, ?2, ?3)",
+                rusqlite::params![name, what, time],
+            )
+            .expect("an account is kept");
+        }
+    }
+    let new = Db::new();
+    new.open();
+    let store = db.open();
+    assert_eq!(versions(&db.path), [SCHEMA_VERSION]);
+    let records = store.accounts().expect("the accounts are read");
+    assert_eq!(records.len(), 3);
+    assert!(
+        records
+            .iter()
+            .all(|r| r.taker == store::AccountTaker::Owner && r.left_resets.is_none()),
+        "{records:?}"
+    );
+    assert_eq!(store.moving_on(), Ok(false));
+    assert_eq!(
+        columns(&db.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+}
+
 #[test]
 fn a_file_of_every_earlier_version_is_brought_to_this_one_as_it_is_opened() {
     let new = Db::new();

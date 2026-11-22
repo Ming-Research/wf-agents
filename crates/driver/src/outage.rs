@@ -20,6 +20,9 @@
 //! than the checks are taken. At a usage limit whose reset was said, by the round that met it or by the latest check,
 //! none is taken before the reset. A check speaks only of the account it was taken under: once the owner takes another,
 //! the outside is checked at once under the account taken, and what was found under the one before is no check of it.
+//! Where the owner has let the engine move, a usage limit of the account in use is also ended by the engine's taking
+//! another account that a check under it found well ([`move_on`]): the others are checked one at a time, in the order
+//! added, each check kept with the `since` of the wait it was taken in.
 //!
 //! The acts' wait stands from the latest act, of any work, that failed for want of the network, until a look at the
 //! acts' host, taken every half minute, reaches it: a look is what an act tries, at no cost, and every act goes on
@@ -35,6 +38,8 @@ use decide::run::Failure;
 use flow::Outline;
 use store::WorkNumber;
 use work::{Back, Time, Work};
+
+use crate::accounts::Accounts;
 
 /// How long after the latest round that failed for a cause outside every work the outside is first checked; and how
 /// often the network to the acts' host is looked at while it cannot be reached.
@@ -122,6 +127,9 @@ pub struct Outage {
     /// found before was of another account, and the outside is checked at once under this one. The agents' wait alone
     /// has it.
     pub switched: Option<Time>,
+    /// Whether the owner has let the engine move to another account at a usage limit and some other account may yet be
+    /// moved to in this wait ([`may_move`]); the agents' wait alone has it.
+    pub may_move: bool,
 }
 
 /// The usage limit of an account, while it stands: since the first round under the account that met it after the last
@@ -167,18 +175,23 @@ impl Outage {
                     _ => Time(from.0.saturating_add(spacing(taken))),
                 };
                 // The reset the later of the round and the check said: no check is taken before it.
-                let resets = match checked {
-                    Some(Checked {
-                        found: Found::Down { resets, .. },
-                        ..
-                    }) => *resets,
-                    Some(_) => None,
-                    None => self.resets.filter(|_| self.failure == Failure::UsageLimit),
-                };
                 Until::Checked {
-                    at: resets.map_or(spaced, |reset| reset.max(spaced)),
+                    at: self.reset().map_or(spaced, |reset| reset.max(spaced)),
                 }
             }
+        }
+    }
+
+    /// When the usage limit resets, as the later of the round that met it and the latest check of the outside said,
+    /// where either said so.
+    pub fn reset(&self) -> Option<Time> {
+        match self.latest() {
+            Some(Checked {
+                found: Found::Down { resets, .. },
+                ..
+            }) => *resets,
+            Some(_) => None,
+            None => self.resets.filter(|_| self.failure == Failure::UsageLimit),
         }
     }
 
@@ -209,6 +222,132 @@ impl Outage {
     fn latest(&self) -> Option<&Checked> {
         self.checked.as_ref().filter(|checked| checked.at >= self.met)
     }
+}
+
+/// What the engine does, with the owner's leave, at the usage limit of the account in use.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Move {
+    /// Takes this account as the one the agents run under: a check found it well. `left_resets` is when the usage limit
+    /// of the account left resets, where it was said.
+    Take { name: String, left_resets: Option<Time> },
+    /// Checks the outside under this account at this time: when the earliest of the accounts that are neither passed over
+    /// nor found well is due.
+    Check { name: String, at: Time },
+    /// Does nothing: the wait is not one that moving to another account ends, or no account is left to move to.
+    Stay,
+}
+
+/// Where an account other than the one in use stands, in the wait at the in-use account's usage limit, as to being
+/// moved to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Candidate {
+    /// No check of the outside under it has been taken in this wait, and no limit of its own is known to stand.
+    Open,
+    /// The latest check under it found the outside well in this wait.
+    Well,
+    /// The latest check under it found a cause that is not its own, or its usage limit with no reset said: checked
+    /// again at this time.
+    Spaced { at: Time },
+    /// Its usage limit stands until this time, as its records or the latest check under it say: checked again then.
+    Waiting { at: Time },
+    /// The latest check under it found its token refused: passed over for the rest of the wait.
+    Passed,
+}
+
+impl Candidate {
+    /// Whether the account may still be moved to in this wait, unless its limit stands until a time to come.
+    fn left(self) -> bool {
+        matches!(self, Candidate::Open | Candidate::Well | Candidate::Spaced { .. })
+    }
+}
+
+/// The accounts other than the one in use, in the order they were added, each with where it stands as to being moved to
+/// in the wait: none where the wait is not the agents' service's, does not hold, or is not at an account's usage limit,
+/// or none is in use. `checked` holds, by account, the checks taken in the waits, each with the `since` of the wait it
+/// was taken in; the checks under an account that is not the one in use are of the account's being moved to, and of
+/// this wait where that is the wait's `since`.
+pub fn candidates(
+    outage: &Outage,
+    accounts: &Accounts,
+    limits: &BTreeMap<String, Limit>,
+    checked: &BTreeMap<Option<String>, (Time, Checked)>,
+    now: Time,
+) -> Vec<(String, Candidate)> {
+    let Some(in_use) = accounts.in_use() else {
+        return Vec::new();
+    };
+    if outage.service != Service::Agents || !outage.holds() || outage.down().0 != Failure::UsageLimit {
+        return Vec::new();
+    }
+    (accounts.live().into_iter())
+        .filter(|live| live.name != in_use)
+        .map(|live| {
+            let own = checked
+                .get(&Some(live.name.clone()))
+                .filter(|(of, _)| *of == outage.since)
+                .map(|(_, check)| check);
+            let state = match own {
+                Some(Checked { found: Found::Well, .. }) => Candidate::Well,
+                Some(Checked {
+                    found: Found::Down { failure, resets, .. },
+                    at,
+                    taken,
+                }) => match (failure, resets) {
+                    (Failure::CannotRun, _) => Candidate::Passed,
+                    (Failure::UsageLimit, Some(reset)) if reset > at => Candidate::Waiting { at: *reset },
+                    _ => Candidate::Spaced {
+                        at: Time(at.0.saturating_add(spacing(*taken))),
+                    },
+                },
+                None => match limits.get(&live.name).and_then(|limit| limit.resets) {
+                    Some(reset) if reset > now => Candidate::Waiting { at: reset },
+                    _ => Candidate::Open,
+                },
+            };
+            (live.name, state)
+        })
+        .collect()
+}
+
+/// Whether the engine may yet move to an account in this wait: some other account is not passed over, nor held by a
+/// usage limit that stands until a time to come ([`candidates`]).
+pub fn may_move(
+    outage: &Outage,
+    accounts: &Accounts,
+    limits: &BTreeMap<String, Limit>,
+    checked: &BTreeMap<Option<String>, (Time, Checked)>,
+    now: Time,
+) -> bool {
+    (candidates(outage, accounts, limits, checked, now).into_iter()).any(|(_, candidate)| candidate.left())
+}
+
+/// What the engine does in the wait at the in-use account's usage limit, the owner having let it move to another
+/// account: takes the first of the other accounts, in the order they were added, that a check found well; else asks
+/// for the check of the account whose check is due first, an account never checked in the wait being due when the
+/// wait began, and one that was checked being due when its check says ([`Candidate`]).
+pub fn move_on(
+    outage: &Outage,
+    accounts: &Accounts,
+    limits: &BTreeMap<String, Limit>,
+    checked: &BTreeMap<Option<String>, (Time, Checked)>,
+    now: Time,
+) -> Move {
+    let candidates = candidates(outage, accounts, limits, checked, now);
+    if let Some((name, _)) = candidates.iter().find(|(_, candidate)| *candidate == Candidate::Well) {
+        return Move::Take {
+            name: name.clone(),
+            left_resets: outage.reset(),
+        };
+    }
+    let due = |candidate: &Candidate| match candidate {
+        Candidate::Open => Some(outage.met),
+        Candidate::Spaced { at } | Candidate::Waiting { at } => Some(*at),
+        Candidate::Well | Candidate::Passed => None,
+    };
+    (candidates.iter())
+        .filter_map(|(name, candidate)| due(candidate).map(|at| (at, name)))
+        .min_by_key(|(at, _)| *at)
+        .map_or(Move::Stay, |(at, name)| Move::Check { name: name.clone(), at })
 }
 
 /// A round of a cell, as the outage reads it.
@@ -260,6 +399,7 @@ pub fn outage<'a>(
         checked: None,
         reached: None,
         switched: None,
+        may_move: false,
     })
 }
 
@@ -384,4 +524,266 @@ fn rounds_of(service: Service, number: WorkNumber, outline: &Outline, work: &Wor
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use store::{AccountAct, AccountRecord, AccountTaker};
+
+    use super::*;
+
+    const HOUR: u64 = 3_600_000;
+
+    /// The wait at a usage limit, begun at 1,000 and met at 2,000, whose reset the round said.
+    fn at_limit(resets: Option<Time>) -> Outage {
+        Outage {
+            service: Service::Agents,
+            failure: Failure::UsageLimit,
+            why: "You've hit your limit".to_string(),
+            work: WorkNumber(1),
+            run: RunId(1),
+            round: 1,
+            since: Time(1_000),
+            met: Time(2_000),
+            resets,
+            checked: None,
+            reached: None,
+            switched: None,
+            may_move: false,
+        }
+    }
+
+    /// The accounts added in this order, the first taken.
+    fn accounts(names: &[&str]) -> Accounts {
+        let mut records: Vec<AccountRecord> = (names.iter())
+            .map(|name| AccountRecord {
+                name: name.to_string(),
+                what: AccountAct::Added,
+                at: Time(0),
+                taker: AccountTaker::Owner,
+                left_resets: None,
+            })
+            .collect();
+        records.push(AccountRecord {
+            name: names[0].to_string(),
+            what: AccountAct::Taken,
+            at: Time(1),
+            taker: AccountTaker::Owner,
+            left_resets: None,
+        });
+        Accounts::new(records)
+    }
+
+    /// A check under an account, taken at this time as the `taken`th of the wait.
+    fn checked(found: Found, at: u64, taken: u32) -> (Time, Checked) {
+        (
+            Time(1_000),
+            Checked {
+                taken,
+                at: Time(at),
+                found,
+            },
+        )
+    }
+
+    fn found_down(failure: Failure, resets: Option<Time>) -> Found {
+        Found::Down {
+            failure,
+            why: "found".to_string(),
+            resets,
+        }
+    }
+
+    // Microseconds, nothing run: where each account stands as to being moved to, from the checks of the wait and the
+    // limits the records say.
+    #[test]
+    fn each_account_but_the_one_in_use_stands_as_its_check_or_its_standing_limit_says() {
+        let names = [
+            "use", "open", "well", "waits", "no-reset", "offline", "refused", "limit", "over", "old",
+        ];
+        let accounts = accounts(&names);
+        let now = Time(5_000);
+        let mut checks = BTreeMap::new();
+        checks.insert(Some("well".to_string()), checked(Found::Well, 3_000, 1));
+        let reset = Time(3_000 + HOUR);
+        checks.insert(
+            Some("waits".to_string()),
+            checked(found_down(Failure::UsageLimit, Some(reset)), 3_000, 1),
+        );
+        checks.insert(
+            Some("no-reset".to_string()),
+            checked(found_down(Failure::UsageLimit, None), 3_000, 1),
+        );
+        checks.insert(
+            Some("offline".to_string()),
+            checked(found_down(Failure::Offline, None), 3_000, 3),
+        );
+        checks.insert(
+            Some("refused".to_string()),
+            checked(found_down(Failure::CannotRun, None), 3_000, 1),
+        );
+        // A check of an earlier wait is of no account's standing in this one.
+        checks.insert(
+            Some("old".to_string()),
+            (
+                Time(500),
+                Checked {
+                    taken: 1,
+                    at: Time(900),
+                    found: Found::Well,
+                },
+            ),
+        );
+        let mut limits = BTreeMap::new();
+        limits.insert(
+            "limit".to_string(),
+            Limit {
+                since: Time(0),
+                resets: Some(Time(now.0 + HOUR)),
+            },
+        );
+        limits.insert(
+            "over".to_string(),
+            Limit {
+                since: Time(0),
+                resets: Some(Time(now.0 - 1)),
+            },
+        );
+        let stands = candidates(&at_limit(None), &accounts, &limits, &checks, now);
+        assert_eq!(
+            stands,
+            vec![
+                ("open".to_string(), Candidate::Open),
+                ("well".to_string(), Candidate::Well),
+                ("waits".to_string(), Candidate::Waiting { at: reset }),
+                (
+                    "no-reset".to_string(),
+                    Candidate::Spaced {
+                        at: Time(3_000 + spacing(1))
+                    }
+                ),
+                (
+                    "offline".to_string(),
+                    Candidate::Spaced {
+                        at: Time(3_000 + spacing(3))
+                    }
+                ),
+                ("refused".to_string(), Candidate::Passed),
+                ("limit".to_string(), Candidate::Waiting { at: Time(now.0 + HOUR) }),
+                ("over".to_string(), Candidate::Open),
+                ("old".to_string(), Candidate::Open),
+            ]
+        );
+    }
+
+    // Microseconds, nothing run: the first account found well in the order added is taken, with the reset the wait says;
+    // else the check that is due first is asked for, an account never checked being due when the wait was met.
+    #[test]
+    fn the_first_account_found_well_is_taken_else_the_check_due_first_is_asked_for() {
+        let accounts = accounts(&["use", "a", "b", "c"]);
+        let outage = at_limit(Some(Time(9_000)));
+        let now = Time(5_000);
+        let limits = BTreeMap::new();
+        let mut checks = BTreeMap::new();
+        assert_eq!(
+            move_on(&outage, &accounts, &limits, &checks, now),
+            Move::Check {
+                name: "a".to_string(),
+                at: Time(2_000)
+            },
+            "never checked: due when the wait was met, the first in the order added first"
+        );
+        checks.insert(
+            Some("a".to_string()),
+            checked(found_down(Failure::Offline, None), 3_000, 1),
+        );
+        checks.insert(Some("b".to_string()), checked(Found::Well, 3_000, 1));
+        checks.insert(Some("c".to_string()), checked(Found::Well, 3_001, 1));
+        assert_eq!(
+            move_on(&outage, &accounts, &limits, &checks, now),
+            Move::Take {
+                name: "b".to_string(),
+                left_resets: Some(Time(9_000))
+            }
+        );
+        checks.insert(
+            Some("b".to_string()),
+            checked(found_down(Failure::UsageLimit, Some(Time(7_000))), 3_000, 2),
+        );
+        checks.insert(
+            Some("c".to_string()),
+            checked(found_down(Failure::CannotRun, None), 3_001, 1),
+        );
+        assert_eq!(
+            move_on(&outage, &accounts, &limits, &checks, now),
+            Move::Check {
+                name: "b".to_string(),
+                at: Time(7_000)
+            },
+            "the earlier of b's reset and a's spacing"
+        );
+        checks.insert(
+            Some("b".to_string()),
+            checked(found_down(Failure::CannotRun, None), 3_000, 3),
+        );
+        assert_eq!(
+            move_on(&outage, &accounts, &limits, &checks, now),
+            Move::Check {
+                name: "a".to_string(),
+                at: Time(3_000 + spacing(1))
+            }
+        );
+        assert!(may_move(&outage, &accounts, &limits, &checks, now));
+        checks.insert(
+            Some("a".to_string()),
+            checked(found_down(Failure::CannotRun, None), 3_000, 2),
+        );
+        assert_eq!(
+            move_on(&outage, &accounts, &limits, &checks, now),
+            Move::Stay,
+            "none is left"
+        );
+        assert!(!may_move(&outage, &accounts, &limits, &checks, now));
+    }
+
+    // Microseconds, nothing run: nothing moves where the wait is not at the in-use account's usage limit and holding.
+    #[test]
+    fn nothing_moves_unless_the_wait_is_the_agents_at_the_usage_limit_of_an_account_in_use_and_holds() {
+        let accounts = accounts(&["use", "a"]);
+        let (limits, checks, now) = (BTreeMap::new(), BTreeMap::new(), Time(5_000));
+        let moves = |outage: &Outage, accounts: &Accounts| move_on(outage, accounts, &limits, &checks, now);
+        assert_ne!(moves(&at_limit(None), &accounts), Move::Stay);
+        let offline = Outage {
+            failure: Failure::Offline,
+            ..at_limit(None)
+        };
+        assert_eq!(moves(&offline, &accounts), Move::Stay);
+        let host = Outage {
+            service: Service::Host,
+            ..at_limit(None)
+        };
+        assert_eq!(moves(&host, &accounts), Move::Stay);
+        // A check that found the outside well ends the hold.
+        let well = Outage {
+            checked: Some(Checked {
+                taken: 1,
+                at: Time(3_000),
+                found: Found::Well,
+            }),
+            ..at_limit(None)
+        };
+        assert!(!well.holds());
+        assert_eq!(moves(&well, &accounts), Move::Stay);
+        // A check that found it at another cause says the cause is not the limit.
+        let found_offline = Outage {
+            checked: Some(Checked {
+                taken: 1,
+                at: Time(3_000),
+                found: found_down(Failure::Offline, None),
+            }),
+            ..at_limit(None)
+        };
+        assert_eq!(moves(&found_offline, &accounts), Move::Stay);
+        assert_eq!(moves(&at_limit(None), &Accounts::default()), Move::Stay, "none in use");
+    }
 }
