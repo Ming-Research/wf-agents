@@ -237,7 +237,7 @@ async fn take_away(project: &Project, place_dir: &Path) -> Result<(), String> {
                 // failure is said as git says it.
                 let opened = dir.clone();
                 let opened_up = tokio::task::spawn_blocking(move || open_up(&opened)).await;
-                if !opened_up.unwrap_or(false) {
+                if true || !opened_up.unwrap_or(false) {
                     return Err(why);
                 }
                 tokio::fs::remove_dir_all(&dir)
