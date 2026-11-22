@@ -14,6 +14,7 @@
 import type { CellNow, Item, Items, Now, Pauser, Summary, Wait } from '../works-api';
 import { mocksShown } from '../mock-data';
 import { waitsOf } from '../works/waiting';
+import { stateOf } from '../works/words';
 import { itemOf } from './real';
 
 /// What the item is to deliver: not yet, delivered, or given up.
@@ -32,8 +33,9 @@ export type ShownWork = {
   cells: CellNow[];
   /// What it waits on the owner for, as the engine's one list of it says.
   waits: Wait[];
-  /// When its first round began, from which its age is counted.
-  from: number;
+  /// When its first round began, from which its age is counted; none before it has run a round, when the card has no
+  /// row of it.
+  from: number | null;
   /// Where its time went, in equal cells (`Summary.bar`); empty where the engine does not say.
   bar: string;
   /// How many of its returns were sent back.
@@ -89,7 +91,8 @@ export type Shown = {
   /// A shadow of the item under an item that depends on it by a dependency that is not its main one: it points to the
   /// item's place, and carries none of its work, its questions or the items under it.
   shadow: boolean;
-  /// Its work while it goes on, once it has run a round: until then the card is an open item's, of one row.
+  /// Its work while it goes on, once it has run a round, or before that while it is halted or waits for the owner, the
+  /// card then of one row ([`drawn`]); else none, the card an open item's, of one row.
   work: ShownWork | null;
   /// Every item under it, whether or not they are folded away.
   children: Shown[];
@@ -114,9 +117,15 @@ export const started = (w: Summary): boolean => w.from != null;
 /// Whether a work still goes on: not merged and not cancelled.
 const live = (w: Summary) => w.now.kind !== 'merged' && w.now.kind !== 'cancelled';
 
-/// Whether a card draws the work: while it goes on, once it has begun. Every card that draws a work has run at least
-/// once; one paused, at fault or waiting before its first round draws no work, as an open item with none.
-const drawn = (w: Summary) => live(w) && started(w);
+/// Whether a card draws the work, in the colours of how it stands: while it goes on, once it has begun, and before
+/// that while it is halted or waits for the owner, which a card says in red whether or not the work has run. Its second
+/// row it draws only once the work has run a round (`ShownWork.from`); one paused or waiting for other items before
+/// its first round draws no work, as an open item with none.
+const drawn = (w: Summary) => {
+  if (!live(w)) return false;
+  const { tone } = stateOf(w);
+  return started(w) || tone === 'owner' || tone === 'failed';
+};
 
 /// Each item's main dependent, which it stands under in the tree: the first by number of the items that depend on it.
 function mainDependents(data: Items): Map<number, number> {
@@ -266,7 +275,7 @@ export function shownTree(
               paused: w.paused,
               cells: w.cells,
               waits: waitsOf(w),
-              from: w.from ?? w.added,
+              from: w.from ?? null,
               bar: w.bar ?? '',
               sentBack: w.sentBack ?? 0,
               usdMicros: w.spent.usdMicros,

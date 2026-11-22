@@ -387,7 +387,7 @@ describe('what a card shows of an item', () => {
     expect(made[0].deliver).toBe(false);
   });
 
-  it('draws no work for an item whose work has not run a round, paused, at fault, waiting, or with a cell done by no round', () => {
+  it('gives a work that has not run a round no second row, its colours only where it is halted or waits for the owner', () => {
     const paused: Item = {
       ...item(1, 'open', [4]),
       work: work(1, { kind: 'paused', at: 'plan', by: 'owner', why: null }),
@@ -404,17 +404,19 @@ describe('what a card shows of an item', () => {
     const held: Now = { kind: 'paused', at: 'implement', by: 'owner', why: null };
     const brought: Item = { ...item(5, 'open'), work: { ...work(5, held, ['done', 'notYet', 'notYet']), from: null } };
     const shown = shownTree({ items: [paused, fault, waiting, item(4, 'open'), brought] });
-    expect(shown.map((s) => [s.id, s.begun, s.work])).toEqual([
-      [1, false, null],
-      [2, false, null],
-      [3, false, null],
-      [5, false, null],
+    // Paused before its first round, as the one brought over is, it is drawn as an open item with no work; halted, or
+    // waiting for the owner, the card takes the work's state, with no time of a first round and so no second row.
+    expect(shown.map((s) => [s.id, s.begun, s.work?.now.kind ?? null, s.work?.from ?? null])).toEqual([
+      [1, false, null, null],
+      [2, false, 'fault', null],
+      [3, false, 'waits', null],
+      [5, false, null, null],
     ]);
     // Not begun, it still says what it waits on the owner for.
     expect(shown[2].asks).toBe(1);
-    // Once its first round has begun, the same work paused is drawn.
+    // Once its first round has begun, the same work paused is drawn, with the time of that round.
     const ran = shownTree({ items: [{ ...paused, work: { ...paused.work, from: 1 } }, item(4, 'open')] });
     expect(ran[0].begun).toBe(true);
-    expect(ran[0].work?.now.kind).toBe('paused');
+    expect([ran[0].work?.now.kind, ran[0].work?.from]).toEqual(['paused', 1]);
   });
 });

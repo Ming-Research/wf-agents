@@ -986,6 +986,8 @@ export class SnapScene {
   /// The strips of the cards being made, each with where its room begins and ends and how many cells it has, drawn
   /// once every card is made, at one size of the marks for the whole tree ([`show`]).
   private strips: { start: number; end: number; count: number; draw: (scale: number) => void }[] = [];
+  /// How each card was drawn, by its item's number: its rows, its fill and its edge's colour ([`cardLook`]).
+  private cardsDrawn = new Map<number, { rows: number; fill: string | number; edge: string | number }>();
   private waysDrawn: LitWay[] = [];
   /// For each item, whether a work goes on on it or under it: the edges of the cards above a work are lit.
   private lit: Uint8Array = new Uint8Array(0);
@@ -1240,7 +1242,7 @@ export class SnapScene {
     this.drawnMoved = null;
     this.waysDrawn = [];
     this.base = Float64Array.from(items, (i) =>
-      i.work === null ? 1 : 1 + WORK_ROW,
+      i.work === null || i.work.from === null ? 1 : 1 + WORK_ROW,
     );
     this.shape();
     const asks = (s: Shown) => s.asks > 0;
@@ -1298,6 +1300,7 @@ export class SnapScene {
     this.softLit = new Map();
     this.ages = new Map();
     this.strips = [];
+    this.cardsDrawn = new Map();
     this.views = items.map((item, k) => this.node(item, k));
     // One size for the marks of every strip on the tree: the largest at which each strip fits its room, the strip of
     // the flow with the most cells the narrowest, and never larger than the marks' own; so that a mark is as large on
@@ -1487,8 +1490,8 @@ export class SnapScene {
   /// the second row, for an item whose work goes on, under the number the level its cell runs at, the strip of the
   /// work's cells as the works page draws it, the lines the work added and removed where it changed any, and how long
   /// it has gone on. An item whose work has ended has its one row, with the lines its work changed at its right; an
-  /// open item whose work has not run a round has its one row too, as an open item with no work. A node is drawn at its
-  /// whole size, and made smaller as a whole while a fold over it turns.
+  /// item whose work has not run a round has its one row too, in the colours of how its work stands. A node is drawn at
+  /// its whole size, and made smaller as a whole while a fold over it turns.
   private node(item: Shown, k: number): Container {
     const s = this.styles as Styles;
     const view = new Container();
@@ -1507,17 +1510,15 @@ export class SnapScene {
     // of the items under it, so that the cards of the items that are worked on stand out from it.
     if (item.deliver) view.addChild(new Graphics().rect(0, top + h - DELIVER_LINE, NODE_W, DELIVER_LINE).fill(PALETTE.faint));
     else {
-      view.addChild(
-        card.fill(filled ? mix(PALETTE.card, state, FILL) : PALETTE.card).stroke({
-          color:
-            state !== null
-              ? mix(PALETTE.card, state, mood === 'running' ? EDGE_RUNNING : EDGE_TINT)
-              : this.lit[k] === 1
-                ? PALETTE.branch
-                : PALETTE.edge,
-          width: EDGE_WIDTH,
-        }),
-      );
+      const fill = filled ? mix(PALETTE.card, state, FILL) : PALETTE.card;
+      const edge =
+        state !== null
+          ? mix(PALETTE.card, state, mood === 'running' ? EDGE_RUNNING : EDGE_TINT)
+          : this.lit[k] === 1
+            ? PALETTE.branch
+            : PALETTE.edge;
+      view.addChild(card.fill(fill).stroke({ color: edge, width: EDGE_WIDTH }));
+      this.cardsDrawn.set(item.id, { rows: this.base[k], fill, edge });
     }
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
@@ -1597,8 +1598,9 @@ export class SnapScene {
       const strike = new Graphics().moveTo(title.x, through).lineTo(title.x + title.width, through);
       view.addChild(strike.stroke({ color: ink, width: 1 }));
     }
-    if (item.work === null || mood === null) return view;
+    // A work that has not run a round has no second row: its card says how it stands by its colours alone.
     const w = item.work;
+    if (w === null || mood === null || w.from === null) return view;
     const row2 = workRow(h);
     // Under the number, the level the work's cell runs at, in its look (`levelLook`), as the item's window writes it
     // before its strip; a dash, muted, where the engine gives none.
@@ -1708,6 +1710,12 @@ export class SnapScene {
     view.addChild(still, running);
     if (marks.some((m) => m.pulses)) this.pulses.set(k, running);
     this.drawnStrips.set(id, { marks, more: 0, end, level: null });
+  }
+
+  /// How the card of item `id` was drawn, for the tests: how many rows high, and its fill and its edge's colour. None
+  /// for an item the tree does not draw, a shadow, and a deliverable, which has no card.
+  cardLook(id: number): { rows: number; fill: string | number; edge: string | number } | null {
+    return this.cardsDrawn.get(id) ?? null;
   }
 
   /// What the card of item `id` drew for its work's cells, for the tests: each mark, where it stands from the card's

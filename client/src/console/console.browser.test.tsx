@@ -302,6 +302,20 @@ describe('the tree in columns', () => {
     endsAtCard();
   });
 
+  it('draws a card whose work halted before its first round in red, as one that halted after it, with no second row', () => {
+    const fault: Now = { kind: 'fault', words: 'No session' };
+    const halted = (k: number, from: number | null): Shown => ({ ...card(k), work: { ...running(k), now: fault, from } });
+    scene.show([halted(1, null), halted(2, Date.now()), card(3)]);
+    const [before, after, plain] = [1, 2, 3].map((id) => scene.cardLook(id));
+    expect(before?.rows).toBe(1);
+    expect(after?.rows).toBeGreaterThan(1);
+    expect([before?.fill, before?.edge]).toEqual([after?.fill, after?.edge]);
+    expect(before?.fill).not.toBe(plain?.fill);
+    expect(before?.edge).not.toBe(plain?.edge);
+    expect(scene.drawnStrip(1)).toBeNull();
+    expect(scene.drawnStrip(2)).not.toBeNull();
+  });
+
   it('lights the way to a work the engine runs a call for, as to one whose round runs, and to no work that waits for the owner or is paused', () => {
     const call: Now = {
       kind: 'waits',
