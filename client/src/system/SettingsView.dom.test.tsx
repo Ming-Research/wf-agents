@@ -191,7 +191,7 @@ describe('the Settings view', () => {
     await settle();
     expect(s.sent).toEqual([{ base: 'fixture', set: [{ key: 'agents.slots', value: 4 }] }]);
     expect(page.querySelector('.said')?.textContent).toBe(
-      'Saved: agents.slots = 4 instead of 3, and committed. The engine takes it as it starts again.',
+      'Saved: agents.slots = 4 instead of 3, and committed. The engine runs with it now.',
     );
     expect(s.reads).toBe(2);
   });
