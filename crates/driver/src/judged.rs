@@ -343,7 +343,8 @@ fn judging<'a>(of: &Of<'a>, now: Time) -> Vec<Judging<'a>> {
         let ended = done.and_then(|done| work.time_of(done.at));
         let size = done
             .and_then(|done| work.results.get(&done.call))
-            .map(|r| r.len() as f64);
+            .map(|r| r.len() as f64)
+            .or(Some(0.0));
         out.push(Judging {
             began: made.0,
             work: of.number,
@@ -485,7 +486,7 @@ impl<'a> History<'a> {
                 let judged = CallAgainst {
                     time: line(self.tools.get(tool)).map(|line| Against { value: time, line }),
                     size: size
-                        .zip(line(self.tools.get(tool)))
+                        .zip(line(self.sizes.get(tool)))
                         .map(|(value, line)| Against { value, line }),
                 };
                 if judged != CallAgainst::default() {
