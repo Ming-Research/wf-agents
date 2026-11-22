@@ -326,7 +326,23 @@ pub(crate) fn last_prompt_by(
     if begins {
         return None;
     }
-    let at = work::sessions::start(work, run, number);
+    context_before(line_of, work, line, session, work::sessions::start(work, run, number))
+}
+
+/// The context of the line's session of this number as it last told one before this place, in tokens: that of the
+/// latest of its rounds begun and ended before it, and of its keep-warm pings before it, that tells one, the line of
+/// each run's cell as `line_of` tells it. None where none does.
+pub fn context_before(
+    line_of: &dyn Fn(&CellId) -> Option<String>,
+    work: &Work,
+    line: &str,
+    session: u32,
+    at: decide::Seq,
+) -> Option<u64> {
+    let on_line = |r: RunId| {
+        let cell = work.records.started.iter().find(|s| s.run == r).map(|s| &s.cell);
+        cell.and_then(line_of).as_deref() == Some(line)
+    };
     let r = &work.records;
     let mut latest: Option<(decide::Seq, u64)> = None;
     let mut counted: Vec<RunId> = Vec::new();

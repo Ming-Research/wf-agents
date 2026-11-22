@@ -119,6 +119,7 @@ function WhyKeys({ why }: { why: SessionWhy | null }) {
   const keys: Key[] = [['why', why.kind]];
   if (why.kind === 'limit') keys.push(['context', count(why.context)], ['limit', count(why.limit)]);
   if (why.kind === 'model') keys.push(['was', why.was]);
+  if (why.kind === 'changed' && why.context !== null) keys.push(['context', count(why.context)]);
   return <Keys keys={keys} />;
 }
 

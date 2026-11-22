@@ -18,6 +18,7 @@ import {
   ranLast,
   runTook,
   sentence,
+  sessionWords,
   stateOf,
   stateWords,
   stoppedAt,
@@ -376,6 +377,18 @@ describe('what was taken, in words', () => {
     expect(tokens(1_234)).toBe('1.2k');
     expect(tokens(14_400)).toBe('14k');
     expect(tokens(1_200_000)).toBe('1.2M');
+  });
+});
+
+describe('why a line began a new session, in words', () => {
+  // The one test of the words of a session begun for what its agents are given: the context of the session it left is
+  // said only where one was told.
+  it('says the context of the session left where one was told, and nothing of it where none was', () => {
+    const changed = 'a new one, the rules or the form of return its agents are given having changed since it began';
+    expect(sessionWords({ kind: 'changed', context: 86_953 })).toBe(
+      `${changed}, the session it left holding 87k tokens of context`,
+    );
+    expect(sessionWords({ kind: 'changed', context: null })).toBe(changed);
   });
 });
 

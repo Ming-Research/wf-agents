@@ -66,6 +66,12 @@ pub enum Why {
     /// The line's rounds run on another model than the one its session was begun on, whose prompt cache holds
     /// nothing of it.
     Model { was: String },
+    /// What a new session of the line would begin with now, its system prompt or its form of return, is not what its
+    /// session began with, or cannot be made: a flow installed since, main taken in or the work's own commits changed
+    /// what it is made of, and a session keeps what it began with (decision
+    /// `a-changed-system-prompt-or-form-begins-a-new-session`). It holds the tokens of context of the session left,
+    /// as its latest round or ping that told one ended; none where none told one.
+    Changed { context: Option<u64> },
     /// The line's rounds run under another account than its session's. No session is begun for another account any
     /// longer, a line going on in its session under the account in use (decision
     /// `a-line-goes-on-in-its-session-under-another-account`): the records kept before hold sessions begun for it,
@@ -103,9 +109,10 @@ impl Why {
 
     /// The names of its kinds, each the name of the words of it where the flow says what the engine writes of a new
     /// session: [`Why::named`] gives a kind's name from here, by [`Why::kind`].
-    pub const KINDS: [&'static str; 10] = [
+    pub const KINDS: [&'static str; 11] = [
         "limit",
         "model",
+        "changed",
         "account",
         "owner",
         "flagged",
@@ -122,14 +129,15 @@ impl Why {
         match self {
             Why::Limit { .. } => 0,
             Why::Model { .. } => 1,
-            Why::Account { .. } => 2,
-            Why::Owner => 3,
-            Why::Flagged => 4,
-            Why::Guarded => 5,
-            Why::TooLong => 6,
-            Why::Lost => 7,
-            Why::Compacted => 8,
-            Why::Flow { .. } => 9,
+            Why::Changed { .. } => 2,
+            Why::Account { .. } => 3,
+            Why::Owner => 4,
+            Why::Flagged => 5,
+            Why::Guarded => 6,
+            Why::TooLong => 7,
+            Why::Lost => 8,
+            Why::Compacted => 9,
+            Why::Flow { .. } => 10,
         }
     }
 
@@ -138,7 +146,9 @@ impl Why {
         let places = match self {
             Why::Limit { context, limit } => vec![("context", context.to_string()), ("limit", limit.to_string())],
             Why::Model { was } => vec![("was", was.clone())],
-            Why::Account { .. }
+            // The context left is the owner's to read, from the record: the agents of the new session are not told it.
+            Why::Changed { .. }
+            | Why::Account { .. }
             | Why::Owner
             | Why::Flagged
             | Why::Guarded
@@ -241,6 +251,7 @@ mod tests {
         let every = [
             Why::Limit { context: 2, limit: 1 },
             Why::Model { was: "m".to_string() },
+            Why::Changed { context: Some(3) },
             Why::Account { was: None },
             Why::Owner,
             Why::Flagged,

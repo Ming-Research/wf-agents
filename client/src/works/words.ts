@@ -147,6 +147,12 @@ export function sessionWords(why: SessionWhy): string {
       return `a new one, its context having been ${tokens(why.context)} tokens, past the limit of ${tokens(why.limit)}`;
     case 'model':
       return `a new one, its rounds running on another model than ${why.was}`;
+    case 'changed': {
+      const changed = 'a new one, the rules or the form of return its agents are given having changed since it began';
+      return why.context === null
+        ? changed
+        : `${changed}, the session it left holding ${tokens(why.context)} tokens of context`;
+    }
     case 'account':
       return 'a new one, its rounds running under another account';
     case 'owner':

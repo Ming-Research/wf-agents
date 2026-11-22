@@ -37,7 +37,7 @@ use std::collections::BTreeSet;
 
 use decide::{CellId, Decision, Pauser, RunId, decide};
 use flow::Compiled;
-use store::Item;
+use store::{Item, WorkNumber};
 use work::{Time, Work};
 
 use crate::accounts::Accounts;
@@ -62,14 +62,16 @@ pub struct Kept {
     pub life: Time,
 }
 
-/// Each line's session the work keeps warm as of `now`, in the order of the walk, whoever holds the work: none where
-/// `keep_warm`, the engine's own state, says sessions are not kept warm; none for a work that has ended, one with a
-/// round under way, one with no policy of keeping sessions warm, or one the engine paused for spending more than it
-/// may; none whose last call ran under another account than the one in use, or under none, and none while none is in
-/// use, as the accounts say; and none whose cache has let it go by `now`, which a ping would write again whole, for
-/// nothing.
+/// Each line's session the work of this number keeps warm as of `now`, in the order of the walk, whoever holds the
+/// work: none where `keep_warm`, the engine's own state, says sessions are not kept warm; none for a work that has
+/// ended, one with a round under way, one with no policy of keeping sessions warm, or one the engine paused for
+/// spending more than it may; none whose last call ran under another account than the one in use, or under none, and
+/// none while none is in use, as the accounts say; none of a line that is to begin a new session at its next round;
+/// and none whose cache has let it go by `now`, which a ping would write again whole, for nothing.
+#[allow(clippy::too_many_arguments)]
 pub fn kept(
     flow: &Compiled,
+    number: WorkNumber,
     work: &Work,
     item: &Item,
     policy: &Policy,
@@ -92,14 +94,16 @@ pub fn kept(
     let back = coming_back(flow, work, &decision);
     (lines(flow))
         .filter(|line| back.contains(*line))
-        .filter_map(|line| next(flow, work, item, line, policy, accounts))
+        .filter_map(|line| next(flow, number, work, item, line, policy, accounts))
         .filter(|kept| now < kept.life)
         .collect()
 }
 
-/// The pings due for the work at `now`: those [`kept`] whose time has come.
+/// The pings due for the work of this number at `now`: those [`kept`] whose time has come.
+#[allow(clippy::too_many_arguments)]
 pub fn due(
     flow: &Compiled,
+    number: WorkNumber,
     work: &Work,
     item: &Item,
     policy: &Policy,
@@ -107,7 +111,7 @@ pub fn due(
     accounts: &Accounts,
     now: Time,
 ) -> Vec<Due> {
-    (kept(flow, work, item, policy, keep_warm, accounts, now).into_iter())
+    (kept(flow, number, work, item, policy, keep_warm, accounts, now).into_iter())
         .filter(|kept| kept.at <= now)
         .map(|kept| kept.due)
         .collect()
@@ -133,7 +137,15 @@ fn over_budget(work: &Work, warm: &Warm) -> bool {
 
 /// How a line's session stands for keeping it warm: the session, when its next ping is due, whether or not that time
 /// has come, and when the cache lets the session go; none where it is not to be kept warm.
-fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy, accounts: &Accounts) -> Option<Kept> {
+fn next(
+    flow: &Compiled,
+    number: WorkNumber,
+    work: &Work,
+    item: &Item,
+    line: &str,
+    policy: &Policy,
+    accounts: &Accounts,
+) -> Option<Kept> {
     let warm = policy.warm.as_ref()?;
     let on_line = |run: RunId| line_of_run(flow, work, run) == Some(line);
     let session = work::sessions::number_at(work, line, work.tick());
@@ -177,7 +189,7 @@ fn next(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy, 
         return None;
     }
     // The line is not to begin a new session at its next round, which holds nothing of this one.
-    if sessions::due(flow, work, item, line, policy).is_some() {
+    if sessions::due(flow, number, work, item, line, policy).is_some() {
         return None;
     }
     let read = pings.iter().filter(|p| p.failed.is_none()).map(|p| p.at).max();

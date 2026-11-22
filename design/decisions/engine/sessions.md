@@ -57,6 +57,12 @@ A work put on another version begins anew each line whose session began on a ver
 - rejected: an agent proposed beginning every line's session anew at every move; the owner rejected it, because that pays again for sessions whose form is unchanged (principle keep-what-was-paid-for).
 - rejected: an agent proposed counting what `agents/` gives every form as part of a version's; the owner rejected it, because it is no part of a version, and each change of it would begin every line anew at the next move.
 
+### decision a-changed-system-prompt-or-form-begins-a-new-session
+A line begins a new session at its next round, as for a change of model, when the system prompt or form a new session would begin with now differs from its session's, or cannot be made.
+- replaced: Leaving a line on the system prompt and form its session began with, until something else began a new session, was on main; the owner changed it, because a work under way then ran every later round on replaced rules and form, and an old form cannot hand in a field made required since.
+- rejected: an agent proposed sending the change to the open session as a message, or renewing only its form; the owner rejected it, because a resumed session keeps its first system prompt, old rules beside new, and a new form loses the whole cache (data: `research/system-prompt-on-resume.md`).
+- rejected: an agent proposed an action of the owner's to begin the sessions of a work anew; the owner rejected it, because that action was taken out before, and it would have the owner click each work after each install.
+
 ### decision a-fork-keeps-the-sessions-tools
 A fork of a round's session runs through the engine on the session's whole command line, including its system prompt, form of return and tools, with a hook refusing every tool but the return.
 - rejected: an agent proposed forking sessions by hand, on a command line it typed itself without the session's form of return; the owner rejected it, because a fork must carry what its session began with: one such fork read nothing from the cache and cost $13.83.

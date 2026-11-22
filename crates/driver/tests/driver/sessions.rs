@@ -3,6 +3,10 @@
 //! runs again before the line's next round; where each line has a block of its own, a new session of one line writes
 //! its block alone and runs again no cell of another line.
 
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::SeqCst;
+use std::sync::{Arc, Mutex};
+
 use decide::BlockId;
 use driver::{Budget, Policy};
 use driver::{FirstWrite, Found, NewItem, SESSION};
@@ -39,7 +43,7 @@ fn flow() -> Compiled {
         shown = true
         [blocks.session]
         outside = "session"
-        writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit} for its line", model = "its rounds now run on another model than {was}, which it was begun on", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", guarded = "the run guard stopped its last round", too_long = "its last round's prompt was too long", lost = "the agents' program no longer had the session it was in", flow = "the work was put on a version of its flow that decides the form of the line's returns otherwise", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }
+        writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit} for its line", model = "its rounds now run on another model than {was}, which it was begun on", changed = "the rules or the form of return its agents are given changed since it began", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", guarded = "the run guard stopped its last round", too_long = "its last round's prompt was too long", lost = "the agents' program no longer had the session it was in", flow = "the work was put on a version of its flow that decides the form of the line's returns otherwise", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }
         [blocks.tree]
         outside = "tree"
         shown = true
@@ -89,7 +93,7 @@ fn flow() -> Compiled {
 const ACCOUNT: &str = "work";
 
 /// The words the driver writes into a session block, as the flow's own datum gives them.
-const SESSION_WRITES: &str = r#"writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit}", model = "its rounds now run on another model than {was}, which it was begun on", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", lost = "the agents' program no longer had the session it was in", flow = "the work was put on a version of its flow that decides the form of the line's returns otherwise", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }"#;
+const SESSION_WRITES: &str = r#"writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit}", model = "its rounds now run on another model than {was}, which it was begun on", changed = "the rules or the form of return its agents are given changed since it began", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", lost = "the agents' program no longer had the session it was in", flow = "the work was put on a version of its flow that decides the form of the line's returns otherwise", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }"#;
 
 /// Two lines, each loading its session by a cell that reads a session block of its own: `load` the engineer's, which
 /// `build` goes on in, and `look` the review's, which `review` goes on in.
@@ -190,6 +194,7 @@ fn policy(model: &str) -> Policy {
     Policy {
         samples: 1,
         model: Box::new(move |_, _| Some(model.clone())),
+        changed: None,
         warm: None,
     }
 }
@@ -603,6 +608,36 @@ fn a_run_waiting_on_a_tools_result_as_its_line_begins_a_new_session_goes_on_in_t
     assert_eq!(s.engineer(again, 1), (1, false));
 }
 
+// A run waiting on a tool's result as what a new session of its line would begin with comes to differ from what its
+// session began with, as after a flow installed while it waits, does not hold the new session back: as for another
+// model, the line begins it at once as the engine opens, its loading cell runs first, and the run, entered again for
+// the result, goes on in the session the load began. Runs in memory in milliseconds; the one test that this reason
+// takes the timing of a change of model.
+#[test]
+fn a_run_waiting_on_a_tools_result_as_its_session_comes_to_differ_goes_on_in_the_new_session_the_load_began() {
+    let mut s = S::new();
+    s.hands_in(100, true);
+    let (build, _) = s.round();
+    s.asks(250);
+    reopened(&mut s, kept_against(|line, session| line == "engineer" && session == 0));
+    let why = Why::Changed { context: Some(250) };
+    assert_eq!(s.sessions().last(), Some(&("engineer".to_string(), why)));
+    let (load, cell) = s.round();
+    assert_eq!(cell, "load");
+    assert_eq!(s.engineer(load, 1), (1, true));
+    s.hands_in(100, false);
+    let call = s.kept().records.called.last().expect("the build's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the request".to_string(),
+    });
+    let (again, cell) = s.round();
+    assert_eq!(cell, "build");
+    assert_ne!(again, build);
+    assert_eq!(s.engineer(again, 1), (1, false));
+    assert_eq!(s.sessions().len(), 1);
+}
+
 #[test]
 fn a_flagged_round_of_a_store_kept_before_sessions_were_recorded_has_its_line_begin_a_new_session_as_it_opens() {
     let mut s = S::new();
@@ -743,6 +778,83 @@ fn a_line_whose_rounds_now_run_on_another_model_begins_a_new_session_as_the_engi
     s.model = "sonnet".to_string();
     s.hands_in(100, false);
     assert_eq!(s.sessions().len(), 1);
+}
+
+/// The policy where every round runs on one model, whose carriers say, each time they are asked of a line and of the
+/// session of it the line's next round runs in, what `changed` says: whether a new session of the line would begin with
+/// another system prompt or form of return than that session began with.
+fn kept_against(changed: impl Fn(&str, u32) -> bool + Send + 'static) -> Policy {
+    Policy {
+        changed: Some(Box::new(move |_, _, _, cell, session| {
+            changed(cell.line.as_deref().unwrap_or_default(), session)
+        })),
+        ..policy("opus")
+    }
+}
+
+/// The words the flow's session block gives for a new session of the engineer's line begun for this reason.
+const CHANGED: &str = "A new session of the line `engineer`: the rules or the form of return its agents are given \
+                       changed since it began.";
+
+// What a new session of the engineer's line would begin with comes to differ from what its session began with while a
+// round of the line is under way, as a change of the project's files in the worktree makes it: the line begins a new
+// session at once, recorded with the context of the session it leaves as its latest round that ended told it, and its
+// block is written in the flow's words; the round under way goes on in the session it began in, the loading cell runs
+// first after it in the new session, and the new session, begun with what a new one begins with, begins no other. Runs
+// in memory in milliseconds; the one test of the record and the block of this reason.
+#[test]
+fn a_line_whose_session_began_otherwise_than_a_new_one_would_now_begins_one_recorded_with_the_context_it_left() {
+    let changed = Arc::new(AtomicBool::new(false));
+    let since = changed.clone();
+    let policy = kept_against(move |line, session| line == "engineer" && session == 0 && since.load(SeqCst));
+    let mut s = S::with(policy, None);
+    s.hands_in(1234, true);
+    let (build, cell) = s.round();
+    assert_eq!(cell, "build");
+    assert!(s.sessions().is_empty(), "nothing changed yet: {:?}", s.sessions());
+    changed.store(true, SeqCst);
+    s.began();
+    let why = Why::Changed { context: Some(1234) };
+    assert_eq!(s.sessions(), [("engineer".to_string(), why)]);
+    assert_eq!(s.session_block(), [CHANGED]);
+    assert_eq!(
+        s.engineer(build, 1),
+        (0, false),
+        "the round under way goes on in its session"
+    );
+    s.hands_in(100, true);
+    let (load, cell) = s.round();
+    assert_eq!(cell, "load", "the loading cell runs first in the new session");
+    assert_eq!(s.engineer(load, 1), (1, true));
+    s.hands_in(100, false);
+    assert_eq!(s.round().1, "review");
+    assert_eq!(s.sessions().len(), 1, "the new session begins no other");
+    assert_eq!((runs(&s, "load"), runs(&s, "build")), (2, 1));
+}
+
+// A line whose session began with what a new one would begin with now goes on in it: the carriers are asked of each
+// line, of the session its next round runs in, and say no. Runs in memory in milliseconds; beside the test of a session
+// that began otherwise, it shows that the new session comes from the carriers' answer, and not from their being asked.
+#[test]
+fn a_line_whose_session_began_with_what_a_new_one_would_begin_with_now_goes_on_in_it() {
+    let asked: Arc<Mutex<Vec<(String, u32)>>> = Arc::default();
+    let record = asked.clone();
+    let policy = kept_against(move |line, session| {
+        record.lock().expect("the asks").push((line.to_string(), session));
+        false
+    });
+    let mut s = S::with(policy, None);
+    // What the earlier work of the harness was asked is left out: only this work's rounds are looked at.
+    asked.lock().expect("the asks").clear();
+    s.hands_in(100, true);
+    s.hands_in(100, true);
+    assert_eq!(s.round().1, "review");
+    assert!(s.sessions().is_empty(), "{:?}", s.sessions());
+    assert!(s.session_block().is_empty());
+    let asked = asked.lock().expect("the asks");
+    for line in ["engineer", "review"] {
+        assert!(asked.contains(&(line.to_string(), 0)), "{line}: {asked:?}");
+    }
 }
 
 // A line goes on in its session under another account: the session lives in the one directory of the agents' program,
@@ -1018,6 +1130,7 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
     // Level 1 runs on opus, which the service does not have; level 2 on sonnet.
     let by_level = Policy {
         samples: 1,
+        changed: None,
         warm: None,
         model: Box::new(|item, _| {
             let model = if item.level.as_deref() == Some("2") {
@@ -1165,6 +1278,7 @@ fn kept_warm_on(s: &S, policy: &Policy) -> Vec<driver::warm::Kept> {
     let warm = s.driver.keeping_warm();
     driver::warm::kept(
         held.flow,
+        s.work,
         held.work,
         held.item,
         policy,
@@ -1268,6 +1382,7 @@ fn a_ping_that_failed_is_tried_again_a_minute_after_and_none_past_the_caches_lif
     let accounts = s.driver.accounts();
     let late = driver::warm::due(
         held.flow,
+        s.work,
         held.work,
         held.item,
         &warm("opus"),
@@ -1294,6 +1409,24 @@ fn a_session_a_ping_compacted_counts_as_reopened() {
         .happened(Time(s.clock), s.work, pinged(compacted, None))
         .unwrap();
     assert_eq!(s.sessions(), [("engineer".to_string(), Why::Compacted)]);
+}
+
+// A line whose session began otherwise than a new one would begin now is not kept warm: its next round begins a new
+// session, which holds nothing of this one. Runs in memory in milliseconds; the one test that keeping a session warm
+// asks what it began with, as it asks what model it ran on.
+#[test]
+fn a_line_whose_session_began_otherwise_than_a_new_one_would_now_is_not_kept_warm() {
+    let (s, _) = waiting(warm("opus"));
+    assert_eq!(
+        kept_warm(&s).len(),
+        1,
+        "its session is kept warm while it began with what a new one would"
+    );
+    let changed = Policy {
+        changed: Some(Box::new(|_, _, _, _, _| true)),
+        ..warm("opus")
+    };
+    assert!(kept_warm_on(&s, &changed).is_empty());
 }
 
 /// The round under way says what its calls came to: its first call read this from the cache, on this model.
