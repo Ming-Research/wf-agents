@@ -634,7 +634,8 @@ impl Reading<'_> {
                 continue;
             }
             // The calls with no result yet: a call for a person, the owner or the architect is waited for; one the
-            // engine makes itself is not, the work moves on as the engine makes it.
+            // engine makes itself is not, the work moves on as the engine makes it. What the preconditions that do
+            // not hold make of the work counts beside them: a person's word still to come is waited for.
             let calls = |open: Vec<&Called>| {
                 if open.is_empty() {
                     None
@@ -643,6 +644,15 @@ impl Reading<'_> {
                 } else {
                     Some(Rest::Moving { at: cell.id.clone() })
                 }
+            };
+            let with_gate = |calls: Option<Rest>, gate: Option<Rest>| match (calls, gate) {
+                (None, gate) => gate,
+                (calls, None) => calls,
+                (Some(calls), Some(gate)) => Some(if matches!(gate, Rest::Waiting { .. }) {
+                    gate
+                } else {
+                    calls
+                }),
             };
             let owed = self.owed(&cell.id, now);
             let owed_open = calls(
@@ -654,27 +664,20 @@ impl Reading<'_> {
                 let open = (records.called.iter())
                     .filter(|c| c.run == run.run && !self.done(c.call, now))
                     .collect();
-                if let Some(rest) = calls(open) {
-                    return rest;
-                }
-                return self
-                    .gate(flow, i, owed_open)
-                    .unwrap_or(Rest::Moving { at: cell.id.clone() });
+                return with_gate(calls(open), self.gate(flow, i)).unwrap_or(Rest::Moving { at: cell.id.clone() });
             }
             let reasons = self.entering(flow, cell, now);
-            if reasons.is_empty()
-                && let Some(rest) = owed_open.clone()
-            {
-                return rest;
-            }
-            if reasons.is_empty() && self.held(&cell.id, now) {
-                return waiting();
-            }
-            if let Some(rest) = self.gate(flow, i, owed_open) {
-                return rest;
-            }
             if reasons.is_empty() {
+                if self.held(&cell.id, now) {
+                    return waiting();
+                }
+                if let Some(rest) = with_gate(owed_open, self.gate(flow, i)) {
+                    return rest;
+                }
                 continue;
+            }
+            if let Some(gate) = self.gate(flow, i) {
+                return with_gate(owed_open, Some(gate)).unwrap_or(Rest::Moving { at: cell.id.clone() });
             }
             return if self.at_limit(flow, i, &reasons) {
                 waiting()
@@ -689,10 +692,9 @@ impl Reading<'_> {
     }
 
     /// What the cell at place `i`'s preconditions that do not hold make of the work: none where they all hold;
-    /// waiting, where a call it is owed has no result or where a block that keeps one from holding is written by a
-    /// person, the owner or a source outside the work, or each cell that writes it said that what it wrote waits for
-    /// one; else stalled on those keys.
-    fn gate(&self, flow: &Flow, i: usize, owed_open: Option<Rest>) -> Option<Rest> {
+    /// waiting, where a block that keeps one from holding is written by a person, the owner or a source outside the
+    /// work, or each cell that writes it said that what it wrote waits for one; else stalled on those keys.
+    fn gate(&self, flow: &Flow, i: usize) -> Option<Rest> {
         let cell = &flow.cells()[i];
         let mut stalled = Vec::new();
         let mut waiting = false;
@@ -722,9 +724,6 @@ impl Reading<'_> {
         }
         if stalled.is_empty() {
             return None;
-        }
-        if let Some(rest) = owed_open {
-            return Some(rest);
         }
         if waiting {
             return Some(Rest::Waiting { at: cell.id.clone() });
@@ -767,7 +766,7 @@ impl Reading<'_> {
                 let reads = test.reads.iter();
                 match test.kind {
                     TestKind::All => reads.filter(|b| !has(b)).collect(),
-                    TestKind::Any | TestKind::AnyContent if test.reads.iter().any(|b| has(b)) => Vec::new(),
+                    TestKind::Any | TestKind::AnyContent if test.reads.iter().any(&has) => Vec::new(),
                     TestKind::Any | TestKind::AnyContent => reads.collect(),
                     TestKind::None | TestKind::NoneStanding => reads.filter(|b| has(b)).collect(),
                 }
