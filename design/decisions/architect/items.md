@@ -25,12 +25,13 @@ Items not yet begun are joined so that no item too small wastes a run, but only 
 - rejected: an agent proposed counting changes of the same code as one work and as related; the owner rejected it, because that contradicted the rule that a dependency is a matter of logic and not of code.
 
 ### decision every-merge-is-an-item
-Every piece of work that ends in a merge is an item and waits nowhere else, and work seen outside the items, such as an open pull request, is given an item that continues it.
+Every piece of work that ends in a merge or in a conclusion is an item and waits nowhere else, and work seen outside the items, such as an open pull request, is given an item that continues it.
 - rejected: an agent proposed saying that pull requests the owner and the assistant work on by hand do not count as work outside the items; the owner rejected it, because that will not keep happening, and the architect can say so when it comes across one.
 
 ### decision a-step-that-merges-nothing-is-no-item
-A step that makes no merge is not an item but the owner's to do, written in the item it follows, and what becomes neither an item nor an observation is written down, never just deleted.
+A step that makes neither a merge nor a conclusion is not an item but the owner's to do, written in the item it follows; what becomes neither item nor observation is written down, never just deleted.
 - rejected: an agent proposed making such steps into items sent to an engineer; the owner rejected it, because they have nothing to merge, the system has no way to know they are done, and they are the owner's to do.
+- replaced: A step that makes no merge is not an item, a study included, was on main; the owner changed it, because a study that hands in a conclusion ends in the system, which knows it is done and lets the items made from it depend on it.
 
 ### decision an-observation-becomes-an-item-where-a-delivery-needs-it
 An observation that no item can take in becomes an item, under the root it serves, when what is being delivered now needs it; otherwise it stays an observation.

@@ -180,6 +180,7 @@ fn what_the_engine_writes_as_it_works_is_read_alone_as_read_reads_it() {
     assert_eq!(writes.commits, read.commits);
     assert_eq!(writes.acts.start.text, read.acts.start.text);
     assert_eq!(writes.acts.deliver.between, read.acts.deliver.between);
+    assert_eq!(writes.acts.conclude.text, read.acts.conclude.text);
 }
 
 #[test]

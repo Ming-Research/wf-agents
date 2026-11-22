@@ -15,13 +15,14 @@ Every agent cell names its reasoning effort in the flow's definition, none of th
 - replaced: Searching and judging cells on the cheapest model at the lowest effort was on main; the owner changed it, because the cheapest model at the lowest effort judges too poorly.
 
 ### decision the-research-and-the-code-reviews-think-high
-The initial research and the reviews of the change run at the effort high; the implementation, the deep research and the plan's reviews run at xhigh.
+The initial research and the reviews of the change run at the effort high; the implementation, the deep research, the study and the plan's reviews run at xhigh.
 - replaced: Running the initial research and the reviews of the change at xhigh was on main; the owner changed it, because high might take a third less time on a research that took 7 to 13 minutes, though that was not measured.
 
 ### decision the-deep-research-and-the-plan-review-run-above
-The deep research and the plan's reviews run one level above their item's, by their lines' `levels_above`, the code's reviews at the item's own, and nothing above the installation's highest for items.
+The deep research, the study and the plan's reviews run one level above their item's, by their lines' `levels_above`, the code's reviews at the item's own, nothing above the installation's highest.
 - replaced: Items at any level, the top one included, was on main; the owner changed it, because the top level's model is not much stronger than the one below it and costs far more.
 - rejected: an agent proposed running the review a level higher when the design tree changes; the owner rejected it, because the item's own level is enough until a trial of both shows that one level more helps.
 - replaced: Running the deep research at its item's level was on main; the owner changed it, because a weaker agent may fix the surface and stop, hiding a larger problem that no later step finds, and with few works going that deep the higher model costs little.
 - replaced: Raising the deep research one level even past the highest level an item may be at, onto the top level, was on main; the owner changed it, because the highest level is the limit for the whole installation.
+- rejected: an agent proposed running the study at its item's level, at the effort high as the initial research does; the owner rejected it, because a study with no review or deep research behind it decides how a deliverable is split, and a weaker agent may take the surface for the conclusion.
 - replaced: Running the plan review at its item's level was on main; the owner changed it, because engineers mostly do what a review says, so a review weaker than the plan it reviews turns good work bad; he held to this again once it ran on every work.

@@ -11,6 +11,7 @@ mod forking;
 mod items;
 mod observing;
 mod starting;
+mod studying;
 mod waiting;
 
 use std::io::{BufRead, BufReader, Read};

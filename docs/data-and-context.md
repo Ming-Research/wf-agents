@@ -309,3 +309,9 @@ new session lacks it.
 
     The flow of a deliverable item has one cell, V1 Deliver, which runs where the items it depends on have merged or
     were cancelled, watches `dependencies` and writes `delivered`.
+
+    The flow of a study has four cells: S1 Start and R0 as the engineer's, R1 Study, which watches `background` and its
+    questions and words, reads `tree` and must write `conclusion`, and C1 Conclude, an act of the engine's, which runs
+    where `conclusion` is new and no question stands unanswered, and writes `concluded`. It ends at C1, with nothing
+    merged: a run that asks a question its cell waits for counts as finished, so the cell that writes the conclusion
+    cannot be the last.

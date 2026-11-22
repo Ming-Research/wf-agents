@@ -176,7 +176,7 @@ fn researched(questions: Vec<Question>) -> (W, Vec<Effect>) {
 impl W {
     /// The latest version of the question, by its number among the versions of its cell's questions, as the owner
     /// answers it.
-    fn version(&self, name: &str) -> u64 {
+    pub(super) fn version(&self, name: &str) -> u64 {
         let latest = (self.work.records.questions.iter())
             .filter(|q| q.name == name)
             .max_by_key(|q| q.at)
@@ -186,7 +186,7 @@ impl W {
     }
 
     /// The owner answers the version of the question of this number, taking the option.
-    fn answers(&mut self, name: &str, version: u64, option: u64) -> Vec<Effect> {
+    pub(super) fn answers(&mut self, name: &str, version: u64, option: u64) -> Vec<Effect> {
         self.on(Event::Answer {
             question: name.to_string(),
             version,

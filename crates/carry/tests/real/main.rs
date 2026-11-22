@@ -2,9 +2,10 @@
 //! a shell script that keeps what it was given and prints a return, in the form it is given, that deals with what its
 //! message says ran it and writes the outputs of the cell its message names. The flows are the trial flow
 //! (`crates/service/tests/trial/flow`), whose agents ask and judge, `flow` here, which has the acts of an engineer's
-//! work, and the deliver flow as the repository defines it (`flow/deliver`), whose one cell is the act that delivers a
-//! deliverable item; the build of each may ask for the tool `query`, which the tests answer themselves, and may ask the
-//! owner a question it waits for. What is written beside the flows is this repository's (`flow/`).
+//! work, the deliver flow as the repository defines it (`flow/deliver`), whose one cell is the act that delivers a
+//! deliverable item, and the study flow (`flow/study`), which ends with a conclusion; the build of each may ask for the
+//! tool `query`, which the tests answer themselves, and may ask the owner a question it waits for. What is written
+//! beside the flows is this repository's (`flow/`).
 //!
 //! The tests are kept in modules by subject, so that a new test goes into the module of what it tests.
 
@@ -23,6 +24,7 @@ mod protected;
 mod query;
 mod sessions;
 mod stopping;
+mod studying;
 mod testing;
 mod tree;
 mod uncommitted;
@@ -229,6 +231,8 @@ pub enum On {
     Acts,
     /// The deliver flow, whose one cell delivers the item once the items it is made of have merged.
     Deliver,
+    /// The study flow as the repository defines it (`flow/study`), which ends with a conclusion and merges nothing.
+    Study,
     /// The trial flow with a plan that loads the engineer's session (`loading` here).
     Loading,
     /// The trial flow with the engineer's line changing only the project's tests, and the work's head, which what a
@@ -334,6 +338,7 @@ fn compiled(on: On) -> Compiled {
         On::Trial | On::Testing => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
         On::Acts => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
         On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
+        On::Study => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/study"),
         On::Loading => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/loading"),
     };
     let mut source = flow::read(&dir).expect("the flow is read");
@@ -406,14 +411,17 @@ fn compiled(on: On) -> Compiled {
         sources: names(&[
             driver::DEPENDENCIES,
             driver::SESSION,
+            driver::START,
             carry::tree::TREE,
             carry::head::HEAD,
             flow::ANSWER,
             flow::WORDS,
+            "asked",
+            "handed_in",
             "main",
         ]),
-        acts: names(&["start", "check", "merge", "deliver"]),
-        tools: names(&["query"]),
+        acts: names(&["start", "check", "merge", "deliver", "conclude"]),
+        tools: names(&["query", "run_tests"]),
         ..Default::default()
     };
     flow::compile(&source, &has).expect("the flow compiles")
@@ -471,7 +479,7 @@ if [ '{fail}' = yes ] && [ "$n" = 1 ]; then
     exit 1
 fi
 text=$(awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin")
-first=$(printf '%s\n' "$text" | grep -m 1 -E '(^|"text":")# (Plan|Build|Review)$' | sed 's/^.*# //')
+first=$(printf '%s\n' "$text" | grep -m 1 -E '(^|"text":")# (Plan|Build|Review|Study)$' | sed 's/^.*# //')
 dealt=$(printf '%s\n' "$text" | sed -n '/^## Why you are run$/,$p' | sed -n 's/^- `\([^`]*\)`.*$/"\1"/p' | paste -sd, -)
 calls=''
 out=''
@@ -622,6 +630,8 @@ case "$first" in
             fi
         fi
         leaves ;;
+    Study)
+        out='"conclusion":"What was found, and the items to make."' ;;
     Review)
         if [ '{review_leaves}' = yes ]; then
             echo "$n" >> greeting.txt
