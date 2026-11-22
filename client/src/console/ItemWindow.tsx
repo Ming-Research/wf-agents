@@ -479,12 +479,20 @@ function ItemView({
     box.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     box.current?.focus({ preventScroll: true });
   }, [discussed]);
-  // The stops the window draws, as they stand after each drawing, told to the page when they change.
+  // The stops the window draws, read again whenever what it draws changes, and told to the page when they change.
   const [stops, setStops] = useState<string[]>([]);
   useLayoutEffect(() => {
-    const keys = [...(inner.current?.querySelectorAll<HTMLElement>(STOP) ?? [])].map((c) => c.dataset.wait ?? '');
-    if (keys.join('\n') !== stops.join('\n')) setStops(keys);
-  });
+    const el = inner.current;
+    if (el === null) return;
+    const read = () => {
+      const keys = [...el.querySelectorAll<HTMLElement>(STOP)].map((c) => c.dataset.wait ?? '');
+      setStops((was) => (was.join('\n') === keys.join('\n') ? was : keys));
+    };
+    read();
+    const drawing = new MutationObserver(read);
+    drawing.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-wait'] });
+    return () => drawing.disconnect();
+  }, []);
   useEffect(() => onStops?.(stops.length), [stops, onStops]);
   const walk = useMemo(() => ({ keys: stops, next: onNextStop }), [stops, onNextStop]);
   // The stop the page asks for is brought to the top of what the window shows, on the tab that draws the body, once it
