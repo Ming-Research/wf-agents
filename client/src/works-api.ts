@@ -532,7 +532,8 @@ export interface Judged {
   time: Against | null;
 }
 
-/// A measure against the line of its history: millionths of a dollar for a cost, milliseconds for a time.
+/// A measure against the line of its history: millionths of a dollar for a cost, milliseconds for a time, bytes for a
+/// size.
 export interface Against {
   value: number;
   line: Line;
