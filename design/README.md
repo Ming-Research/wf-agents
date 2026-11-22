@@ -60,13 +60,17 @@ approach that was considered and not taken:
 A decision records a choice the owner made. These choices are the owner's:
 
 1. an approach that goes against what a decision says;
-2. two or more approaches that would each work, each researched properly or tested in an experiment, far enough to say
-   why each one not taken lost;
-3. a change to an important mechanism of the code that no decision covers.
+2. two or more approaches that would each work, where each gives up something the owner cares about, such as cost,
+   time, or what the owner sees or does, each looked into far enough to say why the others lost;
+3. a change that no decision covers to what the owner sees or does.
+
+The agent decides the rest itself and says why in its plan: what the item already asks, what a principle or a decision
+settles, or how to make the code correct.
 
 The approach taken becomes the first line, of the decision that covers it or of a new one. Every approach not taken
 becomes a line under it: `replaced` if it was on main, `rejected` if it was not. This holds whichever approach the
-owner takes. Something done with no other approach considered has no decision.
+owner takes. Something done with no other approach considered has no decision. Keeping things as they are, or an option
+that would not work, is not another approach.
 
 For case 2: an approach that is simply better, with nothing given up, is no choice of the owner's and leaves no line.
 But an approach an experiment showed to be better is always the owner's choice. An experiment measures every approach
