@@ -167,7 +167,8 @@ pub enum Return {
         /// The questions it asks, asks anew or withdraws, in the order it wrote them.
         questions: Vec<Asking>,
         /// The blocks of the work's branch the carrier read new as the round ended, as what the round committed: the
-        /// run writes each as it finishes, beside the blocks it writes itself.
+        /// run writes each as it finishes, beside the blocks it writes itself, unless the round asks for calls or its
+        /// cell still waits (see [`next`]).
         read: Vec<BlockId>,
         /// Why it says the work changes each file the project protects, by the file's path.
         protected: BTreeMap<String, String>,
@@ -690,8 +691,14 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             };
             let unmet = unmet(&came, requires);
             if unmet.is_empty() {
-                // What the round committed is the run's too, as the carrier read it of the branch.
+                // What the round committed is the run's too, as the carrier read it of the branch, once the cell's work
+                // is handed in: a return that asks for calls hands in none of it, nor does a round entered for the
+                // owner's words while its cell waits for the results of calls or for an answer. What it committed is
+                // read, with what the run commits after, by the round that ends the cell's work (decision
+                // a-version-read-at-a-rounds-end-is-that-rounds).
+                let hands_in_the_commit = taken.calls == 0 && !requires.told.waits;
                 let committed = (taken.read.iter())
+                    .filter(|_| hands_in_the_commit)
                     .filter(|block| !taken.writes.iter().any(|w| &w.block == *block))
                     .map(|block| Write {
                         block: block.clone(),

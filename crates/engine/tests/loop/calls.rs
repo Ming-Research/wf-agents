@@ -167,3 +167,40 @@ fn a_run_kept_resting_at_the_owners_word_at_the_old_limit_of_calls_makes_what_it
     assert_eq!(start_of(&w, again).0, because);
     let _ = request;
 }
+
+// What a round that asks for calls committed is not handed in with that return: no cell that watches it is run for it
+// while the results are out, and the run entered for the results reads it with what that run commits and hands it in
+// (decision a-version-read-at-a-rounds-end-is-that-rounds). Here the writer's commit is the text the judge
+// watches.
+#[test]
+fn what_a_round_that_asks_for_calls_committed_is_handed_in_by_the_run_entered_for_the_results() {
+    let (mut w, write, _) = W::requested();
+    let committed = Came {
+        read: vec![handed("text", None)],
+        ..Came::asks(vec![tool("run_tests")])
+    };
+    let effects = w.returns(write, committed);
+    let calls: Vec<CallId> = calls_of(&effects).iter().map(|(c, ..)| *c).collect();
+    let finished = w.work.records.finished.last().expect("the run finished");
+    assert_eq!((finished.run, finished.writes.clone()), (write, vec![]));
+    assert_eq!(
+        w.work.records.started.len(),
+        1,
+        "the judge is not run for what the writer committed"
+    );
+    // The results are in: the writer is entered for them, and still the judge has nothing new.
+    let effects = w.done(calls[0]);
+    let (again, cell, ..) = round(&effects);
+    assert_eq!(cell, "write");
+    assert_eq!(w.work.records.started.len(), 2);
+    // The run entered for the results reads the commit, and hands it in as it finishes.
+    let commits = Came {
+        read: vec![handed("text", None)],
+        ..Came::hands_in(vec![])
+    };
+    let effects = w.returns(again, commits);
+    assert_eq!(round(&effects).1, "judge");
+    let finished = w.work.records.finished.last().expect("the run finished");
+    assert_eq!((finished.run, finished.writes.len()), (again, 1));
+    assert_eq!(finished.writes[0].block, BlockId::from("text"));
+}

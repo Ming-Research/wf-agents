@@ -2,11 +2,14 @@
 //! and the work's head (`crate::head`), each the block of its source, read at the work's branch and not at what its
 //! worktree has checked out. A version is written only where what is read differs from the latest. The step is taken
 //! as the branch takes main in for a run, at the end of each round of the work, by the check before it judges and by
-//! the merge before it merges (decision a-version-read-at-a-rounds-end-is-that-rounds): read at the end of an agent's round on a line that may
-//! change the work, a version is what the round committed, which its run hands in; read anywhere else, it is no round's
-//! doing and is written from outside, put into the round where the round's own act read it, as taking main in. A round
-//! that failed hands in nothing: what it committed is read at the end of the round that takes it up. A new version of
-//! the head is kept under a reference of the engine's own as it is read (`crate::head::keep`).
+//! the merge before it merges (decision a-version-read-at-a-rounds-end-is-that-rounds): read at the end of an agent's
+//! round on a line that may change the work, a version is what the round committed, which its run hands in; read
+//! anywhere else, it is no round's doing and is written from outside, put into the round where the round's own act
+//! read it, as taking main in. A round that failed hands in nothing: what it committed is read at the end of the round that takes it up. A new version of
+//! the head is kept under a reference of the engine's own as it is read (`crate::head::keep`). A round that asks for
+//! calls hands in none of what it committed, so a head committed by a round whose cell still waits for the results of
+//! its calls is not yet handed in: a read that would write it from outside leaves the head alone then (decision
+//! a-version-read-at-a-rounds-end-is-that-rounds).
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -75,6 +78,9 @@ struct Kept {
 pub(crate) struct Looking {
     reading: Reading,
     kept: Vec<Kept>,
+    /// Whether a cell that may change the work waits for the results of calls its round asked for: what it committed
+    /// is its run's to hand in, and no read that writes from outside reads the work's head meanwhile.
+    awaiting: bool,
 }
 
 impl Looking {
@@ -94,15 +100,29 @@ impl Looking {
                 })
             })
             .collect();
-        Looking { reading, kept }
+        let awaiting = (decide::owed(&flow.flow, &work.records).keys())
+            .any(|cell| flow.cells.iter().any(|c| &c.id == cell && !c.reads_only));
+        Looking {
+            reading,
+            kept,
+            awaiting,
+        }
     }
 
     /// Reads the work's branch, and gives each block of which it makes a new version with that version's content; the
     /// latest of each is then what was read. Where one cannot be read, none is taken, and the next look is made against
     /// the last versions there are, so that what this one missed is found by it.
     pub(crate) async fn read(&mut self, place: &Place) -> Result<Vec<(BlockId, String)>, String> {
+        self.read_of(place, false).await
+    }
+
+    /// Reads the branch as [`Self::read`] does, but for the work's head where `but_the_head`.
+    async fn read_of(&mut self, place: &Place, but_the_head: bool) -> Result<Vec<(BlockId, String)>, String> {
         let mut new = Vec::new();
         for kept in &self.kept {
+            if but_the_head && kept.datum == Datum::Head {
+                continue;
+            }
             if let Some(content) = kept.datum.read(place, &self.reading, kept.last.as_deref()).await? {
                 // A new head is kept as it is read, so that what the work committed outlives its branch.
                 if kept.datum == Datum::Head {
@@ -136,9 +156,10 @@ impl Looking {
 
     /// Reads the branch, and says each new version to the loop as written from outside while the round is under way:
     /// put into the round where `for_round`, as what the round's own act read, as it took main in. A read that fails is
-    /// said on the standard error and makes no version.
+    /// said on the standard error and makes no version. While a cell that may change the work waits for the results of
+    /// its calls, the work's head is left as it is: what the branch holds beyond it is that cell's, not the outside's.
     pub(crate) async fn tell(&mut self, place: &Place, teller: &Teller, for_round: bool) {
-        match self.read(place).await {
+        match self.read_of(place, self.awaiting).await {
             Ok(new) => {
                 for (block, content) in new {
                     if for_round {
@@ -177,6 +198,7 @@ impl Looking {
         Looking {
             reading,
             kept: Vec::new(),
+            awaiting: false,
         }
     }
 
@@ -189,7 +211,11 @@ impl Looking {
             datum: Datum::Head,
             last: last.map(str::to_string),
         }];
-        Looking { reading, kept }
+        Looking {
+            reading,
+            kept,
+            awaiting: false,
+        }
     }
 
     /// What the latest version of the work's head says, as the last read left it: the work's head where a read since

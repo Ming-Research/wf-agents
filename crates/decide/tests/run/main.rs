@@ -5,6 +5,7 @@
 
 mod answers;
 mod calls;
+mod committing;
 mod completing;
 mod failing;
 mod handing_in;

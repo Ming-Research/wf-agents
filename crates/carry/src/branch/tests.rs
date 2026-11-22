@@ -4,7 +4,9 @@
 
 use std::path::Path;
 
-use decide::{BlockId, Outsider, RunId, Seq, Written};
+use decide::{
+    BlockId, CallId, Called, Cause, Finished, Outsider, Records, Returned, Round, RunId, Seq, Started, Written,
+};
 use store::WorkNumber;
 
 use super::*;
@@ -15,7 +17,13 @@ const WORK: WorkNumber = WorkNumber(1);
 
 /// A flow of one cell, given the design tree and the work's head and run by a request.
 fn reading_the_branch() -> Compiled {
-    let flow = r#"
+    reading_the_branch_on("[lines.engineer]")
+}
+
+/// The same flow, its cell's line declared as this.
+fn reading_the_branch_on(line: &str) -> Compiled {
+    let flow = format!(
+        r#"
 name = "tiny"
 order = ["read"]
 
@@ -24,7 +32,7 @@ runs = 10
 returns = 10
 calls = 10
 
-[lines.engineer]
+{line}
 
 [blocks.tree]
 outside = "tree"
@@ -34,7 +42,8 @@ outside = "head"
 
 [blocks.request]
 people = true
-"#;
+"#
+    );
     let cell = r#"
 title = "Read"
 kind = "agent"
@@ -51,7 +60,7 @@ tree = "last_and_latest"
 head = "last_and_latest"
 "#;
     let source = flow::Source {
-        flow: flow.to_string(),
+        flow,
         cells: [("read".to_string(), cell.to_string())].into_iter().collect(),
         ..Default::default()
     };
@@ -217,4 +226,93 @@ async fn a_round_is_given_what_changed_from_each_earlier_version_of_the_tree_and
 fn each_datum_of_the_branch_is_compared_by_the_engine_itself() {
     let expected = [BlockId::from("head"), BlockId::from("tree")];
     assert_eq!(compared(&reading_the_branch()), expected.into_iter().collect());
+}
+
+/// The records of a work whose one cell, `read`, has a run that asked for a call, 7, as its round ended; the call has
+/// no result. With `entered`, the cell was entered again for the result, and that run finished asking for no call.
+fn asked_for_a_call(entered: bool) -> Work {
+    let (run, call) = (RunId(1), CallId(7));
+    let mut records = Records::default();
+    records.started.push(Started {
+        run,
+        cell: "read".into(),
+        at: Seq(1),
+        because: Vec::new(),
+        basis: Default::default(),
+    });
+    records.rounds.push(Round { run, at: Seq(2) });
+    records.returned.push(Returned { run, at: Seq(3) });
+    records.called.push(Called {
+        call,
+        run,
+        on: None,
+        at: Seq(4),
+    });
+    records.finished.push(Finished {
+        run,
+        at: Seq(5),
+        writes: Vec::new(),
+        dealt_with: Some(Vec::new()),
+        waits_for: None,
+    });
+    if entered {
+        let run = RunId(2);
+        records.done.push(decide::Done { call, at: Seq(6) });
+        records.started.push(Started {
+            run,
+            cell: "read".into(),
+            at: Seq(7),
+            because: vec![Cause::Results { calls: vec![call] }],
+            basis: Default::default(),
+        });
+        records.rounds.push(Round { run, at: Seq(8) });
+        records.returned.push(Returned { run, at: Seq(9) });
+        records.finished.push(Finished {
+            run,
+            at: Seq(10),
+            writes: Vec::new(),
+            dealt_with: Some(vec!["request".into()]),
+            waits_for: None,
+        });
+    }
+    Work {
+        records,
+        ..Work::default()
+    }
+}
+
+// What the branch holds beyond the head the records say, while the cell that may change the work waits for the results
+// of the calls its round asked for, is its commit, which its run hands in: a read that writes from outside leaves the
+// head alone then and reads the rest, and the read that hands in reads the head (decision
+// a-version-read-at-a-rounds-end-is-that-rounds).
+#[tokio::test]
+async fn a_read_that_writes_from_outside_leaves_the_head_while_the_cell_that_committed_waits_for_its_calls() {
+    let (_repo, place) = started().await;
+    let committed = write(&place.dir, "design/a.md", "One.\n");
+    let mut looking = Looking::of(&reading_the_branch(), &asked_for_a_call(false), reading());
+    assert!(looking.awaiting);
+    let new = looking.read_of(&place, looking.awaiting).await.unwrap();
+    assert_eq!(blocks(&new), ["tree"], "the head is left for the run that hands it in");
+    assert_eq!(looking.head(), None);
+    let handed = looking.read(&place).await.unwrap();
+    assert_eq!(handed, [(BlockId::from("head"), committed)]);
+}
+
+#[tokio::test]
+async fn a_read_that_writes_from_outside_reads_the_head_once_the_results_are_handed_back_and_the_cell_has_finished() {
+    let (_repo, place) = started().await;
+    let committed = write(&place.dir, "design/a.md", "One.\n");
+    let mut looking = Looking::of(&reading_the_branch(), &asked_for_a_call(true), reading());
+    assert!(!looking.awaiting);
+    let new = looking.read_of(&place, looking.awaiting).await.unwrap();
+    assert_eq!(blocks(&new), ["head", "tree"]);
+    assert_eq!(looking.head(), Some(committed.as_str()));
+}
+
+// A cell on a line that only reads commits nothing, so what its calls leave open holds no head back.
+#[tokio::test]
+async fn a_cell_that_only_reads_holds_no_head_back_while_it_waits_for_its_calls() {
+    let reading_only = reading_the_branch_on("[lines.engineer]\nreads_only = true");
+    let looking = Looking::of(&reading_only, &asked_for_a_call(false), reading());
+    assert!(!looking.awaiting);
 }

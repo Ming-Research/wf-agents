@@ -202,8 +202,9 @@ fn read_head(d: &Driver, roles: &Roles, branch: Branch) -> Option<(BlockId, Stri
 }
 
 /// What the carriers read of the work's head as the round of the cell at this place ends: an agent's round on a line
-/// that may change the work hands it in with its return; one on a line that only reads, and the start, write it from
-/// outside first. The check reads it as it judges ([`gate`]).
+/// that may change the work hands it in with its return, which the run takes up only where the return asks for no call;
+/// one on a line that only reads, and the start, write it from outside first, but not while a cell that may change the
+/// work waits for the results of calls. The check reads it as it judges ([`gate`]).
 fn round_end(d: &mut Driver, roles: &Roles, branch: Branch, i: usize, came: &mut Came) {
     let Some((block, content)) = read_head(d, roles, branch) else {
         return;
@@ -219,6 +220,12 @@ fn round_end(d: &mut Driver, roles: &Roles, branch: Branch, i: usize, came: &mut
             value: None,
         }];
     } else if agent || start {
+        let waiting = decide::owed(&d.flow.flow, &d.work.records)
+            .keys()
+            .any(|cell| d.flow.cells.iter().any(|c| &c.id == cell && !c.reads_only));
+        if waiting {
+            return;
+        }
         let event = Event::Wrote {
             block,
             by: Outsider::Outside,

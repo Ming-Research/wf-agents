@@ -80,8 +80,10 @@
 //! nothing is taken in again for the run. The branch's data, its design tree and the work's head, are read after that,
 //! in the round that took main in, and after the round's program ended, where they may have changed
 //! ([`branch`](crate::branch)): what is read as main is taken in is the outside's, put into the round; what is read as
-//! the round ends is what it committed, handed in with its return, where its line may change the work, and the
-//! outside's where it only reads.
+//! the round ends is what it committed, handed in with its return, where its line may change the work and the return
+//! does the cell's work (a round that asks for calls hands in none of it, and its commit is read by the round that ends
+//! the cell's work), and the outside's where it only reads, but for the head while a cell that may change the work
+//! waits for the results of calls.
 //!
 //! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, at the
 //! effort its cell sets, under the account it was handed out with (`Settings::ran_on`); a round whose item's level the
@@ -742,8 +744,10 @@ impl Inner {
                 ran
             }
         };
-        // What the round committed is handed in with its return, where its line may change the work; a change found at
-        // the end of a round that only reads is none of its own, and the outside's. A round that fails hands in
+        // What the round committed is handed in with its return, where its line may change the work and the return does
+        // the cell's work: the run decides that as it takes the return ([`decide::run::next`]), the head being read
+        // here whatever the return asks for, since the check of a line that changes only tests reads it. A change found
+        // at the end of a round that only reads is none of its own, and the outside's. A round that fails hands in
         // nothing: what it committed is read at the end of the round that takes it up. The version of the work's head
         // the run began on is the latest the records keep, what an earlier round of the run committed being handed in
         // by none.

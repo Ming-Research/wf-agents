@@ -55,7 +55,12 @@ the owner's pauses, when a work is at its end.
 9. What the round hands in becomes new versions of the cell's outputs. They are new to the other cells that watch them,
    and not to the cell that wrote them. A round that hands in nothing new makes nothing new, and no cell runs because
    of it. The same holds for a version its writer hands in as changing nothing in meaning: it is kept, and is new to
-   no cell. A change stops there.
+   no cell, and for a text that holds nothing, where none was written before it or the one before holds nothing, and
+   always for an entry added to a record of entries, as the owner's words are (decision meaning-told-by-the-writer). A
+   change stops there. What a round committed to the work's branch is handed in by the round that ends its cell's work:
+   a return that asks for calls, or a round entered for the owner's words while the cell waits for results, hands in
+   none of it, so that no cell runs on a branch whose work is not finished (decision
+   a-version-read-at-a-rounds-end-is-that-rounds).
 
 10. Between two rounds of a cell a datum it watches may have gone on by several versions: two cells before it went back
     and forth, or people wrote more than once. What a cell last worked from is therefore the version it consumed, which
