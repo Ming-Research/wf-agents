@@ -103,7 +103,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use decide::run::{Failure, Unmet};
-use decide::{BlockId, Pauser, RunId, Seq};
+use decide::{BlockId, CellId, Pauser, RunId, Seq};
 use driver::Policy;
 use engine::Came;
 use service::{
@@ -1338,8 +1338,11 @@ impl Inner {
         let Ok(_one) = lock.try_lock() else {
             return Err(failed(said.under_way.clone()));
         };
+        // A work that waits is on the version installed, whose flow places its cells.
+        let line_of = |cell: &CellId| (flow.cells.iter().find(|c| c.id == *cell)).and_then(|c| c.line.clone());
+        let reads_only = flow.lines.get(line).is_some_and(|l| l.reads_only);
         let made = self
-            .session_line(flow, work, ping.work, line, ping.session, of)
+            .session_line(&line_of, reads_only, work, ping.work, line, ping.session, of)
             .map_err(|no| match no {
                 NoLine::Round => failed(fill(&said.no_round, &[("line", line)])),
                 NoLine::System(why) => failed(fill(&said.no_system, &[("why", &why)])),
@@ -1455,10 +1458,13 @@ enum NoLine {
 }
 
 impl Inner {
-    /// The command line of the session of this number of the line in the work, as [`SessionLine`] says.
+    /// The command line of the session of this number of the line in the work, as [`SessionLine`] says: the line of
+    /// each run's cell as `line_of` tells it, of the version the work is on, and whether the line's agents only read.
+    #[allow(clippy::too_many_arguments)]
     fn session_line(
         &self,
-        flow: &flow::Compiled,
+        line_of: &dyn Fn(&CellId) -> Option<String>,
+        reads_only: bool,
         work: &Work,
         number: WorkNumber,
         line: &str,
@@ -1466,17 +1472,15 @@ impl Inner {
         of: &Of,
     ) -> Result<SessionLine, NoLine> {
         let session = session::session(self.installation, number, line, of_session);
-        let spec = |run: RunId| {
+        let line_of_run = |run: RunId| {
             let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
-            cell.and_then(|cell| flow.cells.iter().find(|c| c.id == *cell))
+            cell.and_then(line_of)
         };
         let in_session = |r: &&work::Ran| {
             let at = work::sessions::start(work, r.run, r.round);
-            spec(r.run).and_then(|c| c.line.as_deref()) == Some(line)
-                && work::sessions::number_at(work, line, at) == of_session
+            line_of_run(r.run).as_deref() == Some(line) && work::sessions::number_at(work, line, at) == of_session
         };
         let last = (work.ran.iter().rev()).find(in_session).ok_or(NoLine::Round)?;
-        let cell = spec(last.run).ok_or(NoLine::Round)?;
         let began = |what| {
             let at = system::kept_at(&self.data, session, what);
             std::fs::read_to_string(&at)
@@ -1491,7 +1495,7 @@ impl Inner {
             on: last.on.clone(),
             system: began(system::Begun::System)?,
             form: began(system::Begun::Form)?,
-            permissions: Permissions::of(cell.reads_only, args, &refused, added),
+            permissions: Permissions::of(reads_only, args, &refused, added),
         })
     }
 
@@ -1503,7 +1507,7 @@ impl Inner {
     /// its hooks' files are its own and taken away after.
     async fn fork(&self, fork: &Fork) -> Result<Forked, String> {
         let of = crate::projects::of(&self.projects, &fork.item)?;
-        let (flow, work) = (&*fork.flow, &*fork.kept);
+        let (outline, work) = (&*fork.outline, &*fork.kept);
         let Ok(one) = self.lock(fork.work).try_lock_owned() else {
             return Err(format!(
                 "A round of work {} is under way: ask the fork once it has ended.",
@@ -1512,14 +1516,17 @@ impl Inner {
         };
         // Held until the fork has ended, and what it stood in is taken away.
         let mut holding = Some(one);
+        // The work's rounds are placed in their sessions as the version it is on has its cells, whichever is installed.
+        let line_of = |cell: &CellId| outline.cell(cell).and_then(|c| c.line.clone());
         let started = (work.records.started.iter()).find(|s| s.run == fork.run);
-        let cell = started.and_then(|s| flow.cells.iter().find(|c| c.id == s.cell));
-        let line = cell
-            .and_then(|c| c.line.clone())
-            .ok_or("The round's cell runs in no session.")?;
+        let line = (started.and_then(|s| line_of(&s.cell))).ok_or("The round's cell runs in no session.")?;
+        let reads_only = (outline.lines.iter())
+            .find(|l| l.name == line)
+            .and_then(|l| l.reads_only)
+            .ok_or("The version of the flow the work is on does not say whether the line's agents only read.")?;
         let of_session = work::sessions::number_at(work, &line, work::sessions::start(work, fork.run, fork.round));
         let made = self
-            .session_line(flow, work, fork.work, &line, of_session, of)
+            .session_line(&line_of, reads_only, work, fork.work, &line, of_session, of)
             .map_err(|no| match no {
                 NoLine::Round => "No round of the session ran.".to_string(),
                 NoLine::System(why) => format!("What the session began with was not kept: {why}."),
@@ -1531,8 +1538,8 @@ impl Inner {
             let at = work::sessions::start(work, r.run, r.round);
             let of_line = (work.records.started.iter())
                 .find(|s| s.run == r.run)
-                .and_then(|s| flow.cells.iter().find(|c| c.id == s.cell))
-                .is_some_and(|c| c.line.as_deref() == Some(line.as_str()));
+                .and_then(|s| line_of(&s.cell))
+                .is_some_and(|of| of == line);
             let same = of_line && work::sessions::number_at(work, &line, at) == of_session;
             if same && at > asked_at && !later.contains(&(r.run, r.round)) {
                 later.push((r.run, r.round));
@@ -1737,7 +1744,7 @@ impl Inner {
             .envs(cli::environment(agents, &profile, std::env::vars(), token))
             .current_dir(dir);
         // The program counts a session it goes on with from all it cost, whatever message the fork begins at.
-        let before = session_cost(&fork.flow, &fork.kept, line, of_session);
+        let before = session_cost(&line_of, &fork.kept, line, of_session);
         let mut stream = cli::Stream::default();
         let mut lines = Vec::new();
         let mut each = |line: &[u8]| {
@@ -1852,11 +1859,10 @@ async fn removed(project: &Project, place: &git::Place, work: WorkNumber) {
 
 /// What the line's session of this number cost before now, in millionths of a dollar: its rounds and its keep-warm
 /// pings, which the program's result counts in the session's total.
-fn session_cost(flow: &flow::Compiled, work: &Work, line: &str, of_session: u32) -> u64 {
+fn session_cost(line_of: &dyn Fn(&CellId) -> Option<String>, work: &Work, line: &str, of_session: u32) -> u64 {
     let on_line = |run: RunId| {
         let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
-        let spec = cell.and_then(|cell| flow.cells.iter().find(|c| c.id == *cell));
-        spec.and_then(|c| c.line.as_deref()) == Some(line)
+        cell.and_then(line_of).as_deref() == Some(line)
     };
     let in_it =
         |run: RunId, k: usize| work::sessions::number_at(work, line, work::sessions::start(work, run, k)) == of_session;
@@ -2527,7 +2533,7 @@ mod tests {
         };
         let fork = Fork {
             work: WorkNumber(3),
-            flow: Arc::new(flow),
+            outline: Arc::new(flow::Outline::of(&flow)),
             item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
             kept: Arc::new(Work {
                 moments: vec![
@@ -2957,7 +2963,7 @@ mod tests {
         let (agents, _repo, fork) = forking(&data);
         let ping = |account: Option<&str>| Ping {
             work: fork.work,
-            flow: fork.flow.clone(),
+            flow: Arc::new(engineer().0),
             line: "engineer".to_string(),
             session: 0,
             item: fork.item.clone(),

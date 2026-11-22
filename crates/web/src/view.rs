@@ -212,8 +212,14 @@ pub struct OutlineLine {
 }
 
 impl OutlineView {
-    /// The outline of the version the work runs on, none where it runs on none kept, read with the work's records.
-    pub fn of(outline: Option<&flow::Outline>, records: &decide::Records) -> OutlineView {
+    /// The outline of the version the work runs on, none where it runs on none kept, read with the work's records: a
+    /// cell its runs name that the version has not, taken out since, as `came_from` gives it of the version it came
+    /// from, where one kept has it.
+    pub fn of(
+        outline: Option<&flow::Outline>,
+        records: &decide::Records,
+        came_from: &dyn Fn(&decide::CellId) -> Option<flow::outline::OutlinedCell>,
+    ) -> OutlineView {
         let mut ran: Vec<String> = Vec::new();
         for started in &records.started {
             let id = started.cell.to_string();
@@ -284,11 +290,19 @@ impl OutlineView {
             .collect();
         let gone: Vec<OutlineCell> = (ran.iter())
             .filter(|id| !outline.cells.iter().any(|cell| cell.id.as_str() == id.as_str()))
-            .map(bare)
+            .map(|id| match came_from(&decide::CellId::from(id.as_str())) {
+                Some(was) => OutlineCell {
+                    title: Some(was.title),
+                    line: was.line,
+                    agent: was.agent,
+                    ..bare(id)
+                },
+                None => bare(id),
+            })
             .collect();
         cells.extend(gone);
         let mut lines: Vec<OutlineLine> = Vec::new();
-        for cell in &outline.cells {
+        for cell in &cells {
             let Some(name) = &cell.line else { continue };
             match lines.iter_mut().find(|l| &l.name == name) {
                 Some(line) => line.cells.push(cell.id.to_string()),
@@ -1114,7 +1128,7 @@ mod tests {
             ],
             ..Records::default()
         };
-        let outline = OutlineView::of(None, &records);
+        let outline = OutlineView::of(None, &records, &|_| None);
         assert!(!outline.kept);
         let ids: Vec<&str> = outline.cells.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, ["S1", "R1", "D4", "M2"]);
@@ -1126,5 +1140,62 @@ mod tests {
         );
         assert_eq!(outline.card, ["background"]);
         assert!(outline.lines.is_empty() && outline.groups.is_empty());
+    }
+
+    fn outlined(id: &str, title: &str, line: Option<&str>, agent: bool) -> flow::outline::OutlinedCell {
+        flow::outline::OutlinedCell {
+            id: id.into(),
+            title: title.to_string(),
+            line: line.map(str::to_string),
+            agent,
+            given: Vec::new(),
+            watches: Vec::new(),
+            reads: Vec::new(),
+            words: None,
+            questions: None,
+        }
+    }
+
+    // A cell a run of the work names that the version it runs on has taken out is drawn as the version it came from has
+    // it, titled and in its line (decision a-works-past-is-drawn-from-its-outline); one no version kept has stays bare.
+    // Fails where a cell taken out is drawn untitled, or out of its line.
+    #[test]
+    fn a_cell_taken_out_since_is_drawn_as_the_version_it_came_from_has_it() {
+        let outline = flow::Outline {
+            name: "staged".to_string(),
+            cells: vec![
+                outlined("T1", "Write", Some("main"), true),
+                outlined("M1", "Merge", None, false),
+            ],
+            lines: Vec::new(),
+            groups: Vec::new(),
+            card: Vec::new(),
+            earlier_ids: Vec::new(),
+            own: Vec::new(),
+            from: BTreeMap::new(),
+        };
+        let records = Records {
+            started: vec![started(1, "T1", 3), started(2, "T2@1", 5), started(3, "X1@1", 7)],
+            ..Records::default()
+        };
+        let came_from =
+            |id: &decide::CellId| (id.as_str() == "T2@1").then(|| outlined("T2", "Review", Some("main"), true));
+        let view = OutlineView::of(Some(&outline), &records, &came_from);
+        let drawn: Vec<(&str, Option<&str>, Option<&str>, bool)> = (view.cells.iter())
+            .map(|c| (c.id.as_str(), c.title.as_deref(), c.line.as_deref(), c.agent))
+            .collect();
+        assert_eq!(
+            drawn,
+            [
+                ("T1", Some("Write"), Some("main"), true),
+                ("M1", Some("Merge"), None, false),
+                ("T2@1", Some("Review"), Some("main"), true),
+                ("X1@1", None, None, false),
+            ]
+        );
+        let lines: Vec<(&str, Vec<&str>)> = (view.lines.iter())
+            .map(|l| (l.name.as_str(), l.cells.iter().map(String::as_str).collect()))
+            .collect();
+        assert_eq!(lines, [("main", vec!["T1", "T2@1"])]);
     }
 }

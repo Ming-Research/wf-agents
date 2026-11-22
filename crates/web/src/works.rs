@@ -795,8 +795,9 @@ pub struct AnswerPage {
 }
 
 impl QuestionPage {
-    /// Each question of the work, on this flow, as it stands.
-    fn all(flow: &flow::Compiled, work: &Work) -> Vec<QuestionPage> {
+    /// Each question of the work, as it stands, numbered as the version the work is on names each cell's questions.
+    fn all(kept: &Kept<'_>) -> Vec<QuestionPage> {
+        let work = kept.work;
         (decide::questions::questions(&work.records).into_iter())
             .map(|(name, q)| {
                 let (ask, options, recommends, withdrawn, tree) = match work.question(q.latest) {
@@ -821,7 +822,7 @@ impl QuestionPage {
                 QuestionPage {
                     name: name.to_string(),
                     cell: q.latest.cell.to_string(),
-                    version: engine::asked::number_of(flow, &work.records, &q.latest.cell, q.latest.at),
+                    version: kept.question_version(&q.latest.cell, q.latest.at),
                     engine: q.latest.engine,
                     waits: q.latest.waits,
                     tree,
@@ -2042,7 +2043,7 @@ impl Summary {
         let held = driver.held_at(number, &every.at_once);
         let along = &driver.along_of(number);
         let runs = runs(kept)?;
-        let engine = |cell: &CellId| (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Engine);
+        let engine = |cell: &CellId| kept.cell(cell).is_some_and(|cell| !cell.agent);
         // The act of an engine cell that waits for the project's turn runs nothing yet.
         let turn = |run: RunId| {
             (along.iter()).any(|(under, said)| {
@@ -2092,9 +2093,13 @@ impl Summary {
             }
         };
         let cells = match &view.decision {
-            Decision::Ended(_) => (OutlineView::of(kept.on.outline(), &work.records).cells.into_iter())
+            Decision::Ended(_) => {
+                (OutlineView::of(kept.on.outline(), &work.records, &|id| kept.came_from(id).cloned())
+                    .cells
+                    .into_iter())
                 .map(|cell| ended(&cell.id))
-                .collect(),
+                .collect()
+            }
             _ => (view.cells.iter())
                 .map(|cell| CellNow {
                     cell: cell.cell.to_string(),
@@ -2131,8 +2136,10 @@ impl Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
             flow: kept.head.flow.clone(),
-            // As the version the work is on has it; of a work on none kept, as its records say an agent ran.
-            delivers: (kept.on.outline()).map_or(work.ran.is_empty(), |outline| !outline.cells.iter().any(|c| c.agent)),
+            // As the version the work is on has it. Of a work on none kept, whether its flow only delivers is not
+            // known, and it is taken as a work of its own, whose row is drawn: taken for a deliverable, its row would
+            // be hidden.
+            delivers: (kept.on.outline()).is_some_and(|outline| !outline.cells.iter().any(|c| c.agent)),
             added: kept.head.added.0,
             paused: decide::pause(&work.records).map(|pause| Pauser::of(pause.by)),
             waits: (driver.waits_on_owner_at(number, view, held, &every.at_once).into_iter())
@@ -2192,17 +2199,12 @@ pub fn asked(driver: &Driver, summary: &Summary) -> Option<service::OfWork> {
     })
 }
 
-/// What the run that merged the work wrote: the latest finished run of an engine cell, which is the last a work that
-/// merged ends with; none where it wrote nothing.
+/// What the run that merged the work wrote, of a work that merged: its latest finished run, the merge's finish being
+/// the last of all, as the engine reads where a work merged (`engine::release`), whatever version the work is on; none
+/// where it wrote nothing.
 fn merge_wrote(kept: &Kept<'_>) -> Option<String> {
     let records = &kept.work.records;
-    let engine = |run: RunId| {
-        let started = records.started.iter().find(|s| s.run == run);
-        started.is_some_and(|s| (kept.flow.cells.iter()).any(|spec| spec.id == s.cell && spec.kind == Kind::Engine))
-    };
-    let merged = (records.finished.iter())
-        .filter(|f| engine(f.run))
-        .max_by_key(|f| f.at)?;
+    let merged = records.finished.iter().max_by_key(|f| f.at)?;
     let write = merged.writes.first()?;
     kept.work.contents.get(&(write.block.clone(), merged.at)).cloned()
 }
@@ -2372,7 +2374,7 @@ impl Now {
         };
         // The wait that holds the rounds of a cell now: the agents' for an agent's, the host's for an act's.
         let holding = |cell: &CellId| {
-            let agent = (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent);
+            let agent = kept.cell(cell).is_some_and(|cell| cell.agent);
             let outage = if agent { &outages.agents } else { &outages.host };
             outage.as_ref().filter(|o| o.holds)
         };
@@ -2655,6 +2657,8 @@ impl WorkPage {
         let view = viewed_at(driver, number, &every.at_once)?;
         let work = kept.work;
         let records = &work.records;
+        // Where each datum written from outside comes from, as the version the work is on says.
+        let from = |block: &BlockId| kept.from(block).map(str::to_string);
         let mut blocks = Vec::new();
         for (block, versions) in &view.blocks {
             let versions = (versions.iter())
@@ -2663,7 +2667,7 @@ impl WorkPage {
                         at: version.at.0,
                         number: numbered(records, block, version.at)?,
                         time: time(work, version.at)?,
-                        by: writer_of(kept.flow, work, block, version)?,
+                        by: writer_of(&from, work, block, version)?,
                         meaning: (version.meaning).map(|m| numbered(records, block, m)).transpose()?,
                         value: version.value.clone(),
                         said_to: said_to(work, block, version.at),
@@ -2716,7 +2720,7 @@ impl WorkPage {
                 at: written.at.0,
                 time: time(work, written.at)?,
                 block: written.block.to_string(),
-                by: writer_of(kept.flow, work, &written.block, version)?,
+                by: writer_of(&from, work, &written.block, version)?,
                 changed: version.meaning == Some(version.at),
                 value: written.value.clone(),
                 chars: chars(work, &written.block, written.at)?,
@@ -2775,12 +2779,12 @@ impl WorkPage {
             project: kept.item.project.clone(),
             tags: kept.item.tags.clone(),
             history: ItemHistory::of(kept.item),
-            outline: OutlineView::of(kept.on.outline(), records),
+            outline: OutlineView::of(kept.on.outline(), records, &|id| kept.came_from(id).cloned()),
             flow: (!ended).then(|| Flow::of(kept.flow)),
             cells: if ended { Vec::new() } else { cells },
             blocks,
             steps,
-            questions: QuestionPage::all(kept.flow, work),
+            questions: QuestionPage::all(&kept),
             speaking: if ended { Vec::new() } else { Speaking::all(&kept) },
         }))
     }
@@ -3053,8 +3057,14 @@ fn chars(work: &Work, block: &BlockId, at: Seq) -> Result<usize, Broken> {
 }
 
 /// Who wrote the version of the block, by the rule a round is told it by.
-fn writer_of(flow: &flow::Compiled, work: &Work, block: &BlockId, version: &VersionView) -> Result<Writer, Broken> {
-    Ok(match context::author(flow, &work.records, block, version) {
+/// Who wrote the version of the block, each block written from outside the work coming from where `from` says.
+fn writer_of(
+    from: &dyn Fn(&BlockId) -> Option<String>,
+    work: &Work,
+    block: &BlockId,
+    version: &VersionView,
+) -> Result<Writer, Broken> {
+    Ok(match context::author_from(from, &work.records, block, version) {
         Author::Owner => Writer::Owner,
         Author::Nobody => Writer::Outside,
         Author::Run(run) => Writer::Run {
@@ -3222,11 +3232,10 @@ fn in_detail(
     let of_work = kept.head.number;
     let work = kept.work;
     let records = &work.records;
-    // The line of each run's cell, where the flow puts it on one.
+    // The line of each run's cell, where the version the work is on puts it on one.
     let line_of = |run: RunId| {
         let cell = records.started.iter().find(|s| s.run == run).map(|s| &s.cell)?;
-        let spec = kept.flow.cells.iter().find(|spec| spec.id == *cell)?;
-        spec.line.as_deref()
+        kept.cell(cell)?.line.as_deref()
     };
     for r in runs {
         let run = RunId(r.run);
@@ -3771,11 +3780,14 @@ mod tests {
         r.questions.push(asked("protected", true, 12));
         r.written.push(wrote("write_questions", Outsider::Outside, 13));
         let versions = decide::versions(&work.records);
+        // Where each datum comes from, as the outline of the flow says.
+        let outline = flow::Outline::of(&flow);
+        let from = |block: &BlockId| outline.from.get(block).cloned();
         let named = |block: &str, at: u64| {
             let version = (versions[&BlockId::from(block)].iter())
                 .find(|v| v.at == Seq(at))
                 .expect("the version is read");
-            let writer = writer_of(&flow, &work, &BlockId::from(block), version).expect("its writer is named");
+            let writer = writer_of(&from, &work, &BlockId::from(block), version).expect("its writer is named");
             serde_json::to_value(writer).expect("the writer is given as JSON")
         };
         let owner = serde_json::json!({ "kind": "owner" });
@@ -3859,6 +3871,7 @@ mod tests {
             item: &item,
             flow: &flow,
             on: &on,
+            passed: &[],
             work: &work,
         };
         let all = HeldAll {

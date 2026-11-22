@@ -405,12 +405,24 @@ pub enum Author {
 /// read of the branch and put into a round or not, and what an act of the engine wrote, by nobody (decision
 /// a-version-read-at-a-rounds-end-is-that-rounds).
 pub fn author(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView) -> Author {
+    let from = |block: &BlockId| (flow.blocks.get(block)).and_then(|b| b.writers.outside.clone());
+    author_from(&from, records, block, version)
+}
+
+/// Who wrote a version, as [`author`] says, where each block written from outside the work comes from as `from` says:
+/// the flow of the version a work is on, read where that version is no longer installed.
+pub fn author_from(
+    from: &dyn Fn(&BlockId) -> Option<String>,
+    records: &Records,
+    block: &BlockId,
+    version: &VersionView,
+) -> Author {
     match version.by {
         Writer::Run(run) => Author::Run(run),
         Writer::Person => Author::Owner,
         Writer::Outside => {
-            let source = (flow.blocks.get(block)).and_then(|b| b.writers.outside.as_deref());
-            match source {
+            let source = from(block);
+            match source.as_deref() {
                 Some(flow::WORDS) => Author::Owner,
                 Some(flow::ANSWER) => {
                     let asked = (records.questions.iter())

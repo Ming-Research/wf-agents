@@ -405,6 +405,9 @@ struct Held {
     flow: Arc<Compiled>,
     /// The version of its flow the work is on.
     on: On,
+    /// The outline of each version kept that the work was on before the one it is on, in the order it was on them:
+    /// what a cell of it taken out since is read by.
+    passed: Vec<Arc<flow::Outline>>,
     work: Work,
     /// How the work stands. Worked out again each time the work grows.
     standing: Standing,
@@ -451,10 +454,42 @@ pub struct Kept<'a> {
     pub flow: &'a Compiled,
     /// The version of its flow the work is on, with its outline.
     pub on: &'a On,
+    /// The outline of each version kept that the work was on before, in the order it was on them.
+    pub passed: &'a [Arc<flow::Outline>],
     pub work: &'a Work,
 }
 
 impl Kept<'_> {
+    /// The cell of this id as the version the work is on has it: what a cell of the work is, whichever version is
+    /// installed. None where that version has no such cell, or where the work is on none kept.
+    pub fn cell(&self, id: &CellId) -> Option<&flow::outline::OutlinedCell> {
+        self.on.outline()?.cell(id)
+    }
+
+    /// Where the datum comes from, as the version the work is on says of a datum written from outside the work: the
+    /// owner, or the source that writes it. None where that version writes it from no outside, or where the work is on
+    /// none kept.
+    pub fn from(&self, block: &BlockId) -> Option<&str> {
+        self.on.outline()?.from.get(block).map(String::as_str)
+    }
+
+    /// The number of the version of the cell's questions written with this entry of the records, as the version the
+    /// work is on names the cell's questions ([`engine::asked::number_in`]). None where none was written with it, or
+    /// where the work is on none kept.
+    pub fn question_version(&self, cell: &CellId, at: decide::Seq) -> Option<u64> {
+        engine::asked::number_in(&self.work.records, self.cell(cell)?.questions.as_ref()?, at)
+    }
+
+    /// The cell a run of the work ran at that reads now as this id, a cell taken out since
+    /// ([`flow::outline::taken_out`]), as the latest version kept that the work was on before and that had it has it.
+    pub fn came_from(&self, id: &CellId) -> Option<&flow::outline::OutlinedCell> {
+        let now = self.on.outline()?;
+        (self.passed.iter().rev()).find_map(|was| {
+            let reading = flow::reading(now, was.earlier_ids.len());
+            (was.cells.iter()).find(|cell| reading.cell(&cell.id) == *id)
+        })
+    }
+
     /// What the work does next as its version reads it: what the flow installed decides, for a work on it; how it ended,
     /// for one that ended on another version or on none kept.
     pub fn decision(&self) -> Decision {
@@ -722,7 +757,8 @@ impl Driver {
             if work.tick() != before {
                 driver.store.save(head.number, &work).map_err(Fault::Store)?;
             }
-            let held = Held::new(head, item, installed.flow.clone(), on, work);
+            let passed = versions::passed(&work, &outlines);
+            let held = Held::new(head, item, installed.flow.clone(), on, passed, work);
             driver.works.insert(held.head.number, held);
         }
         driver.keep_times(now)?;
@@ -935,6 +971,7 @@ impl Driver {
                     On::Installed { .. } | On::NotKept { .. } => None,
                 };
                 versions::put_on(&mut held.work, now, from.as_deref(), installed);
+                held.passed.extend(from);
                 held.on = installed.on();
             }
             let (number, item, policy) = (work, &held.item, self.policy.as_ref());
@@ -1300,7 +1337,7 @@ impl Driver {
 
     /// The usage limit of each account that stands, by the account's name, whether or not it is in use ([`outage`]).
     pub fn limits(&self) -> BTreeMap<String, Limit> {
-        outage::limits(self.decided(), &self.answered)
+        outage::limits(self.outlined(), &self.answered)
     }
 
     /// The history of the rounds of every work on the flow of this name ([`history`]).
@@ -1380,7 +1417,7 @@ impl Driver {
     /// The wait of the service every work shares, if one stands, with what the outside said of it since it began.
     fn outage_of(&self, service: Service) -> Option<Outage> {
         let in_use = self.accounts.in_use();
-        let mut outage = outage::outage(service, self.decided(), &self.answered, in_use)?;
+        let mut outage = outage::outage(service, self.outlined(), &self.answered, in_use)?;
         match service {
             Service::Agents => {
                 outage.checked = (self.checked.get(&in_use.map(str::to_string)))
@@ -1397,12 +1434,13 @@ impl Driver {
         Some(outage)
     }
 
-    /// Each work the installed flow decides, with that flow and its records: what a wait every work shares is read
-    /// from. A work that ended on another version than the installed one ran all its rounds before the flow was
-    /// installed, and its cells are not the installed flow's to tell apart: its rounds are no part of a wait that
-    /// stands now.
-    fn decided(&self) -> impl Iterator<Item = (WorkNumber, &Compiled, &Work)> {
-        (self.works.values()).filter_map(|held| held.deciding().map(|flow| (held.head.number, flow, &held.work)))
+    /// Each work on a version kept, with that version's outline and the work's records: what a wait every work shares
+    /// is read from, each round served as the version it ran on has its cell, so that a work that met a wait and ended
+    /// since, on whatever version, still says it. A work on none kept is left out: which of its cells an agent ran its
+    /// version does not say, and it ended before versions were kept.
+    fn outlined(&self) -> impl Iterator<Item = (WorkNumber, &flow::Outline, &Work)> {
+        (self.works.values())
+            .filter_map(|held| held.on.outline().map(|outline| (held.head.number, outline, &held.work)))
     }
 
     /// The waits of every service, as they stand.
@@ -1531,7 +1569,7 @@ impl Driver {
             return Err(fault.clone());
         }
         if let Some((under, found)) = found
-            && let Some(outage) = outage::outage(Service::Agents, self.decided(), &self.answered, under.as_deref())
+            && let Some(outage) = outage::outage(Service::Agents, self.outlined(), &self.answered, under.as_deref())
         {
             let before = (self.checked.get(&under)).filter(|(of, _)| *of == outage.since);
             let taken = before.map_or(0, |(_, checked)| checked.taken) + 1;
@@ -2068,12 +2106,20 @@ impl Driver {
 
 impl Held {
     /// The work held on this version, with how it stands and its rounds that are history worked out.
-    fn new(head: WorkHead, item: Item, flow: Arc<Compiled>, on: On, work: Work) -> Held {
+    fn new(
+        head: WorkHead,
+        item: Item,
+        flow: Arc<Compiled>,
+        on: On,
+        passed: Vec<Arc<flow::Outline>>,
+        work: Work,
+    ) -> Held {
         let mut held = Held {
             head,
             item,
             flow,
             on,
+            passed,
             work,
             standing: Standing::Going,
             samples: Vec::new(),
@@ -2108,12 +2154,14 @@ impl Held {
         }
     }
 
-    /// Whether what the work's time went to is to be kept now: it ended on the installed version and has kept none since
-    /// it was last reopened.
+    /// Whether what the work's time went to is to be kept now: it ended on the installed version, nothing of it is
+    /// under way any longer, as when what it holds outside is let go ([`engine::at_rest`]), so that a round of a run
+    /// abandoned as it was cancelled is kept as it came back, and it has kept none since it was last reopened.
     fn keeps_time(&self) -> bool {
         let r = &self.work.records;
         self.on.installed()
             && matches!(self.standing, Standing::Ended(_))
+            && engine::at_rest(&self.work)
             && (self.work.kept_time.last()).is_none_or(|kept| r.reopens.iter().any(|reopen| *reopen > kept.at))
     }
 
@@ -2136,6 +2184,7 @@ impl Held {
             item: &self.item,
             flow: &self.flow,
             on: &self.on,
+            passed: &self.passed,
             work: &self.work,
         }
     }

@@ -264,9 +264,15 @@ fn release(end: Option<End>, work: &Work) -> Option<End> {
     {
         return None;
     }
-    let quiet = (r.started.iter()).all(|s| began(work, s.run) == ended(work, s.run))
-        && r.called.iter().all(|c| done(work, c.call).is_some());
-    quiet.then_some(end)
+    at_rest(work).then_some(end)
+}
+
+/// Whether nothing of the work is under way: every round of its runs has come back and every call has its result, so
+/// that nothing more of what it does will be recorded but by a new run.
+pub fn at_rest(work: &Work) -> bool {
+    let r = &work.records;
+    (r.started.iter()).all(|s| began(work, s.run) == ended(work, s.run))
+        && r.called.iter().all(|c| done(work, c.call).is_some())
 }
 
 /// Adds what happened to the records, with what is to be done outside for it alone, or refuses what cannot have

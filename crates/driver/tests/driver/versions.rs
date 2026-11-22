@@ -514,6 +514,105 @@ fn a_work_that_ends_keeps_what_its_time_went_to_which_a_later_install_leaves_as_
     assert_eq!(h.d().work(work).expect("the work is there").work.kept_time, kept);
 }
 
+// A work cancelled as its round runs has ended, but keeps what its time went to only once that round, stopped, has come
+// back, so that what it keeps reaches the round's end; kept as the work ended, it would stop at the cancel. Runs in
+// memory in milliseconds.
+#[test]
+fn a_work_cancelled_as_its_round_runs_keeps_what_its_time_went_to_once_the_round_has_come_back() {
+    let mut h = H::with(vec![first()]);
+    let (item, work) = h.add_let_on(new_item("a", &[], "staged"));
+    let (run, ..) = h.round(work);
+    h.changes(vec![(item, Asked::Cancel)]).expect("the item is cancelled");
+    assert_eq!(h.decision(work), Decision::Ended(End::Cancelled));
+    let kept = |h: &H| h.d().work(work).expect("the work is there").work.kept_time.clone();
+    assert!(kept(&h).is_empty(), "nothing is kept while the round is still stopping");
+    let back = h.now();
+    let returned = Event::Returned {
+        run,
+        came: Came::default(),
+        spent: h.spent(),
+    };
+    let Outcome::Done(todos) = h.try_on(back, work, returned) else {
+        panic!("the driver stopped")
+    };
+    h.released(todos);
+    let kept = kept(&h);
+    assert_eq!(kept.len(), 1, "kept once, as the round came back");
+    assert_eq!(kept[0].stretches.iter().map(|s| s.until).max(), Some(back));
+}
+
+// A cell a work ran at, which the version it is on has taken out since, is read as the version the work was on before
+// has it, so that whoever shows the work can title it; the version installed has no such cell. Fails where the cell
+// taken out is looked for in the version the work is on alone, or in no version the work passed through. Runs in memory
+// in milliseconds.
+#[test]
+fn a_cell_taken_out_since_a_work_ran_at_it_is_read_as_the_version_it_ran_on_has_it() {
+    let mut h = H::with(vec![first()]);
+    let (item, work) = h.add_let_on(new_item("a", &[], "staged"));
+    h.hands_in(work, &[("text", None)]);
+    let (run, ..) = h.round(work);
+    h.changes(vec![(item, Asked::Cancel)]).expect("the item is cancelled");
+    let spent = h.spent();
+    let todos = h.on(
+        work,
+        Event::Returned {
+            run,
+            came: Came::default(),
+            spent,
+        },
+    );
+    h.released(todos);
+    h.install(vec![shortened()]);
+    h.changes(vec![(item, Asked::Reopen)]).expect("the item is reopened");
+    assert_eq!(ran_at(&h, work)[..2], ["T1", "T2@1"]);
+    let kept = h.d().work(work).expect("the work is there");
+    assert!(kept.on.installed());
+    let taken_out: decide::CellId = "T2@1".into();
+    assert!(
+        kept.cell(&taken_out).is_none(),
+        "the version installed has no such cell"
+    );
+    let was = kept.came_from(&taken_out).expect("the cell taken out is read");
+    assert_eq!(
+        (was.id.as_str(), was.title.as_str(), was.line.as_deref(), was.agent),
+        ("T2", "Review", Some("main"), true)
+    );
+}
+
+// What every work shares is read from the works on an earlier version too, each by the outline of its own version: a
+// usage limit met by a work that has ended on one still holds its account once another version is installed. Fails
+// where a work no flow decides is left out of the shared waits. Runs in memory in milliseconds.
+#[test]
+fn a_usage_limit_met_by_a_work_that_ended_on_an_earlier_version_still_stands() {
+    let mut h = H::with(vec![first()]);
+    let (item, a) = h.add_let_on(new_item("a", &[], "staged"));
+    let (_, b) = h.add_let_on(new_item("b", &[], "staged"));
+    h.add_account("first");
+    h.take_account("first");
+    h.ran_under(a, "first");
+    h.ran_under(b, "first");
+    let resets = Time(h.clock + 3_600_000);
+    let (run, ..) = h.round(a);
+    let spent = h.spent();
+    let failed = Event::Failed {
+        run,
+        why: "You've hit your limit".to_string(),
+        failure: decide::run::Failure::UsageLimit,
+        resets: Some(resets),
+        spent,
+    };
+    h.on(a, failed);
+    let (_, todos) = h.changes(vec![(item, Asked::Cancel)]).expect("the item is cancelled");
+    h.released(todos);
+    assert_eq!(h.decision(a), Decision::Ended(End::Cancelled));
+    let limit = h.d().limits().get("first").copied().expect("the limit stands");
+    assert_eq!(limit.resets, Some(resets));
+    h.install(vec![followed()]);
+    assert!(!h.d().work(a).expect("the work is there").on.installed());
+    assert_eq!(h.d().limits().get("first"), Some(&limit));
+    assert!(h.d().outage().expect("the wait stands").holds());
+}
+
 // Acceptance 4: a round counts in the history of the cell it is on the version installed, read through the
 // renumberings since its own version; a round of a cell taken out since, or of a work on no version, counts in the
 // flow's history alone (decision `a-round-is-judged-as-the-cell-it-is-now`).

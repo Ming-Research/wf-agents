@@ -148,6 +148,14 @@ pub(crate) fn outlines(store: &dyn Storage) -> Result<BTreeMap<String, Arc<Outli
     Ok(outlines)
 }
 
+/// The outline of each version kept that the work was on before the one it is on, in the order it was on them.
+pub(crate) fn passed(work: &Work, outlines: &BTreeMap<String, Arc<Outline>>) -> Vec<Arc<Outline>> {
+    let before = work.flows.len().saturating_sub(1);
+    (work.flows[..before].iter())
+        .filter_map(|on| on.version.as_ref().and_then(|version| outlines.get(version).cloned()))
+        .collect()
+}
+
 /// The outline of the version a work was put on, or the fault of a work on a version the store does not keep.
 pub(crate) fn outline_of(
     outlines: &BTreeMap<String, Arc<Outline>>,

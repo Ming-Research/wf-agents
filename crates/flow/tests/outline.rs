@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use decide::{BlockId, CellId};
-use flow::outline::{Outline, OutlinedCell, taken_out};
+use flow::outline::{Outline, OutlinedCell, OutlinedLine, taken_out};
 use flow::{Compiled, Has, Renumbering, reading};
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has for it.
@@ -46,6 +46,7 @@ fn tabled(earlier_ids: Vec<Renumbering>) -> Outline {
         card: Vec::new(),
         earlier_ids,
         own: vec!["{cell}_questions".into(), "{cell}_words".into()],
+        from: BTreeMap::new(),
     }
 }
 
@@ -99,6 +100,15 @@ fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_i
         cell("T1").words.is_none(),
         "a review asks nothing and is spoken to in nothing"
     );
+    // A cell that may ask has questions of its own, of which the owner's answers are versions; a review has none.
+    assert_eq!(cell("I1").questions, Some(BlockId::from("i1_questions")));
+    assert!(cell("T1").questions.is_none());
+    // Where each datum written from outside the work comes from, as its file says, and none for what a cell writes.
+    let from = |block: &str| outline.from.get(&BlockId::from(block)).map(String::as_str);
+    assert_eq!(from("background"), Some("owner"));
+    assert_eq!(from("i1_words"), Some("words"));
+    assert_eq!(from("i1_questions"), Some("answer"));
+    assert_eq!(from("plan_owner"), None);
     // Each line by its name; the groups, the card, the table and the data made for a cell.
     let lines: Vec<&str> = outline.lines.iter().map(|l| l.name.as_str()).collect();
     assert_eq!(
@@ -110,6 +120,16 @@ fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_i
             "plan_reviewer",
             "tester"
         ]
+    );
+    // A line's agents only read where its file says so, as a fork of one of its sessions must know.
+    let reads_only = |name: &str| {
+        (outline.lines.iter())
+            .find(|l| l.name == name)
+            .and_then(|l| l.reads_only)
+    };
+    assert_eq!(
+        (reads_only("code_reviewer"), reads_only("engineer")),
+        (Some(true), Some(false))
     );
     let groups: Vec<&str> = outline.groups.iter().map(|g| g.name.as_str()).collect();
     assert_eq!(groups, ["change", "plan"]);
@@ -164,6 +184,11 @@ fn an_outline_kept_before_a_part_was_added_reads_with_that_part_absent() {
     let bare: OutlinedCell =
         serde_json::from_str(r#"{"id": "M1", "title": "Merge", "line": null, "agent": false}"#).expect("it reads");
     assert!(bare.given.is_empty() && bare.watches.is_empty() && bare.reads.is_empty() && bare.words.is_none());
+    assert!(bare.questions.is_none());
     let bare: Outline = serde_json::from_str(r#"{"name": "engineer", "cells": []}"#).expect("it reads");
     assert!(bare.lines.is_empty() && bare.earlier_ids.is_empty() && bare.own.is_empty() && bare.card.is_empty());
+    assert!(bare.from.is_empty());
+    // A line kept with its name alone reads with whether its agents only read not known.
+    let line: OutlinedLine = serde_json::from_str(r#"{"name": "engineer"}"#).expect("it reads");
+    assert_eq!(line.reads_only, None);
 }

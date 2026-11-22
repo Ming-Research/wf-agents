@@ -16,7 +16,7 @@ use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use decide::{CallId, Decision, End, RunId};
+use decide::{CallId, CellId, Decision, End, RunId};
 use driver::{Driver, Kept};
 use serde::{Deserialize, Serialize};
 use service::Handle;
@@ -131,7 +131,8 @@ pub enum RanOn {
     Model { model: String },
     /// A round of the engine's own act, which runs on no model.
     Act,
-    /// An agent's round kept before the tries of a round were recorded, whose model is not known.
+    /// A round with no model recorded, not known to be an act's: an agent's round kept before the tries of a round were
+    /// recorded, or a round of a cell the version its work is on does not tell, of a work on none kept among them.
     NotRecorded,
 }
 
@@ -470,9 +471,9 @@ impl System {
                     }
                     let cell = by_cell.entry((kept.head.flow.clone(), run.cell.clone())).or_default();
                     *cell = cell.with(spent);
-                    let act = (kept.flow.cells.iter())
-                        .find(|spec| spec.id.as_str() == run.cell)
-                        .is_some_and(|spec| spec.act.is_some());
+                    // An act is an engine's cell, as the version the work is on has it. A cell that version has not, or
+                    // any of a work on none kept, is not known to be one, and its round with no model is not recorded.
+                    let act = (kept.cell(&CellId::from(run.cell.as_str()))).is_some_and(|cell| !cell.agent);
                     let on = match models.get(&(run.run, round.number)) {
                         Some(model) => RanOn::Model { model: model.clone() },
                         None if act => RanOn::Act,

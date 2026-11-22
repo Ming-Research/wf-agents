@@ -12,7 +12,7 @@ use decide::{BlockId, CellId, Reading};
 use serde::{Deserialize, Serialize};
 
 use crate::compile::Compiled;
-use crate::source::{InputKind, Kind, Listed};
+use crate::source::{InputKind, Kind, Listed, OWNER};
 
 /// A renumbering of the table of earlier ids: the cells whose id changed then, by the id each had, with the id it took,
 /// and the cells taken out then, by the id each had.
@@ -50,6 +50,10 @@ pub struct Outline {
     /// letters, whose own the datum is.
     #[serde(default)]
     pub own: Vec<String>,
+    /// Each datum written from outside the work, with where it comes from, as its file's `from` says: the owner
+    /// ([`OWNER`]), or the source outside the work that writes it.
+    #[serde(default)]
+    pub from: BTreeMap<BlockId, String>,
 }
 
 /// A cell of a version, as reading a work on it needs it.
@@ -74,6 +78,9 @@ pub struct OutlinedCell {
     /// The cell's own words, the dialogue the owner speaks with it in, where it has them.
     #[serde(default)]
     pub words: Option<OutlinedWords>,
+    /// The cell's own questions, of which the owner's answers to what it asks are versions, where it has them.
+    #[serde(default)]
+    pub questions: Option<BlockId>,
 }
 
 /// A block a cell is given, with what its session must hold of it and the list of the definition that gives it.
@@ -111,6 +118,9 @@ pub struct OutlinedWords {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutlinedLine {
     pub name: String,
+    /// Whether its agents only read, as its file says.
+    #[serde(default)]
+    pub reads_only: Option<bool>,
 }
 
 /// A group of a version's blocks.
@@ -123,15 +133,19 @@ pub struct OutlinedGroup {
 impl Outline {
     /// The outline of a compiled flow.
     pub fn of(flow: &Compiled) -> Outline {
-        let words = |id: &CellId| {
+        // The block among the cell's outputs that this source of the engine's writes.
+        let own = |id: &CellId, source: &str| {
             let place = flow.flow.place(id)?;
             let outputs = &flow.flow.cells()[place].outputs;
-            (outputs.iter()).find_map(|block| {
-                let declared = flow.blocks.get(block)?;
-                (declared.writers.outside.as_deref() == Some(crate::compile::WORDS)).then(|| OutlinedWords {
-                    block: block.clone(),
-                    writes: declared.writes.0.clone(),
-                })
+            (outputs.iter()).find(|block| {
+                (flow.blocks.get(*block)).is_some_and(|declared| declared.writers.outside.as_deref() == Some(source))
+            })
+        };
+        let words = |id: &CellId| {
+            let block = own(id, crate::compile::WORDS)?;
+            Some(OutlinedWords {
+                block: block.clone(),
+                writes: flow.blocks[block].writes.0.clone(),
             })
         };
         let cells = (flow.cells.iter())
@@ -161,13 +175,17 @@ impl Outline {
                     })
                     .collect(),
                 words: words(&spec.id),
+                questions: own(&spec.id, crate::compile::ANSWER).cloned(),
             })
             .collect();
         Outline {
             name: flow.name.clone(),
             cells,
-            lines: (flow.lines.keys())
-                .map(|name| OutlinedLine { name: name.clone() })
+            lines: (flow.lines.iter())
+                .map(|(name, line)| OutlinedLine {
+                    name: name.clone(),
+                    reads_only: Some(line.reads_only),
+                })
                 .collect(),
             groups: (flow.groups.iter())
                 .map(|(name, blocks)| OutlinedGroup {
@@ -178,6 +196,13 @@ impl Outline {
             card: flow.card.clone(),
             earlier_ids: flow.earlier_ids.clone(),
             own: flow.own.clone(),
+            from: (flow.blocks.iter())
+                .filter_map(|(block, declared)| {
+                    let w = &declared.writers;
+                    let from = if w.people { Some(OWNER) } else { w.outside.as_deref() };
+                    from.map(|from| (block.clone(), from.to_string()))
+                })
+                .collect(),
         }
     }
 

@@ -240,7 +240,7 @@ fn question(kept: &Kept<'_>, name: &str, standing: &Standing<'_>, waits: &mut Ve
     let latest = standing.latest;
     let ends = Ends::Answer {
         question: name.to_string(),
-        version: engine::asked::number_of(kept.flow, &kept.work.records, &latest.cell, latest.at),
+        version: kept.question_version(&latest.cell, latest.at),
     };
     let key = format!("answer-{name}");
     if !waits.iter().any(|w| w.key == key) {
@@ -407,6 +407,7 @@ mod tests {
             item: &item,
             flow: &flow,
             on: &on,
+            passed: &[],
             work,
         };
         waits(&kept, &work.records, decision, held, shared)

@@ -402,7 +402,12 @@ impl Hits {
             };
             place(0, Field::Title, &kept.item.title);
             for (block, versions) in decide::versions(&kept.work.records) {
-                let people = kept.flow.blocks.get(&block).is_some_and(|b| b.writers.people);
+                // People write it, as the version the work is on says; of a work on none kept, which says nothing of
+                // its blocks, what a person wrote is found by the record alone.
+                let people = match kept.on.outline() {
+                    Some(_) => kept.from(&block) == Some(flow::OWNER),
+                    None => true,
+                };
                 let Some(latest) = versions.last().filter(|v| people && v.by == Writer::Person) else {
                     continue;
                 };

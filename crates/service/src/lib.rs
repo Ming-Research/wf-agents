@@ -1230,7 +1230,7 @@ impl Handle {
                     return Some(None);
                 }
                 let started = kept.work.records.started.iter().find(|s| s.run == run);
-                let kind = (started.and_then(|s| cell_spec(kept.flow, &s.cell))).map(|spec| spec.kind);
+                let kind = started.and_then(|s| kind_of(&kept, &s.cell));
                 // What each try ran on, as the records say, by the try's number.
                 let ran: BTreeMap<usize, RanOn> = (kept.work.ran.iter())
                     .filter(|r| r.run == run && r.round == round)
@@ -1305,9 +1305,17 @@ impl Handle {
                     )));
                 }
                 let ended = matches!(kept.decision(), decide::Decision::Ended(_));
+                // Which session a round ran in is read by the version the work is on, which a work on none kept lacks.
+                let Some(outline) = kept.on.outline() else {
+                    return Some(Err(format!(
+                        "The version of the flow work {} ran on was not kept: which session its round ran in is not \
+                         known.",
+                        work.0
+                    )));
+                };
                 Some(Ok(Fork {
                     work,
-                    flow: Arc::new(kept.flow.clone()),
+                    outline: Arc::new(outline.clone()),
                     item: kept.item.clone(),
                     kept: Arc::new(kept.work.clone()),
                     run,
@@ -1352,7 +1360,7 @@ impl Handle {
                 }
                 let records = &kept.work.records;
                 let started = records.started.iter().find(|s| s.run == run);
-                let kind = (started.and_then(|s| cell_spec(kept.flow, &s.cell))).map(|spec| spec.kind);
+                let kind = started.and_then(|s| kind_of(&kept, &s.cell));
                 // A round has ended once its run has come back from as many rounds.
                 let ended = records.returned.iter().filter(|r| r.run == run).count() >= round;
                 Some(Some((kind, ended)))
@@ -1445,6 +1453,13 @@ fn let_go_of(tokens: &dyn Tokens, names: &[String]) -> Option<String> {
 /// The specification of the cell in the flow.
 fn cell_spec<'a>(flow: &'a Compiled, cell: &CellId) -> Option<&'a CellSpec> {
     flow.cells.iter().find(|spec| spec.id == *cell)
+}
+
+/// Who runs the cell of the work, an agent or the engine's act, as the version the work is on has it: none of a cell
+/// that version has not, or of a work on none kept, whose round both carriers are asked of.
+fn kind_of(kept: &driver::Kept<'_>, cell: &CellId) -> Option<Kind> {
+    kept.cell(cell)
+        .map(|c| if c.agent { Kind::Agent } else { Kind::Engine })
 }
 
 /// The fault of an answer the driver did not take. This ends the process, and is meant to: an answer that cannot have

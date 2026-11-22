@@ -220,6 +220,7 @@ mod tests {
             item: &item,
             flow,
             on: &on,
+            passed: &[],
             work,
         };
         read(&kept)
