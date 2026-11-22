@@ -26,6 +26,12 @@ wf-agents' CI builds its tests with the dependencies fully optimized and its own
 - replaced: Test builds unoptimized throughout, with SQLite built for debugging, was on main; the owner changed it, because slow CI was the first thing to fix, or the iterations would never end.
 - replaced: Building the workspace's own crates at level 1 was on main; the owner changed it, because the build, not the tests, was the larger part of each run.
 
+### decision wf-agents-ci-runs-the-pages-tests-in-a-job-of-their-own
+wf-agents' full workflow checks the page's types, lint and build in one job and runs the page's tests in another, so that neither waits for the other.
+- replaced: The page's checks and its tests in one job was on main; the owner changed it, because that job was the longest of a run, and its steps do not depend on each other (data: `research/ci-job-times.md`).
+- rejected: an agent proposed also splitting the largest random-history tests so that the count split balances the Rust jobs; the owner rejected it, because it changes about six test files, and each part must prove again that it reaches every rare case.
+- rejected: an agent proposed running all the Rust tests in one job, left to nextest to balance; the owner rejected it, because it was not measured, and a test that hangs or takes the memory would slow every test, not a third.
+
 ### decision wf-agents-ci-splits-its-tests-by-count
 wf-agents' CI runs its Rust tests in three jobs, each running a third of every binary's tests by nextest's count, not by any list kept by hand.
 - replaced: One machine running the groups of tests one after another was on main; the owner changed it, because CI took about 23 minutes, and slow CI makes the iterations endless.

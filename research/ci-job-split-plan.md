@@ -5,6 +5,9 @@ result. It is kept until the numbers are taken and `ci-job-split-measured.md` ho
 
 This is written before any number is taken. A result that none of the rejections below meets keeps the part it is about.
 
+The owner runs it before saying yes to the change of `ci.yml` (which is a protected file, so the engine asks), and
+says the numbers, which the work records and applies the criteria to.
+
 ## The question
 
 Does the branch's `ci.yml` finish a full run on a commit that changes more than `design/` sooner than main's, with the
