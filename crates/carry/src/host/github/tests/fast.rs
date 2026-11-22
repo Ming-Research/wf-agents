@@ -205,6 +205,32 @@ async fn the_tests_named_run_by_the_fast_workflow_and_each_is_said_with_its_resu
     assert_eq!(hub.opened(), 0, "no pull request is opened for a run");
 }
 
+// A run whose results hold more tests than the call named: the result lists each test named once with its time, and
+// none of the others, passed or failed.
+#[tokio::test]
+async fn a_result_lists_only_the_tests_named_though_the_run_holds_many_more() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let xml = r#"<testsuites><testsuite name="carry">
+  <testcase name="tools::tests::a" time="0.12"/>
+  <testcase name="tools::tests::b" time="0.3"/>
+  <testcase name="tools::tests::c" time="0.4"><failure message="assertion failed">boom</failure></testcase>
+  <testcase name="tools::tests::d" time="0.5"/>
+</testsuite></testsuites>"#;
+    let results = vec![("test.xml".to_string(), xml.as_bytes().to_vec())];
+    hub.github().fast(&head, vec![], Some(("test-results", results)));
+    let said = hub
+        .named_check(&named(&["tools::tests::a"], &[]))
+        .await
+        .unwrap()
+        .expect("nothing stopped it");
+    assert!(said.contains(": 1 of the 1 tests passed."), "{said}");
+    assert_eq!(said.matches("tools::tests::a: passed in 0.12 s").count(), 1, "{said}");
+    for other in ["tools::tests::b", "tools::tests::c", "tools::tests::d", "boom"] {
+        assert!(!said.contains(other), "{other} was not named\n\n{said}");
+    }
+}
+
 #[tokio::test]
 async fn a_name_is_the_name_its_results_give_and_no_part_of_it_names_a_test() {
     let hub = Hub::new();
