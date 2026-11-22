@@ -134,7 +134,7 @@ fn line_busy(flow: &Compiled, work: &Work, line: &str) -> bool {
     for ended in r.returned.iter().filter(|x| on_line.contains(&x.run)) {
         *open.entry(ended.run).or_default() -= 1;
     }
-    open.values().any(|n| *n > 100)
+    open.values().any(|n| *n > 0)
 }
 
 /// Whether the engine paused the work because it spent more than it may: the pause that holds the work is the

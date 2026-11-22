@@ -1321,7 +1321,7 @@ impl Inner {
     /// The lock of the line of the work, made where it has none.
     fn lock(&self, work: WorkNumber, line: &str) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.in_work.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        locks.entry((work, String::new())).or_default().clone()
+        locks.entry((work, line.to_string())).or_default().clone()
     }
 
     /// What comes before a session's messages in the prompt of a call on this, under this account, with this system
@@ -1417,7 +1417,7 @@ impl Inner {
             &words,
             (session, Begin::Resume),
             &token,
-            false,
+            true,
         );
         // What the session cost before the ping: its rounds' and its earlier pings'.
         let before = cli::in_session(flow, work, line, run, number + 1).before;

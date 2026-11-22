@@ -1538,7 +1538,7 @@ impl Pinging {
     /// what the work holds while any ping of it is under way.
     fn holds(&self, line: Option<&str>, effect: &Effect) -> bool {
         match effect {
-            Effect::Round { .. } => !self.lines.is_empty(),
+            Effect::Round { .. } => line.is_some_and(|line| self.lines.contains_key(line)),
             Effect::Release { .. } => !self.lines.is_empty(),
             _ => false,
         }
