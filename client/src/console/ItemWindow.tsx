@@ -351,8 +351,6 @@ export type ItemPanelProps = {
   /// The stop of the work the window is to bring to the top of what it shows, by its place among the stops it draws,
   /// -1 for the last; asked again each time `seq` changes ([`STOP`]).
   stop?: { at: number; seq: number };
-  /// Told how many stops the window draws, each time that changes.
-  onStops?: (count: number) => void;
   /// Told that the owner pressed the button under the stop at `at`, which goes to the next stop as n does; with none,
   /// the stops draw no such button.
   onNextStop?: (at: number) => void;
@@ -402,7 +400,6 @@ function ItemView({
   onTab,
   wait,
   stop,
-  onStops,
   onNextStop,
 }: ItemPanelProps) {
   const work = item.work;
@@ -479,7 +476,7 @@ function ItemView({
     box.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     box.current?.focus({ preventScroll: true });
   }, [discussed]);
-  // The stops the window draws, read again whenever what it draws changes, and told to the page when they change.
+  // The stops the window draws, read again whenever what it draws changes.
   const [stops, setStops] = useState<string[]>([]);
   useLayoutEffect(() => {
     const el = inner.current;
@@ -493,7 +490,6 @@ function ItemView({
     drawing.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-wait'] });
     return () => drawing.disconnect();
   }, []);
-  useEffect(() => onStops?.(stops.length), [stops, onStops]);
   const walk = useMemo(() => ({ keys: stops, next: onNextStop }), [stops, onNextStop]);
   // The stop the page asks for is brought to the top of what the window shows, on the tab that draws the body, once it
   // is drawn, once each time it is asked.

@@ -191,11 +191,10 @@ export function ConsolePage({
   };
 
   // The walk of the stops by n and N, and by the button under each stop: the item the walk last went to and the place
-  // among its stops, -1 for its last; how many stops the window draws for the item it shows; and the stop the window is
-  // asked to bring to the top of what it shows. The walk goes in the tree's order, each item before the items under it
-  // (`walkOrder`), and from the last stop to the first, and back.
+  // among its stops, -1 for its last; and the stop the window is asked to bring to the top of what it shows. The walk
+  // goes in the tree's order, each item before the items under it (`walkOrder`), and from the last stop to the first,
+  // and back. How many stops an item has is what its counts say, which the window draws only once it has read the work.
   const walk = useRef<{ item: number; at: number } | null>(null);
-  const drawnStops = useRef<{ item: number; count: number } | null>(null);
   const [stopAsked, setStopAsked] = useState<{ item: number; at: number; seq: number } | null>(null);
   // The item selected, as the scene holds it at this moment, which the page's own state follows a render later.
   const selectedNow = () => scene.current?.selectedId() ?? null;
@@ -209,8 +208,7 @@ export function ConsolePage({
     if (d === undefined) return;
     const order = walkOrder(shownTree(d, new Set(STANDINGS), foldsNow.current));
     const begin = way > 0 ? 0 : -1;
-    const stopsOf = (id: number) =>
-      drawnStops.current?.item === id ? drawnStops.current.count : (order.find((o) => o.id === id)?.stops ?? 0);
+    const stopsOf = (id: number) => order.find((o) => o.id === id)?.stops ?? 0;
     // The next item with stops from the item `from`, `way` on in the tree's order, round from the end to the start.
     const after = (from: number) => {
       const at = order.findIndex((o) => o.id === from);
@@ -364,9 +362,6 @@ export function ConsolePage({
             }
             onTitle={() => scene.current?.reveal(item.number, room(open))}
             stop={stopAsked !== null && stopAsked.item === item.number ? stopAsked : undefined}
-            onStops={(count) => {
-              drawnStops.current = { item: item.number, count };
-            }}
             onNextStop={(at) => {
               walk.current = { item: item.number, at };
               walkOn(1);
