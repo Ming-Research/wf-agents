@@ -19,7 +19,7 @@ Items stand in columns, one for each level from the roots at the left; each scro
 - replaced: A line across the middle, onto which an item of each column snapped, was on main; the owner changed it, because the snap still jumped, and nothing pulls a block of items away from its parent.
 
 ### decision the-tree-follows-what-depends-on-what
-The items form one tree by what depends on what, or last did: where one item depends on another, the other stands under it, directly or further down; nothing else shapes the tree.
+The items form one tree by what depends on what: where one item depends on another, the other stands under it, directly or further down; nothing else shapes the tree.
 - rejected: an agent proposed giving each item a parent, besides its dependencies, for the tree to show it under; the owner rejected it, because the parent relation and the dependencies can be one, merged into the dependencies.
 - replaced: A flat list of the items by their class was on main; the owner changed it, because a flat list shows no dependencies.
 
@@ -30,8 +30,9 @@ An item stands whole in one place, under the lowest-numbered item that depends o
 - replaced: A main dependent chosen for each item was on main; the owner changed it, because the code takes the lowest-numbered one, and a decision never runs ahead of the code.
 
 ### decision an-ended-item-stands-where-it-stood
-A done or cancelled item that no item depends on any more stands under the item that last depended on it; one that no item ever depended on stands at the top.
-- replaced: An ended item that no item depended on any more standing at the top was on main; the owner changed it, because every item that depends on an item stops depending on it as it is cancelled, so the cancelled items, once ticked, filled the screen as roots.
+A done or cancelled item stands under the item that depends on it, by the rule every item stands by; the tree works out no place of its own from the items' changes.
+- replaced: A cancelled item standing at the top, as the items that depended on it stopped as it was cancelled, was on main; the owner changed it, because the cancelled items, once ticked, filled the screen as roots, so a cancel now keeps the dependencies on an item.
+- rejected: the owner proposed drawing an ended item under the item that last stopped depending on it, worked out from the items' changes; the owner rejected it, because once a cancel keeps the dependencies on an item, it would be a second way of placing an item.
 
 ### decision an-item-folds-what-stands-under-it
 A click on an item's funnel folds it and the items under it into a dot past the card, which ends the lit way of a running item in it; it is folded where nothing in it is open, or as the owner chose.

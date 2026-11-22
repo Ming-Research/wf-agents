@@ -1,12 +1,11 @@
 // The items as the console shows them: a tree by their dependencies, each item under the item whose dependency on it is
 // its main one, at the top the items nothing depends on; under each other item that depends on it, after the items
-// standing there, a shadow of it that points to its place. A done or cancelled item that no item depends on any more
-// stands under the item that last depended on it, as the items' changes record it. The tree holds the items that stand
-// as one of the kinds the owner ticks, and what stands over them. Each item with items under it folds them away, as the
-// owner last chose or else where neither it nor any of them is open, and counts them by how they stand, and apart the
-// shadows among them, which fold with them. Each item carries its own state, its work while it goes on, whether the
-// work has begun, and how many of the things its work waits for wait for the owner; and a work's age and what it has
-// taken, as a card and the item's window say them. Pure, so that it is tested on its own.
+// standing there, a shadow of it that points to its place, a done or a cancelled item as any other. The tree holds the
+// items that stand as one of the kinds the owner ticks, and what stands over them. Each item with items under it folds
+// them away, as the owner last chose or else where neither it nor any of them is open, and counts them by how they
+// stand, and apart the shadows among them, which fold with them. Each item carries its own state, its work while it
+// goes on, whether the work has begun, and how many of the things its work waits for wait for the owner; and a work's
+// age and what it has taken, as a card and the item's window say them. Pure, so that it is tested on its own.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/items.ts`), reading the items as
 // `works-api.ts` gives them. The interface does not say which of an item's dependents is its main one: the first of
@@ -79,7 +78,7 @@ export type Shown = {
   /// It is a deliverable: an item that says what is to be delivered and is made of the items under it, with no work
   /// of its own to show. Its flow says so (`deliver`); until the engine has that flow, the page's rule above does.
   deliver: boolean;
-  /// How many items it depends on are not merged yet.
+  /// How many items it depends on are still open: neither merged nor cancelled, which it no longer waits for.
   blocked: number;
   /// New to the owner, or changed since they last read it (mock: `mock.ts`).
   unseen: boolean;
@@ -126,21 +125,6 @@ const drawn = (w: Summary) =>
     w.now.kind === 'waits' ||
     w.now.kind === 'stalled');
 
-/// Of each item some item came to no longer depend on, the item that did so last, as their changes record it; of those
-/// that did so at once, as a cancel makes them, the first by number, as an item stands under the first by number of the
-/// items that depend on it.
-function lastDependents(data: Items): Map<number, number> {
-  const last = new Map<number, { by: number; time: number }>();
-  for (const i of data.items)
-    for (const c of i.history.changes) {
-      if (c.what.kind !== 'noLongerDependsOn') continue;
-      const was = last.get(c.what.item);
-      if (was === undefined || c.time > was.time || (c.time === was.time && i.number < was.by))
-        last.set(c.what.item, { by: i.number, time: c.time });
-    }
-  return new Map([...last].map(([id, { by }]) => [id, by]));
-}
-
 /// The tree of the items that stand as one of `shown` stands, and what stands over them; each item the owner folded or
 /// unfolded in `folds` as he last chose, the others folded where neither they nor anything under them is open.
 export function shownTree(
@@ -167,25 +151,6 @@ export function shownTree(
       under.set(i.number, [...(under.get(i.number) ?? []), d]);
       above.add(d);
     }
-  // Each done or cancelled item that no item depends on any more stands under the item that last depended on it, one
-  // after another by number, unless that item stands under it: then it stays at the top, as an item no item ever
-  // depended on does, so that no item is lost in a loop.
-  const placed = new Map<number, number>();
-  const over = (id: number) => main.get(id) ?? placed.get(id);
-  const last = lastDependents(data);
-  for (const [id, by] of [...last].sort(([a], [b]) => a - b)) {
-    if (!byId.has(id) || !byId.has(by) || main.has(id) || standing(id) === 'open') continue;
-    const seen = new Set<number>();
-    let p: number | undefined = by;
-    while (p !== undefined && p !== id && !seen.has(p)) {
-      seen.add(p);
-      p = over(p);
-    }
-    if (p === id) continue;
-    placed.set(id, by);
-    under.set(by, [...(under.get(by) ?? []), id]);
-    above.add(id);
-  }
   // An item is kept when it or something under it stands as one of those shown. An item met again on its own way down,
   // which only a cycle of dependencies does, is not gone down again.
   const kept = new Map<number, boolean>();
@@ -206,14 +171,14 @@ export function shownTree(
     making.add(id);
     const mock = i === undefined ? null : itemOf(i);
     // MOCK rule, until the engine says what kind an item is: an item with open items under it whose own work has not
-    // begun is a deliverable, made of what is under it, which it depends on. It shows no state of its own: no row of
-    // its work. With the mocks off the engine's own word decides alone: the item's flow, which delivers where it has no
-    // agent's cell.
+    // begun is a deliverable, made of what is under it. It shows no state of its own: no row of its work.
+    // With the mocks off the engine's own word decides alone: the item's flow, which delivers where it has no agent's
+    // cell.
     const deliverable =
       mocksShown() &&
       w !== undefined &&
       !started(w) &&
-      (under.get(id) ?? []).some((c) => !placed.has(c) && keep(c) && !making.has(c));
+      (under.get(id) ?? []).some((c) => keep(c) && !making.has(c));
     const children = [...(under.get(id) ?? [])]
       .filter((c) => keep(c) && !making.has(c))
       .sort((a, b) => a - b)
@@ -228,7 +193,8 @@ export function shownTree(
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w),
       deliver: deliverable || w?.delivers === true,
-      blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) !== 'done').length,
+      // A cancelled item it depends on holds it back no more: only what is still open does.
+      blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) === 'open').length,
       // New to the owner exactly when something is unread: one fact, not two.
       unseen: (mock?.unread ?? 0) > 0,
       unread: mock?.unread ?? 0,

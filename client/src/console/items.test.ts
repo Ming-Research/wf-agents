@@ -47,15 +47,6 @@ function item(number: number, standing: 'open' | 'done' | 'cancelled', dependsOn
   };
 }
 
-/// Item `i`, which came to no longer depend on each item of `on` at the time given with it, in turn.
-const dropping = (i: Item, ...on: [number, number][]): Item => ({
-  ...i,
-  history: {
-    first: { ...i.history.first, dependsOn: [...i.dependsOn, ...on.map(([n]) => n)].sort((a, b) => a - b) },
-    changes: on.map(([n, time]) => ({ time, why: null, what: { kind: 'noLongerDependsOn', item: n } })),
-  },
-});
-
 /// A tree as lines: each item's number, indented by its depth, a shadow's marked.
 const lines = (roots: Shown[], depth = 0): string[] =>
   roots.flatMap((r) => [`${'  '.repeat(depth)}${r.id}${r.shadow ? ' shadow' : ''}`, ...lines(r.children, depth + 1)]);
@@ -154,54 +145,10 @@ describe('the tree the console shows', () => {
   });
 });
 
-describe('where an item that ended stands', () => {
-  // 1 depends on 2. 3, cancelled, was depended on by 1 until 10, and by 4 and 5 until 20, as it was cancelled. 6,
-  // cancelled, was never depended on. 7, done, is still depended on by 8, though 1 depended on it until 30. 9, done,
-  // was depended on by 2 until 5.
-  const data: Items = {
-    items: [
-      dropping(item(1, 'open', [2]), [3, 10], [7, 30]),
-      dropping(item(2, 'open'), [9, 5]),
-      item(3, 'cancelled'),
-      dropping(item(4, 'open'), [3, 20]),
-      dropping(item(5, 'open'), [3, 20]),
-      item(6, 'cancelled'),
-      item(7, 'done'),
-      item(8, 'open', [7]),
-      item(9, 'done'),
-    ],
-  };
-
-  it('stands under the item that last depended on it, the first by number of those that stopped at once; one never depended on stands at the top, and one still depended on where it stood', () => {
-    expect(lines(shownTree(data, ALL))).toEqual(['1', '  2', '    9', '4', '  3', '5', '6', '8', '  7']);
-  });
-
-  it('is left out with the others while the boxes ticked show neither it nor anything under it', () => {
-    expect(lines(shownTree(data))).toEqual(['1', '  2', '4', '5', '8']);
-  });
-
-  it('stays at the top where the item that last depended on it stands under it, so that no item is lost in a loop', () => {
-    // 1, cancelled, depends on 2, done, which depended on 1 until 5. 3, cancelled, was last depended on by 4, cancelled,
-    // and 4 by 5. 6 and 7, both cancelled, were each last depended on by the other.
-    const looped: Items = {
-      items: [
-        item(1, 'cancelled', [2]),
-        dropping(item(2, 'done'), [1, 5]),
-        item(3, 'cancelled'),
-        dropping(item(4, 'cancelled'), [3, 5]),
-        dropping(item(5, 'open'), [4, 6]),
-        dropping(item(6, 'cancelled'), [7, 7]),
-        dropping(item(7, 'cancelled'), [6, 7]),
-      ],
-    };
-    expect(lines(shownTree(looped, ALL))).toEqual(['1', '  2', '5', '  4', '    3', '7', '  6']);
-  });
-});
-
 describe('the folds of the tree', () => {
   // 10, open, depends on 11 and 12. 11, done, depends on 13 and 14, both done. 12, done, depends on 15, done, which
-  // depends on 16, done, and depended on 17 until it was cancelled. 18, open, depends on 19, open, and 20, done. 21,
-  // cancelled, depends on 22, open.
+  // depends on 16, done, and 17, cancelled. 18, open, depends on 19, open, and 20, done. 21, cancelled, depends on 22,
+  // open.
   const data: Items = {
     items: [
       item(10, 'open', [11, 12]),
@@ -209,7 +156,7 @@ describe('the folds of the tree', () => {
       item(12, 'done', [15]),
       item(13, 'done'),
       item(14, 'done'),
-      dropping(item(15, 'done', [16]), [17, 1]),
+      item(15, 'done', [16, 17]),
       item(16, 'done'),
       item(17, 'cancelled'),
       item(18, 'open', [19, 20]),
@@ -331,6 +278,17 @@ describe('what a card shows of an item', () => {
     // A card's mark is the same count.
     const shown = shownTree({ items: [{ ...item(1, 'open'), work: { ...work(1, waits, ['done', 'resting', 'notYet']), waits: listed } }] });
     expect(shown[0].asks).toBe(3);
+  });
+
+  it('counts the items an item waits for as those it depends on that are still open: a cancelled one, standing under it, holds it back no more', () => {
+    const items = [item(1, 'open', [2, 3, 4]), item(2, 'open'), item(3, 'done'), item(4, 'cancelled')];
+    const shown = shownTree({ items }, ALL);
+    expect(shown[0].blocked).toBe(1);
+    expect(shown[0].children.map((s) => [s.id, s.standing])).toEqual([
+      [2, 'open'],
+      [3, 'done'],
+      [4, 'cancelled'],
+    ]);
   });
 
   it('shows the work of an item once it has begun, and while it goes on; until it has begun, the items it waits for', () => {
