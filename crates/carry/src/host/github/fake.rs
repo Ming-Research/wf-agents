@@ -383,7 +383,16 @@ impl Api for Fake {
 
     async fn delete(&self, branch: &str) -> Result<(), Failed> {
         self.kept().asked.push(Asked::Delete(branch.to_string()));
-        Ok(())
+        // GitHub's deletion leaves no branch of that name, as a branch it has none of is answered as deleted.
+        let reference = format!("refs/heads/{branch}");
+        let dropped = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&self.bare)
+            .args(["update-ref", "-d", &reference])
+            .output();
+        dropped
+            .map(|_| ())
+            .map_err(|why| answered(&format!("git did not run: {why}")))
     }
 
     async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, Failed> {

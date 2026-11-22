@@ -1,5 +1,5 @@
-//! A keep-warm ping runs beside nothing else of its work: what is to be done for the work while one of its pings is
-//! under way waits for the ping to end.
+//! A keep-warm ping runs beside no round of its line and no letting go of what its work holds: these wait for the
+//! ping to end (`Pinging`'s own tests in the crate try each, where a work has two lines).
 
 use decide::{Decision, End};
 use engine::Event;

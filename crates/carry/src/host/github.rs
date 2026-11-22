@@ -13,9 +13,11 @@
 //! pull request each check finds is said, through what it was given to say it with, so that the work keeps its number
 //! and address for its page.
 //!
-//! An agent's `run_tests` is run on the last commit of its work's branch, pushed and put in the same pull request:
-//! by the fast workflow where it names tests or checks, by the full ones where it names none (the module `fast`); what
-//! the worktree holds that is not committed is said, and nothing is pushed.
+//! An agent's `run_tests` runs the tests and checks it names by the fast workflow (the module `fast`), on the commit it
+//! names or else the last commit of its work's branch, which is pushed to a branch of its own for the call and deleted
+//! once the run's result is read; the work's own branch and its pull request are the check's. Where no commit is
+//! named, what the worktree holds that is not committed is said, and nothing is pushed. A request that names neither a
+//! test nor a check runs nothing.
 //!
 //! - `api`: what is asked of GitHub besides pushing and fetching, and `gh`, which asks it with the `gh` command line.
 //! - `output`: what a test said, as a reader wants it.
@@ -315,6 +317,64 @@ impl<A: Api> GitHub<A> {
         Ok(())
     }
 
+    /// The commit the name gives in the worktree, in full; or why git finds none by it.
+    async fn named_commit(&self, dir: &Path, name: &str) -> Result<Result<String, String>, String> {
+        // A name that begins with a dash would be read as an option by git, whatever follows it.
+        if name.starts_with('-') {
+            return Ok(Err(format!("{name}: a name does not begin with a dash")));
+        }
+        let spec = format!("{name}^{{commit}}");
+        let found = git::said(dir, &["rev-parse", "--verify", "--quiet", "--end-of-options", &spec]).await?;
+        if found.ok && !found.out.is_empty() {
+            return Ok(Ok(found.out));
+        }
+        let said = if found.err.is_empty() {
+            format!("{name} is no commit")
+        } else {
+            found.err
+        };
+        Ok(Err(said))
+    }
+
+    /// The branches on GitHub that calls of `run_tests` of the work pushed commits to, as their names there; those
+    /// the call deleted already are not among them.
+    async fn trials(&self, branch: &Branch<'_>) -> Result<Vec<String>, String> {
+        let pattern = format!("refs/heads/{}", trial_pattern(branch));
+        let args = ["ls-remote", "--heads", &self.config.url, &pattern];
+        let listed = git::said_with(&self.project.repo, &self.network().await?, &args).await?;
+        if !listed.ok {
+            return Err(format!(
+                "the branches of the work's calls of run_tests could not be listed on GitHub: {}",
+                if listed.err.is_empty() { listed.out } else { listed.err }
+            ));
+        }
+        Ok((listed.out.lines())
+            .filter_map(|line| line.split_once('\t'))
+            .filter_map(|(_, reference)| reference.strip_prefix("refs/heads/"))
+            .map(str::to_string)
+            .collect())
+    }
+
+    /// Closes the work's open pull request into main, saying its work ended. Only that one is the work's: one into
+    /// another branch is a person's.
+    async fn close_pulls(&self, branch: &Branch<'_>) -> Result<(), String> {
+        let pulls = self.api.pulls(&branch.place.branch).await?;
+        for open in (pulls.iter()).filter(|p| p.state == State::Open && p.base == self.project.main) {
+            (self.api.close(open.number, super::CLOSED).await)
+                .map_err(|why| format!("GitHub did not close the pull request {}: {why}", open.url))?;
+        }
+        Ok(())
+    }
+
+    /// Deletes what the calls of `run_tests` left of the branches they pushed commits to, where the engine stopped
+    /// before it read the result: they are the work's, whether or not it merged.
+    async fn sweep_trials(&self, branch: &Branch<'_>) -> Result<(), String> {
+        for left in self.trials(branch).await? {
+            (self.api.delete(&left).await).map_err(|why| format!("GitHub did not delete the branch {left}: {why}"))?;
+        }
+        Ok(())
+    }
+
     /// Deletes the work's branch on GitHub, where the settings say to.
     async fn delete(&self, branch: &Branch<'_>) -> Result<(), Failed> {
         if self.config.delete_branch {
@@ -464,8 +524,8 @@ impl<A: Api> Host for GitHub<A> {
         asking: Asking,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
-        // What the check before the merge refuses, this refuses the same way: the repository's configuration, a
-        // worktree off the work's branch, and in the push, connections sent elsewhere and submodules.
+        // What the check before the merge refuses, this refuses the same way: the repository's configuration and a
+        // worktree off the work's branch.
         let place = branch.place;
         let words = (self.config.tool.as_ref())
             .and_then(|tool| tool.github.as_ref())
@@ -473,41 +533,56 @@ impl<A: Api> Host for GitHub<A> {
         let dir = git::worktree(place)?;
         git::configuration(&self.project, place).await?;
         git::on_branch(place).await?;
-        if git::merging(&dir).await? {
-            let changes = git::uncommitted(&dir).await?;
-            return Ok(Some(fill(&words.merge_under_way, &[("changes", &changes)])));
+        // Only what is named is run: a request that names nothing is the agent's to ask again, and the full workflows
+        // are the check before the merge's.
+        if named.is_empty() {
+            return Ok(Some(words.none_named.clone()));
         }
-        let changes = git::uncommitted(&dir).await?;
-        if !changes.is_empty() {
-            return Ok(Some(fill(&words.uncommitted, &[("changes", &changes)])));
-        }
-        // What git does not track is in no commit, so it is not in the run: it is said with the result, where a test
-        // an agent forgot to commit would otherwise be missing from it unseen.
-        let untracked = git::untracked(&dir).await?;
-        let ci = self.config.ci.as_ref();
-        let role = match self.role(ci, named)? {
+        let role = match self.role(self.config.ci.as_ref(), named)? {
             Ok(role) => role,
             Err(refused) => return Ok(Some(refused)),
         };
         let repo = &self.project.repo;
-        let commit = git::git(repo, &["rev-parse", &place.reference()]).await?;
-        // GitHub opens no pull request for a branch with nothing of its own.
-        let main = self.kept_main();
-        if git::said(repo, &["merge-base", "--is-ancestor", &commit, &main])
-            .await?
-            .ok
-        {
-            return Ok(Some(fill(&words.no_own_commit, &[("main", &self.project.main)])));
-        }
-        self.push(branch, &commit).await?;
-        let pull = self.pull_request(branch).await?;
-        stop.pulled(pull.number, &pull.url);
+        let (commit, untracked) = match &named.commit {
+            // The agent says which commit to run, so what the worktree holds besides it is of no concern.
+            Some(name) => {
+                let found = match self.named_commit(&dir, name).await? {
+                    Ok(found) => found,
+                    Err(why) => return Ok(Some(fill(&words.commit_unknown, &[("why", &why)]))),
+                };
+                (found, String::new())
+            }
+            None => {
+                if git::merging(&dir).await? {
+                    let changes = git::uncommitted(&dir).await?;
+                    return Ok(Some(fill(&words.merge_under_way, &[("changes", &changes)])));
+                }
+                let changes = git::uncommitted(&dir).await?;
+                if !changes.is_empty() {
+                    return Ok(Some(fill(&words.uncommitted, &[("changes", &changes)])));
+                }
+                // What git does not track is in no commit, so it is not in the run: it is said with the result, where a
+                // test an agent forgot to commit would otherwise be missing from it unseen.
+                let untracked = git::untracked(&dir).await?;
+                (git::git(repo, &["rev-parse", &place.reference()]).await?, untracked)
+            }
+        };
+        // The commit is pushed to a branch of its own for this call, never to the work's branch, which the check before
+        // the merge pushes: a push there would make GitHub run the full workflows on the pull request each time.
+        let trying = trial_branch(branch, asking);
+        self.push_to(&commit, &format!("refs/heads/{trying}"), false).await?;
         let request = fast::Request {
             work: branch.work,
             commit: &commit,
             asking,
         };
         let said = self.run_role(role, request, named, stop).await?;
+        // The branch is kept until the run has ended and its result is read: a run the engine stopped waiting for is
+        // found again by the same call, and checks the commit out when it starts. One that could not be deleted is
+        // deleted as the work ends ([`Host::end`]).
+        if said.is_some() {
+            let _ = self.api.delete(&trying).await;
+        }
         Ok(said.map(|said| match untracked.is_empty() {
             true => said,
             false => format!("{}\n\n{said}", fill(&words.untracked, &[("files", &untracked)])),
@@ -515,16 +590,18 @@ impl<A: Api> Host for GitHub<A> {
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
-        if merged {
-            return Ok(());
+        // The pull request is closed first, and the branches the calls left are swept whether or not that went well: they
+        // are harmless leftovers, and what fails is said, not hidden by what comes before it.
+        let closed = match merged {
+            true => Ok(()),
+            false => self.close_pulls(branch).await,
+        };
+        let swept = self.sweep_trials(branch).await;
+        match (closed, swept) {
+            (Err(closing), Err(sweeping)) => Err(format!("{closing}; {sweeping}")),
+            (Err(why), Ok(())) | (Ok(()), Err(why)) => Err(why),
+            (Ok(()), Ok(())) => Ok(()),
         }
-        // Only the work's pull request into main is the work's: one into another branch is a person's.
-        let pulls = self.api.pulls(&branch.place.branch).await?;
-        for open in (pulls.iter()).filter(|p| p.state == State::Open && p.base == self.project.main) {
-            (self.api.close(open.number, super::CLOSED).await)
-                .map_err(|why| format!("GitHub did not close the pull request {}: {why}", open.url))?;
-        }
-        Ok(())
     }
 
     fn pull_at(&self, number: u64) -> Option<String> {
@@ -544,6 +621,18 @@ impl<A: Api> Host for GitHub<A> {
             _ => Ok(()),
         }
     }
+}
+
+/// The pattern of git's that takes the name of every branch a call of `run_tests` of the work pushes a commit to, a place
+/// no work's own branch is in: `wf-try/<the work's branch>/` and anything after it.
+fn trial_pattern(branch: &Branch<'_>) -> String {
+    format!("wf-try/{}/*", branch.place.branch)
+}
+
+/// The branch on GitHub that the commit a call of `run_tests` runs is pushed to, which the workflow checks out: one for
+/// each call, so that calls asked together do not take each other's branch.
+fn trial_branch(branch: &Branch<'_>, asking: Asking) -> String {
+    format!("wf-try/{}/{}", branch.place.branch, asking.name())
 }
 
 /// The reference that holds main's head as GitHub last gave it, fetched there from the remote of this name, main of

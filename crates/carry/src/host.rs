@@ -7,7 +7,8 @@
 //! - [`Local`]: the local repository is the host: its own main branch, the project's check command, and a merge in its
 //!   checkout; an agent's check runs the command on the worktree as it stands.
 //! - [`GitHub`]: the repository on GitHub is the host: its main branch, the CI of the work's pull request, and the
-//!   pull request's merge; an agent's `run_tests` is the CI of the last commit of its work's branch, which the engine pushes.
+//!   pull request's merge; an agent's `run_tests` runs the tests it names by the fast workflow, on the commit it names or
+//!   else the last commit of its work's branch, which the engine pushes to a branch of its own.
 //! - `fake`: a host for the tests, which gives what it is told to.
 //!
 //! Each operation can be asked again after the engine started again, and finds what it did already rather than doing
@@ -217,9 +218,10 @@ pub trait Host: Send + Sync + 'static {
     /// the host again: where a work's change begins is worked out from it.
     fn kept_main(&self) -> String;
 
-    /// What the agents' tool `run_tests` finds of the work, with the tests and checks the agent named, in words for the
-    /// agent whose call asks, whole; none where it was told to stop. An `Err` is why it could not run them, for the
-    /// agent too. What failed is said as [`Host::verdict`] says it.
+    /// What the agents' tool `run_tests` finds of the work, with the tests and checks the agent named, on the commit it
+    /// named or else the work's last commit, in words for the agent whose call asks, whole; none where it was told to
+    /// stop. A request that names neither a test nor a check is run as nothing, and said so. An `Err` is why it could not
+    /// run them, for the agent too. What failed is said as [`Host::verdict`] says it.
     fn run_tests(
         &self,
         branch: &Branch<'_>,
@@ -229,8 +231,10 @@ pub trait Host: Send + Sync + 'static {
     ) -> impl Future<Output = Result<Option<String>, String>> + Send;
 
     /// Lets go of what the host holds for the work, which has ended with nothing of it under way: its pull request
-    /// where it did not merge, closed with a word that its work ended ([`CLOSED`]). What is gone, closed or merged
-    /// already is left as it is, and the work's own branch stays.
+    /// where it did not merge, closed with a word that its work ended ([`CLOSED`]), and, merged or not, the branches
+    /// that calls of [`Host::run_tests`] left (`wf-try/<the work's branch>/…`), deleted after the pull request is
+    /// closed, whether or not that went well. What is gone, closed or merged already is left as it is, and the work's
+    /// own branch stays.
     fn end(&self, branch: &Branch<'_>, merged: bool) -> impl Future<Output = Result<(), String>> + Send;
 
     /// Takes up again what the host held for a work that was cancelled and reopened, as the work makes its place
@@ -243,15 +247,17 @@ pub trait Host: Send + Sync + 'static {
     fn pull_at(&self, number: u64) -> Option<String>;
 }
 
-/// The tests and the checks an agent names to `run_tests`, each as it wrote it.
+/// The tests and the checks an agent names to `run_tests`, each as it wrote it, and the commit it names to run them on.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Named {
     pub tests: Vec<String>,
     pub checks: Vec<String>,
+    /// The commit to run on, as git names one in the agent's worktree; none for the last commit of the work's branch.
+    pub commit: Option<String>,
 }
 
 impl Named {
-    /// Whether nothing is named.
+    /// Whether neither a test nor a check is named, which a commit alone does not make a request to run anything.
     pub fn is_empty(&self) -> bool {
         self.tests.is_empty() && self.checks.is_empty()
     }

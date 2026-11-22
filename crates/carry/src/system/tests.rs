@@ -482,21 +482,16 @@ fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workfl
             .ci
             .as_mut()
             .expect("the project declares its workflows");
-        ci.fast.as_mut().expect("a fast workflow").checks = checks.iter().map(|c| c.to_string()).collect();
+        ci.fast.checks = checks.iter().map(|c| c.to_string()).collect();
         declared
     };
     let fast = told(&beside);
     assert!(fast.contains("and checks among `lint`;"), "{fast}");
     assert!(told(&declared(&["lint", "page"])).contains("and checks among `lint`, `page`;"));
     assert!(told(&declared(&[])).contains(&format!("and checks among {};", ways["none_named"])));
-    // A project that declares no fast workflow, on GitHub or on the local repository alike.
+    // A project that declares no workflows, on GitHub or on the local repository alike.
     let mut no_fast = beside.clone();
-    no_fast
-        .project
-        .ci
-        .as_mut()
-        .expect("the project declares its workflows")
-        .fast = None;
+    no_fast.project.ci = None;
     let whole = told(&no_fast);
     assert!(
         whole.contains(&format!("and checks among {};", ways["whole"])),
