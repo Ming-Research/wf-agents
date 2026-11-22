@@ -27,7 +27,7 @@ import { fixtureSource } from './fixtures';
 import type { Heard } from './source';
 import { ConsolePage } from './index';
 import type { Shown } from './items';
-import { DOT_AT, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, SnapScene, themed } from './snap';
+import { DOT_AT, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, SnapScene, themed, UNFOLD_MS } from './snap';
 
 const WIDTH = 1000;
 const HEIGHT = 640;
@@ -250,6 +250,47 @@ describe('the tree in columns', () => {
     expect(folding[Math.floor(frames / 2) - 1]).toBeGreaterThan(0.2);
     settle(scene);
     expect(scene.cardAt(2)).toBeNull();
+  });
+
+  it('draws the lit way into a running item under a turning fold with its card, ending where the card is drawn at each frame', () => {
+    const now = Date.now();
+    const work: Shown['work'] = {
+      number: 2,
+      now: { kind: 'round', cell: 'implement', run: 1, round: 1, since: now },
+      paused: null,
+      cells: [{ cell: 'implement', state: 'running', finished: 0, record: null, open: 1 }],
+      waits: [],
+      from: now,
+      bar: '',
+      sentBack: 0,
+      usdMicros: 0,
+      last: null,
+      level: '2',
+      raise: 0,
+      lines: null,
+    };
+    const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
+    // Under 1, item 2, whose work runs.
+    const tree = (folded: boolean) => [{ ...card(1, [{ ...card(2), begun: true, work }]), fold: { folded, under } }];
+    /// The way into item 2 is lit, and ends where item 2 is drawn, smaller than whole.
+    const endsAtCard = () => {
+      const way = scene.litWays().find((w) => w.id === 2);
+      const stands = scene.cardAt(2);
+      expect(stands?.size).toBeGreaterThan(0);
+      expect(stands?.size).toBeLessThan(1);
+      expect(way?.to[0]).toBeCloseTo(stands?.drawn[0] ?? NaN, 6);
+      expect(way?.to[1]).toBeCloseTo(stands?.drawn[1] ?? NaN, 6);
+    };
+    scene.show(tree(true));
+    settle(scene);
+    // Half way through an unfold, and then half way through a fold.
+    scene.show(tree(false));
+    for (let k = 0; k < UNFOLD_MS / 32; k += 1) scene.step(16);
+    endsAtCard();
+    settle(scene);
+    scene.show(tree(true));
+    for (let k = 0; k < FOLD_MS / 32; k += 1) scene.step(16);
+    endsAtCard();
   });
 
   it('draws a fold as it stands at the end of its turn in the first frame after its time, however far apart the frames come', () => {
