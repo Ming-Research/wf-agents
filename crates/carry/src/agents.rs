@@ -859,7 +859,7 @@ impl Inner {
                 // uncommitted: its agent is here to put it right, which nothing later can, since nothing runs a cell
                 // for the worktree. A return that asks for calls is held to nothing: the run entered for the results
                 // goes on in the same worktree. A look that cannot be made fails the round, as the look at the tests does.
-                if true {
+                if !round.cell.reads_only && came.asks.is_empty() {
                     match uncommitted_in(&place).await {
                         Ok(found) => came.found.extend(found),
                         Err(why) => {
