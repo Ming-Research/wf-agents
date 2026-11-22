@@ -25,8 +25,9 @@ A question says whether its cell waits for the answer, which holds the work at t
 - rejected: an agent proposed a field on the question for why it waits, `why` and then `because`; the owner rejected it, because nobody reads it on its own: the reason goes into what the question asks.
 
 ### decision a-question-says-whether-its-answer-goes-into-the-tree
-Each question a cell asks says in `tree` whether its answer settles a choice the tree's rules give the owner; the engine sends back the change handed in while such an answer left the tree unchanged.
+A question says in `tree` whether its answer settles a choice the tree's rules give the owner; if such an answer left the tree unchanged, the change is sent back and the check before the merge fails.
 - replaced: Leaving it to the implementation to judge which answers settled a choice the tree's rules give the owner was on main; the owner changed it, because an answered choice could go unwritten with nothing to catch it, as a question of where his page shows an abnormal tool call showed.
+- replaced: Looking only as a return hands in the change was on main; the owner changed it, because an answer that takes the recommended option to a question that does not wait runs no cell, so one given after the change was handed in could reach the merge unwritten.
 - rejected: the owner proposed that the engine also send back a change of the tree that no question marked yes asked for; the owner rejected it, because mending an entry the change made untrue changes the tree with no question.
 
 ### decision a-question-is-written-under-its-name

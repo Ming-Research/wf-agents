@@ -770,8 +770,9 @@ pub(crate) type Wrote<'a> = &'a (dyn Fn(BlockId, String) + Sync);
 
 /// What the check holds a work to: the work's head, read of its branch for the check's round, each datum of the branch
 /// told to `wrote` as it now stands, against what each cell that judges the work by its head dealt with last
-/// ([`branch::reviewed`]), none where the flow has no head; and for its change under the protected paths, the paths
-/// and the question's words, and the work as it is kept, which says what the owner answered.
+/// ([`branch::reviewed`]), none where the flow has no head; for its change under the protected paths, the paths and
+/// the question's words; and the work as it is kept, which says what the owner answered, of that change and of the
+/// questions whose answers go into the design tree.
 pub(crate) struct Gate<'a> {
     pub(crate) branch: &'a mut Looking,
     pub(crate) wrote: Wrote<'a>,
@@ -791,20 +792,21 @@ fn unreviewed<'g>(gate: &'g Gate<'_>) -> Option<&'g str> {
         .then_some(head)
 }
 
-/// Checks the work before its merge: that its worktree holds nothing uncommitted, and that its branch merges into the
-/// head of main the host gives with no conflict (worked out without changing anything); then that the work's head, read
-/// of the branch for the round, is the one each judge that takes it dealt with last ([`Gate`]), which fails the round
-/// in passing otherwise, so that the judge runs first on the new head and the check is taken again after it; all found
-/// holding the repository. Then main's head is merged into
-/// the branch, where it does not hold it, as a commit of the engine's, so that what is judged is what a merge would
-/// land, which fails the check where it changes nothing against main, there being nothing to merge; then that commit's
-/// own change under the paths the project protects is empty or one the owner let merge, which fails the check
-/// otherwise, with what the engine asks of it, and fails it too where it cannot be looked at ([`crate::protected`]);
-/// then the host's verdict on the commit, waited for without the repository, as the round of the check that asks finds
-/// it, which may hold the work where what failed fails on main as well, and may observe what it found beyond the work.
-/// The head of main it is checked against is told to `reads` as it is read, the repository held, so that what the
-/// round read is said before any look at main after it. Says why where it could not check, and gives none where it was
-/// stopped; what failed is what was found, not a reason to fail.
+/// Checks the work before its merge: that its worktree holds nothing uncommitted; then that its branch merges into the
+/// head of main the host gives with no conflict (worked out without changing anything), and that the work's own change
+/// against that main changes the design tree where a question of the work marked `tree` has the owner's answer
+/// ([`crate::tree::unwritten`]), both said where both fail; then that the work's head, read of the branch for the
+/// round, is the one each judge that takes it dealt with last ([`Gate`]), which fails the round in passing otherwise,
+/// so that the judge runs first on the new head and the check is taken again after it; all found holding the
+/// repository. Then main's head is merged into the branch, where it does not hold it, as a commit of the engine's, so
+/// that what is judged is what a merge would land, which fails the check where it changes nothing against main, there
+/// being nothing to merge; then that commit's own change under the paths the project protects is empty or one the owner
+/// let merge, which fails the check otherwise, with what the engine asks of it, and fails it too where it cannot be
+/// looked at ([`crate::protected`]); then the host's verdict on the commit, waited for without the repository, as the
+/// round of the check that asks finds it, which may hold the work where what failed fails on main as well, and may
+/// observe what it found beyond the work. The head of main it is checked against is told to `reads` as it is read, the
+/// repository held, so that what the round read is said before any look at main after it. Says why where it could not
+/// check, and gives none where it was stopped; what failed is what was found, not a reason to fail.
 pub(crate) async fn check(
     project: &Project,
     host: &impl Host,
@@ -842,8 +844,11 @@ pub(crate) async fn check(
         if !changes.is_empty() {
             return Ok(Some(found(fill(&words.found.uncommitted, &[("changes", &changes)]))));
         }
+        // A conflict with main and an answer missing from the design tree are both said where both are found: neither
+        // look depends on the other, and one commit mends both.
+        let mut failed = Vec::new();
         if let Some(conflict) = git::conflicts(project, &main, &commit).await? {
-            let failed = fill(
+            failed.push(fill(
                 &words.found.conflict,
                 &[
                     ("main", &project.main),
@@ -851,8 +856,19 @@ pub(crate) async fn check(
                     ("files", &conflict.files),
                     ("kinds", &conflict.kinds),
                 ],
-            );
-            return Ok(Some(found(failed)));
+            ));
+        }
+        // An answer that takes the recommended option to a question that does not wait runs no cell, so one given after
+        // the change was handed in is found only here. The check has no return that says anything beside its work.
+        let said = Said::default();
+        let unwritten = crate::tree::unwritten(project, place, &main, &project.tree, gate.work, &said).await?;
+        if !unwritten.is_empty() {
+            let questions = unwritten.join("\n");
+            let slots = [("main", project.main.as_str()), ("questions", questions.as_str())];
+            failed.push(fill(&words.found.tree_unchanged, &slots));
+        }
+        if !failed.is_empty() {
+            return Ok(Some(found(failed.join("\n\n"))));
         }
         // Each datum of the branch is told to the round as it now stands, a new version where none says it: the round
         // consumes the head it judged, so that a version written since its run began runs the check no more.
@@ -1209,6 +1225,7 @@ mod tests {
     use crate::git::tests::{Repo, commit, marking, run};
     use crate::host::fake::{Asked, Fake};
     use crate::host::{Local, Verdict};
+    use crate::tree::tests::{asked, asked_in, withdrawn};
 
     fn outputs() -> Vec<(BlockId, Option<Vec<String>>)> {
         vec![
@@ -2013,6 +2030,94 @@ mod tests {
         let failed = checked.failed.expect("the check fails");
         assert!(
             failed.contains("conflict") && failed.contains("greeting.txt"),
+            "{failed}"
+        );
+        assert_eq!(host.asked(), [Asked::Main]);
+    }
+
+    /// A work started in the repository whose branch changes a file outside the design tree; and main's head it
+    /// started from.
+    async fn building(repo: &Repo) -> (Place, String) {
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(repo, &Fake::new(&main)).await.unwrap();
+        commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        (started.place, main)
+    }
+
+    /// What the check says where these questions, marked `tree`, have the owner's answer, and the work's change against
+    /// main changes nothing in the design tree.
+    fn not_in_the_tree(questions: &[&str]) -> String {
+        let questions = questions.join("\n");
+        fill(
+            &words().check.found.tree_unchanged,
+            &[("main", "main"), ("questions", &questions)],
+        )
+    }
+
+    // The owner answers a question marked `tree` after the change was handed in, taking the option it recommended,
+    // which runs no cell: the check finds the answer missing from the tree, names the question and asks the host for
+    // no verdict; once the work commits a file of the tree, it goes on to the host. Well under a second alone: a
+    // repository on disk and the fake host; no other test holds the check to the owner's answers.
+    #[tokio::test]
+    async fn an_answer_marked_tree_that_the_works_change_leaves_out_of_the_tree_fails_the_check() {
+        let repo = Repo::new("true");
+        let (place, main) = building(&repo).await;
+        let work = asked_in(vec![(asked("placement", Some(true)), true)]);
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &Protecting::default(), &work).await;
+        assert_eq!(checked.failed, Some(not_in_the_tree(&["placement"])), "{checked:?}");
+        assert_eq!(host.asked(), [Asked::Main], "the host is not asked for a verdict");
+        std::fs::create_dir_all(place.dir.join("design")).unwrap();
+        commit(&place.dir, "design/greeting.md", "The option taken.\n");
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &Protecting::default(), &work).await;
+        assert_eq!(checked.failed, None, "{checked:?}");
+        assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(checked.commit.clone())]);
+    }
+
+    // The work's change leaves the tree as main has it, and the work holds an answered question marked no, one kept
+    // before questions said `tree`, and one marked `tree` and withdrawn since its answer: none holds the check, which
+    // goes on to the host. Well under a second alone: three checks in one repository on disk with the fake host; it
+    // catches a check that names a question the look at a return would not name.
+    #[tokio::test]
+    async fn an_answer_marked_no_or_not_marked_or_one_withdrawn_does_not_hold_the_check() {
+        let repo = Repo::new("true");
+        let (_, main) = building(&repo).await;
+        for work in [
+            asked_in(vec![(asked("placement", Some(false)), true)]),
+            asked_in(vec![(asked("placement", None), true)]),
+            withdrawn(asked_in(vec![(asked("placement", Some(true)), true)]), "placement"),
+        ] {
+            let host = Fake::new(&main).judges(Ok(Some(passes())));
+            let checked = check_held(&repo, &host, &Protecting::default(), &work).await;
+            assert_eq!(checked.failed, None, "{checked:?}");
+            assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(checked.commit.clone())]);
+        }
+    }
+
+    // A conflict with main and answers missing from the tree are both said, a blank line between, so that one commit
+    // of the work mends both. Well under a second alone: a repository on disk and the fake host; no other test holds
+    // the check to say both.
+    #[tokio::test]
+    async fn a_conflict_and_answers_missing_from_the_tree_are_said_together() {
+        let repo = Repo::new("true");
+        let local = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+        commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
+        let main = aside(&repo, "greeting.txt", "Good day.\n");
+        let work = asked_in(vec![
+            (asked("wording", Some(true)), true),
+            (asked("placement", Some(true)), true),
+        ]);
+        let host = Fake::new(&main);
+        let checked = check_held(&repo, &host, &Protecting::default(), &work).await;
+        let failed = checked.failed.expect("the check fails");
+        let tree = format!("\n\n{}", not_in_the_tree(&["placement", "wording"]));
+        let conflict = failed
+            .strip_suffix(&tree)
+            .expect("the answers are said after the conflict");
+        assert!(
+            conflict.starts_with("The branch does not merge") && conflict.contains("greeting.txt"),
             "{failed}"
         );
         assert_eq!(host.asked(), [Asked::Main]);

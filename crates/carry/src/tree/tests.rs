@@ -174,7 +174,7 @@ async fn a_version_that_is_not_the_trees_has_no_files() {
 }
 
 /// A question of the cell `build`, marked `tree` as given, recommending the first of two options.
-fn asked(name: &str, tree: Option<bool>) -> Question {
+pub(crate) fn asked(name: &str, tree: Option<bool>) -> Question {
     let way = |does: &str| Way {
         does: does.to_string(),
         follows: format!("what follows from {does}"),
@@ -193,7 +193,7 @@ fn asked(name: &str, tree: Option<bool>) -> Question {
 
 /// A work whose one run of `build` asked these questions as its first round ended, as the loop keeps them, each
 /// answered with its first option where it says so.
-fn asked_in(questions: Vec<(Question, bool)>) -> Work {
+pub(crate) fn asked_in(questions: Vec<(Question, bool)>) -> Work {
     let run = RunId(1);
     let mut work = Work::default();
     work.records.started.push(Started {
@@ -241,6 +241,20 @@ fn asked_in(questions: Vec<(Question, bool)>) -> Work {
     work
 }
 
+/// The work, as [`asked_in`] keeps it, with the question of this name withdrawn after all it keeps.
+pub(crate) fn withdrawn(mut work: Work, name: &str) -> Work {
+    work.records.questions.push(Questioned {
+        name: name.to_string(),
+        cell: "build".into(),
+        run: RunId(1),
+        engine: false,
+        waits: false,
+        withdrawn: true,
+        at: Seq(100),
+    });
+    work
+}
+
 /// The questions whose answer the tree does not hold, as a round ends with the work's branch as it is, its return
 /// saying this beside its work, main where the reference `main` holds it.
 async fn unwritten_in(repo: &Repo, place: &Place, work: &Work, said: &Said) -> Result<Vec<String>, String> {
@@ -284,17 +298,8 @@ async fn only_a_standing_question_marked_tree_with_an_answer_to_its_latest_versi
     assert_eq!(unwritten_in(&repo, &place, &marked_no, &Said::default()).await, none);
     let not_marked = asked_in(vec![(asked("placement", None), true)]);
     assert_eq!(unwritten_in(&repo, &place, &not_marked, &Said::default()).await, none);
-    let mut withdrawn = asked_in(vec![(asked("placement", Some(true)), true)]);
-    withdrawn.records.questions.push(Questioned {
-        name: "placement".to_string(),
-        cell: "build".into(),
-        run: RunId(1),
-        engine: false,
-        waits: false,
-        withdrawn: true,
-        at: Seq(10),
-    });
-    assert_eq!(unwritten_in(&repo, &place, &withdrawn, &Said::default()).await, none);
+    let taken_back = withdrawn(asked_in(vec![(asked("placement", Some(true)), true)]), "placement");
+    assert_eq!(unwritten_in(&repo, &place, &taken_back, &Said::default()).await, none);
     let answered = asked_in(vec![(asked("placement", Some(true)), true)]);
     let anew = Said {
         questions: vec![asked("placement", Some(true))],
