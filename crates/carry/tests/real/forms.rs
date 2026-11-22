@@ -44,12 +44,16 @@ async fn every_call_of_a_line_is_given_the_form_of_that_line_as_the_files_beside
     assert_eq!(real.form_given(3), reviewer, "the review's call");
 }
 
+/// The calls of a line, each with its number among every call of the program, counted from one.
+type Numbered<'a> = Vec<(usize, &'a Call)>;
+
 // A session is given on every call the form and the system prompt it began with, and a line whose session began with
 // another form or system prompt than a new session would begin with now begins a new session at its next round
 // (decision `a-changed-system-prompt-or-form-begins-a-new-session`): the engine started again with a flow whose plan
 // may ask for one more tool, which changes both, and the build, entered again for the owner's answer, begins a new
 // session under another id, given the new form and system prompt, and goes on in it with the same bytes. Seconds, with
 // the fake program, like the tests beside it; the one test that sees the program's command line after a renewal.
+
 #[tokio::test]
 async fn a_line_whose_session_began_on_a_flow_since_changed_begins_a_new_one_with_the_new_form_and_prompt() {
     let mut real = Real::trial(Fake {
@@ -70,14 +74,14 @@ async fn a_line_whose_session_began_on_a_flow_since_changed_begins_a_new_one_wit
     real.answer(work);
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
-    let line: Vec<(usize, &Call)> = (calls.iter().enumerate())
+    let line: Numbered<'_> = (calls.iter().enumerate())
         .filter(|(_, call)| call.of("Plan") || call.of("Build"))
         .map(|(i, call)| (i + 1, call))
         .collect();
     // The plan's call and the build's that asked the owner, before the engine started again, are in the session the
     // plan began; every later call of the line is in the new one.
     let first = line[0].1.session().1;
-    let (old, new): (Vec<(usize, &Call)>, Vec<(usize, &Call)>) =
+    let (old, new): (Numbered<'_>, Numbered<'_>) =
         line.iter().copied().partition(|(_, call)| call.session().1 == first);
     assert_eq!(old.len(), 2, "the plan, and the build that asked the owner");
     assert!(
