@@ -56,6 +56,8 @@ A line begins a new session at its next round, as for a change of model, when th
 - replaced: Leaving a line on the system prompt and form its session began with, until something else began a new session, was on main; the owner changed it, because a work under way then ran every later round on replaced rules and form, and an old form cannot hand in a field made required since.
 - rejected: an agent proposed sending the change to the open session as a message, or renewing only its form; the owner rejected it, because a resumed session keeps its first system prompt, old rules beside new, and a new form loses the whole cache (data: `research/system-prompt-on-resume.md`).
 - rejected: an agent proposed an action of the owner's to begin the sessions of a work anew; the owner rejected it, because that action was taken out before, and it would have the owner click each work after each install.
+- rejected: an agent proposed beginning anew, at a move to another version, each line whose two versions' outlines digest its form otherwise; the owner rejected it, because this check covers a move by what each session began with, and a second mechanism for it would drift from this one.
+- rejected: an agent proposed beginning every line's session anew at every move; the owner rejected it, because that pays again for sessions whose form is unchanged (principle keep-what-was-paid-for).
 
 ### decision a-fork-keeps-the-sessions-tools
 A fork of a round's session runs through the engine on the session's whole command line, including its system prompt, form of return and tools, with a hook refusing every tool but the return.

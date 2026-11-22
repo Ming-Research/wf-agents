@@ -103,7 +103,6 @@ import {
   readBody,
   readRulings,
   type Ruling,
-  wordsOf,
   workTierOf,
 } from './real';
 import { barOf, barSpans, TimeTrack } from './track';
@@ -149,8 +148,9 @@ function Unread({ page }: { page: PageState }) {
   );
 }
 
-/// A cell's title in the work's flow, or its id where the flow does not name it.
-const titleOf = (page: WorkPage | null, cell: string) => page?.flow.cells.find((c) => c.id === cell)?.title ?? cell;
+/// A cell's title in the version of the flow the work runs on, or its id where that version does not name it.
+const titleOf = (page: WorkPage | null, cell: string) =>
+  page?.outline.cells.find((c) => c.id === cell)?.title ?? cell;
 
 /// Whether what a work waits for is a question a cell asked the owner as a call, which is drawn in the plan as a choice
 /// rather than said on the status line.
@@ -217,9 +217,10 @@ const pickKey = (c: Choice): string =>
 const waitKeyOf = (c: Choice): string | undefined =>
   c.asks === undefined ? undefined : 'call' in c.asks ? callKey(c.asks.call) : answerKey(c.asks.question);
 
-/// A cell as the page shows one: its id in the monospace, muted, and its title semibold, which the work's flow gives.
+/// A cell as the page shows one: its id in the monospace, muted, and its title semibold, which the version of the flow
+/// the work runs on gives.
 function CellName({ cell, page }: { cell: string; page: WorkPage | null }) {
-  const title = page?.flow.cells.find((c) => c.id === cell)?.title;
+  const title = page?.outline.cells.find((c) => c.id === cell)?.title ?? undefined;
   return (
     <span>
       <span className="cell-id">{cell}</span>
@@ -455,7 +456,7 @@ function ItemView({
   // question of the plan to the line the work stands at. Nothing else changes: the work is not paused.
   const discuss = (c: Choice) => {
     setQuote(quoteOf(c));
-    setMessageTo(read?.flow.cells.find((x) => x.id === c.asks?.cell)?.line ?? null);
+    setMessageTo(read?.outline.cells.find((x) => x.id === c.asks?.cell)?.line ?? null);
     setDiscussed((n) => n + 1);
   };
   const jump = (at: number) =>
@@ -485,8 +486,9 @@ function ItemView({
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [open, fresh, markAsRead]);
-  // The sections the flow's card names: as read, or, until the body is read, each with nothing in it yet.
-  const sections = bodyRead ? body.sections : (read?.flow.card ?? []).map((title) => ({ title, parts: [] }));
+  // The sections the card of the version the work runs on names: as read, or, until the body is read, each with nothing
+  // in it yet.
+  const sections = bodyRead ? body.sections : (read?.outline.card ?? []).map((title) => ({ title, parts: [] }));
   // What a section with nothing in it says.
   const nothingYet = bodyRead ? 'Nothing is written yet' : 'Reading';
   // The questions put to the owner: those of the work's own that stand, once the texts that may point to them are
@@ -527,12 +529,12 @@ function ItemView({
     setAnswers((was) => ({ ...was, [key]: was[key] === option ? null : option }));
   };
   const writeQuestion = (q: Choice, text: string) => setWritten((was) => ({ ...was, [pickKey(q)]: text }));
-  // The cell a question belongs to, and the line that cell runs on, as the work's flow names it; none of a choice of
-  // the plan, which belongs to no cell.
+  // The cell a question belongs to, and the line that cell runs on, as the version of the flow the work runs on names
+  // it; none of a choice of the plan, which belongs to no cell.
   const askedBy = (q: Choice) => {
     const asks = q.asks;
     if (asks === undefined) return undefined;
-    const cell = read?.flow.cells.find((c) => c.id === asks.cell);
+    const cell = read?.outline.cells.find((c) => c.id === asks.cell);
     return { cell: asks.cell, line: cell?.line ?? null };
   };
   // A question's card, wherever it stands.
@@ -1444,12 +1446,12 @@ function Discussion({ work, page, messages, pointers, messageTo, setMessageTo, q
   sent: (message: Message) => void;
 }) {
   const read = pageIn(page);
-  const flow = read?.flow;
-  const lineOf = (cell: string | null) => flow?.cells.find((c) => c.id === cell)?.line ?? null;
+  const outline = read?.outline;
+  const lineOf = (cell: string | null) => outline?.cells.find((c) => c.id === cell)?.line ?? null;
   // The lines one of whose cells has words of its own, each with what the engine says of words said to it: the cell
   // they reach, or why no cell can take them.
-  const targets = (flow?.lines ?? [])
-    .filter((l) => flow !== undefined && flow.cells.some((c) => c.line === l.name && wordsOf(flow, c.id) !== undefined))
+  const targets = (outline?.lines ?? [])
+    .filter((l) => outline !== undefined && outline.cells.some((c) => c.line === l.name && c.words !== null))
     .map((l) => {
       const to: SpokenTo = { kind: 'line', line: l.name };
       return { line: l.name, to, speaking: read?.speaking?.find((s) => sameTo(s.to, to)) };

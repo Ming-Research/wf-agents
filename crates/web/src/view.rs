@@ -158,6 +158,175 @@ pub struct Group {
     pub blocks: Vec<String>,
 }
 
+/// What a work's page reads of the version of its flow the work runs on, as the outline kept of it has it (decision
+/// `a-works-past-is-drawn-from-its-outline`); of a work on no version kept, what its records name alone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineView {
+    /// The version the work runs on was kept: else its cells are the ids its runs name, with no title or line, and it
+    /// has no lines, no groups and no words.
+    pub kept: bool,
+    /// The cells, in the order of the walk; then each cell a run of the work names that the version has not, as one
+    /// taken out since, in the order they first ran.
+    pub cells: Vec<OutlineCell>,
+    /// The lines, each with its cells in the order of the walk.
+    pub lines: Vec<OutlineLine>,
+    pub groups: Vec<Group>,
+    /// What the item's card shows: the data the version names; of a work on no version kept, what people wrote for
+    /// it before its first run, in the order first written.
+    pub card: Vec<String>,
+}
+
+/// A cell of the version a work runs on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineCell {
+    pub id: String,
+    /// What it is called; none of a cell the version does not have.
+    pub title: Option<String>,
+    /// The line an agent's cell runs in.
+    pub line: Option<String>,
+    /// An agent runs it; else the engine's own act does, or the version does not say.
+    pub agent: bool,
+    pub given: Vec<GivenBlock>,
+    pub watches: Vec<Watch>,
+    pub reads: Vec<Read>,
+    /// Its own words, the dialogue the owner speaks with it in, where it has them.
+    pub words: Option<OutlineWords>,
+}
+
+/// A cell's own words: the datum, and what the engine writes of each version of it, each text by its name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineWords {
+    pub block: String,
+    pub writes: Vec<(String, Vec<crate::given::Piece>)>,
+}
+
+/// A line of the version a work runs on: its name, and its cells in the order of the walk.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineLine {
+    pub name: String,
+    pub cells: Vec<String>,
+}
+
+impl OutlineView {
+    /// The outline of the version the work runs on, none where it runs on none kept, read with the work's records: a
+    /// cell its runs name that the version has not, taken out since, as `came_from` gives it of the version it came
+    /// from, where one kept has it.
+    pub fn of(
+        outline: Option<&flow::Outline>,
+        records: &decide::Records,
+        came_from: &dyn Fn(&decide::CellId) -> Option<flow::outline::OutlinedCell>,
+    ) -> OutlineView {
+        let mut ran: Vec<String> = Vec::new();
+        for started in &records.started {
+            let id = started.cell.to_string();
+            if !ran.contains(&id) {
+                ran.push(id);
+            }
+        }
+        let bare = |id: &String| OutlineCell {
+            id: id.clone(),
+            title: None,
+            line: None,
+            agent: false,
+            given: Vec::new(),
+            watches: Vec::new(),
+            reads: Vec::new(),
+            words: None,
+        };
+        let Some(outline) = outline else {
+            let first = records.started.first().map(|s| s.at);
+            let mut card: Vec<String> = Vec::new();
+            for written in &records.written {
+                let before = first.is_none_or(|first| written.at < first);
+                if before && written.by == decide::Outsider::Person && !card.contains(&written.block.to_string()) {
+                    card.push(written.block.to_string());
+                }
+            }
+            return OutlineView {
+                kept: false,
+                cells: ran.iter().map(bare).collect(),
+                lines: Vec::new(),
+                groups: Vec::new(),
+                card,
+            };
+        };
+        let mut cells: Vec<OutlineCell> = (outline.cells.iter())
+            .map(|cell| OutlineCell {
+                id: cell.id.to_string(),
+                title: Some(cell.title.clone()),
+                line: cell.line.clone(),
+                agent: cell.agent,
+                given: (cell.given.iter())
+                    .map(|g| GivenBlock {
+                        block: g.block.to_string(),
+                        kind: InputKind::of(g.kind),
+                        list: g.list.name().to_string(),
+                    })
+                    .collect(),
+                watches: (cell.watches.iter())
+                    .map(|w| Watch {
+                        name: w.name.clone(),
+                        blocks: names(&w.blocks),
+                        does: w.does.clone(),
+                    })
+                    .collect(),
+                reads: (cell.reads.iter())
+                    .map(|r| Read {
+                        name: r.name.clone(),
+                        blocks: names(&r.blocks),
+                    })
+                    .collect(),
+                words: cell.words.as_ref().map(|w| OutlineWords {
+                    block: w.block.to_string(),
+                    writes: (w.writes.iter())
+                        .map(|(name, text)| (name.clone(), flow::system::with_slots(text)))
+                        .collect(),
+                }),
+            })
+            .collect();
+        let gone: Vec<OutlineCell> = (ran.iter())
+            .filter(|id| !outline.cells.iter().any(|cell| cell.id.as_str() == id.as_str()))
+            .map(|id| match came_from(&decide::CellId::from(id.as_str())) {
+                Some(was) => OutlineCell {
+                    title: Some(was.title),
+                    line: was.line,
+                    agent: was.agent,
+                    ..bare(id)
+                },
+                None => bare(id),
+            })
+            .collect();
+        cells.extend(gone);
+        let mut lines: Vec<OutlineLine> = Vec::new();
+        for cell in &cells {
+            let Some(name) = &cell.line else { continue };
+            match lines.iter_mut().find(|l| &l.name == name) {
+                Some(line) => line.cells.push(cell.id.to_string()),
+                None => lines.push(OutlineLine {
+                    name: name.clone(),
+                    cells: vec![cell.id.to_string()],
+                }),
+            }
+        }
+        OutlineView {
+            kept: true,
+            cells,
+            lines,
+            groups: (outline.groups.iter())
+                .map(|g| Group {
+                    name: g.name.clone(),
+                    blocks: names(&g.blocks),
+                })
+                .collect(),
+            card: names(&outline.card),
+        }
+    }
+}
+
 /// A datum or group a cell watches: its name as the definition writes it, the blocks it stands for (of a datum, the
 /// datum alone) and what the cell does when it is new.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -580,6 +749,26 @@ pub enum What {
         block: String,
         cell: String,
     },
+    /// A renumbering of the table of earlier ids names what is no cell's id.
+    NotACellId {
+        id: String,
+    },
+    /// A renumbering gives this id to two cells.
+    IdGivenTwice {
+        id: String,
+    },
+    /// A renumbering gives a cell the id it had.
+    IdToItself {
+        id: String,
+    },
+    /// A renumbering both moves the cell of this id and takes it out.
+    MovedAndTakenOut {
+        id: String,
+    },
+    /// A renumbering gives this id, which a cell of its stage still had.
+    IdStillHeld {
+        id: String,
+    },
     /// The deciding code refused the cells as a flow, for this reason, at this cell.
     FlowRefused {
         reason: FlowRefusal,
@@ -867,6 +1056,11 @@ impl What {
             F::TestNotWrittenBefore { test, block } => What::TestNotWrittenBefore { test, block },
             F::TestWrittenAfter { test, block, cell } => What::TestWrittenAfter { test, block, cell },
             F::StandingWrittenByTwo { test, block, cell } => What::StandingWrittenByTwo { test, block, cell },
+            F::NotACellId { id } => What::NotACellId { id },
+            F::IdGivenTwice { id } => What::IdGivenTwice { id },
+            F::IdToItself { id } => What::IdToItself { id },
+            F::MovedAndTakenOut { id } => What::MovedAndTakenOut { id },
+            F::IdStillHeld { id } => What::IdStillHeld { id },
             F::Flow(fault) => {
                 let (reason, cell) = match fault {
                     FlowFault::Empty => (FlowRefusal::Empty, None),
@@ -883,5 +1077,125 @@ impl What {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use decide::{Outsider, Records, RunId, Seq, Started, Written};
+
+    use super::*;
+
+    fn started(run: u64, cell: &str, at: u64) -> Started {
+        Started {
+            run: RunId(run),
+            cell: cell.into(),
+            at: Seq(at),
+            because: Vec::new(),
+            basis: Default::default(),
+        }
+    }
+
+    fn written(block: &str, by: Outsider, at: u64) -> Written {
+        Written {
+            block: block.into(),
+            by,
+            matters: true,
+            value: None,
+            empty: false,
+            said_to: None,
+            at: Seq(at),
+        }
+    }
+
+    // A work on no version kept is read from its records alone (decision a-works-past-is-drawn-from-its-outline): a
+    // cell for each id its runs name, in the order they first ran, with no title or line; its card what people wrote
+    // for it before its first run; no lines, groups or words; and it says so.
+    #[test]
+    fn a_work_on_no_version_kept_is_outlined_from_its_records_alone() {
+        let records = Records {
+            started: vec![
+                started(1, "S1", 3),
+                started(2, "R1", 5),
+                started(3, "D4", 7),
+                started(4, "R1", 9),
+                started(5, "M2", 11),
+            ],
+            written: vec![
+                written("background", Outsider::Person, 1),
+                written("main", Outsider::Outside, 2),
+                written("plan_owner", Outsider::Person, 8),
+            ],
+            ..Records::default()
+        };
+        let outline = OutlineView::of(None, &records, &|_| None);
+        assert!(!outline.kept);
+        let ids: Vec<&str> = outline.cells.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["S1", "R1", "D4", "M2"]);
+        assert!(
+            outline
+                .cells
+                .iter()
+                .all(|c| c.title.is_none() && c.line.is_none() && c.words.is_none())
+        );
+        assert_eq!(outline.card, ["background"]);
+        assert!(outline.lines.is_empty() && outline.groups.is_empty());
+    }
+
+    fn outlined(id: &str, title: &str, line: Option<&str>, agent: bool) -> flow::outline::OutlinedCell {
+        flow::outline::OutlinedCell {
+            id: id.into(),
+            title: title.to_string(),
+            line: line.map(str::to_string),
+            agent,
+            given: Vec::new(),
+            watches: Vec::new(),
+            reads: Vec::new(),
+            words: None,
+            questions: None,
+        }
+    }
+
+    // A cell a run of the work names that the version it runs on has taken out is drawn as the version it came from has
+    // it, titled and in its line (decision a-works-past-is-drawn-from-its-outline); one no version kept has stays bare.
+    // Fails where a cell taken out is drawn untitled, or out of its line.
+    #[test]
+    fn a_cell_taken_out_since_is_drawn_as_the_version_it_came_from_has_it() {
+        let outline = flow::Outline {
+            name: "staged".to_string(),
+            cells: vec![
+                outlined("T1", "Write", Some("main"), true),
+                outlined("M1", "Merge", None, false),
+            ],
+            lines: Vec::new(),
+            groups: Vec::new(),
+            card: Vec::new(),
+            earlier_ids: Vec::new(),
+            own: Vec::new(),
+            from: BTreeMap::new(),
+        };
+        let records = Records {
+            started: vec![started(1, "T1", 3), started(2, "T2@1", 5), started(3, "X1@1", 7)],
+            ..Records::default()
+        };
+        let came_from =
+            |id: &decide::CellId| (id.as_str() == "T2@1").then(|| outlined("T2", "Review", Some("main"), true));
+        let view = OutlineView::of(Some(&outline), &records, &came_from);
+        let drawn: Vec<(&str, Option<&str>, Option<&str>, bool)> = (view.cells.iter())
+            .map(|c| (c.id.as_str(), c.title.as_deref(), c.line.as_deref(), c.agent))
+            .collect();
+        assert_eq!(
+            drawn,
+            [
+                ("T1", Some("Write"), Some("main"), true),
+                ("M1", Some("Merge"), None, false),
+                ("T2@1", Some("Review"), Some("main"), true),
+                ("X1@1", None, None, false),
+            ]
+        );
+        let lines: Vec<(&str, Vec<&str>)> = (view.lines.iter())
+            .map(|l| (l.name.as_str(), l.cells.iter().map(String::as_str).collect()))
+            .collect();
+        assert_eq!(lines, [("main", vec!["T1", "T2@1"])]);
     }
 }

@@ -23,7 +23,7 @@ import {
 import { pauseDiffers } from './marks';
 import { placeSteps } from './placing';
 import { type Source, SourceContext, readerOf } from './source';
-import { clock, duration, ranLast, runTook } from './words';
+import { NOT_KEPT, clock, duration, ranLast, runTook } from './words';
 import { WorkScreen, WorkView } from './WorkView';
 import { WorksList, WorksTable } from './WorksList';
 
@@ -502,6 +502,40 @@ describe('the history of a work', () => {
     // The run the work is stopped at is marked so.
     expect(runRows(page)[1].querySelector('.state-mark')?.getAttribute('title')).toBe('implement: stopped');
     expect((await drawWork(41)).page.querySelectorAll('tbody tr.divider-row')).toHaveLength(0);
+  });
+
+  it('draws a work by the version of its flow it ran on, as its outline has it, and needs no flow for one that ended', async () => {
+    const work = structuredClone(fixtureWork(41));
+    // The version it ran on titled the plan otherwise than the flow the engine reads now.
+    work.outline.cells = work.outline.cells.map((c) => (c.id === 'plan' ? { ...c, title: 'Plan as it ran' } : c));
+    work.flow = null;
+    const { page } = await drawWork(work);
+    expect(page.querySelector('thead [data-key="cell:plan"] .head-still')?.getAttribute('title')).toContain(
+      'plan Plan as it ran',
+    );
+    expect(runRows(page)).toHaveLength(12);
+    expect(page.textContent).not.toContain(NOT_KEPT);
+  });
+
+  it('draws a work on no version kept with a column for each cell its runs name, in the order they first ran, and says why', async () => {
+    const work = structuredClone(fixtureWork(41));
+    const ran = [...new Set(work.steps.flatMap((s) => (s.kind === 'run' ? [s.cell] : [])))];
+    work.outline = {
+      kept: false,
+      cells: ran.map((id) => ({ id, title: null, line: null, agent: false, given: [], watches: [], reads: [], words: null })),
+      lines: [],
+      groups: [],
+      card: ['request'],
+    };
+    work.flow = null;
+    const { page } = await drawWork(work);
+    expect(texts(page, 'thead .cell-id')).toEqual(ran);
+    expect(page.textContent).toContain(NOT_KEPT);
+    // No title stands for one the version did not keep.
+    expect(page.querySelector('thead [data-key="cell:plan"] .head-still')?.getAttribute('title')).toContain(
+      'plan of a version not kept',
+    );
+    expect(runRows(page)).toHaveLength(12);
   });
 });
 

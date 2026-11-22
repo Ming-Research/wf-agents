@@ -143,5 +143,6 @@ Each section of the window, in every tab, is one fold: a row in a heading's colo
 - replaced: Small headings with no line for the Work, Step and Usage tabs, in the console's own style, was on main; the owner changed it, because he asked for them to be made like the Item tab's, giving no reason.
 
 ### decision the-card-is-the-flows
-The work's flow names in its `flow.toml`, as `card`, the data the item's card shows, in order; the page draws a section for each by its name and names no datum or flow of its own.
+The outline of the version a work runs on names, from its flow's `card`, the data the item's card shows, in order; the page draws a section for each by its name and names no datum or flow of its own.
 - replaced: The page using `delivered` where the flow was `deliver`, else `plan_owner`, was on main; the owner changed it, because page code that names a block breaks principle engine-knows-no-cell, and would not pass a review in the engine.
+- replaced: Reading the card from the flow installed was on main; the owner changed it, because a work that ended would show the card of a flow it never ran on (principle the-past-as-it-ran).

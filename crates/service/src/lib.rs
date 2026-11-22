@@ -1230,7 +1230,7 @@ impl Handle {
                     return Some(None);
                 }
                 let started = kept.work.records.started.iter().find(|s| s.run == run);
-                let kind = (started.and_then(|s| cell_spec(kept.flow, &s.cell))).map(|spec| spec.kind);
+                let kind = started.and_then(|s| kind_of(&kept, &s.cell));
                 // What each try ran on, as the records say, by the try's number.
                 let ran: BTreeMap<usize, RanOn> = (kept.work.ran.iter())
                     .filter(|r| r.run == run && r.round == round)
@@ -1304,13 +1304,14 @@ impl Handle {
                         work.0, run.0
                     )));
                 }
-                let ended = matches!(
-                    decide::decide(&kept.flow.flow, &kept.work.records),
-                    decide::Decision::Ended(_)
-                );
+                let ended = matches!(kept.decision(), decide::Decision::Ended(_));
+                let outline = match fork_outline(&kept) {
+                    Ok(outline) => outline,
+                    Err(why) => return Some(Err(why)),
+                };
                 Some(Ok(Fork {
                     work,
-                    flow: Arc::new(kept.flow.clone()),
+                    outline,
                     item: kept.item.clone(),
                     kept: Arc::new(kept.work.clone()),
                     run,
@@ -1355,7 +1356,7 @@ impl Handle {
                 }
                 let records = &kept.work.records;
                 let started = records.started.iter().find(|s| s.run == run);
-                let kind = (started.and_then(|s| cell_spec(kept.flow, &s.cell))).map(|spec| spec.kind);
+                let kind = started.and_then(|s| kind_of(&kept, &s.cell));
                 // A round has ended once its run has come back from as many rounds.
                 let ended = records.returned.iter().filter(|r| r.run == run).count() >= round;
                 Some(Some((kind, ended)))
@@ -1450,6 +1451,25 @@ fn cell_spec<'a>(flow: &'a Compiled, cell: &CellId) -> Option<&'a CellSpec> {
     flow.cells.iter().find(|spec| spec.id == *cell)
 }
 
+/// Who runs the cell of the work, an agent or the engine's act, as the version the work is on has it: none of a cell
+/// that version has not, or of a work on none kept, whose round both carriers are asked of.
+fn kind_of(kept: &driver::Kept<'_>, cell: &CellId) -> Option<Kind> {
+    kept.cell(cell)
+        .map(|c| if c.agent { Kind::Agent } else { Kind::Engine })
+}
+
+/// What a fork of a round of the work reads which session the round ran in by: the outline of the version the work is
+/// on. A work on none kept has none, and the fork is refused, with why.
+fn fork_outline(kept: &driver::Kept<'_>) -> Result<Arc<flow::Outline>, String> {
+    let outline = kept.on.outline().ok_or_else(|| {
+        format!(
+            "The version of the flow work {} ran on was not kept: which session its round ran in is not known.",
+            kept.head.number.0
+        )
+    })?;
+    Ok(Arc::new(outline.clone()))
+}
+
 /// The fault of an answer the driver did not take. This ends the process, and is meant to: an answer that cannot have
 /// happened to the work comes from a carrier that answered twice or for nothing, which has broken its contract
 /// (`Rounds`, `Tools`), and the process stops rather than go on beside it. Started again, it hands out anew what is to
@@ -1466,5 +1486,133 @@ fn stopped(refusal: &Refusal) -> Option<Fault> {
     match refusal {
         Refusal::Failed(Failed::Stopped { fault, .. }) => Some(Fault::Driver(fault.clone())),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Which carrier a round of a work is read from, and what a fork of it reads its session by, as the version of the
+    //! flow the work is on has them.
+
+    use std::path::Path;
+
+    use decide::End;
+    use flow::Has;
+    use store::{First, Item, WorkHead};
+    use work::Work;
+
+    use super::*;
+
+    /// The flow of a deliverable item as the repository defines it (`flow/deliver`), whose one cell, `V1`, is the
+    /// engine's.
+    fn deliver() -> Compiled {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver");
+        let source = flow::read(&dir).expect("the deliver flow is read");
+        let has = Has {
+            sources: [driver::DEPENDENCIES.to_string()].into(),
+            acts: ["deliver".to_string()].into(),
+            ..Has::default()
+        };
+        flow::compile(&source, &has).expect("the deliver flow compiles")
+    }
+
+    /// The item of one work on the deliver flow and the work's head, as the store keeps them, with an earlier version
+    /// of the flow, on which `V1` is an agent's and `W1` the engine's, where the flow installed has `V1` as the engine's
+    /// and no `W1`.
+    struct Stored {
+        installed: Compiled,
+        outline: flow::Outline,
+        head: WorkHead,
+        item: Item,
+        work: Work,
+    }
+
+    impl Stored {
+        fn new() -> Stored {
+            let installed = deliver();
+            let mut outline = flow::Outline::of(&installed);
+            let v1 = (outline.cells.iter_mut())
+                .find(|c| c.id.as_str() == "V1")
+                .expect("the one cell");
+            let mut w1 = v1.clone();
+            v1.agent = true;
+            w1.id = CellId::from("W1");
+            outline.cells.push(w1);
+            let first = First {
+                title: "A work".to_string(),
+                level: None,
+                project: None,
+                depends_on: Vec::new(),
+                tags: Vec::new(),
+            };
+            Stored {
+                head: WorkHead {
+                    number: WorkNumber(1),
+                    item: ItemNumber(1),
+                    flow: installed.name.clone(),
+                    added: Time(0),
+                },
+                item: Item::new(ItemNumber(1), Time(0), first, Vec::new()),
+                work: Work::default(),
+                installed,
+                outline,
+            }
+        }
+
+        /// The earlier version, on which the work ended cancelled.
+        fn earlier(&self) -> driver::On {
+            driver::On::Earlier {
+                version: "earlier".to_string(),
+                outline: Arc::new(self.outline.clone()),
+                end: End::Cancelled,
+                reading: Default::default(),
+            }
+        }
+
+        /// The work on this version.
+        fn kept<'a>(&'a self, on: &'a driver::On) -> driver::Kept<'a> {
+            driver::Kept {
+                head: &self.head,
+                item: &self.item,
+                flow: &self.installed,
+                on,
+                passed: &[],
+                work: &self.work,
+            }
+        }
+    }
+
+    // The two tests below read a work on an earlier version as that version has it, and one on none kept as none, so
+    // that a reading of the flow installed fails each. Milliseconds: what each catches is one reading of the service's,
+    // which no test of a running service reaches.
+
+    // The carrier a round of a cell is read from is the one the version has the cell run by; of a work on none kept,
+    // none, so that both carriers are asked.
+    #[test]
+    fn a_rounds_carrier_is_the_one_the_version_the_work_is_on_has_its_cell_run_by_and_none_of_a_work_on_none_kept() {
+        let stored = Stored::new();
+        let earlier = stored.earlier();
+        let kept = stored.kept(&earlier);
+        assert_eq!(kind_of(&kept, &CellId::from("V1")), Some(Kind::Agent));
+        assert_eq!(kind_of(&kept, &CellId::from("W1")), Some(Kind::Engine));
+        let none = driver::On::NotKept { end: End::Cancelled };
+        assert_eq!(kind_of(&stored.kept(&none), &CellId::from("V1")), None);
+    }
+
+    // A fork reads which session a round ran in by the outline of the version the work is on, and is refused for a
+    // work on none kept.
+    #[test]
+    fn a_fork_reads_the_outline_of_the_version_the_work_is_on_and_is_refused_for_a_work_on_none_kept() {
+        let stored = Stored::new();
+        let earlier = stored.earlier();
+        assert_eq!(fork_outline(&stored.kept(&earlier)).as_deref(), Ok(&stored.outline));
+        let none = driver::On::NotKept { end: End::Cancelled };
+        assert_eq!(
+            fork_outline(&stored.kept(&none)),
+            Err(
+                "The version of the flow work 1 ran on was not kept: which session its round ran in is not known."
+                    .to_string()
+            )
+        );
     }
 }

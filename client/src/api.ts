@@ -295,6 +295,11 @@ export type What =
   | { kind: 'testNotWrittenBefore'; test: string; block: string }
   | { kind: 'testWrittenAfter'; test: string; block: string; cell: string }
   | { kind: 'standingWrittenByTwo'; test: string; block: string; cell: string }
+  | { kind: 'notACellId'; id: string }
+  | { kind: 'idGivenTwice'; id: string }
+  | { kind: 'idToItself'; id: string }
+  | { kind: 'movedAndTakenOut'; id: string }
+  | { kind: 'idStillHeld'; id: string }
   | {
       kind: 'flowRefused';
       reason: 'empty' | 'twice' | 'conditionOnOwnOutput' | 'lastHasCondition' | 'noLimit' | 'noSuchTest' | 'unwritten';

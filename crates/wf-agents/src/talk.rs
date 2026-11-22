@@ -749,6 +749,7 @@ fn show(page: &WorkPage) -> String {
             CellState::NotYet => "not yet".to_string(),
             CellState::Again => format!("runs again, its record being run {}", run_or_none(cell.record)),
             CellState::Done => format!("done, its record being run {}", run_or_none(cell.record)),
+            CellState::NotRun => "did not run".to_string(),
         };
         lines.push(format!("  {}: {state}", cell.cell));
     }
@@ -1279,7 +1280,12 @@ fn texts_of(page: &WorkPage, block: Option<&str>) -> Result<Vec<(String, u64)>, 
             })
         }
         None => {
-            let people = |name: &str| (page.flow.blocks.iter()).any(|b| b.name == name && b.written_by.people);
+            // As the flow declares them; a work that ended is given no flow, and its item's text is what the card of
+            // the version it ran on shows (decision a-works-past-is-drawn-from-its-outline).
+            let people = |name: &str| match &page.flow {
+                Some(flow) => (flow.blocks.iter()).any(|b| b.name == name && b.written_by.people),
+                None => page.outline.card.iter().any(|shown| shown == name),
+            };
             Ok((page.blocks.iter())
                 .filter(|b| people(&b.name) && b.versions.last().is_some_and(|v| v.by == Writer::Owner))
                 .filter_map(latest)
@@ -2407,7 +2413,14 @@ mod tests {
             project: item.project,
             tags: Vec::new(),
             history,
-            flow: web::view::Flow {
+            outline: web::view::OutlineView {
+                kept: true,
+                cells: Vec::new(),
+                lines: Vec::new(),
+                groups: Vec::new(),
+                card: Vec::new(),
+            },
+            flow: Some(web::view::Flow {
                 name: "trial".to_string(),
                 limits: web::view::Limits {
                     runs: 3,
@@ -2422,7 +2435,7 @@ mod tests {
                 every_agent: web::view::EveryAgent::default(),
                 cells: Vec::new(),
                 blocks: Vec::new(),
-            },
+            }),
             cells: Vec::new(),
             blocks: Vec::new(),
             steps,
@@ -2589,7 +2602,7 @@ mod tests {
             }],
         };
         let mut page = work(0, 0, 0, 0, 0);
-        page.flow.blocks = vec![
+        page.flow.as_mut().expect("a work going on has its flow").blocks = vec![
             declared("request", true, None),
             declared("plan_words", false, Some("words")),
             declared("plan_questions", false, Some("answer")),
@@ -2601,6 +2614,10 @@ mod tests {
             written("plan_questions", 3, Writer::Owner),
             written("main", 4, Writer::Outside),
         ];
+        assert_eq!(texts_of(&page, None), Ok(vec![("request".to_string(), 1)]));
+        // A work that ended is given no flow: its item's text is what the card of its version shows.
+        page.flow = None;
+        page.outline.card = vec!["request".to_string()];
         assert_eq!(texts_of(&page, None), Ok(vec![("request".to_string(), 1)]));
     }
 

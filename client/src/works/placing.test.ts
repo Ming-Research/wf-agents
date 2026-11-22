@@ -18,9 +18,13 @@ import type {
   Wait,
   Writer,
 } from '../works-api';
+import { outlineOf } from '../testing';
 import { FLOW, fixtureWork } from './fixtures';
 import { type HistoryRow, LAST_FIRST, orderWorks, placeSteps, runState, sessionsBegun, standingRun } from './placing';
 import { partsText } from './words';
+
+/// The outline of the fixtures' flow, as a work on its version is given it.
+const OUTLINE = outlineOf(FLOW);
 
 const SPENT = { usdMicros: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 0 };
 
@@ -172,7 +176,7 @@ describe('the rows of a history', () => {
     ];
     const rows = placeSteps({
       steps,
-      flow: FLOW,
+      outline: OUTLINE,
       blocks: blocksOf({ request: [[1, OWNER]] }),
       summary: summary({ kind: 'paused', at: 'plan', by: 'owner', why: null }),
     });
@@ -187,7 +191,7 @@ describe('the rows of a history', () => {
     // A pause of the engine's with no reason says so.
     const silent = placeSteps({
       steps: [steps[3], { kind: 'paused', at: 6, time: 6000, by: 'engine', why: null }],
-      flow: FLOW,
+      outline: OUTLINE,
       blocks: [],
       summary: summary({ kind: 'merged' }),
     });
@@ -253,7 +257,7 @@ describe('the rows of a history', () => {
     });
     const rows = placeSteps({
       steps,
-      flow: FLOW,
+      outline: OUTLINE,
       blocks,
       summary: summary({ kind: 'waits', at: 'implement', on: [] }),
       questions: [scope],
@@ -295,10 +299,10 @@ describe('the rows of a history', () => {
         did: 'woken by opinions_plan v2 from the owner',
       },
     ]);
-    // A run of a cell the flow no longer has keeps its row, in no column.
+    // A run of a cell the outline has no column for keeps its row, in no column.
     const gone = rows[7];
     expect(gone.run).toBeNull();
-    expect(partsText(gone.did)).toBe('gone, which the flow no longer has · it had not run before');
+    expect(partsText(gone.did)).toBe('gone, which the outline does not have · it had not run before');
   });
 });
 

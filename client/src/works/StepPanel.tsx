@@ -278,7 +278,7 @@ function RunStep({ run, mark, began, page, reader, shown }: {
   reader: Reader;
   shown: boolean;
 }) {
-  const cell = page.flow.cells.find((c) => c.id === run.cell);
+  const cell = page.outline.cells.find((c) => c.id === run.cell);
   const now = Date.now();
   const end = run.end;
   const wayRound = isWayRound(run);
@@ -318,7 +318,7 @@ function RunStep({ run, mark, began, page, reader, shown }: {
         </span>
         {calls.length > 0 && <CallsTook work={page.summary} />}
         <span className="mono">{run.cell}</span>
-        {cell !== undefined && <span>{cell.title}</span>}
+        {cell !== undefined && cell.title !== null && <span>{cell.title}</span>}
       </div>
       <StatusLine word="When" dot={false}>
         began {clock(run.time)}, {isOpen(run) ? 'open for' : 'took'} {duration(runTook(run, now))}
