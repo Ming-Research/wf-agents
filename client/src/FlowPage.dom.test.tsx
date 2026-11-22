@@ -889,6 +889,42 @@ describe('a definition that does not compile', () => {
   });
 });
 
+describe('the version of the flow the engine runs', () => {
+  const version = '3b1b7057e897a1fa6dfa08d41320e26621b4799d';
+  const legend = (page: HTMLElement) => texts(page, 'ul.legend li');
+
+  it('is said beside the flow’s name by the start of its digest, with no mark and none in the legend where the files are the same', () => {
+    const page = draw({ state: 'compiled', flow: small(), installed: { version, same: true } });
+    expect(texts(page, '.view-installed > *')).toEqual(['3b1b7057']);
+    expect(page.querySelector('.files-changed')).toBeNull();
+    expect(legend(page).some((item) => item.includes('files changed'))).toBe(false);
+  });
+
+  it('is marked, and the mark is in the legend, where the files read now differ from it', () => {
+    const page = draw({ state: 'compiled', flow: small(), installed: { version, same: false } });
+    expect(texts(page, '.view-installed > *')).toEqual(['3b1b7057', '≠ files changed']);
+    // One mark beside the flow's name, and its sample in the legend.
+    expect(page.querySelectorAll('.view-installed .files-changed')).toHaveLength(1);
+    expect(page.querySelectorAll('ul.legend .files-changed')).toHaveLength(1);
+    expect(legend(page)).toContain('≠ files changed');
+  });
+
+  it('is said of a definition that does not compile and of files that cannot be read, the second said neither the same nor changed', () => {
+    const faults = draw({ state: 'faults', faults: [], installed: { version, same: false } });
+    expect(texts(faults, '.view-installed > *')).toEqual(['3b1b7057', '≠ files changed']);
+    unmount?.();
+    const unreadable = draw({ state: 'unreadable', reason: 'gone', installed: { version, same: null } });
+    expect(texts(unreadable, '.view-installed > *')).toEqual(['3b1b7057']);
+    expect(unreadable.querySelector('.files-changed')).toBeNull();
+  });
+
+  it('is not said where no engine runs beside the page', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    expect(page.querySelector('.view-installed')).toBeNull();
+    expect(page.querySelector('.files-changed')).toBeNull();
+  });
+});
+
 describe('the page round the view', () => {
   afterEach(() => localStorage.clear());
 
