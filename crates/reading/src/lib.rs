@@ -5,7 +5,7 @@
 //! flow, with its named tests, never what the deciding code works out of them: it takes the deciding code's types and
 //! calls none of its walk. It is read by every test that judges the deciding code by the records, the histories of
 //! crate `decide` and the exploration of the repository's own flow (crate `flow`, `tests/explored`), so it is one crate
-//! they share (principle `one-thing-one-place`).
+//! they share.
 
 use std::collections::BTreeMap;
 
