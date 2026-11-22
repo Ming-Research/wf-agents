@@ -17,6 +17,9 @@ With `--fit` and several stream files it instead fits, for each model, the round
 `a * calls + b * output tokens` (least squares, no intercept, the rounds of three calls or more), and prints `a`, the
 speed 1 / b and the median relative error.
 
+A script and not `jq` and the shell, because it matches each result to its call by `tool_use_id`, decides whether a
+Read repeats an earlier one from the Edits, Writes and compactions between them, and solves the fit.
+
 It serves whoever measures the cell's rounds again; it is kept with the report and goes when the report does.
 """
 import collections

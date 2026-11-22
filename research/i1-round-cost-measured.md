@@ -5,9 +5,9 @@ architect, who decides what to change if so. It is kept until the numbers are me
 cell's effort, model or compaction number. It measures and changes no engine or flow file.
 
 Files, in `research/`: this report; `i1-round-cost-measured.sql`, the queries on the engine's records; and
-`i1-round-stream.py`, which measures one round's stream. The store grows, so every query takes only the rounds of runs
-that began at or before 2026-11-22 11:45:00 UTC (the cutoff the queries state); the numbers below are those at the
-cutoff. The tool counts, error counts, timings and compaction records were read from the round streams in the data
+`i1-round-stream.py`, which measures one round's stream. The store grows, so every query takes only the rounds that
+began at or before 2026-11-22 11:45:00 UTC (the cutoff the queries state, by each round's own start); the numbers
+below are those at the cutoff. The tool counts, error counts, timings and compaction records were read from the round streams in the data
 directory (`rounds/<work>/<run>-<round>.stream.jsonl`), which the store does not hold. Each claim says how it is known:
 (measured) at the cutoff, (read) from a record, (inferred) from measurements, not tried.
 
@@ -21,7 +21,7 @@ compaction number, the size of the item), not a fault of the round.
 
 | Question | Answer |
 |---|---|
-| Where is the money | I1 is 58% of all rounds' cost: 262 rounds, $259.16 of $443.42 in 850 rounds (measured, Q2). Of the $233.56 in the 202 of its rounds that have a measured record, cache reads are 56%, cache writes 23%, output 17%, the rest 5% not priced by the three counts (Q1, Q4, Q5). By calls (Q5): 14 rounds of 40 calls or more cost $149.39 (64%); 90 of 3 to 39 calls cost $73.61 (32%); the 98 of one or two calls, a verdict read or a point answered, cost $10.56 (4.5%). |
+| Where is the money | I1 is 58% of all rounds' cost: 262 rounds, $259.16 of $443.41 in 850 rounds (measured, Q2). Of the $233.56 in the 202 of its rounds that have a measured record, cache reads are 56%, cache writes 23%, output 17%, the rest 5% not priced by the three counts (Q1, Q4, Q5). By calls (Q5): 14 rounds of 40 calls or more cost $149.39 (64%); 90 of 3 to 39 calls cost $73.61 (32%); the 98 of one or two calls, a verdict read or a point answered, cost $10.56 (4.5%). |
 | Where is the time | In W11 run 17 (18.8 min) the tools took 19 s; in W21 run 40 (69.8 min) 31 s; in W21 run 57 (39.2 min) 78 s (measured, from the stream's timestamps). The rest is the model: each call to it, plus the writing. Fitted on the streams of the cell's rounds of three calls or more, a round's time less its compactions is, on Sonnet 5.5, 0.64 s a call plus the output tokens at 142 a second (50 rounds, median error 11%); on Opus 5.5, 6.0 s a call plus the output tokens at 308 a second (55 rounds, median error 23%) (inferred, `i1-round-stream.py --fit`). Run 17 (151,205 output tokens, 163 calls) is 1,127 s, mostly writing; run 40 (393,124, 461 calls) is 4,190 s, of which the calls are about 2,800 s. |
 | What the model writes | Tool inputs, thinking and a few lines of text. In run 17 the 237 Edit calls carry 188 KB of `old_string` and `new_string`; each is one hunk, so about four changed lines to an edit. The thinking is 20% of run 17's output tokens (29,845) and 44% of run 40's (173,027). |
 | Why the context is large | Run 17 starts at 189,464 tokens, which R0, R1 and R2 put in the session before I1 runs, and adds 358,950 over 163 calls, 2.2 K a call: 484 KB of tool results, 188 KB of edits, thinking. Each of the 163 calls reads the whole context from the cache. The 189 K it started with alone is $3.09 of the round's $9.01 (34%). Run 40 starts at 181,083 and was compacted twice. |
