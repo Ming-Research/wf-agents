@@ -252,6 +252,8 @@ pub struct Changed {
     pub items: bool,
     pub copies: bool,
     pub accounts: bool,
+    /// The observations changed: one was added or changed.
+    pub observations: bool,
 }
 
 /// What stops the loop. Started again, the process goes on from the store.
@@ -514,6 +516,7 @@ impl Service {
                         items: false,
                         copies: false,
                         accounts: false,
+                        observations: false,
                     });
                 }
                 return Ok(());
@@ -548,6 +551,7 @@ impl Service {
                             items: false,
                             copies: false,
                             accounts: false,
+                            observations: false,
                         });
                         return Ok(());
                     }
@@ -573,6 +577,7 @@ impl Service {
                             items: false,
                             copies: false,
                             accounts: false,
+                            observations: false,
                         });
                         return Ok(());
                     }
@@ -623,6 +628,7 @@ impl Service {
                             items: false,
                             copies: false,
                             accounts: true,
+                            observations: false,
                         });
                     }
                     Err(failed) => {
@@ -1057,6 +1063,7 @@ impl Service {
             items: false,
             copies: false,
             accounts: true,
+            observations: false,
         });
     }
 }
@@ -1099,6 +1106,20 @@ impl Handle {
             items: false,
             copies: true,
             accounts: false,
+            observations: false,
+        });
+    }
+
+    /// Tells whoever listens that the observations changed: one was added, or changed. The notice holds no record;
+    /// whoever listens reads them again. They are written beside the loop, so it is not the loop that says so.
+    pub fn observations_changed(&self) {
+        // Nobody may be listening.
+        let _ = self.changed.send(Changed {
+            works: Vec::new(),
+            items: false,
+            copies: false,
+            accounts: false,
+            observations: true,
         });
     }
 

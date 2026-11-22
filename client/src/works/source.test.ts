@@ -55,7 +55,7 @@ describe('the stream of changes', () => {
     // What cannot be read says that anything may have happened, as an opening again does.
     stream.onmessage?.({ data: 'not json' });
     stream.onopen?.();
-    expect(heard).toEqual([{ works: [3], items: false, copies: false, accounts: false }]);
+    expect(heard).toEqual([{ works: [3], items: false, copies: false, accounts: false, observations: false }]);
     expect(other).toEqual(heard);
     expect(opens).toBe(2);
     stop();

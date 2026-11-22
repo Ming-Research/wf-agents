@@ -21,7 +21,10 @@ wf-agents runs coding agents through a defined flow.
   and `wf-agents list` or the pages to follow it;
   `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it. Whoever plans the work waits
   with `wf-agents wait` for what needs them, each answer ending with the mark to give the next, and read the
-  observations agents reported with `wf-agents observations`, the newest first. They read the plan
+  observations with `wf-agents observations`, the newest first, which leaves out those an item took in unless given
+  `--all` and takes `--tag` and `--project`; they add one with `add-observation`, naming the project it is of and the
+  project that reported it, and give each a title and tags, delete it or have an item take it in with
+  `change-observations --why <sentence> <observation>:<kind>[=<value>]...`, all or none. They read the plan
   with `wf-agents changes --since <mark>`, `candidates`, `search <text>`, `graph <item>` (up to what it depends on and
   down to what depends on it; `--up` or `--down` for one), `tags` and `text <item> [<block>]`, and `list`, which leaves
   out what merged or was cancelled unless given `--all`; they change items with

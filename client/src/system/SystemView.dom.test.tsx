@@ -263,10 +263,10 @@ describe('the System view', () => {
     expect(s.asked.at(-1)?.[0]).toBeLessThanOrEqual(earliest);
     expect(s.asked.at(-1)?.[0]).toBeGreaterThan(earliest - 7 * 24 * 60 * 60 * 1000);
     const before = s.asked.length;
-    act(() => s.changed({ works: [41], items: false, copies: false, accounts: false }));
+    act(() => s.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect(s.asked.length).toBe(before + 1);
-    act(() => s.changed({ works: [], items: false, copies: true, accounts: false }));
+    act(() => s.changed({ works: [], items: false, copies: true, accounts: false, observations: false }));
     await settle();
     expect(s.asked.length).toBe(before + 1);
   });

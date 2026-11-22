@@ -320,10 +320,10 @@ describe('the Settings view', () => {
     // alone reads nothing.
     const reads = s.accountReads;
     s.accounts = fixtureAccounts();
-    act(() => s.changed({ works: [1], items: false, copies: false, accounts: false }));
+    act(() => s.changed({ works: [1], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect(s.accountReads).toBe(reads);
-    act(() => s.changed({ works: [], items: false, copies: false, accounts: true }));
+    act(() => s.changed({ works: [], items: false, copies: false, accounts: true, observations: false }));
     await settle();
     expect(s.accountReads).toBe(reads + 1);
     expect(accountRows(page)[1].children[1].textContent).toContain('seven_day 100%');

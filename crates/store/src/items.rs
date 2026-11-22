@@ -8,6 +8,15 @@ use work::Time;
 
 use crate::Fault;
 
+/// The longest a tag may be, in characters.
+pub const TAG_CHARS: usize = 40;
+
+/// Whether the tag is no name an item or an observation may carry: it is empty, longer than [`TAG_CHARS`], or holds a
+/// space or a comma.
+pub fn tag_is_bad(tag: &str) -> bool {
+    tag.is_empty() || tag.chars().count() > TAG_CHARS || tag.chars().any(|c| c.is_whitespace() || c == ',')
+}
+
 /// The number of an item, given by the store, counting from one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]

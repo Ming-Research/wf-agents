@@ -284,7 +284,7 @@ pub fn running_flow(
     tokio::spawn(service.run(inbox));
     let flows = Flows::dirs(trial_dir().join("flow"), Box::new(trial_has));
     // The observations are read from the store's file, as the engine's program serves them.
-    let observations = web::observations::router(handle.clone(), dir.path().join("store.sqlite"));
+    let observations = web::observations::router(handle.clone(), dir.path().join("store.sqlite"), levels(), projects());
     Running {
         router: web::with_works(flows, handle, levels(), projects()).merge(observations),
         _dir: dir,

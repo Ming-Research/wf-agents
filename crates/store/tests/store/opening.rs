@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 50);
+    assert_eq!(tables.len(), 52);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -312,7 +312,13 @@ fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_run
     let migrated = super::observations::kept(&old.path);
     assert_eq!(migrated, super::observations::kept(&new.path));
     let said: Vec<(u64, &str, &str)> = (migrated.iter())
-        .map(|o| (o.number, o.text.as_str(), o.cell.as_str()))
+        .map(|o| {
+            (
+                o.number,
+                o.text.as_str(),
+                o.round.as_ref().expect("a round").cell.as_str(),
+            )
+        })
         .collect();
     assert_eq!(
         said,
@@ -323,6 +329,50 @@ fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_run
         ]
     );
     assert!(migrated.iter().all(|o| o.read.is_none()));
+}
+
+#[test]
+fn a_file_of_version_22_keeps_its_observations_and_their_readings_as_it_is_migrated() {
+    let mut d = Driver::new();
+    d.wrote("request", Outsider::Person, None);
+    d.end(Came {
+        said: super::observations::observing(&["The first.", "The second."]),
+        ..hands_in(&[("text", None)])
+    });
+    let (old, new) = kept_in(22, &d.work);
+    // The owner read the first, in the file made before.
+    (Connection::open(&old.path).expect("the database opens"))
+        .execute("INSERT INTO observations_read (observation, at) VALUES (1, 5000)", [])
+        .expect("the reading is kept");
+    old.open();
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    let migrated = super::observations::kept(&old.path);
+    let said: Vec<(u64, &str, Option<Time>)> = (migrated.iter()).map(|o| (o.number, o.text.as_str(), o.read)).collect();
+    assert_eq!(
+        said,
+        [(2, "The second.", None), (1, "The first.", Some(Time(5000)))],
+        "the observations or their readings were not kept"
+    );
+    assert!(
+        migrated
+            .iter()
+            .all(|o| o.round.is_some() && o.title.is_none() && o.tags.is_empty())
+    );
+    // The migrated file takes an observation an architect adds, numbered after those kept.
+    let observations = store::Observations::open(&old.path).expect("the observations open");
+    let added = store::NewObservation {
+        text: "Added.".to_string(),
+        title: None,
+        tags: Vec::new(),
+        project: "one".to_string(),
+        reported_by: "one".to_string(),
+    };
+    assert_eq!(observations.add(&added, Time(6000)), Ok(3));
 }
 
 /// A work as one kept at version 17 holds it, in which a version is empty where `empty` says so and holds words
