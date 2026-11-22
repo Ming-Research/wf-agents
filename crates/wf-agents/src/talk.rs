@@ -137,8 +137,11 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                     changes: changes.clone(),
                 };
                 let done: ItemsChanged = send(address, Method::POST, "/api/v1/items/changes", Some(&asked)).await?;
-                let reopened = changes.iter().any(|c| matches!(c, ChangeAsked::Reopen { .. }));
-                let works = match reopened {
+                // A reopen says how to let the work on, and a dependency whether the item depended on is cancelled:
+                // each needs the items as they now are.
+                let looked = (changes.iter())
+                    .any(|c| matches!(c, ChangeAsked::Reopen { .. } | ChangeAsked::DependsOn { .. }));
+                let works = match looked {
                     true => Some(send::<Items, ()>(address, Method::GET, "/api/v1/items", None).await?),
                     false => None,
                 };
@@ -575,8 +578,7 @@ pub struct Listing {
 }
 
 /// Every item a list gives, a line each, with what its work does now, at most [`LISTED`]: how many more there are, and
-/// how to see them, is said, and how many ended are left out. An item that waits for good for a cancelled item says
-/// so in what its work does now, as the engine gives it.
+/// how to see them, is said, and how many ended are left out.
 fn list(items: &Items, listing: &Listing) -> String {
     if items.items.is_empty() {
         return "No items.".to_string();
@@ -615,7 +617,7 @@ fn list(items: &Items, listing: &Listing) -> String {
             true => String::new(),
             false => format!(", tagged {}", item.tags.join(", ")),
         };
-        // What it does now says which items it waits for, those that were cancelled among them, as the engine says.
+        // What it does now says which items it waits for, as the engine says.
         let work = &item.work;
         lines.push(format!(
             "#{} \"{}\" at {}, {}, W{} on {}{after}{tags}: {}",
@@ -1019,10 +1021,12 @@ fn session_why(why: &SessionWhy) -> String {
 }
 
 /// What changes made together did, a line each in the order asked: what each item is now, or that it was so already.
-/// A reopened item says how to let its work on.
+/// A reopened item says how to let its work on, and an item that came to depend on a cancelled one says that its work
+/// does not wait for it.
 fn changed(changes: &[ChangeAsked], done: &[bool], items: Option<&Items>) -> String {
-    let work_of =
-        |item: u64| (items.and_then(|items| items.items.iter().find(|i| i.number == item))).map(|i| i.work.number);
+    let of = |item: u64| items.and_then(|items| items.items.iter().find(|i| i.number == item));
+    let work_of = |item: u64| of(item).map(|i| i.work.number);
+    let cancelled = |item: u64| of(item).is_some_and(|i| matches!(i.work.now, Now::Cancelled));
     let lines: Vec<String> = (changes.iter().zip(done))
         .map(|(change, done)| match (change, *done) {
             (ChangeAsked::Title { item, title }, true) => {
@@ -1033,6 +1037,9 @@ fn changed(changes: &[ChangeAsked], done: &[bool], items: Option<&Items>) -> Str
                 format!("#{item} is at level {level}: its work's rounds run on it from now on.")
             }
             (ChangeAsked::Level { item, level }, false) => format!("#{item} was at level {level} already."),
+            (ChangeAsked::DependsOn { item, on }, true) if cancelled(*on) => {
+                format!("#{item} depends on #{on}, which is cancelled: its work does not wait for it.")
+            }
             (ChangeAsked::DependsOn { item, on }, true) => {
                 format!("#{item} depends on #{on}: its work waits for it to merge.")
             }
@@ -1114,13 +1121,8 @@ fn row(row: &Row) -> String {
         true => String::new(),
         false => format!(", tagged {}", row.tags.join(", ")),
     };
-    let on: Vec<String> = row.on_cancelled.iter().map(|on| format!("#{on}")).collect();
-    let good = match on.is_empty() {
-        true => String::new(),
-        false => format!(", waiting for good on {}, cancelled", on.join(", ")),
-    };
     format!(
-        "#{} \"{}\" at {}{tags}, {}{good}",
+        "#{} \"{}\" at {}{tags}, {}",
         row.item,
         row.title,
         level(row.level.as_deref()),
@@ -1567,7 +1569,6 @@ fn stuck(why: Stuck) -> &'static str {
         Stuck::ForAPerson => "waiting for the owner",
         Stuck::Stalled => "stalled",
         Stuck::Idle => "waiting in turn for items none of which is going on",
-        Stuck::Cancelled => "cancelled",
         Stuck::Fault => "unable to go on",
     }
 }
@@ -1670,15 +1671,7 @@ fn waited(waited: &Waited) -> String {
         Waited::Turn { holder, .. } => format!("the project's turn to check and merge, which work {holder} holds"),
         Waited::Agents { outage: o } => format!("the agents' rounds to begin again, as {}", cause(o)),
         Waited::Outside { source, cell, why } => format!("the outside ({source}), before {cell} runs again: {why}"),
-        // Where one was cancelled the work waits for it for good, which is said in the page's words.
-        Waited::Items { items, cancelled } => match cancelled.is_empty() {
-            true => format!("the items it depends on to merge: {}", numbers(items)),
-            false => format!(
-                "the items it depends on to merge: {}; it waits for good on {}, cancelled",
-                numbers(items),
-                numbers(cancelled)
-            ),
-        },
+        Waited::Items { items } => format!("the items it depends on to merge: {}", numbers(items)),
     }
 }
 
@@ -2259,18 +2252,26 @@ mod tests {
     }
 
     #[test]
-    fn a_work_waiting_for_an_item_that_was_cancelled_is_said_to_wait_for_good() {
-        let items = |cancelled: Vec<u64>| Waited::Items {
-            items: vec![5, 7],
-            cancelled,
-        };
+    fn a_work_waiting_for_items_is_said_to_wait_for_them_to_merge() {
+        let items = Waited::Items { items: vec![5, 7] };
+        assert_eq!(waited(&items), "the items it depends on to merge: #5 and #7");
+    }
+
+    // A dependency on a cancelled item holds nothing, and the words for it say so; one on an item that has not ended
+    // is waited for.
+    #[test]
+    fn an_item_that_comes_to_depend_on_a_cancelled_one_is_said_not_to_wait_for_it() {
+        let mut cancelled = item(1, false, &[], &[]);
+        cancelled.work.now = Now::Cancelled;
+        let some = items(vec![cancelled, item(2, false, &[], &[]), item(3, false, &[1, 2], &[])]);
+        let asked = [
+            ChangeAsked::DependsOn { item: 3, on: 1 },
+            ChangeAsked::DependsOn { item: 3, on: 2 },
+        ];
         assert_eq!(
-            waited(&items(Vec::new())),
-            "the items it depends on to merge: #5 and #7"
-        );
-        assert_eq!(
-            waited(&items(vec![7])),
-            "the items it depends on to merge: #5 and #7; it waits for good on #7, cancelled"
+            changed(&asked, &[true, true], Some(&some)),
+            "#3 depends on #1, which is cancelled: its work does not wait for it.\n#3 depends on #2: its work waits \
+             for it to merge."
         );
     }
 
@@ -2291,19 +2292,14 @@ mod tests {
     }
 
     #[test]
-    fn a_list_by_tag_gives_the_items_that_carry_it_and_marks_one_that_waits_for_good() {
-        let mut cancelled = item(1, false, &[], &[]);
-        cancelled.work.now = Now::Cancelled;
-        // The engine says the item it waits for was cancelled; the list says what the engine says.
+    fn a_list_by_tag_gives_the_items_that_carry_it_and_says_what_one_waits_for() {
+        // The engine says which items the work waits for; the list says what the engine says.
         let mut waiting = item(2, false, &[1], &["page"]);
         waiting.work.now = Now::Waits {
             at: "S1".to_string(),
-            on: vec![Waited::Items {
-                items: vec![1],
-                cancelled: vec![1],
-            }],
+            on: vec![Waited::Items { items: vec![1] }],
         };
-        let some = items(vec![cancelled, waiting, item(3, true, &[], &["page"])]);
+        let some = items(vec![item(1, false, &[], &[]), waiting, item(3, true, &[], &["page"])]);
         let page = |all: bool| Listing {
             tag: Some("page".to_string()),
             from: None,
@@ -2313,14 +2309,12 @@ mod tests {
         assert_eq!(
             list(&some, &page(false)),
             "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: waits at S1 for the items \
-             it depends on to merge: #1; it waits for good on #1, cancelled\nAnd 1 item that ended, merged or \
-             cancelled: wf-agents list --tag page --all"
+             it depends on to merge: #1\nAnd 1 item that ended, merged or cancelled: wf-agents list --tag page --all"
         );
         assert_eq!(
             list(&some, &page(true)),
             "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: waits at S1 for the items \
-             it depends on to merge: #1; it waits for good on #1, cancelled\n#3 \"item 3\" at level 1, project \
-             script, W3 on trial, tagged page: merged"
+             it depends on to merge: #1\n#3 \"item 3\" at level 1, project script, W3 on trial, tagged page: merged"
         );
         let none = Listing {
             tag: Some("none".to_string()),

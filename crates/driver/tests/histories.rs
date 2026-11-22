@@ -6,10 +6,11 @@
 //! What is checked after every step is what the harness in `support` checks after every call: the store holds what
 //! the driver shows; no work has two rounds under way; what was given and not yet answered is exactly what is pending,
 //! and nothing is given twice unless it was pending across an opening; the stored records walk to the decision shown;
-//! every dependencies block agrees with which of the items its item depends on have merged; no work whose
-//! dependencies have not all merged has started a run; and a work never let on has started none. When the driver
-//! stops, what it says was kept is what the store holds. A round or a call of a tool that ended is judged against the
-//! lines of its history as it was when first seen, however the history grew since.
+//! every dependencies block agrees with which of the items its item depends on have merged or were cancelled; no work
+//! began a run while its block said it waited; no work that waits for its dependencies merged while one of them had
+//! not ended; and a work never let on has started none. When the driver stops, what it says was kept is what the
+//! store holds. A round or a call of a tool that ended is judged against the lines of its history as it was when first
+//! seen, however the history grew since.
 //!
 //! Once people stop, the works left paused are let on as their last act, and the rounds, the tools' calls, the
 //! withdrawals and the stops are answered until nothing more is given: within a bound each work then waits, saying for
@@ -298,13 +299,10 @@ impl History {
         of[self.rng.below(of.len())].clone()
     }
 
-    /// Adds an item, depending on some of those there that are not cancelled, on a random flow, with a first write or
-    /// none.
+    /// Adds an item, depending on some of those there, cancelled ones among them, on a random flow, with a first write
+    /// or none.
     fn add(&mut self, title: &str) {
-        let numbers: Vec<ItemNumber> = (self.h.d().works())
-            .filter(|k| self.h.decision(k.head.number) != Decision::Ended(End::Cancelled))
-            .map(|k| k.head.item)
-            .collect();
+        let numbers: Vec<ItemNumber> = self.h.d().works().map(|k| k.head.item).collect();
         let depends_on: Vec<ItemNumber> = numbers.into_iter().filter(|_| self.rng.chance(35)).collect();
         let flow = ["judged", "short", "plain"][self.rng.below(3)];
         let flow = if self.delivers.chance(20) { "deliver" } else { flow };

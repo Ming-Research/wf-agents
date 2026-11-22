@@ -1,7 +1,7 @@
 //! The commands that change items after they were added, against a running engine: each change saying why, several at
-//! once all or none, tags, a cancel refused while an item depends on it, and a reopen; and the commands whoever plans
-//! the work reads the plan with: what changed since a mark, the candidates, a search, a walk of dependencies, the tags
-//! and the text of an item in short.
+//! once all or none, tags, a cancel that keeps the dependencies on the item, and a reopen; and the commands whoever
+//! plans the work reads the plan with: what changed since a mark, the candidates, a search, a walk of dependencies, the
+//! tags and the text of an item in short.
 
 use crate::{Engine, Place, SCRIPT};
 
@@ -58,11 +58,21 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
         shown.contains(": came to depend on #1, because \"It greets first.\"\n"),
         "{shown}"
     );
-    // The item 2 depends on is not cancelled while 2 waits for it.
+    // The item 2 depends on is cancelled all the same: 2 keeps its dependency on it, and no longer waits for it.
     assert_eq!(
-        engine.refuses(&["cancel", "1", "--why", "No longer wanted."]),
-        "#2 depends on #1 and has not ended, and would wait for it for good: cancel it first, in the same change \
-         before it, or take that dependency away.\n"
+        engine.says(&["cancel", "1", "--why", "No longer wanted."]),
+        "Work 1 is cancelled.\n"
+    );
+    let list = engine.says(&["list"]);
+    assert!(
+        list.contains("\n#2 \"Say goodbye by name\" at level 1, project script, W2 on trial, after #1: "),
+        "{list}"
+    );
+    // An item comes to depend on a cancelled one, and its work does not wait for it.
+    engine.says(&add("Wave", "request=Please."));
+    assert_eq!(
+        engine.says(&["add-dependency", "3", "1", "--why", "It waves after the greeting."]),
+        "#3 depends on #1, which is cancelled: its work does not wait for it.\n"
     );
     assert_eq!(
         engine.says(&["remove-dependency", "2", "1", "--why", "They are apart."]),
@@ -144,9 +154,8 @@ fn several_changes_are_made_at_once_or_none_and_tags_classify_items() {
             "1:cancel",
             "3:tag=two words"
         ]),
-        "Change 2: #3 depends on #1 and has not ended, and would wait for it for good: cancel it first, in the same \
-         change before it, or take that dependency away; change 3: \"two words\" is no tag: a tag is a name of 1 to \
-         40 characters with no space and no comma; so none of the changes was made.\n"
+        "Change 3: \"two words\" is no tag: a tag is a name of 1 to 40 characters with no space and no comma; so none \
+         of the changes was made.\n"
     );
     let list = engine.says(&["list"]);
     assert!(

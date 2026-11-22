@@ -7,7 +7,7 @@ order = ["V1"]
 
 # The engine's own data this flow uses, each defined once in `../data/`. `background` is what the item is to deliver,
 # as it is added: the owner reads it and no cell does, so that an edit of it runs nothing. `dependencies` says whether
-# the items it is made of have merged.
+# the items it is made of have merged or been cancelled.
 data = ["background", "dependencies"]
 
 # What the item's card shows the owner of the work, in this order: the page shows what this names, and names no datum

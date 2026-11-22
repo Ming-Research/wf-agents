@@ -1,12 +1,12 @@
 //! Deliverable items: an item on the deliver flow as the repository defines it (`flow/deliver`), which has nothing to
-//! do of its own and is made of the items it depends on. Its one cell waits until they have all merged, runs once,
-//! and the work has then ended as merged, so that an item that depends on it may start in its turn. The driver knows
-//! no flow by its name: the deliver flow is one more definition with a dependencies block. What the item is to deliver
-//! is its background, which people write and no cell reads.
+//! do of its own and is made of the items it depends on. Its one cell waits until each has merged or was cancelled,
+//! runs once, and the work has then ended as merged, so that an item that depends on it may start in its turn. The
+//! driver knows no flow by its name: the deliver flow is one more definition with a dependencies block. What the item
+//! is to deliver is its background, which people write and no cell reads.
 
 use std::path::Path;
 
-use driver::{DEPENDENCIES, MERGED};
+use driver::{Asked, DEPENDENCIES, MERGED};
 use flow::{Compiled, Has};
 
 use super::*;
@@ -53,7 +53,7 @@ fn harness() -> H {
     H::with(flows)
 }
 
-/// The deliverable waits at its one cell for the items it is made of to have merged.
+/// The deliverable waits at its one cell for the items it is made of to have merged or been cancelled.
 fn waits_to_be_delivered() -> Decision {
     Decision::Wait {
         at: "V1".into(),
@@ -137,14 +137,43 @@ fn an_engineers_item_that_depends_on_a_deliverable_starts_only_once_the_delivera
 }
 
 #[test]
-fn a_deliverable_made_of_an_item_that_was_cancelled_waits_for_good() {
+fn a_deliverable_is_delivered_once_what_it_is_made_of_has_merged_past_an_item_that_was_cancelled() {
     let mut h = harness();
     let (a, wa) = h.add(new_item("a", &[], "short"));
-    let (_, wd) = h.add(new_item("d", &[a], "deliver"));
+    let (b, _) = h.add(new_item("b", &[], "plain"));
+    let (_, wd) = h.add(new_item("d", &[a, b], "deliver"));
     h.let_on(wd);
-    h.on(wa, Event::Cancelled { why: None });
+    h.let_on(wa);
+    // b is cancelled: the deliverable still waits, for a alone.
+    let (_, todos) = h.changes(vec![(b, Asked::Cancel)]).expect("b is cancelled");
+    h.released(todos);
     assert_eq!(h.decision(wd), waits_to_be_delivered());
-    assert_eq!(runs(&h, wd), 0);
+    assert_eq!(h.d().items_waited_for(wd), [a]);
+    // a merges: the deliverable runs in that very call, keeps b among what it is made of, and has ended.
+    let todos = h.through(wa);
+    assert_eq!(rounds(&todos), [(wd, "V1".to_string(), 1)]);
+    h.hands_in(wd, &[("delivered", None)]);
+    assert_eq!(h.decision(wd), Decision::Ended(End::Merged));
+    assert_eq!(h.d().work(wd).expect("the work is there").item.depends_on, [a, b]);
+}
+
+#[test]
+fn a_deliverable_all_of_whose_items_were_cancelled_is_delivered_as_the_last_is_cancelled() {
+    let mut h = harness();
+    let (a, _) = h.add(new_item("a", &[], "short"));
+    let (b, _) = h.add(new_item("b", &[], "plain"));
+    let (_, wd) = h.add(new_item("d", &[a, b], "deliver"));
+    h.let_on(wd);
+    let (_, todos) = h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
+    h.released(todos);
+    assert_eq!(h.decision(wd), waits_to_be_delivered());
+    // A dependency on a cancelled item holds as one on a merged item does: the deliverable runs as the last goes.
+    let (_, todos) = h.changes(vec![(b, Asked::Cancel)]).expect("b is cancelled");
+    let todos = h.released(todos);
+    assert_eq!(rounds(&todos), [(wd, "V1".to_string(), 1)]);
+    h.hands_in(wd, &[("delivered", None)]);
+    assert_eq!(h.decision(wd), Decision::Ended(End::Merged));
+    assert_eq!(runs(&h, wd), 1);
 }
 
 #[test]

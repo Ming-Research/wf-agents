@@ -24,8 +24,7 @@ pub const NODES: usize = 60;
 /// How many characters of the text around a hit an answer shows.
 const AROUND: usize = 80;
 
-/// An item, in a row: its number, title, level, tags, how its work stands, and the cancelled items it depends on while
-/// it has not ended, for which it waits for good.
+/// An item, in a row: its number, title, level, tags and how its work stands.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Row {
@@ -35,7 +34,6 @@ pub struct Row {
     pub level: Option<String>,
     pub tags: Vec<String>,
     pub standing: Standing,
-    pub on_cancelled: Vec<u64>,
 }
 
 /// How an item's work stands, for whoever plans the work.
@@ -87,9 +85,6 @@ struct Plan {
 
 impl Plan {
     fn of(driver: &Driver) -> Plan {
-        let standing: BTreeMap<u64, Standing> = (driver.works())
-            .map(|kept| (kept.item.number.0, Standing::of(&kept)))
-            .collect();
         let mut plan = Plan {
             rows: BTreeMap::new(),
             on: BTreeMap::new(),
@@ -98,13 +93,6 @@ impl Plan {
         for kept in driver.works() {
             let number = kept.item.number.0;
             let depends_on: Vec<u64> = kept.item.depends_on.iter().map(|on| on.0).collect();
-            let own = standing[&number];
-            let on_cancelled = match own.ended() {
-                true => Vec::new(),
-                false => (depends_on.iter().copied())
-                    .filter(|on| standing.get(on) == Some(&Standing::Cancelled))
-                    .collect(),
-            };
             for on in &depends_on {
                 plan.by.entry(*on).or_default().push(number);
             }
@@ -114,8 +102,7 @@ impl Plan {
                 title: kept.item.title.clone(),
                 level: kept.item.level.clone(),
                 tags: kept.item.tags.clone(),
-                standing: own,
-                on_cancelled,
+                standing: Standing::of(&kept),
             };
             plan.rows.insert(number, row);
             plan.on.insert(number, depends_on);
@@ -153,7 +140,8 @@ impl Plan {
 
 /// The items whoever plans the work could let on now, in a default order for reading, the choice being theirs: the
 /// works the owner paused, or that were added or reopened paused and never let on since, every item of which they
-/// depend on has merged. Those more items wait for, by way of any items, come first, then the earlier added.
+/// depend on has merged or was cancelled. Those more items wait for, by way of any items, come first, then the earlier
+/// added.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Candidates {
@@ -183,9 +171,10 @@ impl Candidates {
         let started: BTreeMap<u64, bool> = (driver.works())
             .map(|kept| (kept.item.number.0, !kept.work.records.started.is_empty()))
             .collect();
-        let merged = |on: &u64| plan.rows.get(on).is_some_and(|row| row.standing == Standing::Merged);
+        // A cancelled item is waited for no more than a merged one.
+        let ended = |on: &u64| plan.rows.get(on).is_some_and(|row| row.standing.ended());
         let mut found: Vec<Candidate> = (plan.rows.values())
-            .filter(|row| row.standing == Standing::Paused && plan.next(row.item, Way::Up).iter().all(merged))
+            .filter(|row| row.standing == Standing::Paused && plan.next(row.item, Way::Up).iter().all(ended))
             .map(|row| Candidate {
                 row: row.clone(),
                 started: started.get(&row.item).copied().unwrap_or(false),

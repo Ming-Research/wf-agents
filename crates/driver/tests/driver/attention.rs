@@ -3,6 +3,7 @@
 //! time it did; never a work going on; the same answer for the same mark, a restart between or not; at most a number
 //! of lines, the rest coming again.
 
+use driver::Asked;
 use driver::attention::{Attention, Heed, Idle, LINES, Line, Mark, Refused, Stuck};
 use rusqlite::{Connection, params};
 
@@ -287,7 +288,7 @@ fn a_work_waiting_for_an_item_that_waits_in_turn_for_one_nobody_lets_on_is_idle_
 }
 
 #[test]
-fn an_item_cancelled_leaves_the_work_waiting_for_it_idle_for_good() {
+fn an_item_cancelled_lets_the_work_waiting_for_it_go_on_and_is_a_line_as_it_ends() {
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "short"));
     let (_, wb) = h.add(new_item("b", &[a], "judged"));
@@ -307,22 +308,14 @@ fn an_item_cancelled_leaves_the_work_waiting_for_it_idle_for_good() {
         },
     );
     assert_eq!(h.decision(wa), Decision::Ended(End::Cancelled));
+    // b waits for a cancelled item no more than for a merged one: it goes on, and is nothing for the planner.
+    assert!(matches!(h.decision(wb), Decision::Busy { .. }), "{:?}", h.decision(wb));
     assert_eq!(
         heeds(&since(&h, Some(&mark))),
-        vec![
-            Heed::Idle {
-                work: wb,
-                items: vec![Idle {
-                    item: a,
-                    why: Stuck::Cancelled
-                }],
-            },
-            Heed::Ended {
-                work: wa,
-                end: End::Cancelled
-            },
-        ],
-        "what rests for nobody comes before what ended"
+        vec![Heed::Ended {
+            work: wa,
+            end: End::Cancelled
+        }]
     );
 }
 
@@ -364,41 +357,46 @@ fn a_work_left_idle_by_the_merge_of_one_item_it_waited_for_is_a_line_since_that_
 }
 
 #[test]
-fn a_work_left_idle_by_the_merge_of_one_item_it_waited_for_is_a_line_when_the_other_was_cancelled_long_before() {
+fn a_work_left_idle_by_the_cancel_of_one_item_it_waited_for_is_a_line_since_that_cancel() {
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "short"));
-    let (b, wb) = h.add(new_item("b", &[], "short"));
-    // As a store kept before an item could not be cancelled under one that depends on it: b is cancelled anyway.
+    // Added paused and never let on, so that it stands still from before the mark.
+    let (b, _) = h.add(new_item("b", &[], "short"));
     let (_, ww) = h.add(new_item("w", &[a, b], "judged"));
-    h.on(wb, Event::Cancelled { why: None });
     h.let_on(wa);
     h.let_on(ww);
     let mark = since(&h, None).mark;
-    h.through(wa);
-    // The merge is the call before the last: the last let go of what the merged work held.
-    let merged = Time(h.clock - 1000);
+    // a is cancelled with its round under way, and has ended once that round has.
+    let (run, ..) = h.round(wa);
+    h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
+    let spent = h.spent();
+    let came = hands_in(&[("plan", None)]);
+    let todos = h.on(wa, Event::Returned { run, came, spent });
+    let cancelled = Time(h.clock);
+    h.released(todos);
+    // Left waiting for b alone, which stands still, w is idle since a ended, not since b stood still.
+    let lines = since(&h, Some(&mark)).lines;
     assert_eq!(
-        since(&h, Some(&mark)).lines,
-        vec![
-            Line {
-                heed: Heed::Idle {
-                    work: ww,
-                    items: vec![Idle {
-                        item: b,
-                        why: Stuck::Cancelled
-                    }],
-                },
-                since: merged,
+        lines[0],
+        Line {
+            heed: Heed::Idle {
+                work: ww,
+                items: vec![Idle {
+                    item: b,
+                    why: Stuck::Paused
+                }],
             },
-            Line {
-                heed: Heed::Ended {
-                    work: wa,
-                    end: End::Merged
-                },
-                since: merged,
-            },
-        ]
+            since: cancelled,
+        }
     );
+    assert_eq!(
+        lines[1].heed,
+        Heed::Ended {
+            work: wa,
+            end: End::Cancelled
+        }
+    );
+    assert_eq!(lines.len(), 2, "{lines:?}");
 }
 
 #[test]

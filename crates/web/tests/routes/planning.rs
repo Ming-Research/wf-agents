@@ -4,7 +4,7 @@
 use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
 
-use crate::{ask, get_json, post, running};
+use crate::{ask, get_json, pass, post, running};
 
 /// An item of the trial flow, held, depending on these, carrying these tags, its request saying this.
 fn item(title: &str, on: Value, tags: Value, request: &str) -> Value {
@@ -46,6 +46,44 @@ async fn the_candidates_are_the_paused_items_whose_dependencies_merged_those_mor
     assert_eq!(rows[1]["row"]["item"], 1);
     assert_eq!(rows[1]["waitedBy"], 0);
     assert_eq!(rows[0]["row"]["standing"], "paused");
+}
+
+// A dependency on a cancelled item holds nothing: the item that depends on it could be let on, until the cancelled
+// item is reopened and holds it again.
+#[tokio::test(start_paused = true)]
+async fn an_item_whose_dependency_was_cancelled_is_a_candidate_until_that_one_is_reopened() {
+    let running = running();
+    let router = &running.router;
+    post(router, "/api/v1/items", &item("Base", json!([]), json!([]), "Please.")).await;
+    post(
+        router,
+        "/api/v1/items",
+        &item("On base", json!([1]), json!([]), "Please."),
+    )
+    .await;
+    let candidates = |answer: &Value| -> Vec<Value> {
+        (answer["rows"].as_array().unwrap().iter())
+            .map(|row| row["row"]["item"].clone())
+            .collect()
+    };
+    assert_eq!(
+        candidates(&get_json(router, "/api/v1/plan/candidates").await),
+        [json!(1)]
+    );
+    let cancel = json!({ "why": "Not needed", "changes": [{ "kind": "cancel", "item": 1 }] });
+    assert_eq!(post(router, "/api/v1/items/changes", &cancel).await.0, StatusCode::OK);
+    assert_eq!(
+        candidates(&get_json(router, "/api/v1/plan/candidates").await),
+        [json!(2)]
+    );
+    // Once what the cancel let go of is let go, the item is reopened, paused, and could be let on in its turn.
+    pass(100).await;
+    let reopen = json!({ "why": "Needed after all", "changes": [{ "kind": "reopen", "item": 1 }] });
+    assert_eq!(post(router, "/api/v1/items/changes", &reopen).await.0, StatusCode::OK);
+    assert_eq!(
+        candidates(&get_json(router, "/api/v1/plan/candidates").await),
+        [json!(1)]
+    );
 }
 
 #[tokio::test(start_paused = true)]
