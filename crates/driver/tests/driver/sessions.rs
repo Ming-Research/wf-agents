@@ -161,6 +161,81 @@ fn two_lines() -> Compiled {
     flow::compile(&source, &has).expect("the flow compiles")
 }
 
+/// Two lines that both come back to cells of theirs while the work stands at the engineer's: `load` and `build` are the
+/// engineer's, `look`, which comes before `build`, the review's, and runs on the owner's remarks, so that it runs while
+/// the build waits on a tool's result; `review` is the review's after `build`.
+fn remarks() -> Compiled {
+    let flow = format!(
+        r#"
+        name = "sessions"
+        order = ["load", "look", "build", "review", "merge"]
+        [limits]
+        runs = 3
+        returns = 2
+        calls = 3
+        [lines.engineer]
+        [lines.review]
+        [blocks.request]
+        people = true
+        [blocks.remarks]
+        people = true
+        [blocks.engineer_session]
+        outside = "session"
+        {SESSION_WRITES}
+        [blocks.review_session]
+        outside = "session"
+        {SESSION_WRITES}
+        [blocks.context]
+        [blocks.notes]
+        [blocks.code]
+        [blocks.verdict]
+        [blocks.merged]
+        shown = true
+    "#
+    );
+    let cell = |line: &str, watches: &str, outputs: &str| {
+        // Each datum it watches given as it last worked from it and as it is now.
+        let kinds: Vec<String> = (watches.split('"').skip(1).step_by(2))
+            .map(|datum| format!("{datum} = \"last_and_latest\""))
+            .collect();
+        format!(
+            "title = \"A cell\"\nkind = \"agent\"\nline = \"{line}\"\neffort = \"low\"\ntask = \"Do it.\"\nwatches = {watches}\noutputs = {outputs}\nkinds = {{ {} }}\n",
+            kinds.join(", ")
+        )
+    };
+    let merge =
+        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"verdict\"]\noutputs = [\"merged\"]\n";
+    let source = flow::Source {
+        flow,
+        cells: [
+            (
+                "load",
+                cell("engineer", r#"["request", "engineer_session"]"#, r#"["context"]"#),
+            ),
+            (
+                "look",
+                cell("review", r#"["remarks", "review_session"]"#, r#"["notes"]"#),
+            ),
+            (
+                "build",
+                cell("engineer", r#"["request", "context", "notes"]"#, r#"["code"]"#),
+            ),
+            ("review", cell("review", r#"["code"]"#, r#"["verdict"]"#)),
+            ("merge", merge.to_string()),
+        ]
+        .into_iter()
+        .map(|(id, text)| (id.to_string(), text))
+        .collect(),
+        ..Default::default()
+    };
+    let has = Has {
+        sources: [SESSION.to_string()].into(),
+        acts: ["merge".to_string()].into(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the flow compiles")
+}
+
 /// What a round runs on where the installation's model is this one.
 fn on(model: &str) -> RanOn {
     RanOn {
@@ -1573,15 +1648,16 @@ fn a_session_whose_cache_let_it_go_unpinged_wakes_the_driver_no_more() {
 }
 
 #[test]
-fn only_the_lines_the_work_can_come_back_to_and_none_while_a_round_of_it_is_under_way_are_kept_warm() {
+fn only_the_lines_the_work_can_come_back_to_and_none_while_a_round_of_its_own_line_is_under_way_are_kept_warm() {
     let mut s = S::warmed(warm("opus"));
     s.hands_in(100, true);
     s.hands_in(100, true);
-    // The review's round is under way: nothing of the work is pinged, on any line.
+    // The review's round is under way: its own line is not pinged, and the engineer's, which nothing the review writes
+    // runs, is not a line the work can come back to.
     let (_, cell) = s.round();
     assert_eq!(cell, "review");
     s.began();
-    assert!(kept_warm(&s).is_empty(), "a ping beside a round of its work");
+    assert!(kept_warm(&s).is_empty(), "a ping beside a round of its line");
     // The review waits on a tool's result: its line comes back, and the engineer's, which nothing the review writes
     // runs, does not.
     let ask = Ask::Tool {
@@ -1591,6 +1667,125 @@ fn only_the_lines_the_work_can_come_back_to_and_none_while_a_round_of_it_is_unde
     s.ends(100, Came::asks(vec![ask]));
     let lines: Vec<String> = kept_warm(&s).into_iter().map(|k| k.due.line).collect();
     assert_eq!(lines, ["review"]);
+}
+
+/// The owner's remarks, which run the review's `look` cell of [`remarks`].
+fn remark() -> Event {
+    Event::Wrote {
+        block: "remarks".into(),
+        by: Outsider::Person,
+        content: "A remark.".to_string(),
+        matters: true,
+        value: None,
+    }
+}
+
+/// The lines of the sessions kept warm, in the order of the walk.
+fn lines_kept(s: &S) -> Vec<String> {
+    kept_warm(s).into_iter().map(|k| k.due.line).collect()
+}
+
+/// A work of [`remarks`] whose engineer's build waits on a tool's result, with when that round ended.
+fn awaiting_a_tool() -> (S, u64) {
+    let mut s = S::warmed_on(remarks(), warm("opus"));
+    s.hands_in(100, true);
+    assert_eq!(s.round().1, "build");
+    s.asks(100);
+    let ended = s.clock;
+    (s, ended)
+}
+
+#[test]
+fn a_session_is_kept_warm_by_its_own_last_call_while_a_round_of_another_line_is_under_way() {
+    let (mut s, build_ended) = awaiting_a_tool();
+    // The owner's remarks run the review's look while the build waits on its tool: a round of another line is under
+    // way, and the engineer's session is kept warm by its own last call all the same.
+    s.on(remark());
+    assert_eq!(s.round().1, "look");
+    s.began();
+    let kept = kept_warm(&s);
+    assert_eq!(
+        lines_kept(&s),
+        ["engineer"],
+        "the review's own line has its round under way"
+    );
+    assert_eq!(
+        kept[0].at.0,
+        build_ended + 3_300_000,
+        "55 minutes after the engineer's own last call"
+    );
+    // The look ends: its line's session, called last as the round ended, is kept warm from that call, beside the
+    // engineer's, which the look changed nothing of.
+    s.hands_in(100, true);
+    let look_ended = s.clock;
+    let kept = kept_warm(&s);
+    assert_eq!(lines_kept(&s), ["engineer", "review"]);
+    assert_eq!(kept[0].at.0, build_ended + 3_300_000);
+    assert_eq!(
+        kept[1].at.0,
+        look_ended + 3_300_000,
+        "55 minutes after the review's own last call"
+    );
+}
+
+#[test]
+fn a_ping_is_given_while_a_round_of_another_line_is_under_way() {
+    let (mut s, build_ended) = awaiting_a_tool();
+    s.on(remark());
+    s.began();
+    // The engineer's ping falls due while the review's look is under way: it is given, and the review's own line,
+    // whose round is under way, is not.
+    let at = build_ended + 3_300_000;
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
+    assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
+}
+
+#[test]
+fn a_round_of_another_line_begins_while_a_session_is_pinged() {
+    let (mut s, build_ended) = awaiting_a_tool();
+    let at = build_ended + 3_300_000;
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
+    assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
+    s.clock = at;
+    // The owner's remarks run the review's look while the engineer's session is pinged: its round begins at once, on
+    // a line whose session the ping is not in.
+    let rounds = s.kept().records.rounds.len();
+    s.on(remark());
+    assert_eq!(
+        s.kept().records.rounds.len(),
+        rounds + 1,
+        "the review's round was held by the ping"
+    );
+    assert_eq!(s.round().1, "look");
+    // The ping ends beside it, and the review's round goes on.
+    s.clock += 1_000;
+    let read = Spent {
+        cached_tokens: 100,
+        context_tokens: Some(120),
+        ..Default::default()
+    };
+    s.driver.happened(Time(s.clock), s.work, pinged(read, None)).unwrap();
+    assert_eq!(s.round().1, "look");
+}
+
+#[test]
+fn no_session_of_a_work_cancelled_while_a_round_of_it_is_being_stopped_is_kept_warm() {
+    let (mut s, _) = awaiting_a_tool();
+    s.on(remark());
+    s.began();
+    assert_eq!(lines_kept(&s), ["engineer"]);
+    // Cancelled, the work stops the look's round, which has not ended: the run is abandoned and its program still
+    // runs. A work that is ending is not kept warm, on the line of the round being stopped or on another.
+    s.on(Event::Cancelled { why: None });
+    let kept = s.kept();
+    assert!(
+        kept.records.rounds.len() > kept.records.returned.len(),
+        "the round being stopped has not ended"
+    );
+    assert!(
+        kept_warm(&s).is_empty(),
+        "a session of a work being cancelled is kept warm"
+    );
 }
 
 #[test]
@@ -1813,10 +2008,10 @@ fn a_ping_that_compacted_the_session_after_the_loading_cells_round_has_that_cell
     assert_eq!(cell, "load");
 }
 
-// A round that would begin while a ping of its work is under way begins once the ping has ended, after what the ping
+// A round that would begin while a ping of its line is under way begins once the ping has ended, after what the ping
 // did to its session, so that it is filled as the session then stands: a compaction the ping made comes before it.
 #[test]
-fn a_round_due_while_its_works_ping_is_under_way_begins_after_the_ping_and_what_it_did() {
+fn a_round_due_while_its_lines_ping_is_under_way_begins_after_the_ping_and_what_it_did() {
     let mut s = S::warmed(warm("opus"));
     s.hands_in(100, true);
     s.asks(100);

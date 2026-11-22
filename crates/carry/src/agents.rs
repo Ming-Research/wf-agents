@@ -150,9 +150,11 @@ struct Inner {
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
     /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
     clock: Arc<dyn Clock>,
-    /// A lock for each work, so that a keep-warm ping of a work never runs beside a round of it: a round waits for a
-    /// ping of its work to end, and a ping that finds a round of its work under way is given up.
-    in_work: std::sync::Mutex<BTreeMap<WorkNumber, Arc<tokio::sync::Mutex<()>>>>,
+    /// A lock for each line of a work, which is each session's program one at a time: a keep-warm ping of a line never
+    /// runs beside a round of it, a round waits for a ping of its line to end, and a ping that finds a round of its line
+    /// under way is given up; a fork of a session is the same. The rounds and pings of the work's other lines hold
+    /// locks of their own.
+    in_work: std::sync::Mutex<BTreeMap<(WorkNumber, String), Arc<tokio::sync::Mutex<()>>>>,
     /// What the owner said to each round given and not yet ended that its hook is to give it, by the round; one
     /// telling of a round, or its end, at a time, so that what waits for its hook is known.
     said: std::sync::Mutex<Tellings>,
@@ -535,9 +537,9 @@ impl Inner {
                 .map_err(|e| format!("{}: {e}", parent.display()))?;
         }
         let permissions = self.permissions(of, &round.cell);
-        // One program at a time in a work: a keep-warm ping of it under way ends first, so that what its session holds
-        // and cost is worked out with the ping in.
-        let lock = self.lock(round.work);
+        // One program at a time in a line's session: a keep-warm ping of the line under way ends first, so that what its
+        // session holds and cost is worked out with the ping in.
+        let lock = self.lock(round.work, line);
         let _one = lock.lock().await;
         let InSession {
             number,
@@ -645,6 +647,7 @@ impl Inner {
                         &words,
                         (session, begin),
                         &token,
+                        false,
                     );
                     // The stream is kept as it comes, so that what the agent is doing can be read while it does it; and
                     // the run guard judges each call as the stream tells it, halting the program at a signal past its
@@ -914,7 +917,8 @@ impl Inner {
     /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
     /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, which
     /// the program compacts at the installation's `sessions.compact_at`, given the program's directory and the token of
-    /// the account it runs under.
+    /// the account it runs under; where `refusing` says so, with every use of a tool refused but the return's
+    /// ([`cli::refusing`]), as a keep-warm ping runs.
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
@@ -927,6 +931,7 @@ impl Inner {
         words: &Words,
         (session, begin): (Uuid, Begin),
         token: &Token,
+        refusing: bool,
     ) -> Command {
         let agents = &self.settings.agents;
         let mut command = Command::new(&agents.command);
@@ -943,6 +948,7 @@ impl Inner {
             session,
             begin,
         );
+        let args = if refusing { cli::refusing(args) } else { args };
         let profile = account::profile(&self.data);
         command
             .args(args)
@@ -1271,7 +1277,9 @@ impl Inner {
     fn over_budget(&self, round: &Round, spent: &Spent) -> Option<String> {
         let budget = self.settings.budget()?;
         let bar = budget.bar(&round.kept);
-        // No other round of the work ended while this one was under way: a work has one round under way at a time.
+        // No other round of the work ended while this one was under way: a work has one round under way at a time. The
+        // pings of its other lines that ended meanwhile are not in what the round was given, and count at the next
+        // round's judgment: at most each other session's `warm.most` pings.
         let pinged = round.kept.pinged.iter().map(|p| p.spent.usd_micros).sum::<u64>();
         let total = round.kept.spent.values().map(|s| s.usd_micros).sum::<u64>() + spent.usd_micros + pinged;
         let dollars = |micros: u64| format!("{:.2}", micros as f64 / 1_000_000.0);
@@ -1307,10 +1315,10 @@ fn chars_of(back: &Back) -> u64 {
 }
 
 impl Inner {
-    /// The lock of the work, made where it has none.
-    fn lock(&self, work: WorkNumber) -> Arc<tokio::sync::Mutex<()>> {
+    /// The lock of the line of the work, made where it has none.
+    fn lock(&self, work: WorkNumber, line: &str) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.in_work.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        locks.entry(work).or_default().clone()
+        locks.entry((work, line.to_string())).or_default().clone()
     }
 
     /// What comes before a session's messages in the prompt of a call on this, under this account, with this system
@@ -1344,17 +1352,18 @@ impl Inner {
     }
 
     /// Sends the session of the ping its keep-warm message, with the command line of the session's last round, which
-    /// the cache keeps the session under, and gives what it took; or why it failed, with what it took. A work a round
-    /// of which is under way is not pinged, and a ping that has not ended by the time the cache lets the session go is
-    /// stopped, since after that it would write the session again for nothing. What the service said of the usage of
-    /// the account it ran under is put in `usage`.
+    /// the cache keeps the session under, and gives what it took; or why it failed, with what it took. A session whose
+    /// line has a round under way is not pinged, and a ping that has not ended by the time the cache lets the session
+    /// go is stopped, since after that it would write the session again for nothing. The program is let use no tool, so
+    /// that it changes nothing in the worktree beside the rounds of the work's other lines. What the service said of
+    /// the usage of the account it ran under is put in `usage`.
     async fn ping(&self, ping: &Ping, usage: &mut Option<driver::Said>) -> Result<Spent, (String, Spent)> {
         let failed = |why: String| (why, Spent::default());
         let of = crate::projects::of(&self.projects, &ping.item).map_err(failed)?;
         let said = &of.beside.cost.ping;
         let fill = flow::agents::fill;
         let (flow, work, line) = (&*ping.flow, &*ping.kept, ping.line.as_str());
-        let lock = self.lock(ping.work);
+        let lock = self.lock(ping.work, line);
         let Ok(_one) = lock.try_lock() else {
             return Err(failed(said.under_way.clone()));
         };
@@ -1405,6 +1414,7 @@ impl Inner {
             &words,
             (session, Begin::Resume),
             &token,
+            true,
         );
         // What the session cost before the ping: its rounds' and its earlier pings'.
         let before = cli::in_session(flow, work, line, run, number + 1).before;
@@ -1522,24 +1532,25 @@ impl Inner {
     /// Asks a fork of the session the fork's round ran in its question ([`Rounds::fork`]): on the command line of that
     /// session's last round, forked ([`cli::forked`]), begun at the round's end where the session went on past it, or
     /// refused where it cannot be; in the work's worktree, or, where the work has ended and its worktree is gone, a
-    /// checkout of its kept branch made at the worktree's place and taken away after; holding the work, so that no
-    /// round of it runs beside the fork. What the fork was told, its stream and its answer are kept beside the round's,
-    /// its hooks' files are its own and taken away after.
+    /// checkout of its kept branch made at the worktree's place and taken away after; holding the session's line, so
+    /// that no round or ping of the line runs beside the fork, which refuses every tool but the return and so leaves
+    /// what the work's other lines run in the worktree as it is. What the fork was told, its stream and its answer are
+    /// kept beside the round's, its hooks' files are its own and taken away after.
     async fn fork(&self, fork: &Fork) -> Result<Forked, String> {
         let of = crate::projects::of(&self.projects, &fork.item)?;
         let (outline, work) = (&*fork.outline, &*fork.kept);
-        let Ok(one) = self.lock(fork.work).try_lock_owned() else {
+        // The work's rounds are placed in their sessions as the version it is on has its cells, whichever is installed.
+        let line_of = |cell: &CellId| outline.cell(cell).and_then(|c| c.line.clone());
+        let started = (work.records.started.iter()).find(|s| s.run == fork.run);
+        let line = (started.and_then(|s| line_of(&s.cell))).ok_or("The round's cell runs in no session.")?;
+        let Ok(one) = self.lock(fork.work, &line).try_lock_owned() else {
             return Err(format!(
-                "A round of work {} is under way: ask the fork once it has ended.",
+                "A round or a ping of the line {line} of work {} is under way: ask the fork once it has ended.",
                 fork.work.0
             ));
         };
         // Held until the fork has ended, and what it stood in is taken away.
         let mut holding = Some(one);
-        // The work's rounds are placed in their sessions as the version it is on has its cells, whichever is installed.
-        let line_of = |cell: &CellId| outline.cell(cell).and_then(|c| c.line.clone());
-        let started = (work.records.started.iter()).find(|s| s.run == fork.run);
-        let line = (started.and_then(|s| line_of(&s.cell))).ok_or("The round's cell runs in no session.")?;
         let reads_only = (outline.lines.iter())
             .find(|l| l.name == line)
             .and_then(|l| l.reads_only)
@@ -3024,6 +3035,20 @@ mod tests {
         let session = session::session(Uuid::nil(), WorkNumber(3), "engineer", 0).to_string();
         assert!(args.lines().any(|a| a == session), "it goes on in the session: {args}");
         assert!(!args.contains("sk-ant"), "{args}");
+        // It goes on in the session itself, and is let use no tool but the return: a hook refuses every other, so that
+        // beside the rounds of the work's other lines it changes nothing in their worktree.
+        assert!(
+            !args.lines().any(|a| a == "--fork-session"),
+            "it forks the session: {args}"
+        );
+        let settings = (args.lines().skip_while(|a| *a != "--settings").nth(1)).expect("its settings");
+        let hooks: serde_json::Value = serde_json::from_str(settings).expect("settings are JSON");
+        assert_eq!(hooks["hooks"]["PreToolUse"][0]["matcher"], "*", "{settings}");
+        assert_eq!(
+            hooks["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            cli::refusal(),
+            "{settings}"
+        );
         std::fs::remove_file(data.join("token")).expect("taken away");
         let (why, _) = (agents.inner.ping(&ping(None), &mut None).await).expect_err("no account");
         assert_eq!(why, "No account is in use: choose one on the Settings view.");
@@ -3033,6 +3058,46 @@ mod tests {
             "{why}"
         );
         assert_eq!(given(), None, "its program is not run");
+    }
+
+    // The program of a session runs one at a time: a ping of a line, and a fork of its session, are refused while a round
+    // or a ping of that line holds its lock, and a ping or a fork of a line beside it is not, for its session is
+    // another's. One run of a stand-in program for each that goes on: a few tens of milliseconds.
+    #[tokio::test]
+    async fn a_ping_and_a_fork_are_refused_beside_their_own_lines_program_and_not_another_lines() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let data = std::path::absolute(dir.path()).expect("absolute");
+        let (agents, _repo, fork) = forking(&data);
+        let ping = |line: &str| Ping {
+            work: fork.work,
+            flow: Arc::new(engineer().0),
+            line: line.to_string(),
+            session: 0,
+            item: fork.item.clone(),
+            kept: fork.kept.clone(),
+            account: Some("work".to_string()),
+        };
+        // A round of another line of the work is under way: the engineer's session is pinged and forked beside it.
+        let other = agents.inner.lock(fork.work, "review");
+        let _beside = other.lock().await;
+        agents
+            .inner
+            .ping(&ping("engineer"), &mut None)
+            .await
+            .expect("a ping beside another line's round");
+        agents
+            .inner
+            .fork(&fork)
+            .await
+            .expect("a fork beside another line's round");
+        // A round of the engineer's own line is under way: both are refused, the fork naming the line.
+        let own = agents.inner.lock(fork.work, "engineer");
+        let _round = own.lock().await;
+        let (why, _) = (agents.inner.ping(&ping("engineer"), &mut None).await).expect_err("a ping beside its round");
+        assert!(why.contains("under way"), "{why}");
+        let refused = agents.inner.fork(&fork).await.expect_err("a fork beside its round");
+        assert!(refused.contains("line engineer"), "{refused}");
+        assert!(refused.contains("under way"), "{refused}");
     }
 
     // What comes before a session's messages names the account a call runs under, so that a miss after another is taken

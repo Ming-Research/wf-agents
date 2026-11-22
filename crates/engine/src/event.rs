@@ -1,7 +1,10 @@
 //! What happens to a work, and what is to be done for it.
 
+use std::collections::BTreeSet;
+
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
+use flow::{Compiled, Kind};
 
 use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Why};
 
@@ -198,8 +201,8 @@ pub enum Effect {
     /// worktree, and its pull request where it did not merge; its branch stays). It is to be done until the work is
     /// said to have released it.
     Release { end: End },
-    /// The session of this number of the line, which waits for the line's next round, is sent a keep-warm ping, so that
-    /// the prompt cache does not let it go. Whatever drives the engine gives it, not the work's loop: it is to be done
+    /// The session of this number of the line, which has no round under way, is sent a keep-warm ping, so that the
+    /// prompt cache does not let it go. Whatever drives the engine gives it, not the work's loop: it is to be done
     /// until the ping is said to have ended or failed, and given again where it is still due after a stop.
     Ping { line: String, session: u32 },
 }
@@ -239,6 +242,50 @@ impl Gate {
             (Gate::Acts, Gate::Acts) => Gate::Acts,
             _ => Gate::Every,
         }
+    }
+}
+
+/// Which rounds of a work may begin: those the wait every work shares lets ([`Gate`]), and those of a cell in none of
+/// the lines whose session a keep-warm ping of the work has under way, which the session's program runs once for each
+/// at a time. Whatever drives the engine works it out from the records of every work and the pings it has given.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Hold {
+    /// The rounds the wait every work shares holds.
+    pub gate: Gate,
+    /// The lines whose session is being pinged: no round of a cell of one of them begins.
+    pub lines: BTreeSet<String>,
+}
+
+impl From<Gate> for Hold {
+    fn from(gate: Gate) -> Hold {
+        Hold {
+            gate,
+            lines: BTreeSet::new(),
+        }
+    }
+}
+
+impl Hold {
+    /// The hold that holds what this does and what the gate does.
+    pub fn and(mut self, gate: Gate) -> Hold {
+        self.gate = self.gate.and(gate);
+        self
+    }
+
+    /// Whether the rounds of the cell are held: by the gate, which holds every round, or an agent's and the cell is
+    /// one an agent carries out, or an act's and the cell is one the engine carries out; or by its line being pinged.
+    pub fn holds(&self, flow: &Compiled, cell: &CellId) -> bool {
+        let spec = (flow.cells.iter()).find(|spec| spec.id == *cell);
+        let by_gate = match self.gate {
+            Gate::Open => false,
+            Gate::Every => true,
+            Gate::Agents => spec.is_some_and(|spec| spec.kind == Kind::Agent),
+            Gate::Acts => spec.is_some_and(|spec| spec.kind == Kind::Engine),
+        };
+        by_gate
+            || spec
+                .and_then(|spec| spec.line.as_ref())
+                .is_some_and(|line| self.lines.contains(line))
     }
 }
 
