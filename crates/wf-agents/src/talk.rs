@@ -2137,7 +2137,7 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
     } else {
         lines.push("Under way, the oldest first:".to_string());
     }
-    let so_far = |time: &Option<Against>, what: &str| match time {
+    let so_far = |time: &Option<Against>, since: u64, what: &str| match time {
         Some(time) => format!(
             "{} so far, {} the line of {} that {}",
             duration(time.value),
@@ -2145,7 +2145,10 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
             duration(time.line.value),
             given_by(&time.line)
         ),
-        None => format!("no line yet, too few {what} having ended"),
+        None => format!(
+            "{} so far, no line yet, too few {what} having ended",
+            duration(system.now.saturating_sub(since))
+        ),
     };
     for under_way in system.under_way.iter().take(limit) {
         lines.push(match under_way {
@@ -2181,7 +2184,7 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                 format!(
                     "  W{work} of #{item}, round {round} of run {run} of {cell}, since {}: {}{rest}{bounds}",
                     utc(*began),
-                    so_far(time, "rounds of its cell")
+                    so_far(time, *began, "rounds of its cell")
                 )
             }
             UnderWay::Call {
@@ -2196,7 +2199,7 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
             } => format!(
                 "  W{work} of #{item}, call {call} of the tool {tool} by run {run} of {cell}, since {}: {}",
                 utc(*made),
-                so_far(time, "calls of its tool")
+                so_far(time, *made, "calls of its tool")
             ),
         });
     }
@@ -3007,7 +3010,12 @@ mod tests {
             "{said}"
         );
         assert!(
-            said.contains("so far, no line yet, too few rounds of its cell having ended; about 5m 00s more"),
+            said.contains(
+                "Under way, the oldest first:\n  W1 of #11, round 1 of run 2 of I1, since 1970-01-01 00:00 UTC: 10m 00s \
+                 so far, no line yet, too few rounds of its cell having ended; longer than any round of its history\n  \
+                 W2 of #12, round 1 of run 2 of I1, since 1970-01-01 00:09 UTC: 1m 00s so far, no line yet, too few \
+                 rounds of its cell having ended; about 5m 00s more"
+            ),
             "{said}"
         );
     }
