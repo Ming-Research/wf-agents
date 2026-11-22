@@ -349,3 +349,57 @@ async fn a_file_git_does_not_track_is_no_change_and_an_edit_of_a_tracked_one_is(
         "a tracked file is not untracked"
     );
 }
+
+// Reference: the output of `git status --porcelain` as git's documentation gives its status codes (`A ` added, ` D`
+// deleted, `R ` renamed, ` T` type changed). Whatever git tracks and the worktree or index changes is not committed;
+// the one definition the check, the round's end and the repository's merge share must list each kind of it, and must
+// not depend on the repository's own configuration of how status shows files git does not track.
+#[tokio::test]
+async fn every_change_to_a_tracked_file_is_uncommitted_whatever_the_repository_says_of_untracked_files() {
+    let repo = Repo::new("true");
+    let dir = &repo.project.repo;
+    commit(dir, "old.txt", "Old.\n");
+    commit(dir, "gone.txt", "Gone.\n");
+    commit(dir, "same.txt", "Same.\n");
+    // Where the repository's configuration says to show every untracked file, the list still holds none.
+    run(dir, &["config", "status.showUntrackedFiles", "all"]);
+    std::fs::write(dir.join("notes.txt"), "Notes.\n").unwrap();
+    assert_eq!(uncommitted(dir).await.unwrap(), "");
+
+    // A new file that is staged is tracked, and not committed.
+    std::fs::write(dir.join("new.txt"), "New.\n").unwrap();
+    run(dir, &["add", "new.txt"]);
+    assert_eq!(uncommitted(dir).await.unwrap(), "A  new.txt");
+    // A tracked file deleted, not staged, and one removed from the index.
+    std::fs::remove_file(dir.join("gone.txt")).unwrap();
+    run(dir, &["rm", "-q", "same.txt"]);
+    // A rename, staged.
+    run(dir, &["mv", "old.txt", "renamed.txt"]);
+    let listed = uncommitted(dir).await.unwrap();
+    let mut lines: Vec<&str> = listed.lines().collect();
+    lines.sort_unstable();
+    assert_eq!(
+        lines,
+        [" D gone.txt", "A  new.txt", "D  same.txt", "R  old.txt -> renamed.txt"],
+        "{listed}"
+    );
+    // The untracked file is still not among them, and is the one `untracked` gives.
+    assert_eq!(untracked(dir).await.unwrap(), "notes.txt");
+}
+
+// Reference: git's documentation of `ls-files --others --exclude-standard --directory`: a directory classified as
+// "other" is shown by its name alone, and one that holds a tracked file is not, its untracked files shown one by one;
+// a name with a space is a line of its own, unquoted.
+#[tokio::test]
+async fn untracked_names_a_directory_with_a_tracked_file_by_its_files_and_a_name_with_a_space_whole() {
+    let repo = Repo::new("true");
+    let dir = &repo.project.repo;
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    commit(dir, "src/lib.txt", "Lib.\n");
+    std::fs::write(dir.join("src/extra.txt"), "Extra.\n").unwrap();
+    std::fs::write(dir.join("my notes.txt"), "Notes.\n").unwrap();
+    std::fs::create_dir_all(dir.join("out dir")).unwrap();
+    std::fs::write(dir.join("out dir/one"), "1\n").unwrap();
+    assert_eq!(untracked(dir).await.unwrap(), "my notes.txt\nout dir/\nsrc/extra.txt");
+    assert_eq!(uncommitted(dir).await.unwrap(), "");
+}

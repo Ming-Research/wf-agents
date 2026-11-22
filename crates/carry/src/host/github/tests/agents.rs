@@ -200,3 +200,38 @@ async fn two_checks_at_once_go_through_one_pull_request() {
     assert!(said.starts_with("The full workflows ran on the commit"), "{said}");
     assert_eq!(hub.opened(), 1);
 }
+
+// A change to a tracked file refuses the run as before, and what it says is the tracked change alone: the file git does
+// not track is no part of what is refused for, and the run that was refused says nothing of files it never looked at.
+#[tokio::test]
+async fn a_tracked_change_refuses_the_run_and_names_it_alone_where_files_git_does_not_track_are_there_too() {
+    let hub = Hub::new();
+    hub.committed().await;
+    let dir = hub.place().dir;
+    std::fs::write(dir.join("farewell.txt"), "Goodbye.\n").unwrap();
+    std::fs::write(dir.join("cache.txt"), "Cache.\n").unwrap();
+    let said = hub.agents_check().await.unwrap().expect("said");
+    assert!(said.contains("Nothing was pushed."), "{said}");
+    assert!(said.contains("farewell.txt"), "{said}");
+    assert!(!said.contains("cache.txt"), "{said}");
+    assert!(!on_github(&hub, &hub.place().reference()), "nothing was pushed");
+    assert!(hub.github().asked().is_empty(), "GitHub was asked nothing");
+}
+
+// A file the repository's ignore rules name is no file to commit: it is not said as one the run lacks.
+#[tokio::test]
+async fn a_file_the_ignore_rules_name_is_not_said_as_one_the_run_lacks() {
+    let hub = Hub::new();
+    hub.committed().await;
+    let dir = hub.place().dir;
+    let head = commit(&dir, ".gitignore", "target/\n");
+    hub.github().fast(
+        &head,
+        vec![passed("lint"), passed("test")],
+        Some(("test-results", fast::junit())),
+    );
+    std::fs::create_dir_all(dir.join("target")).unwrap();
+    std::fs::write(dir.join("target/out"), "built\n").unwrap();
+    let said = hub.agents_check().await.unwrap().expect("nothing stopped it");
+    assert!(!said.contains("not tracked by git"), "{said}");
+}

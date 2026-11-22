@@ -3,12 +3,12 @@
 //! is not committed, so that its agent puts it right while it is there. A file git does not track holds nothing back,
 //! and neither does a round that asks for a call or one of a line that only reads.
 
-use decide::RunId;
 use decide::run::Unmet;
+use decide::{Decision, End, RunId};
 use service::Act;
 use work::Given;
 
-use crate::{Fake, Real, ended};
+use crate::{Fake, On, Real, ended, git_in};
 
 /// The message of each round of the build, in the order the fake was run.
 fn builds(real: &Real) -> Vec<String> {
@@ -144,4 +144,50 @@ async fn a_review_that_leaves_a_tracked_file_changed_is_not_sent_back() {
         None,
         "the review's return was taken as it was"
     );
+}
+
+// The item's own case, end to end on the flow with every act: a command left a file in the worktree and the build
+// committed none of it. Reference: the item's background (a cache left by a local command, in no commit, held a work
+// before its merge for good); a work is done when it merges, whatever such a file is. The project's check judges the
+// commit that will merge, so a file in no commit is not there for it, and the merge carries none of it.
+#[tokio::test]
+async fn a_cache_left_in_the_worktree_stops_neither_the_check_nor_the_merge_and_is_in_neither() {
+    let fake = Fake {
+        build_leaves_a_file: true,
+        ..Fake::default()
+    };
+    let mut real = Real::open(On::Acts, fake, None, "test ! -e cache.txt && test -e greeting.txt");
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work)) || real.failures > 0 || real.holds > 0)
+        .await;
+    assert_eq!(real.decision(work), Decision::Ended(End::Merged));
+    assert_eq!(real.finished(work), ["start", "build", "check", "merge"]);
+    let tree = git_in(&real.repo, &["ls-tree", "-r", "--name-only", "main"]);
+    assert!(!tree.lines().any(|line| line == "cache.txt"), "{tree}");
+    let worktrees = git_in(&real.repo, &["worktree", "list", "--porcelain"]);
+    assert_eq!(
+        worktrees.lines().filter(|line| line.starts_with("worktree ")).count(),
+        1,
+        "no checkout of the work or of its check is left:\n{worktrees}"
+    );
+}
+
+// Reference: git's `worktree remove --force` fails on a directory that has no write permission, which a command run
+// by the check may leave (a cache made read-only is one). The item is that what a command left on the machine must
+// not hold a work before its merge: the check's checkout is the engine's own and is taken away whatever the command
+// left in it, and the work, which has nothing more to do to put it right, is not held by it.
+#[tokio::test]
+async fn a_directory_the_check_command_leaves_read_only_does_not_hold_the_work_before_its_merge() {
+    let mut real = Real::open(
+        On::Acts,
+        Fake::default(),
+        None,
+        "mkdir sealed && touch sealed/entry && chmod a-w sealed",
+    );
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work)) || real.failures > 0 || real.holds > 0)
+        .await;
+    assert_eq!(real.decision(work), Decision::Ended(End::Merged));
 }
