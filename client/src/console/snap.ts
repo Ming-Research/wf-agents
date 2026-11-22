@@ -241,6 +241,13 @@ export const FOLD_PAD = 3;
 /// in all the way to the dot; over the whole time of an unfold it is slow, and a fold put away a little faster reads
 /// better.
 export const UNFOLD_MS = 240;
+
+/// A frame that takes longer than this, in milliseconds, is slow: longer than a frame at sixty a second, which a
+/// graphics card's frames of the tree keep well within. After a slow frame the scene draws none for this many times as
+/// long, so that it takes at most a quarter of the page's time: a browser that draws in software, under load, still
+/// answers the owner's keys and pointer at once.
+const SLOW_FRAME = 16;
+const SLOW_REST = 3;
 export const UNFOLD_EASE = [0.2, 0.8, 0.2, 1] as const;
 export const FOLD_MS = 180;
 export const FOLD_EASE = [0, 0, 0.58, 1] as const;
@@ -2416,14 +2423,15 @@ export class SnapScene {
     this.asked = true;
   }
 
-  /// Draws a frame and renders it, at the browser's frame rate where a frame is quick. Where a frame takes long, as in
-  /// a browser that draws in software, the next is drawn only once as long again has passed with none, so that the page
-  /// keeps at least half of its time for what the owner does and for itself; what the owner does with the tree, and
-  /// new items, are drawn at the next tick all the same. The light keeps its pace either way, as it is placed by the
-  /// time and not by the frame.
+  /// Draws a frame and renders it, at the browser's frame rate where a frame is quick. Where a frame takes longer than
+  /// the browser gives one ([`SLOW_FRAME`]), as in a browser that draws in software, the next is drawn only once
+  /// [`SLOW_REST`] times as long has passed with none, so that the page keeps most of its time for what the owner does
+  /// and for itself; what the owner does with the tree, and new items, are drawn at the next tick all the same. The
+  /// light keeps its pace either way, as it is placed by the time and not by the frame.
   private tick = () => {
     const now = performance.now();
-    if (!this.asked && now - this.drawnAt < this.cost) return;
+    const rest = this.cost > SLOW_FRAME ? SLOW_REST * this.cost : 0;
+    if (!this.asked && now - this.drawnAt < rest) return;
     this.asked = false;
     if (this.last > 0) this.frames.push(now - this.last);
     this.last = now;
