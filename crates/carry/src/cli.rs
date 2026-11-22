@@ -413,6 +413,11 @@ pub const KEPT: [&str; 7] = ["PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM", "
 /// servers it starts, keeping it for its own calls.
 pub const SCRUB: &str = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
 
+/// What a refusal of a permission mode says to write instead: the program starts in default permission mode under
+/// [`SCRUB`], so what an agent may do is given as rules.
+pub const PERMISSION_ADVICE: &str =
+    "allow what agents may do with --allowedTools rules in agents.args, such as Edit(./**)";
+
 /// The variables the carrier sets for every round's command line: a round waits for whatever it starts, since a
 /// subagent left in the background has the command line ask for the return before it is back; the service checks each
 /// tool's input as JSON before it streams it, since inputs it did not check came cut off; the

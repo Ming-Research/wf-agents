@@ -227,14 +227,14 @@ fn listed(names: &[String], last: &str) -> String {
 }
 
 /// The rules of the command line's tools that the installation's arguments allow, as written there: each value of
-/// `--allowedTools` split into its rules, as `claude` splits it, at commas and spaces outside parentheses; and a bare
-/// `Bash` when the arguments skip the command line's permission checks or leave them to its own judgment (the
-/// permission modes `bypassPermissions` and `auto`), which may then let every command run.
+/// `--allowedTools` split into its rules, as `claude` splits it, at commas and spaces outside parentheses. A
+/// permission mode or a flag that skips the permission checks allows nothing here: the program starts in default mode
+/// whatever it is given under the variable the carrier sets, and the settings refuse them (decision
+/// permissions-are-rules-not-a-mode).
 fn allows(args: &[String]) -> Vec<String> {
-    const OPEN_MODES: [&str; 2] = ["bypassPermissions", "auto"];
     let mut out = Vec::new();
     let mut taking = false;
-    for (i, a) in args.iter().enumerate() {
+    for a in args {
         if let Some(v) = (a.strip_prefix("--allowedTools=")).or_else(|| a.strip_prefix("--allowed-tools=")) {
             out.extend(rules_in(v));
             taking = false;
@@ -242,15 +242,6 @@ fn allows(args: &[String]) -> Vec<String> {
             taking = true;
         } else if a.starts_with('-') {
             taking = false;
-            let mode = match a.strip_prefix("--permission-mode=") {
-                Some(m) => Some(m),
-                None if a == "--permission-mode" => args.get(i + 1).map(String::as_str),
-                None => None,
-            };
-            let open = a == "--dangerously-skip-permissions" || mode.is_some_and(|m| OPEN_MODES.contains(&m));
-            if open {
-                out.push("Bash".to_string());
-            }
         } else if taking {
             out.extend(rules_in(a));
         }
