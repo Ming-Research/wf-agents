@@ -41,7 +41,7 @@ fn words_said_to_a_cell_are_the_next_version_of_its_words_which_runs_it_and_tell
     assert_eq!(*told, implementing);
     assert!(telling.hurry);
     assert_eq!(telling.block.as_str(), "research_words");
-    let versions = telling.versions.clone();
+    let heard = telling.versions.clone();
     // The engine keeps that it told the round, so that the walk tells it once for these words.
     assert_eq!(w.work.records.hurried.len(), 1);
     assert_eq!(
@@ -55,7 +55,7 @@ fn words_said_to_a_cell_are_the_next_version_of_its_words_which_runs_it_and_tell
     // Its carrier gave it the text, so what it hands in is taken though it holds nothing its cell must write.
     w.on(Event::SaidToRound {
         run: implementing,
-        versions,
+        versions: heard,
     });
     let effects = w.returns(implementing, Came::hands_in(Vec::new()));
     let (run, cell, ..) = round(&effects);
