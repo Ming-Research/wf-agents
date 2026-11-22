@@ -3,7 +3,9 @@
 //! read through the renumberings between the two, and the engine does not start on a table that would misread a version
 //! a work is on (design tree, `decisions/engine/flow-versions.md`).
 
-use decide::Seq;
+use std::collections::BTreeMap;
+
+use decide::{BlockId, Seq};
 use driver::{Asked, Misread};
 use engine::Why;
 use flow::Compiled;
@@ -84,6 +86,21 @@ const NOTE: &str = r#"
     merged = "last_and_latest"
 "#;
 
+/// A review that runs only until it has handed its work in, as the datum `../data/of_a_cell/handed_in.toml` makes for
+/// its cell says: `{cell}` stands for the cell's id in small letters.
+const REVIEW_ONCE: &str = r#"
+    title = "Review"
+    kind = "agent"
+    effort = "high"
+    line = "main"
+    task = "Review the text."
+    when = { {cell}_handed_in = "no" }
+    watches = ["text"]
+    outputs = ["reviewed"]
+    [kinds]
+    text = "last_and_latest"
+"#;
+
 /// A version of the flow `staged` with this table of earlier ids, these lines and these blocks beside the request, the
 /// start and what merged, each shown, so that one no cell reads has a reader, and these cells in this order.
 fn staged(table: &str, lines: &[&str], blocks: &[&str], cells: &[(&str, &str)]) -> Compiled {
@@ -136,6 +153,70 @@ fn shortened() -> Compiled {
         &["main"],
         &["text"],
         &[("T1", WRITE), ("M1", MERGE_TEXT)],
+    )
+}
+
+/// A version of the flow `staged` laid out one thing to a file, as the repository's flows are, so that a cell's
+/// condition may name the datum `../data/of_a_cell/handed_in.toml` makes for it: with this table of earlier ids, the
+/// engine's start and the owner's request, these blocks, each shown, and these cells in this order, on the line `main`.
+fn laid_out(table: &str, blocks: &[&str], cells: &[(&str, &str)]) -> Compiled {
+    let order: Vec<String> = cells.iter().map(|(id, _)| format!("\"{id}\"")).collect();
+    let flow = format!(
+        "name = \"staged\"\norder = [{}]\ndata = [\"start\", \"request\"]\nearlier_ids = {table}\n\
+         [limits]\nruns = 3\nreturns = 2\ncalls = 3\n",
+        order.join(", ")
+    );
+    let mut files: BTreeMap<String, String> = [
+        ("lines/main.toml", ""),
+        ("../data/start.toml", include_str!("../../../../flow/data/start.toml")),
+        ("../data/request.toml", "from = \"owner\"\n"),
+        (
+            "../data/of_a_cell/handed_in.toml",
+            include_str!("../../../../flow/data/of_a_cell/handed_in.toml"),
+        ),
+    ]
+    .iter()
+    .map(|(path, text)| (path.to_string(), text.to_string()))
+    .collect();
+    files.insert(
+        flow::waits_file(),
+        include_str!("../../../../flow/agents/waits.toml").to_string(),
+    );
+    for block in blocks {
+        files.insert(format!("blocks/{block}.toml"), "shown = true\n".to_string());
+    }
+    let source = flow::Source {
+        laid_out: true,
+        flow,
+        cells: (cells.iter())
+            .map(|(id, text)| (id.to_string(), text.to_string()))
+            .collect(),
+        files,
+        ..Default::default()
+    };
+    let mut has = has();
+    has.sources.insert("handed_in".to_string());
+    flow::compile(&source, &has).unwrap_or_else(|faults| panic!("the definition compiles: {faults:#?}"))
+}
+
+/// A laid-out version whose review T2 runs only until it has handed its work in.
+fn handing() -> Compiled {
+    let review = REVIEW_ONCE.replace("{cell}", "t2");
+    laid_out(
+        "[]",
+        &["text", "reviewed", "merged"],
+        &[("T1", WRITE), ("T2", &review), ("M1", MERGE)],
+    )
+}
+
+/// That version with its review renumbered to T3, which runs only until it has handed its work in as T3, and a new
+/// T2, a check, before it.
+fn handing_renumbered() -> Compiled {
+    let review = REVIEW_ONCE.replace("{cell}", "t3");
+    laid_out(
+        "[{ ids = { T2 = \"T3\" } }]",
+        &["text", "reviewed", "checked", "merged"],
+        &[("T1", WRITE), ("T2", CHECK), ("T3", &review), ("M1", MERGE)],
     )
 }
 
@@ -438,4 +519,35 @@ fn a_round_counts_in_the_history_of_the_cell_it_is_now_and_one_of_no_cell_there_
     assert_eq!(history_cells(&h), [t("T1"), t("T3"), None, None]);
     h.install(vec![shortened()]);
     assert_eq!(history_cells(&h), [t("T1"), None, None, None]);
+}
+
+// Acceptance 2: a datum the engine made for a cell follows its cell through a move, so that a condition on it reads on
+// the version installed as it read on the version the work was on (decision `a-datum-made-for-a-cell-follows-its-cell`).
+#[test]
+fn a_datum_made_for_a_cell_follows_its_cell_through_the_renumbering_and_its_condition_reads_as_it_did() {
+    let mut h = H::with(vec![handing()]);
+    let (_, work) = h.add_let_on(new_item("a", &[], "staged"));
+    h.hands_in(work, &[("text", None)]);
+    assert_eq!(h.round(work).1, "T2");
+    // The owner asks for more while the review is under way, so that the writer runs again once it has handed in.
+    h.on(work, wrote("request", Outsider::Person, None));
+    h.hands_in(work, &[("reviewed", None)]);
+    assert_eq!(h.round(work).1, "T1");
+    h.install(vec![handing_renumbered()]);
+    let kept = h.d().work(work).expect("the work is there");
+    let says_yes = |name: &str| {
+        (kept.work.records.written.iter()).any(|w| w.block == BlockId::from(name) && w.value.as_deref() == Some("yes"))
+    };
+    assert!(says_yes("t3_handed_in"), "the review's datum reads as T3's");
+    assert!(!says_yes("t2_handed_in"), "the check has handed nothing in");
+    // The store keeps the datum as it was written.
+    let stored = h.reader.load(work).expect("the work loads");
+    assert!((stored.records.written.iter()).any(|w| w.block == BlockId::from("t2_handed_in")));
+    h.lift_the_starts_pause();
+    h.hands_in(work, &[("text", None)]);
+    // The check, which has no record, runs on the new text.
+    assert_eq!(h.round(work).1, "T2");
+    h.hands_in(work, &[("checked", None)]);
+    // The review handed its work in as T2, so it does not run again on the new text: the merge comes next.
+    assert_eq!(h.round(work).1, "M1");
 }
