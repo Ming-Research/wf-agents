@@ -665,7 +665,17 @@ describe('a scene destroyed', () => {
 describe('the console page', () => {
   let container: HTMLDivElement;
   let unmount: () => void;
+  // Each test begins with nothing kept, whatever a test before it left: a test cut off at its time limit goes on
+  // typing after the one after it has begun.
+  const forget = () => {
+    try {
+      localStorage.clear();
+    } catch {
+      // Nothing kept.
+    }
+  };
   beforeEach(() => {
+    forget();
     container = document.createElement('div');
     container.style.cssText = 'position: fixed; inset: 0; display: flex';
     document.body.append(container);
@@ -677,11 +687,7 @@ describe('the console page', () => {
   afterEach(() => {
     unmount();
     container.remove();
-    try {
-      localStorage.clear();
-    } catch {
-      // Nothing kept.
-    }
+    forget();
   });
 
   /// The scene, once it has drawn the made-up items.
@@ -829,16 +835,15 @@ describe('the console page', () => {
     expect(document.activeElement).toBe(field());
     expect(field().value).toBe('');
     // By its number: item 27, done, shown by its path under 26, its root.
-    await userEvent.keyboard('27');
+    await userEvent.fill(field(), '27');
     await expect.poll(found).toEqual(['26-27']);
     expect(container.querySelector('.console-found-row .console-found-standing')?.textContent).toBe('Done');
     // By a path from its root: the item it names, and the items under it.
-    await userEvent.clear(field());
-    await userEvent.keyboard('26-27');
+    await userEvent.fill(field(), '26-27');
     await expect.poll(found).toEqual(['26-27', '26-27-30', '26-27-31']);
-    // As a path is typed a digit at a time: `26-2` names 26-27, 26-28 and 26-29, each with the items under it.
-    await userEvent.clear(field());
-    await userEvent.keyboard('26-2');
+    // As a path stands while it is typed a digit at a time: `26-2` names 26-27, 26-28 and 26-29, each with the items
+    // under it.
+    await userEvent.fill(field(), '26-2');
     await expect.poll(found).toEqual([
       '26-27',
       '26-27-30',
@@ -854,14 +859,12 @@ describe('the console page', () => {
     const canvas = (container.querySelector('canvas') as HTMLCanvasElement).getBoundingClientRect();
     expect(frame.right).toBeGreaterThanOrEqual(canvas.left + scene.place().left + NODE_W);
     // Nothing found is said in the list's own frame, on its ground.
-    await userEvent.clear(field());
-    await userEvent.keyboard('nowhere at all');
+    await userEvent.fill(field(), 'nowhere at all');
     await expect.poll(() => container.querySelector('.console-found > .console-found-none')?.textContent).toBe(
       FIND_SAYS.none,
     );
     // By a part of the title, in any case, over every item, done or not.
-    await userEvent.clear(field());
-    await userEvent.keyboard('FOLD');
+    await userEvent.fill(field(), 'FOLD');
     await expect.poll(found).toEqual(['26', '26-27', '26-27-30', '26-27-31']);
     // Escape empties the field and gives the keys back.
     await userEvent.keyboard('{Escape}');
@@ -875,7 +878,7 @@ describe('the console page', () => {
     expect(box('Done').checked).toBe(false);
     // Item 30 is done, and folded away under 27, done too.
     await userEvent.keyboard('/');
-    await userEvent.keyboard('26-27-30');
+    await userEvent.fill(field(), '26-27-30');
     await expect.poll(found).toEqual(['26-27-30']);
     await userEvent.keyboard('{Enter}');
     await expect.poll(title).toBe('Draw a fold as a dot');
@@ -888,7 +891,7 @@ describe('the console page', () => {
     await drawn();
     expect(box('Cancelled').checked).toBe(false);
     await userEvent.keyboard('/');
-    await userEvent.keyboard('flat list');
+    await userEvent.fill(field(), 'flat list');
     await expect.poll(found).toEqual(['35']);
     await userEvent.click(container.querySelector('.console-found-row') as HTMLElement);
     await expect.poll(title).toBe('Try the tree as a flat list');
