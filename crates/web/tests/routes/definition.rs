@@ -593,6 +593,103 @@ async fn what_the_reader_gives_is_read_again_for_each_request() {
     );
 }
 
+/// The interface over this definition, as an engine that started with `installed` runs beside the page.
+fn serve_beside_an_engine(shown: &Shared, installed: Option<String>) -> axum::Router {
+    web::router(web::Flows {
+        shown: shown.read(),
+        has: Box::new(has),
+        alike: web::given::Alike::default(),
+        installed,
+    })
+}
+
+/// The version an engine that started with the small flow, as it is written in `tiny`, runs it by.
+fn tiny_s_version() -> String {
+    let flow = flow::compile(&tiny(), &has(&tiny())).unwrap();
+    web::installed_version(&[flow]).expect("a flow was given")
+}
+
+// An engine runs beside the page: the answer names the version it runs, and says whether the files read now make it
+// (decision the-flow-view-says-which-flow-the-engine-runs). The same files say so, and files that differ say so, each
+// by the digest of the files read, so that neither is said for the other.
+#[tokio::test]
+async fn files_that_make_the_version_the_engine_runs_are_said_to_be_the_same() {
+    let router = serve_beside_an_engine(&Shared::new(Ok(tiny())), Some(tiny_s_version()));
+    let answer = get_json(&router, "/api/v1/flow").await;
+    assert_eq!(
+        answer["installed"],
+        json!({ "version": tiny_s_version(), "same": true })
+    );
+    assert_eq!(answer["state"], "compiled");
+}
+
+#[tokio::test]
+async fn files_edited_since_the_engine_started_are_said_to_differ_and_still_shown() {
+    let edited = edit(tiny(), None, "runs = 3", "runs = 4");
+    let router = serve_beside_an_engine(&Shared::new(Ok(edited)), Some(tiny_s_version()));
+    let answer = get_json(&router, "/api/v1/flow").await;
+    assert_eq!(
+        answer["installed"],
+        json!({ "version": tiny_s_version(), "same": false })
+    );
+    assert_eq!(answer["state"], "compiled");
+    assert_eq!(answer["flow"]["limits"]["runs"], 4);
+}
+
+#[tokio::test]
+async fn the_version_the_engine_runs_is_said_whatever_the_files_read_now_are() {
+    let mut broken = tiny();
+    broken.cells.insert("review".to_string(), "title = ".to_string());
+    let installed = Some(tiny_s_version());
+    let faults = get_json(
+        &serve_beside_an_engine(&Shared::new(Ok(broken)), installed.clone()),
+        "/api/v1/flow",
+    )
+    .await;
+    assert_eq!(faults["state"], "faults");
+    assert_eq!(
+        faults["installed"],
+        json!({ "version": tiny_s_version(), "same": false })
+    );
+    // Files that cannot be read are not said to be the same or to differ.
+    let gone = get_json(
+        &serve_beside_an_engine(&Shared::new(Err("gone".to_string())), installed),
+        "/api/v1/flow",
+    )
+    .await;
+    assert_eq!(
+        gone,
+        json!({ "state": "unreadable", "reason": "gone", "installed": { "version": tiny_s_version(), "same": null } })
+    );
+}
+
+#[tokio::test]
+async fn where_no_engine_runs_beside_the_page_no_version_is_said() {
+    let router = serve(&Shared::new(Ok(tiny())));
+    let answer = get_json(&router, "/api/v1/flow").await;
+    assert_eq!(answer["state"], "compiled");
+    assert!(answer.get("installed").is_none(), "{answer}");
+}
+
+// The page shows the first flow the engine is given, and the engine keeps its flows by their names: the version is the
+// first given's, not the first by name.
+#[test]
+fn the_version_of_the_flow_shown_is_that_of_the_first_flow_the_engine_is_given() {
+    let compile = |name: &str| {
+        let source = edit(tiny(), None, "name = \"tiny\"", &format!("name = \"{name}\""));
+        flow::compile(&source, &has(&source)).unwrap()
+    };
+    let (shown, other) = (compile("tiny"), compile("another"));
+    let (shown_version, other_version) = (
+        web::installed_version(std::slice::from_ref(&shown)).unwrap(),
+        web::installed_version(std::slice::from_ref(&other)).unwrap(),
+    );
+    assert_ne!(shown_version, other_version);
+    // "another" comes before "tiny" by name, so the first by name is not the first given.
+    assert_eq!(web::installed_version(&[shown, other]), Some(shown_version));
+    assert_eq!(web::installed_version(&[]), None);
+}
+
 /// A TOML file of the engineer flow, as written.
 fn engineer_file(path: &str) -> toml::Table {
     let at = Path::new(env!("CARGO_MANIFEST_DIR"))

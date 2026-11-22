@@ -177,6 +177,7 @@ pub fn serve(shown: &Shared) -> Router {
         shown: shown.read(),
         has: Box::new(has),
         alike: web::given::Alike::default(),
+        installed: None,
     })
 }
 
