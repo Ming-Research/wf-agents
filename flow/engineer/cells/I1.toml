@@ -28,8 +28,7 @@ where there is one; and `acceptance` only when a condition must change, as the w
 If main does not merge into the branch, merge it in yourself and run the check again. Fix a point its judge insists
 on, or have the owner rule on it. If what the item asks needs no change, ask the owner.
 '''
-# Run only on a plan its reviews passed: the pass runs every cell after a way back that something else runs, and the
-# order alone no longer keeps it from building a plan just failed (decision the-implementation-waits-for-the-plans-verdicts).
+# Run only on a plan its reviews passed (decision the-implementation-waits-for-the-plans-verdicts).
 requires = { plan_ok = "yes", tree_ok = "yes" }
 watches = [
   "plan",
