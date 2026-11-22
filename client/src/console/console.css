@@ -381,8 +381,8 @@
 
 /* A choice that waits for the owner and holds the work at nothing yet, which the owner may answer ahead: a frame in
    orange on its tint, as its count is orange on the item's card in the tree; one that holds the work is red, below;
-   once confirmed, settled, a hairline on the ground. While it waits its options are buttons: the one picked ringed in
-   the accent, the one under the pointer on the accent's tint. */
+   once confirmed, settled, in the accent. While it waits its options are buttons: the one picked ringed in the accent,
+   the one under the pointer on the accent's tint. */
 .cw-choice {
   margin: var(--space-8) 0;
   padding: var(--space-12);
@@ -441,9 +441,11 @@
   color: var(--text);
 }
 
+/* A question answered: framed in the accent on its tint, so that where a question was asked is told from the body's
+   text, every question not answered being red or orange. */
 .cw-choice-done {
-  border-color: var(--line);
-  background: var(--ground);
+  border-color: var(--accent);
+  background: var(--accent-tint);
 }
 
 /* Every stop of a work, the one look: what waits for the owner, a question that holds the work, a ruling, a limit, a
