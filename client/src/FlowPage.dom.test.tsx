@@ -903,7 +903,9 @@ describe('the version of the flow the engine runs', () => {
   it('is marked, and the mark is in the legend, where the files read now differ from it', () => {
     const page = draw({ state: 'compiled', flow: small(), installed: { version, same: false } });
     expect(texts(page, '.view-installed > *')).toEqual(['3b1b7057', '≠ files changed']);
-    expect(page.querySelectorAll('.files-changed')).toHaveLength(1);
+    // One mark beside the flow's name, and its sample in the legend.
+    expect(page.querySelectorAll('.view-installed .files-changed')).toHaveLength(1);
+    expect(page.querySelectorAll('ul.legend .files-changed')).toHaveLength(1);
     expect(legend(page)).toContain('≠ files changed');
   });
 
