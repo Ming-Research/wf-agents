@@ -168,7 +168,7 @@ fn every_test_of_a_run_is_reported_as_junit_in_the_artifact_test_results() {
     assert!(
         test.contains("name: test ${{ matrix.partition }} of 3")
             && test.contains("JOB: test ${{ matrix.partition }} of 3")
-            && test.contains("path: target/nextest/ci/test ${{ matrix.partition }} of 3.xml")
+            && test.contains("path: ${{ runner.temp }}/test ${{ matrix.partition }} of 3.xml")
             && test.contains("name: junit-${{ matrix.partition }}"),
         "{test}"
     );
@@ -242,8 +242,9 @@ fn fast_script(marker: &str) -> String {
     found.remove(0)
 }
 
-/// Runs a script of fast.yml under bash in `dir`, with the environment a step is given, and returns what it printed.
-fn run_script(script: &str, dir: &Path, env: &[(&str, &str)]) -> String {
+/// Runs a script of a workflow under bash in `dir`, with the environment a step is given: whether it ended well, and
+/// what it printed, its standard error after its standard output.
+fn try_script(script: &str, dir: &Path, env: &[(&str, &str)]) -> (bool, String) {
     let ended = Command::new("bash")
         .arg("-c")
         .arg(script)
@@ -251,9 +252,19 @@ fn run_script(script: &str, dir: &Path, env: &[(&str, &str)]) -> String {
         .envs(env.iter().copied())
         .output()
         .expect("bash starts");
-    let said = String::from_utf8_lossy(&ended.stderr);
-    assert!(ended.status.success(), "{said}");
-    String::from_utf8_lossy(&ended.stdout).into_owned()
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&ended.stdout),
+        String::from_utf8_lossy(&ended.stderr)
+    );
+    (ended.status.success(), said)
+}
+
+/// Runs a script of a workflow as `try_script` does, which must end well, and returns what it printed.
+fn run_script(script: &str, dir: &Path, env: &[(&str, &str)]) -> String {
+    let (ok, said) = try_script(script, dir, env);
+    assert!(ok, "{said}");
+    said
 }
 
 fn read(path: &Path) -> String {
@@ -333,26 +344,47 @@ fn the_pages_tests_are_found_by_the_names_vitest_lists_and_chromium_starts_only_
     )
     .expect("the list");
     // `npx` as vitest and playwright answer it, a function that bash reads before the script (`BASH_ENV`): the lists,
-    // and each call kept.
+    // and each call kept. A list goes into the file `--json=<path>` names, or to the standard output where `--json`
+    // names none, as vitest has it (`--json [true/path]`; the real vitest's file is held by client/src/listing.test.ts),
+    // and a notice of vitest's own stands in the standard output first, as the probe of run 45002604590 saw it when
+    // three lists were read at once (`Port 63315 is in use, trying another one...`). The project named in the file
+    // `writes-no-list` gets no file.
     let stub = dir.path().join("stub.sh");
     std::fs::write(
         &stub,
         r#"npx() {
   echo "$*" >> "$STUB_DIR/calls"
   case "$*" in
-    *"vitest list --project unit"*) sed "s|@ROOT@|$PWD|g" "$STUB_DIR/unit.json" ;;
-    *"vitest list --project browser"*) sed "s|@ROOT@|$PWD|g" "$STUB_DIR/browser.json" ;;
+    *"vitest list --project unit"*) project=unit ;;
+    *"vitest list --project browser"*) project=browser ;;
+    *) return 0 ;;
   esac
+  echo "Port 63315 is in use, trying another one..."
+  list=$(sed "s|@ROOT@|$PWD|g" "$STUB_DIR/$project.json")
+  to=""
+  for arg in "$@"; do
+    case "$arg" in --json=*) to=${arg#--json=} ;; esac
+  done
+  if [ -z "$to" ]; then
+    printf '%s\n' "$list"
+  elif [ "$(cat "$STUB_DIR/writes-no-list" 2>/dev/null)" != "$project" ]; then
+    printf '%s\n' "$list" > "$to"
+  fi
 }
 "#,
     )
     .expect("the stub");
     let names = temp.join("names");
     let out = dir.path().join("output");
-    let run = |page: &str, rust: &str, rust_ran: bool| {
+    let try_run = |page: &str, rust: &str, rust_ran: bool, no_list: &str| {
         for file in ["calls", "output"] {
             std::fs::write(dir.path().join(file), "").expect("a file");
         }
+        // A run begins with none of the lists of an earlier one, as a job does in a temporary directory of its own.
+        for list in ["unit.json", "browser.json"] {
+            std::fs::remove_file(names.join(list)).ok();
+        }
+        std::fs::write(dir.path().join("writes-no-list"), no_list).expect("the project");
         std::fs::write(names.join("page"), page).expect("the names");
         std::fs::write(names.join("rust"), rust).expect("the names");
         let env = [
@@ -362,7 +394,12 @@ fn the_pages_tests_are_found_by_the_names_vitest_lists_and_chromium_starts_only_
             ("GITHUB_OUTPUT", out.to_str().expect("a path")),
             ("RUST", if rust_ran { "true" } else { "false" }),
         ];
-        run_script(&script, &client, &env)
+        try_script(&script, &client, &env)
+    };
+    let run = |page: &str, rust: &str, rust_ran: bool| {
+        let (ok, said) = try_run(page, rust, rust_ran, "");
+        assert!(ok, "{said}");
+        said
     };
     let calls = || read(&dir.path().join("calls"));
 
@@ -405,6 +442,24 @@ fn the_pages_tests_are_found_by_the_names_vitest_lists_and_chromium_starts_only_
     assert_eq!(read(&out), "page=false\nbrowser=false\n");
     assert!(said.contains("No page test is named: no such > page"), "{said}");
     assert_eq!(read(&temp.join("test-results/none.xml")), "<testsuites/>\n");
+
+    // The notice vitest's own prints stands in the log and in no list, and a list vitest wrote no file for fails the
+    // step with a sentence that names the project, the Node project's before the browser's.
+    let said = run("works\n", "", false);
+    assert!(
+        said.contains("Port 63315 is in use"),
+        "the log keeps what vitest printed: {said}"
+    );
+    let (ok, said) = try_run("drawn\n", "", false, "browser");
+    assert!(
+        !ok && said.contains("vitest wrote no list of the browser project's tests"),
+        "{said}"
+    );
+    let (ok, said) = try_run("works\n", "", false, "unit");
+    assert!(
+        !ok && said.contains("vitest wrote no list of the unit project's tests"),
+        "{said}"
+    );
 }
 
 // What `check` prints of a job that did not pass is that job's own log; the engine reads each failed job's log
@@ -453,7 +508,6 @@ fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_fa
             .join("\n")
     };
     let job = "test 2 of 3";
-    let results = format!("target/nextest/ci/{job}.xml");
     for (failed, tested, written, says) in [
         (None, "failure", true, None),
         (
@@ -470,14 +524,15 @@ fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_fa
             std::fs::create_dir_all(dir.path().join("target/nextest/ci")).unwrap();
             std::fs::write(dir.path().join("target/nextest/ci/junit.xml"), junit).unwrap();
         }
+        let results = dir.path().join("temp").join(format!("{job}.xml"));
         let env = [
             ("JOB", job),
-            ("RESULTS", results.as_str()),
+            ("RESULTS", results.to_str().unwrap()),
             ("TESTED", &format!("{tested} Test")),
             ("STEPS", &steps(failed)),
         ];
         run_script(&test, dir.path(), &env);
-        let named = read(&dir.path().join(&results));
+        let named = read(&results);
         assert_eq!(named.contains("<failure/>"), written, "{named}");
         let error = says.map(|step| {
             format!(r#"<testsuite name="{job}"><error message="the step {step} of the job failed"/></testsuite>"#)
@@ -487,6 +542,57 @@ fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_fa
             assert!(named.contains(&error), "{named}");
         }
     }
+    // The results of an earlier run, which `target/` keeps between runs, are never taken for this run's: the job is
+    // red for a step before its tests, which then did not run, or for a build of its tests that failed. Either way its
+    // results hold the error naming that step, and nothing of what was left (a `junit.xml` a cancelled run did not
+    // move, say).
+    let stale =
+        r#"<testsuites><testsuite name="carry"><testcase name="left_by_an_earlier_run"/></testsuite></testsuites>"#;
+    let left = |dir: &Path| {
+        std::fs::create_dir_all(dir.join("target/nextest/ci")).unwrap();
+        std::fs::write(dir.join("target/nextest/ci/junit.xml"), stale).unwrap();
+    };
+    let said_by = |dir: &Path, tested: &str, failed: Option<&str>| {
+        let results = dir.join("temp").join(format!("{job}.xml"));
+        let env = [
+            ("JOB", job),
+            ("RESULTS", results.to_str().unwrap()),
+            ("TESTED", tested),
+            ("STEPS", &steps(failed)),
+        ];
+        run_script(&test, dir, &env);
+        read(&results)
+    };
+    let error = |step: &str| {
+        format!(r#"<testsuite name="{job}"><error message="the step {step} of the job failed"/></testsuite>"#)
+    };
+    // A step before the tests failed.
+    let dir = tempfile::tempdir().unwrap();
+    left(dir.path());
+    let named = said_by(dir.path(), "skipped Test", Some("Build the page"));
+    assert!(
+        named.contains(&error("Build the page")) && !named.contains("left_by_an_earlier_run"),
+        "{named}"
+    );
+    // The build of the tests failed: the tests step of ci.yml, its `cargo` standing in as one that builds nothing.
+    let tests: Vec<String> = (scripts(&workflow("ci.yml")).into_iter())
+        .map(|(_, script)| script)
+        .filter(|script| script.contains("cargo nextest run"))
+        .collect();
+    assert_eq!(tests.len(), 1, "scripts of ci.yml that run the tests: {}", tests.len());
+    let dir = tempfile::tempdir().unwrap();
+    left(dir.path());
+    let cargo = dir.path().join("cargo.sh");
+    std::fs::write(&cargo, "cargo() { return 101; }\n").unwrap();
+    let env = [("BASH_ENV", cargo.to_str().unwrap()), ("PARTITION", "2")];
+    let (ok, said) = try_script(&tests[0], dir.path(), &env);
+    assert!(!ok, "the build fails the step: {said}");
+    let named = said_by(dir.path(), "failure Test", None);
+    assert!(
+        named.contains(&error("Test")) && !named.contains("left_by_an_earlier_run"),
+        "{named}"
+    );
+
     // The page's job: its tests passed and its build after them failed, which is said in the file the tests wrote.
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("page.xml");

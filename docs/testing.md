@@ -69,7 +69,9 @@ of each part.
    view draws from it, and in a real browser for what only a browser does: drawing, layout, the pointer, the keys and
    motion. A fault that shows only in a browser gets its test in a browser (principle
    a-defect-is-seen-before-it-is-fixed), which runs in CI, as no tool an agent has opens one (principle
-   no-tool-opens-a-browser).
+   no-tool-opens-a-browser). A browser test of the page waits on a condition with `expect.poll`, never for a fixed time,
+   and the bound of that wait and a test's own limit are set once, in the browser project of `client/vite.config.ts`:
+   the machine that runs the tests runs other work too, so what a test waits for takes longer at times.
 
 9. A test that fails and then passes on the same commit is a fault of the test or of the code, never noise: it is
    kept as an observation that becomes an item (decision a-red-the-change-did-not-make-is-not-sent-back).

@@ -45,6 +45,15 @@ export default defineConfig({
           // After the `unit` project, which has the default 0: the groups run from the lowest number to the highest,
           // and a project of a group starts when the one before has finished.
           sequence: { groupOrder: 1 },
+          // A test waits on a condition (`expect.poll`) as long as it takes and no longer than ten seconds, and is
+          // given a minute, as the Rust tests are: a wait costs nothing once its condition holds, and the machine that
+          // runs the page's tests runs other work too. A second, vitest's bound for a poll, was crossed by a panel that
+          // had not yet read its work and by a hover that had not yet tinted a choice; single tests took 13.5 s and
+          // 12.7 s in one busy run (the page job of run 44449839225), against the 15 s a browser test is given by
+          // default, which a poll of ten seconds would have met first. Only this project: the unit project polls
+          // nothing, and its tests are given five seconds.
+          expect: { poll: { timeout: 10_000 } },
+          testTimeout: 60_000,
           browser: {
             enabled: true,
             headless: true,

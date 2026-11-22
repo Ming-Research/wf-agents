@@ -3,9 +3,7 @@
 // once it comes near the screen, at mermaid's strictest setting and cleaned of what draws no SVG; and, where it cannot
 // be drawn, its source with a note under it. The libraries are stood in for: what they draw is theirs, and what is
 // tested is what the page does with it; and the screen is stood in for, to say when a diagram comes near it.
-import './dom-setup';
-
-import { act } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -70,33 +68,25 @@ afterEach(() => {
 function draw(text: string): HTMLElement {
   const container = document.body.appendChild(document.createElement('div'));
   const root = createRoot(container);
-  act(() => root.render(<Markdown text={text} />));
+  flushSync(() => root.render(<Markdown text={text} />));
   return container;
 }
 
 /// Brings every place observed near the screen.
 function nearTheScreen() {
-  act(() => {
-    for (const w of watched) {
-      if (w.targets.length > 0) {
-        w.callback(
-          w.targets.map((target) => ({ target, isIntersecting: true }) as IntersectionObserverEntry),
-          {} as IntersectionObserver,
-        );
-      }
+  for (const w of watched) {
+    if (w.targets.length > 0) {
+      w.callback(
+        w.targets.map((target) => ({ target, isIntersecting: true }) as IntersectionObserverEntry),
+        {} as IntersectionObserver,
+      );
     }
-  });
+  }
 }
 
-/// Waits until `test` holds, giving what the page set going (a library loaded, a drawing cleaned) its turns.
-async function until(test: () => boolean) {
-  for (let i = 0; i < 200 && !test(); i += 1) {
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    });
-  }
-  expect(test()).toBe(true);
-}
+/// Waits until `test` holds, as long as the browser tests wait on a condition (`vite.config.ts`): what the page set
+/// going (a library loaded, a drawing cleaned) takes the time the machine gives it.
+const until = (test: () => boolean) => expect.poll(test).toBe(true);
 
 /// The drawing of the diagram in this place, as its shadow root holds it.
 const drawing = (el: HTMLElement) => el.querySelector('.diagram-drawing')?.shadowRoot?.innerHTML ?? '';
@@ -135,12 +125,12 @@ describe('a diagram in what an agent wrote', () => {
     const toggle = () =>
       [...el.querySelectorAll<HTMLButtonElement>('.diagram-tool')].find((b) => b.getAttribute('aria-pressed') !== null);
     expect(toggle()?.textContent).toBe('Source');
-    act(() => toggle()?.click());
-    expect(el.querySelector('.diagram pre code')?.textContent).toBe(source);
+    toggle()?.click();
+    await expect.poll(() => el.querySelector('.diagram pre code')?.textContent).toBe(source);
     expect(el.querySelector('.diagram-drawing')).toBeNull();
     expect(toggle()?.textContent).toBe('Diagram');
-    act(() => toggle()?.click());
-    expect(el.querySelector('.diagram-drawing')).not.toBeNull();
+    toggle()?.click();
+    await until(() => el.querySelector('.diagram-drawing') !== null);
   });
 
   it('is drawn from a ```dot fence by Graphviz, cleaned the same way', async () => {

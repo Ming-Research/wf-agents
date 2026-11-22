@@ -33,6 +33,6 @@ describe('vitest list', () => {
       env,
     });
     const listed = JSON.parse(readFileSync(out, 'utf8')) as { name: string; file: string }[];
-    expect(listed.map((t) => ({ name: t.name, file: t.file }))).toEqual([{ name: 'a describe its title', file }]);
+    expect(listed.map((t) => ({ name: t.name, file: t.file }))).toEqual([{ name: 'a describe > its title', file }]);
   });
 });
