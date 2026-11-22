@@ -236,7 +236,7 @@ fn what_the_installation_allows_under_a_heavy_command_stays_refused() {
 }
 
 // The program starts in default permission mode whatever it is given, so a permission mode or a flag that skips the
-// checks allows no command: the lock commands stay allowed and the heavy commands refused, as with no such argument.
+// checks allows no command: the permissions are those of no such argument.
 #[test]
 fn a_permission_mode_allows_no_command() {
     for given in [
@@ -255,7 +255,6 @@ fn a_permission_mode_allows_no_command() {
         let permissions = of(false, &given);
         assert_eq!(permissions.locks, LOCKS, "{given:?}");
         assert_eq!(permissions, of(false, &[]), "{given:?}");
-        assert!(permissions.refused.iter().any(|r| r == "Bash(cargo *)"), "{given:?}");
     }
 }
 

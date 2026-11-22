@@ -280,11 +280,11 @@ mod tests {
             r#"{"apiKeyHelper":"./key.sh","env":{"ANTHROPIC_API_KEY":"k","ANTHROPIC_AUTH_TOKEN":"t"}}"#,
         )
         .unwrap();
-        assert_eq!(settings_file_faults(dir.path()), [credential.clone()]);
+        assert_eq!(settings_file_faults(dir.path()), vec![credential.clone()]);
         // A mode is refused whatever its value, as the arguments' --permission-mode is.
         for value in ["acceptEdits", "default"] {
             std::fs::write(&at, format!(r#"{{"permissions":{{"defaultMode":"{value}"}}}}"#)).unwrap();
-            assert_eq!(settings_file_faults(dir.path()), [mode.clone()], "{value}");
+            assert_eq!(settings_file_faults(dir.path()), vec![mode.clone()], "{value}");
         }
         // Both are said together, in one list.
         std::fs::write(
