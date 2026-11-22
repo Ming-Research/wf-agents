@@ -164,8 +164,8 @@ of each part.
     before the trial, or, where only a model's reading shows it, is looked for in the trial. Beside each behaviour
     stands what in a real run would show it, which the trial looks for.
 
-24. Before they are installed, a changed flow and a cell whose words changed have been through what principles
-    flow-change-spares-works and change-cells-on-what-their-forks-bear-out ask (27).
+24. Before it is installed, a cell whose words changed has been through what principle
+    change-cells-on-what-their-forks-bear-out asks (27).
 
 25. A trial begins with one work and every other paused, and works go side by side only once the rounds of one show
     nothing new: a fault met by several works at once is paid for in each (Article 3).
