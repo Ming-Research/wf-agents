@@ -160,7 +160,6 @@ pub const START: &str = "start";
 /// [`engine::handed_in::HANDED_IN`] or of [`parallel::PARALLEL`], and each cell's own words and questions, which the sources of the owner's words
 /// and of the answers write and the cell writes too, gives in its `writes` each text the engine fills, so that none is
 /// written empty; and the words beside the flows ([`flow::waits_file`]) give every reason the engine says to the owner.
-/// The block of [`parallel::PARALLEL`] also says in `planned_in` where a plan names its files, and no other block does.
 /// A flow with any of these is not run.
 pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
@@ -182,18 +181,6 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
     ];
     let mut faults = Vec::new();
     for (name, block) in &flow.blocks {
-        // The block of the works under way says in what block a plan names its files, and no other block does.
-        let lists = block.writers.outside.as_deref() == Some(parallel::PARALLEL);
-        if lists != block.planned_in.is_some() {
-            let what = match lists {
-                true => "its file must give planned_in".to_string(),
-                false => format!("only a block from {} gives planned_in", parallel::PARALLEL),
-            };
-            faults.push(format!(
-                "the flow {}, {}: the block {name}: {what}",
-                flow.name, block.file
-            ));
-        }
         let found = needs
             .iter()
             .find(|(source, _)| block.writers.outside.as_deref() == Some(*source));
