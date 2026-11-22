@@ -853,13 +853,26 @@ describe('the console page', () => {
     expect(box('Cancelled').checked).toBe(true);
   });
 
-  it('shows what the marks and the keys mean while the pointer is on the question mark at the bottom left', async () => {
+  it('fades in what the marks and the keys mean while the pointer is on the question mark at the bottom left, and fades it out once it leaves, taking the pointer no more', async () => {
     await drawn();
     const mark = container.querySelector('.console-help-mark') as HTMLElement;
-    const panel = () => container.querySelector('.console-help-panel');
-    expect(panel()).toBeNull();
+    const panel = () => container.querySelector('.console-help-panel') as HTMLElement;
+    const look = () => getComputedStyle(panel());
+    // Hidden at first: no pointer, nothing to read.
+    expect(panel().classList.contains('shown')).toBe(false);
+    expect(look().pointerEvents).toBe('none');
+    expect(look().visibility).toBe('hidden');
     await userEvent.hover(mark);
-    await expect.poll(panel).not.toBeNull();
+    await expect.poll(() => panel().classList.contains('shown')).toBe(true);
+    expect(look().pointerEvents).toBe('auto');
+    expect(look().visibility).toBe('visible');
+    // It fades in over the page's short time for what the pointer does, written in seconds or milliseconds.
+    const ms = (t: string) => (t.trim().endsWith('ms') ? parseFloat(t) : parseFloat(t) * 1000);
+    expect(look().transitionProperty.split(',')[0].trim()).toBe('opacity');
+    const hover = getComputedStyle(document.documentElement).getPropertyValue('--hover-time');
+    expect(ms(look().transitionDuration.split(',')[0])).toBe(ms(hover));
+    expect(ms(hover)).toBeGreaterThan(0);
+    await expect.poll(() => look().opacity).toBe('1');
     const listed = (label: string) =>
       [...container.querySelectorAll(`.console-help-panel ul[aria-label="${label}"] > li`)].map((li) => li.textContent);
     expect(listed("The console's keys")).toEqual([
@@ -870,8 +883,12 @@ describe('the console page', () => {
     const marks = listed("The console's marks");
     expect(marks).toHaveLength(CONSOLE_MARKS.length);
     CONSOLE_MARKS.forEach((key, k) => expect(marks[k]?.endsWith(` ${MARKS[key].name}`)).toBe(true));
+    // Once the pointer leaves, it takes the pointer no more at once, and is hidden once it has faded.
     await userEvent.unhover(mark);
-    await expect.poll(panel).toBeNull();
+    await expect.poll(() => panel().classList.contains('shown')).toBe(false);
+    expect(look().pointerEvents).toBe('none');
+    await expect.poll(() => look().visibility).toBe('hidden');
+    await expect.poll(() => look().opacity).toBe('0');
   });
 
   it('writes the item selected into the address, so that the tab of the console leads back to it', async () => {

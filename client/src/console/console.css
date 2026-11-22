@@ -119,6 +119,9 @@
   color: var(--muted);
 }
 
+/* The panel fades in and out over the page's short time for what the pointer does (`--hover-time`). Fading out, it
+   takes the pointer no more from its first moment, and once faded it is hidden. As every animation of the page, it
+   plays whatever the system asks of motion (decision the-page-moves-whatever-the-system-asks). */
 .console-help-panel {
   position: absolute;
   bottom: 100%;
@@ -130,6 +133,21 @@
   border: var(--hairline) solid var(--line);
   background: var(--card);
   white-space: nowrap;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--hover-time),
+    visibility 0s linear var(--hover-time);
+}
+
+.console-help-panel.shown {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition:
+    opacity var(--hover-time),
+    visibility 0s;
 }
 
 .console-help-panel .legend {

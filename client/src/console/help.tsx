@@ -47,20 +47,24 @@ export function ConsoleHelp() {
   const [shown, setShown] = useState(false);
   return (
     <div className="console-help" onPointerEnter={() => setShown(true)} onPointerLeave={() => setShown(false)}>
-      {shown && (
-        <div className="console-help-panel" role="note" aria-label={HELP_SAYS}>
-          <Label>Marks</Label>
-          <Legend marks={CONSOLE_MARKS} label="The console's marks" />
-          <Label>Keys</Label>
-          <ul className="legend" aria-label="The console's keys">
-            {CONSOLE_KEYS.map(([key, does]) => (
-              <li key={key}>
-                <span className="mono console-help-key">{key}</span> {does}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* Always there, so that it fades in and out; hidden, it takes no pointer and is read by no reader. */}
+      <div
+        className={shown ? 'console-help-panel shown' : 'console-help-panel'}
+        role="note"
+        aria-label={HELP_SAYS}
+        aria-hidden={!shown}
+      >
+        <Label>Marks</Label>
+        <Legend marks={CONSOLE_MARKS} label="The console's marks" />
+        <Label>Keys</Label>
+        <ul className="legend" aria-label="The console's keys">
+          {CONSOLE_KEYS.map(([key, does]) => (
+            <li key={key}>
+              <span className="mono console-help-key">{key}</span> {does}
+            </li>
+          ))}
+        </ul>
+      </div>
       <button
         type="button"
         className="button console-help-mark"
