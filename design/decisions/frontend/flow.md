@@ -12,8 +12,15 @@ A chart names a cell by its id, the matrix with its effort under it and the flow
 - rejected: an agent proposed piling into the chart's cells what was settled for each, and listing what was open under the chart; the owner rejected it, because he cannot look at the chart and read other text at once, and the chart is everything to him.
 
 ### decision the-flow-view-compares-no-versions
-The Flow view shows only the installed flow, with no switch to an earlier version and no list of what changed against another.
+The Flow view draws the definition in the flow's directory, read at each request, with no switch to an earlier version and no list of what changed against another.
 - replaced: A switch between the flow as it is and as it was, with a list of what changed, its rows struck through and coloured, was on main; the owner changed it, because the comparison could not be read.
+- rejected: an agent proposed drawing the version the engine runs, as it was compiled when the engine started; the owner rejected it, because he could then not see, before restarting the engine, whether an edited flow compiles or how it looks.
+
+### decision the-flow-view-says-which-flow-the-engine-runs
+Beside the flow's name the Flow view says which version of the flow's files the engine runs, by the start of its digest, and marks files in the directory that differ from it, in no state colour.
+- replaced: The page drawing the directory's definition and saying nothing of which version the engine runs was on main; the owner changed it, because after the directory changed the page drew a definition no work ran, and did not say so.
+- rejected: an agent proposed saying nothing, and showing a mark only where the files differ; the owner rejected it, because he wants to see at any time which version the engine runs.
+- rejected: an agent proposed the mark in orange; the owner rejected it, because orange means a question the owner may answer ahead, and a mark that is no question would be looked for as one.
 
 ### decision a-datum-to-a-row-a-cell-to-a-column
 The matrix puts each datum on a row and each cell in a column, in the order of the walk, with a mark where a cell and a datum cross.

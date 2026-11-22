@@ -9,6 +9,29 @@ use decide::{Condition as Applies, FlowFault, TestName};
 use flow::{Compiled, FaultKind, Kind as CellKind, TestKind as KindOfTest};
 use serde::{Deserialize, Serialize};
 
+/// What `GET /api/v1/flow` answers: the definition shown, and where an engine runs, which version of the flow it runs
+/// on beside whether the files of the directory shown still make that version (decision
+/// `the-flow-view-says-which-flow-the-engine-runs`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Shown {
+    /// The flow the engine runs; none where no engine runs beside the page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installed: Option<Installed>,
+    #[serde(flatten)]
+    pub definition: Definition,
+}
+
+/// The version of the flow the engine runs, as it started with it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Installed {
+    /// The digest of the flow's files that names the version ([`work::version_of`]).
+    pub version: String,
+    /// Whether the files of the directory shown make that version: none where the directory cannot be read. It says
+    /// nothing of the files beside the flow that the page reads for what an agent is sent.
+    pub same: Option<bool>,
+}
+
 /// A definition as the page shows it: compiled, or why it is not.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]

@@ -3,9 +3,11 @@
 //! The owner reads the flow on this page and has no other way to see it (Article 7), so the interface gives the
 //! definition as the page shows it: compiled, with every cell and block and who writes and reads each, or the faults
 //! that keep it from compiling. The definition is read anew for every request, so that an edit of its files shows when
-//! the page is loaded again.
+//! the page is loaded again; where an engine runs beside the page, the answer also says which version of the flow it
+//! started with and whether the files read now make that version (decision
+//! `the-flow-view-says-which-flow-the-engine-runs`).
 //!
-//! - `GET /api/v1/flow`: the definition shown ([`view::Definition`]).
+//! - `GET /api/v1/flow`: the definition shown, with the version the engine runs ([`view::Shown`]).
 //! - `GET /api/v1/flow/given`: what an agent is sent as the engine enters each agent's cell of the definition shown,
 //!   part by part in the order sent ([`given::Given`]): the system prompt and the message as the engine makes them,
 //!   every form of each part.
@@ -45,7 +47,7 @@ use axum::routing::{any, get};
 use flow::{Compiled, Source};
 use serde_json::json;
 
-use crate::view::{Definition, Fault, Flow};
+use crate::view::{Definition, Fault, Flow, Installed, Shown};
 
 pub use crate::copies::Copies;
 
@@ -67,6 +69,15 @@ pub struct Flows {
     pub has: Has,
     /// What every agent is sent alike, as the program that carries the rounds out has it.
     pub alike: given::Alike,
+    /// The version of the flow shown that the engine started with ([`installed_version`]); none where no engine runs
+    /// beside the page.
+    pub installed: Option<String>,
+}
+
+/// The version of the flow the page shows that the engine runs, out of the flows the engine is given, the first of
+/// which is the one shown: the version the engine keeps it by.
+pub fn installed_version(flows: &[Compiled]) -> Option<String> {
+    flows.first().map(|flow| work::version_of(&flow.files).version)
 }
 
 impl Flows {
@@ -82,33 +93,43 @@ impl Flows {
             shown: Box::new(move || flow::read(&shown).map_err(|e| format!("{}: {e}", shown.display()))),
             has,
             alike,
+            installed: None,
         }
     }
 
-    /// A definition read and compiled: as the page shows it, and what it compiles to when it does.
-    fn compile(&self, read: &Read) -> (Definition, Option<Compiled>) {
+    /// A definition read and compiled: as the page shows it, what it compiles to when it does, and the version its
+    /// files make where they could be read.
+    fn compile(&self, read: &Read) -> (Definition, Option<Compiled>, Option<String>) {
         let source = match read() {
             Ok(source) => source,
-            Err(reason) => return (Definition::Unreadable { reason }, None),
+            Err(reason) => return (Definition::Unreadable { reason }, None, None),
         };
+        let version = work::version_of(&source.files()).version;
         match flow::compile(&source, &(self.has)(&source)) {
             Ok(compiled) => (
                 Definition::Compiled {
                     flow: Box::new(Flow::of(&compiled)),
                 },
                 Some(compiled),
+                Some(version),
             ),
             Err(faults) => (
                 Definition::Faults {
                     faults: faults.iter().map(Fault::of).collect(),
                 },
                 None,
+                Some(version),
             ),
         }
     }
 
-    fn definition(&self) -> Definition {
-        self.compile(&self.shown).0
+    fn definition(&self) -> Shown {
+        let (definition, _, on_disk) = self.compile(&self.shown);
+        let installed = (self.installed.as_ref()).map(|version| Installed {
+            version: version.clone(),
+            same: on_disk.map(|on_disk| on_disk == *version),
+        });
+        Shown { installed, definition }
     }
 
     fn given(&self) -> given::Given {

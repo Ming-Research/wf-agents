@@ -313,8 +313,16 @@ export interface Fault {
   what: What;
 }
 
-export type Definition =
-  { state: 'compiled'; flow: Flow } | { state: 'faults'; faults: Fault[] } | { state: 'unreadable'; reason: string };
+/// The version of the flow the engine runs, by the digest of its files, and whether the files of the directory shown
+/// make it: none where they cannot be read. The answer has it only where an engine runs beside the page. It says
+/// nothing of the files the page reads beside the flow for what an agent is sent.
+export type Installed = { version: string; same: boolean | null };
+
+export type Definition = (
+  | { state: 'compiled'; flow: Flow }
+  | { state: 'faults'; faults: Fault[] }
+  | { state: 'unreadable'; reason: string }
+) & { installed?: Installed };
 
 /// What a part of what an agent is sent is, for the page to know what it may do with it: the program's own part; a
 /// part of the system prompt; a part of the form of the return; a part of a message that is no content of a block, nor the task,
