@@ -176,7 +176,7 @@ describe('the tree in columns', () => {
     await click(left + NODE_W + (PITCH - NODE_W) / 2, line);
     expect(turned).toHaveBeenLastCalledWith(1, true);
     expect(told).not.toHaveBeenCalled();
-    expect(canvas().title).toBe('Fold the items under it away: open 1');
+    expect(canvas().title).toBe('Fold the items under it away (e): open 1');
     expect(canvas().style.cursor).toBe('pointer');
     // Folded, what is under it draws in to the dot over the fold's time, and is then drawn no more.
     scene.show(tree(true));
@@ -191,7 +191,7 @@ describe('the tree in columns', () => {
     await click(left + NODE_W + DOT_AT, line);
     expect(turned).toHaveBeenLastCalledWith(1, false);
     expect(told).not.toHaveBeenCalled();
-    expect(canvas().title).toBe('Show the items under it: open 1');
+    expect(canvas().title).toBe('Show the items under it (e): open 1');
     scene.show(tree(false));
     expect(scene.stats.items).toBe(2);
     expect(scene.place().turns).toBe(1);
@@ -220,13 +220,13 @@ describe('the tree in columns', () => {
     const left = scene.place().left;
     await click(left + NODE_W + 4, line);
     expect(turned).toHaveBeenLastCalledWith(1, true);
-    expect(canvas().title).toBe('Fold the items under it away: 1 shown elsewhere');
+    expect(canvas().title).toBe('Fold the items under it away (e): 1 shown elsewhere');
     scene.show(tree(true));
     settle(scene);
     expect(scene.stats.items).toBe(3);
     await click(left + NODE_W + DOT_AT, line);
     expect(turned).toHaveBeenLastCalledWith(1, false);
-    expect(canvas().title).toBe('Show the items under it: 1 shown elsewhere');
+    expect(canvas().title).toBe('Show the items under it (e): 1 shown elsewhere');
   });
 
   it('draws a fold as it stands at the end of its turn in the first frame after its time, however far apart the frames come', () => {
@@ -654,6 +654,54 @@ describe('the console page', () => {
     await press(27, 4);
     await expect.poll(turnedItems).toBe(32);
     expect(JSON.parse(localStorage.getItem('wf-agents.console-folds') ?? '')).toEqual({ 27: 'folded' });
+  });
+
+  it('folds and unfolds the items under the card the pointer is over at `e`, and does nothing over a card with none, while the owner types in a field, or with Ctrl held', async () => {
+    const scene = await drawn();
+    const done = [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')]
+      .find((l) => l.textContent === 'Done')
+      ?.querySelector('input') as HTMLInputElement;
+    done.click();
+    await expect.poll(() => scene.stats.items).toBe(32);
+    /// The pointer over the card of item `id`, brought into view, once a frame has found it there.
+    const over = async (id: number) => {
+      scene.reveal(id, scene.place().width);
+      settle(scene);
+      const stands = scene.cardAt(id) as { x: number; y: number };
+      const canvas = container.querySelector('canvas') as HTMLCanvasElement;
+      const r = canvas.getBoundingClientRect();
+      const at = { clientX: r.left + stands.x + 100, clientY: r.top + stands.y, bubbles: true };
+      canvas.dispatchEvent(new PointerEvent('pointermove', at));
+      await drew();
+    };
+    const press = (on: Element, keys: KeyboardEventInit = {}) =>
+      on.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', bubbles: true, cancelable: true, ...keys }));
+    const kept = () => localStorage.getItem('wf-agents.console-folds');
+    const turnedItems = () => {
+      settle(scene);
+      return scene.stats.items;
+    };
+    // Over item 27, done and folded over the two done items under it, `e` shows them, and again folds them.
+    await over(27);
+    press(document.body);
+    await expect.poll(turnedItems).toBe(34);
+    expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'unfolded' });
+    await over(27);
+    press(document.body);
+    await expect.poll(turnedItems).toBe(32);
+    expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'folded' });
+    // With Ctrl held, or while the owner types in a field, `e` folds nothing.
+    press(document.body, { ctrlKey: true });
+    const field = container.appendChild(document.createElement('input'));
+    field.focus();
+    press(field);
+    field.remove();
+    // Over item 10, done, with nothing under it, `e` folds nothing either.
+    await over(10);
+    press(document.body);
+    await drew();
+    expect(turnedItems()).toBe(32);
+    expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'folded' });
   });
 
   it('writes the item selected into the address, so that the tab of the console leads back to it', async () => {

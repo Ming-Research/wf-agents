@@ -124,17 +124,17 @@ describe('a fold', () => {
 
   it('says on pointing what a click on it does, then how many items stand under it by kind and how many shadows, any with none left out', () => {
     expect(foldWords({ folded: false, under: { open: 2, done: 4, cancelled: 0, elsewhere: 0 } })).toBe(
-      'Fold the items under it away: open 2, done 4',
+      'Fold the items under it away (e): open 2, done 4',
     );
     expect(foldWords({ folded: true, under: { open: 0, done: 1, cancelled: 2, elsewhere: 0 } })).toBe(
-      'Show the items under it: done 1, cancelled 2',
+      'Show the items under it (e): done 1, cancelled 2',
     );
     // The shadows under it are counted apart, after the items, as their items are shown elsewhere.
     expect(foldWords({ folded: false, under: { open: 0, done: 0, cancelled: 0, elsewhere: 1 } })).toBe(
-      'Fold the items under it away: 1 shown elsewhere',
+      'Fold the items under it away (e): 1 shown elsewhere',
     );
     expect(foldWords({ folded: false, under: { open: 2, done: 0, cancelled: 0, elsewhere: 1 } })).toBe(
-      'Fold the items under it away: open 2, 1 shown elsewhere',
+      'Fold the items under it away (e): open 2, 1 shown elsewhere',
     );
   });
 });

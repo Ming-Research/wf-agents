@@ -236,8 +236,9 @@ export const FOLD_PAD = 3;
 /// it folds (`--turn-time`, `--turn-ease`): this many milliseconds, on this cubic Bézier.
 export const TURN_MS = 240;
 const TURN_EASE = [0.2, 0.8, 0.2, 1] as const;
-/// What pointing at the funnel or the dot says a click does, before how many items stand under the item, by kind.
-export const FOLD_SAYS = { folded: 'Show the items under it', shown: 'Fold the items under it away' } as const;
+/// What pointing at the funnel or the dot says a click does, with the key that does it over the card, before how many
+/// items stand under the item, by kind.
+export const FOLD_SAYS = { folded: 'Show the items under it (e)', shown: 'Fold the items under it away (e)' } as const;
 /// The soft light round the item under the pointer, and round the item selected: a fill of the item's own colour behind
 /// its card, this many pixels past its edge, blurred this much, at this strength, so that the light
 /// shows only as a narrow glow round the card; the item selected's a little wider and softer, so that it stands out
@@ -2213,17 +2214,8 @@ export class SnapScene {
     this.down = null;
     if (d === null || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4 || this.tree === null) return;
     // A click on the funnel of an item's fold folds the items under it away, on its dot shows them again, and either
-    // selects nothing; the item's column becomes the one the others follow, so that the items shown under it come
-    // level with it.
-    const f = this.underFold;
-    const fold = f < 0 ? null : this.shownItems[f].fold;
-    if (fold != null) {
-      const c = this.tree.depth[f];
-      this.driver = c;
-      this.columns[c].aim = this.columns[c].at;
-      this.onFold?.(this.ids[f], !fold.folded);
-      return;
-    }
+    // selects nothing.
+    if (this.turnFold(this.underFold)) return;
     // A click on an item selects it, and on it again, or on no item, lets it go. A click on a shadow selects the item
     // it points to and brings it to the middle of the screen, so that the columns come to where it stands.
     const i = this.under;
@@ -2259,6 +2251,24 @@ export class SnapScene {
     if (y - h < EDGE || y + h > height - EDGE) this.focus(d, rank);
     if (x < 0) this.leftGoal = INSET - d * PITCH;
     else if (x + NODE_W > room) this.leftGoal = room - INSET - NODE_W - d * PITCH;
+  }
+
+  /// Folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or its dot
+  /// does, the console told; a shadow, or a card with nothing under it, folds nothing. Whether it folded or unfolded.
+  foldPointedCard(): boolean {
+    return this.turnFold(this.under);
+  }
+
+  /// Tells the console to fold the items under the item at `k` away, or show them again, where it has any; its column
+  /// becomes the one the others follow, so that the items shown under it come level with it. Whether it had any.
+  private turnFold(k: number): boolean {
+    const fold = k < 0 ? null : this.shownItems[k].fold;
+    if (fold == null || this.tree === null) return false;
+    const c = this.tree.depth[k];
+    this.driver = c;
+    this.columns[c].aim = this.columns[c].at;
+    this.onFold?.(this.ids[k], !fold.folded);
+    return true;
   }
 
   /// Selects the item numbered `id`, or none.

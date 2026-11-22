@@ -1,16 +1,17 @@
 // The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`snap.ts`), as they stand, drawn
 // again as they change; with `?fixtures` in the page's address, made-up items that show every state the drawing has
 // (`fixtures.ts`): those that stand as the boxes over the tree's corner tick, open, done or cancelled, and what stands
-// over them. A press on the funnel or the dot of an item's fold folds the items under it away or shows them again, a
-// choice kept in the browser for that item, which wins over the tree's own rule. Beside the tree, a window shows the
-// item selected (`ItemWindow.tsx`). Selecting an item slides the window out; letting it go slides the window back,
-// unless the tab stuck to its left edge brought it out, in which case it stays until the tab takes it back. The tab
-// takes it back without letting the item go, and the next item selected brings it out again. The window coming out over
-// the item selected, or an item selected half under it or half off the screen, moves the tree only until the item is
-// wholly within what the window leaves. Escape lets the item go while the tree has the keys, and slides the window in
-// while it has them. Each time the interface says something happened, the items are read again, at most one read at a
-// time and one more after it, and drawn where they stand, the item selected and the panel as they were; when the stream
-// opens again after a cut, everything is. An item the address names is selected once the tree shows it, as from a
+// over them. A press on the funnel or the dot of an item's fold folds the items under it away or shows them again, as
+// `e` does over its card, except while the owner types in a field or holds Ctrl, Alt or Meta: a choice kept in the
+// browser for that item, which wins over the tree's own rule. Beside the tree, a window shows the item selected
+// (`ItemWindow.tsx`). Selecting an item slides the window out; letting it go slides the window back, unless the tab
+// stuck to its left edge brought it out, in which case it stays until the tab takes it back. The tab takes it back
+// without letting the item go, and the next item selected brings it out again. The window coming out over the item
+// selected, or an item selected half under it or half off the screen, moves the tree only until the item is wholly
+// within what the window leaves. Escape lets the item go while the tree has the keys, and slides the window in while it
+// has them. Each time the interface says something happened, the items are read again, at most one read at a time and
+// one more after it, and drawn where they stand, the item selected and the panel as they were; when the stream opens
+// again after a cut, everything is. An item the address names is selected once the tree shows it, as from a
 // notification of a question it waits on. The page's shell mounts it lazily (`lazy.tsx`).
 //
 // Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
@@ -191,6 +192,15 @@ export function ConsolePage({
   useEffect(() => {
     if (!active) return;
     const key = (e: KeyboardEvent) => {
+      // `e` folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or
+      // its dot does; not while the owner types in a field, nor with Ctrl, Alt or Meta held.
+      if (e.key === 'e') {
+        const to = e.target as HTMLElement | null;
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (to && (to.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(to.tagName))) return;
+        if (scene.current?.foldPointedCard() === true) e.preventDefault();
+        return;
+      }
       // Escape answers a question the page asks, and nothing else.
       if (e.key !== 'Escape' || document.querySelector('dialog[open]') !== null) return;
       const inside = panel.current?.contains(document.activeElement) === true;
