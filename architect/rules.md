@@ -94,7 +94,8 @@ reports (`wf-agents wait`):
 8. A deliver item has at least two items under it; one whose parts make one work item is that work item. A root may
    have one item under it, or none yet. A deliver item not yet understood well enough to split has only a study under
    it: it is held, its background says what is known to be needed, and its parts are added when the study says how. A
-   deliver item widens and narrows as its parts change, and is cancelled when none is left.
+   deliver item widens and narrows as its parts change; once every part has merged or been cancelled, it is
+   delivered, one whose parts were all cancelled too.
 9. An item may be waited for by several items, of other projects too: it is still one item, shown whole in one place
    and as a line pointing there everywhere else.
 10. A step that makes no merge is no item: it is the owner's, and the item it follows says it. What becomes neither an

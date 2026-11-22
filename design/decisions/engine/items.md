@@ -22,6 +22,10 @@ A cancel takes away no dependency on its item, and a dependency on a cancelled i
 - replaced: Refusing to cancel an item while an open one depended on it, and to have an open one depend on a cancelled item, was on main; the owner changed it, because a cancelled item, depended on by nothing, stood as a root, while it belongs where it stood, and more cancels will come.
 - rejected: an agent proposed that a deliver item all of whose parts were cancelled not deliver, but wait for the architect to cancel it; the owner rejected it, because a dependency on a cancelled item is the same as one on a merged item, and waits for nothing.
 
+### decision a-cancelled-item-is-not-reopened-under-a-started-work
+A cancelled item is not reopened while an item that depends on it has a work that started and has not ended; an item that depends on a cancelled one may be reopened.
+- replaced: Reopening a cancelled item whatever depended on it, and refusing to reopen an item that depended on a cancelled one, was on main; the owner changed it, because a work started past a cancelled item would stop midway, or merge while it is open, and a cancelled item no longer holds anyone.
+
 ### decision a-title-is-counted-in-words
 An item's title has at most `items.title_max` words, each Chinese character counting as one; a longer one is refused when the item is added or its title changed, saying how many it has.
 - replaced: No limit on an item's title was on main; the owner changed it, because the titles had grown too long, while the old system had limited them.
