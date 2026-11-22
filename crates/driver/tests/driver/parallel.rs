@@ -105,9 +105,10 @@ fn wrote_head(h: &mut H, work: WorkNumber, head: &str) {
 }
 
 // A work is on its project's list once it has started a run, and the list is given to be made again only where it
-// differs: a new head, the files its plan names, a work that ends. Fails where a work not yet started is listed, where a
-// change that alters nothing of the list asks again, or where a change of one of the three is not asked for. The
-// harness checks after each call what must always hold. Milliseconds.
+// differs: a new head, the files its plan names, a work that ends or is cancelled. Fails where a work not yet started
+// is listed, where a work that has ended or been cancelled stays on it, where a change that alters nothing of the list
+// asks again, or where a change of one of these is not asked for. The harness checks after each call what must always
+// hold. Milliseconds.
 #[test]
 fn a_projects_list_is_given_to_be_made_where_the_works_under_way_their_heads_or_their_plans_differ() {
     let mut h = H::with(vec![planned()]);
@@ -142,6 +143,15 @@ fn a_projects_list_is_given_to_be_made_where_the_works_under_way_their_heads_or_
     assert_eq!(asks.len(), 1, "{asks:?}");
     assert_eq!(listed(&asks[0]).iter().map(|w| w.0).collect::<Vec<_>>(), [a.0, b.0]);
     h.through(a);
+    let asks = h.dm().parallel();
+    assert_eq!(listed(&asks[0]).iter().map(|w| w.0).collect::<Vec<_>>(), [b.0]);
+
+    // A work that is cancelled leaves it as well.
+    let (_, c) = h.add(planned_item("c", "one"));
+    h.let_on(c);
+    let asks = h.dm().parallel();
+    assert_eq!(listed(&asks[0]).iter().map(|w| w.0).collect::<Vec<_>>(), [b.0, c.0]);
+    h.on(c, Event::Cancelled { why: None });
     let asks = h.dm().parallel();
     assert_eq!(listed(&asks[0]).iter().map(|w| w.0).collect::<Vec<_>>(), [b.0]);
 }
