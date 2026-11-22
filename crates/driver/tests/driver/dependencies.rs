@@ -1,8 +1,9 @@
-//! Other works: an item waits before its first cell until every item it depends on has merged. That those items have
-//! merged reaches the work as its dependencies block, which the driver writes as the item is added, in the very call in
-//! which the last of them merges, and, on opening, wherever the block and what it stands for have come apart.
+//! Other works: an item waits before its first cell until every item it depends on has merged or was cancelled, a
+//! dependency on a cancelled item holding as one on a merged item does. That those items have ended so reaches the work
+//! as its dependencies block, which the driver writes as the item is added, in the very call in which the last of them
+//! merges or is cancelled, and, on opening, wherever the block and what it stands for have come apart.
 
-use driver::{MERGED, NewItem, Unmerged, WAITING};
+use driver::{MERGED, NewItem, WAITING};
 use store::Storage;
 
 use super::*;
@@ -131,21 +132,27 @@ fn an_item_depending_on_two_starts_only_once_both_have_merged() {
 }
 
 #[test]
-fn a_cancelled_dependency_never_lets_the_item_start() {
+fn a_cancelled_dependency_lets_the_item_start_in_the_very_call_in_which_it_is_cancelled() {
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "short"));
     let (_, wb) = h.add(new_item("b", &[a], "judged"));
     h.let_on(wb);
     h.let_on(wa);
+    assert_eq!(h.decision(wb), waits_for_dependencies("write"));
     let (run, ..) = h.round(wa);
     let todos = h.on(wa, Event::Cancelled { why: None });
-    assert_eq!(
-        todos,
-        vec![Todo {
-            work: wa,
-            effect: Effect::Stop { run },
-        }]
-    );
+    // The round of the cancelled work is stopped, and the work that depends on it begins.
+    let stop = Todo {
+        work: wa,
+        effect: Effect::Stop { run },
+    };
+    let (stops, begun): (Vec<Todo>, Vec<Todo>) = todos.into_iter().partition(|todo| *todo == stop);
+    assert_eq!(stops, [stop]);
+    assert_eq!(rounds(&begun), [(wb, "write".to_string(), 1)]);
+    assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
+    assert_eq!(h.d().items_waited_for(wb), Vec::<ItemNumber>::new());
+    // The cancel took no dependency away.
+    assert_eq!(h.d().work(wb).expect("the work is there").item.depends_on, [a]);
     let spent = h.spent();
     let came = hands_in(&[("plan", None)]);
     let release = vec![Todo {
@@ -155,12 +162,6 @@ fn a_cancelled_dependency_never_lets_the_item_start() {
     assert_eq!(h.on(wa, Event::Returned { run, came, spent }), release);
     assert_eq!(h.on(wa, Event::Released), vec![]);
     assert_eq!(h.decision(wa), Decision::Ended(End::Cancelled));
-    assert_eq!(h.decision(wb), waits_for_dependencies("write"));
-    assert_eq!(h.dependencies(wb).as_deref(), Some(WAITING));
-    // Nothing is to be done for either, and opening again changes nothing of it.
-    assert_eq!(h.d().pending(), vec![]);
-    assert_eq!(h.reopen(), vec![]);
-    assert_eq!(h.decision(wb), waits_for_dependencies("write"));
 }
 
 #[test]
@@ -273,7 +274,7 @@ fn version(value: &str, text: &str) -> (Option<String>, String) {
 }
 
 #[test]
-fn the_blocks_text_says_which_items_are_still_waited_for_and_which_were_cancelled() {
+fn the_blocks_text_says_which_items_are_still_waited_for_and_a_cancelled_one_is_not_among_them() {
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "plain"));
     let (b, wb) = h.add(new_item("b", &[], "short"));
@@ -285,42 +286,33 @@ fn the_blocks_text_says_which_items_are_still_waited_for_and_which_were_cancelle
     let todos = h.through(wa);
     assert_eq!(todos, vec![]);
     assert_eq!(h.decision(wc), waits_for_dependencies("write"));
-    // The other is cancelled: the block says waiting still, and which was cancelled; the work waits for good.
+    assert_eq!(h.d().items_waited_for(wc), [b]);
+    // The other is cancelled: the block says it waits for nothing, and the work starts.
     let (run, ..) = h.round(wb);
     let todos = h.on(wb, Event::Cancelled { why: None });
-    assert_eq!(
-        todos,
-        vec![Todo {
-            work: wb,
-            effect: Effect::Stop { run },
-        }]
-    );
-    assert_eq!(h.decision(wc), waits_for_dependencies("write"));
+    let stop = Todo {
+        work: wb,
+        effect: Effect::Stop { run },
+    };
+    let (stops, begun): (Vec<Todo>, Vec<Todo>) = todos.into_iter().partition(|todo| *todo == stop);
+    assert_eq!(stops, [stop]);
+    assert_eq!(rounds(&begun), [(wc, "write".to_string(), 1)]);
     assert_eq!(
         versions_of(&h, wc),
         [
             version(WAITING, "Waits for the items 1, 2 to merge."),
             version(WAITING, "Waits for the items 2 to merge."),
-            version(WAITING, "Waits for the items 2 (cancelled) to merge."),
+            version(MERGED, "Every item this one depends on has merged."),
         ]
     );
-    // The one it waits for is said cancelled, so that the work is seen to wait for good.
-    assert_eq!(
-        h.d().unmerged(wc),
-        [Unmerged {
-            item: b,
-            cancelled: true
-        }]
-    );
-    let kept = h.d().work(wc).expect("the work is there");
-    assert!(kept.work.records.started.is_empty(), "the work started");
+    assert_eq!(h.d().items_waited_for(wc), Vec::<ItemNumber>::new());
     // Opening again writes nothing more: the block says what it stands for.
     h.reopen();
     assert_eq!(versions_of(&h, wc).len(), 3);
 }
 
 #[test]
-fn a_cancelled_dependency_is_named_beside_one_still_going() {
+fn a_cancelled_dependency_is_waited_for_no_more_beside_one_still_going() {
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "plain"));
     let (b, _) = h.add(new_item("b", &[], "short"));
@@ -330,14 +322,25 @@ fn a_cancelled_dependency_is_named_beside_one_still_going() {
         versions_of(&h, wc),
         [
             version(WAITING, "Waits for the items 1, 2 to merge."),
-            version(WAITING, "Waits for the items 1 (cancelled), 2 to merge."),
+            version(WAITING, "Waits for the items 2 to merge."),
         ]
     );
     assert_eq!(h.let_on(wc), vec![]);
     assert_eq!(h.decision(wc), waits_for_dependencies("draft"));
-    // Both are waited for, in the order the item keeps them, as its block says them, the cancelled one said so.
-    let unmerged = |item, cancelled| Unmerged { item, cancelled };
-    assert_eq!(h.d().unmerged(wc), [unmerged(a, true), unmerged(b, false)]);
+    // Only the one still going is waited for.
+    assert_eq!(h.d().items_waited_for(wc), [b]);
+}
+
+#[test]
+fn an_item_added_on_a_cancelled_item_waits_for_nothing_and_starts_when_let_on() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "plain"));
+    h.on(wa, Event::Cancelled { why: None });
+    let (_, wb) = h.add(new_item("b", &[a], "short"));
+    assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
+    assert_eq!(h.d().work(wb).expect("the work is there").item.depends_on, [a]);
+    let todos = h.let_on(wb);
+    assert_eq!(rounds(&todos), [(wb, "draft".to_string(), 1)]);
 }
 
 #[test]

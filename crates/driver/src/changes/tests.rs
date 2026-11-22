@@ -180,34 +180,44 @@ fn an_item_there_is_not_one_not_depended_on_and_a_tag_not_carried_are_refused() 
 }
 
 #[test]
-fn an_item_is_not_cancelled_while_an_item_that_has_not_ended_depends_on_it() {
-    // 2 and 4 depend on 1; 3 on 2.
-    assert_eq!(
-        one(&graph(), 1, Asked::Cancel),
-        unchangeable(Unchangeable::OpenDependants(n(&[2, 4])))
-    );
-    // One that has started counts as much as one that has not.
+fn an_item_is_cancelled_whatever_depends_on_it() {
+    // 2 and 4 depend on 1; 3 on 2: the items that depend on 1 hold nothing back.
+    assert_eq!(one(&graph(), 1, Asked::Cancel), Ok(true));
+    // Nor does one that has started.
     let items = with(graph(), 4, Gone::Started);
-    assert_eq!(
-        one(&items, 3, Asked::Cancel),
-        unchangeable(Unchangeable::OpenDependants(n(&[4])))
-    );
-    // Dependants that have ended hold nothing back.
-    let items = with(with(graph(), 4, Gone::Ended(End::Cancelled)), 3, Gone::NotStarted);
     assert_eq!(one(&items, 3, Asked::Cancel), Ok(true));
-    let items = with(graph(), 4, Gone::Ended(End::Merged));
-    assert_eq!(one(&items, 3, Asked::Cancel), Ok(true));
-    // Cancelled together, the dependant first, they are all cancelled.
-    let changes = [(ItemNumber(4), Asked::Cancel), (ItemNumber(3), Asked::Cancel)];
-    assert_eq!(judge(&graph(), &changes), Ok(vec![true, true]));
+    // Cancelled together, in either order, they are all cancelled.
+    for changes in [
+        [(ItemNumber(1), Asked::Cancel), (ItemNumber(2), Asked::Cancel)],
+        [(ItemNumber(2), Asked::Cancel), (ItemNumber(1), Asked::Cancel)],
+    ] {
+        assert_eq!(judge(&graph(), &changes), Ok(vec![true, true]));
+    }
+    // What depends on the cancelled item still does.
+    let mut items = graph();
+    made(&mut items, ItemNumber(1), &Asked::Cancel);
+    assert_eq!(items[&ItemNumber(2)].item.depends_on, n(&[1]));
+    assert_eq!(items[&ItemNumber(4)].item.depends_on, n(&[1, 3]));
 }
 
 #[test]
-fn nothing_comes_to_depend_on_a_cancelled_item() {
+fn an_item_comes_to_depend_on_a_cancelled_one_and_no_circle_is_closed_through_it() {
     let items = with(graph(), 5, Gone::Ended(End::Cancelled));
     assert_eq!(
         one(&items, 3, Asked::Item(ItemChange::DependsOn(ItemNumber(5)))),
-        unchangeable(Unchangeable::OnCancelled(n(&[5])))
+        Ok(true)
+    );
+    // Added in the same change after the cancel, it is let through too.
+    let changes = [
+        (ItemNumber(5), Asked::Cancel),
+        (ItemNumber(3), Asked::Item(ItemChange::DependsOn(ItemNumber(5)))),
+    ];
+    assert_eq!(judge(&graph(), &changes), Ok(vec![true, true]));
+    // 2 depends on 1: with 2 cancelled, 1 still may not come to depend on it.
+    let items = with(graph(), 2, Gone::Ended(End::Cancelled));
+    assert_eq!(
+        one(&items, 1, Asked::Item(ItemChange::DependsOn(ItemNumber(2)))),
+        unchangeable(Unchangeable::Circle(n(&[2, 1])))
     );
 }
 
@@ -253,18 +263,38 @@ fn only_a_cancelled_item_is_reopened_and_not_while_it_lets_go_of_what_it_held() 
 }
 
 #[test]
-fn an_item_is_not_reopened_onto_a_cancelled_one_nor_under_a_merged_one() {
-    // 3 depends on 2: with both cancelled, 3 waits for 2 to be reopened first.
+fn an_item_is_reopened_onto_a_cancelled_one_but_not_under_one_that_merged_or_started() {
+    // 3 depends on 2: with both cancelled, 3 is reopened, and does not wait for 2.
     let items = with(
         with(graph(), 3, Gone::Ended(End::Cancelled)),
         2,
         Gone::Ended(End::Cancelled),
     );
-    assert_eq!(
-        one(&items, 3, Asked::Reopen),
-        unchangeable(Unchangeable::OnCancelled(n(&[2])))
-    );
+    assert_eq!(one(&items, 3, Asked::Reopen), Ok(true));
+    // 2 reopened first, 3, reopened after it, waits for it before its work goes on from where it was.
     let changes = [(ItemNumber(2), Asked::Reopen), (ItemNumber(3), Asked::Reopen)];
+    assert_eq!(judge(&items, &changes), Ok(vec![true, true]));
+    // 3 reopened first, its work started before its cancel, it is a started work 2 would hold back.
+    let changes = [(ItemNumber(3), Asked::Reopen), (ItemNumber(2), Asked::Reopen)];
+    assert_eq!(
+        judge(&items, &changes),
+        Err(vec![NotMade {
+            at: 1,
+            item: ItemNumber(2),
+            why: Refused::Unchangeable(Unchangeable::StartedDependants(n(&[3]))),
+        }])
+    );
+    // 2 cancelled under 3, which has started no run: 3 waits for it again.
+    let items = with(graph(), 2, Gone::Ended(End::Cancelled));
+    assert_eq!(one(&items, 2, Asked::Reopen), Ok(true));
+    // 3 started with 2 cancelled: reopened, 2 would hold back a work midway, so it is not.
+    let items = with(with(graph(), 2, Gone::Ended(End::Cancelled)), 3, Gone::Started);
+    assert_eq!(
+        one(&items, 2, Asked::Reopen),
+        unchangeable(Unchangeable::StartedDependants(n(&[3])))
+    );
+    // Cancelled first, in the same change, 3 holds 2 back no more.
+    let changes = [(ItemNumber(3), Asked::Cancel), (ItemNumber(2), Asked::Reopen)];
     assert_eq!(judge(&items, &changes), Ok(vec![true, true]));
     // 4 depends on 3: merged without waiting for it, it keeps 3 from becoming undone again.
     let items = with(
@@ -288,18 +318,11 @@ fn changes_asked_together_are_made_all_or_none_and_every_refusal_is_said() {
     ];
     assert_eq!(
         judge(&graph(), &changes),
-        Err(vec![
-            NotMade {
-                at: 1,
-                item: ItemNumber(1),
-                why: Refused::Unchangeable(Unchangeable::OpenDependants(n(&[2, 4]))),
-            },
-            NotMade {
-                at: 2,
-                item: ItemNumber(2),
-                why: Refused::BlankTitle,
-            },
-        ])
+        Err(vec![NotMade {
+            at: 2,
+            item: ItemNumber(2),
+            why: Refused::BlankTitle,
+        }])
     );
     // Each is judged against what those before it make: two that make a circle only together are refused.
     let changes = [
@@ -342,18 +365,17 @@ impl Dice {
 }
 
 /// Items 1 to 6, each depending on some of those before it, each not started, started, merged or cancelled, as a store
-/// may hold them: no item that has not ended depends on a cancelled one, and an item merged with what it depends on
-/// ended, merged or cancelled, as one whose flow waits for no item may.
+/// may hold them: an item merged with what it depends on ended, merged or cancelled. An item started depends on what
+/// had ended as it started, or, reopened, on what was reopened before it.
 fn some_items(dice: &mut Dice) -> BTreeMap<ItemNumber, Planned> {
     let mut items: BTreeMap<ItemNumber, Planned> = BTreeMap::new();
     for number in 1..=6 {
         let on: Vec<u64> = (1..number).filter(|_| dice.roll(3) == 0).collect();
         let ends: Vec<Option<End>> = on.iter().map(|o| items[&ItemNumber(*o)].ended).collect();
-        let on_cancelled = ends.contains(&Some(End::Cancelled));
         let all_ended = ends.iter().all(Option::is_some);
         let gone = match dice.roll(4) {
-            0 if !on_cancelled => Gone::NotStarted,
-            1 if !on_cancelled => Gone::Started,
+            0 => Gone::NotStarted,
+            1 => Gone::Started,
             2 if all_ended => Gone::Ended(End::Merged),
             _ => Gone::Ended(End::Cancelled),
         };
@@ -376,20 +398,10 @@ fn some_change(dice: &mut Dice) -> (ItemNumber, Asked) {
     (item, asked)
 }
 
-/// The two relations the changes keep, each where it held before: no item that has not ended depends on a cancelled
-/// one, and no merged item comes to depend on more than it did, nor on one that was done and is no longer.
+/// The two relations the changes keep: no merged item comes to depend on more than it did; and no item whose work has
+/// started, merged or not, and is not cancelled, before the changes and after them, comes to wait for an item that had
+/// ended, merged or cancelled.
 fn keeps(before: &BTreeMap<ItemNumber, Planned>, after: &BTreeMap<ItemNumber, Planned>) {
-    for p in after.values() {
-        if p.ended.is_none() {
-            for on in &p.item.depends_on {
-                assert_ne!(
-                    after[on].ended,
-                    Some(End::Cancelled),
-                    "{p:?} depends on a cancelled {on:?}"
-                );
-            }
-        }
-    }
     for (number, was) in before.iter().filter(|(_, p)| p.ended == Some(End::Merged)) {
         let now = &after[number];
         assert_eq!(now.ended, Some(End::Merged), "a merged item is merged no longer");
@@ -397,21 +409,24 @@ fn keeps(before: &BTreeMap<ItemNumber, Planned>, after: &BTreeMap<ItemNumber, Pl
             now.item.depends_on, was.item.depends_on,
             "a merged item came to depend on another"
         );
+    }
+    let going = |p: &Planned| p.started && p.ended != Some(End::Cancelled);
+    for (number, was) in before.iter().filter(|(number, p)| going(p) && going(&after[*number])) {
         for on in &was.item.depends_on {
             if before[on].ended.is_some() {
                 assert!(
                     after[on].ended.is_some(),
-                    "{number:?} merged on {on:?}, which is not done any more"
+                    "{number:?} started on {on:?} ended, which has not ended any more"
                 );
             }
         }
     }
 }
 
-/// Whatever is asked, in any order, one at a time or together, the changes the judge lets through keep the two
+/// Whatever is asked, in any order, one at a time or together, the changes the judge lets through keep the
 /// relations; and changes asked together are let through exactly when each, asked in turn after those before it, is.
 #[test]
-fn no_accepted_changes_leave_an_open_item_on_a_cancelled_one_or_a_merged_one_on_what_is_not_done() {
+fn no_accepted_changes_leave_a_merged_item_on_what_has_not_ended_or_make_a_started_work_wait() {
     let mut dice = Dice(0x9e37_79b9_7f4a_7c15);
     for _ in 0..400 {
         let mut items = some_items(&mut dice);

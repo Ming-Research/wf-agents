@@ -6,10 +6,11 @@
 //! What is checked after every step is what the harness in `support` checks after every call: the store holds what
 //! the driver shows; no work has two rounds under way; what was given and not yet answered is exactly what is pending,
 //! and nothing is given twice unless it was pending across an opening; the stored records walk to the decision shown;
-//! every dependencies block agrees with which of the items its item depends on have merged; no work whose
-//! dependencies have not all merged has started a run; and a work never let on has started none. When the driver
-//! stops, what it says was kept is what the store holds. A round or a call of a tool that ended is judged against the
-//! lines of its history as it was when first seen, however the history grew since.
+//! every dependencies block agrees with which of the items its item depends on have merged or were cancelled; no work
+//! began a run while its block said it waited; no work that waits for its dependencies merged while one of them had
+//! not ended; and a work never let on has started none. When the driver stops, what it says was kept is what the
+//! store holds. A round or a call of a tool that ended is judged against the lines of its history as it was when first
+//! seen, however the history grew since.
 //!
 //! Once people stop, the works left paused are let on as their last act, and the rounds, the tools' calls, the
 //! withdrawals and the stops are answered until nothing more is given: within a bound each work then waits, saying for
@@ -28,12 +29,12 @@
 //! - a call withdrawn is said to be; a round stopped ends.
 //!
 //! A person's act is, about: a write of a block people may write, or a look where they may write none; a pause or a
-//! letting on; a cancel; letting a cell go on, at its limit where a work waits at one; the result of a question or of
-//! a limit; adding an item, depending on some of those there; or something the driver must refuse, which must change
-//! nothing. An item is added on one of the small flows of the tests or on the deliver flow as the repository defines
-//! it, whose items are made of the items they depend on and wait for them at their one cell, so that items depending on
-//! a deliverable wait for it in turn. One item in five is a deliverable, drawn by a generator of its own, so that the
-//! other draws keep their order.
+//! letting on; a cancel, of a work whose round is under way where there is one; letting a cell go on, at its limit
+//! where a work waits at one; the result of a question or of a limit; adding an item, depending on some of those
+//! there; or something the driver must refuse, which must change nothing. An item is added on one of the small flows
+//! of the tests or on the deliver flow as the repository defines it, whose items are made of the items they depend on
+//! and wait for them at their one cell, so that items depending on a deliverable wait for it in turn. One item in five
+//! is a deliverable, drawn by a generator of its own, so that the other draws keep their order.
 //!
 //! The process stops before a step with a chance of one in sixteen; with one in twenty-five the store is set to fail
 //! at one of its next three calls, and with one in fifty the process to stop right after one of them.
@@ -298,13 +299,10 @@ impl History {
         of[self.rng.below(of.len())].clone()
     }
 
-    /// Adds an item, depending on some of those there that are not cancelled, on a random flow, with a first write or
-    /// none.
+    /// Adds an item, depending on some of those there, cancelled ones among them, on a random flow, with a first write
+    /// or none.
     fn add(&mut self, title: &str) {
-        let numbers: Vec<ItemNumber> = (self.h.d().works())
-            .filter(|k| self.h.decision(k.head.number) != Decision::Ended(End::Cancelled))
-            .map(|k| k.head.item)
-            .collect();
+        let numbers: Vec<ItemNumber> = self.h.d().works().map(|k| k.head.item).collect();
         let depends_on: Vec<ItemNumber> = numbers.into_iter().filter(|_| self.rng.chance(35)).collect();
         let flow = ["judged", "short", "plain"][self.rng.below(3)];
         let flow = if self.delivers.chance(20) { "deliver" } else { flow };
@@ -690,8 +688,21 @@ impl History {
                 }
             }
             30..=32 => {
+                // A cancel is of a work whose round is under way, where there is one, so that its round is stopped
+                // and the histories reach that case.
+                let under_way: Vec<WorkNumber> = (sorted(&self.h.outstanding).into_iter())
+                    .filter(|t| matches!(t.effect, Effect::Round { .. }) && going.contains(&t.work))
+                    .map(|t| t.work)
+                    .filter(|w| (self.h.d().work(*w)).is_some_and(|k| k.work.records.cancelled().is_none()))
+                    .collect();
+                let work = if under_way.is_empty() {
+                    work
+                } else {
+                    self.pick(&under_way)
+                };
                 self.seen.cancels += 1;
-                Event::Cancelled { why: None }
+                self.act(Act::On(work, Event::Cancelled { why: None }));
+                return;
             }
             33..=41 => match self.h.decision(work) {
                 Decision::Wait { at, on } if on.iter().any(|w| matches!(w, Waited::Limit { .. })) => {

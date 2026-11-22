@@ -725,7 +725,7 @@ impl Service {
             },
             Act::Resume => Event::Resumed,
             Act::Cancel { why } => {
-                // A cancel is a change of the item, judged as every change is: none while an item depends on it.
+                // A cancel is a change of the item, judged as every change is.
                 let item = (self.driver.work(work).map(|kept| kept.item.number))
                     .ok_or(Refusal::Failed(Failed::NoSuchWork(work)))?;
                 let asked = vec![(item, Asked::Cancel)];

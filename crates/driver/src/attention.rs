@@ -89,8 +89,6 @@ pub enum Stuck {
     Stalled,
     /// Its work waits in turn for items none of which is going on.
     Idle,
-    /// It was cancelled: the work waits for it for good.
-    Cancelled,
     /// Its work's records cannot be those of a work.
     Fault,
 }
@@ -448,7 +446,8 @@ impl Reader<'_> {
     }
 
     /// Whether the work came to stand as it does since the mark: an idle work, also where an item it waits for
-    /// stopped going on since, or one it waited for merged since and left it waiting for items that stood still before.
+    /// stopped going on since, or one it waited for merged or was cancelled since and left it waiting for items that
+    /// stood still before.
     fn came_since_the_mark(&self, number: WorkNumber) -> bool {
         let unread =
             |number: &WorkNumber| (self.unread[number]).is_some_and(|from| self.began(*number, from).is_some());
@@ -465,29 +464,29 @@ impl Reader<'_> {
                 _ => unread(&on),
             }
         });
-        stopped || self.merged_waited_for(number).any(|on| unread(&on))
+        stopped || self.ended_waited_for(number).any(|on| unread(&on))
     }
 
     /// Since when the work has stood as it does; for an idle work, since the latest of that, of the times the items
-    /// it waits for stopped going on, and of the times those it waited for merged: it was not idle before the last of
-    /// them merged.
+    /// it waits for stopped going on, and of the times those it waited for merged or were cancelled: it was not idle
+    /// before the last of them ended.
     fn since(&self, number: WorkNumber) -> Time {
         let own = self.began(number, Seq(0)).map_or(Time::default(), |moment| moment.at);
         let Some(Some(items)) = self.idle.get(&number) else {
             return own;
         };
-        let merged = self.merged_waited_for(number).map(|on| self.since(on));
+        let ended = self.ended_waited_for(number).map(|on| self.since(on));
         (items.iter())
             .map(|idle| self.since(self.of_item[&idle.item]))
-            .chain(merged)
+            .chain(ended)
             .fold(own, Time::max)
     }
 
-    /// The works of the items the work's item depends on that merged.
-    fn merged_waited_for(&self, number: WorkNumber) -> impl Iterator<Item = WorkNumber> + '_ {
+    /// The works of the items the work's item depends on that merged or were cancelled, which it waits for no more.
+    fn ended_waited_for(&self, number: WorkNumber) -> impl Iterator<Item = WorkNumber> + '_ {
         (self.works[&number].item.depends_on.iter())
             .filter_map(|item| self.of_item.get(item).copied())
-            .filter(|on| self.standing[on] == Standing::Ended(End::Merged))
+            .filter(|on| matches!(self.standing[on], Standing::Ended(_)))
     }
 
     /// The moment from which the work has stood as it does without a break, where it is at or after this place.
@@ -516,8 +515,8 @@ impl Reader<'_> {
         for item in &self.works[&number].item.depends_on {
             let on = self.of_item.get(item)?;
             let why = match &self.standing[on] {
-                Standing::Ended(End::Merged) => continue,
-                Standing::Ended(End::Cancelled) => Stuck::Cancelled,
+                // A cancelled item is waited for no more than a merged one.
+                Standing::Ended(_) => continue,
                 Standing::Fault(_) => Stuck::Fault,
                 Standing::Owner { .. } => Stuck::ForAPerson,
                 Standing::Still => Stuck::Stalled,
@@ -530,7 +529,7 @@ impl Reader<'_> {
             };
             items.push(Idle { item: *item, why });
         }
-        // Waiting for items that have all merged, the work is about to be told so.
+        // Waiting for items that have all merged or were cancelled, the work is about to be told so.
         (!items.is_empty()).then_some(items)
     }
 }

@@ -1,9 +1,10 @@
 //! Changing items after they were added, several at once and all or none, each change saying why: an item's title,
 //! level and tags until its work ends, and what it depends on while its work has started no run, each kept as the
-//! item's own record, after which the work's dependencies block says what it now waits for; its cancel, refused while
-//! an item that has not ended depends on it; and the reopening of a cancelled item, whose work is paused, and once let
-//! on makes its place again. A change that would close a circle of dependencies, that its work has gone too far for, or
-//! that would leave an item waiting for good, is refused and changes nothing, nor do the changes asked with it.
+//! item's own record, after which the work's dependencies block says what it now waits for; its cancel, which takes
+//! away no dependency on it, so that what depends on it waits for it no more; and the reopening of a cancelled item,
+//! whose work is paused, and once let on makes its place again, and which what depends on it waits for again. A change
+//! that would close a circle of dependencies, that its work has gone too far for, or that would make a work wait that
+//! has started, is refused and changes nothing, nor do the changes asked with it.
 
 use driver::changes::Refused;
 use driver::{Asked, MERGED, NotMade, Unchangeable, WAITING};
@@ -189,30 +190,36 @@ fn an_item_whose_work_ended_takes_no_change_until_it_is_reopened() {
 }
 
 #[test]
-fn an_item_is_not_cancelled_while_an_item_that_has_not_ended_depends_on_it() {
+fn an_item_is_cancelled_under_the_items_that_depend_on_it_and_they_keep_their_dependency_and_wait_no_more() {
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "short"));
     let (b, wb) = h.add(new_item("b", &[a], "short"));
-    let (c, _) = h.add(new_item("c", &[b], "short"));
-    assert_eq!(
-        refused(&mut h, vec![(a, Asked::Cancel)]),
-        unchangeable(a, Unchangeable::OpenDependants(vec![b]))
-    );
-    // Cancelled together, those that wait first, all of them are.
-    let asked = vec![(c, Asked::Cancel), (b, Asked::Cancel), (a, Asked::Cancel)];
-    assert_eq!(h.changes(asked).map(|(changed, _)| changed), Ok(vec![true, true, true]));
-    for work in [wa, wb] {
-        assert_eq!(h.decision(work), Decision::Ended(End::Cancelled));
-    }
-    // A new item may not wait for a cancelled one: it would wait for good.
-    let refused = h.refused(|driver, now| driver.add(now, new_item("d", &[a], "short")).map(drop));
-    assert_eq!(refused, Failed::OnCancelled(vec![a]));
+    let (_, wc) = h.add(new_item("c", &[b], "short"));
+    h.let_on(wb);
+    assert_eq!(h.decision(wb), waits_for_dependencies("draft"));
+    // a is cancelled though b, which has not ended, depends on it: b begins in the same call.
+    let (changed, todos) = h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
+    assert_eq!(changed, [true]);
+    let todos = h.released(todos);
+    assert_eq!(rounds(&todos), [(wb, "draft".to_string(), 1)]);
+    assert_eq!(h.decision(wa), Decision::Ended(End::Cancelled));
+    assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
+    // b keeps its dependency on a; c still waits for b.
+    assert_eq!(h.d().work(wb).unwrap().item.depends_on, [a]);
+    assert_eq!(h.dependencies(wc).as_deref(), Some(WAITING));
+    // An item may come to depend on a cancelled one, as it is added or after: it waits for nothing.
+    let (_, wd) = h.add(new_item("d", &[a], "short"));
+    assert_eq!(h.dependencies(wd).as_deref(), Some(MERGED));
+    let (e, we) = h.add(new_item("e", &[], "short"));
+    assert_eq!(h.change(e, ItemChange::DependsOn(a)), (true, vec![]));
+    assert_eq!(h.d().work(we).unwrap().item.depends_on, [a]);
+    assert_eq!(h.dependencies(we).as_deref(), Some(MERGED));
 }
 
 #[test]
 fn changes_asked_together_are_made_all_or_none_and_every_refusal_is_said() {
     let mut h = H::new();
-    let (a, _) = h.add(new_item("a", &[], "short"));
+    let (a, wa) = h.add(new_item("a", &[], "short"));
     let (b, _) = h.add(new_item("b", &[a], "short"));
     let (c, wc) = h.add(new_item("c", &[], "short"));
     let asked = vec![
@@ -225,22 +232,17 @@ fn changes_asked_together_are_made_all_or_none_and_every_refusal_is_said() {
         refused(&mut h, asked),
         Failed::NotChanged {
             asked: 4,
-            refused: vec![
-                NotMade {
-                    at: 1,
-                    item: a,
-                    why: Refused::Unchangeable(Unchangeable::OpenDependants(vec![b])),
-                },
-                NotMade {
-                    at: 2,
-                    item: c,
-                    why: Refused::BadTag("two words".into()),
-                },
-            ],
+            refused: vec![NotMade {
+                at: 2,
+                item: c,
+                why: Refused::BadTag("two words".into()),
+            }],
         }
     );
+    // Neither the title nor the cancel was made.
     assert_eq!(h.d().work(wc).unwrap().item.title, "c");
     assert_eq!(h.dependencies(wc).as_deref(), Some(MERGED));
+    assert_ne!(h.decision(wa), Decision::Ended(End::Cancelled));
 }
 
 #[test]
@@ -316,21 +318,52 @@ fn a_cancelled_item_is_reopened_paused_and_let_on_makes_its_place_again() {
 }
 
 #[test]
-fn an_item_reopened_is_waited_for_again_by_those_that_depend_on_it() {
+fn an_item_reopened_is_waited_for_again_by_those_that_depend_on_it_and_have_not_started() {
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "short"));
     let (_, wb) = h.add(new_item("b", &[a], "short"));
-    // As a store kept before an item could not be cancelled under one that depends on it: a is cancelled anyway.
-    let todos = h.on(wa, Event::Cancelled { why: None });
+    let (_, todos) = h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
     h.released(todos);
-    let text = |h: &H| {
-        let kept = h.d().work(wb).expect("the work is there");
-        dependencies_text(kept.flow, kept.work).unwrap_or_default()
-    };
-    assert!(text(&h).contains("(cancelled)"), "{}", text(&h));
-    h.changes(vec![(a, Asked::Reopen)]).expect("a is reopened");
+    assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
+    // Reopened, a is waited for again, in the words the block says it with, and b let on waits for it.
+    let (changed, todos) = h.changes(vec![(a, Asked::Reopen)]).expect("a is reopened");
+    assert_eq!((changed, todos), (vec![true], vec![]));
     assert_eq!(h.dependencies(wb).as_deref(), Some(WAITING));
-    assert!(!text(&h).contains("(cancelled)"), "{}", text(&h));
+    let kept = h.d().work(wb).expect("the work is there");
+    assert_eq!(
+        dependencies_text(kept.flow, kept.work).as_deref(),
+        Some("Waits for the items 1 to merge.")
+    );
+    assert_eq!(h.let_on(wb), vec![]);
+    assert_eq!(h.decision(wb), waits_for_dependencies("draft"));
+    // a merges: b begins.
+    h.let_on(wa);
+    let todos = h.through(wa);
+    assert_eq!(rounds(&todos), [(wb, "draft".to_string(), 1)]);
+}
+
+#[test]
+fn an_item_is_not_reopened_while_a_work_that_depends_on_it_has_started_and_not_ended() {
+    let mut h = H::new();
+    let (a, _) = h.add(new_item("a", &[], "short"));
+    let (b, wb) = h.add(new_item("b", &[a], "short"));
+    let (_, todos) = h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
+    h.released(todos);
+    // b begins past a, cancelled: reopened, a would hold b back midway, or b would merge with a not ended.
+    let todos = h.let_on(wb);
+    assert_eq!(rounds(&todos), [(wb, "draft".to_string(), 1)]);
+    let asked = vec![(a, Asked::Reopen)];
+    assert_eq!(
+        refused(&mut h, asked.clone()),
+        unchangeable(a, Unchangeable::StartedDependants(vec![b]))
+    );
+    // Merged, b keeps a cancelled as well.
+    h.through(wb);
+    assert_eq!(h.decision(wb), Decision::Ended(End::Merged));
+    assert_eq!(
+        refused(&mut h, asked),
+        unchangeable(a, Unchangeable::MergedDependants(vec![b]))
+    );
 }
 
 #[test]

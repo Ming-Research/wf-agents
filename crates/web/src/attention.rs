@@ -108,7 +108,6 @@ pub enum Stuck {
     Stalled,
     /// Its work waits in turn for items none of which is going on.
     Idle,
-    Cancelled,
     /// Its work's records cannot be those of a work.
     Fault,
 }
@@ -145,7 +144,7 @@ impl Attention {
                 held,
                 &outages,
                 &driver.along_of(work),
-                &driver.unmerged(work),
+                &driver.items_waited_for(work),
             )?;
             Ok((of, now, view, held))
         };
@@ -212,7 +211,6 @@ impl Stuck {
             of::Stuck::ForAPerson => Stuck::ForAPerson,
             of::Stuck::Stalled => Stuck::Stalled,
             of::Stuck::Idle => Stuck::Idle,
-            of::Stuck::Cancelled => Stuck::Cancelled,
             of::Stuck::Fault => Stuck::Fault,
         }
     }

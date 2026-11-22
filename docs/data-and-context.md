@@ -16,8 +16,8 @@ the owner's pauses, when a work is at its end.
 
 2. A new version comes from outside or from a cell. From outside: whoever made the item writes its background; the
    owner answers, speaks or rules; the owner lets the work on, first or after the item was reopened (`start`); the
-   items the work depends on merge (`dependencies`); the branch the works merge into moves (`main`); the design tree
-   of the project changes (`tree`); a cell's specification changes (design document
+   items the work depends on merge or are cancelled (`dependencies`); the branch the works merge into moves (`main`);
+   the design tree of the project changes (`tree`); a cell's specification changes (design document
    `changed-flow-walks-the-records`); a session is reopened (25). Each of these says that something happened
    outside the work, and runs a cell only where a cell watches it. From a cell: what it hands in when a round of it
    ends. The code a round commits is handed in by that round, read from the branch as it ends (`head`). Two data are
@@ -291,7 +291,7 @@ new session lacks it.
 
     | Cell | Runs where | Watches | Reads | Writes |
     |---|---|---|---|---|
-    | S1 Start | the items it depends on merged | `start` | | `place` |
+    | S1 Start | the items it depends on merged or were cancelled | `start` | | `place` |
     | R0 Understand the problem and the design tree | | `background`, `engineer_session` | `tree` | nothing |
     | R1 Initial research | no deep research | `background`, `better_found`, `plan_review`, `tree_review`, `plan_doubts` | `tree` | `deep_needed` every time; with yes, `found` and nothing else; with no, plan, answers in its dialogues, questions |
     | R2 Is there a better way | no deep research, and R2 has not handed in | plan, `better_found` | `background`, `tree` | a better way in `better_found`, where it finds one |
@@ -307,5 +307,5 @@ new session lacks it.
     | M1 Check before the merge | no verdict stands at fail, `review_ok`, `test_ok` and `design_ok` are yes, and no question stands unanswered | `head`, `main`, `asked` | `code` | `checked`, `check` |
     | M2 Merge | `checked` is yes | `checked` | `title` | `merged` |
 
-    The flow of a deliverable item has one cell, V1 Deliver, which runs where the items it depends on have merged,
-    watches `dependencies` and writes `delivered`.
+    The flow of a deliverable item has one cell, V1 Deliver, which runs where the items it depends on have merged or
+    were cancelled, watches `dependencies` and writes `delivered`.

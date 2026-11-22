@@ -536,13 +536,9 @@ pub enum Waited {
     /// The project's turn to check and merge, which this work holds: the cell's act, its round under way since this
     /// time, waits for it, as the act says. The works of a project check and merge one at a time.
     Turn { holder: u64, since: u64 },
-    /// The items the work's item depends on that have not merged, by their numbers: a precondition only they make
-    /// hold, as they merge; and those of them that were cancelled, which never will, so that the work waits for good.
-    Items {
-        items: Vec<u64>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        cancelled: Vec<u64>,
-    },
+    /// The items the work's item depends on that have neither merged nor been cancelled, by their numbers: a
+    /// precondition only they make hold, as each merges or is cancelled.
+    Items { items: Vec<u64> },
 }
 
 /// A person who can give what a work waits for.
@@ -2056,7 +2052,7 @@ impl Summary {
             held,
             &every.outages,
             along,
-            &driver.unmerged(number),
+            &driver.items_waited_for(number),
         )?;
         // The cell the work waits at for a tool's call the engine runs.
         let calling = match &now {
@@ -2383,7 +2379,7 @@ impl Now {
         held: Option<Holder>,
         outages: &Outages,
         along: &[(Under, &Along)],
-        unmerged: &[driver::Unmerged],
+        waited_for: &[ItemNumber],
     ) -> Result<Now, Broken> {
         let work = kept.work;
         // Held by the pause of everything, which holds while the driver says it holds the work.
@@ -2470,13 +2466,9 @@ impl Now {
                                         .map(|(_, said)| *said),
                                 ),
                             },
-                            // The work waits for those of the items its item depends on that have not merged.
+                            // The work waits for those of the items its item depends on that have not ended.
                             waited if driver::attention::on_items(waited) => Waited::Items {
-                                items: unmerged.iter().map(|on| on.item.0).collect(),
-                                cancelled: (unmerged.iter())
-                                    .filter(|on| on.cancelled)
-                                    .map(|on| on.item.0)
-                                    .collect(),
+                                items: waited_for.iter().map(|on| on.0).collect(),
                             },
                             WaitedOf::Precondition { on, by } => {
                                 let CellKey { test, words } = key_of(&kept, on)?;

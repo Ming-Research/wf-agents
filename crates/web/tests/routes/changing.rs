@@ -1,6 +1,6 @@
 //! `POST /api/v1/items/changes`: whoever plans the work changes items after they were added, several at once for one
 //! reason, all of the changes or none, and the item's history says what it was before, when it changed and why; a
-//! cancel says why, is refused while an item that has not ended depends on it, and a cancelled item is reopened.
+//! cancel says why and takes away no dependency on its item, and a cancelled item is reopened.
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
@@ -136,7 +136,8 @@ async fn a_change_says_why_and_what_the_engine_refuses_says_why_and_changes_noth
         post(router, CHANGES, &changes("why", unknown)).await.0,
         StatusCode::BAD_REQUEST
     );
-    // Several asked together: each refused is named by its place, and none is made, the good ones neither.
+    // Several asked together: each refused is named by its place, and none is made, the good ones neither: neither
+    // the title nor the cancel of the item another depends on, which is no reason to refuse it.
     let together = json!([
         { "kind": "title", "item": 2, "title": "Kept?" },
         { "kind": "cancel", "item": 1 },
@@ -145,12 +146,13 @@ async fn a_change_says_why_and_what_the_engine_refuses_says_why_and_changes_noth
     assert_eq!(
         post(router, CHANGES, &changes("why", together)).await,
         refused(
-            "Change 2: #2 depends on #1 and has not ended, and would wait for it for good: cancel it first, in the \
-             same change before it, or take that dependency away; change 3: \"two words\" is no tag: a tag is a name \
-             of 1 to 40 characters with no space and no comma; so none of the changes was made."
+            "Change 3: \"two words\" is no tag: a tag is a name of 1 to 40 characters with no space and no comma; so \
+             none of the changes was made."
         )
     );
-    assert_eq!(get_json(router, "/api/v1/items").await["items"][1]["title"], "Second");
+    let items = get_json(router, "/api/v1/items").await;
+    assert_eq!(items["items"][1]["title"], "Second");
+    assert_ne!(items["items"][0]["work"]["now"]["kind"], "cancelled");
     // A begun item is still given another title.
     assert_eq!(
         post(router, CHANGES, &changes("why", title(1, "Greet the user by name"))).await,
@@ -159,20 +161,18 @@ async fn a_change_says_why_and_what_the_engine_refuses_says_why_and_changes_noth
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_cancel_says_why_is_refused_under_a_dependant_and_a_cancelled_item_is_reopened() {
+async fn a_cancel_says_why_and_keeps_what_depends_on_its_item_and_a_cancelled_item_is_reopened() {
     let running = running();
     let router = &running.router;
     post(router, "/api/v1/items", &item("First", json!([]))).await;
     post(router, "/api/v1/items", &item("Second", json!([1]))).await;
-    // The owner's cancel on the page is judged as every change is.
-    let refused_cancel = post(router, "/api/v1/works/1/acts", &json!({ "kind": "cancel" })).await;
-    assert_eq!(
-        refused_cancel,
-        refused(
-            "#2 depends on #1 and has not ended, and would wait for it for good: cancel it first, in the same change \
-             before it, or take that dependency away."
-        )
-    );
+    // The owner's cancel on the page is judged as every change is, and takes away no dependency on the item: the
+    // item that depends on it still does, and the page places the cancelled item under it.
+    let cancel_first = post(router, "/api/v1/works/1/acts", &json!({ "kind": "cancel" })).await;
+    assert_eq!(cancel_first, (StatusCode::NO_CONTENT, Value::Null));
+    let items = get_json(router, "/api/v1/items").await;
+    assert_eq!(items["items"][0]["work"]["now"]["kind"], "cancelled");
+    assert_eq!(items["items"][1]["dependsOn"], json!([1]));
     let acts = "/api/v1/works/2/acts";
     assert_eq!(
         post(router, acts, &json!({ "kind": "cancel", "why": "  " })).await,
@@ -194,6 +194,12 @@ async fn a_cancel_says_why_is_refused_under_a_dependant_and_a_cancelled_item_is_
         .await,
         refused("#2 is cancelled: an item that has ended takes no change, and is what it ended as; reopen it first.")
     );
+    // Reopened, the item 2 depends on holds it again.
+    let reopen_first = changes("Wanted after all", json!([{ "kind": "reopen", "item": 1 }]));
+    assert_eq!(
+        post(router, CHANGES, &reopen_first).await,
+        (StatusCode::OK, json!({ "changed": [true] }))
+    );
     // Reopened, it is paused, and its history says why.
     let reopen = changes("Item 1 turned out too big", json!([{ "kind": "reopen", "item": 2 }]));
     assert_eq!(
@@ -204,7 +210,7 @@ async fn a_cancel_says_why_is_refused_under_a_dependant_and_a_cancelled_item_is_
     let steps = page["steps"].as_array().unwrap();
     let reopened = steps.iter().find(|s| s["kind"] == "reopened").expect("a reopen");
     assert_eq!(reopened["why"], "Item 1 turned out too big");
-    // Paused by the owner, it waits besides for the item it depends on.
+    // Paused by the owner, it waits besides for the item it depends on, reopened before it.
     assert_eq!(page["summary"]["paused"], "owner");
     assert_eq!(page["summary"]["now"]["kind"], "waits");
     assert_eq!(

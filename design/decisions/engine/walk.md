@@ -46,5 +46,5 @@ For a paused work, the walk names the cell the work would run once it is let go 
 - rejected: an agent proposed that the page work the cell out from the states of the cells; the owner rejected it, because the next cell is the engine's to choose by the flow, and the page works out no state of its own.
 
 ### decision dependencies-reach-the-walk-as-a-datum
-The walk learns whether the items a work depends on have merged only from versions of `dependencies`, which the engine writes from outside; no test of the flow reads another work.
+The walk learns whether the items a work depends on have merged or been cancelled only from versions of `dependencies`, which the engine writes from outside; no test of the flow reads another work.
 - rejected: an agent proposed a named test that reads in memory whether the items the work depends on merged; the owner rejected it, because then a replay of the work's records could not reach the same decision.

@@ -7,9 +7,10 @@
 //!
 //! Every change but a reopen is refused once the item's work has ended: nothing of the work goes on, and the item is
 //! what it ended as. Its title, level and tags change until then; what it depends on only while its work has started
-//! no run (entry `dependencies-until-the-work-starts`). Two relations between items hold whatever is changed: an item
-//! that has not ended depends on no cancelled item, and an item that has merged depends on no item that has not merged
-//! by any change.
+//! no run (decision `dependencies-until-the-work-starts`). A cancel takes away no dependency on the item, and an item
+//! may come to depend on a cancelled one: a dependency on a cancelled item holds as one on a merged item does
+//! (decision `a-cancelled-item-keeps-its-place`). Two relations between items hold whatever is changed: an item that
+//! has merged depends on no item that has not ended, and a reopen makes no work wait that has started and not ended.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -79,13 +80,13 @@ pub enum Unchangeable {
     NotDependent(ItemNumber),
     /// It does not carry the tag it was to no longer carry.
     NotTagged(String),
-    /// It is to be cancelled, and these items, which have not ended, depend on it: they would wait for it for good.
-    OpenDependants(Vec<ItemNumber>),
-    /// It is to be reopened, or to depend on these items, which are cancelled: it would wait for them for good.
-    OnCancelled(Vec<ItemNumber>),
     /// It is to be reopened, and these items, which have merged, depend on it: a merged item would depend on one that
-    /// has not.
+    /// has not ended.
     MergedDependants(Vec<ItemNumber>),
+    /// It is to be reopened, and these items, whose works have started a run and have not ended, depend on it: a work
+    /// goes on from what it depended on as it started, and one would come to wait for the item midway, or merge while
+    /// it had not ended.
+    StartedDependants(Vec<ItemNumber>),
     /// It is to be reopened, and is not cancelled.
     NotCancelled,
     /// It is to be reopened, and its cancel is still letting go of what its work held.
@@ -153,17 +154,6 @@ fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &
     };
     let item = &planned.item;
     let gone = planned.gone();
-    let dependants = |what: &dyn Fn(&Planned) -> bool| -> Vec<ItemNumber> {
-        (items.values())
-            .filter(|other| other.item.depends_on.contains(&number) && what(other))
-            .map(|other| other.item.number)
-            .collect()
-    };
-    let cancelled = |on: &[ItemNumber]| -> Vec<ItemNumber> {
-        (on.iter().copied())
-            .filter(|on| items.get(on).is_some_and(|p| p.ended == Some(End::Cancelled)))
-            .collect()
-    };
     if *asked == Asked::Reopen {
         if planned.ended != Some(End::Cancelled) {
             return refused(Unchangeable::NotCancelled);
@@ -171,13 +161,22 @@ fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &
         if planned.letting_go {
             return refused(Unchangeable::LettingGo);
         }
-        let on = cancelled(&item.depends_on);
-        if !on.is_empty() {
-            return refused(Unchangeable::OnCancelled(on));
-        }
-        let merged = dependants(&|other| other.ended == Some(End::Merged));
+        // Reopened, the item holds again those that depend on it: none that merged, or that has started and not ended,
+        // may come to wait for it. One whose work has started no run waits for it again, and so does one that was
+        // cancelled, once it is reopened in its turn: its walk holds it at the cell that waits for its dependencies.
+        let dependants = |what: fn(&Planned) -> bool| -> Vec<ItemNumber> {
+            (items.values())
+                .filter(|other| other.item.depends_on.contains(&number) && what(other))
+                .map(|other| other.item.number)
+                .collect()
+        };
+        let merged = dependants(|other| other.ended == Some(End::Merged));
         if !merged.is_empty() {
             return refused(Unchangeable::MergedDependants(merged));
+        }
+        let started = dependants(|other| other.gone() == Gone::Started);
+        if !started.is_empty() {
+            return refused(Unchangeable::StartedDependants(started));
         }
         return Ok(true);
     }
@@ -185,15 +184,7 @@ fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &
         return refused(Unchangeable::Ended(end));
     }
     match asked {
-        Asked::Reopen => Ok(true),
-        Asked::Cancel => {
-            let open = dependants(&|other| other.ended.is_none());
-            if open.is_empty() {
-                Ok(true)
-            } else {
-                refused(Unchangeable::OpenDependants(open))
-            }
-        }
+        Asked::Reopen | Asked::Cancel => Ok(true),
         Asked::Item(change) => match change {
             ItemChange::Title(title) if title.trim().is_empty() => Err(Refused::BlankTitle),
             ItemChange::Title(title) => Ok(*title != item.title),
@@ -211,7 +202,6 @@ fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &
                 refused(Unchangeable::Started)
             }
             ItemChange::DependsOn(on) if item.depends_on.contains(on) => Ok(false),
-            ItemChange::DependsOn(on) if !cancelled(&[*on]).is_empty() => refused(Unchangeable::OnCancelled(vec![*on])),
             ItemChange::DependsOn(on) => {
                 let depends_on = |n: ItemNumber| items.get(&n).map(|p| p.item.depends_on.clone());
                 match way(*on, number, &depends_on) {
