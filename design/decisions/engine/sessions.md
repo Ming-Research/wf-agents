@@ -1,6 +1,6 @@
 # Sessions
 
-When a line of a work goes on in its session of the agents' program, what a session starts with, how waiting sessions are kept warm and compacted, and how a session is forked.
+When a line of a work goes on in its session of the agents' program, what a session starts with, how sessions are kept warm and compacted, and how a session is forked.
 
 ### decision a-new-session-loads-again-through-its-line-s-datum
 A new session of a line writes the line's own `session` datum, which only the engineer's line has and which R0 watches, so that R0 reads the tree into the session before the line goes on.
@@ -20,13 +20,14 @@ A line goes on in its session after the owner switches to another account: a cha
 The owner has no action that starts a line's session anew; the records of sessions started anew that way before are read as they were.
 - replaced: An action for the owner to start a line's session anew, a button on the work's page and a command, was on main; the owner changed it, because its page was broken and the action was of no use.
 
-### decision waiting-sessions-are-kept-warm
-While a work that has not ended waits with none of its rounds under way, each session of a line it can come back to is pinged `sessions.warm_minutes` after its last call, whoever holds the work.
+### decision a-session-is-kept-warm-from-its-own-last-call
+Each session of a line its work can come back to is pinged `sessions.warm_minutes` after its own last call, whoever holds the work, unless a round of its own line is under way.
 - replaced: Leaving a waiting session to let its cache expire was on main; the owner changed it, because while the context is not very large, a ping costs a fortieth of the write an expired cache costs, and almost always pays for itself.
 - replaced: Sending no ping while the engine held every work as it started, or while one work was paused, was on main; the owner changed it, because a hold stops the work from going on, and a cache left to go cold during the hold costs a whole write when the work goes on.
+- replaced: Pinging a session only while none of its work's rounds was under way, a ping holding back every round of its work, was on main; the owner changed it, because a round on one line left the work's other sessions unpinged for its whole length and their caches expired.
 
-### decision one-switch-keeps-waiting-sessions-warm
-One switch says whether waiting sessions are kept warm at all: the engine's own state, kept in the store, switched at once on the owner's page, and on until the owner switches it off.
+### decision one-switch-keeps-sessions-warm
+One switch says whether sessions are kept warm at all: the engine's own state, kept in the store, switched at once on the owner's page, and on until the owner switches it off.
 - replaced: Settings of the installation, read when the engine starts, that kept sessions warm through a pause was on main; the owner changed it, because he turns off one switch over every ping to stop the spending at once, and a switch that waits for a restart cannot do that.
 
 ### decision a-session-is-compacted-at-the-installations-number

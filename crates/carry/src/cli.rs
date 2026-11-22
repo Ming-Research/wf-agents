@@ -251,17 +251,26 @@ pub fn arguments(
 /// in the request: one given none, its front changed, read nothing of the session from the cache. Where the session went
 /// on past the round asked of, the fork begins at that round's last message, `begins`, and holds nothing of what came
 /// after.
-pub fn forked(mut args: Vec<String>, begins: Option<&str>) -> Vec<String> {
+pub fn forked(args: Vec<String>, begins: Option<&str>) -> Vec<String> {
+    let mut args = refusing(args);
+    args.push("--fork-session".to_string());
+    if let Some(begins) = begins {
+        args.extend(["--resume-session-at".to_string(), begins.to_string()]);
+    }
+    args
+}
+
+/// The arguments of a call that only reads its session, as a keep-warm ping makes: those of the session's round, but
+/// for its settings' hooks, which gain one that refuses every use of a tool before it runs ([`refusal`]), so that
+/// the call changes nothing in the worktree the work's other lines run in. The tools stay in the request, as for a
+/// fork ([`forked`]); the session is gone on with in place.
+pub fn refusing(mut args: Vec<String>) -> Vec<String> {
     let at = args.iter().position(|a| a == "--settings").map(|i| i + 1);
     if let Some(value) = at.and_then(|i| args.get_mut(i)) {
         let mut settings: Value = serde_json::from_str(value).unwrap_or_else(|_| json!({}));
         let refuse = json!([{ "type": "command", "command": refusal() }]);
         settings["hooks"]["PreToolUse"] = json!([{ "matcher": "*", "hooks": refuse }]);
         *value = settings.to_string();
-    }
-    args.push("--fork-session".to_string());
-    if let Some(begins) = begins {
-        args.extend(["--resume-session-at".to_string(), begins.to_string()]);
     }
     args
 }
@@ -1556,6 +1565,24 @@ mod tests {
         assert_eq!(is["hooks"]["SessionStart"], was["hooks"]["SessionStart"]);
         assert_eq!(is["hooks"]["PostToolUse"], was["hooks"]["PostToolUse"]);
         assert_eq!(is["autoMemoryEnabled"], false);
+        assert_eq!(is["hooks"]["PreToolUse"][0]["matcher"], "*");
+        assert_eq!(is["hooks"]["PreToolUse"][0]["hooks"][0]["command"], refusal());
+    }
+
+    // A call that only reads its session, as a keep-warm ping is, gains the hook that refuses every tool and nothing
+    // else: the same arguments, the session gone on with in place, the round's own hooks kept.
+    #[test]
+    fn a_call_that_refuses_every_tool_adds_the_hook_and_does_not_fork_the_session() {
+        let round: Vec<String> = ["--settings", r#"{"hooks":{"PostToolUse":[1]}}"#, "--resume", "s-1"]
+            .iter()
+            .map(|a| a.to_string())
+            .collect();
+        let refusing = refusing(round.clone());
+        assert_eq!(refusing.len(), round.len());
+        assert_eq!((refusing[0].as_str(), &refusing[2..]), ("--settings", &round[2..]));
+        assert!(!refusing.iter().any(|a| a == "--fork-session"));
+        let is: Value = serde_json::from_str(&refusing[1]).expect("the settings");
+        assert_eq!(is["hooks"]["PostToolUse"], json!([1]));
         assert_eq!(is["hooks"]["PreToolUse"][0]["matcher"], "*");
         assert_eq!(is["hooks"]["PreToolUse"][0]["hooks"][0]["command"], refusal());
     }
