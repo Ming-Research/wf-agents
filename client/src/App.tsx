@@ -10,8 +10,8 @@ import { type Definition, type Flow, type Given, load } from './api';
 import { Chart, type Chosen, MATRIX_MARKS } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type BarItems, Engine, useBarItems } from './Engine';
-import { waitingCount } from './works/waiting';
-import { waitCount } from './works/words';
+import { aheadCount, waitingCount } from './works/waiting';
+import { aheadCount as aheadWords, waitCount } from './works/words';
 import { LazyFlowChart } from './graph/lazy';
 import { FLOWCHART_MARKS, chartOf } from './graph/model';
 import { Legend } from './marks';
@@ -170,10 +170,10 @@ export const TABS = [
   { name: 'Settings', href: '#/settings' },
 ];
 
-/// The page round a view: the bar with the views as tabs, the one shown marked and the console saying how many items
-/// wait for the owner; at its right the engine's part and the switch of light and dark. The engine's part, and the
-/// items read for the count, are there only where the server gives everything: `wf-agents flow page` gives the flow
-/// alone, and has no engine to show.
+/// The page round a view: the bar with the views as tabs, the one shown marked and the console saying how many things
+/// wait for the owner and how many questions he may answer ahead, as the cards count them; at its right the engine's
+/// part and the switch of light and dark. The engine's part, and the items read for the counts, are there only where
+/// the server gives everything: `wf-agents flow page` gives the flow alone, and has no engine to show.
 export function Shell({ route, serves = 'all', children }: {
   route: Route;
   /// What the server gives (serves.ts); nothing while it is being asked.
@@ -184,7 +184,9 @@ export function Shell({ route, serves = 'all', children }: {
   const [bar, setBar] = useState<BarItems>({ items: null, failed: null });
   // What waits on the owner, told of by the browser as it comes, on the engine's own page only.
   useNotifications(bar.items, serves === 'all' && !usesFixtures(window.location.search));
-  const waiting = waitingCount(bar.items?.items.map((i) => i.work) ?? []);
+  const works = bar.items?.items.map((i) => i.work) ?? [];
+  const waiting = waitingCount(works);
+  const ahead = aheadCount(works);
   // Each tab leads back to where it was last, kept in this browser, as a work open in the works or an item selected in
   // the console; the tab shown leads to its own first view, as the list of works from a work.
   const here = tabOf(route);
@@ -192,7 +194,9 @@ export function Shell({ route, serves = 'all', children }: {
   useEffect(() => write(`${CHOICE_KEYS.tabAddress}${here}`, address), [here, address]);
   const views = TABS.map((t) => {
     const href = t.href === here ? t.href : (read(`${CHOICE_KEYS.tabAddress}${t.href}`) ?? t.href);
-    return t.href === '#/console' ? { ...t, href, count: waiting, countTitle: waitCount(waiting) } : { ...t, href };
+    return t.href === '#/console'
+      ? { ...t, href, count: waiting, countTitle: waitCount(waiting), ahead, aheadTitle: aheadWords(ahead) }
+      : { ...t, href };
   });
   return (
     <div className="page">

@@ -16,8 +16,10 @@ import {
 /// as a whole.
 export function Bar({ name, views, current, end }: {
   name: string;
-  /// A view's `count` is how many things wait for the owner there; it is drawn beside the name while there are any.
-  views: { name: string; href: string; count?: number; countTitle?: string }[];
+  /// A view's `count` is how many things wait for the owner there, in red; its `ahead`, how many questions the owner
+  /// may answer ahead, in orange, left of it, as a card's tags stand. Each is drawn beside the name while it is above
+  /// nought.
+  views: { name: string; href: string; count?: number; countTitle?: string; ahead?: number; aheadTitle?: string }[];
   current: string;
   end?: ReactNode;
 }) {
@@ -28,6 +30,11 @@ export function Bar({ name, views, current, end }: {
         {views.map((v) => (
           <a key={v.href} className="bar-tab" href={v.href} aria-current={v.href === current ? 'page' : undefined}>
             {v.name}
+            {v.ahead !== undefined && v.ahead > 0 && (
+              <span className="bar-count ahead" title={v.aheadTitle}>
+                {v.ahead}
+              </span>
+            )}
             {v.count !== undefined && v.count > 0 && (
               <span className="bar-count" title={v.countTitle}>
                 {v.count}
