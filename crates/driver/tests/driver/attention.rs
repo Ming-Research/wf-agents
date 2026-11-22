@@ -366,15 +366,16 @@ fn a_work_left_idle_by_the_cancel_of_one_item_it_waited_for_is_a_line_since_that
     h.let_on(wa);
     h.let_on(ww);
     let mark = since(&h, None).mark;
-    // a is cancelled with its round under way, and has ended once that round has.
+    // a is cancelled with its round under way: its run is abandoned as it is cancelled, and the work has ended then,
+    // though the round it stops ends after.
     let (run, ..) = h.round(wa);
     h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
+    let cancelled = Time(h.clock);
     let spent = h.spent();
     let came = hands_in(&[("plan", None)]);
     let todos = h.on(wa, Event::Returned { run, came, spent });
-    let cancelled = Time(h.clock);
     h.released(todos);
-    // Left waiting for b alone, which stands still, w is idle since a ended, not since b stood still.
+    // Left waiting for b alone, which stands still, w is idle since a was cancelled, not since b stood still.
     let lines = since(&h, Some(&mark)).lines;
     assert_eq!(
         lines[0],
