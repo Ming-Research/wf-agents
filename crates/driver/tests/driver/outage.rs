@@ -279,9 +279,13 @@ fn an_act_that_fails_for_want_of_its_hosts_network_holds_the_acts_alone_until_a_
         h.d().host_outage().is_some(),
         "the wait stands until the act comes back"
     );
+    // The first work, merged, ends: what it held is let go, beside the other work's act.
     let todos = h.hands_in(a, &[("merged", None)]);
     assert_eq!(h.d().host_outage(), None);
-    assert_eq!(rounds(&todos), vec![(b, "merge".to_string(), 1)]);
+    let (ended, acts): (Vec<_>, Vec<_>) = (todos.iter()).partition(|t| matches!(t.effect, Effect::Release { .. }));
+    assert_eq!(ended.iter().map(|t| t.work).collect::<Vec<_>>(), vec![a]);
+    let acts: Vec<Todo> = acts.into_iter().cloned().collect();
+    assert_eq!(rounds(&acts), vec![(b, "merge".to_string(), 1)]);
 }
 
 #[test]

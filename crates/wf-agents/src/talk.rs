@@ -630,11 +630,13 @@ fn stop_said(system: &System, stopped: Stopped) -> String {
     };
     let head = match stopped {
         Stopped::NotYet if n == 0 => {
-            return "Nothing is stopped: no round is under way, and `wf-agents stop --now --yes` stops the engine at                     once."
+            return "Nothing is stopped: no round is under way, and `wf-agents stop --now --yes` stops the engine at \
+                    once."
                 .to_string();
         }
         Stopped::NotYet => format!(
-            "Nothing is stopped: `wf-agents stop --now --yes` stops the engine at once and cuts off {these}, which              `wf-agents stop` waits for:"
+            "Nothing is stopped: `wf-agents stop --now --yes` stops the engine at once and cuts off {these}, which \
+             `wf-agents stop` waits for:"
         ),
         Stopped::AtOnce if n == 0 => return "The engine stopped at once; no round was under way.".to_string(),
         Stopped::AtOnce => format!("The engine stopped at once, cutting off {these}:"),

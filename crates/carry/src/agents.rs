@@ -1179,7 +1179,7 @@ impl Inner {
         let Some(state) = (self.said.lock().expect("the tellings' lock")).get(&key).cloned() else {
             return;
         };
-        let mut state = state.lock().await;
+        let state = state.lock().await;
         if state.ended {
             return;
         }

@@ -524,3 +524,43 @@ fn a_stop_is_given_with_the_rests_of_what_is_under_way_and_holds_a_work_that_wou
     );
     assert!(!driver.may_end(), "two rounds are under way");
 }
+
+// What the program of a try left running in its group as it ended, which its carrier stopped, is kept by the store and
+// given in the System view with the try, the round and the cell it belongs to, once the driver is opened again on the
+// store. A few milliseconds; the one test of the count from its event to what the page and `wf-agents system` read.
+#[test]
+fn what_a_try_s_program_left_running_is_kept_and_given_in_the_system_view() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store.sqlite");
+    let open = |at: u64| {
+        let flow = flow::compile(
+            &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+            &crate::trial_has(&flow::Source::default()),
+        )
+        .unwrap();
+        let store = Store::open(&path).unwrap();
+        driver::Driver::open(Box::new(store), vec![flow], 10, None, work::Time(at))
+            .unwrap()
+            .0
+    };
+    let mut driver = open(START);
+    let work = planned(&mut driver, START, 10_000, 1_000);
+    let build = driver.work(work).unwrap().work.records.started.last().unwrap().run;
+    let left = engine::Event::LeftBehind {
+        run: build,
+        attempt: 1,
+        processes: 2,
+    };
+    happened(&mut driver, START + 12_000, work, left);
+    drop(driver);
+    let driver = open(START + 20_000);
+    let system =
+        serde_json::to_value(web::system::System::of(&driver, work::Time(START + 20_000), &[]).unwrap()).unwrap();
+    assert_eq!(
+        system["leftBehind"],
+        json!([{
+            "work": work.0, "item": work.0, "cell": "build", "run": build.0, "round": 1, "attempt": 1,
+            "at": START + 12_000, "processes": 2
+        }])
+    );
+}
