@@ -8,7 +8,7 @@ The Flow view draws the flow as a flowchart or as the matrix, with a switch on i
 - replaced: The matrix shown first was on main; the owner changed it, because he asked for the flowchart first, giving no reason.
 
 ### decision a-cell-opens-everything-about-it
-A chart names a cell by its id, and the flowchart also by its line and title; everything else about the cell is in its panel, which opens when the owner chooses the cell.
+A chart names a cell by its id, the matrix with its effort under it and the flowchart with its line and title; everything else about the cell is in its panel, which opens when it is chosen.
 - rejected: an agent proposed piling into the chart's cells what was settled for each, and listing what was open under the chart; the owner rejected it, because he cannot look at the chart and read other text at once, and the chart is everything to him.
 
 ### decision the-flow-view-compares-no-versions
@@ -20,8 +20,9 @@ The matrix puts each datum on a row and each cell in a column, in the order of t
 - rejected: an agent proposed the cells as rows and the blocks as columns; the owner rejected it, because names written vertically across the top cannot be read.
 
 ### decision columns-as-wide-as-their-marks
-A cell's column on the matrix is only as wide as its marks, headed by the cell's id alone; the width this frees is a column of words at the right, one line per row.
+A cell's column on the matrix is only as wide as its marks, headed by the cell's id and its effort under it; the width this frees is a column of words at the right, one line per row.
 - replaced: Columns headed by the cells' long titles was on main; the owner changed it, because they wasted the middle of the chart.
+- replaced: A head of the cell's id alone was on main; the owner changed it, because he wants to see where the effort changes along a line, as a change of effort within one session makes the next request miss the prompt cache.
 - rejected: an agent proposed lanes, one for each session, with the data as lines from writer to reader; the owner rejected it, because the chart's problem was its wasted middle, which lanes turned upside down rather than cured.
 
 ### decision the-lines-and-the-conditions-are-bands

@@ -3,16 +3,21 @@
 // (`fixtures.ts`): those that stand as the boxes over the tree's corner tick, open, done or cancelled, and what stands
 // over them. A press on the funnel or the dot of an item's fold folds the items under it away or shows them again, as
 // `e` does over its card, except while the owner types in a field or holds Ctrl, Alt or Meta: a choice kept in the
-// browser for that item, which wins over the tree's own rule. Beside the tree, a window shows the item selected
-// (`ItemWindow.tsx`). Selecting an item slides the window out; letting it go slides the window back, unless the tab
-// stuck to its left edge brought it out, in which case it stays until the tab takes it back. The tab takes it back
-// without letting the item go, and the next item selected brings it out again. The window coming out over the item
-// selected, or an item selected half under it or half off the screen, moves the tree only until the item is wholly
-// within what the window leaves. Escape lets the item go while the tree has the keys, and slides the window in while it
-// has them. Each time the interface says something happened, the items are read again, at most one read at a time and
-// one more after it, and drawn where they stand, the item selected and the panel as they were; when the stream opens
-// again after a cut, everything is. An item the address names is selected once the tree shows it, as from a
-// notification of a question it waits on. The page's shell mounts it lazily (`lazy.tsx`).
+// browser for that item, which wins over the tree's own rule. Under the boxes, a search finds any item (`find.tsx`),
+// which `/` gives the keys to as `e` folds; an item picked from it is selected as one the address names, its box ticked
+// first where its kind is not. `n` goes to the next of what the cards' red and orange counts count, in the tree's
+// order and in the order the window draws them, and `N` to the one before, each selected and brought to the top of the
+// window as a pick is. At the tree's bottom left, a question mark shows what the marks and the keys mean
+// (`help.tsx`). Beside the tree, a window shows the item selected (`ItemWindow.tsx`). Selecting an item slides the
+// window out; letting it go slides the window back, unless the tab stuck to its left edge brought it out, in which case
+// it stays until the tab takes it back. The tab takes it back without letting the item go, and the next item selected
+// brings it out again. The window coming out over the item selected, or an item selected half under it or half off the
+// screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item go while the
+// tree has the keys, and slides the window in while it has them. Each time the interface says something happened, the
+// items are read again, at most one read at a time and one more after it, and drawn where they stand, the item selected
+// and the panel as they were; when the stream opens again after a cut, everything is. An item the address names is
+// selected once the tree shows it, as from a notification of a question it waits on. The page's shell mounts it lazily
+// (`lazy.tsx`).
 //
 // Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
 // the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel and a
@@ -29,7 +34,9 @@ import type { Items, WorkPage } from '../works-api';
 import { oneAtATime } from '../works/source';
 import { goalMock } from './mock';
 import { fakeShown } from './fake';
-import { type ItemStanding, STANDINGS, type Shown, shownTree } from './items';
+import { Find } from './find';
+import { ConsoleHelp } from './help';
+import { type ItemStanding, STANDINGS, type Shown, shownTree, standingOf, walkOrder } from './items';
 import { ItemPanel, type PageState } from './ItemWindow';
 import { SnapScene } from './snap';
 import { type Heard, type Source, inOrder, pageSource } from './source';
@@ -171,6 +178,66 @@ export function ConsolePage({
     toSelect.current = named;
     selectNamed();
   }, [named]);
+  // The search's field, which `/` gives the keys to. An item picked from it is selected as one the address names: the
+  // folds over it open, and where its kind is not ticked, its box is ticked first, so that the tree shows it.
+  const findField = useRef<HTMLInputElement>(null);
+  const pick = (id: number) => {
+    const found = latestData.current?.items.find((i) => i.number === id);
+    if (found === undefined) return;
+    toSelect.current = id;
+    const standing = standingOf(found);
+    if (showsNow.current.has(standing)) selectNamed();
+    else tick(standing, true);
+  };
+
+  // The walk of the stops by n and N, and by the button under each stop: the item the walk last went to and the place
+  // among its stops, -1 for its last; and the stop the window is asked to bring to the top of what it shows. The walk
+  // goes in the tree's order, each item before the items under it (`walkOrder`), and from the last stop to the first,
+  // and back. How many stops an item has is what its counts say, which the window draws only once it has read the work.
+  const walk = useRef<{ item: number; at: number } | null>(null);
+  const [stopAsked, setStopAsked] = useState<{ item: number; at: number; seq: number } | null>(null);
+  // The item selected, as the scene holds it at this moment, which the page's own state follows a render later.
+  const selectedNow = () => scene.current?.selectedId() ?? null;
+  const goStop = (item: number, at: number) => {
+    walk.current = { item, at };
+    setStopAsked((was) => ({ item, at, seq: (was?.seq ?? 0) + 1 }));
+    if (item !== selectedNow()) pick(item);
+  };
+  const walkOn = (way: 1 | -1) => {
+    const d = latestData.current;
+    if (d === undefined) return;
+    const order = walkOrder(shownTree(d, new Set(STANDINGS), foldsNow.current));
+    const begin = way > 0 ? 0 : -1;
+    const stopsOf = (id: number) => order.find((o) => o.id === id)?.stops ?? 0;
+    // The next item with stops from the item `from`, `way` on in the tree's order, round from the end to the start.
+    const after = (from: number) => {
+      const at = order.findIndex((o) => o.id === from);
+      for (let k = 1; k <= order.length; k += 1) {
+        const o = order[(((at + way * k) % order.length) + order.length) % order.length];
+        if (o.stops > 0) return o.id;
+      }
+      return null;
+    };
+    const w = walk.current;
+    const sel = selectedNow();
+    if (w !== null && w.item === sel) {
+      const count = stopsOf(w.item);
+      const at = (w.at < 0 ? count - 1 : w.at) + way;
+      if (at >= 0 && at < count) return goStop(w.item, at);
+      const next = after(w.item);
+      if (next !== null) goStop(next, begin);
+      return;
+    }
+    // A walk begins at the item selected: at its own stops where it has any, else at the next item that has.
+    if (sel !== null && stopsOf(sel) > 0) return goStop(sel, begin);
+    const from = sel ?? (way > 0 ? order[order.length - 1]?.id : order[0]?.id);
+    const next = from === undefined ? null : after(from);
+    if (next !== null) goStop(next, begin);
+  };
+  const walkOnNow = useRef(walkOn);
+  useEffect(() => {
+    walkOnNow.current = walkOn;
+  });
 
   /// The width of the tree that the window leaves to be seen: all of it while the window is in.
   const room = (out: boolean) => {
@@ -193,12 +260,19 @@ export function ConsolePage({
     if (!active) return;
     const key = (e: KeyboardEvent) => {
       // `e` folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or
-      // its dot does; not while the owner types in a field, nor with Ctrl, Alt or Meta held.
-      if (e.key === 'e') {
+      // its dot does; `/` gives the keys to the search; `n` goes to the next stop and `N` to the one before. None while
+      // the owner types in a field, nor with Ctrl, Alt or Meta held.
+      if (e.key === 'e' || e.key === '/' || e.key === 'n' || e.key === 'N') {
         const to = e.target as HTMLElement | null;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         if (to && (to.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(to.tagName))) return;
-        if (scene.current?.foldPointedCard() === true) e.preventDefault();
+        if (e.key === '/') {
+          e.preventDefault();
+          findField.current?.focus();
+        } else if (e.key === 'n' || e.key === 'N') {
+          e.preventDefault();
+          walkOnNow.current(e.key === 'n' ? 1 : -1);
+        } else if (scene.current?.foldPointedCard() === true) e.preventDefault();
         return;
       }
       // Escape answers a question the page asks, and nothing else.
@@ -256,9 +330,11 @@ export function ConsolePage({
               </label>
             ))}
           </div>
+          <Find data={data} field={findField} onPick={pick} />
           {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
           {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}
         </div>
+        <ConsoleHelp />
       </div>
       <Drawer
         open={open}
@@ -285,6 +361,14 @@ export function ConsolePage({
               scene.current?.show(shownTree(latestData.current, showsNow.current, foldsNow.current))
             }
             onTitle={() => scene.current?.reveal(item.number, room(open))}
+            stop={stopAsked !== null && stopAsked.item === item.number ? stopAsked : undefined}
+            onStopChosen={(at) => {
+              walk.current = { item: item.number, at };
+            }}
+            onNextStop={(at) => {
+              walk.current = { item: item.number, at };
+              walkOn(1);
+            }}
           />
         )}
       </Drawer>

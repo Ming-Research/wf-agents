@@ -251,6 +251,10 @@ export interface Summary {
   /// count, each item's mark, the cards and the notifications read, and nothing else. Absent from an engine that does
   /// not give it yet.
   waits?: Wait[];
+  /// How many of its questions put to the owner stand unanswered and hold it at nothing now, so that the owner may answer
+  /// them ahead, as one the merge will wait for: those the item window draws as not holding the work. One that holds it
+  /// counts in `waits` alone. Absent from an engine that does not give it yet.
+  ahead?: number;
   /// The level its rounds run at, by the engine's rule that gives a round its level: its item's, or the default where
   /// its item has none; none where the rule refuses it, the item's level being none an item may be at. Absent from
   /// made-up data, as none.

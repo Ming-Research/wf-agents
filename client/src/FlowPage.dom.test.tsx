@@ -98,15 +98,17 @@ describe('the chart', () => {
     expect(texts(needs, '.spot .visually-hidden')).toEqual(['judge outputs needs_design', 'design when needs_design = yes']);
     expect(needs.querySelector('.block-values')?.textContent).toBe('yes|no');
     expect(texts(needs, '.row-label')).toEqual([]);
-    // A head holds the id alone; its title, line, when and requires are what its button is called, by their keys.
+    // A head holds the id and, under it, the effort its rounds run at, as the cell's file writes it; its title, line,
+    // when and requires are what its button is called, by their keys.
     expect(texts(page, 'thead .cell-head .head-button')).toEqual([
-      'plan',
-      'judge',
-      'design',
-      'answer',
-      'check',
-      'merge',
+      'planhigh',
+      'judgehigh',
+      'designhigh',
+      'answerhigh',
+      'checkhigh',
+      'mergehigh',
     ]);
+    expect(texts(page, 'thead .cell-head .cell-effort')).toEqual(['high', 'high', 'high', 'high', 'high', 'high']);
     expect(headNames(page)[2]).toBe('design Design, builder, when needs_design = yes');
     expect(headNames(page)[3]).toBe(
       'answer Answer comments, builder, when test = has_comment, requires test = plan_confirmed',

@@ -2,7 +2,7 @@
 // outline has them (`outline.ts`), each head the matrix's own; down the side the runs, one to a row in the order they happened, the oldest at the top. At the
 // left of a row, what woke its run, named as the matrix names its rows, with the owner's sign, the outside's or the
 // tool's mark (`placing.ts`). Under the cells, an arrow from the middle of the column of the cell whose run wrote what
-// woke it to the run's own column, drawn as the matrix draws its ways back and in the accent where it runs back
+// woke it to the run's own column, drawn as the matrix draws its ways back and in red where it runs back, a send-back,
 // to an earlier cell, and in the run's column its mark, how it ended or stands, alone. At the right, how long the run
 // took, or has been under way while it is open, in the colour a console card gives a work's age, and when it began on
 // pointing at it; then what its latest round ran on, as the records of its try kept it: the level, in the look a level
@@ -34,7 +34,7 @@ import { NOT_KEPT, duration, fullTime, isOpen, partsText, ranLast, runTook } fro
 /// ended, then how an open one stands.
 export const HISTORY_MARKS: MarkKey[] = [
   'wakes',
-  'wayBack',
+  'sentBackWay',
   'people',
   'outside',
   'tools',

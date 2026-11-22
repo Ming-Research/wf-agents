@@ -10,8 +10,9 @@
 // once destroyed, the scene listens to nothing. The pointer and the wheel are events sent to the canvas at the points
 // the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
 // browser's own. They pin as well what the old console did not do: a click on an item's funnel folds what is under it
-// into a dot and a click on the dot shows it again, both selecting nothing, the fold turning over its time; and the
-// console keeps that choice over its own rule.
+// into a dot and a click on the dot shows it again, both selecting nothing, the fold turning over its time; the
+// console keeps that choice over its own rule; a lit way turns into the cards it joins along its own curve; and the way
+// to a work the engine runs a call for is lit, as to one whose round runs.
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
@@ -22,11 +23,14 @@ import { userEvent } from 'vitest/browser';
 
 import { DEFAULT_ACCENT, pickAccent, PRESETS, tones } from '../accent';
 import { apart, lchOf } from '../colour';
-import type { Items } from '../works-api';
+import { MARKS } from '../marks';
+import type { Items, Now } from '../works-api';
 import { fixtureSource } from './fixtures';
+import { FIND_SAYS } from './find';
+import { CONSOLE_MARKS } from './help';
 import type { Heard } from './source';
 import { ConsolePage } from './index';
-import type { Shown } from './items';
+import type { Shown, ShownWork } from './items';
 import { DOT_AT, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, SnapScene, themed, UNFOLD_MS } from './snap';
 
 const WIDTH = 1000;
@@ -40,14 +44,33 @@ const card = (id: number, children: Shown[] = []): Shown => ({
   unread: 0,
   standing: 'open',
   asks: 0,
+  ahead: 0,
   deliver: false,
-  blocked: 0,
   begun: false,
   shadow: false,
   work: null,
   children,
 });
 const shadow = (id: number): Shown => ({ ...card(id), shadow: true });
+/// The work numbered `number`, running its implement cell since now.
+const running = (number: number): ShownWork => {
+  const now = Date.now();
+  return {
+    number,
+    now: { kind: 'round', cell: 'implement', run: 1, round: 1, since: now },
+    paused: null,
+    cells: [{ cell: 'implement', state: 'running', finished: 0, record: null, open: 1 }],
+    waits: [],
+    from: now,
+    bar: '',
+    sentBack: 0,
+    usdMicros: 0,
+    last: null,
+    level: '2',
+    raise: 0,
+    lines: null,
+  };
+};
 
 const frame = () => new Promise<void>((done) => requestAnimationFrame(() => done()));
 /// Two frames: one in which the scene has surely drawn, whichever of its frame and the test's came first.
@@ -254,25 +277,11 @@ describe('the tree in columns', () => {
   });
 
   it('draws the lit way into a running item under a turning fold with its card, ending where the card is drawn at each frame', () => {
-    const now = Date.now();
-    const work: Shown['work'] = {
-      number: 2,
-      now: { kind: 'round', cell: 'implement', run: 1, round: 1, since: now },
-      paused: null,
-      cells: [{ cell: 'implement', state: 'running', finished: 0, record: null, open: 1 }],
-      waits: [],
-      from: now,
-      bar: '',
-      sentBack: 0,
-      usdMicros: 0,
-      last: null,
-      level: '2',
-      raise: 0,
-      lines: null,
-    };
     const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
     // Under 1, item 2, whose work runs.
-    const tree = (folded: boolean) => [{ ...card(1, [{ ...card(2), begun: true, work }]), fold: { folded, under } }];
+    const tree = (folded: boolean) => [
+      { ...card(1, [{ ...card(2), begun: true, work: running(2) }]), fold: { folded, under } },
+    ];
     /// The way into item 2 is lit, and ends where item 2 is drawn, smaller than whole.
     const endsAtCard = () => {
       const way = scene.litWays().find((w) => w.id === 2);
@@ -292,6 +301,152 @@ describe('the tree in columns', () => {
     scene.show(tree(true));
     for (let k = 0; k < FOLD_MS / 32; k += 1) scene.step(16);
     endsAtCard();
+  });
+
+  it("draws each item on the map in the colour of its card's state: running, in a call, for the owner, halted, paused, not begun, done or cancelled", () => {
+    const now = Date.now();
+    const call: Now = {
+      kind: 'waits',
+      at: 'implement',
+      on: [{ kind: 'call', call: 1, who: null, what: { kind: 'tool', name: 'ci', input: 'the tests' } }],
+    };
+    const asks = [{ key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } }];
+    const paused: Now = { kind: 'paused', at: 'implement', by: 'owner', why: null };
+    const items: Shown[] = [
+      { ...card(1), begun: true, work: running(1) },
+      { ...card(2), begun: true, work: { ...running(2), now: call } },
+      { ...card(3), begun: true, work: { ...running(3), waits: asks } },
+      { ...card(4), begun: true, work: { ...running(4), now: { kind: 'fault', words: 'No session' } } },
+      { ...card(5), begun: true, work: { ...running(5), now: paused, paused: 'owner', from: now } },
+      card(6),
+      { ...card(7), standing: 'done' },
+      { ...card(8), standing: 'cancelled' },
+    ];
+    scene.show(items);
+    settle(scene);
+    const colour = new Map(scene.drawnMap().pieces.map((p) => [p.id, p.colour]));
+    const p = themed();
+    expect([1, 2, 3, 4, 5, 6, 7, 8].map((id) => colour.get(id))).toEqual([
+      p.running,
+      p.calling,
+      p.halted,
+      p.halted,
+      p.paused,
+      p.pale,
+      p.hair,
+      p.hair,
+    ]);
+  });
+
+  it("frames on the map the part of the tree the screen shows, round the middle where each column's place is, after a scroll and a pan", () => {
+    // Thirty roots in the first column, the first with an item under it and one under that: three columns.
+    const roots = Array.from({ length: 30 }, (_, k) => card(k + 1, k === 0 ? [card(100, [card(101)])] : []));
+    scene.show(roots);
+    settle(scene);
+    const barAt = (d: number) => 8 + d * (12 + 5);
+    /// The frame drawn holds, round the map's middle, the pieces of the first column's items whose cards are on the
+    /// screen, and stands over the columns from `first` to `last`.
+    const holds = (first: number, last: number) => {
+      const { frame, pieces } = scene.drawnMap();
+      if (frame === null) throw new Error('no frame on the map');
+      expect(frame.x).toBeCloseTo(barAt(first) - 2, 6);
+      expect(frame.x + frame.width).toBeCloseTo(barAt(last) + 12 + 2, 6);
+      expect(frame.y + frame.height / 2).toBeCloseTo(72 / 2, 6);
+      for (const piece of pieces.filter((q) => q.column === 0)) {
+        const stands = scene.cardAt(piece.id) as { y: number };
+        const middle = piece.y + piece.height / 2;
+        const inside = middle > frame.y && middle < frame.y + frame.height;
+        if (stands.y > ROW && stands.y < HEIGHT - ROW) expect(inside).toBe(true);
+        if (stands.y < -ROW || stands.y > HEIGHT + ROW) expect(inside).toBe(false);
+      }
+    };
+    holds(0, 2);
+    // A scroll over the first column moves its pieces under the frame, which stays round the middle.
+    move(50, line);
+    wheel(0, 8 * ROW);
+    settle(scene);
+    holds(0, 2);
+    // A pan that takes the first column off the screen takes the frame off its bar.
+    wheel(PITCH + 100, 0);
+    settle(scene);
+    holds(1, 2);
+  });
+
+  it('draws a card whose work halted before its first round in red, as one that halted after it, with no second row', () => {
+    const fault: Now = { kind: 'fault', words: 'No session' };
+    const halted = (k: number, from: number | null): Shown => ({ ...card(k), work: { ...running(k), now: fault, from } });
+    scene.show([halted(1, null), halted(2, Date.now()), card(3)]);
+    const [before, after, plain] = [1, 2, 3].map((id) => scene.cardLook(id));
+    expect(before?.rows).toBe(1);
+    expect(after?.rows).toBeGreaterThan(1);
+    expect([before?.fill, before?.edge]).toEqual([after?.fill, after?.edge]);
+    expect(before?.fill).not.toBe(plain?.fill);
+    expect(before?.edge).not.toBe(plain?.edge);
+    expect(scene.drawnStrip(1)).toBeNull();
+    expect(scene.drawnStrip(2)).not.toBeNull();
+  });
+
+  it('lights the way to a work the engine runs a call for, as to one whose round runs, and to no work that waits for the owner or is paused', () => {
+    const call: Now = {
+      kind: 'waits',
+      at: 'implement',
+      on: [{ kind: 'call', call: 1, who: null, what: { kind: 'tool', name: 'ci', input: 'the tests' } }],
+    };
+    const paused: Now = { kind: 'paused', at: 'implement', by: 'owner', why: null };
+    const asks = [{ key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } }];
+    const under = (k: number, work: ShownWork) => ({ ...card(k), begun: true, work });
+    // Under 1: 2 runs a round, 3 waits for the engine's call, 4 waits for the owner, and 5 is paused.
+    const kids = [
+      under(2, running(2)),
+      under(3, { ...running(3), now: call }),
+      under(4, { ...running(4), waits: asks }),
+      under(5, { ...running(5), now: paused, paused: 'owner' }),
+    ];
+    scene.show([card(1, kids)]);
+    settle(scene);
+    expect(scene.litWays().map((w) => w.id).sort()).toEqual([2, 3]);
+    // Folded away under 1, the work in its call ends the lit way at 1's dot, as a work whose round runs does.
+    const folded = { open: 4, done: 0, cancelled: 0, elsewhere: 0 };
+    scene.show([card(10, [{ ...card(1, [kids[1], kids[2]]), fold: { folded: true, under: folded } }])]);
+    settle(scene);
+    expect(scene.litWays().map((w) => w.id)).toEqual([1]);
+  });
+
+  it('turns a lit way that leaves an open card steeply into the edges it joins along its own curve, with no stub beside it', () => {
+    // Under 1, shown, item 2, whose work runs, and eleven items more: 2 stands rows above 1, so that its way rises
+    // steeply out of 1's edge.
+    const rest = Array.from({ length: 11 }, (_, k) => card(3 + k));
+    const under = { open: 12, done: 0, cancelled: 0, elsewhere: 0 };
+    const two = { ...card(2), begun: true, work: running(2) };
+    scene.show([{ ...card(1, [two, ...rest]), fold: { folded: false, under } }]);
+    settle(scene);
+    const way = scene.litWays().find((w) => w.id === 2);
+    const [one, item] = [scene.cardAt(1), scene.cardAt(2)];
+    if (way === undefined || one === null || item === null) throw new Error('the way into 2 is not drawn');
+    // The way starts at the middle of 1's right edge and ends at the middle of 2's left edge, well above it.
+    expect(way.from[0]).toBeCloseTo(one.x + NODE_W, 6);
+    expect(way.from[1]).toBeCloseTo(one.y, 6);
+    expect(way.to[0]).toBeCloseTo(item.x, 6);
+    expect(way.to[1]).toBeCloseTo(item.y, 6);
+    expect(one.y - item.y).toBeGreaterThan(4 * ROW);
+    // Each turn into a card begins on the way's curve as drawn, off the card's middle where the way has already
+    // turned, and heads along the curve to bend on the card's edge.
+    for (const [turn, edge] of [[way.turns[0], way.from], [way.turns[1], way.to]] as const) {
+      let best = { off: Infinity, along: [0, 0] as [number, number] };
+      for (let n = 0; n + 1 < way.curve.length; n += 1) {
+        const [a, b] = [way.curve[n], way.curve[n + 1]];
+        const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+        const len = Math.hypot(dx, dy);
+        const k = Math.min(1, Math.max(0, ((turn.from[0] - a[0]) * dx + (turn.from[1] - a[1]) * dy) / (len * len)));
+        const off = Math.hypot(turn.from[0] - (a[0] + dx * k), turn.from[1] - (a[1] + dy * k));
+        if (off < best.off) best = { off, along: [dx / len, dy / len] };
+      }
+      expect(best.off).toBeLessThan(1e-6);
+      expect(Math.abs(turn.from[1] - edge[1])).toBeGreaterThan(0.5);
+      expect(turn.bend[0]).toBeCloseTo(edge[0], 6);
+      const [hx, hy] = [turn.bend[0] - turn.from[0], turn.bend[1] - turn.from[1]];
+      expect(Math.abs(hx * best.along[1] - hy * best.along[0]) / Math.hypot(hx, hy)).toBeLessThan(1e-6);
+    }
   });
 
   it('draws a fold as it stands at the end of its turn in the first frame after its time, however far apart the frames come', () => {
@@ -621,7 +776,17 @@ describe('a scene destroyed', () => {
 describe('the console page', () => {
   let container: HTMLDivElement;
   let unmount: () => void;
+  // Each test begins with nothing kept, whatever a test before it left: a test cut off at its time limit goes on
+  // typing after the one after it has begun.
+  const forget = () => {
+    try {
+      localStorage.clear();
+    } catch {
+      // Nothing kept.
+    }
+  };
   beforeEach(() => {
+    forget();
     container = document.createElement('div');
     container.style.cssText = 'position: fixed; inset: 0; display: flex';
     document.body.append(container);
@@ -633,11 +798,7 @@ describe('the console page', () => {
   afterEach(() => {
     unmount();
     container.remove();
-    try {
-      localStorage.clear();
-    } catch {
-      // Nothing kept.
-    }
+    forget();
   });
 
   /// The scene, once it has drawn the made-up items.
@@ -770,6 +931,123 @@ describe('the console page', () => {
     expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'folded' });
   });
 
+  /// The search's field, and the paths of the rows it finds.
+  const field = () => container.querySelector('.console-find input') as HTMLInputElement;
+  const found = () => [...container.querySelectorAll('.console-found-row > .mono')].map((s) => s.textContent);
+  /// The box of a kind of item over the tree.
+  const box = (name: string) =>
+    [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')]
+      .find((l) => l.textContent === name)
+      ?.querySelector('input') as HTMLInputElement;
+
+  it('gives the keys to the search at `/`, finds by number, by path and by a part of the title, and empties at Escape', async () => {
+    const scene = await drawn();
+    await userEvent.keyboard('/');
+    expect(document.activeElement).toBe(field());
+    expect(field().value).toBe('');
+    // By its number: item 27, done, shown by its path under 26, its root.
+    await userEvent.fill(field(), '27');
+    await expect.poll(found).toEqual(['26-27']);
+    expect(container.querySelector('.console-found-row .console-found-standing')?.textContent).toBe('Done');
+    // By a path from its root: the item it names, and the items under it.
+    await userEvent.fill(field(), '26-27');
+    await expect.poll(found).toEqual(['26-27', '26-27-30', '26-27-31']);
+    // As a path stands while it is typed a digit at a time: `26-2` names 26-27, 26-28 and 26-29, each with the items
+    // under it.
+    await userEvent.fill(field(), '26-2');
+    await expect.poll(found).toEqual([
+      '26-27',
+      '26-27-30',
+      '26-27-31',
+      '26-28',
+      '26-28-32',
+      '26-29',
+      '26-29-33',
+      '26-29-34',
+    ]);
+    // The list's frame reaches past the right edge of the tree's first column, so that no card shows beside it.
+    const frame = (container.querySelector('.console-found') as HTMLElement).getBoundingClientRect();
+    const canvas = (container.querySelector('canvas') as HTMLCanvasElement).getBoundingClientRect();
+    expect(frame.right).toBeGreaterThanOrEqual(canvas.left + scene.place().left + NODE_W);
+    // Nothing found is said in the list's own frame, on its ground.
+    await userEvent.fill(field(), 'nowhere at all');
+    await expect.poll(() => container.querySelector('.console-found > .console-found-none')?.textContent).toBe(
+      FIND_SAYS.none,
+    );
+    // By a part of the title, in any case, over every item, done or not.
+    await userEvent.fill(field(), 'FOLD');
+    await expect.poll(found).toEqual(['26', '26-27', '26-27-30', '26-27-31']);
+    // Escape empties the field and gives the keys back.
+    await userEvent.keyboard('{Escape}');
+    expect(field().value).toBe('');
+    expect(document.activeElement).not.toBe(field());
+    expect(container.querySelector('.console-found')).toBeNull();
+  });
+
+  it('opens the folds over an item it picks, ticking the box of its kind where it was not, and selects it', async () => {
+    await drawn();
+    expect(box('Done').checked).toBe(false);
+    // Item 30 is done, and folded away under 27, done too.
+    await userEvent.keyboard('/');
+    await userEvent.fill(field(), '26-27-30');
+    await expect.poll(found).toEqual(['26-27-30']);
+    await userEvent.keyboard('{Enter}');
+    await expect.poll(title).toBe('Draw a fold as a dot');
+    expect(box('Done').checked).toBe(true);
+    expect(JSON.parse(localStorage.getItem('wf-agents.console-folds') ?? '{}')).toEqual({ 27: 'unfolded' });
+    expect(field().value).toBe('');
+  });
+
+  it('ticks Cancelled for a cancelled item it picks with a click, and selects it', async () => {
+    await drawn();
+    expect(box('Cancelled').checked).toBe(false);
+    await userEvent.keyboard('/');
+    await userEvent.fill(field(), 'flat list');
+    await expect.poll(found).toEqual(['35']);
+    await userEvent.click(container.querySelector('.console-found-row') as HTMLElement);
+    await expect.poll(title).toBe('Try the tree as a flat list');
+    expect(box('Cancelled').checked).toBe(true);
+  });
+
+  it('fades in what the marks and the keys mean while the pointer is on the question mark at the bottom left, and fades it out once it leaves, taking the pointer no more', async () => {
+    await drawn();
+    const mark = container.querySelector('.console-help-mark') as HTMLElement;
+    const panel = () => container.querySelector('.console-help-panel') as HTMLElement;
+    const look = () => getComputedStyle(panel());
+    // Hidden at first: no pointer, nothing to read.
+    expect(panel().classList.contains('shown')).toBe(false);
+    expect(look().pointerEvents).toBe('none');
+    expect(look().visibility).toBe('hidden');
+    await userEvent.hover(mark);
+    await expect.poll(() => panel().classList.contains('shown')).toBe(true);
+    expect(look().pointerEvents).toBe('auto');
+    expect(look().visibility).toBe('visible');
+    // It fades in over the page's short time for what the pointer does, written in seconds or milliseconds.
+    const ms = (t: string) => (t.trim().endsWith('ms') ? parseFloat(t) : parseFloat(t) * 1000);
+    expect(look().transitionProperty.split(',')[0].trim()).toBe('opacity');
+    const hover = getComputedStyle(document.documentElement).getPropertyValue('--hover-time');
+    expect(ms(look().transitionDuration.split(',')[0])).toBe(ms(hover));
+    expect(ms(hover)).toBeGreaterThan(0);
+    await expect.poll(() => look().opacity).toBe('1');
+    const listed = (label: string) =>
+      [...container.querySelectorAll(`.console-help-panel ul[aria-label="${label}"] > li`)].map((li) => li.textContent);
+    expect(listed("The console's keys")).toEqual([
+      '/ search',
+      'e fold or unfold the card under the pointer',
+      'n / N next / previous question',
+      'Esc close',
+    ]);
+    const marks = listed("The console's marks");
+    expect(marks).toHaveLength(CONSOLE_MARKS.length);
+    CONSOLE_MARKS.forEach((key, k) => expect(marks[k]?.endsWith(` ${MARKS[key].name}`)).toBe(true));
+    // Once the pointer leaves, it takes the pointer no more at once, and is hidden once it has faded.
+    await userEvent.unhover(mark);
+    await expect.poll(() => panel().classList.contains('shown')).toBe(false);
+    expect(look().pointerEvents).toBe('none');
+    await expect.poll(() => look().visibility).toBe('hidden');
+    await expect.poll(() => look().opacity).toBe('0');
+  });
+
   it('writes the item selected into the address, so that the tab of the console leads back to it', async () => {
     const scene = await drawn();
     const was = window.location.hash;
@@ -783,6 +1061,123 @@ describe('the console page', () => {
     } finally {
       history.replaceState(null, '', was === '' ? window.location.pathname : was);
     }
+  });
+
+  /// A key pressed on the page, as the owner presses it.
+  const key = (k: string, keys: KeyboardEventInit = {}, on: Element = document.body) =>
+    on.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...keys }));
+  /// The item the address says is selected.
+  const inAddress = () => Number(/#\/console\/items\/(\d+)/.exec(window.location.hash)?.[1] ?? Number.NaN);
+
+  it("walks the stops with n and N in the tree's order, an item's own in turn, round from the last to the first and back, but not in a field or with Ctrl", async () => {
+    await drawn();
+    const was = window.location.hash;
+    /// Presses `k` and waits until the item `id` is selected and the page has taken it in.
+    const walkTo = async (k: string, id: number) => {
+      key(k, k === 'N' ? { shiftKey: true } : {});
+      await expect.poll(inAddress).toBe(id);
+      await drew();
+    };
+    try {
+      // With Ctrl held, or while the owner types in a field, n goes nowhere.
+      key('n', { ctrlKey: true });
+      key('n', {}, field());
+      await drew();
+      expect(title()).toBeNull();
+      // The items with stops, in the tree's order: 1 (two), 15 under 5 under it, 7, 20 (two), 12, 4 and 25. With
+      // nothing selected, n goes to item 1's first stop; then to its second; then to 15's.
+      await walkTo('n', 1);
+      await walkTo('n', 1);
+      await walkTo('n', 15);
+      // From 15's first stop, N goes back to item 1's last, then to its first, and from there round to the last stop
+      // of all, item 25's; n from there goes round to item 1 again.
+      await walkTo('N', 1);
+      await walkTo('N', 1);
+      await walkTo('N', 25);
+      await walkTo('n', 1);
+      expect(title()).toBe('Run works without anyone watching');
+    } finally {
+      history.replaceState(null, '', was === '' ? window.location.pathname : was);
+    }
+  });
+
+  it('gives the stop n goes to the soft light of a stop chosen, and moves it to another stop clicked on its frame, from which n goes on', async () => {
+    await drawn();
+    const was = window.location.hash;
+    const stops = () => [
+      ...container.querySelectorAll<HTMLElement>('.cw-item .cw-choice[data-wait]:not(.cw-choice-done)'),
+    ];
+    const lit = () => stops().map((s) => s.classList.contains('cw-stop-chosen'));
+    try {
+      // n goes to item 1's first stop, which stands in the light; its second does not.
+      key('n');
+      await expect.poll(inAddress).toBe(1);
+      await expect.poll(lit).toEqual([true, false]);
+      expect(getComputedStyle(stops()[0]).boxShadow).not.toBe('none');
+      expect(getComputedStyle(stops()[1]).boxShadow).toBe('none');
+      // A click on the second stop's frame, outside its buttons, moves the light there, and n goes on from it, to the
+      // first stop of item 15.
+      (stops()[1].querySelector('.cw-choice-q') as HTMLElement).click();
+      await expect.poll(lit).toEqual([false, true]);
+      key('n');
+      await expect.poll(inAddress).toBe(15);
+    } finally {
+      history.replaceState(null, '', was === '' ? window.location.pathname : was);
+    }
+  });
+
+  it("puts under each of an item's stops but its last a button to the next, saying its place, and brings the card of a stop gone to onto the screen", async () => {
+    const scene = await drawn();
+    const was = window.location.hash;
+    const nexts = () =>
+      [...container.querySelectorAll('.cw-item button')]
+        .map((b) => b.textContent ?? '')
+        .filter((t) => t.startsWith('Next question'));
+    try {
+      // Item 20 waits for an answer and for a ruling: the first of its two stops has the button, the last none.
+      scene.select(20);
+      await expect.poll(title).toBe('Keep one stream open for each page');
+      await expect.poll(nexts).toEqual(['Next question (1/2)']);
+      // With nothing selected, N goes to the last stop of all, item 25's, and its card is brought onto the screen,
+      // within what the window beside the tree leaves of it.
+      scene.select(null);
+      await expect.poll(title).toBeNull();
+      key('N', { shiftKey: true });
+      await expect.poll(inAddress).toBe(25);
+      await expect.poll(title).toBe('Say which cell a note goes to');
+      settle(scene);
+      const card = scene.cardAt(25) as { x: number; y: number };
+      const { width, height } = scene.place();
+      const room = width - (container.querySelector('aside.cw') as HTMLElement).offsetWidth;
+      expect(card.x).toBeGreaterThanOrEqual(0);
+      expect(card.x + NODE_W).toBeLessThanOrEqual(room);
+      expect(card.y).toBeGreaterThan(0);
+      expect(card.y).toBeLessThan(height);
+    } finally {
+      history.replaceState(null, '', was === '' ? window.location.pathname : was);
+    }
+  });
+
+  it('frames a question that holds the work at nothing yet in orange, as its count on the card, and one that holds it in red', async () => {
+    const scene = await drawn();
+    // Item 1 waits for the answer to stale-runs; stale-limit, asked as well, holds it at nothing yet.
+    const items = await fixtureSource().loadItems();
+    const one = items.items.find((i) => i.number === 1);
+    expect([one?.work.waits?.map((w) => w.key), one?.work.ahead]).toEqual([['answer-stale-runs'], 1]);
+    scene.select(1);
+    await expect.poll(title).toBe('Run works without anyone watching');
+    const frame = (key: string) => container.querySelector(`.cw-choice[data-wait="${key}"]`) as HTMLElement | null;
+    await expect.poll(() => frame('answer-stale-limit')).not.toBeNull();
+    /// What the page's token `name` resolves to as a colour.
+    const colour = (name: string) => {
+      const probe = container.appendChild(document.createElement('span'));
+      probe.style.color = `var(${name})`;
+      const got = getComputedStyle(probe).color;
+      probe.remove();
+      return got;
+    };
+    expect(getComputedStyle(frame('answer-stale-limit') as HTMLElement).borderTopColor).toBe(colour('--orange'));
+    expect(getComputedStyle(frame('answer-stale-runs') as HTMLElement).borderTopColor).toBe(colour('--red'));
   });
 
   it('brings the panel out with the item selected, and on Escape lets the item go and folds the panel', async () => {

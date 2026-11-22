@@ -40,11 +40,13 @@
 import './console.css';
 
 import {
+  createContext,
   Fragment,
   type MouseEvent,
   type ReactNode,
   type RefObject,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -123,7 +125,7 @@ import {
 
 const ago = (at: number) => age(Date.now() - at).label;
 
-const STANDING_WORDS: Record<ItemStanding, string> = { open: 'Open', done: 'Done', cancelled: 'Cancelled' };
+export const STANDING_WORDS: Record<ItemStanding, string> = { open: 'Open', done: 'Done', cancelled: 'Cancelled' };
 
 /// Whether a work has ended: merged or cancelled.
 const ended = (s: Summary) => s.now.kind === 'merged' || s.now.kind === 'cancelled';
@@ -240,7 +242,7 @@ type Tone = ItemStanding | WorkTone;
 /// The dot of each tone, as the look's status line colours it: red for a stop, a work that waits for the owner or one
 /// the engine halted, as its card is; the yellow of a call for one that waits for the calls of tools; grey for one that
 /// waits for anything else.
-const DOT: Record<Tone, string> = {
+export const DOT: Record<Tone, string> = {
   open: 'dot dot-running',
   running: 'dot dot-running',
   calling: 'dot dot-calling',
@@ -346,7 +348,48 @@ export type ItemPanelProps = {
   /// The card of what the work waits for that the window is to show, by its key (`Wait.key`), where the address names
   /// one.
   wait?: string;
+  /// The stop of the work the window is to bring to the top of what it shows, by its place among the stops it draws,
+  /// -1 for the last; asked again each time `seq` changes ([`STOP`]).
+  stop?: { at: number; seq: number };
+  /// Told that the owner pressed the button under the stop at `at`, which goes to the next stop as n does; with none,
+  /// the stops draw no such button.
+  onNextStop?: (at: number) => void;
+  /// Told that the owner chose the stop at `at` by a click on its frame, from which the walk goes on.
+  onStopChosen?: (at: number) => void;
 };
+
+/// The stops of a work as the window draws them, in its order from the top: each card of what the work waits on the
+/// owner for, and each question to answer, whether or not it holds the work; not a question answered. They are what
+/// the red and the orange counts of the item's card count, and what n and N walk on the console.
+const STOP = '.cw-choice[data-wait]:not(.cw-choice-done)';
+
+/// The keys of the stops the window draws, in its order; what the button under one does; and the key of the stop
+/// chosen, which stands in the soft light of a card chosen on the console.
+const StopsContext = createContext<{ keys: string[]; next?: (at: number) => void; chosen: string | null }>({
+  keys: [],
+  chosen: null,
+});
+
+/// The class a stop's frame takes while it is the one chosen.
+function useChosen(at: string | undefined): string {
+  const { chosen } = useContext(StopsContext);
+  return at !== undefined && at === chosen ? ' cw-stop-chosen' : '';
+}
+
+/// Under a stop of the work, the button that goes to the next, as n does, saying which of the item's stops this one is
+/// and how many there are; none under the last, and none where the window has no walk.
+function NextStop({ at }: { at: string | undefined }) {
+  const { keys, next } = useContext(StopsContext);
+  const k = at === undefined ? -1 : keys.indexOf(at);
+  if (next === undefined || k < 0 || k === keys.length - 1) return null;
+  return (
+    <div className="cw-stop-acts">
+      <Button title="Go to the next question, as n does" onClick={() => next(k)}>
+        {`Next question (${k + 1}/${keys.length})`}
+      </Button>
+    </div>
+  );
+}
 
 /// The window's item. Its lines and its body are the item's own: what one item was sending, or was refused, is not
 /// shown under another.
@@ -368,6 +411,9 @@ function ItemView({
   tab: chosenTab,
   onTab,
   wait,
+  stop,
+  onNextStop,
+  onStopChosen,
 }: ItemPanelProps) {
   const work = item.work;
   const read = pageIn(page);
@@ -443,6 +489,59 @@ function ItemView({
     box.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     box.current?.focus({ preventScroll: true });
   }, [discussed]);
+  // The stops the window draws, read again whenever what it draws changes.
+  const [stops, setStops] = useState<string[]>([]);
+  useLayoutEffect(() => {
+    const el = inner.current;
+    if (el === null) return;
+    const read = () => {
+      const keys = [...el.querySelectorAll<HTMLElement>(STOP)].map((c) => c.dataset.wait ?? '');
+      setStops((was) => (was.join('\n') === keys.join('\n') ? was : keys));
+    };
+    read();
+    const drawing = new MutationObserver(read);
+    drawing.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-wait'] });
+    return () => drawing.disconnect();
+  }, []);
+  // The stop chosen, by n and N or by a click on its frame outside its buttons and fields; one at a time, and none
+  // once Escape is pressed. Another item is another window, with none chosen.
+  const [chosenStop, setChosenStop] = useState<string | null>(null);
+  const walk = useMemo(
+    () => ({ keys: stops, next: onNextStop, chosen: chosenStop }),
+    [stops, onNextStop, chosenStop],
+  );
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setChosenStop(null);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, []);
+  const chooseStop = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button, a, input, textarea, select, label') !== null) return;
+    const card = target.closest<HTMLElement>(STOP);
+    if (card === null) return;
+    const cards = [...(inner.current?.querySelectorAll<HTMLElement>(STOP) ?? [])];
+    setChosenStop(card.dataset.wait ?? null);
+    onStopChosen?.(cards.indexOf(card));
+  };
+  // The stop the page asks for is brought to the top of what the window shows, on the tab that draws the body, once it
+  // is drawn, once each time it is asked: tried again as the stops the window draws change.
+  const shownStop = useRef(0);
+  useEffect(() => {
+    if (stop === undefined || shownStop.current === stop.seq) return;
+    if (tab !== 'item') {
+      if (chosenTab === undefined) setOwnTab('item');
+      return;
+    }
+    const cards = [...(inner.current?.querySelectorAll<HTMLElement>(STOP) ?? [])];
+    const card = cards[stop.at < 0 ? cards.length - 1 : stop.at];
+    if (card === undefined) return;
+    shownStop.current = stop.seq;
+    setChosenStop(card.dataset.wait ?? null);
+    card.scrollIntoView({ block: 'start' });
+  }, [stop, tab, chosenTab, setOwnTab, stops]);
   // The card the address names is brought into view once it is drawn, once.
   const shownWait = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -647,149 +746,151 @@ function ItemView({
     setQuote(null);
   };
   return (
-    <div className="cw-item" ref={inner}>
-      <header className="drawer-head">
-        <span className="drawer-id">{item.number}</span>
-        <h2 className="drawer-title">
-          {titleHref !== undefined ? (
-            <a className="cw-title-link" href={titleHref} title="Open it in the console">
-              {item.title}
-            </a>
-          ) : (
-            <button type="button" className="cw-title-link" title="Show it in the tree" onClick={onTitle}>
-              {item.title}
-            </button>
-          )}
-        </h2>
-        {item.project !== null && <span className="drawer-belongs mono">{item.project}</span>}
-      </header>
-      <ItemLine
-        item={item}
-        goal={goal}
-        tier={mock.tier}
-        level={<LevelMark level={work.level ?? null} raise={work.raise ?? 0} />}
-      >
-        <Progress w={work} page={read} />
-      </ItemLine>
-      <WorkLine w={work} page={read} />
-      {!ended(work) && <Acts paused={work.paused === 'owner'} act={send} />}
-      <StopCards work={work} act={send} />
-      <div className="drawer-body">
-        <div className="cw-tabs">
-          <Tabs
-            label="What the window shows"
-            choices={WINDOW_TABS.map((value) => ({ value, name: TAB_NAMES[value] }))}
-            value={tab}
-            onChange={setTab}
-          />
-        </div>
-        {fresh ? (
-          <div className="cw-fresh">
-            <span>
-              {changes === 0
-                ? 'New to you'
-                : changes === 1
-                  ? '1 passage changed since you last read it'
-                  : `${changes} passages changed since you last read it`}
-            </span>
-            <button type="button" className="link" aria-keyshortcuts="r" onClick={markAsRead}>
-              {keyed('Mark as read', 'r')}
-            </button>
+    <StopsContext.Provider value={walk}>
+      <div className="cw-item" ref={inner} onClick={chooseStop}>
+        <header className="drawer-head">
+          <span className="drawer-id">{item.number}</span>
+          <h2 className="drawer-title">
+            {titleHref !== undefined ? (
+              <a className="cw-title-link" href={titleHref} title="Open it in the console">
+                {item.title}
+              </a>
+            ) : (
+              <button type="button" className="cw-title-link" title="Show it in the tree" onClick={onTitle}>
+                {item.title}
+              </button>
+            )}
+          </h2>
+          {item.project !== null && <span className="drawer-belongs mono">{item.project}</span>}
+        </header>
+        <ItemLine
+          item={item}
+          goal={goal}
+          tier={mock.tier}
+          level={<LevelMark level={work.level ?? null} raise={work.raise ?? 0} />}
+        >
+          <Progress w={work} page={read} />
+        </ItemLine>
+        <WorkLine w={work} page={read} />
+        {!ended(work) && <Acts paused={work.paused === 'owner'} act={send} />}
+        <StopCards work={work} act={send} />
+        <div className="drawer-body">
+          <div className="cw-tabs">
+            <Tabs
+              label="What the window shows"
+              choices={WINDOW_TABS.map((value) => ({ value, name: TAB_NAMES[value] }))}
+              value={tab}
+              onChange={setTab}
+            />
           </div>
-        ) : null}
-        {tab === 'step' ? (
-          read === null ? (
-            <Unread page={page} />
+          {fresh ? (
+            <div className="cw-fresh">
+              <span>
+                {changes === 0
+                  ? 'New to you'
+                  : changes === 1
+                    ? '1 passage changed since you last read it'
+                    : `${changes} passages changed since you last read it`}
+              </span>
+              <button type="button" className="link" aria-keyshortcuts="r" onClick={markAsRead}>
+                {keyed('Mark as read', 'r')}
+              </button>
+            </div>
+          ) : null}
+          {tab === 'step' ? (
+            read === null ? (
+              <Unread page={page} />
+            ) : (
+              <StepTab page={read} row={stepRow} sessions={sessions} reader={reader} shown={open} />
+            )
+          ) : tab === 'usage' ? (
+            read === null ? <Unread page={page} /> : <UsageTab page={read} />
+          ) : tab === 'work' ? (
+            <WorkFacts w={work} page={read} verdicts={mock.verdicts} reader={reader} />
           ) : (
-            <StepTab page={read} row={stepRow} sessions={sessions} reader={reader} shown={open} />
-          )
-        ) : tab === 'usage' ? (
-          read === null ? <Unread page={page} /> : <UsageTab page={read} />
-        ) : tab === 'work' ? (
-          <WorkFacts w={work} page={read} verdicts={mock.verdicts} reader={reader} />
-        ) : (
-          <>
-            <div className="cw-body" onMouseUp={selected}>
-              {bodyFailed !== null && <p className="failed small">The page could not read the item: {bodyFailed}</p>}
-              {sections.slice(0, -1).map((s) => (
+            <>
+              <div className="cw-body" onMouseUp={selected}>
+                {bodyFailed !== null && <p className="failed small">The page could not read the item: {bodyFailed}</p>}
+                {sections.slice(0, -1).map((s) => (
+                  <Section
+                    key={s.title}
+                    title={s.title}
+                    parts={s.parts}
+                    empty={nothingYet}
+                    pointers={(i) => pointersOf(partKey(s.title, i))}
+                    links={pointersOf(null)}
+                    askedBy={askedBy}
+                  />
+                ))}
                 <Section
-                  key={s.title}
-                  title={s.title}
-                  parts={s.parts}
-                  empty={nothingYet}
-                  pointers={(i) => pointersOf(partKey(s.title, i))}
+                  title={last?.title}
+                  parts={asked}
+                  keep={rulings.length > 0 || toAnswer.length > 0}
+                  empty={last === undefined ? undefined : nothingYet}
+                  choose={body.choicesWait || toAnswer.length > 0 ? choose : undefined}
+                  write={toAnswer.length > 0 ? write : undefined}
+                  discuss={discuss}
+                  about={about}
+                  jump={jump}
+                  pointers={(i) => pointersOf(last === undefined ? null : partKey(last.title, i))}
                   links={pointersOf(null)}
                   askedBy={askedBy}
+                  after={
+                    <>
+                      {body.choicesWait || toAnswer.length > 0 ? (
+                        <button
+                          type="button"
+                          className="button button-primary cw-confirm"
+                          disabled={answering.waiting || count.picked < count.all}
+                          onClick={() => void confirm()}
+                        >
+                          {count.all > 0 ? `Confirm (${count.picked}/${count.all})` : 'Confirm'}
+                        </button>
+                      ) : null}
+                      {answering.refused !== null && <p className="failed small">{answering.refused}</p>}
+                      {confirmed !== null ? <p className="cw-done">{confirmed}</p> : null}
+                      {rulings.map((r) => (
+                        <RulingBox key={r.key} ruling={r} act={send} links={pointersOf(null)} />
+                      ))}
+                    </>
+                  }
                 />
-              ))}
-              <Section
-                title={last?.title}
-                parts={asked}
-                keep={rulings.length > 0 || toAnswer.length > 0}
-                empty={last === undefined ? undefined : nothingYet}
-                choose={body.choicesWait || toAnswer.length > 0 ? choose : undefined}
-                write={toAnswer.length > 0 ? write : undefined}
-                discuss={discuss}
-                about={about}
-                jump={jump}
-                pointers={(i) => pointersOf(last === undefined ? null : partKey(last.title, i))}
-                links={pointersOf(null)}
-                askedBy={askedBy}
-                after={
-                  <>
-                    {body.choicesWait || toAnswer.length > 0 ? (
-                      <button
-                        type="button"
-                        className="button button-primary cw-confirm"
-                        disabled={answering.waiting || count.picked < count.all}
-                        onClick={() => void confirm()}
-                      >
-                        {count.all > 0 ? `Confirm (${count.picked}/${count.all})` : 'Confirm'}
-                      </button>
-                    ) : null}
-                    {answering.refused !== null && <p className="failed small">{answering.refused}</p>}
-                    {confirmed !== null ? <p className="cw-done">{confirmed}</p> : null}
-                    {rulings.map((r) => (
-                      <RulingBox key={r.key} ruling={r} act={send} links={pointersOf(null)} />
-                    ))}
-                  </>
-                }
+              </div>
+              {offer !== null ? (
+                <button
+                  type="button"
+                  className="button cw-quote-offer"
+                  style={{ left: offer.x, top: offer.y }}
+                  onMouseDown={(e: MouseEvent) => e.preventDefault()}
+                  onClick={() => {
+                    setQuote(offer.text);
+                    setOffer(null);
+                    window.getSelection()?.removeAllRanges();
+                    box.current?.focus();
+                  }}
+                >
+                  <QuoteSign />
+                  Quote
+                </button>
+              ) : null}
+              <Discussion
+                work={work}
+                page={page}
+                messages={messages}
+                pointers={(i) => pointersOf(messages[i]?.who === 'owner' ? null : messageKey(i))}
+                messageTo={messageTo}
+                setMessageTo={setMessageTo}
+                quote={quote}
+                unquote={() => setQuote(null)}
+                box={box}
+                act={send}
+                sent={sent}
               />
-            </div>
-            {offer !== null ? (
-              <button
-                type="button"
-                className="button cw-quote-offer"
-                style={{ left: offer.x, top: offer.y }}
-                onMouseDown={(e: MouseEvent) => e.preventDefault()}
-                onClick={() => {
-                  setQuote(offer.text);
-                  setOffer(null);
-                  window.getSelection()?.removeAllRanges();
-                  box.current?.focus();
-                }}
-              >
-                <QuoteSign />
-                Quote
-              </button>
-            ) : null}
-            <Discussion
-              work={work}
-              page={page}
-              messages={messages}
-              pointers={(i) => pointersOf(messages[i]?.who === 'owner' ? null : messageKey(i))}
-              messageTo={messageTo}
-              setMessageTo={setMessageTo}
-              quote={quote}
-              unquote={() => setQuote(null)}
-              box={box}
-              act={send}
-              sent={sent}
-            />
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </StopsContext.Provider>
   );
 }
 
@@ -1003,15 +1104,17 @@ function StopCards({ work, act }: { work: Summary; act: (what: Act) => Promise<u
 /// marked names and values in the monospace and the rest plain text, then what stands under it and the buttons that
 /// end it, inside the card.
 function StopCard({ wait, why, children }: { wait?: string; why: string; children?: ReactNode }) {
+  const lit = useChosen(wait);
   return (
     <div className="cw-part">
-      <div className="cw-choice cw-choice-holds" data-wait={wait}>
+      <div className={`cw-choice cw-choice-holds${lit}`} data-wait={wait}>
         <div className="cw-choice-q">
           <p>
             <Coded text={why} />
           </p>
         </div>
         {children}
+        <NextStop at={wait} />
       </div>
     </div>
   );
@@ -1262,6 +1365,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
   // view, and it is folded when the window is read again.
   const [open, setOpen] = useState(p.confirmed !== true);
   const box = useRef<HTMLFieldSetElement>(null);
+  const lit = useChosen(pick === undefined ? undefined : waitKeyOf(p));
   // The card's height before the press, which the turn is drawn from.
   const was = useRef<number | null>(null);
   const turn = () => {
@@ -1291,7 +1395,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
   return (
     <fieldset
       ref={box}
-      className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${p.holds === true ? ' cw-choice-holds' : ''}`}
+      className={`cw-choice${pick === undefined ? ' cw-choice-done' : ''}${p.holds === true ? ' cw-choice-holds' : ''}${lit}`}
       data-wait={waitKeyOf(p)}
     >
       <Asked by={by} tree={p.tree === true} />
@@ -1343,6 +1447,7 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
           ) : null}
         </div>
       ) : null}
+      <NextStop at={pick === undefined ? undefined : waitKeyOf(p)} />
       {open ? (
         <button type="button" className="cw-choice-turn" onClick={turn}>
           Fold it
@@ -1386,10 +1491,11 @@ function RulingBox({ ruling, act, links }: {
   const first = ruling.holding === null ? -1 : options.indexOf(ruling.holding);
   const [chosen, setChosen] = useState<number | null>(first < 0 ? null : first);
   const value = chosen === null ? null : options[chosen];
+  const lit = useChosen(ruling.key);
   return (
     <>
       <div className="cw-part">
-        <div className="cw-choice cw-choice-holds" data-wait={ruling.key}>
+        <div className={`cw-choice cw-choice-holds${lit}`} data-wait={ruling.key}>
           <div className="cw-choice-q">
             <p>
               <Coded text={ruling.why} />
@@ -1418,6 +1524,7 @@ function RulingBox({ ruling, act, links }: {
               </Button>
             </div>
           )}
+          <NextStop at={ruling.key} />
         </div>
       </div>
       {refused !== null && <p className="failed small">{refused}</p>}

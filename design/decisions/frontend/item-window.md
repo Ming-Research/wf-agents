@@ -30,9 +30,15 @@ Every stop of a work is one card under its state line, framed in red on the red 
 - replaced: A blue button in every card was on main; the owner changed it, because the button of a red card should be in the card's red.
 
 ### decision a-question-that-holds-the-work-is-red
-A question that holds the work is drawn like a stop, framed in red on the red tint; one that does not is framed in the accent on the accent's tint; neither says in words that the work waits.
+A question that holds the work is framed in red on its tint, as a stop is; one that does not, in orange on its tint; one answered, in the accent on its tint.
+- replaced: A question answered in the grey hairline frame of the body's other parts was on main; the owner changed it, because now that every question not answered is red or orange, the accent tells an answered one from the body's text.
+- replaced: A question that did not hold the work framed in the accent on the accent's tint was on main; the owner changed it, because one meaning has one colour, on the card and in the window.
 - replaced: A yellow question box was on main; the owner changed it, because it did not stand out.
 - replaced: Every question in one purple card under the words The work waits for this answer was on main; the owner changed it, because those words are needless, and a question that holds the work is red.
+
+### decision the-stop-walked-to-stands-in-a-soft-light
+The stop n or N goes to, or a click on its frame chooses, stands in the soft light of a card chosen on the console, in its own colour; one at a time, none after Escape.
+- replaced: Nothing showing which stop the walk stood at was on main; the owner changed it, because n scrolled the window to a stop, but a question box cannot be selected, so nothing showed which stop was current.
 
 ### decision a-question-stands-where-a-text-points-to-it
 A question is drawn at the first `{{name}}` that points to it, in the body's passages and then in an agent's messages; a later pointer links to it, and one no text points to is drawn after the body.

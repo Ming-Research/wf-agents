@@ -50,6 +50,119 @@
   color: var(--red-text);
 }
 
+/* The search, under the boxes: the page's field, and under it what it finds, or that it finds nothing, on the card in a
+   hairline frame as the legend's panel is, wider than the tree's first column (its cards are 300 pixels wide, from
+   40 in: `NODE_W` and the scene's first `left` in snap.ts), so that no card of the tree shows through it or beside
+   it. Each item found is a list row of one line, its path, its title cut at the edge, and how it stands: under the
+   pointer a step darker, the row the arrow keys stand on in the accent's tint, as a row chosen is. */
+.console-find {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.console-found {
+  width: var(--wide-cell);
+  border: var(--hairline) solid var(--line);
+  background: var(--card);
+  font-size: var(--size-small);
+}
+
+.console-found-row {
+  flex-wrap: nowrap;
+  padding: var(--space-4) var(--space-8);
+  cursor: pointer;
+  transition: background-color var(--hover-time);
+}
+
+.console-found-row:hover {
+  background: var(--step);
+}
+
+.console-found-row.chosen {
+  background: var(--accent-tint);
+}
+
+.console-found-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-found-standing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--muted);
+}
+
+.console-found-none {
+  padding: var(--space-4) var(--space-8);
+  color: var(--muted);
+}
+
+/* What the marks and keys mean: the page's button with the question mark drawn, at the tree's bottom left corner, and
+   over it, while the pointer or the keys are there, the legend of the console's marks and its keys in a column, on
+   the card in a hairline frame. */
+.console-help {
+  position: absolute;
+  bottom: var(--space-12);
+  left: var(--space-12);
+  z-index: 1;
+}
+
+.console-help-mark {
+  padding: 0 var(--space-4);
+  color: var(--muted);
+}
+
+/* The panel fades in and out over the page's short time for what the pointer does (`--hover-time`). Fading out, it
+   takes the pointer no more from its first moment, and once faded it is hidden. As every animation of the page, it
+   plays whatever the system asks of motion (decision the-page-moves-whatever-the-system-asks). */
+.console-help-panel {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-12);
+  border: var(--hairline) solid var(--line);
+  background: var(--card);
+  white-space: nowrap;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--hover-time),
+    visibility 0s linear var(--hover-time);
+}
+
+.console-help-panel.shown {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition:
+    opacity var(--hover-time),
+    visibility 0s;
+}
+
+.console-help-panel .legend {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
+}
+
+.console-help-key {
+  display: inline-block;
+  min-width: var(--space-16);
+  color: var(--text);
+}
+
 /* The item in the window, laid out as the page's panel (styles/parts.css): its head (`.drawer-head`), its status lines
    (`.status-line`), the buttons of what the owner does to the work, and under a hairline its body (`.drawer-body`):
    the switch between its tabs, and their sections (`.cw-fold`). What follows is only what the page's parts do not
@@ -266,14 +379,16 @@
   border-top: var(--hairline) solid var(--line);
 }
 
-/* A choice that waits for the owner: a frame in the accent on its tint; once confirmed, settled, a hairline on the
-   ground. While it waits its options are buttons: the one picked ringed in the accent, the one under the pointer on the
-   accent's tint. */
+/* A choice that waits for the owner and holds the work at nothing yet, which the owner may answer ahead: a frame in
+   orange on its tint, as its count is orange on the item's card in the tree; one that holds the work is red, below;
+   once confirmed, settled, in the accent. While it waits its options are buttons: the one picked ringed in the accent,
+   the one under the pointer on the accent's tint. */
 .cw-choice {
   margin: var(--space-8) 0;
   padding: var(--space-12);
-  border: var(--hairline) solid var(--accent);
-  background: var(--accent-tint);
+  --stop-colour: var(--orange);
+  border: var(--hairline) solid var(--orange);
+  background: var(--orange-tint);
   /* A fieldset keeps the width of its widest content unless it is told it may shrink. */
   min-width: 0;
   /* How a card is folded and unfolded: the window's own motion as it slides in, so that the panel moves one way. */
@@ -291,7 +406,7 @@
 }
 
 /* A question whose answer goes into the design tree says so after who asked it: the key `tree` as the page's tag, in
-   the accent of the card's frame, so that such a question is told from the others at a glance. */
+   the accent, so that such a question is told from the others at a glance. */
 .cw-choice-tree {
   margin-inline-start: var(--space-8);
   background: var(--accent);
@@ -327,20 +442,31 @@
   color: var(--text);
 }
 
+/* A question answered: framed in the accent on its tint, so that where a question was asked is told from the body's
+   text, every question not answered being red or orange. */
 .cw-choice-done {
-  border-color: var(--line);
-  background: var(--ground);
+  --stop-colour: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-tint);
 }
 
 /* Every stop of a work, the one look: what waits for the owner, a question that holds the work, a ruling, a limit, a
    pause, the agents' command line, and a fault or a stall: on the red tint, framed in red. */
 .cw-choice-holds {
+  --stop-colour: var(--red);
   border-color: var(--red);
   background: var(--red-tint);
 }
 
+/* The stop chosen, by n and N or by a click on its frame: in the soft light a card chosen on the console stands in, a
+   blurred glow in the stop's own colour, as far out and as strong as the console's (decision
+   what-the-owner-points-at-stands-in-a-soft-light). */
+.cw-choice.cw-stop-chosen {
+  box-shadow: 0 0 9px 4px color-mix(in srgb, var(--stop-colour) 45%, transparent);
+}
+
 /* The button that ends a stop is in the stop's colour, red, as its frame is, so that it belongs to the card; a card
-   framed in the accent keeps the accent's. */
+   framed in orange keeps the accent's. */
 .cw-choice-holds .button-primary:not(:disabled) {
   border-color: var(--red);
   background-color: var(--red);

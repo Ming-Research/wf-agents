@@ -359,6 +359,7 @@ export function Chart({ matrix, chosen, onChoose, hidden = false, covered = 0 }:
                 onUnpoint={unpoint}
                 width={widthOf(cell.id)}
                 onWidth={(w) => setWidth(cell.id, w)}
+                effort
               />
             ))}
             <WordsHead about={about} saying={saying} onPoint={unpoint} />
@@ -465,7 +466,9 @@ export function Chart({ matrix, chosen, onChoose, hidden = false, covered = 0 }:
   );
 }
 
-/// The head of a cell's column: its id, which is all a column as wide as its marks has room for. Its title, its line,
+/// The head of a cell's column: its id, which is all a column as wide as its marks has room for; on the flow's chart,
+/// under it, the effort its rounds run at as its file writes it, so that where the effort changes along a line is seen,
+/// an engine's cell keeping the line empty so that the ids stand level (`effort`). Its title, its line,
 /// when it runs and what it waits for are what its button is called, over the column of words while the pointer or the
 /// keyboard is on the column, and in the cell's panel; its line, its `when` and its `requires` are drawn in the bands
 /// over the blocks. Where a press on it chooses nothing, as on a work's history, it is no button, and says them on the
@@ -480,8 +483,11 @@ export function CellHead(props: {
   width: number;
   /// Sets the column's width as dragged, or, with none, gives it back the width it starts at.
   onWidth: (width: number | null) => void;
+  /// Whether the effort of the cell's rounds is written under its id.
+  effort?: boolean;
 }) {
   const { cell, chosen, pointed, onChoose, onPoint, onUnpoint, width, onWidth } = props;
+  const effort = props.effort === true ? <span className="cell-effort">{cell.effort ?? '\u00a0'}</span> : null;
   const facts = headFacts(cell);
   const name = [`${cell.id} ${cell.title}`, facts.by, facts.when, facts.waits].filter((f) => f !== null);
   return (
@@ -494,6 +500,7 @@ export function CellHead(props: {
       {onChoose === undefined ? (
         <span className="head-button head-still" title={name.join(', ')}>
           <span className="cell-id">{cell.id}</span>
+          {effort}
         </span>
       ) : (
         <button
@@ -506,6 +513,7 @@ export function CellHead(props: {
           onBlur={onUnpoint}
         >
           <span className="cell-id">{cell.id}</span>
+          {effort}
         </button>
       )}
       <Edge

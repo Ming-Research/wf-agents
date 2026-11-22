@@ -1,7 +1,8 @@
 // The strip on a console's card, in a real browser (Chromium): the canvas draws the works page's marks, so each mark it
 // drew, as the scene describes it (`drawnStrip`), is held against the works page's own `Strip` laid out by the browser
 // in the same tokens: its size, ring, corners, fill and place, state by state, in light and in dark, and drawn again,
-// with no reload, in an accent picked. And a flow with more cells than the card has room for keeps the marks' size.
+// with no reload, in an accent picked. And every cell of the longest flow on the tree is drawn: every card's marks are
+// made smaller by one factor until it fits, and never larger.
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
@@ -34,8 +35,8 @@ const working = (id: number, cells: CellNow[]): Shown => ({
   title: `Item ${id}`,
   standing: 'open',
   asks: 0,
+  ahead: 0,
   deliver: false,
-  blocked: 0,
   unseen: false,
   unread: 0,
   begun: true,
@@ -178,22 +179,41 @@ describe("a card's strip", () => {
     expect(dark.marks.find((m) => m.state === 'done')?.fill).toBe(tones(violet).dark['mark-done']);
   });
 
-  it("fits the engineer's ten cells at the marks' full size, and past the card's room draws those that fit and says how many more", () => {
+  it('draws every cell of the longest flow on the tree, every mark at one size small enough for it, and none larger than the works page draws it', () => {
     const ten = cellsOf(Array.from({ length: 10 }, (_, i) => STATES[i % STATES.length]));
-    scene.show([working(1, ten), working(2, cellsOf(Array.from({ length: 40 }, () => 'notYet')))]);
+    const forty = cellsOf(Array.from({ length: 40 }, () => 'notYet'));
+    const one = cellsOf(['running']);
+    // Alone on the tree, ten cells fit at the works page's size.
+    scene.show([working(1, ten)]);
     const fits = scene.drawnStrip(1) as DrawnStrip;
     expect(fits.marks).toHaveLength(10);
     expect(fits.more).toBe(0);
     expect(drawn(fits)).toEqual(laidOut(ten));
-
-    const long = scene.drawnStrip(2) as DrawnStrip;
-    expect(long.more).toBeGreaterThan(0);
-    expect(long.marks.length + long.more).toBe(40);
-    expect(long.marks.map((m) => m.cell)).toEqual(Array.from({ length: long.marks.length }, (_, i) => `c${i}`));
-    // The marks keep the works page's size and gaps.
-    expect(long.marks.every((m) => m.width === fits.marks[0].width)).toBe(true);
-    expect(long.marks[1].x - long.marks[0].x).toBe(fits.marks[1].x - fits.marks[0].x);
+    const [side, pitch] = [fits.marks[0].width, fits.marks[1].x - fits.marks[0].x];
+    // Beside a flow of forty cells and one of a single cell, every card's marks are made smaller by one factor: the
+    // forty fit their room, and none is left out.
+    scene.show([working(1, ten), working(2, forty), working(3, one)]);
+    const strips = [1, 2, 3].map((id) => scene.drawnStrip(id) as DrawnStrip);
+    const long = strips[1];
+    expect(long.marks.map((m) => m.cell)).toEqual(forty.map((c) => c.cell));
     const last = long.marks[long.marks.length - 1];
-    expect(last.x + last.width).toBeLessThanOrEqual(long.end);
+    expect(last.x + last.width).toBeLessThanOrEqual(long.end + 1e-9);
+    const scale = long.marks[0].width / side;
+    expect(scale).toBeLessThan(1);
+    for (const strip of strips) {
+      expect(strip.more).toBe(0);
+      for (const m of strip.marks) expect(m.width).toBeCloseTo(side * scale, 9);
+      if (strip.marks.length > 1) expect(strip.marks[1].x - strip.marks[0].x).toBeCloseTo(pitch * scale, 9);
+    }
+    // The dashes' height, the corners and the rings by the same factor, a ring no thinner than a pixel.
+    strips[0].marks.forEach((m, k) => {
+      const whole = fits.marks[k];
+      expect(m.height).toBeCloseTo(whole.height * scale, 9);
+      expect(m.corner).toBeCloseTo(whole.corner * scale, 9);
+      expect(m.ring).toBeCloseTo(whole.ring === 0 ? 0 : Math.max(1, whole.ring * scale), 9);
+    });
+    // With few cells on the tree again, the marks are at the works page's size, and no larger.
+    scene.show([working(3, one)]);
+    expect((scene.drawnStrip(3) as DrawnStrip).marks[0].width).toBe(side);
   });
 });

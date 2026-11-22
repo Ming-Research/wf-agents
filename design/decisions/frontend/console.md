@@ -22,6 +22,7 @@ Items stand in columns, one for each level from the roots at the left; each scro
 The items form one tree by what depends on what: where one item depends on another, the other stands under it, directly or further down; nothing else shapes the tree.
 - rejected: an agent proposed giving each item a parent, besides its dependencies, for the tree to show it under; the owner rejected it, because the parent relation and the dependencies can be one, merged into the dependencies.
 - replaced: A flat list of the items by their class was on main; the owner changed it, because a flat list shows no dependencies.
+- replaced: A grey padlock on a card with the count of the open items it depends on was on main; the owner changed it, because everything an item waits for stands under it, so the count only said again what the tree shows.
 
 ### decision an-item-stands-in-one-place
 An item stands whole in one place, under the lowest-numbered item that depends on it; under each other item that depends on it, a shadow of it points there.
@@ -42,8 +43,21 @@ A click on an item's funnel folds it and the items under it into a dot past the 
 - rejected: an agent proposed counts of what is folded as framed grey tags on the folded card; the owner rejected it, because a folded card should carry nothing new, the counts being said on pointing at the funnel or the dot.
 
 ### decision a-card-has-a-row-for-its-work
-A card has one row, with its number and its title, and a second row only while a work is under way on it, holding the level its cell runs at, the strip of its cells and the lines it changed.
+A card has one row, with its number and its title, and a second row only once its work has run a round and while it goes on, with its level, the strip of its cells and the lines it changed.
 - rejected: an agent proposed two rows on every card; the owner rejected it, because two rows on every card waste room.
+- replaced: A second row for a work that had run no round, while it was paused, at fault or waited, was on main; the owner changed it, because items brought over that never ran showed a strip and a red age, and looked like works that had stopped partway.
+
+### decision a-card-counts-the-questions-to-answer-ahead
+Beside the red count of what holds its work, a card counts in orange its work's questions that hold it at nothing yet, as decision a-question-that-holds-the-work-is-red draws them.
+- replaced: A card that counted only what held its work was on main; the owner changed it, because he could not see where something would wait on him until it turned red and the work stopped.
+
+### decision a-cards-strip-shows-every-cell
+A card's strip draws every cell of its flow, the marks of the whole tree made smaller by one factor until the longest strip fits, and never larger than on the works page.
+- replaced: Marks at the works page's size, the strip cut where the card's room ended with a count of the cells left out, was on main; the owner changed it, because the engineer flow's last cells were hidden behind the count.
+
+### decision a-cancelled-items-title-is-struck-through
+A cancelled item's card draws a line through its title, in the title's own colour, so that it is told from a done one.
+- replaced: A cancelled item's card that differed from a done one's only by the paler grey of its number was on main; the owner changed it, because a cancelled item could not be told from a done one on the tree.
 
 ### decision a-card-writes-the-lines-its-work-changed-where-its-time-went
 A card writes the lines its work added and removed, `+210 −40`, on its second row after the strip, or for an ended item at the right of its one row; where the time went is only in the window.
@@ -55,13 +69,14 @@ An item that delivers is not a card: it has no box and no fill, only its number 
 - rejected: an agent proposed the card as it was, with a small diamond before the title; the owner rejected it, because the diamond changes the least and so stands out the least, while a heading with no frame reads plainly in light and in dark.
 
 ### decision a-card-stands-still
-No card gets a ring or moves because of its work's state: what runs shows by its running cell's pulse and by the lit way from its item to its root, with a light running down it from the root.
+No card gets a ring or moves because of its work's state: a work under way, in a round or in a call the engine runs, shows by its cell's pulse and by the lit way to its root.
 - replaced: Red rings breathing round a card that waits for the owner was on main; the owner changed it, because the red background and its glow looked bad.
 - replaced: Red cards breathing was on main; the owner changed it, because the breathing could hardly be seen.
 - replaced: A light going round a running card's edge was on main; the owner changed it, because motion should be on the running cell, which carries information, and should take little room.
 - rejected: an agent proposed a ripple widening from the running cell's mark; the owner rejected it, because it was harder to see than the pulse, and the cell no longer looked as if it moved.
 - replaced: Dashes scrolling along the way from the root to a running card was on main; the owner changed it, because he wanted that way lit by a running light, as in a reference he showed.
 - rejected: an agent proposed the lit way in purple, with its line and glow tinged purple at rest too; the owner rejected it, because at rest the way keeps the colour the settings give it, and only the running light may take some purple.
+- replaced: A lit way only to a work whose round ran, and none to a work in a call the engine ran for it, such as its tests, was on main; the owner changed it, because he counts a work in such a call as under way.
 
 ### decision what-the-owner-points-at-stands-in-a-soft-light
 The selected item and the item under the pointer stand in a soft light, a blurred glow behind the card in its own colour; the selected one's glow is wider and its ring thicker.
@@ -76,3 +91,15 @@ Three check boxes over the tree's corner, Open, Done and Cancelled, one under an
 ### decision an-item-is-brought-just-into-view
 Selecting an item that is off the screen, or half under the window, moves the tree only until the item is wholly in the part of the view the window leaves free.
 - replaced: Moving the tree to put such an item in the middle of that free part was on main; the owner changed it, because moving it to the middle was too heavy.
+
+### decision an-item-is-found-from-the-trees-corner
+A field under the boxes finds any item by its number, its path from its root or a part of its title, eight at most; a pick selects it, its kind ticked and the folds over it opened.
+- replaced: Finding an item only by scrolling the tree was on main; the owner changed it, because once many items were imported he could not find one he looked for.
+
+### decision the-owner-walks-the-stops-by-keys
+n goes to the next of what the red and orange counts count, N to the one before, in the tree's order and each window's, round from the last; a button under each but an item's last does as n.
+- replaced: Finding each thing to handle by looking for a card with a count and scrolling its window was on main; the owner changed it, because he works by those counts, and wanted to go from one thing he handles to the next by keys.
+
+### decision the-map-draws-each-item-and-the-screen
+The map draws each item as a piece of its column's bar in the colour of its card's state, and frames in a thin light line the part of the tree the screen shows.
+- replaced: Each column as one light bar, with red marks where works waited for the owner, was on main; the owner changed it, because the map should show how each item stands and where the screen is in the tree.

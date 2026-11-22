@@ -68,6 +68,11 @@ const MAP_APART = 5;
 const MAP_HIGH = 72;
 const MAP_INSET = 12;
 const MAP_PAD = 8;
+/// On the map: the gap between two items' pieces of a column, where each is tall enough to keep one; how far the frame
+/// of what the screen shows stands out past the bars it holds; and how strong the ground in it is.
+const MAP_GAP = 0.5;
+const MAP_FRAME_OUT = 2;
+const MAP_FRAME_FILL = 0.06;
 /// How quickly the blue lines at a column's edges come and go as the pointer comes over it and leaves: the
 /// milliseconds in which it goes about two thirds of the way.
 const TURN = 140;
@@ -380,6 +385,8 @@ const LIGHT = {
   halted: '#e5484d',
   amber: '#b45309',
   red: '#e5484d',
+  /// What the owner may answer ahead, which holds the work at nothing yet: the page's orange.
+  orange: '#f5840c',
   green: '#2f9e6e',
   /// The pointer's blue: the lines at the edges of the column under it, and the own colour of an item with no work of
   /// its own above a work, ringed and lit in it.
@@ -465,6 +472,38 @@ export function grounded(item: number, x: number, y: number, h: number, boxed: b
 /// one pixel long, to which a strand beside it is moved out.
 type Way = { points: [number, number][]; along: number[]; across: [number, number][] };
 
+/// Where a way's line turns into a card's edge, at the way's start (`start`) or at its end. The turn leaves the way
+/// `reach` along it from the card, at the way's own place there (`from`). It bends at `bend`, where the way's direction
+/// at that place, followed on to the card, meets the card's edge. A curve from `from` through `bend` to the edge so
+/// leaves the way along it and meets the edge along it, however steeply the way turns near the card. A turn begun level
+/// with the card's middle would stand off a way that has already turned, as a stub beside it. The bend is kept on the
+/// edge between the places the turn runs to, `reach` up and down it, so that neither half of the turn runs back.
+function turnOf(way: Way, start: boolean, reach: number): { from: [number, number]; bend: [number, number] } {
+  const { points, along } = way;
+  const last = points.length - 1;
+  const at = Math.min(along[last], Math.max(0, start ? reach : along[last] - reach));
+  let n = 0;
+  while (n < last - 1 && along[n + 1] < at) n += 1;
+  const [a, b] = [points[n], points[n + 1]];
+  const len = along[n + 1] - along[n];
+  const k = len > 0 ? (at - along[n]) / len : 0;
+  const from: [number, number] = [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+  const [ex, ey] = points[start ? 0 : last];
+  const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+  const by = dx === 0 ? ey : from[1] + (dy * (ex - from[0])) / dx;
+  return { from, bend: [ex, Math.min(ey + reach, Math.max(ey - reach, by))] };
+}
+
+/// A lit way as it was drawn, for the tests: the item it runs into, where it began and ended, the points its curve was
+/// drawn through, and its turns into the cards it joins ([`turnOf`]), out of the one above and into the item.
+export type LitWay = {
+  id: number;
+  from: [number, number];
+  to: [number, number];
+  curve: [number, number][];
+  turns: { from: [number, number]; bend: [number, number] }[];
+};
+
 /// The light on a stretch `length` long that begins `dist` down from the left side of its root's card, the light's
 /// head `head` down from it now: the pieces the light is drawn in, each from and to how far along the stretch it
 /// stands, with how brightly it is drawn, from its tail (0) to its head (1). The stretch is a way between two cards,
@@ -494,6 +533,12 @@ export function headAt(part: number, whole: number): number {
 export function sparkAt(dist: number, head: number): number {
   const near = lightOn(dist - RUN.portNear, RUN.portNear * 2, head).reduce((a, { bright }) => Math.max(a, bright), 0);
   return RUN.portRest + (1 - RUN.portRest) * near;
+}
+
+/// How far the glint at a spark has come, from 0 to 1, as it burns at `burn` ([`sparkAt`]): the glint comes only
+/// with the light itself, so that at rest the way's end is lit, not glinting.
+function glintOf(burn: number): number {
+  return Math.max(0, (burn - RUN.portRest) / (1 - RUN.portRest));
 }
 
 /// How thick the way's line is drawn `u` along it, from 0 to 1, as a part of its width: thinnest at its ends.
@@ -552,6 +597,7 @@ export function themed(): typeof LIGHT {
     calling: token('--yellow', LIGHT.calling),
     halted: token('--red', LIGHT.halted),
     red: token('--red', LIGHT.red),
+    orange: token('--orange', LIGHT.orange),
     green: token('--green', LIGHT.green),
     amber: token('--orange-text', LIGHT.amber),
     onTag: token('--on-colour', LIGHT.onTag),
@@ -776,6 +822,10 @@ function cellLooks(): { measures: { side: number; gap: number }; looks: Record<C
   return { measures: { side, gap: length(MARK.gap) }, looks };
 }
 
+/// An item's piece of a column's bar on the map, as it was drawn: the item, its column, its top on the map and how
+/// tall, and its colour.
+export type MapPiece = { id: number; column: number; y: number; height: number; colour: string };
+
 /// One mark of a card's strip as it was drawn: its cell and state; its top left, from the card's left and its middle;
 /// its width, height and corners; its fill and its ring's colour and width; and whether it pulses.
 export type DrawnMark = {
@@ -794,8 +844,9 @@ export type DrawnMark = {
   pulses: boolean;
 };
 
-/// A card's strip as it was drawn: its marks, how many cells did not fit, and where its room ends; and the level its
-/// work's cell runs at, under the card's number, with its colour and whether it is strong.
+/// A card's strip as it was drawn: its marks, how many cells were left out, which is none since every strip fits, and
+/// where its room ends; and the level its work's cell runs at, under the card's number, with its colour and whether it
+/// is strong.
 export type DrawnStrip = {
   marks: DrawnMark[];
   more: number;
@@ -918,6 +969,11 @@ export class SnapScene {
   private mapMask = new Graphics();
   /// The map's height of a row: the longest column fits it twice, as a column may stand with either end in the middle.
   private mapRow = 1;
+  /// What the map drew at the last frame ([`drawnMap`]).
+  private mapDrawn: { frame: { x: number; y: number; width: number; height: number } | null; pieces: MapPiece[] } = {
+    frame: null,
+    pieces: [],
+  };
   private tree: Tree | null = null;
   /// Each item's number, in the tree's order.
   private ids: number[] = [];
@@ -939,9 +995,14 @@ export class SnapScene {
   private litDots: number[] = [];
   /// How each item, by its place in the tree, was moved and sized at the last frame while folds turned ([`movedNow`]);
   /// none else, when each is drawn where it stands, whole. And the lit ways drawn at the last frame, each by the item
-  /// it runs into, from where it began to where it ended; for the tests.
+  /// it runs into, from where it began to where it ended, with its curve and its turns into the cards; for the tests.
   private drawnMoved: { a: Float64Array; bx: Float64Array; by: Float64Array } | null = null;
-  private waysDrawn: { id: number; from: [number, number]; to: [number, number] }[] = [];
+  /// The strips of the cards being made, each with where its room begins and ends and how many cells it has, drawn
+  /// once every card is made, at one size of the marks for the whole tree ([`show`]).
+  private strips: { start: number; end: number; count: number; draw: (scale: number) => void }[] = [];
+  /// How each card was drawn, by its item's number: its rows, its fill and its edge's colour ([`cardLook`]).
+  private cardsDrawn = new Map<number, { rows: number; fill: string | number; edge: string | number }>();
+  private waysDrawn: LitWay[] = [];
   /// For each item, whether a work goes on on it or under it: the edges of the cards above a work are lit.
   private lit: Uint8Array = new Uint8Array(0);
   /// For each item, whether a work has begun on it or under it: the title of one with none is greyer.
@@ -962,8 +1023,7 @@ export class SnapScene {
   private measures = { side: 0, gap: 0 };
   private looks = {} as Record<CellState, CellLook>;
   private drawnStrips = new Map<number, DrawnStrip>();
-  /// For each column, the ranks of its items whose works wait for the owner, which the map marks.
-  private asking: number[][] = [];
+  /// For each column, the ranks of its items new to the owner, or with one under them folded away, which the map marks.
   private fresh: number[][] = [];
   private columns: Column[] = [];
   private shown = new Set<Container>();
@@ -1180,12 +1240,10 @@ export class SnapScene {
     this.drawnMoved = null;
     this.waysDrawn = [];
     this.base = Float64Array.from(items, (i) =>
-      i.work === null ? 1 : 1 + WORK_ROW,
+      i.work === null || i.work.from === null ? 1 : 1 + WORK_ROW,
     );
     this.shape();
-    const asks = (s: Shown) => s.asks > 0;
     const unseen = (s: Shown) => s.unseen;
-    this.asking = tree.columns.map((col) => col.flatMap((i, r) => (asks(items[i]) || hides(i, asks) ? [r] : [])));
     this.fresh = tree.columns.map((col) => col.flatMap((i, r) => (unseen(items[i]) || hides(i, unseen) ? [r] : [])));
     // The items a work goes on on, and those above them up to their roots: from the roots one sees which branches
     // have work on.
@@ -1209,11 +1267,15 @@ export class SnapScene {
     });
     this.pulses = new Map();
     this.beat = beatOf();
-    // The way from each item whose work runs up to its root, under a turning fold as well: there it is drawn with the
-    // cards as they draw in to the dot or grow out of it ([`ends`] in `draw`). The dot of an item folded, or whose fold
-    // turns, with a running item under it ends the way: the way runs from the root through the item's card to the dot,
-    // which comes and goes with the turn.
-    const running = (s: Shown) => !s.shadow && s.work !== null && moodOf(s.work) === 'running';
+    // The way from each item whose work is under way up to its root, under a turning fold as well: there it is drawn
+    // with the cards as they draw in to the dot or grow out of it ([`ends`] in `draw`). A work is under way while a round
+    // of it runs and while the engine runs a call for it, as its tests: its card says which, and the way, which other
+    // works share, is lit alike for both. The dot of an item folded, or whose fold turns, with such an item under it ends
+    // the way: the way runs from the root through the item's card to the dot, which comes and goes with the turn.
+    const running = (s: Shown) => {
+      const mood = s.shadow || s.work === null ? null : moodOf(s.work);
+      return mood === 'running' || mood === 'calling';
+    };
     const turning = (k: number) => this.turns.has(items[k].id);
     const inside = new Uint8Array(items.length);
     items.forEach((_, k) => {
@@ -1233,7 +1295,19 @@ export class SnapScene {
     this.glowing = new Map();
     this.softLit = new Map();
     this.ages = new Map();
+    this.strips = [];
+    this.cardsDrawn = new Map();
     this.views = items.map((item, k) => this.node(item, k));
+    // One size for the marks of every strip on the tree: the largest at which each strip fits its room, the strip of
+    // the flow with the most cells the narrowest, and never larger than the marks' own; so that a mark is as large on
+    // one card as on any other ([`strip`]).
+    const { side, gap } = this.measures;
+    const scale = this.strips.reduce((most, p) => {
+      const whole = p.count * (side + gap) - gap;
+      return whole > 0 ? Math.min(most, (p.end - p.start) / whole) : most;
+    }, 1);
+    for (const p of this.strips) p.draw(Math.max(0, scale));
+    this.strips = [];
     this.columns = tree.columns.map(() => ({ at: 0, aim: 0, warm: 0 }));
     if (tree.columns.length === 0) {
       this.buildMap(tree);
@@ -1411,8 +1485,9 @@ export class SnapScene {
   /// state's colour, its title, and at the right how many things its work waits for from the owner, white on red; on
   /// the second row, for an item whose work goes on, under the number the level its cell runs at, the strip of the
   /// work's cells as the works page draws it, the lines the work added and removed where it changed any, and how long
-  /// it has gone on. An item whose work has ended has its one row, with the lines its work changed at its right. A
-  /// node is drawn at its whole size, and made smaller as a whole while a fold over it turns.
+  /// it has gone on. An item whose work has ended has its one row, with the lines its work changed at its right; an
+  /// item whose work has not run a round has its one row too, in the colours of how its work stands. A node is drawn at
+  /// its whole size, and made smaller as a whole while a fold over it turns.
   private node(item: Shown, k: number): Container {
     const s = this.styles as Styles;
     const view = new Container();
@@ -1431,17 +1506,15 @@ export class SnapScene {
     // of the items under it, so that the cards of the items that are worked on stand out from it.
     if (item.deliver) view.addChild(new Graphics().rect(0, top + h - DELIVER_LINE, NODE_W, DELIVER_LINE).fill(PALETTE.faint));
     else {
-      view.addChild(
-        card.fill(filled ? mix(PALETTE.card, state, FILL) : PALETTE.card).stroke({
-          color:
-            state !== null
-              ? mix(PALETTE.card, state, mood === 'running' ? EDGE_RUNNING : EDGE_TINT)
-              : this.lit[k] === 1
-                ? PALETTE.branch
-                : PALETTE.edge,
-          width: EDGE_WIDTH,
-        }),
-      );
+      const fill = filled ? mix(PALETTE.card, state, FILL) : PALETTE.card;
+      const edge =
+        state !== null
+          ? mix(PALETTE.card, state, mood === 'running' ? EDGE_RUNNING : EDGE_TINT)
+          : this.lit[k] === 1
+            ? PALETTE.branch
+            : PALETTE.edge;
+      view.addChild(card.fill(fill).stroke({ color: edge, width: EDGE_WIDTH }));
+      this.cardsDrawn.set(item.id, { rows: this.base[k], fill, edge });
     }
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
@@ -1450,25 +1523,22 @@ export class SnapScene {
       style: s.mono(NUMBER()[item.standing]),
     });
     number.position.set(x, row1 - number.height / 2);
-    const title = new BitmapText({
-      text: item.title,
-      // An open item nothing has begun on or under is a little greyer than one in work, so that it stands back.
-      style: s.title(
-        item.standing !== 'open'
-          ? PALETTE.faint
-          : this.begun[k] === 1
-            ? PALETTE.ink
-            : between(PALETTE.ink, PALETTE.muted, NOT_BEGUN),
-      ),
-    });
+    // An open item nothing has begun on or under is a little greyer than one in work, so that it stands back.
+    const ink =
+      item.standing !== 'open'
+        ? PALETTE.faint
+        : this.begun[k] === 1
+          ? PALETTE.ink
+          : between(PALETTE.ink, PALETTE.muted, NOT_BEGUN);
+    const title = new BitmapText({ text: item.title, style: s.title(ink) });
     title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
     view.addChild(number, title);
     // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
-    // mark a card has, as what the owner looks for first; its messages unread, white on the accent; its returns sent back,
-    // framed in grey; and, while its work is not drawn, a lock framed in grey with
-    // how many items it waits for to merge, which stand under it.
+    // mark a card has, as what the owner looks for first; beside it, how many questions the owner may answer ahead,
+    // which hold the work at nothing yet, white on orange; its messages unread, white on the accent; and its returns
+    // sent back, framed in grey. What an item waits for stands under it in the tree, and no tag counts it again.
     let right = NODE_W - 8;
-    const tag = (text: string, fill: string, sign: 'back' | 'lock' | null, solid: boolean) => {
+    const tag = (text: string, fill: string, sign: 'back' | null, solid: boolean) => {
       const t = new BitmapText({ text, style: s.mono(solid ? PALETTE.onTag : fill) });
       const pad = 4;
       const icon = sign !== null ? 10 : 0;
@@ -1478,16 +1548,6 @@ export class SnapScene {
       if (solid) g.roundRect(right, row1 - 8, w, 16, 3).fill(fill);
       else g.roundRect(right, row1 - 8, w, 16, 3).stroke({ color: fill, width: 1 });
       const ax = right + pad;
-      if (sign === 'lock') {
-        // A small padlock, drawn: its body, and the shackle over it.
-        g.roundRect(ax + 1, row1 - 1, 7, 5.5, 1)
-          .stroke({ color: fill, width: 1.2 })
-          .moveTo(ax + 2.5, row1 - 1)
-          .lineTo(ax + 2.5, row1 - 3)
-          .arc(ax + 4.5, row1 - 3, 2, Math.PI, 0)
-          .lineTo(ax + 6.5, row1 - 1)
-          .stroke({ color: fill, width: 1.2 });
-      }
       if (sign === 'back') {
         // A small arrow turning back, drawn: the font may have no such sign.
         g.moveTo(ax + 7, row1 - 4)
@@ -1505,9 +1565,9 @@ export class SnapScene {
     // What waits for the owner in red, the strongest, as the engine's one list counts it; how much is new to read in the
     // colour of the line at the card's left that says something is new.
     if (item.asks > 0) tag(String(item.asks), PALETTE.red, null, true);
+    if (item.ahead > 0) tag(String(item.ahead), PALETTE.orange, null, true);
     if (item.unread > 0) tag(String(item.unread), PALETTE.unseen, null, true);
     if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, 'back', false);
-    if (item.work === null && item.blocked > 0) tag(String(item.blocked), PALETTE.muted, 'lock', false);
     // Of an item whose work has ended, the lines that work added and removed, at the right of its one row, each in its
     // colour (`LINES_LOOKS`), as the item's window says them.
     const ended = item.work === null ? item.endedLines : null;
@@ -1526,10 +1586,17 @@ export class SnapScene {
       view.addChild(added, removed);
       right -= removed.width + gap + added.width + 8;
     }
-    // The title ends where the badges begin.
+    // The title ends where the badges begin. A cancelled item's is struck through in its own colour, so that it is told
+    // from a done one's.
     fit(title, right - title.x);
-    if (item.work === null || mood === null) return view;
+    if (item.standing === 'cancelled') {
+      const through = Math.round(row1) + 0.5;
+      const strike = new Graphics().moveTo(title.x, through).lineTo(title.x + title.width, through);
+      view.addChild(strike.stroke({ color: ink, width: 1 }));
+    }
+    // A work that has not run a round has no second row: its card says how it stands by its colours alone.
     const w = item.work;
+    if (w === null || mood === null || w.from === null) return view;
     const row2 = workRow(h);
     // Under the number, the level the work's cell runs at, in its look (`levelLook`), as the item's window writes it
     // before its strip; a dash, muted, where the engine gives none.
@@ -1544,11 +1611,20 @@ export class SnapScene {
     view.addChild(level);
     // The second row: the work's strip, as the works page draws it, from under the title, so that the number stands
     // alone in a column at the card's left, or from past the level where it is wider than that column; ending short of
-    // the lines the work changed.
+    // the lines the work changed. It is drawn once every card is made, at the one size of the tree's marks ([`show`]).
     const at = here(w);
-    this.strip(view, item.id, k, w.cells, Math.max(title.x, x + level.width + 4), row2, LINES_X - 8, at);
-    const drawn = this.drawnStrips.get(item.id);
-    if (drawn !== undefined) drawn.level = { text: level.text, colour, strong };
+    const start = Math.max(title.x, x + level.width + 4);
+    const end = LINES_X - 8;
+    this.strips.push({
+      start,
+      end,
+      count: w.cells.length,
+      draw: (scale) => {
+        this.strip(view, item.id, k, w.cells, start, row2, end, scale, at);
+        const drawn = this.drawnStrips.get(item.id);
+        if (drawn !== undefined) drawn.level = { text: level.text, colour, strong };
+      },
+    });
     // Past the strip, where the work changed lines, those it added and removed, `+210 −40`, each in its colour
     // (`LINES_LOOKS`), a blank of the monospace apart, as the item's window says them.
     if (w.lines !== null) {
@@ -1575,9 +1651,10 @@ export class SnapScene {
 
   /// The strip of a work's cells on the second row of its card, item `id` at `k` in the tree: one mark per cell in the
   /// order of the walk, as the works page's (`state-marks.ts`), from `x` and no further than `end`, their middles on
-  /// `y`. Where the flow has more cells than fit at the marks' size, those that fit are drawn, the first in the walk,
-  /// and after them how many more there are, muted. The marks of cells running fade with the beat while their rounds
-  /// are under way. What it drew is kept, for the tests.
+  /// `y`. Every cell is drawn: the marks, the gaps between them, the dashes' height, the corners and the rings are all
+  /// `scale` of the works page's, which the tree makes small enough for its longest strip to fit ([`show`]); a ring is
+  /// at least a pixel wide. The marks of cells running fade with the beat while their rounds are under way. What it
+  /// drew is kept, for the tests.
   private strip(
     view: Container,
     id: number,
@@ -1586,36 +1663,27 @@ export class SnapScene {
     x: number,
     y: number,
     end: number,
+    scale: number,
     at: { cell: string; colour: string } | null = null,
   ) {
-    const s = this.styles as Styles;
-    const { side, gap } = this.measures;
-    const pitch = side + gap;
-    let shown = cells.length;
-    let more: BitmapText | null = null;
-    if (pitch <= 0) shown = 0;
-    else if (shown * pitch - gap > end - x) {
-      // Room for the count of those left out, at its widest, after the marks that fit.
-      more = new BitmapText({ text: `+${cells.length}`, style: s.mono(PALETTE.muted) });
-      shown = Math.max(0, Math.floor((end - x - 4 - more.width + gap) / pitch));
-      more.text = `+${cells.length - shown}`;
-      more.position.set(x + shown * pitch - gap + 4, y - more.height / 2);
-    }
-    const marks: DrawnMark[] = cells.slice(0, shown).map((c, i) => {
+    const side = this.measures.side * scale;
+    const pitch = side + this.measures.gap * scale;
+    const marks: DrawnMark[] = cells.map((c, i) => {
       const own = this.looks[c.state];
       // The cell the work is at, while it waits for the owner or is halted, in the colour of its state, filled.
       const look = at !== null && at.cell === c.cell ? { ...own, fill: at.colour, edge: at.colour } : own;
+      const height = look.height * scale;
       return {
         cell: c.cell,
         state: c.state,
         x: x + i * pitch,
-        y: y - look.height / 2,
+        y: y - height / 2,
         width: side,
-        height: look.height,
-        corner: look.corner,
+        height,
+        corner: look.corner * scale,
         fill: look.fill,
         edge: look.edge,
-        ring: look.ring,
+        ring: look.ring > 0 ? Math.max(1, look.ring * scale) : 0,
         ringed: look.edge !== null && look.edge !== look.fill,
         pulses: pulsing(c.state),
       };
@@ -1636,14 +1704,19 @@ export class SnapScene {
         });
     }
     view.addChild(still, running);
-    if (more !== null) view.addChild(more);
     if (marks.some((m) => m.pulses)) this.pulses.set(k, running);
-    this.drawnStrips.set(id, { marks, more: cells.length - shown, end, level: null });
+    this.drawnStrips.set(id, { marks, more: 0, end, level: null });
+  }
+
+  /// How the card of item `id` was drawn, for the tests: how many rows high, and its fill and its edge's colour. None
+  /// for an item the tree does not draw, a shadow, and a deliverable, which has no card.
+  cardLook(id: number): { rows: number; fill: string | number; edge: string | number } | null {
+    return this.cardsDrawn.get(id) ?? null;
   }
 
   /// What the card of item `id` drew for its work's cells, for the tests: each mark, where it stands from the card's
-  /// left and its middle, its measures and colours, and whether it pulses; how many cells did not fit; where the room
-  /// for the strip ends; and the level under the number. None for an item whose card has no work.
+  /// left and its middle, its measures and colours, and whether it pulses; how many cells were left out, none; where
+  /// the room for the strip ends; and the level under the number. None for an item whose card has no work.
   drawnStrip(id: number): DrawnStrip | null {
     return this.drawnStrips.get(id) ?? null;
   }
@@ -1664,8 +1737,8 @@ export class SnapScene {
   }
 
   /// The lit ways drawn at the last frame, each by the number of the item it runs into, from where it began to where
-  /// it ended, for the tests.
-  litWays(): { id: number; from: [number, number]; to: [number, number] }[] {
+  /// it ended, with its curve and its turns into the cards, for the tests.
+  litWays(): LitWay[] {
     return [...this.waysDrawn];
   }
 
@@ -1907,35 +1980,49 @@ export class SnapScene {
     coat(this.runEdges.line, this.lineWidth, RUN.lineAlpha, core);
   }
 
-  /// The light where a way meets a card, at `(x, y)` on the card's edge, `half` its height, the way coming in against
-  /// `inward`, at `strength`, `burn` from 0 to 1 as the light goes through it: it lies along the edge the way meets,
-  /// burning brighter as the light comes and fading out as it goes each way along it, in the light's colour as it goes
-  /// through (`tint`). Along the way itself the way's own line carries it.
+  /// The line a spark is drawn in: white where the page is dark, the hottest of the light; where it is light, the
+  /// way's ink line `line`, which the glint reads within.
+  private flareLine(line: number): number {
+    return this.adds ? Number.parseInt(PALETTE.glowTo.slice(1), 16) : line;
+  }
+
+  /// A way's line turning into a card's edge at `(x, y)`, up and down it, from where it leaves the way through where it
+  /// bends ([`turnOf`]): lit as the spark there is, at `strength`, `burn` from 0 to 1 as the light goes through it.
+  /// Each way turns in along its own curve, however many ways meet the card there.
+  private turnIn(
+    x: number,
+    y: number,
+    turn: { from: [number, number]; bend: [number, number] },
+    tint: (bright: number) => number,
+    line: number,
+    strength: number,
+    burn: number,
+  ) {
+    const [[fx, fy], [bx, by]] = [turn.from, turn.bend];
+    const lay = (g: Graphics) => {
+      for (const side of [-1, 1]) g.moveTo(fx, fy).quadraticCurveTo(bx, by, x, y + side * RUN.fillet);
+    };
+    this.coats(lay, tint(glintOf(burn)), this.flareLine(line), strength * burn, RUN.portWide);
+  }
+
+  /// The light where a way meets a card, at `(x, y)` on the card's edge, `half` its height, at `strength`, `burn` from
+  /// 0 to 1 as the light goes through it: it lies along the edge the way meets, burning brighter as the light comes and
+  /// fading out as it goes each way along it, in the light's colour as it goes through (`tint`). Along the way itself
+  /// the way's own line carries it, and the way's turn into the edge ([`turnIn`]).
   private spark(
     x: number,
     y: number,
     half: number,
-    inward: number,
     tint: (bright: number) => number,
     line: number,
     glint: number,
     strength: number,
     burn: number,
   ) {
-    // The glint comes only with the light itself: at rest the way's end is lit, not glinting.
-    const going = Math.max(0, (burn - RUN.portRest) / (1 - RUN.portRest));
+    const going = glintOf(burn);
     const reach = RUN.portHold * half;
-    // The flare's own line is white where the page is dark, the hottest of the light; where it is light, the way's
-    // ink line, which the glint reads within.
     const white = Number.parseInt(PALETTE.glowTo.slice(1), 16);
-    const core = this.adds ? white : line;
-    // The way's line turning into the edge, up and down it, from where the way comes in from outside the card.
-    const turn = (g: Graphics) => {
-      for (const side of [-1, 1]) {
-        g.moveTo(x - inward * RUN.fillet, y).quadraticCurveTo(x, y, x, y + side * RUN.fillet);
-      }
-    };
-    this.coats(turn, tint(going), core, strength * burn, RUN.portWide);
+    const core = this.flareLine(line);
     for (let n = 0; n < RUN.portPieces; n += 1) {
       const [near, far] = [(reach * n) / RUN.portPieces, (reach * (n + 1)) / RUN.portPieces];
       const fade = (1 - (n + 0.5) / RUN.portPieces) ** RUN.portFall;
@@ -2134,26 +2221,32 @@ export class SnapScene {
     this.map.addChild(this.mapFrame, this.mapMask, this.mapBars);
   }
 
-  /// Draws each column on the map as one bar from its first item to its last, moved as the column is: in a light accent,
-  /// or a deeper blue while the pointer is over it, marked red where works wait for the owner, and in the accent where
-  /// the item selected stands.
+  /// Draws each column on the map as the items it holds, moved as the column is: each item a piece of the column's bar
+  /// as tall as its rows, a hairline apart where there is room, in the colour of how its card stands ([`mapColour`]);
+  /// in the accent across the bar where items are new to the owner; and where the item selected stands, the accent over
+  /// every other mark. Over the bars, in a thin light line round a faint ground that the bars show through, the part of
+  /// the tree the screen shows: from the first column it shows of to the last, as many rows as it holds round the
+  /// middle, where each column's place on the screen is. What it drew is kept, for the tests.
   private drawMap(t: Tree) {
     const mid = MAP_HIGH / 2;
+    const { width, height } = this.app.screen;
+    const barAt = (d: number) => MAP_PAD + d * (MAP_STRIP + MAP_APART);
     this.mapBars.clear();
+    const pieces: MapPiece[] = [];
     this.columns.forEach((c, d) => {
-      const from = mid + (0 - c.at) * this.mapRow;
-      const n = t.columns[d].length;
-      const to = mid + (this.slot(d, n - 1) + this.rowsAt(d, n - 1) - c.at) * this.mapRow;
-      const left = MAP_PAD + d * (MAP_STRIP + MAP_APART);
-      this.mapBars.rect(left, from, MAP_STRIP, Math.max(1, to - from)).fill(mix(PALETTE.mapBar, PALETTE.over, c.warm));
-      // Where items are new to the owner, the accent across the bar; where works wait for the owner, red, over it.
+      const left = barAt(d);
+      t.columns[d].forEach((k, r) => {
+        const from = mid + (this.slot(d, r) - c.at) * this.mapRow;
+        const tall = this.rowsAt(d, r) * this.mapRow;
+        const gap = tall > 3 * MAP_GAP ? MAP_GAP : 0;
+        const colour = this.mapColour(k);
+        this.mapBars.rect(left, from, MAP_STRIP, Math.max(0.5, tall - gap)).fill(colour);
+        pieces.push({ id: this.ids[k], column: d, y: from, height: tall, colour });
+      });
+      // Where items are new to the owner, the accent across the bar.
       for (const r of this.fresh[d] ?? []) {
         const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at) * this.mapRow;
         this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.accent);
-      }
-      for (const r of this.asking[d] ?? []) {
-        const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at) * this.mapRow;
-        this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.red);
       }
     });
     // Where the item selected stands, the accent across its column's bar, over every other mark, a little wider, so that
@@ -2163,8 +2256,46 @@ export class SnapScene {
       const [d, r] = [t.depth[chosen], t.rank[chosen]];
       const c = this.columns[d];
       const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at) * this.mapRow;
-      this.mapBars.rect(MAP_PAD + d * (MAP_STRIP + MAP_APART) - 2, at - 1.5, MAP_STRIP + 4, 3).fill(PALETTE.chosen);
+      this.mapBars.rect(barAt(d) - 2, at - 1.5, MAP_STRIP + 4, 3).fill(PALETTE.chosen);
     }
+    // The part of the tree on the screen: the columns any of whose cards' room is on it, and round the middle the rows
+    // it holds.
+    const shown = this.columns.flatMap((_, d) => {
+      const x = this.left + d * PITCH;
+      return x + NODE_W > 0 && x < width ? [d] : [];
+    });
+    let frame: { x: number; y: number; width: number; height: number } | null = null;
+    if (shown.length > 0) {
+      const [first, last] = [shown[0], shown[shown.length - 1]];
+      const half = (height / ROW / 2) * this.mapRow;
+      frame = {
+        x: barAt(first) - MAP_FRAME_OUT,
+        y: mid - half,
+        width: barAt(last) + MAP_STRIP - barAt(first) + 2 * MAP_FRAME_OUT,
+        height: 2 * half,
+      };
+      this.mapBars
+        .rect(frame.x, frame.y, frame.width, frame.height)
+        .fill({ color: PALETTE.ink, alpha: MAP_FRAME_FILL })
+        .stroke({ color: PALETTE.faint, width: 1 });
+    }
+    this.mapDrawn = { frame, pieces };
+  }
+
+  /// The colour an item's piece of the map takes, as its card stands: of its work's state while a work is drawn on it,
+  /// running, in a call, for the owner or halted, or paused or waiting; the light grey of an item whose work has not
+  /// begun, or a shadow; the faint grey of a done or cancelled item, as its card is dim.
+  private mapColour(k: number): string {
+    const item = this.shownItems[k];
+    if (!item.shadow && item.work !== null) return WORK()[moodOf(item.work)];
+    if (!item.shadow && item.standing !== 'open') return PALETTE.hair;
+    return PALETTE.pale;
+  }
+
+  /// What the map drew at the last frame, for the tests: the part of the tree the screen shows, on the map, and each
+  /// item's piece, by its column, from its top on the map and how tall, in its colour.
+  drawnMap(): { frame: { x: number; y: number; width: number; height: number } | null; pieces: MapPiece[] } {
+    return this.mapDrawn;
   }
 
   /// A scroll of `dy` pixels over column `d`: it moves the column, which the others then follow, as far as leaves
@@ -2298,6 +2429,11 @@ export class SnapScene {
     this.columns[c].aim = this.columns[c].at;
     this.onFold?.(this.ids[k], !fold.folded);
     return true;
+  }
+
+  /// The item selected, by its number, or none: from the moment it is chosen, while the folds over it still open.
+  selectedId(): number | null {
+    return this.selected;
   }
 
   /// Selects the item numbered `id`, or none.
@@ -2584,8 +2720,9 @@ export class SnapScene {
       const { px, py, cx, iy } = ends(i);
       if (cx < 0 || px > width) continue;
       if (Math.max(py, iy) < 0 || Math.min(py, iy) > height) continue;
-      this.waysDrawn.push({ id: this.ids[i], from: [px, py], to: [cx, iy] });
       const { way, len, dist } = wayDown(i);
+      const turns = [turnOf(way, true, RUN.fillet), turnOf(way, false, RUN.fillet)];
+      this.waysDrawn.push({ id: this.ids[i], from: [px, py], to: [cx, iy], curve: way.points, turns });
       // How long the way's curve is, and how far along it the place stands that is `across` the page from its start.
       const curve = way.along[RUN.pieces];
       const on = (across: number) => this.arcAt(way, across);
@@ -2635,18 +2772,22 @@ export class SnapScene {
       // card the way ends at, lit from its left side to its right as the light crosses it. Where the way comes from
       // a root, the root's own card is crossed before any way.
       // The light where the way meets each card: on the parent's right side, going into it, and on the item's left.
-      // Each card's own end is lit once, however many running ways meet it there.
+      // The way turns into each along its own curve; each card's own end is lit once, however many running ways meet
+      // it there.
       // A card drawn smaller under a turning fold has its ends lit at its size, and its edge crossed by no light
       // until it is drawn whole.
+      const [out, into] = [sparkAt(dist, head), sparkAt(dist + len, head)];
+      this.turnIn(px, py, turns[0], tint, lineColour, strength, out);
+      this.turnIn(cx, iy, turns[1], tint, lineColour, strength, into);
       if (!sparked.has(p * 2)) {
         sparked.add(p * 2);
         const ph = (high(this.base[p]) / 2) * size(p);
-        this.spark(px, py, ph, -1, tint, lineColour, glintColour, strength, sparkAt(dist, head));
+        this.spark(px, py, ph, tint, lineColour, glintColour, strength, out);
       }
       if (!sparked.has(i * 2 + 1)) {
         sparked.add(i * 2 + 1);
         const ih = (high(this.base[i]) / 2) * size(i);
-        this.spark(cx, iy, ih, 1, tint, lineColour, glintColour, strength, sparkAt(dist + len, head));
+        this.spark(cx, iy, ih, tint, lineColour, glintColour, strength, into);
       }
       if (t.parent[p] < 0 && !crossed.has(p)) {
         crossed.add(p);

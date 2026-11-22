@@ -76,3 +76,21 @@ describe('a way back along a datum\'s row', () => {
     expect(review).toEqual([]);
   });
 });
+
+describe("a cell's head on the flow's chart", () => {
+  it('writes the effort of an agent cell under its id, as its file writes it, and keeps the line empty under an engine cell', () => {
+    const flow = flowOf(
+      [
+        cell('think', { outputs: ['plan'], effort: 'xhigh' }),
+        cell('merge', { kind: 'engine', line: null, task: null, act: 'merge', effort: null, watches: ['plan'] }),
+      ],
+      { plan: {} },
+    );
+    const page = drawn(flow);
+    const effort = (id: string) => page.querySelector(`th[data-key="cell:${id}"] .cell-effort`)?.textContent;
+    expect(effort('think')).toBe('xhigh');
+    // The engine's cell has the line, so that the ids stand level, with nothing written in it.
+    expect(effort('merge')).toBeDefined();
+    expect(effort('merge')?.trim()).toBe('');
+  });
+});

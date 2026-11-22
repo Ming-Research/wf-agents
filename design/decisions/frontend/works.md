@@ -36,7 +36,8 @@ Each row of a work's history is one run of a cell, with what woke it named at th
 - replaced: Pauses and resumes before a work's first run, drawn like any other, was on main; the owner changed it, because shown there they mean nothing.
 
 ### decision a-wake-is-an-arrow-from-the-writer
-An arrow runs under the cells, from the middle of the column of the cell whose run wrote what woke a run, to that run's own column; it is in the accent where it runs back.
+An arrow runs under the cells, from the middle of the column of the cell whose run wrote what woke a run, to that run's own column; it is in red where it runs back, as a send-back.
+- replaced: The way back in the accent, as everything else on the history, was on main; the owner changed it, because in red, which send-backs a cell's limit counted is seen at once.
 - rejected: an agent proposed naming the datum at the left with the flow's signs of who writes, and marking in each cell what a run handed in and what it woke; the owner rejected it, because one arrow from the cell that wrote to the run says both.
 
 ### decision the-history-goes-under-the-window

@@ -51,13 +51,13 @@ A card, under its number, and the item's window write a cell's level as `L2`, or
 - rejected: the owner proposed a separate hue for each level; the owner rejected it, because red, yellow, the accent and green each already mean a state.
 
 ### decision the-way-back-is-in-the-accent
-Every view draws a way back in the accent: a thick line and arrow on the matrix and the flowchart, and, in a work's history, from the later cell's column to the run it woke.
+The flow's views draw a way back in the accent, a thick line and arrow on the matrix and the flowchart; a work's history draws it in red, as decision a-wake-is-an-arrow-from-the-writer says.
 - rejected: an agent proposed keeping the ways back in their own violet, next to a blue accent; the owner rejected it, because the violets clashed with the page.
 - replaced: Ways back in grey, told apart from other lines only by their shape, was on main; the owner changed it, because a way back should be in the highlight colour, and one thing should have one colour in every view.
 - replaced: A separate line for the way round in a run's panel was on main; the owner changed it, because the matrix's arrow back already shows it.
 
 ### decision every-mark-is-in-one-table
-Every mark the page draws is defined once, with a name of a word or two, in one table, and each view's legend lists on one line only the marks that view draws.
+Every mark the page draws is defined once, with a name of a word or two, in one table, and each view's legend lists only the marks that view draws, on one line, or on the console in a panel.
 - replaced: Separate marks and legends in each view, which named one thing in several ways, was on main; the owner changed it, because a legend's words had grown too long for its line, and things that were alike looked different from view to view.
 
 ### decision the-page-draws-markdown-itself

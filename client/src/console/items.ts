@@ -14,6 +14,7 @@
 import type { CellNow, Item, Items, Now, Pauser, Summary, Wait } from '../works-api';
 import { mocksShown } from '../mock-data';
 import { waitsOf } from '../works/waiting';
+import { stateOf } from '../works/words';
 import { itemOf } from './real';
 
 /// What the item is to deliver: not yet, delivered, or given up.
@@ -32,9 +33,9 @@ export type ShownWork = {
   cells: CellNow[];
   /// What it waits on the owner for, as the engine's one list of it says.
   waits: Wait[];
-  /// When its first round began, from which its age is counted; when it was added, before it has a round or from an
-  /// engine that does not say.
-  from: number;
+  /// When its first round began, from which its age is counted; none before it has run a round, when the card has no
+  /// row of it.
+  from: number | null;
   /// Where its time went, in equal cells (`Summary.bar`); empty where the engine does not say.
   bar: string;
   /// How many of its returns were sent back.
@@ -75,21 +76,23 @@ export type Shown = {
   endedLines?: Lines | null;
   /// How many things its work waits on the owner for, as the engine's one list of it counts them.
   asks: number;
+  /// How many questions put to the owner its work has standing that hold it at nothing yet, which the owner may answer
+  /// ahead, as the engine counts them (`Summary.ahead`): none that `asks` counts.
+  ahead: number;
   /// It is a deliverable: an item that says what is to be delivered and is made of the items under it, with no work
   /// of its own to show. Its flow says so (`deliver`); until the engine has that flow, the page's rule above does.
   deliver: boolean;
-  /// How many items it depends on are still open: neither merged nor cancelled, which it no longer waits for.
-  blocked: number;
   /// New to the owner, or changed since they last read it (mock: `mock.ts`).
   unseen: boolean;
   /// Messages from others the owner has not read (mock: `mock.ts`).
   unread: number;
-  /// Whether its work has begun: until it has, the card says how many items it waits for.
+  /// Whether its work has begun, which is whether it has run a round ([`started`]).
   begun: boolean;
   /// A shadow of the item under an item that depends on it by a dependency that is not its main one: it points to the
   /// item's place, and carries none of its work, its questions or the items under it.
   shadow: boolean;
-  /// Its work while it goes on and says something: once it has begun, or while it is paused, at fault or waits.
+  /// Its work while it goes on, once it has run a round, or before that while it is halted or waits for the owner, the
+  /// card then of one row ([`drawn`]); else none, the card an open item's, of one row.
   work: ShownWork | null;
   /// Every item under it, whether or not they are folded away.
   children: Shown[];
@@ -107,23 +110,91 @@ export function standingOf(i: Item | undefined): ItemStanding {
 /// How many things a work waits on the owner for.
 export const asksOf = (w: Pick<Summary, 'waits'>): number => waitsOf(w).length;
 
-/// Whether a work has begun: a round is under way, or a cell of it has run.
-export const started = (w: Summary): boolean =>
-  w.now.kind === 'round' || w.cells.some((c) => c.finished > 0 || c.open !== null);
+/// Whether a work has begun: it has run a round, so that the engine says when its first round began. A cell can stand
+/// done with no round of it, as the first cell of an item brought over from elsewhere does; that is no beginning.
+export const started = (w: Summary): boolean => w.from != null;
 
 /// Whether a work still goes on: not merged and not cancelled.
 const live = (w: Summary) => w.now.kind !== 'merged' && w.now.kind !== 'cancelled';
 
-/// Whether a card draws the work: while it goes on, once it has begun, or before that while it is paused, at fault,
-/// waits or is stalled, which every work added paused is.
-const drawn = (w: Summary) =>
-  live(w) &&
-  (started(w) ||
-    w.now.kind === 'paused' ||
-    w.now.kind === 'everything' ||
-    w.now.kind === 'fault' ||
-    w.now.kind === 'waits' ||
-    w.now.kind === 'stalled');
+/// Whether a card draws the work, in the colours of how it stands: while it goes on, once it has begun, and before
+/// that while it is halted or waits for the owner, which a card says in red whether or not the work has run. Its second
+/// row it draws only once the work has run a round (`ShownWork.from`); one paused or waiting for other items before
+/// its first round draws no work, as an open item with none.
+const drawn = (w: Summary) => {
+  if (!live(w)) return false;
+  const { tone } = stateOf(w);
+  return started(w) || tone === 'owner' || tone === 'failed';
+};
+
+/// Each item's main dependent, which it stands under in the tree: the first by number of the items that depend on it.
+function mainDependents(data: Items): Map<number, number> {
+  const known = new Set(data.items.map((i) => i.number));
+  const main = new Map<number, number>();
+  for (const i of [...data.items].sort((a, b) => a.number - b.number))
+    for (const d of i.dependsOn) if (known.has(d) && !main.has(d)) main.set(d, i.number);
+  return main;
+}
+
+/// Each item's path in the tree: the numbers of the items it stands under, from its root down, and its own last, as the
+/// tree places an item, under its main dependent; an item met again on its own way up, which only a cycle of
+/// dependencies does, ends the path.
+export function itemPaths(data: Items): Map<number, number[]> {
+  const main = mainDependents(data);
+  return new Map(
+    data.items.map((i) => {
+      const path = [i.number];
+      for (let p = main.get(i.number); p !== undefined && !path.includes(p); p = main.get(p)) path.unshift(p);
+      return [i.number, path];
+    }),
+  );
+}
+
+/// An item's path as the page writes it, its numbers joined by `-` from its root down: `53-27-23`.
+export const pathWords = (path: number[]): string => path.join('-');
+
+/// What the search of the console finds for `query`, at most `most`, each item with its path, as the query stands while
+/// it is typed a digit at a time: where it is a number, `65` or `#65`, the items whose number begins with it, the item
+/// of that very number first; where it is a path from a root, `53-27-23`, or a part of one, `53-2` or `53-`, the items
+/// whose path holds its numbers but its last, and at the place of its last a number that begins with it, each with the
+/// items under it: the item the whole path names first, then the others in the tree's order. Then every item whose
+/// title holds the query, in any case, by number. Every item counts, open, done or cancelled.
+export function findItems(data: Items, query: string, most = 8): { item: Item; path: number[] }[] {
+  const q = query.trim();
+  if (q === '') return [];
+  const paths = itemPaths(data);
+  const found: { item: Item; path: number[] }[] = [];
+  const taken = new Set<number>();
+  const take = (item: Item) => {
+    if (taken.has(item.number)) return;
+    taken.add(item.number);
+    found.push({ item, path: paths.get(item.number) ?? [item.number] });
+  };
+  const byNumber = [...data.items].sort((a, b) => a.number - b.number);
+  const parts = /^#?\d+(-\d+)*-?$/.test(q) ? q.replace(/^#/, '').split('-') : null;
+  if (parts !== null && parts.length === 1) {
+    const [typed] = parts;
+    const begins = byNumber.filter((i) => String(i.number).startsWith(typed));
+    for (const item of [...begins.filter((i) => String(i.number) === typed), ...begins]) take(item);
+  } else if (parts !== null) {
+    const last = parts.length - 1;
+    const fits = (path: number[]) =>
+      path.length > last && parts.every((p, k) => (k < last ? path[k] === Number(p) : String(path[k]).startsWith(p)));
+    const named = (path: number[]) => path.length === parts.length && String(path[last]) === parts[last];
+    const order = (a: number[], b: number[]) => {
+      for (let k = 0; k < Math.min(a.length, b.length); k += 1) if (a[k] !== b[k]) return a[k] - b[k];
+      return a.length - b.length;
+    };
+    const below = byNumber
+      .map((item) => ({ item, path: paths.get(item.number) ?? [item.number] }))
+      .filter(({ path }) => fits(path))
+      .sort((a, b) => Number(named(b.path)) - Number(named(a.path)) || order(a.path, b.path));
+    for (const { item } of below) take(item);
+  }
+  const words = q.toLocaleLowerCase();
+  for (const item of byNumber) if (item.title.toLocaleLowerCase().includes(words)) take(item);
+  return found.slice(0, most);
+}
 
 /// The tree of the items that stand as one of `shown` stands, and what stands over them; each item the owner folded or
 /// unfolded in `folds` as he last chose, the others folded where neither they nor anything under them is open.
@@ -134,10 +205,7 @@ export function shownTree(
 ): Shown[] {
   const byId = new Map(data.items.map((i) => [i.number, i]));
   const standing = (id: number): ItemStanding => standingOf(byId.get(id));
-  // Each item's main dependent: the first by number of the items that depend on it.
-  const main = new Map<number, number>();
-  for (const i of [...data.items].sort((a, b) => a.number - b.number))
-    for (const d of i.dependsOn) if (byId.has(d) && !main.has(d)) main.set(d, i.number);
+  const main = mainDependents(data);
   const under = new Map<number, number[]>();
   const besides = new Map<number, number[]>();
   const above = new Set<number>();
@@ -192,9 +260,9 @@ export function shownTree(
       title: i?.title ?? '',
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w),
+      // Only a work that goes on has questions to answer.
+      ahead: w !== undefined && live(w) ? (w.ahead ?? 0) : 0,
       deliver: deliverable || w?.delivers === true,
-      // A cancelled item it depends on holds it back no more: only what is still open does.
-      blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) === 'open').length,
       // New to the owner exactly when something is unread: one fact, not two.
       unseen: (mock?.unread ?? 0) > 0,
       unread: mock?.unread ?? 0,
@@ -208,7 +276,7 @@ export function shownTree(
               paused: w.paused,
               cells: w.cells,
               waits: waitsOf(w),
-              from: w.from ?? w.added,
+              from: w.from ?? null,
               bar: w.bar ?? '',
               sentBack: w.sentBack ?? 0,
               usdMicros: w.spent.usdMicros,
@@ -231,8 +299,8 @@ export function shownTree(
     title: byId.get(id)?.title ?? '',
     standing: standing(id),
     asks: 0,
+    ahead: 0,
     deliver: false,
-    blocked: 0,
     unseen: false,
     unread: 0,
     begun: false,
@@ -244,6 +312,20 @@ export function shownTree(
     .filter((i) => !above.has(i.number) && keep(i.number))
     .sort((a, b) => a.number - b.number)
     .map((i) => make(i.number));
+}
+
+/// The items of the tree `roots` in its order, each before the items under it, with how many stops each has: each
+/// thing its red and its orange counts count, which n and N walk on the console. A shadow stands for an item placed
+/// elsewhere, and is left out.
+export function walkOrder(roots: Shown[]): { id: number; stops: number }[] {
+  const order: { id: number; stops: number }[] = [];
+  const go = (s: Shown) => {
+    if (s.shadow) return;
+    order.push({ id: s.id, stops: s.asks + s.ahead });
+    s.children.forEach(go);
+  };
+  roots.forEach(go);
+  return order;
 }
 
 /// The fold of an item that stands as `own` stands, with `children` standing under it and `shadows` shadows beside

@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Item, Items, Now, Summary, Wait } from '../works-api';
-import { asksOf, STANDINGS, shownTree, type Shown } from './items';
+import { asksOf, findItems, itemPaths, pathWords, STANDINGS, shownTree, type Shown } from './items';
 import { indexTree } from './tree';
 
 const CELLS = ['plan', 'implement', 'merge'];
 
-/// A work of item `item` doing `now`, its cells as `states` say.
+/// A work of item `item` doing `now`, its cells as `states` say; its first round begun where a round is under way or a
+/// cell has run.
 function work(item: number, now: Now, states: CellNow['state'][] = ['notYet', 'notYet', 'notYet']): Summary {
+  const begun = now.kind === 'round' || states.some((s) => s !== 'notYet' && s !== 'skipped');
   return {
+    from: begun ? 1 : null,
     number: item * 10,
     item,
     flow: 'small',
@@ -247,6 +250,75 @@ describe('the folds of the tree', () => {
   });
 });
 
+describe('the search of the items', () => {
+  // 1 depends on 2 and 3, and 2 on 4: the paths 1-2, 1-3 and 1-2-4. 5, cancelled, and 65 stand alone.
+  const named = (i: Item, title: string): Item => ({ ...i, title });
+  const data: Items = {
+    items: [
+      named(item(1, 'open', [2, 3]), 'Find an item'),
+      named(item(2, 'done', [4]), 'Show the legend'),
+      named(item(3, 'open'), '搜索条目'),
+      named(item(4, 'done'), 'Draw the marks'),
+      named(item(5, 'cancelled'), 'Find nothing'),
+      named(item(65, 'open'), 'Read the record'),
+    ],
+  };
+  const found = (query: string) => findItems(data, query).map((f) => pathWords(f.path));
+
+  it('writes each item by its path in the tree, from its root down, as the tree places it', () => {
+    const paths = itemPaths(data);
+    const words = [1, 2, 3, 4, 5, 65].map((n) => pathWords(paths.get(n) ?? []));
+    expect(words).toEqual(['1', '1-2', '1-3', '1-2-4', '5', '65']);
+  });
+
+  it('finds an item by its number, with or without #, and as the number is typed, the items whose number begins so', () => {
+    expect(found('65')).toEqual(['65']);
+    expect(found('#65')).toEqual(['65']);
+    expect(found(' 3 ')).toEqual(['1-3']);
+    expect(found('6')).toEqual(['65']);
+    expect(found('1')).toEqual(['1']);
+  });
+
+  it('finds the item a path from its root names, and the items under it, in the order of the tree', () => {
+    expect(found('1-2')).toEqual(['1-2', '1-2-4']);
+    expect(found('1-2-4')).toEqual(['1-2-4']);
+    expect(found('1-')).toEqual(['1-2', '1-2-4', '1-3']);
+    // A path that does not begin at a root names nothing.
+    expect(found('2-4')).toEqual([]);
+  });
+
+  it('finds as a path is typed a digit at a time: the last number begun names each number it begins, the very one first', () => {
+    // 26 depends on 27, 28 and 29, and 27 on 30.
+    const typed: Items = {
+      items: [
+        item(26, 'open', [27, 28, 29]),
+        item(27, 'done', [30]),
+        item(28, 'open'),
+        item(29, 'cancelled'),
+        item(30, 'done'),
+      ],
+    };
+    const paths = (query: string) => findItems(typed, query).map((f) => pathWords(f.path));
+    expect(paths('26-2')).toEqual(['26-27', '26-27-30', '26-28', '26-29']);
+    expect(paths('26-28')).toEqual(['26-28']);
+    expect(paths('26-27-3')).toEqual(['26-27-30']);
+    expect(paths('2')).toEqual(['26', '26-27', '26-28', '26-29']);
+  });
+
+  it('finds the items whose title holds what is typed, in any case and as Chinese is typed, open, done or cancelled', () => {
+    expect(found('find')).toEqual(['1', '5']);
+    expect(found('LEGEND')).toEqual(['1-2']);
+    expect(found('搜索')).toEqual(['1-3']);
+    expect(found('nowhere')).toEqual([]);
+  });
+
+  it('finds nothing for nothing typed, and at most eight', () => {
+    expect(found('  ')).toEqual([]);
+    const many: Items = { items: Array.from({ length: 12 }, (_, k) => named(item(k + 1, 'open'), `Fix ${k + 1}`)) };
+    expect(findItems(many, 'fix')).toHaveLength(8);
+  });
+});
+
 describe('what a card shows of an item', () => {
   const waits: Now = {
     kind: 'waits',
@@ -280,10 +352,9 @@ describe('what a card shows of an item', () => {
     expect(shown[0].asks).toBe(3);
   });
 
-  it('counts the items an item waits for as those it depends on that are still open: a cancelled one, standing under it, holds it back no more', () => {
+  it('stands every item an item depends on under it, open, done or cancelled', () => {
     const items = [item(1, 'open', [2, 3, 4]), item(2, 'open'), item(3, 'done'), item(4, 'cancelled')];
     const shown = shownTree({ items }, ALL);
-    expect(shown[0].blocked).toBe(1);
     expect(shown[0].children.map((s) => [s.id, s.standing])).toEqual([
       [2, 'open'],
       [3, 'done'],
@@ -291,14 +362,13 @@ describe('what a card shows of an item', () => {
     ]);
   });
 
-  it('shows the work of an item once it has begun, and while it goes on; until it has begun, the items it waits for', () => {
+  it('shows the work of an item once it has begun, and while it goes on', () => {
     const notBegun = item(1, 'open', [2, 3]);
     const listed: Wait[] = ['call-1', 'write-confirmed', 'limit'].map((key) => ({ key, why: `${key}.`, ends: { kind: 'resume' } }));
     const begun: Item = { ...item(2, 'open'), work: { ...work(2, waits, ['done', 'resting', 'notYet']), waits: listed } };
     const shown = shownTree({ items: [notBegun, begun, item(3, 'done')] });
     expect(shown[0].work).toBeNull();
     expect(shown[0].begun).toBe(false);
-    expect(shown[0].blocked).toBe(1);
     const w = shown[0].children[0];
     expect(w.begun).toBe(true);
     expect(w.asks).toBe(3);
@@ -317,7 +387,7 @@ describe('what a card shows of an item', () => {
     expect(made[0].deliver).toBe(false);
   });
 
-  it('shows the work of an item that has not begun while it is paused, at fault or waits, as every new item is', () => {
+  it('gives a work that has not run a round no second row, its colours only where it is halted or waits for the owner', () => {
     const paused: Item = {
       ...item(1, 'open', [4]),
       work: work(1, { kind: 'paused', at: 'plan', by: 'owner', why: null }),
@@ -330,14 +400,23 @@ describe('what a card shows of an item', () => {
     };
     const ruling: Wait = { key: 'write-read', why: 'plan requires test = read, which read keeps from holding.', ends: { kind: 'write', block: 'read', value: 'yes' } };
     const waiting: Item = { ...item(3, 'open'), work: { ...work(3, owner), waits: [ruling] } };
-    const shown = shownTree({ items: [paused, fault, waiting, item(4, 'open')] });
-    expect(shown.map((s) => [s.id, s.begun, s.work?.now.kind])).toEqual([
-      [1, false, 'paused'],
-      [2, false, 'fault'],
-      [3, false, 'waits'],
+    // Brought over from elsewhere: its first cell stands done, and no round of it ever ran.
+    const held: Now = { kind: 'paused', at: 'implement', by: 'owner', why: null };
+    const brought: Item = { ...item(5, 'open'), work: { ...work(5, held, ['done', 'notYet', 'notYet']), from: null } };
+    const shown = shownTree({ items: [paused, fault, waiting, item(4, 'open'), brought] });
+    // Paused before its first round, as the one brought over is, it is drawn as an open item with no work; halted, or
+    // waiting for the owner, the card takes the work's state, with no time of a first round and so no second row.
+    expect(shown.map((s) => [s.id, s.begun, s.work?.now.kind ?? null, s.work?.from ?? null])).toEqual([
+      [1, false, null, null],
+      [2, false, 'fault', null],
+      [3, false, 'waits', null],
+      [5, false, null, null],
     ]);
-    // Not begun, it still says how many items it waits for.
-    expect(shown[0].blocked).toBe(1);
+    // Not begun, it still says what it waits on the owner for.
     expect(shown[2].asks).toBe(1);
+    // Once its first round has begun, the same work paused is drawn, with the time of that round.
+    const ran = shownTree({ items: [{ ...paused, work: { ...paused.work, from: 1 } }, item(4, 'open')] });
+    expect(ran[0].begun).toBe(true);
+    expect([ran[0].work?.now.kind, ran[0].work?.from]).toEqual(['paused', 1]);
   });
 });
