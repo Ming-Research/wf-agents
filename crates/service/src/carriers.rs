@@ -125,9 +125,9 @@ pub trait Rounds: Send + Sync {
         Box::pin(async { Ok(None) })
     }
 
-    /// When a line begins a new session, for rounds carried out in sessions: what they run on, and how far a session
-    /// may grow. None, as by default, for rounds carried out in no session, whose lines the loop begins no session
-    /// for itself.
+    /// When a line begins a new session, for rounds carried out in sessions: what they run on, and whether a new session
+    /// of a line would begin with another system prompt or form of return than its session began with. None, as by
+    /// default, for rounds carried out in no session, whose lines the loop begins no session for itself.
     fn policy(&self) -> Option<Policy> {
         None
     }

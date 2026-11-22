@@ -51,6 +51,12 @@ A session's system prompt is made as it starts, from the project's files as they
 The form of return a session is given is made when the session starts, from the flow installed at that time, and kept with the session beside its system prompt, in the same way.
 - replaced: Making the form anew for every round from the installed flow was on main; the owner changed it, because the form is part of the system prompt sent by another route, and the two must be kept alike.
 
+### decision a-changed-system-prompt-or-form-begins-a-new-session
+A line begins a new session at its next round, as for a change of model, when the system prompt or form a new session would begin with now differs from its session's, or cannot be made.
+- replaced: Leaving a line on the system prompt and form its session began with, until something else began a new session, was on main; the owner changed it, because a work under way then ran every later round on replaced rules and form, and an old form cannot hand in a field made required since.
+- rejected: an agent proposed sending the change to the open session as a message, or renewing only its form; the owner rejected it, because a resumed session keeps its first system prompt, old rules beside new, and a new form loses the whole cache (data: `research/system-prompt-on-resume.md`).
+- rejected: an agent proposed an action of the owner's to begin the sessions of a work anew; the owner rejected it, because that action was taken out before, and it would have the owner click each work after each install.
+
 ### decision a-fork-keeps-the-sessions-tools
 A fork of a round's session runs through the engine on the session's whole command line, including its system prompt, form of return and tools, with a hook refusing every tool but the return.
 - rejected: an agent proposed forking sessions by hand, on a command line it typed itself without the session's form of return; the owner rejected it, because a fork must carry what its session began with: one such fork read nothing from the cache and cost $13.83.

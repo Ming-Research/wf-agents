@@ -87,10 +87,13 @@ fn system(call: &Call) -> &[String] {
     &call.args[from..to]
 }
 
-// A session keeps the system prompt it began with: a change of the project's guide in the worktree after its first
-// round, as the work's own commit or main taken in makes, does not reach its later rounds.
+// A session keeps the system prompt it began with, and a change of the project's guide in the worktree after its first
+// round, as the work's own commit or main taken in makes, reaches the line's next round as a new session (decisions
+// the-projects-files-as-the-work-has-them and `a-changed-system-prompt-or-form-begins-a-new-session`): the plan, whose
+// round changed the guide, was given the guide as its session began with it, and the build begins a new session, given
+// the guide as the worktree has it.
 #[tokio::test]
-async fn a_session_keeps_the_system_prompt_it_began_with() {
+async fn a_change_of_the_guide_in_the_worktree_reaches_the_lines_next_round_as_a_new_session() {
     let mut real = Real::trial(Fake {
         plan_edits_guide: true,
         ..Fake::default()
@@ -101,12 +104,17 @@ async fn a_session_keeps_the_system_prompt_it_began_with() {
     let calls = real.calls();
     let (plan, build) = (&calls[0], &calls[1]);
     assert!(plan.of("Plan") && build.of("Build"));
-    assert!(
-        build.args.iter().any(|a| a == "--resume"),
-        "the build goes on in the plan's session"
-    );
+    assert_eq!(build.session().0, "--session-id", "the build begins a new session");
+    assert_ne!(build.session().1, plan.session().1);
     let guide = std::fs::read_to_string(build.dir.join(crate::PROJECT_FILES[0].0)).expect("the guide");
     assert!(guide.contains("A line the work added."), "the plan changed the guide");
-    assert_eq!(system(build), system(plan));
-    assert!(!system(build).iter().any(|l| l.contains("A line the work added.")));
+    let added = |call: &Call| system(call).iter().any(|l| l.contains("A line the work added."));
+    assert!(!added(plan), "the plan's session began before the change");
+    assert!(added(build), "the build's begins with the guide the worktree has");
+    let kept = real.work(work);
+    let renewed: Vec<&work::Why> = (kept.sessions.iter())
+        .filter(|s| s.line == "engineer")
+        .map(|s| &s.why)
+        .collect();
+    assert!(matches!(renewed.as_slice(), [work::Why::Changed { .. }]), "{renewed:?}");
 }

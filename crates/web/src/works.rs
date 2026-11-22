@@ -971,6 +971,9 @@ pub enum SessionWhy {
     Limit { context: u64, limit: u64 },
     /// The line's rounds run on another model than this one, which the session was begun on.
     Model { was: String },
+    /// What a new session of the line would begin with, its system prompt or its form of return, is not what its
+    /// session began with, or cannot be made; with the tokens of context of the session it left, where one was told.
+    Changed { context: Option<u64> },
     /// The line's rounds run under another account than the session was begun under.
     Account,
     /// The owner asked for one.
@@ -995,6 +998,7 @@ impl SessionWhy {
                 limit: *limit,
             },
             Why::Model { was } => SessionWhy::Model { was: was.clone() },
+            Why::Changed { context } => SessionWhy::Changed { context: *context },
             Why::Account { .. } => SessionWhy::Account,
             Why::Owner => SessionWhy::Owner,
             Why::Flagged => SessionWhy::Flagged,
@@ -3863,5 +3867,18 @@ mod tests {
         assert_eq!(named("write_questions", 9), the_run);
         assert_eq!(named("write_questions", 11), owner);
         assert_eq!(named("write_questions", 13), outside);
+    }
+
+    // A new session begun because what a new one would begin with changed is given to the page with the tokens of
+    // context of the session it left, and as null where none was told, never as nothing. Milliseconds; the one test of
+    // how this reason reaches the page.
+    #[test]
+    fn a_session_begun_for_a_changed_prompt_or_form_gives_the_context_it_left_or_null() {
+        let given = |context| serde_json::to_value(SessionWhy::of(&Why::Changed { context })).expect("it is JSON");
+        assert_eq!(
+            given(Some(86_953)),
+            serde_json::json!({ "kind": "changed", "context": 86_953 })
+        );
+        assert_eq!(given(None), serde_json::json!({ "kind": "changed", "context": null }));
     }
 }

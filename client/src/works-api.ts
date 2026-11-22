@@ -636,12 +636,14 @@ export type Step =
   | { kind: 'session'; at: number; time: number; line: string; why: SessionWhy };
 
 /// Why a line began a new session: its context was past the limit the engine held it to; its rounds run on another
-/// model or under another account than its session's ran on; the owner asked; the service's safety check flagged the
-/// line's last round; the run guard stopped it; the agents' program had lost the one before; the agents' program
-/// compacted it during a round.
+/// model or under another account than its session's ran on; the system prompt or the form of return a new session
+/// would begin with is not what its session began with, the tokens of context of the session left with it where one was
+/// told; the owner asked; the service's safety check flagged the line's last round; the run guard stopped it; the
+/// agents' program had lost the one before; the agents' program compacted it during a round.
 export type SessionWhy =
   | { kind: 'limit'; context: number; limit: number }
   | { kind: 'model'; was: string }
+  | { kind: 'changed'; context: number | null }
   | { kind: 'account' }
   | { kind: 'owner' }
   | { kind: 'flagged' }

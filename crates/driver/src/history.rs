@@ -294,7 +294,14 @@ pub fn last_prompt(flow: &Compiled, work: &Work, line: &str, run: RunId, number:
     if begins {
         return None;
     }
-    let at = work::sessions::start(work, run, number);
+    context_before(flow, work, line, session, work::sessions::start(work, run, number))
+}
+
+/// The context of the line's session of this number as it last told one before this place, in tokens: that of the
+/// latest of its rounds begun and ended before it, and of its keep-warm pings before it, that tells one. None where
+/// none does.
+pub fn context_before(flow: &Compiled, work: &Work, line: &str, session: u32, at: decide::Seq) -> Option<u64> {
+    let on_line = |r: RunId| line_of_run(flow, work, r) == Some(line);
     let r = &work.records;
     let mut latest: Option<(decide::Seq, u64)> = None;
     let mut counted: Vec<RunId> = Vec::new();

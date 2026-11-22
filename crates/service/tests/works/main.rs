@@ -582,6 +582,7 @@ impl Rounds for Warm {
         Some(driver::Policy {
             samples: 19,
             model: Box::new(|_, _| Some(MODEL.to_string())),
+            changed: None,
             warm: Some(driver::Warm {
                 life_ms: 3_600_000,
                 after_ms: 3_300_000,

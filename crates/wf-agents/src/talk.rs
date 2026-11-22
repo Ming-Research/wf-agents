@@ -1000,6 +1000,14 @@ fn session_why(why: &SessionWhy) -> String {
             format!("a new one, its context having been {context} tokens, past the limit of {limit}")
         }
         SessionWhy::Model { was } => format!("a new one, its rounds running on another model than {was}"),
+        SessionWhy::Changed { context } => {
+            let changed =
+                "a new one, the rules or the form of return its agents are given having changed since it began";
+            match context {
+                Some(context) => format!("{changed}, the session it left holding {context} tokens of context"),
+                None => changed.to_string(),
+            }
+        }
         SessionWhy::Account => "a new one, its rounds running under another account".to_string(),
         SessionWhy::Owner => "a new one, as the owner asked".to_string(),
         SessionWhy::Flagged => "a new one, the service's safety check having flagged its last round".to_string(),
@@ -2432,6 +2440,18 @@ mod tests {
     // What a work grows by, its item's history, its questions, its runs and its sessions, is shown at most ten of each,
     // with how many more there are and the command that gives them, so that a work a thousand runs long shows in as
     // many lines as one of twenty.
+    // A session begun because what a new one would begin with changed says so, and says the tokens of context of the
+    // session it left only where one was told. Milliseconds; the one test of these words.
+    #[test]
+    fn a_session_begun_for_a_changed_prompt_or_form_says_the_context_it_left_only_where_one_was_told() {
+        let changed = "a new one, the rules or the form of return its agents are given having changed since it began";
+        assert_eq!(
+            session_why(&SessionWhy::Changed { context: Some(86_953) }),
+            format!("{changed}, the session it left holding 86953 tokens of context")
+        );
+        assert_eq!(session_why(&SessionWhy::Changed { context: None }), changed);
+    }
+
     #[test]
     fn a_work_is_shown_in_as_many_lines_however_long_it_grows_and_says_what_it_left_out_and_how_to_see_it() {
         let shown = show(&work(25, 13, 12, 14, 12));
