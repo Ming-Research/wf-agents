@@ -344,7 +344,7 @@ pub fn ran<'a>(stands_on: &'a [BlockId], ran_by: &'a [BlockId]) -> impl Iterator
 /// One key of a cell's condition or of its preconditions, every one of which holds where the cell runs, or goes on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Condition {
-    /// The block's current value is this one (principle yes-no-forks).
+    /// The block's current value is this one (decision conditions-are-values-of-blocks).
     Is { block: BlockId, value: String },
     /// The named test of the flow holds.
     Test(TestName),
