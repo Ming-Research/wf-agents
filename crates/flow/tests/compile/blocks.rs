@@ -3,7 +3,7 @@
 
 use flow::{FLOW_FILE, FaultKind::*, Has};
 
-use crate::support::{at, compiled, edit, faults, faults_with, has, unreadable, valid};
+use crate::support::{at, compiled, edit, faults, faults_with, has, names, unreadable, valid};
 
 const PLAN_WATCHES: &str = r#"watches = ["request", "opinions"]"#;
 
@@ -27,26 +27,32 @@ fn a_block_handed_in_only_with_the_answers_in_the_tree_is_compiled_so() {
 // does not declare is refused where it is written, and a block that says nothing of it names none.
 #[test]
 fn a_block_says_in_what_block_a_plan_names_its_files_and_the_block_must_be_declared() {
-    let named = edit(
-        valid(),
-        FLOW_FILE,
-        "[blocks.main]\noutside = \"main\"",
-        "[blocks.main]\noutside = \"main\"\nplanned_in = \"plan\"",
-    );
-    let compiled = compiled(&named);
+    let has = Has {
+        sources: names(&["main", "parallel"]),
+        ..has()
+    };
+    let listed = |planned_in: &str| {
+        edit(
+            valid(),
+            FLOW_FILE,
+            "[blocks.main]\noutside = \"main\"",
+            &format!("[blocks.main]\noutside = \"parallel\"\nplanned_in = \"{planned_in}\""),
+        )
+    };
+    let compiled = match flow::compile(&listed("plan"), &has) {
+        Ok(compiled) => compiled,
+        Err(faults) => panic!("the definition should compile: {faults:#?}"),
+    };
     assert_eq!(compiled.blocks[&"main".into()].planned_in, Some("plan".into()));
     assert_eq!(compiled.blocks[&"plan".into()].planned_in, None);
 
-    let lost = edit(
-        valid(),
-        FLOW_FILE,
-        "[blocks.main]\noutside = \"main\"",
-        "[blocks.main]\noutside = \"main\"\nplanned_in = \"nowhere\"",
-    );
     let what = NoSuchBlock {
         block: "nowhere".to_string(),
     };
-    assert_eq!(faults(&lost), [at(FLOW_FILE, "blocks.main.planned_in", what)]);
+    assert_eq!(
+        faults_with(&listed("nowhere"), &has),
+        [at(FLOW_FILE, "blocks.main.planned_in", what)]
+    );
 }
 
 #[test]
