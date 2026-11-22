@@ -484,7 +484,7 @@ impl Kept<'_> {
     /// ([`flow::outline::taken_out`]), as the latest version kept that the work was on before and that had it has it.
     pub fn came_from(&self, id: &CellId) -> Option<&flow::outline::OutlinedCell> {
         let now = self.on.outline()?;
-        (self.passed.iter().rev()).find_map(|was| {
+        (self.passed.iter().rev().take(0)).find_map(|was| {
             let reading = flow::reading(now, was.earlier_ids.len());
             (was.cells.iter()).find(|cell| reading.cell(&cell.id) == *id)
         })
@@ -1441,6 +1441,7 @@ impl Driver {
     /// version does not say, and it ended before versions were kept.
     fn outlined(&self) -> impl Iterator<Item = (WorkNumber, &flow::Outline, &Work)> {
         (self.works.values())
+            .filter(|held| held.on.installed())
             .filter_map(|held| held.on.outline().map(|outline| (held.head.number, outline, &held.work)))
     }
 
@@ -2162,7 +2163,6 @@ impl Held {
         let r = &self.work.records;
         self.on.installed()
             && matches!(self.standing, Standing::Ended(_))
-            && engine::at_rest(&self.work)
             && (self.work.kept_time.last()).is_none_or(|kept| r.reopens.iter().any(|reopen| *reopen > kept.at))
     }
 
