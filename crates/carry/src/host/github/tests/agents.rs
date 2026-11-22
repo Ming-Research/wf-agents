@@ -168,6 +168,12 @@ async fn a_commit_named_is_run_whatever_the_worktree_holds_and_the_result_says_n
         Some(("test-results", fast::junit())),
     );
     let dir = hub.place().dir;
+    // A merge under way with no commit made, as the test of its refusal makes it, then a tracked file changed and a file
+    // git does not track.
+    let tree = run(&dir, &["rev-parse", "HEAD^{tree}"]);
+    let parent = run(&dir, &["rev-parse", "HEAD~1"]);
+    let side = run(&dir, &["commit-tree", &tree, "-p", &parent, "-m", "A side"]);
+    run(&dir, &["merge", "--no-commit", "--no-ff", &side]);
     std::fs::write(dir.join("farewell.txt"), "Goodbye.\n").unwrap();
     std::fs::write(dir.join("forgotten_test.rs"), "A test.\n").unwrap();
     let asked = Named {
