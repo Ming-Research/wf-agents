@@ -91,7 +91,7 @@ impl Compacted {
 /// made its return, and words given then would be taken as delivered and never read. Which versions of the owner's
 /// words each file holds is kept beside them, in a file the program never reads, by the digest of what the file says
 /// ([`Words::given`]): whoever reads what the hook gave, the process of the engine that put the words or one after it,
-/// reads it there (decision `the-hook-s-words-are-kept-with-their-versions`).
+/// reads it there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Words {
     /// The file the words wait in, as the hook prints them.

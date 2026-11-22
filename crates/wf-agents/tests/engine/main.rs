@@ -131,6 +131,18 @@ impl Engine {
         }
     }
 
+    /// Waits for the engine to end by itself, as a stop ends it, and gives how it ended; fails after ten seconds.
+    pub fn ended(&mut self) -> std::process::ExitStatus {
+        let start = Instant::now();
+        loop {
+            if let Some(status) = self.child.try_wait().expect("the engine is waited for") {
+                return status;
+            }
+            assert!(start.elapsed() < Duration::from_secs(10), "the engine did not end");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     /// Runs a command against the engine.
     pub fn command(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_wf-agents"))

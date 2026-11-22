@@ -487,6 +487,14 @@ impl Storage for Failing {
         self.store.keep_account(record)
     }
 
+    fn stops(&self) -> Result<Vec<store::StopRecord>, store::Fault> {
+        self.store.stops()
+    }
+
+    fn keep_stop(&mut self, record: &store::StopRecord) -> Result<(), store::Fault> {
+        self.store.keep_stop(record)
+    }
+
     fn keep_flow(&mut self, kept: &store::KeptFlow) -> Result<(), store::Fault> {
         self.store.keep_flow(kept)
     }

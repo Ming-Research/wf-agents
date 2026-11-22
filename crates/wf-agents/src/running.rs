@@ -216,7 +216,11 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             );
         }
         match loop_and_server(service.run(inbox), web::serve(listener, router)).await {
-            Ended::Loop(fault) => {
+            Ended::Loop(Ok(())) => {
+                println!("The engine stopped, as it was asked to. Started again, it goes on from the store.");
+                return ExitCode::SUCCESS;
+            }
+            Ended::Loop(Err(fault)) => {
                 eprintln!("The engine stopped: {fault}. Started again, it goes on from the store.");
             }
             Ended::Server(why) => {

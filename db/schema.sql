@@ -324,6 +324,16 @@ CREATE TABLE keep_warm (
     time INTEGER NOT NULL
 );
 
+-- The engine was asked to stop at `time` (`what`: `Asked`, once what is under way has ended, or `Now`, at once), or
+-- started again after a stop (`Over`), `n` counting from one: the latest row says whether a stop stands, which it does
+-- while that row is `Asked` or `Now`, and none that none does. While a stop stands no round of any work begins. It is
+-- the installation's, not a work's.
+CREATE TABLE stops (
+    n INTEGER PRIMARY KEY,
+    what TEXT NOT NULL CHECK (what IN ('Asked', 'Now', 'Over')),
+    time INTEGER NOT NULL
+);
+
 -- An account the agents' program may run under was added, removed, or taken by the owner as the one the agents run
 -- under (`what`: `Added`, `Removed` or `Taken`), by the name the owner gave it, at `time`, `n` counting from one. Its
 -- token is kept outside the store, under the name. The account in use is the latest taken that was not removed since;

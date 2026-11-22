@@ -92,6 +92,46 @@ pub struct System {
     /// latest first: what they did no one read, and what they took is counted nowhere.
     #[serde(default)]
     pub left_behind: Vec<LeftBehind>,
+    /// The stop the engine was asked for, while it stands, with how long it is expected to take to end.
+    #[serde(default)]
+    pub stopping: Option<Stop>,
+}
+
+/// A stop of the engine that stands: since when it was asked for, whether at once, and how much longer the engine is
+/// expected to run: the longest rest of the rounds under way, which it ends after; nothing where none is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stop {
+    pub since: u64,
+    pub at_once: bool,
+    pub rest: Rest,
+}
+
+/// How much longer something under way is expected to take, by its history ([`driver::judged::Rest`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Rest {
+    /// About this many milliseconds more.
+    Expected { ms: u64 },
+    /// It has taken longer than anything of its history.
+    Longer {},
+}
+
+impl Rest {
+    fn of(rest: driver::judged::Rest) -> Rest {
+        match rest {
+            driver::judged::Rest::Expected(ms) => Rest::Expected { ms: ms.round() as u64 },
+            driver::judged::Rest::Longer => Rest::Longer {},
+        }
+    }
+
+    /// The later of two rests: longer than any before where either is.
+    fn latest(self, other: Rest) -> Rest {
+        match (self, other) {
+            (Rest::Expected { ms: a }, Rest::Expected { ms: b }) => Rest::Expected { ms: a.max(b) },
+            _ => Rest::Longer {},
+        }
+    }
 }
 
 /// A week: what its rounds took, and how many of each thing that is counted happened in it.
@@ -276,7 +316,8 @@ impl Past {
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum UnderWay {
     /// A round of a run of the cell, which began then: how long it has taken so far against its line, where enough
-    /// rounds tell one, and for an agent's round the other lines it is judged by as it runs.
+    /// rounds tell one, for an agent's round the other lines it is judged by as it runs, and how much longer it is
+    /// expected to take.
     Round {
         work: u64,
         item: u64,
@@ -286,6 +327,8 @@ pub enum UnderWay {
         began: u64,
         time: Option<Against>,
         bounds: Option<Bounds>,
+        #[serde(default)]
+        rest: Option<Rest>,
     },
     /// A call of the tool by a run of the cell, made then, with no result yet: how long it has taken so far against
     /// its line, where enough calls of the tool tell one.
@@ -357,6 +400,7 @@ impl System {
             past: Vec::new(),
             under_way: Vec::new(),
             left_behind: Vec::new(),
+            stopping: None,
         };
         let judged = driver.judged(None, now);
         let mut counted: BTreeMap<u64, Week> = (weeks.iter())
@@ -481,6 +525,7 @@ impl System {
                             began: round.began,
                             time: shown.time,
                             bounds: of_round.and_then(|judged| judged.lines.as_ref()).map(Bounds::of),
+                            rest: of_round.and_then(|judged| judged.rest).map(Rest::of),
                         }),
                         Some(ended) if within(ended) => {
                             let past = |against: Option<Against>| against.is_some_and(|a| a.past);
@@ -601,6 +646,17 @@ impl System {
         system.past.sort_by_key(|x| std::cmp::Reverse(x.ended()));
         system.under_way.sort_by_key(UnderWay::began);
         system.left_behind.sort_by_key(|x| std::cmp::Reverse(x.at));
+        // The engine ends once the last round under way has: as the latest of their rests says.
+        system.stopping = driver.stopping().map(|stop| Stop {
+            since: stop.since.0,
+            at_once: stop.at_once,
+            rest: (system.under_way.iter())
+                .filter_map(|under_way| match under_way {
+                    UnderWay::Round { rest, .. } => Some(rest.unwrap_or(Rest::Longer {})),
+                    UnderWay::Call { .. } => None,
+                })
+                .fold(Rest::Expected { ms: 0 }, Rest::latest),
+        });
         Ok(system)
     }
 }

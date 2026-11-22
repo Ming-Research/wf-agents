@@ -17,7 +17,7 @@ use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
 use web::observations::{Observation, ObservationsPage};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
-use web::system::{Past, System, UnderWay};
+use web::system::{Past, Rest, System, UnderWay};
 use web::works::{
     Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, ForkAsked,
     ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem,
@@ -51,6 +51,12 @@ pub enum Asked {
     },
     /// The owner's pause of everything set, or lifted.
     Everything(EngineAct),
+    /// The engine stopped: once what is under way has ended, or, where `now`, at once, which cuts that off and is done
+    /// only where `yes` confirms it, having said without it what it would cut off.
+    Stop {
+        now: bool,
+        yes: bool,
+    },
     /// A cancel for this reason, which says afterwards what the work is: cancelled, or ended otherwise before it could
     /// be.
     Cancel(u64, String),
@@ -198,6 +204,23 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 send::<(), _>(address, Method::POST, "/api/v1/engine/acts", Some(&act)).await?;
                 let engine: Engine = send(address, Method::GET, "/api/v1/engine", None::<&()>).await?;
                 Ok(standing(&engine))
+            }
+            Asked::Stop { now, yes } => {
+                // What is under way is read first: what a stop at once would cut off, and what one waits for.
+                let path = format!("/api/v1/system?weeks={}", clock());
+                let system: System = send(address, Method::GET, &path, None::<&()>).await?;
+                if now && !yes {
+                    return Ok(stop_said(&system, Stopped::NotYet));
+                }
+                let act = EngineAct::Stop { now };
+                if let Err(why) = send::<(), _>(address, Method::POST, "/api/v1/engine/acts", Some(&act)).await {
+                    // An engine that ends on the stop may end before its answer is sent: one that no longer answers
+                    // has stopped.
+                    if send::<Engine, ()>(address, Method::GET, "/api/v1/engine", None).await.is_ok() {
+                        return Err(why);
+                    }
+                }
+                Ok(stop_said(&system, if now { Stopped::AtOnce } else { Stopped::Once }))
             }
             Asked::Show { work, part, from } => {
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
@@ -549,8 +572,97 @@ fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
     }
 }
 
-/// The engine as a whole, in a line: whether everything is paused and by whom, and its slots.
+/// How a stop was asked for: at once and not yet confirmed, at once, or once what is under way has ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stopped {
+    NotYet,
+    AtOnce,
+    Once,
+}
+
+/// The most rounds under way a stop lists.
+const STOP_LISTED: usize = 20;
+
+/// What a stop does to what is under way, as `system` read it just before: each round under way, with how long it has
+/// taken and how much longer it is expected to take; for a stop at once not yet confirmed, that nothing was stopped.
+fn stop_said(system: &System, stopped: Stopped) -> String {
+    let rounds: Vec<&UnderWay> = (system.under_way.iter())
+        .filter(|u| matches!(u, UnderWay::Round { .. }))
+        .collect();
+    let mut latest = Rest::Expected { ms: 0 };
+    let mut listed = Vec::new();
+    for under_way in &rounds {
+        let UnderWay::Round {
+            work,
+            item,
+            cell,
+            began,
+            rest,
+            ..
+        } = under_way
+        else {
+            continue;
+        };
+        let rest = rest.unwrap_or(Rest::Longer {});
+        latest = match (latest, rest) {
+            (Rest::Expected { ms: a }, Rest::Expected { ms: b }) => Rest::Expected { ms: a.max(b) },
+            _ => Rest::Longer {},
+        };
+        let to_come = match rest {
+            Rest::Expected { ms } => format!("about {} more", duration(ms)),
+            Rest::Longer {} => "longer than any round of its history".to_string(),
+        };
+        listed.push(format!(
+            "  W{work} of #{item} at {cell}: {} so far, {to_come}",
+            duration(system.now.saturating_sub(*began))
+        ));
+    }
+    if listed.len() > STOP_LISTED {
+        let left = listed.len() - STOP_LISTED;
+        listed.truncate(STOP_LISTED);
+        listed.push(format!("  And {left} more."));
+    }
+    let n = rounds.len();
+    let these = if n == 1 {
+        "this round".to_string()
+    } else {
+        format!("these {n} rounds")
+    };
+    let head = match stopped {
+        Stopped::NotYet if n == 0 => {
+            return "Nothing is stopped: no round is under way, and `wf-agents stop --now --yes` stops the engine at                     once."
+                .to_string();
+        }
+        Stopped::NotYet => format!(
+            "Nothing is stopped: `wf-agents stop --now --yes` stops the engine at once and cuts off {these}, which              `wf-agents stop` waits for:"
+        ),
+        Stopped::AtOnce if n == 0 => return "The engine stopped at once; no round was under way.".to_string(),
+        Stopped::AtOnce => format!("The engine stopped at once, cutting off {these}:"),
+        Stopped::Once if n == 0 => return "The engine stopped; no round was under way.".to_string(),
+        Stopped::Once => {
+            let ends = match latest {
+                Rest::Expected { ms } => format!("expected in about {}", duration(ms)),
+                Rest::Longer {} => "once a round that has taken longer than any before has ended".to_string(),
+            };
+            format!("The engine is stopping: no round begins, and it ends once {these} have ended, {ends}:")
+        }
+    };
+    std::iter::once(head).chain(listed).collect::<Vec<_>>().join("\n")
+}
+
+/// The engine as a whole, in a line: whether it is stopping, whether everything is paused and by whom, and its slots.
 fn standing(engine: &Engine) -> String {
+    if let Some(stop) = engine.stopping {
+        let how = if stop.at_once {
+            "at once"
+        } else {
+            "once what is under way has ended"
+        };
+        return format!(
+            "The engine is stopping {how}: no round begins; {} of {} slots taken.",
+            engine.taken, engine.slots
+        );
+    }
     let paused = match engine.paused.map(|paused| paused.by) {
         Some(Pauser::Owner) => {
             "Every work is paused: none begins a round but to answer a note, until `wf-agents resume --all`"
@@ -1676,6 +1788,10 @@ fn waited(waited: &Waited) -> String {
         Waited::Answer { question } => format!("the owner to answer the question {question}"),
         Waited::Turn { holder, .. } => format!("the project's turn to check and merge, which work {holder} holds"),
         Waited::Agents { outage: o } => format!("the agents' rounds to begin again, as {}", cause(o)),
+        Waited::Stopping { since } => format!(
+            "the engine to start again, as it was asked to stop {} ago",
+            duration(clock().saturating_sub(*since))
+        ),
         Waited::Outside { source, cell, why } => format!("the outside ({source}), before {cell} runs again: {why}"),
         Waited::Items { items } => format!("the items it depends on to merge: {}", numbers(items)),
     }
@@ -1999,6 +2115,21 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
     if system.past.len() > limit {
         lines.push(more(system.past.len() - limit));
     }
+    if let Some(stop) = &system.stopping {
+        let how = if stop.at_once {
+            "at once"
+        } else {
+            "once what is under way has ended"
+        };
+        let ends = match stop.rest {
+            Rest::Expected { ms } => format!("expected to end in about {}", duration(ms)),
+            Rest::Longer {} => "to end once a round that has taken longer than any before has ended".to_string(),
+        };
+        lines.push(format!(
+            "The engine was asked {} to stop {how}: no round begins, and it is {ends}.",
+            utc(stop.since)
+        ));
+    }
     if system.under_way.is_empty() {
         lines.push("Nothing is under way.".to_string());
     } else {
@@ -2025,7 +2156,13 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                 began,
                 time,
                 bounds,
+                rest,
             } => {
+                let rest = match rest {
+                    Some(Rest::Expected { ms }) => format!("; about {} more", duration(*ms)),
+                    Some(Rest::Longer {}) => "; longer than any round of its history".to_string(),
+                    None => String::new(),
+                };
                 let bounds = bounds.map_or_else(String::new, |bounds| {
                     let tokens = |line: Option<web::works::Line>| {
                         line.map_or_else(|| "none yet".to_string(), |line| format!("{} tokens", line.value))
@@ -2040,7 +2177,7 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                     )
                 });
                 format!(
-                    "  W{work} of #{item}, round {round} of run {run} of {cell}, since {}: {}{bounds}",
+                    "  W{work} of #{item}, round {round} of run {run} of {cell}, since {}: {}{rest}{bounds}",
                     utc(*began),
                     so_far(time, "rounds of its cell")
                 )
@@ -2774,6 +2911,7 @@ mod tests {
             past: (1..=12).map(past).collect(),
             under_way: Vec::new(),
             left_behind: Vec::new(),
+            stopping: None,
         };
         let said = system_said(&system, 7, 10);
         let lines: Vec<&str> = said.lines().collect();
@@ -2786,6 +2924,90 @@ mod tests {
         );
         assert_eq!(lines[12], "  And 2 more: wf-agents system --days 7 --limit 12");
         assert_eq!(lines[13], "Nothing is under way.");
+    }
+
+    // A stop says each round under way it waits for, or would cut off, with how long it has taken and how much longer
+    // it is expected to take, and when the engine is expected to end, the latest of them; the system view says the
+    // stop that stands and each round's rest. Fails where a round is left out, its rest misread, or the end not the
+    // latest. Microseconds.
+    #[test]
+    fn a_stop_says_the_rounds_it_waits_for_or_would_cut_off_with_how_long_each_has_to_go() {
+        let round = |work: u64, began: u64, rest| UnderWay::Round {
+            work,
+            item: work + 10,
+            cell: "I1".to_string(),
+            run: 2,
+            round: 1,
+            began,
+            time: None,
+            bounds: None,
+            rest,
+        };
+        let mut system = System {
+            now: 600_000,
+            from: Some(0),
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            weeks: Vec::new(),
+            by_cell: Vec::new(),
+            by_model: Vec::new(),
+            by_work: Vec::new(),
+            merged: Vec::new(),
+            cancelled: Vec::new(),
+            added: Vec::new(),
+            sent_back: Vec::new(),
+            failed: Vec::new(),
+            past: Vec::new(),
+            under_way: vec![
+                round(1, 0, Some(Rest::Expected { ms: 120_000 })),
+                round(2, 540_000, Some(Rest::Expected { ms: 300_000 })),
+            ],
+            left_behind: Vec::new(),
+            stopping: None,
+        };
+        let listed =
+            "  W1 of #11 at I1: 10m 00s so far, about 2m 00s more\n  W2 of #12 at I1: 1m 00s so far, about 5m 00s more";
+        assert_eq!(
+            stop_said(&system, Stopped::NotYet),
+            format!(
+                "Nothing is stopped: `wf-agents stop --now --yes` stops the engine at once and cuts off these 2 rounds, \
+                 which `wf-agents stop` waits for:\n{listed}"
+            )
+        );
+        assert_eq!(
+            stop_said(&system, Stopped::Once),
+            format!(
+                "The engine is stopping: no round begins, and it ends once these 2 rounds have ended, expected in about \
+                 5m 00s:\n{listed}"
+            )
+        );
+        system.under_way[0] = round(1, 0, Some(Rest::Longer {}));
+        assert!(
+            stop_said(&system, Stopped::Once).starts_with(
+                "The engine is stopping: no round begins, and it ends once these 2 rounds have ended, once a round \
+                 that has taken longer than any before has ended:\n  W1 of #11 at I1: 10m 00s so far, longer than any \
+                 round of its history\n"
+            ),
+            "{}",
+            stop_said(&system, Stopped::Once)
+        );
+        system.stopping = Some(web::system::Stop {
+            since: 0,
+            at_once: false,
+            rest: Rest::Longer {},
+        });
+        let said = system_said(&system, 7, 10);
+        assert!(
+            said.contains(
+                "The engine was asked 1970-01-01 00:00 UTC to stop once what is under way has ended: no round begins, \
+                 and it is to end once a round that has taken longer than any before has ended.\nUnder way"
+            ),
+            "{said}"
+        );
+        assert!(
+            said.contains("so far, no line yet, too few rounds of its cell having ended; about 5m 00s more"),
+            "{said}"
+        );
     }
 
     #[test]
@@ -2834,6 +3056,7 @@ mod tests {
             ],
             under_way: Vec::new(),
             left_behind: Vec::new(),
+            stopping: None,
         };
         let said = system_said(&system, 7, 10);
         let lines: Vec<&str> = said.lines().collect();

@@ -430,3 +430,97 @@ fn a_call_past_its_line_by_the_size_of_its_result_alone_is_given_with_its_size_a
         .expect("the call's row");
     assert_eq!(row["size"], past[0]["size"]);
 }
+
+// While a stop of the engine stands, the engine's state gives it, a work that would begin a round says it waits for
+// the engine to start again, and the System view gives each round under way how much longer it is expected to take,
+// with the engine's expected end, the latest of them: here two builds are under way, of which no build ever ended.
+// The first, fifty seconds in, has taken longer than any round of the flow had when it began, the plan's ten
+// seconds; the second, ten seconds in, has twenty to go by the one plan, of thirty seconds, that took longer then; so
+// the engine is expected to end once a round longer than any before has. Before the stop no stop is given, and the
+// rests are. A few milliseconds; the one test of the stop as the pages are given it.
+#[test]
+fn a_stop_is_given_with_the_rests_of_what_is_under_way_and_holds_a_work_that_would_begin_a_round() {
+    const S: u64 = 1000;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let flow = flow::compile(
+        &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+        &crate::trial_has(&flow::Source::default()),
+    )
+    .unwrap();
+    let policy = driver::Policy {
+        samples: 2,
+        model: Box::new(|_, _| Some(opus().model)),
+        changed: None,
+        warm: None,
+    };
+    let (mut driver, _) =
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+    let first = planned(&mut driver, START, 10 * S, 1_000);
+    let second = planned(&mut driver, START + 20 * S, 30 * S, 1_000);
+    let now = work::Time(START + 60 * S);
+    let before = serde_json::to_value(web::system::System::of(&driver, now, &[]).unwrap()).unwrap();
+    assert_eq!(before["stopping"], Value::Null, "{before}");
+    let rests: Vec<&Value> = before["underWay"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| &u["rest"])
+        .collect();
+    assert_eq!(
+        rests,
+        [
+            &json!({ "kind": "longer" }),
+            &json!({ "kind": "expected", "ms": 20_000 })
+        ]
+    );
+
+    driver.ask_to_stop(work::Time(START + 52 * S), false).unwrap();
+    let engine = serde_json::to_value(web::works::Engine::of(&driver)).unwrap();
+    assert_eq!(engine["stopping"], json!({ "since": START + 52 * S, "atOnce": false }));
+    let new = driver::NewItem {
+        title: "Plan".to_string(),
+        level: "2".to_string(),
+        project: "trial".to_string(),
+        depends_on: Vec::new(),
+        tags: Vec::new(),
+        flow: "trial".to_string(),
+        writes: vec![driver::FirstWrite {
+            block: decide::BlockId("request".to_string()),
+            content: "Please.".to_string(),
+            value: None,
+        }],
+    };
+    let (_, held, _) = driver.add(work::Time(START + 55 * S), new).unwrap();
+    let todos = driver
+        .happened(work::Time(START + 55 * S), held, engine::Event::Resumed)
+        .unwrap();
+    assert!(
+        !todos
+            .iter()
+            .any(|todo| matches!(todo.effect, engine::Effect::Round { .. })),
+        "no round begins while a stop stands: {todos:?}"
+    );
+    let page = web::works::WorkPage::of(&driver, &crate::levels(), held, now)
+        .unwrap()
+        .unwrap();
+    let page = serde_json::to_value(page).unwrap();
+    assert_eq!(
+        page["summary"]["now"],
+        json!({ "kind": "waits", "at": "plan", "on": [{ "kind": "stopping", "since": START + 52 * S }] })
+    );
+
+    let system = serde_json::to_value(web::system::System::of(&driver, now, &[]).unwrap()).unwrap();
+    let works: Vec<&Value> = system["underWay"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| &u["work"])
+        .collect();
+    assert_eq!(works, [&json!(first.0), &json!(second.0)]);
+    assert_eq!(
+        system["stopping"],
+        json!({ "since": START + 52 * S, "atOnce": false, "rest": { "kind": "longer" } })
+    );
+    assert!(!driver.may_end(), "two rounds are under way");
+}

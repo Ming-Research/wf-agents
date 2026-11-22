@@ -131,6 +131,11 @@ pub enum Message {
         paused: bool,
         reply: oneshot::Sender<Result<(), Refusal>>,
     },
+    /// The engine is asked to stop: once what is under way has ended, or, where `at_once`, at once.
+    Stop {
+        at_once: bool,
+        reply: oneshot::Sender<Result<(), Refusal>>,
+    },
     /// The owner has the sessions of works that wait kept warm, or has them kept no longer.
     KeepWarm {
         warm: bool,
@@ -381,11 +386,14 @@ impl Service {
         &self.driver
     }
 
-    /// Takes what comes, in order, until something stops the loop.
-    pub async fn run(mut self, mut inbox: Inbox) -> Fault {
+    /// Takes what comes, in order, until something stops the loop, or the stop the engine was asked for lets it end:
+    /// at once where it was asked to stop at once, else once nothing is under way and the end of what was is kept
+    /// ([`Driver::may_end`]).
+    pub async fn run(mut self, mut inbox: Inbox) -> Result<(), Fault> {
         while let Some(message) = inbox.recv().await {
-            if let Err(fault) = self.take(message) {
-                return fault;
+            self.take(message)?;
+            if self.driver.may_end() {
+                return Ok(());
             }
         }
         unreachable!("the loop holds a way into its own channel, which therefore never closes")
@@ -543,6 +551,31 @@ impl Service {
                         // What every work does now may have changed, though no record of one grew.
                         let works: Vec<WorkNumber> = self.driver.works().map(|kept| kept.head.number).collect();
                         self.tell_paused(works.clone());
+                        let _ = self.changed.send(Changed {
+                            works,
+                            items: false,
+                            copies: false,
+                            accounts: false,
+                        });
+                        return Ok(());
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
+            }
+            Message::Stop { at_once, reply } => {
+                let now = self.now()?;
+                match self.driver.ask_to_stop(now, at_once) {
+                    Ok(()) => {
+                        let _ = reply.send(Ok(()));
+                        // What every work does now may have changed, though no record of one grew.
+                        let works: Vec<WorkNumber> = self.driver.works().map(|kept| kept.head.number).collect();
                         let _ = self.changed.send(Changed {
                             works,
                             items: false,
@@ -1118,6 +1151,16 @@ impl Handle {
         let (reply, answer) = oneshot::channel();
         (self.to)
             .send(Message::Everything { paused, reply })
+            .map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
+    /// Asks the engine to stop: once what is under way has ended, or, where `at_once`, at once. From then no round of
+    /// any work begins; the loop ends as the stop lets it ([`Service::run`]).
+    pub async fn stop(&self, at_once: bool) -> Result<(), Refusal> {
+        let (reply, answer) = oneshot::channel();
+        (self.to)
+            .send(Message::Stop { at_once, reply })
             .map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
     }
