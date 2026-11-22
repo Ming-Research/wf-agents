@@ -6,49 +6,37 @@ What holds for every part of wf-agents and every work done on it.
 Each kind of problem found is ended by something that converges: an item that fixes it, a decision to live with it and why, or a check that catches it. A send-back counts even if the next round passes: each cause is ended once while the work goes on, and a fix whose problem comes back is a finding.
 Why: Telling someone about one occurrence ends nothing; someone has to type it into a chat every time, which does not scale. A cause left alone sends back a return of every work that reaches the cell, each costing a round, and a work paused at each send-back left its agent idle. (Article 4)
 
-### principle question-the-solution
-Once a way to solve a problem is chosen, ask again, by reasoning about the problem rather than listing options, whether it is the best way and whether a better one exists.
-Why: Without that reasoning, a fix solved one problem while making others, and the work did not converge.
-
 ### principle solve-within-the-design-first
-A problem is first solved cleanly (Article 6) within the design as it is, never by a rule around a mechanism or by code doing what the flow should say. A new mechanism waits for the owner's yes and is a general rule: a need it misses changes that rule, never adds a special case beside it.
-Why: Each mechanism is one more to know and keep consistent, and a second way drifts from the first. Twice a rule was proposed where versioned data served; in one day the engine's limits got five special cases no one could state together; agents added unasked triggers per cell and per answering pair.
+A new mechanism (a new kind of thing, a switch, or a second way to do what one way does) waits for the owner's yes and is a general rule: a need it misses changes that rule, never adds a special case beside it.
+Why: Each mechanism is one more to know and keep consistent, and a second way drifts from the first. In one day the engine's limits got five special cases no one could state together; agents added unasked triggers per cell and per answering pair.
 
-### principle one-thing-one-place
-Each thing (a value, a computation, a capability, a rule, a reason) is defined in one place and referred to elsewhere. It has one name everywhere, named for what it is, and a name, field, relation or state carries one meaning, never two folded into one even where they usually go together.
-Why: Two copies drift apart and contradict, and a second name is one more to learn: reasons copied into the flow were sent every round and drifted from the tree's. Two meanings in one tangle: a relation meant both dependency and grouping, and one status made an item read five ways, contradicting itself.
+### principle one-name-one-meaning
+Each thing has one name everywhere, named for what it is, and a name, field, relation or state carries one meaning, never two folded into one even where they usually go together.
+Why: A second name is one more to learn. Two meanings in one tangle: a relation meant both dependency and grouping, and one status made an item read five ways, contradicting itself.
 
 ### principle report-all-at-once
 A check or a review reports every problem it finds in one pass, stopping early only when a later check depends on an earlier one passing. A requirement only a review would raise, such as measuring a change's effect on speed, is put in the worker's task, so that it is met in the same round.
 Why: Each problem found on its own, and each requirement raised first by a review, sends the work back one more round. (Article 3)
 
 ### principle every-field-has-a-reader
-Nothing is kept in a return, storage or the flow definition without a reader, and no agent fills a fixed list of questions; a field is a text unless a reader reads a part of it exactly, and one another cell returns serves before a new one is made.
-Why: Unattended things pile up, and a return's format is sent with every call of its line, so a shape no reader reads exactly is paid for at every call, while a slip in a text costs one return written again (judged, not measured). A question an agent cannot answer makes it make something up. (Article 4)
+Nothing is kept in a return, storage or the flow definition without a reader. A field is a text unless a reader reads a part of it exactly, and one another cell returns serves before a new one is made.
+Why: Unattended things pile up, and a return's format is sent with every call of its line, so a shape no reader reads exactly is paid for at every call, while a slip in a text costs one return written again (judged, not measured). (Article 4)
 
 ### principle lean-agent-input
 An agent is given only what it needs and lacks, one thing per sentence: no warning against what it would not do, and nothing the flow, a tool, a permission, a review or its session covers. Add a sentence only if no rewording fixes the fault, count its words, and cut as much elsewhere.
 Why: Every token is paid for in every round, and the longer a prompt, the more an agent misreads it: one cell's task grew to 1,366 characters as sentences were added to fix what trials showed, the problems stayed, and only when it was cut to 428 did the agent follow it.
 
-### principle read-code-and-tree
-To understand or change a design, an agent reads both the code and the tree's entries about it: for what was weighed and why, not as orders, and the data a line names where it needs it. If the right solution needs an entry changed, it proposes the change.
-Why: Code gives no reasons and does not say which paths were rejected; a decision is a summary that holds neither all the code does nor the data it rests on. Treating the tree as orders bends solutions to fit it.
-
 ### principle mechanical-engine
-The engine only carries out the compiled flow: it runs each cell that a new version of its data wakes, with the actions and checks written there. Judgment is for agents and the owner; what a program can do or know exactly is a step of a tool or the engine shown in the flow, never asked of an agent.
-Why: A judgment needs someone who can give reasons and be reviewed, and every engine step must be predictable from the flow. An agent doing exact work sometimes gets it wrong, and each mistake costs a round: agents misreading test results caused extra runs. (Article 7)
+What a program can do or know exactly, such as checking a return's form or reading test results, is a step of a tool or of the engine that the flow shows, never asked of an agent.
+Why: An agent doing exact work sometimes gets it wrong, and each mistake costs a round: agents misreading test results caused extra runs. Every engine step must be predictable from the flow. (Article 7)
 
 ### principle harness-only
 A project's configuration and data are in the owner's data directory, the settings projects share kept together and the installation's own rules beside them; a project's constitution, design tree and AGENTS.md are in its repository.
 Why: Kept in this repository, a project's configuration would put the project into the harness (Article 1); kept in each project's repository, shared settings would be copied many times.
 
 ### principle judged-by-own-history
-When the system watches itself, what it takes as normal, such as a round's time or a context's size, comes from its own history, not a fixed threshold: it reports what leaves that range and stops what history cannot explain. A limit on repeats of one failure measures nothing, so it stays fixed.
+A health check, which reports or stops a round, a wait, a context or a cost as out of the ordinary, takes what is ordinary from the system's own history, never a fixed threshold. Neither a bound the owner sets nor a stop on repeats of one failure is a health check.
 Why: Agents writing health checks fixed a threshold for each thing, like the time without a reply. A fixed threshold cannot tell a fault from a case rightly large, and someone must keep setting it by hand. A slow growth looks fine at each look but adds up, and the owner cannot keep watching. (Article 3)
-
-### principle tech-mainstream
-A technology is chosen for being mature, mainstream and fit for the project's size, without comparing every alternative.
-Why: Such comparisons cost time, and SQLite and React were chosen without one; that a full comparison would not have chosen better is an inference.
 
 ### principle agent-writing-is-data
 What an agent can write is only data to the engine and the page: it never names a program they run, becomes markup they did not mean, or changes the record of what ran, and it loosens a check that judges it only in the open, for a review to judge.
@@ -71,12 +59,8 @@ Nothing is taken or shown as other than it is: what is unknown, missing or faile
 Why: A misspelled setting that is silently ignored makes the owner believe it is in force; a wrong data directory looked like an empty view; a missing cost would read as no cost; a work sat at a cell with no visible reason and the owner had to guess. (Article 2)
 
 ### principle measure-speed-and-cost
-A choice made for speed or cost rests on a measurement of the real system, and the measured number is given as its reason.
+Where one way is taken over another for being faster or cheaper, the choice rests on a measurement of the real system, and the measured number is given as its reason.
 Why: A number lets a later change judge whether the reason still holds, and a guess does not. Measured, a mid-round query saved only about three seconds and was dropped, and a fork that missed the cache cost $0.57 more than a $0.03 ping. (Article 3)
-
-### principle owner-never-needs-the-command-line
-Everything the owner needs to see or do is on the page; the command line is never the only way, and what only another program can do is shown as a command to copy.
-Why: The owner does not like using a command line, and editing the configuration by hand and the database by command is the path that failed; a flow change's cost once came only from the command line. (Article 8)
 
 ### principle numbers-say-what-they-number
 An item's number is written #n, a work's Wn and an observation's On, on the page, to the agents and by the engine alike.

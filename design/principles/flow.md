@@ -18,12 +18,8 @@ Why: The agent's program reads a session's system prompt once, as it starts, and
 Each call in a line's session gives the agent's program the same return form: the engine's fields, the flow's tools and the blocks the line's cells write. No cell gets its own form: its message names its blocks and any other shape it needs, and the engine sends back a return that breaks either.
 Why: The agent's program puts the form, with the tools, first in every request and does not keep it with the session, so a form unlike the last call's loses the session's whole cache. In one session, the same form read 77,555 cached tokens and wrote 248; a changed one read none and wrote 38,961.
 
-### principle yes-no-forks
-Where an agent decides which way the work goes, the fork is one yes/no question asked by the cell right before it, answered by the facts, never by caution, and the way on depends on that answer alone. Being unable to go on is not a fork: the work comes back to the same cell.
-Why: A label kept for later routing compresses information, so judging by it later distorts, and it hides steps no one sees. "When unsure, take the heavier path" makes works that do not need it pay for it.
-
 ### principle locate-and-price-the-fix
-Whoever adds to the flow first places the problem, in every work or one kind; a cell serving every work asks nothing only some can answer. A mistake is first fixed by rewording the input; a question, check, reviewer or cell costs every work, so it goes in only where words fail and it is worth it.
+A question, check, reviewer or cell costs every work, so it is added to the flow only where rewording the input does not stop the mistake and what it stops is worth that cost.
 Why: Things added case by case each looked fine and together caused most flow problems. Agents miss part of what they are told, so some mistakes need a guard; each costs every work and is worth less as models improve. Sizing things wrongly or holding agents back is worse than a flow bug. (Not measured.)
 
 ### principle a-flow-serves-every-kind-of-work
@@ -31,7 +27,7 @@ A flow is designed for every kind of work its works bring, never around one: the
 Why: Words for one kind send every other down the wrong path. Research told to reproduce a defect first had no first step for an item adding a capability, and read literally would stop to ask the owner. For the same reason, the engineer's words no longer ask for similar defects or how to stop their kind.
 
 ### principle focused-judgment-alone
-A judgment that needs research and focus, such as whether something is a design defect, is asked as a step of its own, not as a side question in another task, and not every time; agents elsewhere may still make it.
+A judgment that needs research of its own, such as whether a fault is a design defect, is not asked as a side question in a task about something else; an agent elsewhere is still free to make it.
 Why: Asked on the side, it is not thought through (experience, not measured). Making other agents report only signs and never judge limits them for no reason.
 
 ### principle reviews-can-be-disputed
@@ -80,7 +76,7 @@ Why: Every project's agents need the same rules, and said once in the flow they 
 
 ### principle an-agent-knows-only-its-task
 An agent works from its task and the data it is given, and knows nothing of the flow around it: not the cell it runs as, not the other cells, not who reads what it writes. A cell's words name no other cell.
-Why: Carrying what one cell writes to the next is the flow's work (principle mechanical-engine). Words that tell an agent about the flow copy the flow, go stale when it changes, and invite the agent to do the flow's work.
+Why: Carrying what one cell writes to the next is the flow's work (Article 7). Words that tell an agent about the flow copy the flow, go stale when it changes, and invite the agent to do the flow's work.
 
 ### principle a-cell-knows-only-its-data
 A cell knows nothing of other cells: it gets only the data it watches and reads and the checkout at those versions, and runs only on a version new to it of a datum it watches, never one it wrote. Nothing else runs a cell, none excepted, and a need this cannot meet is a design fault, mended there.
