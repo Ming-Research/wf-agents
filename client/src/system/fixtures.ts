@@ -127,7 +127,7 @@ export function fixtureSettings(): SettingsPage {
         keys: [
           key('command', '"claude"'),
           key('slots', '3', '2', { kind: 'count' }),
-          key('args', '["--permission-mode", "acceptEdits"]'),
+          key('args', '["--allowedTools", "Edit(./**)"]'),
           key('work_budget_usd', '5.0'),
         ],
       },
