@@ -21,7 +21,7 @@ use crate::failing::failing_as;
 
 /// The trial work with the plan's second round failing for this kind of cause, let on, the owner answering the plan's
 /// question, the failure taken: the wait stands.
-pub(super) async fn waiting(trial: &mut Trial) -> store::WorkNumber {
+async fn waiting(trial: &mut Trial) -> store::WorkNumber {
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.step().await.unwrap();

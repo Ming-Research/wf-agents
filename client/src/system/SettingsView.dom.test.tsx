@@ -377,7 +377,7 @@ describe('the Settings view', () => {
 
   it('lets the engine move to another account at a limit only as the owner switches it, off until then, and says it at once', async () => {
     const s = settingsSource();
-    const page = draw(s.source);
+    const page = draw(s.source, s.works);
     await settle();
     const row = page.querySelector('.account-moving') as HTMLElement;
     expect(row.textContent).toContain('Move on at the limit');
@@ -406,7 +406,7 @@ describe('the Settings view', () => {
 
   it("lists the engine's moves, newest first, only where there are any, each with the reset of the limit it left as the table says it", async () => {
     const s = settingsSource();
-    const page = draw(s.source);
+    const page = draw(s.source, s.works);
     await settle();
     const moves = () => [...page.querySelectorAll('table[aria-label="The engine\'s moves"] tbody tr')];
     expect(moves()).toEqual([]);

@@ -347,7 +347,7 @@ export const FIXTURES: SystemSource = {
   loadAccounts: async () => (await import('./fixtures')).fixtureAccounts(),
   account: async (asked) => {
     // The token is logged nowhere.
-    console.info('settings/accounts', asked.kind, asked.name);
+    console.info('settings/accounts', asked.kind);
     return { atLimit: false, resets: null, notLetGo: null };
   },
   look: async () => ({ looking: [] }),

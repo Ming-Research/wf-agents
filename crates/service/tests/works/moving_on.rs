@@ -9,12 +9,34 @@ use std::sync::{Arc, Mutex};
 
 use decide::{Decision, End};
 use driver::Found;
-use service::{Heard, Outside};
+use service::{Act, Heard, Outside};
 use store::AccountAct;
 
 use crate::Trial;
 use crate::failing::failing_as;
-use crate::shared_wait::waiting;
+
+/// The trial work with the plan's second round failing as the script says, let on, the owner answering the plan's
+/// question once the work waits for it, the failure taken: the wait stands. A warm loop reports its rounds'
+/// sessions as events of their own, so each stage is stepped to, not counted.
+async fn waiting(trial: &mut Trial) -> store::WorkNumber {
+    let (_, work) = trial.add("Greet the user", &[]);
+    trial.act(work, Act::Resume).unwrap();
+    for _ in 0..10 {
+        if trial.owners_call(work).is_some() {
+            break;
+        }
+        trial.step().await.expect("the loop goes on");
+    }
+    trial.answer(work, "Yes, by name.");
+    for _ in 0..10 {
+        if trial.service.driver().outage().is_some() {
+            break;
+        }
+        trial.step().await.expect("the loop goes on");
+    }
+    assert!(trial.service.driver().outage().is_some(), "the wait stands");
+    work
+}
 
 /// The outside of the agents' rounds, always well, which keeps the account each check was taken under.
 #[derive(Default)]
