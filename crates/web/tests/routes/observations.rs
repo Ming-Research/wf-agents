@@ -364,6 +364,13 @@ async fn observed(body: &mut Body) -> String {
     }
 }
 
+/// The next event that says the observations changed: one that does not come within ten seconds of the paused clock
+/// fails the test at once, as a stream that is silent would otherwise be read for ever.
+async fn told(body: &mut Body) -> String {
+    (tokio::time::timeout(Duration::from_secs(10), observed(body)).await)
+        .expect("the stream says that the observations changed")
+}
+
 /// What the stream says when the observations changed and nothing else did.
 const OBSERVATIONS_CHANGED: &str =
     "data: {\"works\":[],\"items\":false,\"copies\":false,\"accounts\":false,\"observations\":true}\n\n";
@@ -376,7 +383,7 @@ async fn the_stream_says_that_the_observations_changed_after_one_is_added_or_cha
     let request = Request::builder().uri("/api/v1/changes").body(Body::empty()).unwrap();
     let mut body = router.clone().oneshot(request).await.unwrap().into_body();
     // As it opens it says that everything may have changed, the observations too.
-    observed(&mut body).await;
+    told(&mut body).await;
 
     let title = |title: &str| json!([{ "kind": "title", "observation": 1, "title": title }]);
     assert_eq!(
@@ -385,12 +392,12 @@ async fn the_stream_says_that_the_observations_changed_after_one_is_added_or_cha
             .0,
         StatusCode::OK
     );
-    assert_eq!(observed(&mut body).await, OBSERVATIONS_CHANGED);
+    assert_eq!(told(&mut body).await, OBSERVATIONS_CHANGED);
     assert_eq!(
         changing(&running, "Titling.", title("A good title")).await,
         (StatusCode::OK, json!({ "changed": [true] }))
     );
-    assert_eq!(observed(&mut body).await, OBSERVATIONS_CHANGED);
+    assert_eq!(told(&mut body).await, OBSERVATIONS_CHANGED);
 
     // The same title again changes nothing, and what is refused is not made: the stream says nothing of any of them.
     assert_eq!(
@@ -416,5 +423,5 @@ async fn the_stream_says_that_the_observations_changed_after_one_is_added_or_cha
         changing(&running, "Retitling.", title("Another title")).await,
         (StatusCode::OK, json!({ "changed": [true] }))
     );
-    assert_eq!(observed(&mut body).await, OBSERVATIONS_CHANGED);
+    assert_eq!(told(&mut body).await, OBSERVATIONS_CHANGED);
 }
