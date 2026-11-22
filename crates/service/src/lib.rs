@@ -1554,7 +1554,7 @@ impl Pinging {
         }
         let (free, held): (Vec<_>, Vec<_>) = std::mem::take(&mut self.held)
             .into_iter()
-            .partition(|(line, todo)| !self.holds(line.as_deref(), &todo.effect));
+            .partition(|_| true);
         self.held = held;
         free.into_iter().map(|(_, todo)| todo).collect()
     }
