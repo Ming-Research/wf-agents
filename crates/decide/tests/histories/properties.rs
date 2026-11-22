@@ -61,7 +61,8 @@ pub const HELD: &str = "a work is held only by a precondition that does not hold
 pub const MAKERS: &str = "a precondition's wait names only those who write a block keeping it from holding";
 pub const STALLED_RIGHT: &str = "a stalled work names what it waits for, who writes it and why none of them runs";
 pub const QUESTION_HOLDS: &str =
-    "a question that waits holds the work at its cell, skipped or not, until it is answered";
+    "a question that waits holds the work at its cell while the cell applies, until it is answered";
+pub const QUESTION_FOLDED: &str = "a question of a skipped cell holds the work at no cell";
 pub const OWED: &str = "a return is sent back for the word it owes exactly where it leaves it owed";
 pub const NO_POINT: &str = "a judge's return is sent back for its points exactly where its fail brings none";
 pub const RULED: &str = "a judge's point the owner ruled on runs no cell";
@@ -103,7 +104,7 @@ pub const REACHED: &[&str] = &[
     FAILED_UNPAUSED,
     UNPAUSED_GOES_ON,
     HELD_BY_A_QUESTION,
-    HELD_WHILE_SKIPPED,
+    FOLDED_WHILE_SKIPPED,
     OWED_SENT_BACK,
     NO_POINT_SENT_BACK,
     RULED_ON,
@@ -145,7 +146,7 @@ pub const FAILED_IN_PASSING: &str = "a round fails in passing and its run waits 
 pub const FAILED_UNPAUSED: &str = "a round fails for a cause that does not pause its work";
 pub const UNPAUSED_GOES_ON: &str = "a run whose round failed without pausing its work goes on";
 const HELD_BY_A_QUESTION: &str = "a question that waits holds the work at its cell";
-const HELD_WHILE_SKIPPED: &str = "a question that waits holds the work at its cell while the cell is skipped";
+const FOLDED_WHILE_SKIPPED: &str = "a question that waits stands unanswered while its cell is skipped";
 const OWED_SENT_BACK: &str = "a maker's return that leaves the word owed is sent back";
 const NO_POINT_SENT_BACK: &str = "a judge's fail that brings no point is sent back";
 const RULED_ON: &str = "the owner rules on a judge's point a maker has not answered";
@@ -698,20 +699,34 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
 
 /// Property a-question-holds-its-cell (design document `data-and-context`, 32): while a question that waits holds the
 /// work, by the histories' own reading of the questions and the answers, the decision stands at its cell or before it,
-/// the first such cell in the order, whether that cell applies now or not: nothing after it runs, goes on, has a round
-/// under way or is waited or stalled at, and the work does not merge.
+/// the first such cell in the order whose condition is met now: nothing after it runs, goes on, has a round under way
+/// or is waited or stalled at, and the work does not merge. A question of a cell that is skipped holds the work at no
+/// cell: the work is never waited for its answer.
 fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision) {
     let now = Seq(u64::MAX);
-    let held = (reading.holding(now).iter())
+    let standing = reading.holding(now);
+    let applies = |cell: &decide::CellId| flow.place(cell).is_some_and(|i| reading.applies(flow, i));
+    for (name, cell) in standing.iter().filter(|(_, cell)| !applies(cell)) {
+        v.count(FOLDED_WHILE_SKIPPED);
+        if let Decision::Wait { on, .. } = d
+            && on
+                .iter()
+                .any(|w| matches!(w, Waited::Answer { question } if question == name))
+        {
+            v.fail(
+                QUESTION_FOLDED,
+                format!("the question {name} of {cell}, which is skipped, is waited for, in {d:?}"),
+            );
+        }
+    }
+    let held = (standing.iter())
+        .filter(|(_, cell)| applies(cell))
         .filter_map(|(_, cell)| flow.place(cell))
         .min();
     let Some(q) = held else {
         return;
     };
     v.count(HELD_BY_A_QUESTION);
-    if !reading.applies(flow, q) {
-        v.count(HELD_WHILE_SKIPPED);
-    }
     let at = match d {
         Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Busy { cell, .. } => flow.place(cell),
         Decision::Wait { at, .. } | Decision::Stalled { at, .. } => flow.place(at),
@@ -724,9 +739,8 @@ fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision)
         v.fail(
             QUESTION_HOLDS,
             format!(
-                "a question of {} holds the work there, applying {}, and the walk decides {d:?}",
-                flow.cells()[q].id,
-                reading.applies(flow, q)
+                "a question of {} holds the work there, and the walk decides {d:?}",
+                flow.cells()[q].id
             ),
         );
     }
