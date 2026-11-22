@@ -8,9 +8,10 @@
 //! place where a work is. Each time a round ends or something else happens to the work, it walks the cells from the
 //! first, in their order: a cell whose condition is not met is skipped, what it wrote before still counting; at the
 //! first that has a run at rest the run goes on, unless it waits for something; a cell whose last runs asked for calls
-//! waits there until every result is in, and is then entered again, given them; at the first with a question it waits
-//! for standing unanswered, whether or not the cell applies now, the work waits for the owner's answer, the cell being
-//! entered meanwhile only for the owner turning to it and no later cell run (design document `data-and-context`, 32);
+//! waits there until every result is in, and is then entered again, given them; at the first that applies with a
+//! question it waits for standing unanswered, the work waits for the owner's answer, the cell being entered meanwhile
+//! only for the owner turning to it and no later cell run (design document `data-and-context`, 32); the question of a
+//! cell that is skipped holds nothing;
 //! at the first whose preconditions do not hold, or that something new runs and that has reached a limit, the work
 //! waits; the first that something new runs is otherwise entered, whether a cell before it or a cell after it wrote
 //! what is new (decision the-walk-goes-from-the-first-cell); the rest are passed. A work that waits only for what
@@ -244,13 +245,8 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
         }
     }
     for (i, cell) in cells.iter().enumerate() {
+        // A cell that is skipped holds nothing, its questions included: nothing runs it to take the answer.
         if !walk.applies(i) {
-            // A question the cell waits for holds the work at its place all the same: no later cell runs while it
-            // stands unanswered (design document `data-and-context`, 32).
-            let held = walk.held(i);
-            if !held.is_empty() {
-                return walk.waiting(i, held);
-            }
             continue;
         }
         let wait = |on| walk.waiting(i, on);
@@ -806,8 +802,11 @@ impl<'a> Walk<'a> {
     }
 
     /// The questions of the cell at this place that hold the work there, each the owner's answer to it waited for, in
-    /// the order of their names.
+    /// the order of their names. None of a cell that is skipped: a question holds the work only while its cell applies.
     fn held(&self, i: usize) -> Vec<Waited> {
+        if !self.applies(i) {
+            return Vec::new();
+        }
         let cell = &self.flow.cells()[i].id;
         (self.questions.iter())
             .filter(|(_, q)| &q.latest.cell == cell && q.holds())

@@ -928,9 +928,8 @@ fn the_research_s_hand_over_holding_a_question_is_sent_back_saying_what_else_it_
 // are refused, saying it does not apply now, and go to no other cell (35). The owner's answer by another option than the
 // one it recommends changes the research's questions in meaning (31): the deep research, which took charge from the
 // research and watches its questions, is told that they ran it, and the research does not run. That a question the work
-// waits for holds the work at its cell whether or not the cell applies now (32) is the walk's
-// (crates/decide/tests/walk/questions.rs): no cell of the engineer's flow that asks can be skipped while its question
-// waits, the research handing the work over only in a round its question does not hold.
+// waits for holds the work at its cell only while the cell applies (32) is the walk's
+// (crates/decide/tests/walk/questions.rs): the question of a cell that is skipped holds nothing.
 #[test]
 fn an_answer_to_the_questions_of_a_cell_since_skipped_runs_the_cell_in_charge() {
     let (mut sim, research) = until("R1");

@@ -28,7 +28,7 @@
 //!   acts, cancelling the work. At a rest they answer a call for them, or let a cell go on at a limit, three times in
 //!   five. Where the cells ask, people answer a question that stands at any act now and then, the latest version of it
 //!   or an earlier one; and where the work waits for an answer, they give it in half their acts, and turn off the
-//!   condition of the cell it waits at in a quarter, so that the question holds the work at a cell that is skipped.
+//!   condition of the cell it waits at in a quarter, so that the question stands at a cell that is skipped, and holds nothing.
 //! - agents: each round ends with a return drawn from all the form allows, which the histories' engine judges with
 //!   `decide::run::next` and what `decide::told` gives, as the engine's loop does: it does the cell's work in most,
 //!   dealing with each of what ran the round with a chance of four in five and writing each output with three in five,
