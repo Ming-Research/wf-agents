@@ -332,3 +332,99 @@ pub enum Refused {
     /// now: what happened would be decided by one.
     NotInstalled,
 }
+
+#[cfg(test)]
+mod tests {
+    //! Which rounds a hold holds back.
+
+    use flow::{Has, Source, compile};
+
+    use super::*;
+
+    /// Two agent cells on two lines, `write` on `main` and `judge` on `second`, and the merge, an act of the engine.
+    fn flow() -> Compiled {
+        let text = r#"
+            name = "lines"
+            order = ["write", "judge", "merge"]
+            [limits]
+            runs = 3
+            returns = 2
+            calls = 3
+            [lines.main]
+            [lines.second]
+            [blocks.request]
+            people = true
+            [blocks.text]
+            [blocks.verdict]
+            [blocks.merged]
+            shown = true
+        "#;
+        let cell = |line: &str, watches: &str, outputs: &str| {
+            format!(
+                "title = \"A cell\"\nkind = \"agent\"\neffort = \"high\"\nline = \"{line}\"\ntask = \"Do it.\"\n\
+                 watches = [\"{watches}\"]\noutputs = [\"{outputs}\"]\n[kinds]\n{watches} = \"last_and_latest\"\n"
+            )
+        };
+        let merge =
+            "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"verdict\"]\noutputs = [\"merged\"]\n";
+        let source = Source {
+            flow: text.to_string(),
+            cells: [
+                ("write", cell("main", "request", "text")),
+                ("judge", cell("second", "text", "verdict")),
+                ("merge", merge.to_string()),
+            ]
+            .into_iter()
+            .map(|(id, text)| (id.to_string(), text))
+            .collect(),
+            files: [(
+                flow::waits_file(),
+                include_str!("../../../flow/agents/waits.toml").to_string(),
+            )]
+            .into(),
+            ..Source::default()
+        };
+        let has = Has {
+            acts: ["merge".to_string()].into(),
+            ..Has::default()
+        };
+        compile(&source, &has).expect("the definition compiles")
+    }
+
+    // The gate holds the agents' rounds, the acts' or every one, and a pinged line holds the rounds of its cells and no
+    // other's, each as the table says: whether the rounds of `write`, `judge` and `merge` are held. Fails where the
+    // gate's agents and acts are taken the other way round, where a line holds the cells of another, or where a hold
+    // by line holds an act. Microseconds.
+    #[test]
+    fn a_hold_holds_the_rounds_its_gate_holds_and_those_of_the_cells_of_a_pinged_line() {
+        let flow = flow();
+        let none: &[&str] = &[];
+        let table: [(Gate, &[&str], [bool; 3]); 12] = [
+            (Gate::Open, none, [false, false, false]),
+            (Gate::Open, &["main"], [true, false, false]),
+            (Gate::Open, &["second"], [false, true, false]),
+            (Gate::Agents, none, [true, true, false]),
+            (Gate::Agents, &["main"], [true, true, false]),
+            (Gate::Agents, &["second"], [true, true, false]),
+            (Gate::Acts, none, [false, false, true]),
+            (Gate::Acts, &["main"], [true, false, true]),
+            (Gate::Acts, &["second"], [false, true, true]),
+            (Gate::Every, none, [true, true, true]),
+            (Gate::Every, &["main"], [true, true, true]),
+            (Gate::Every, &["second"], [true, true, true]),
+        ];
+        for (gate, lines, held) in table {
+            let hold = Hold {
+                gate,
+                lines: lines.iter().map(|line| line.to_string()).collect(),
+            };
+            for (cell, held) in ["write", "judge", "merge"].into_iter().zip(held) {
+                assert_eq!(
+                    hold.holds(&flow, &CellId::from(cell)),
+                    held,
+                    "{gate:?} and the lines {lines:?} for {cell}"
+                );
+            }
+        }
+    }
+}
