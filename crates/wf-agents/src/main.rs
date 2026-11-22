@@ -276,8 +276,9 @@ enum Command {
     /// Makes several changes of observations at once, for one reason: in the order given, each judged against what
     /// those before it make, all of them or none. Each is OBSERVATION:KIND or OBSERVATION:KIND=VALUE, the observation
     /// its number with or without the O, the kind one of title=TEXT, tag=TAG, untag=TAG, taken-in-by=ITEM and delete.
-    /// An item that is not cancelled takes an observation in, whatever it is doing; a deleted observation is listed no
-    /// more, and its text and why stay in the records. Every refusal is said at once, by the change's place.
+    /// An item of the project the observation is of, whose work is not cancelled, takes an observation in, whatever
+    /// it is doing; a deleted observation is listed no more, and its text and why stay in the records. Every refusal is
+    /// said at once, by the change's place.
     ChangeObservations {
         #[command(flatten)]
         why: Why,

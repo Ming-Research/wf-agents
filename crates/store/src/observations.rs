@@ -112,6 +112,9 @@ pub enum Refusal {
     NoSuchItem(ItemNumber),
     /// The item's work is cancelled, and an observation it took in would be lost with it.
     ItemCancelled(ItemNumber),
+    /// The item is of another project than the observation: only an item of the project an observation is of takes it
+    /// in.
+    ItemOfAnotherProject(ItemNumber),
     /// The tag is not one that may be carried: it is empty, longer than [`crate::TAG_CHARS`], or holds a space or a
     /// comma.
     BadTag(String),
@@ -394,7 +397,7 @@ impl Observations {
     ) -> Result<Result<Vec<bool>, Vec<NotMade>>, Fault> {
         let mut db = self.connect()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut standing: BTreeMap<u64, Option<Standing>> = BTreeMap::new();
+        let mut standing: BTreeMap<u64, Option<(Standing, Option<String>)>> = BTreeMap::new();
         let mut flags = Vec::new();
         let mut refused = Vec::new();
         let mut made: Vec<(u64, &ObservationChange)> = Vec::new();
@@ -405,11 +408,11 @@ impl Observations {
             };
             let judged = match state.as_ref() {
                 None => Err(Refusal::NoSuchObservation),
-                Some(standing) => judge(&tx, standing, change)?,
+                Some((standing, project)) => judge(&tx, standing, project.as_deref(), change)?,
             };
             match judged {
                 Ok(alters) => {
-                    if alters && let Some(standing) = state.as_mut() {
+                    if alters && let Some((standing, _)) = state.as_mut() {
                         standing.made(change);
                         made.push((*number, change));
                     }
@@ -489,17 +492,24 @@ impl Observations {
     }
 }
 
-/// What the observation of this number stands as; none where there is none.
-fn standing_of(db: &Connection, number: u64) -> Result<Option<Standing>, Fault> {
+/// What the observation of this number stands as, with the project it is of; none where there is no such observation. The
+/// project of one a run kept is its work's item's, and is none for an item kept before items had projects.
+fn standing_of(db: &Connection, number: u64) -> Result<Option<(Standing, Option<String>)>, Fault> {
     if i64::try_from(number).is_err() {
         return Ok(None);
     }
-    let added: Option<Option<String>> = db
-        .query_row("SELECT title FROM observations WHERE number = ?1", [number], |row| {
-            row.get(0)
-        })
+    let added: Option<(Option<String>, Option<String>)> = db
+        .query_row(
+            "SELECT o.title, COALESCE(o.project, i.project)
+             FROM observations o
+             LEFT JOIN works w ON w.number = o.work
+             LEFT JOIN items i ON i.number = w.item
+             WHERE o.number = ?1",
+            [number],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
         .optional()?;
-    let Some(title) = added else {
+    let Some((title, project)) = added else {
         return Ok(None);
     };
     let mut standing = Standing {
@@ -516,11 +526,16 @@ fn standing_of(db: &Connection, number: u64) -> Result<Option<Standing>, Fault> 
     for change in query.query_map([number], |row| row.get::<_, String>(0))? {
         standing.made(&parse(&change?)?);
     }
-    Ok(Some(standing))
+    Ok(Some((standing, project)))
 }
 
 /// Whether the change makes the observation other than it stands, or why it is refused.
-fn judge(db: &Connection, standing: &Standing, change: &ObservationChange) -> Result<Result<bool, Refusal>, Fault> {
+fn judge(
+    db: &Connection,
+    standing: &Standing,
+    project: Option<&str>,
+    change: &ObservationChange,
+) -> Result<Result<bool, Refusal>, Fault> {
     if standing.deleted {
         return Ok(Err(Refusal::Deleted));
     }
@@ -528,11 +543,18 @@ fn judge(db: &Connection, standing: &Standing, change: &ObservationChange) -> Re
         ObservationChange::Titled(title) if title.trim().is_empty() => return Ok(Err(Refusal::BlankTitle)),
         ObservationChange::Tagged(tag) if tag_is_bad(tag) => return Ok(Err(Refusal::BadTag(tag.clone()))),
         ObservationChange::TakenIn(item) => {
-            if !has(db, "SELECT 1 FROM items WHERE number = ?1", item.0)? {
+            // A number the store cannot number is the number of no item.
+            if i64::try_from(item.0).is_err() || !has(db, "SELECT 1 FROM items WHERE number = ?1", item.0)? {
                 return Ok(Err(Refusal::NoSuchItem(*item)));
             }
             if cancelled_items(db)?.contains(&item.0) {
                 return Ok(Err(Refusal::ItemCancelled(*item)));
+            }
+            let of: Option<String> = db.query_row("SELECT project FROM items WHERE number = ?1", [item.0], |row| {
+                row.get(0)
+            })?;
+            if of.as_deref() != project {
+                return Ok(Err(Refusal::ItemOfAnotherProject(*item)));
             }
         }
         _ => {}

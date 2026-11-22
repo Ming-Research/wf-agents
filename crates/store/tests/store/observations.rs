@@ -543,3 +543,55 @@ fn the_tags_count_the_live_observations_that_carry_them_and_those_not_handled() 
     // `x` is carried by A, which is handled, and B; C is deleted, and its `z` counts for nothing.
     assert_eq!(observations.tags(), Ok(vec![count("x", 2, 1), count("y", 1, 0)]));
 }
+
+#[test]
+fn an_item_of_another_project_or_of_none_takes_no_observation_in() {
+    let (db, mut store, _) = with_an_item();
+    let item_of = |project: Option<&str>| store::First {
+        title: "another".to_string(),
+        level: Some("2".to_string()),
+        project: project.map(str::to_string),
+        depends_on: Vec::new(),
+        tags: Vec::new(),
+    };
+    for project in [Some("other"), None] {
+        store
+            .add(&item_of(project), "judged", Time(START + 1), &Work::default())
+            .expect("the item is added");
+    }
+    let observations = Observations::open(&db.path).expect("the observations open");
+    observations.add(&adding("Of `one`."), Time(1)).expect("added");
+    let not_made = |item: u64| {
+        Ok(Err(vec![NotMade {
+            at: 0,
+            observation: 1,
+            why: Refusal::ItemOfAnotherProject(ItemNumber(item)),
+        }]))
+    };
+    for item in [2, 3] {
+        let taken = [(1, ObservationChange::TakenIn(ItemNumber(item)))];
+        assert_eq!(observations.change("Not its project.", &taken, Time(2)), not_made(item));
+    }
+    // An item of the project it is of takes it in; so does one for an observation a run kept in its item's project.
+    let taken = [(1, ObservationChange::TakenIn(ItemNumber(1)))];
+    assert_eq!(observations.change("Its project.", &taken, Time(3)), Ok(Ok(vec![true])));
+}
+
+#[test]
+fn an_item_number_past_what_the_store_can_number_is_no_item() {
+    let (db, _store, _) = with_an_item();
+    let observations = Observations::open(&db.path).expect("the observations open");
+    observations.add(&adding("Text."), Time(1)).expect("added");
+    for item in [i64::MAX.unsigned_abs() + 1, u64::MAX] {
+        let taken = [(1, ObservationChange::TakenIn(ItemNumber(item)))];
+        assert_eq!(
+            observations.change("Large.", &taken, Time(2)),
+            Ok(Err(vec![NotMade {
+                at: 0,
+                observation: 1,
+                why: Refusal::NoSuchItem(ItemNumber(item))
+            }])),
+            "{item}"
+        );
+    }
+}

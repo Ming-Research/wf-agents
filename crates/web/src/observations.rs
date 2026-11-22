@@ -304,6 +304,11 @@ fn refusal_words(why: &Refusal) -> String {
                 item.0
             )
         }
+        Refusal::ItemOfAnotherProject(item) => format!(
+            "#{} is of another project than the observation, and only an item of the project an observation is of \
+             takes it in",
+            item.0
+        ),
         Refusal::BadTag(tag) => format!(
             "{tag:?} is no tag: a tag is a name of 1 to {} characters with no space and no comma",
             store::TAG_CHARS

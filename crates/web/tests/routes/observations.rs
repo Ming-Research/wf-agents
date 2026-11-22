@@ -215,6 +215,15 @@ async fn adding_an_observation_checks_both_projects_and_the_title_length() {
 #[tokio::test(start_paused = true)]
 async fn changes_are_refused_whole_with_every_reason() {
     let running = planned().await;
+    // An item of the other project, which does not take in an observation of the first.
+    let other = json!({
+        "title": "Another project's item",
+        "dependsOn": [],
+        "project": "other",
+        "flow": "trial",
+        "writes": [{ "block": "request", "content": "Please.", "value": null }],
+    });
+    assert_eq!(post(&running.router, "/api/v1/items", &other).await.0, StatusCode::OK);
     let refused = changing(
         &running,
         "Tidying.",
@@ -223,6 +232,7 @@ async fn changes_are_refused_whole_with_every_reason() {
             { "kind": "tag", "observation": 99, "tag": "flow" },
             { "kind": "tag", "observation": 2, "tag": "two words" },
             { "kind": "takenIn", "observation": 1, "item": 7 },
+            { "kind": "takenIn", "observation": 1, "item": 2 },
         ]),
     )
     .await;
@@ -232,6 +242,7 @@ async fn changes_are_refused_whole_with_every_reason() {
         "Change 2 (O99): there is no such observation",
         "change 3 (O2): \"two words\" is no tag",
         "change 4 (O1): there is no item #7",
+        "change 5 (O1): #2 is of another project than the observation",
         "none of the changes was made",
     ] {
         assert!(error.contains(said), "{error:?} lacks {said:?}");
