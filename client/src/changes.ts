@@ -20,6 +20,7 @@ function changedOf(data: string): Heard {
       items: c.items ?? true,
       copies: c.copies ?? true,
       accounts: c.accounts ?? true,
+      observations: c.observations ?? true,
     };
   } catch {
     return 'everything';

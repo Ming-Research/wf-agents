@@ -310,7 +310,16 @@ fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_run
     // Its observations are kept as a file of this version keeps them as the runs finish: those of the returns taken,
     // numbered in the order the runs finished, and unread.
     let migrated = super::observations::kept(&old.path);
-    assert_eq!(migrated, super::observations::kept(&new.path));
+    // The item was kept before items had projects, so its observations are of no project and reported by none, which
+    // the new file's, of an item of a project, are not.
+    let without_projects: Vec<store::Observation> = (super::observations::kept(&new.path).into_iter())
+        .map(|o| store::Observation {
+            project: None,
+            reported_by: None,
+            ..o
+        })
+        .collect();
+    assert_eq!(migrated, without_projects);
     let said: Vec<(u64, &str, &str)> = (migrated.iter())
         .map(|o| {
             (

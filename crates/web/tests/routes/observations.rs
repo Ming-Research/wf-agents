@@ -284,6 +284,7 @@ async fn the_list_gives_title_tags_projects_round_and_handled_and_leaves_out_a_d
     )
     .await;
     assert_eq!(made, (StatusCode::OK, json!({ "changed": [true, true, true, true] })));
+    // The item that takes it in has merged by now: an item takes an observation in whatever it is doing.
     let mut expected = of_the_plan(1, "The greeting has no test.", Value::Null);
     expected["title"] = json!("Test the greeting");
     expected["tags"] = json!(["tests"]);
@@ -291,9 +292,9 @@ async fn the_list_gives_title_tags_projects_round_and_handled_and_leaves_out_a_d
     expected["handled"] = json!(true);
     assert_eq!(
         get_json(router, "/api/v1/observations").await,
-        json!({ "observations": [expected.clone()] })
+        json!({ "observations": [expected] })
     );
-    // A deleted observation takes no change, and cannot be read.
+    // A deleted observation takes no change.
     let again = changing(
         &running,
         "Again.",
@@ -302,28 +303,6 @@ async fn the_list_gives_title_tags_projects_round_and_handled_and_leaves_out_a_d
     .await;
     assert_eq!(again.0, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(again.1["error"].as_str().unwrap().contains("deleted"), "{again:?}");
-    // The item that took it in is cancelled: the observation is not handled, and no item cancelled takes one in.
-    let cancelled = post(
-        router,
-        "/api/v1/items/changes",
-        &json!({ "why": "Not wanted.", "changes": [{ "kind": "cancel", "item": 1 }] }),
-    )
-    .await;
-    assert_eq!(cancelled.0, StatusCode::OK, "{cancelled:?}");
-    pass(1000).await;
-    expected["handled"] = json!(false);
-    assert_eq!(
-        get_json(router, "/api/v1/observations").await,
-        json!({ "observations": [expected] })
-    );
-    let taken = changing(
-        &running,
-        "Again.",
-        json!([{ "kind": "takenIn", "observation": 1, "item": 1 }]),
-    )
-    .await;
-    assert_eq!(taken.0, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(taken.1["error"].as_str().unwrap().contains("cancelled"), "{taken:?}");
 }
 
 #[tokio::test(start_paused = true)]
