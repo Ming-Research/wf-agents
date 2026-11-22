@@ -2775,7 +2775,7 @@ impl WorkPage {
             project: kept.item.project.clone(),
             tags: kept.item.tags.clone(),
             history: ItemHistory::of(kept.item),
-            outline: OutlineView::of(Some(&flow::Outline::of(kept.flow)), records),
+            outline: OutlineView::of(kept.on.outline(), records),
             flow: (!ended).then(|| Flow::of(kept.flow)),
             cells: if ended { Vec::new() } else { cells },
             blocks,

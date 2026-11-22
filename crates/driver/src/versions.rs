@@ -226,7 +226,8 @@ pub(crate) fn ended_unkept(records: &Records) -> End {
 /// the installed version begins a new session as the driver next follows the work's sessions, as for any other change
 /// of them (decision `a-changed-system-prompt-or-form-begins-a-new-session`).
 pub(crate) fn put_on(work: &mut Work, now: Time, from: Option<&Outline>, to: &Installed) {
-    let _ = from;
-    let reading = Reading::default();
+    let reading = from.map_or_else(Reading::default, |outline| {
+        flow::reading(&to.outline, outline.earlier_ids.len())
+    });
     work.onto(now, Some(to.version.clone()), reading);
 }

@@ -702,7 +702,7 @@ impl Driver {
                 Some(Some(version)) if version == installed.version => installed.on(),
                 Some(Some(version)) => {
                     let outline = versions::outline_of(&outlines, head.number, &version)?;
-                    match versions::ended(&outline, &work.records).filter(|_| false) {
+                    match versions::ended(&outline, &work.records) {
                         Some(end) => {
                             let reading = flow::reading(&installed.outline, outline.earlier_ids.len());
                             On::Earlier {
