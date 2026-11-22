@@ -19,9 +19,8 @@
 // selected once the tree shows it, as from a notification of a question it waits on. The page's shell mounts it lazily
 // (`lazy.tsx`).
 //
-// Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
-// the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel and a
-// work's item on its page are in too).
+// The window slides over the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow
+// view's panel and a work's item on its page are in too).
 
 import './console.css';
 

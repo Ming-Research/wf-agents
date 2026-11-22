@@ -1,6 +1,5 @@
 // Made-up contents for the console, for what the new engine does not give yet: every value here that the drawing
-// shows is mock, and each is replaced by the engine's own once it gives it, without changing the drawing code. Brought
-// over from the console of the engine on `old-main` (`client/src/console/window-mock.ts`), its bodies as they were.
+// shows is mock, and each is replaced by the engine's own once it gives it, without changing the drawing code.
 //
 // Mock, field by field:
 // - On a card and in the window: `unseen` (the item is new to the owner, and the passages changed since they read it),
@@ -22,7 +21,7 @@ import { type Body, type Choice, type Message, type Part, quoteOf } from './wind
 
 const HOUR = 3600000;
 
-/// A made-up body, in the parts the console of the old engine drew: where the item came from, the problem it solves and
+/// A made-up body, in the parts the console draws: where the item came from, the problem it solves and
 /// the plan for it, whose choices may wait for the owner, and the messages under them.
 type Made = { background: Part[]; problem: Part[]; plan: Part[]; planWaits: boolean; messages: Message[] };
 

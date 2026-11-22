@@ -1,7 +1,7 @@
 //! What the engine says to every agent, whatever the flow, as it is written beside the flows: the project's files,
 //! settings and heavy commands (`project.toml`), and in `agents/` what a session begins with, what every agent is
 //! refused whatever its project, the rules for the agents, the engine's own words, the return and its fields, the
-//! tools, the message a cell is sent as it is entered (design document `data-and-context`, 51), and what the engine
+//! tools, the message a cell is sent as it is entered (design document `data-and-context`, 14), and what the engine
 //! writes as it works: into the blocks its acts write, and in the commits it makes. Every word an agent is sent that is
 //! not a flow's is in these files; the code holds none of them, only how they are put together. A field a file does
 //! not know is refused, and what cannot be read is said with the path of its file.

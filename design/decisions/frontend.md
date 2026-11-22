@@ -80,6 +80,17 @@ The words of code in a diff, and in a fence that names its language, are coloure
 The page draws mermaid and dot fences, in what agents and the owner write, as diagrams, loading each library when a diagram comes near the screen, and shows the source of one it cannot draw.
 - replaced: A diagram's source shown in place of the diagram was on main; the owner changed it, because diagrams are key to how he understands a design.
 
+### decision a-wide-diagram-opens-in-a-dialog
+A diagram wider than its place is drawn as narrow as the place and never scrolls sideways; it opens larger in a dialog, in the viewer that moves and scales a chart.
+- rejected: an agent proposed only making it smaller; the owner rejected it, because its words become too small to read.
+- rejected: an agent proposed a new tab; the owner rejected it, because that takes the owner away from the text around it.
+- rejected: an agent proposed opening it in place; the owner rejected it, because in place it is only as wide as the text around it.
+- rejected: an agent proposed drawing it again narrower or turned; the owner rejected it, because that changes what its author drew and works for some kinds only.
+
+### decision every-list-is-drawn-numbered
+Every list in a text an agent or the owner wrote is drawn as a numbered list, whatever marker it was written with.
+- replaced: Drawing each list as it was written, bulleted or numbered, was on main; the owner changed it, because he read two lists of one shape drawn in two ways as meant to differ.
+
 ### decision the-page-uses-no-component-library
 The page is drawn with a small set of parts of its own, and uses no component library.
 - replaced: GitHub's Primer, its tokens and its components, was on main; the owner changed it, because Primer wastes room on the screen and is not good to look at.

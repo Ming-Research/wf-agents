@@ -2,8 +2,6 @@
 // datum its flow's card names, with the choices that wait for the owner where they stand in it), the messages under
 // it, the owner's and the replies, and where the questions put to the owner stand among them. Pure, so that the window
 // draws made-up items as it will draw real ones.
-//
-// Brought over from the console of the engine on `old-main` (`client/src/console/window.ts`).
 
 import { pointersIn } from './markdown';
 

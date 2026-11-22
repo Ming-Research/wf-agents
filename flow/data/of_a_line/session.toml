@@ -6,8 +6,10 @@ from = "session"
 
 # What the engine writes as a line begins a new session: `text`, with `{line}` the line and `{why}` the words below of
 # why it began one; and, as its session is compacted during a round, which begins none, `compacted` with `{line}`.
-# Filled in a run: `{context}` the tokens of the session's context as its last round ended, `{limit}` the limit, the
-# installation's `sessions.context_limit`; `{was}` the model it was begun on.
+# Filled in a run: `{context}` the tokens of the session's context as its last round ended, `{limit}` the limit the
+# session was held to, as its record says (no session is begun for its size now: the agents' program compacts it at
+# the installation's `sessions.compact_at`); `{was}` the model it was begun on. `limit` stays to read the records of
+# sessions begun for their size.
 [writes]
 text = "A new session of the line `{line}`: {why}."
 limit = "its context was {context} tokens as its last round ended, past the limit of {limit} for its line"

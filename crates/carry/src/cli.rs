@@ -3,7 +3,7 @@
 //! what it took. Each is a function of what it is given, with no I/O, but for the hooks' shell commands and the files
 //! the owner's words wait in ([`Words`]).
 //!
-//! As the old engine ran it (`crates/sessions/src/cli.rs` on `old-main`), and as runs of version 2.1.323 show:
+//! As runs of version 2.1.323 show:
 //! `-p --input-format stream-json` reads the message from the standard input as one user message of the stream-json
 //! format, a line of JSON ([`stdin`]); `--output-format stream-json --verbose` prints a line of JSON for each thing
 //! that happens, and near the end the result, which only the command line's own `system` lines (a `task_summary`)
@@ -302,8 +302,7 @@ const FAMILIES: [&str; 5] = ["haiku", "sonnet", "opus", "fable", "mythos"];
 
 /// Whether the command line takes a model by this name, in the forms its `--model` takes: the alias of a family's
 /// latest model (`opus`) or a model's full name (`claude-opus-5-5`, `claude-3-5-sonnet-20241022`), each with `[1m]`
-/// after it or not; a family it does not know, or a name in no such form, it does not take. Brought over from the
-/// engine on `old-main`, which checked the models of its levels so.
+/// after it or not; a family it does not know, or a name in no such form, it does not take.
 pub fn knows_model(model: &str) -> bool {
     let name = model.strip_suffix("[1m]").unwrap_or(model);
     if FAMILIES.contains(&name) {

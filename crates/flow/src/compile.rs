@@ -2532,7 +2532,7 @@ impl<'a> Definition<'a> {
     /// Why the block, which the condition or a precondition of the cell of this file at this place reads, is not
     /// decided before the cell; `None` where it is. A block the cell itself writes is not, but where it is the cell's
     /// `condition` and the cell is the block's only writer: the cell that decides which of two cells is in charge has
-    /// that answer as a condition of its own next round (design document `data-and-context`, 46), unwritten as it is
+    /// that answer as a condition of its own next round (design document `data-and-context`, 27), unwritten as it is
     /// before its first. Nor is a block that neither a cell before it, people nor the outside write. What people or the
     /// outside write can be written before any cell runs. A block a cell after it writes as well is, where
     /// `later_writes_allowed`: that cell's write decides again whether this one runs, a way back. A test of what stands
