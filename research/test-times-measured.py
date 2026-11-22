@@ -47,6 +47,28 @@ def main():
             judged += 1
             past += value > line(before)
         print(f"run {i}: {judged} tests judged by their own {LEAST} earlier times, {past} past their line")
+    added = []
+    for i in range(1, len(runs)):
+        added.append(sum(v for k, v in runs[i].items() if k not in runs[i - 1]))
+    print("what each merge added (the times of the tests the run before did not report), in s:",
+          " ".join(f"{a:.1f}" for a in added))
+    for j in range(LEAST, len(added)):
+        print(f"merge {j + 1}: added {added[j]:.1f} s, line of the earlier additions {line(added[j - LEAST : j]):.1f} s")
+    for i in (-12, -1):
+        times = sorted(runs[i].values(), reverse=True)
+        held = 0.0
+        for n, value in enumerate(times, 1):
+            held += value
+            if held >= sum(times) / 2:
+                print(f"run {i}: the slowest {n} of {len(times)} tests hold half of {sum(times):.0f} s; "
+                      f"the time of the {n}th is {value:.2f} s")
+                break
+    before, batch = runs[12], runs[13]
+    ranked = sorted(((v, k[1][:40]) for k, v in batch.items() if k not in before), reverse=True)[:5]
+    below = sorted(before.values())
+    for value, name in ranked:
+        print(f"added test {value:.2f} s, slower than {100 * sum(1 for x in below if x < value) / len(below):.1f} % "
+              f"of the tests before it: {name}")
     every = [v for r in runs for v in r.values()]
     print(f"the line of every test's times: {line(every):.1f} s (largest {max(every):.1f} s, median {st.median(every):.3f} s)")
 

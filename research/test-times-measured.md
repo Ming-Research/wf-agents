@@ -25,3 +25,9 @@ written down beforehand that a result would reject, so they are exploratory.
 - The whole `ci.yml` run on main took a median of 88 to 120 s a day from 2026-11-15 to 2026-11-22, the 22nd's 27 runs
   being the slowest day (median 119 s, most 228 s). On `next` (the old main) the runs of 2026-11-10 took 1 to 3 minutes and those of
   2026-11-11 4 to 8 minutes, as the item says.
+- What a merge adds is mostly small (0 to 4 s on 18 of 23 merges, the tests the run before did not report) and the
+  line of the earlier additions (`2 x largest - median`) stands near 44 s after one merge that added 22 s: a second
+  22 s batch would not be past it. That batch was five console-page tests of 2 to 6 s, each slower than 98.7 to 99.3 %
+  of the tests before it. The slowest 14 of 2500 tests (4.99 s and more) hold half of the suite's test time in the
+  latest run (21 tests, 3.77 s, twelve runs before). So a line on earlier additions says nothing of creep by moderate
+  batches, while where a test stands among the suite's tests does.
