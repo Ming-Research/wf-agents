@@ -3894,10 +3894,14 @@ pub(crate) mod tests {
                      request = \"last_and_latest\"\nwrite_questions = \"all\"\nwrite_words = \"all\"\n";
         let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\", \"main\"]\n\
                      outputs = [\"merged\"]\n";
+        compiled(text, &[("write", write), ("merge", merge)])
+    }
+
+    /// The flow of this definition and these cells' files, with the repository's words beside it.
+    fn compiled(text: &str, cells: &[(&str, &str)]) -> flow::Compiled {
         let source = Source {
             flow: text.to_string(),
-            cells: [("write", write), ("merge", merge)]
-                .iter()
+            cells: (cells.iter())
                 .map(|(id, text)| (id.to_string(), text.to_string()))
                 .collect(),
             files: [(
@@ -3913,6 +3917,114 @@ pub(crate) mod tests {
             ..Has::default()
         };
         compile(&source, &has).expect("the definition compiles")
+    }
+
+    /// A design the owner's `deep` turns on, a writer, and the merge: each of the first two may ask the owner and be
+    /// spoken to.
+    fn skipping() -> flow::Compiled {
+        let text = r#"
+            name = "skipping"
+            order = ["design", "write", "merge"]
+            [limits]
+            runs = 3
+            returns = 2
+            calls = 3
+            [lines.main]
+            [blocks.request]
+            people = true
+            [blocks.deep]
+            values = ["yes", "no"]
+            people = true
+            [blocks.main]
+            outside = "main"
+            [blocks.design]
+            [blocks.text]
+            [blocks.design_questions]
+            outside = "answer"
+            [blocks.design_words]
+            outside = "words"
+            [blocks.write_questions]
+            outside = "answer"
+            [blocks.write_words]
+            outside = "words"
+            [blocks.merged]
+            shown = true
+        "#;
+        let asks = |title: &str, block: &str, own: &str| {
+            format!(
+                "title = \"{title}\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Do it.\"\n\
+                 watches = [\"request\", \"{own}_questions\", \"{own}_words\"]\n\
+                 outputs = [\"{block}\", \"{own}_questions\", \"{own}_words\"]\n{when}[kinds]\n\
+                 request = \"last_and_latest\"\n{own}_questions = \"all\"\n{own}_words = \"all\"\n",
+                when = if own == "design" {
+                    "when = { deep = \"yes\" }\n"
+                } else {
+                    ""
+                }
+            )
+        };
+        let (design, write) = (asks("Design", "design", "design"), asks("Write", "text", "write"));
+        let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\", \"main\"]\n\
+                     outputs = [\"merged\"]\n";
+        compiled(text, &[("design", &design), ("write", &write), ("merge", merge)])
+    }
+
+    // A question of a cell whose condition does not hold says why its cell does not run, in the words a stalled work
+    // says it in; one of a cell that runs says nothing, and the cell applying again takes what was said away.
+    #[test]
+    fn a_question_of_a_skipped_cell_is_drawn_with_why_and_one_of_a_cell_that_runs_with_none() {
+        use decide::{Questioned, Started};
+
+        let flow = skipping();
+        let mut work = Work::default();
+        let r = &mut work.records;
+        let wrote = |block: &str, value: Option<&str>, at: u64| Written {
+            block: block.into(),
+            by: Outsider::Person,
+            matters: true,
+            value: value.map(str::to_string),
+            empty: false,
+            said_to: None,
+            at: Seq(at),
+        };
+        r.written.push(wrote("request", None, 1));
+        r.written.push(wrote("deep", Some("no"), 2));
+        for (run, cell, at) in [(1, "design", 3), (2, "write", 4)] {
+            r.started.push(Started {
+                run: RunId(run),
+                cell: cell.into(),
+                at: Seq(at),
+                because: Vec::new(),
+                basis: BTreeMap::new(),
+            });
+        }
+        let asked = |name: &str, cell: &str, run: u64, at: u64| Questioned {
+            name: name.to_string(),
+            cell: cell.into(),
+            run: RunId(run),
+            engine: false,
+            waits: true,
+            withdrawn: false,
+            at: Seq(at),
+        };
+        r.questions.push(asked("how", "design", 1, 5));
+        r.questions.push(asked("which", "write", 2, 6));
+        let said = |work: &Work| -> BTreeMap<String, Option<String>> {
+            let stored = Stored::new("skipping");
+            let on = driver::On::installed_flow(&flow);
+            let kept = stored.kept(&flow, &on, work);
+            let pages = QuestionPage::all(&kept).expect("the questions are drawn");
+            pages.into_iter().map(|q| (q.name, q.skipped)).collect()
+        };
+        let skipped = said(&work);
+        assert_eq!(
+            skipped["how"].as_deref(),
+            Some("`design` does not run, because it is skipped, `deep = yes` not holding.")
+        );
+        assert_eq!(skipped["which"], None);
+        // The owner turns the design on: its cell applies, and its question says nothing of why it does not run.
+        work.records.written.push(wrote("deep", Some("yes"), 7));
+        assert_eq!(said(&work)["how"], None);
     }
 
     // Each version is named by who wrote it as a round is told it (decision a-version-is-told-by-the-line-that-wrote-it),
