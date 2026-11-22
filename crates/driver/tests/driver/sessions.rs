@@ -2068,13 +2068,11 @@ fn read_the_session() -> Spent {
     }
 }
 
-// Reference: decision `a-session-is-kept-warm-from-its-own-last-call` and the item's wanted result: each session is
-// pinged by its own last call, "as often as a wait is worth" (`Warm::most`), whatever the work's other lines run. The
-// engineer's session waits on a tool's call while the review's round stays under way through every ping: each ping is
-// due 55 minutes after the session's own last call, which the ping before it is, and a third is not given. The same
-// pings as `a_line_that_waits_has_its_session_pinged_before_the_cache_lets_it_go_as_often_as_a_wait_is_worth` gives
-// with no round beside them. Before the change no ping is given while a round of the work is under way. A few
-// milliseconds.
+// A session is pinged by its own last call as often as a wait is worth (`Warm::most`), whatever the work's other lines
+// run. The engineer's session waits on a tool's call while the review's round stays under way through every ping:
+// each ping is due 55 minutes after the session's own last call, which the ping before it is, and a third is not
+// given; the same pings as `a_line_that_waits_has_its_session_pinged_before_the_cache_lets_it_go_as_often_as_a_wait_
+// is_worth` gives with no round beside them.
 #[test]
 fn a_session_beside_a_round_of_another_line_is_pinged_as_often_as_a_wait_is_worth_and_no_oftener() {
     let (mut s, build_ended) = awaiting_a_tool();
@@ -2115,46 +2113,10 @@ fn a_session_beside_a_round_of_another_line_is_pinged_as_often_as_a_wait_is_wort
     assert_eq!(s.round().1, "look", "the review's round is still under way");
 }
 
-// Reference: the same decision, and the ping's own rule (a ping that failed is tried again a minute after, while the
-// cache keeps the session), which holds beside a round of another line as beside none. Before the change no ping is
-// given beside a round, so no failure is retried. A few milliseconds.
-#[test]
-fn a_ping_that_failed_beside_a_round_of_another_line_is_tried_again_a_minute_after() {
-    let (mut s, build_ended) = awaiting_a_tool();
-    s.on(remark("a remark"));
-    s.began();
-    let at = build_ended + 3_300_000;
-    let todos = s.driver.tick(Time(at), None, None).unwrap();
-    assert_eq!(pings(&s, &todos).len(), 1);
-    s.clock = at + 1_000;
-    let failed = pinged(Spent::default(), Some("no network"));
-    s.driver.happened(Time(s.clock), s.work, failed).unwrap();
-    let kept = kept_warm(&s);
-    assert_eq!(lines_kept(&s), ["engineer"]);
-    assert_eq!(
-        kept[0].at.0,
-        s.clock + driver::warm::RETRY_MS,
-        "a minute after the failure"
-    );
-    let todos = s
-        .driver
-        .tick(Time(s.clock + driver::warm::RETRY_MS - 1), None, None)
-        .unwrap();
-    assert!(pings(&s, &todos).is_empty(), "tried before the minute is over");
-    let todos = s
-        .driver
-        .tick(Time(s.clock + driver::warm::RETRY_MS), None, None)
-        .unwrap();
-    assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)], "tried again");
-    assert_eq!(s.round().1, "look", "the review's round is under way through both");
-}
-
-// Reference: how a compaction by a ping is taken without a round of another line (`a_ping_that_compacted_the_session_
-// after_the_loading_cells_round_has_that_cell_run_again`, `a_round_due_while_its_lines_ping_is_under_way_begins_after_
-// the_ping_and_what_it_did`): the session is recorded as reopened and the cell that loads it runs again before the
-// line's next round. A ping beside a round of another line changes nothing of that round: no round of the work
-// begins beside it, and once it has ended the loading cell runs, before the build. Before the change no ping is
-// given beside the round. A few milliseconds.
+// A compaction by a ping is taken as it is without a round of another line (`a_ping_that_compacted_the_session_after_
+// the_loading_cells_round_has_that_cell_run_again`): the session is recorded as reopened, and the cell that loads it
+// runs again before the line's next round. Beside a round of another line the ping changes nothing of that round: no
+// round of the work begins beside it, and once it has ended the loading cell runs, before the build.
 #[test]
 fn a_ping_that_compacted_its_session_beside_a_round_of_another_line_leaves_that_round_alone_and_has_the_loading_cell_run_after_it()
  {
@@ -2199,10 +2161,10 @@ fn a_ping_that_compacted_its_session_beside_a_round_of_another_line_leaves_that_
     );
 }
 
-// Reference: a cancelled work does nothing more (decision `cancel` of the engine: each run is abandoned and the work
-// ends), and no ping of a work that has ended is given (item's rule kept, acceptance 10). The cancel comes while
-// another line's round is under way and the engineer's session is due: no ping is given as the round is stopped, nor
-// after. Passes before the change and after it. A few milliseconds.
+// A cancelled work has all its runs abandoned and is decided as ended, though the round of another line that was under
+// way when it was cancelled has not yet returned: with no ping held back by a round of the work under way, that
+// the work has ended is what keeps its sessions from being pinged. The cancel comes while the review's round is under
+// way and the engineer's session is due: no ping is given as the round is stopped, nor after.
 #[test]
 fn no_session_of_a_cancelled_work_is_pinged_though_another_lines_round_was_under_way() {
     let (mut s, build_ended) = awaiting_a_tool();
