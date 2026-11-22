@@ -893,6 +893,7 @@ impl Driver {
             Item::new(item, now, first, Vec::new()),
             flow,
             installed.on(),
+            Vec::new(),
             work,
         );
         let todos = effects.into_iter().map(|effect| held.todo(effect)).collect();
