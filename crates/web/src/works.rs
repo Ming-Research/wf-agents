@@ -822,7 +822,7 @@ impl QuestionPage {
                 QuestionPage {
                     name: name.to_string(),
                     cell: q.latest.cell.to_string(),
-                    version: engine::asked::number_of(kept.flow, &work.records, &q.latest.cell, q.latest.at),
+                    version: kept.question_version(&q.latest.cell, q.latest.at),
                     engine: q.latest.engine,
                     waits: q.latest.waits,
                     tree,
@@ -3054,7 +3054,7 @@ fn chars(work: &Work, block: &BlockId, at: Seq) -> Result<usize, Broken> {
 /// Who wrote the version of the block of the work, by the rule a round is told it by, each block written from outside
 /// the work coming from where the version the work is on says.
 fn writer_of(kept: Kept<'_>, block: &BlockId, version: &VersionView) -> Result<Writer, Broken> {
-    let from = |block: &BlockId| (kept.flow.blocks.get(block)).and_then(|b| b.writers.outside.clone());
+    let from = |block: &BlockId| kept.from(block).map(str::to_string);
     Ok(match context::author_from(&from, &kept.work.records, block, version) {
         Author::Owner => Writer::Owner,
         Author::Nobody => Writer::Outside,
@@ -3069,7 +3069,7 @@ fn writer_of(kept: Kept<'_>, block: &BlockId, version: &VersionView) -> Result<W
 /// none kept, whether its flow only delivers is not known, and it is taken as a work of its own, whose row is drawn:
 /// taken for a deliverable, its row would be hidden.
 fn delivers(kept: Kept<'_>) -> bool {
-    !(kept.flow.cells.iter()).any(|spec| spec.kind == Kind::Agent)
+    (kept.on.outline()).is_some_and(|outline| !outline.cells.iter().any(|c| c.agent))
 }
 
 /// The cell the version of the block written at this place is said to, where it is said to one.
@@ -3233,7 +3233,7 @@ fn in_detail(
     // The line of each run's cell, where the version the work is on puts it on one.
     let line_of = |run: RunId| {
         let cell = records.started.iter().find(|s| s.run == run).map(|s| &s.cell)?;
-        kept.flow.cells.iter().find(|spec| spec.id == *cell)?.line.as_deref()
+        kept.cell(cell)?.line.as_deref()
     };
     for r in runs {
         let run = RunId(r.run);

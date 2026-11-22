@@ -706,7 +706,10 @@ impl PlanChanges {
 /// Whether people write the block of the work, as the version the work is on says; of a work on none kept, which says
 /// nothing of its blocks, what a person wrote is found by the record alone.
 fn people_write(kept: Kept<'_>, block: &decide::BlockId) -> bool {
-    kept.flow.blocks.get(block).is_some_and(|b| b.writers.people)
+    match kept.on.outline() {
+        Some(_) => kept.from(block) == Some(flow::OWNER),
+        None => true,
+    }
 }
 
 #[cfg(test)]
