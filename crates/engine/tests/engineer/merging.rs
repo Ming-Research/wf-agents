@@ -150,6 +150,7 @@ fn protected(waits: bool) -> Question {
     Question::Asked {
         name: words.name,
         waits,
+        tree: None,
         recommends: Some(words.merges),
         ask: fill(&words.ask, &[("files", file.as_str())]),
         options: (words.options.iter())

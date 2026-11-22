@@ -281,14 +281,18 @@ impl Work {
 /// A question a return asks the owner, or withdraws, under its name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Question {
-    /// The question asked, or asked anew: whether its cell waits for the answer, the option it recommends, counted
-    /// from one, where it recommends one, what it asks, and its options; and, of a question of the engine's, what it
-    /// found that the question is of, told apart from what any other version is of, and why the work's agents said
-    /// each part of it is needed, by the part's name: of a change of the paths the project protects, each file's reason
-    /// by its path, which a later version asks with again where the file is as it was.
+    /// The question asked, or asked anew: whether its cell waits for the answer, whether the option taken goes into
+    /// the design tree (`tree`), the option it recommends, counted from one, where it recommends one, what it asks, and
+    /// its options; and, of a question of the engine's, what it found that the question is of, told apart from what any
+    /// other version is of, and why the work's agents said each part of it is needed, by the part's name: of a change
+    /// of the paths the project protects, each file's reason by its path, which a later version asks with again where
+    /// the file is as it was. `tree` is none where the question is not marked: one the engine asks, and one asked
+    /// before questions said it, read so.
     Asked {
         name: String,
         waits: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tree: Option<bool>,
         recommends: Option<u64>,
         ask: String,
         options: Vec<Way>,
