@@ -1539,7 +1539,7 @@ impl Pinging {
     fn holds(&self, line: Option<&str>, effect: &Effect) -> bool {
         match effect {
             Effect::Round { .. } => line.is_some_and(|line| self.lines.contains_key(line)),
-            Effect::Release { .. } => false,
+            Effect::Release { .. } => !self.lines.is_empty(),
             _ => false,
         }
     }

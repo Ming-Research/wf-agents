@@ -269,7 +269,7 @@ pub fn refusing(mut args: Vec<String>) -> Vec<String> {
     if let Some(value) = at.and_then(|i| args.get_mut(i)) {
         let mut settings: Value = serde_json::from_str(value).unwrap_or_else(|_| json!({}));
         let refuse = json!([{ "type": "command", "command": refusal() }]);
-        settings["hooks"]["PreToolUse2"] = json!([{ "matcher": "*", "hooks": refuse }]);
+        settings["hooks"]["PreToolUse"] = json!([{ "matcher": "*", "hooks": refuse }]);
         *value = settings.to_string();
     }
     args
