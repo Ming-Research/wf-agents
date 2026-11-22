@@ -398,20 +398,19 @@ mod tests {
     #[test]
     fn a_hold_holds_the_rounds_its_gate_holds_and_those_of_the_cells_of_a_pinged_line() {
         let flow = flow();
-        let none: &[&str] = &[];
-        let table: [(Gate, &[&str], [bool; 3]); 12] = [
-            (Gate::Open, none, [false, false, false]),
-            (Gate::Open, &["main"], [true, false, false]),
-            (Gate::Open, &["second"], [false, true, false]),
-            (Gate::Agents, none, [true, true, false]),
-            (Gate::Agents, &["main"], [true, true, false]),
-            (Gate::Agents, &["second"], [true, true, false]),
-            (Gate::Acts, none, [false, false, true]),
-            (Gate::Acts, &["main"], [true, false, true]),
-            (Gate::Acts, &["second"], [false, true, true]),
-            (Gate::Every, none, [true, true, true]),
-            (Gate::Every, &["main"], [true, true, true]),
-            (Gate::Every, &["second"], [true, true, true]),
+        let table: [(Gate, Vec<&str>, [bool; 3]); 12] = [
+            (Gate::Open, vec![], [false, false, false]),
+            (Gate::Open, vec!["main"], [true, false, false]),
+            (Gate::Open, vec!["second"], [false, true, false]),
+            (Gate::Agents, vec![], [true, true, false]),
+            (Gate::Agents, vec!["main"], [true, true, false]),
+            (Gate::Agents, vec!["second"], [true, true, false]),
+            (Gate::Acts, vec![], [false, false, true]),
+            (Gate::Acts, vec!["main"], [true, false, true]),
+            (Gate::Acts, vec!["second"], [false, true, true]),
+            (Gate::Every, vec![], [true, true, true]),
+            (Gate::Every, vec!["main"], [true, true, true]),
+            (Gate::Every, vec!["second"], [true, true, true]),
         ];
         for (gate, lines, held) in table {
             let hold = Hold {
