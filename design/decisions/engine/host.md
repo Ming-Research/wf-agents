@@ -27,6 +27,12 @@ The works of a project take turns to check and merge, in the order their checks 
 The check before the merge runs the project's full workflows once, by hand, on the exact commit to merge, and judges it by their JUnit and their jobs' conclusions.
 - replaced: Judging the merge by the checks GitHub ran on the pushes of the pull request was on main; the owner changed it, because the full workflows are dispatched on the exact commit, once, before the merge.
 
+### decision a-failed-job-is-said-by-its-failed-step
+Where a job failed with no failed test of its own to say why, the engine reads the job's log from GitHub and gives the end of the step that failed it.
+- replaced: Saying such a job only as failed, with its link, was on main; the owner changed it, because an implementation told only that the lint failed had to ask the owner to paste the error from the log, or else bisect with more CI runs.
+- rejected: an agent proposed that each project's workflows write why a job failed into its JUnit; the owner rejected it, because every project would have to change its protected workflows, and a job whose runner dies writes nothing.
+- rejected: an agent proposed a tool for the agent to read a job's log itself; the owner rejected it, because the agents' tools are only the query and the tests (decision `the-tools-are-query-and-run-tests`).
+
 ### decision a-red-the-change-did-not-make-is-not-sent-back
 Where only tests failed in the full workflows, the check runs those tests again: one that passes is observed as maybe flaky, one red on main too makes the work wait for main, any other sends it back.
 - replaced: Any red in the check holding the work until the owner let it go was on main; the owner changed it, because a red the change did not cause, such as a test that sometimes hangs, held every work it met for the owner.
