@@ -1461,12 +1461,14 @@ mod tests {
         let mut lines = vec![json!({ "type": "system", "subtype": "init", "session_id": "s" }).to_string()];
         lines.extend(attempt("so-1", &[r#"{"ok": true}"#], None));
         lines.push(first);
-        match second {
-            Some(piece) => {
-                lines.extend(attempt("so-2", &[piece], None));
-                asked["structured_output"] = serde_json::from_str(piece).unwrap();
-            }
-            None => lines.push(event(json!({ "type": "message_start", "message": {} }))),
+        // The program begins the next message with a partial message, as it prints one, its type first.
+        lines.push(
+            r#"{"type":"stream_event","event":{"type":"message_start","message":{}},"parent_tool_use_id":null}"#
+                .to_string(),
+        );
+        if let Some(piece) = second {
+            lines.extend(attempt("so-2", &[piece], None));
+            asked["structured_output"] = serde_json::from_str(piece).unwrap();
         }
         lines.push(asked.to_string());
         lines
