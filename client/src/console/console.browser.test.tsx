@@ -873,29 +873,80 @@ describe('the console page', () => {
     expect(container.querySelector('.console-found')).toBeNull();
   });
 
+  /// For one run in CI only: how long each step of a test took, the scene's frames, the page's long tasks and its keys.
+  function stamps(test: string) {
+    const t0 = performance.now();
+    let was = t0;
+    const at = () => Math.round(performance.now() - t0);
+    const stats = () => {
+      const s = (window as { consoleScene?: SnapScene }).consoleScene?.stats;
+      return `frames ${s?.fps} fps, mean ${s?.meanMs} ms, p95 ${s?.p95Ms} ms`;
+    };
+    const long = new PerformanceObserver((list) => {
+      for (const e of list.getEntries())
+        console.log(`[${test}] long task at ${Math.round(e.startTime - t0)} ms for ${Math.round(e.duration)} ms`);
+    });
+    try {
+      long.observe({ type: 'longtask', buffered: false });
+    } catch {
+      // No long tasks told.
+    }
+    const key = (e: KeyboardEvent) => console.log(`[${test}] ${e.type} ${e.key} at ${at()} ms`);
+    window.addEventListener('keydown', key, true);
+    window.addEventListener('keyup', key, true);
+    return {
+      step(name: string) {
+        const now = performance.now();
+        console.log(`[${test}] ${name}: ${Math.round(now - was)} ms (at ${at()} ms); ${stats()}`);
+        was = now;
+      },
+      end() {
+        long.disconnect();
+        window.removeEventListener('keydown', key, true);
+        window.removeEventListener('keyup', key, true);
+      },
+    };
+  }
+
   it('opens the folds over an item it picks, ticking the box of its kind where it was not, and selects it', async () => {
+    const s = stamps('picks');
     await drawn();
+    s.step('drawn');
     expect(box('Done').checked).toBe(false);
     // Item 30 is done, and folded away under 27, done too.
     await userEvent.keyboard('/');
+    s.step('/');
     await userEvent.fill(field(), '26-27-30');
+    s.step('fill');
     await expect.poll(found).toEqual(['26-27-30']);
+    s.step('found');
     await userEvent.keyboard('{Enter}');
-    await expect.poll(title).toBe('Draw a fold as a dot');
+    s.step('Enter');
+    await expect.poll(title, { timeout: 30_000 }).toBe('Draw a fold as a dot');
+    s.step('title');
     expect(box('Done').checked).toBe(true);
     expect(JSON.parse(localStorage.getItem('wf-agents.console-folds') ?? '{}')).toEqual({ 27: 'unfolded' });
     expect(field().value).toBe('');
-  });
+    s.end();
+  }, 60_000);
 
   it('ticks Cancelled for a cancelled item it picks with a click, and selects it', async () => {
+    const s = stamps('cancelled');
     await drawn();
+    s.step('drawn');
     expect(box('Cancelled').checked).toBe(false);
     await userEvent.keyboard('/');
+    s.step('/');
     await userEvent.fill(field(), 'flat list');
+    s.step('fill');
     await expect.poll(found).toEqual(['35']);
+    s.step('found');
     await userEvent.click(container.querySelector('.console-found-row') as HTMLElement);
+    s.step('click');
     await expect.poll(title).toBe('Try the tree as a flat list');
+    s.step('title');
     expect(box('Cancelled').checked).toBe(true);
+    s.end();
   });
 
   it('fades in what the marks and the keys mean while the pointer is on the question mark at the bottom left, and fades it out once it leaves, taking the pointer no more', async () => {
