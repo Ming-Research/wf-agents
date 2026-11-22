@@ -94,13 +94,16 @@ fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
     let text = workflow("ci.yml");
     let jobs = block(&text, "jobs");
     let names = children(&jobs);
-    for want in ["scope", "tree", "page", "lint", "test", "check"] {
+    for want in ["scope", "tree", "page", "page-tests", "lint", "test", "check"] {
         assert!(names.iter().any(|n| n == want), "no job {want} in {names:?}");
     }
     let check = under(&jobs, "check").join("\n");
-    assert!(check.contains("needs: [scope, tree, page, lint, test]"), "{check}");
+    assert!(
+        check.contains("needs: [scope, tree, page, page-tests, lint, test]"),
+        "{check}"
+    );
     assert!(check.contains("if: always()"), "{check}");
-    for left_out in ["page", "lint", "test"] {
+    for left_out in ["page", "page-tests", "lint", "test"] {
         let job = under(&jobs, left_out).join("\n");
         assert!(
             job.contains("needs: scope") && job.contains("if: ${{ needs.scope.outputs.tree_only != 'true' }}"),
@@ -169,9 +172,12 @@ fn each_workflow_the_engine_runs_takes_a_commit_and_a_call_and_names_its_run_by_
 fn every_test_of_a_run_is_reported_as_junit_in_the_artifact_test_results() {
     let text = workflow("ci.yml");
     let jobs = block(&text, "jobs");
-    let page = under(&jobs, "page").join("\n");
-    assert!(page.contains("--reporter=junit") && page.contains("page.xml"), "{page}");
-    assert!(page.contains("name: junit-page"), "{page}");
+    let page = under(&jobs, "page-tests").join("\n");
+    assert!(
+        page.contains("--reporter=junit") && page.contains("page tests.xml"),
+        "{page}"
+    );
+    assert!(page.contains("name: junit-page-tests"), "{page}");
     let tree = under(&jobs, "tree").join("\n");
     assert!(
         tree.contains("JOB: tree") && tree.contains("tree.xml") && tree.contains("name: junit-tree"),
@@ -185,7 +191,7 @@ fn every_test_of_a_run_is_reported_as_junit_in_the_artifact_test_results() {
             && test.contains("name: junit-${{ matrix.partition }}"),
         "{test}"
     );
-    assert!(page.contains("JOB: page"), "{page}");
+    assert!(page.contains("JOB: page tests"), "{page}");
     let check = under(&jobs, "check").join("\n");
     assert!(check.contains("actions/upload-artifact/merge@"), "{check}");
     assert!(
@@ -198,9 +204,10 @@ fn every_test_of_a_run_is_reported_as_junit_in_the_artifact_test_results() {
 }
 
 /// The jobs of ci.yml that upload JUnit, each by its key, with the artifact it uploads.
-const JOBS_THAT_UPLOAD: [(&str, &str); 3] = [
+const JOBS_THAT_UPLOAD: [(&str, &str); 4] = [
     ("tree", "junit-tree"),
     ("page", "junit-page"),
+    ("page-tests", "junit-page-tests"),
     ("test", "junit-${{ matrix.partition }}"),
 ];
 
@@ -566,7 +573,7 @@ fn naming_script(job: &str) -> String {
 // tells a job red for something else than its tests from one whose tests failed. Run under bash: a few milliseconds.
 #[test]
 fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_failed() {
-    let (test, page) = (naming_script("test"), naming_script("page"));
+    let (test, page) = (naming_script("test"), naming_script("page-tests"));
     let junit =
         r#"<testsuites><testsuite name="carry"><testcase name="t"><failure/></testcase></testsuite></testsuites>"#;
     let steps = |failed: Option<&str>| {
@@ -643,58 +650,79 @@ fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_fa
         named.contains(&error("Build the page")) && !named.contains("left_by_an_earlier_run"),
         "{named}"
     );
-    // The page's job: its tests passed and its build after them failed, which is said in the file the tests wrote.
+    // The page's tests job: a step before the tests failed and vitest wrote nothing, which is said in a file of its own;
+    // and a step before them failed while a file stood there, which is said in that file after what it holds.
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("page.xml");
-    std::fs::write(
-        &file,
-        r#"<testsuites><testsuite name="src/a.test.ts"><testcase name="a"/></testsuite></testsuites>"#,
-    )
-    .unwrap();
+    let file = dir.path().join("page tests.xml");
     let results = file.display().to_string();
-    let steps = "success Lint the page\nfailure Build the page".to_string();
+    let steps = "failure Chromium for the page's browser tests".to_string();
     let env = [
-        ("JOB", "page"),
+        ("JOB", "page tests"),
         ("RESULTS", results.as_str()),
-        ("TESTED", "success Test the page"),
+        ("TESTED", "skipped Test the page"),
         ("STEPS", steps.as_str()),
     ];
     run_script(&page, dir.path(), &env);
     let named = read(&file);
     assert!(
-        named.contains(r#"<testcase name="a"/></testsuite><testsuite name="page"><error message="the step Build the page of the job failed"/></testsuite></testsuites>"#),
+        named.contains(r#"<testsuite name="page tests"><error message="the step Chromium for the page's browser tests of the job failed"/></testsuite>"#),
+        "{named}"
+    );
+    std::fs::write(
+        &file,
+        r#"<testsuites><testsuite name="src/a.test.ts"><testcase name="a"/></testsuite></testsuites>"#,
+    )
+    .unwrap();
+    run_script(&page, dir.path(), &env);
+    let named = read(&file);
+    assert!(
+        named.contains(r#"<testcase name="a"/></testsuite><testsuite name="page tests"><error message="the step Chromium for the page's browser tests of the job failed"/></testsuite></testsuites>"#),
         "{named}"
     );
 }
 
-// The job of the design tree's check writes a file always: the engine reads a run with no JUnit file as a failed one,
-// and a run that skips every other job has this one's alone; where a step of it failed the file says the first that did
-// not pass, as an error in a testsuite of the job's name. A few milliseconds under bash.
+// The job `page` runs no tests: it writes a file only where a step of it failed, and says that step in a testsuite of
+// the job's name with an error, so that the check before a merge tells a job red for a step from one that passed. The
+// job of the design tree's check writes a file always: the engine reads a run with no JUnit file as a failed one, and a
+// run that skips every other job has this one's alone. A few milliseconds under bash.
 #[test]
-fn the_job_of_the_tree_names_its_results_and_says_the_step_that_failed() {
+fn the_job_of_the_page_and_the_job_of_the_tree_name_their_results_and_say_the_step_that_failed() {
+    let page = naming_script("page");
     let tree = naming_script("tree");
-    let named = |steps: &str| {
+    let named = |script: &str, job: &str, steps: &str| {
         let dir = tempfile::tempdir().unwrap();
-        let results = dir.path().join("temp").join("tree.xml");
+        let results = dir.path().join("temp").join(format!("{job}.xml"));
         std::fs::create_dir_all(results.parent().unwrap()).unwrap();
-        let env = [
-            ("JOB", "tree"),
-            ("RESULTS", results.to_str().unwrap()),
-            ("STEPS", steps),
-        ];
-        run_script(&tree, dir.path(), &env);
-        read(&results)
+        let env = [("JOB", job), ("RESULTS", results.to_str().unwrap()), ("STEPS", steps)];
+        run_script(script, dir.path(), &env);
+        results.exists().then(|| read(&results))
     };
+    let all_passed = "success Check out the commit\nsuccess Type-check the page\nsuccess Build the page";
+    assert_eq!(
+        named(&page, "page", all_passed),
+        None,
+        "a job that passed and ran no tests"
+    );
+    let lint_failed = "success Check out the commit\nfailure Lint the page\nsuccess Build the page";
+    assert_eq!(
+        named(&page, "page", lint_failed).as_deref(),
+        Some(
+            "<testsuites><testsuite name=\"page\"><error message=\"the step Lint the page of the job failed\"/></testsuite></testsuites>\n"
+        )
+    );
     let passed = "success Check out the commit\nsuccess Design tree\nsuccess Test the design tree's check";
     assert_eq!(
-        named(passed),
-        "<testsuites><testsuite name=\"tree\"/></testsuites>\n",
+        named(&tree, "tree", passed).as_deref(),
+        Some("<testsuites><testsuite name=\"tree\"/></testsuites>\n"),
         "a job that passed holds a file"
     );
+    // The first step that did not pass is named, not the ones skipped after it.
     let failed = "success Check out the commit\nfailure Design tree\nskipped Test the design tree's check";
     assert_eq!(
-        named(failed),
-        "<testsuites><testsuite name=\"tree\"><error message=\"the step Design tree of the job failed\"/></testsuite></testsuites>\n"
+        named(&tree, "tree", failed).as_deref(),
+        Some(
+            "<testsuites><testsuite name=\"tree\"><error message=\"the step Design tree of the job failed\"/></testsuite></testsuites>\n"
+        )
     );
 }
 
@@ -815,8 +843,8 @@ fn check_is_red_unless_every_job_passed_or_was_left_out_by_scope() {
         ];
         try_script(&script, temp.path(), &env).0
     };
-    let all = "success success success";
-    let left_out = "skipped skipped skipped";
+    let all = "success success success success";
+    let left_out = "skipped skipped skipped skipped";
     assert!(passes("success", "success", all, ""), "every job passed");
     assert!(passes("success", "success", all, "false"), "every job passed");
     assert!(
@@ -839,15 +867,15 @@ fn check_is_red_unless_every_job_passed_or_was_left_out_by_scope() {
         "the tree's check failed where only design/ changed"
     );
     assert!(
-        !passes("success", "success", "success failure success", ""),
+        !passes("success", "success", "success failure success success", ""),
         "a job failed"
     );
     assert!(
-        !passes("success", "success", "success cancelled success", "true"),
+        !passes("success", "success", "success success cancelled success", "true"),
         "a job was cancelled"
     );
     assert!(
-        !passes("success", "success", "success failure success", "true"),
+        !passes("success", "success", "success success failure success", "true"),
         "a job that scope left out failed all the same"
     );
 }

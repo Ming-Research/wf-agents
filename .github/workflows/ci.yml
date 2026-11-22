@@ -118,8 +118,8 @@ jobs:
           path: ${{ runner.temp }}/tree.xml
           if-no-files-found: ignore
 
-  # The owner's page (client/): checked and tested on its own, so that what is wrong with it shows without waiting for
-  # the Rust build.
+  # The owner's page (client/): its types, its lint and its build, on their own, beside its tests (`page-tests`) and the
+  # Rust build, so that what is wrong with it shows without waiting for them.
   page:
     needs: scope
     if: ${{ needs.scope.outputs.tree_only != 'true' }}
@@ -158,6 +158,74 @@ jobs:
       - name: Lint the page
         id: lint
         run: npm run lint
+      - name: Build the page
+        id: build
+        run: npm run build
+      # What became of the job, in a file named by it, so that the engine tells what each job reported: a step of the
+      # job's own that failed is said in it as a testsuite of the job's name with an error naming the step, as a unit
+      # not built is. The job runs no tests, so a job that passed writes nothing.
+      - name: Name the results
+        if: ${{ !cancelled() }}
+        env:
+          JOB: page
+          RESULTS: ${{ runner.temp }}/page.xml
+          STEPS: |
+            ${{ steps.checkout.outcome }} Check out the commit
+            ${{ steps.clean.outcome }} Clear what the last run left
+            ${{ steps.path.outcome }} Put the tools on the path
+            ${{ steps.node.outcome }} Check the version of node
+            ${{ steps.install.outcome }} Install the page's dependencies
+            ${{ steps.typecheck.outcome }} Type-check the page
+            ${{ steps.lint.outcome }} Lint the page
+            ${{ steps.build.outcome }} Build the page
+        run: |
+          mkdir -p "$(dirname "$RESULTS")"
+          failed=$(printf '%s\n' "$STEPS" | awk '$1 == "failure" { $1 = ""; print substr($0, 2); exit }')
+          if [ -n "$failed" ]; then
+            printf '<testsuites><testsuite name="%s"><error message="the step %s of the job failed"/></testsuite></testsuites>\n' \
+              "$JOB" "$failed" > "$RESULTS"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: junit-page
+          path: ${{ runner.temp }}/page.xml
+          if-no-files-found: ignore
+
+  # The page's tests, in Node, in a stand-in for the browser and in a real browser, beside its other checks (`page`).
+  page-tests:
+    name: page tests
+    needs: scope
+    if: ${{ needs.scope.outputs.tree_only != 'true' }}
+    runs-on: [self-hosted, 14900k]
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        id: checkout
+        with:
+          # The commit the request gives.
+          ref: ${{ inputs.commit }}
+          # No later step pushes, so the token is not left in the checkout.
+          persist-credentials: false
+          # The checkout the runner keeps from its last run, which only what changed is brought up to date in.
+          clean: false
+      - id: clean
+        run: git clean -ffdxq -e target -e client/node_modules -e client/dist
+      - id: path
+        run: echo "$HOME/.cargo/bin:/opt/node/bin" >> "$GITHUB_PATH"
+      - id: node
+        run: '[ "$(node --version)" = v24.21.0 ]'
+      # The dependencies are installed only when their lock changed since the last run of this runner.
+      - id: install
+        run: |
+          lock=$(git rev-parse HEAD:client/package-lock.json)
+          if [ "$(cat node_modules/.wf-lock 2>/dev/null)" != "$lock" ]; then
+            npm ci
+            echo "$lock" > node_modules/.wf-lock
+          fi
       # The page's browser tests (`*.browser.test.tsx`) draw it in headless Chromium: the headless shell of the one the
       # version of Playwright the lock file locks drives, installed once for each version into the runner user's cache;
       # the system libraries it needs are installed on the machine by hand, which a workflow has no root to do.
@@ -168,10 +236,7 @@ jobs:
       # ` > `, which is the name an agent asks for it by.
       - name: Test the page
         id: tests
-        run: npm test -- --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/page.xml"
-      - name: Build the page
-        id: build
-        run: npm run build
+        run: npm test -- --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/page tests.xml"
       # What became of each test of the job, in a file named by the job, so that the engine tells what each job
       # reported: a step of the job's own that failed, or its tests' where they wrote nothing, is said in it as a
       # testsuite of the job's name with an error naming the step, as a unit not built is, whatever became of the steps
@@ -179,8 +244,8 @@ jobs:
       - name: Name the results
         if: ${{ !cancelled() }}
         env:
-          JOB: page
-          RESULTS: ${{ runner.temp }}/page.xml
+          JOB: page tests
+          RESULTS: ${{ runner.temp }}/page tests.xml
           TESTED: ${{ steps.tests.outcome }} Test the page
           STEPS: |
             ${{ steps.checkout.outcome }} Check out the commit
@@ -188,10 +253,7 @@ jobs:
             ${{ steps.path.outcome }} Put the tools on the path
             ${{ steps.node.outcome }} Check the version of node
             ${{ steps.install.outcome }} Install the page's dependencies
-            ${{ steps.typecheck.outcome }} Type-check the page
-            ${{ steps.lint.outcome }} Lint the page
             ${{ steps.chromium.outcome }} Chromium for the page's browser tests
-            ${{ steps.build.outcome }} Build the page
         run: |
           mkdir -p "$(dirname "$RESULTS")"
           failed=$(printf '%s\n' "$STEPS" | awk '$1 == "failure" { $1 = ""; print substr($0, 2); exit }')
@@ -207,8 +269,8 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
-          name: junit-page
-          path: ${{ runner.temp }}/page.xml
+          name: junit-page-tests
+          path: ${{ runner.temp }}/page tests.xml
           if-no-files-found: ignore
 
   # The Rust format and clippy with warnings as errors, beside the tests.
@@ -392,7 +454,7 @@ jobs:
   # taken off and its workflow commands stopped, so that they are printed as the job printed them, for whoever reads the
   # run on GitHub.
   check:
-    needs: [scope, tree, page, lint, test]
+    needs: [scope, tree, page, page-tests, lint, test]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -438,11 +500,11 @@ jobs:
         env:
           SCOPE: ${{ needs.scope.result }}
           TREE: ${{ needs.tree.result }}
-          HEAVY: ${{ needs.page.result }} ${{ needs.lint.result }} ${{ needs.test.result }}
+          HEAVY: ${{ needs.page.result }} ${{ needs.page-tests.result }} ${{ needs.lint.result }} ${{ needs.test.result }}
           TREE_ONLY: ${{ needs.scope.outputs.tree_only }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "scope $SCOPE, tree $TREE, page, lint and test: $HEAVY (only design/ changed: ${TREE_ONLY:-false})"
+          echo "scope $SCOPE, tree $TREE, page, page tests, lint and test: $HEAVY (only design/ changed: ${TREE_ONLY:-false})"
           red=false
           [ "$SCOPE" = success ] && [ "$TREE" = success ] || red=true
           for r in $HEAVY; do
@@ -451,7 +513,7 @@ jobs:
           [ $red = true ] || exit 0
           jobs="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs"
           mapfile -t not_passed < <(gh api --paginate "$jobs" --jq '.jobs[]
-            | select(.name == "scope" or .name == "tree" or .name == "page" or .name == "lint" or (.name | startswith("test ")))
+            | select(.name == "scope" or .name == "tree" or .name == "page" or .name == "page tests" or .name == "lint" or (.name | startswith("test ")))
             | select(.conclusion != "success" and (env.TREE_ONLY != "true" or .conclusion != "skipped"))
             | "\(.id)\t\(.name)\t\(.conclusion // .status)"')
           stop="stop-$(cat /proc/sys/kernel/random/uuid)"
