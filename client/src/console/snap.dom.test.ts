@@ -84,7 +84,6 @@ describe('what a fold hides', () => {
     standing: 'open',
     asks: 0,
     deliver: false,
-    blocked: 0,
     unseen: false,
     unread: 0,
     begun: false,

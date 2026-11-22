@@ -11,7 +11,8 @@
 // the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
 // browser's own. They pin as well what the old console did not do: a click on an item's funnel folds what is under it
 // into a dot and a click on the dot shows it again, both selecting nothing, the fold turning over its time; the
-// console keeps that choice over its own rule; and a lit way turns into the cards it joins along its own curve.
+// console keeps that choice over its own rule; a lit way turns into the cards it joins along its own curve; and the way
+// to a work the engine runs a call for is lit, as to one whose round runs.
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
@@ -23,13 +24,13 @@ import { userEvent } from 'vitest/browser';
 import { DEFAULT_ACCENT, pickAccent, PRESETS, tones } from '../accent';
 import { apart, lchOf } from '../colour';
 import { MARKS } from '../marks';
-import type { Items } from '../works-api';
+import type { Items, Now } from '../works-api';
 import { fixtureSource } from './fixtures';
 import { FIND_SAYS } from './find';
 import { CONSOLE_MARKS } from './help';
 import type { Heard } from './source';
 import { ConsolePage } from './index';
-import type { Shown } from './items';
+import type { Shown, ShownWork } from './items';
 import { DOT_AT, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, SnapScene, themed, UNFOLD_MS } from './snap';
 
 const WIDTH = 1000;
@@ -44,7 +45,6 @@ const card = (id: number, children: Shown[] = []): Shown => ({
   standing: 'open',
   asks: 0,
   deliver: false,
-  blocked: 0,
   begun: false,
   shadow: false,
   work: null,
@@ -52,7 +52,7 @@ const card = (id: number, children: Shown[] = []): Shown => ({
 });
 const shadow = (id: number): Shown => ({ ...card(id), shadow: true });
 /// The work numbered `number`, running its implement cell since now.
-const running = (number: number): Shown['work'] => {
+const running = (number: number): ShownWork => {
   const now = Date.now();
   return {
     number,
@@ -299,6 +299,32 @@ describe('the tree in columns', () => {
     scene.show(tree(true));
     for (let k = 0; k < FOLD_MS / 32; k += 1) scene.step(16);
     endsAtCard();
+  });
+
+  it('lights the way to a work the engine runs a call for, as to one whose round runs, and to no work that waits for the owner or is paused', () => {
+    const call: Now = {
+      kind: 'waits',
+      at: 'implement',
+      on: [{ kind: 'call', call: 1, who: null, what: { kind: 'tool', name: 'ci', input: 'the tests' } }],
+    };
+    const paused: Now = { kind: 'paused', at: 'implement', by: 'owner', why: null };
+    const asks = [{ key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } }];
+    const under = (k: number, work: ShownWork) => ({ ...card(k), begun: true, work });
+    // Under 1: 2 runs a round, 3 waits for the engine's call, 4 waits for the owner, and 5 is paused.
+    const kids = [
+      under(2, running(2)),
+      under(3, { ...running(3), now: call }),
+      under(4, { ...running(4), waits: asks }),
+      under(5, { ...running(5), now: paused, paused: 'owner' }),
+    ];
+    scene.show([card(1, kids)]);
+    settle(scene);
+    expect(scene.litWays().map((w) => w.id).sort()).toEqual([2, 3]);
+    // Folded away under 1, the work in its call ends the lit way at 1's dot, as a work whose round runs does.
+    const folded = { open: 4, done: 0, cancelled: 0, elsewhere: 0 };
+    scene.show([card(10, [{ ...card(1, [kids[1], kids[2]]), fold: { folded: true, under: folded } }])]);
+    settle(scene);
+    expect(scene.litWays().map((w) => w.id)).toEqual([1]);
   });
 
   it('turns a lit way that leaves an open card steeply into the edges it joins along its own curve, with no stub beside it', () => {
@@ -922,13 +948,13 @@ describe('the console page', () => {
     s.step('found');
     await userEvent.keyboard('{Enter}');
     s.step('Enter');
-    await expect.poll(title, { timeout: 30_000 }).toBe('Draw a fold as a dot');
+    await expect.poll(title).toBe('Draw a fold as a dot');
     s.step('title');
     expect(box('Done').checked).toBe(true);
     expect(JSON.parse(localStorage.getItem('wf-agents.console-folds') ?? '{}')).toEqual({ 27: 'unfolded' });
     expect(field().value).toBe('');
     s.end();
-  }, 60_000);
+  });
 
   it('ticks Cancelled for a cancelled item it picks with a click, and selects it', async () => {
     const s = stamps('cancelled');

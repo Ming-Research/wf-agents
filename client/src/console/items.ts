@@ -32,8 +32,7 @@ export type ShownWork = {
   cells: CellNow[];
   /// What it waits on the owner for, as the engine's one list of it says.
   waits: Wait[];
-  /// When its first round began, from which its age is counted; when it was added, before it has a round or from an
-  /// engine that does not say.
+  /// When its first round began, from which its age is counted.
   from: number;
   /// Where its time went, in equal cells (`Summary.bar`); empty where the engine does not say.
   bar: string;
@@ -78,18 +77,16 @@ export type Shown = {
   /// It is a deliverable: an item that says what is to be delivered and is made of the items under it, with no work
   /// of its own to show. Its flow says so (`deliver`); until the engine has that flow, the page's rule above does.
   deliver: boolean;
-  /// How many items it depends on are still open: neither merged nor cancelled, which it no longer waits for.
-  blocked: number;
   /// New to the owner, or changed since they last read it (mock: `mock.ts`).
   unseen: boolean;
   /// Messages from others the owner has not read (mock: `mock.ts`).
   unread: number;
-  /// Whether its work has begun: until it has, the card says how many items it waits for.
+  /// Whether its work has begun, which is whether it has run a round ([`started`]).
   begun: boolean;
   /// A shadow of the item under an item that depends on it by a dependency that is not its main one: it points to the
   /// item's place, and carries none of its work, its questions or the items under it.
   shadow: boolean;
-  /// Its work while it goes on and says something: once it has begun, or while it is paused, at fault or waits.
+  /// Its work while it goes on, once it has run a round: until then the card is an open item's, of one row.
   work: ShownWork | null;
   /// Every item under it, whether or not they are folded away.
   children: Shown[];
@@ -107,23 +104,16 @@ export function standingOf(i: Item | undefined): ItemStanding {
 /// How many things a work waits on the owner for.
 export const asksOf = (w: Pick<Summary, 'waits'>): number => waitsOf(w).length;
 
-/// Whether a work has begun: a round is under way, or a cell of it has run.
-export const started = (w: Summary): boolean =>
-  w.now.kind === 'round' || w.cells.some((c) => c.finished > 0 || c.open !== null);
+/// Whether a work has begun: it has run a round, so that the engine says when its first round began. A cell can stand
+/// done with no round of it, as the first cell of an item brought over from elsewhere does; that is no beginning.
+export const started = (w: Summary): boolean => w.from != null;
 
 /// Whether a work still goes on: not merged and not cancelled.
 const live = (w: Summary) => w.now.kind !== 'merged' && w.now.kind !== 'cancelled';
 
-/// Whether a card draws the work: while it goes on, once it has begun, or before that while it is paused, at fault,
-/// waits or is stalled, which every work added paused is.
-const drawn = (w: Summary) =>
-  live(w) &&
-  (started(w) ||
-    w.now.kind === 'paused' ||
-    w.now.kind === 'everything' ||
-    w.now.kind === 'fault' ||
-    w.now.kind === 'waits' ||
-    w.now.kind === 'stalled');
+/// Whether a card draws the work: while it goes on, once it has begun. Every card that draws a work has run at least
+/// once; one paused, at fault or waiting before its first round draws no work, as an open item with none.
+const drawn = (w: Summary) => live(w) && started(w);
 
 /// Each item's main dependent, which it stands under in the tree: the first by number of the items that depend on it.
 function mainDependents(data: Items): Map<number, number> {
@@ -259,8 +249,6 @@ export function shownTree(
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w),
       deliver: deliverable || w?.delivers === true,
-      // A cancelled item it depends on holds it back no more: only what is still open does.
-      blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) === 'open').length,
       // New to the owner exactly when something is unread: one fact, not two.
       unseen: (mock?.unread ?? 0) > 0,
       unread: mock?.unread ?? 0,
@@ -298,7 +286,6 @@ export function shownTree(
     standing: standing(id),
     asks: 0,
     deliver: false,
-    blocked: 0,
     unseen: false,
     unread: 0,
     begun: false,

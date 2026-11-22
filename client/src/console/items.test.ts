@@ -6,9 +6,12 @@ import { indexTree } from './tree';
 
 const CELLS = ['plan', 'implement', 'merge'];
 
-/// A work of item `item` doing `now`, its cells as `states` say.
+/// A work of item `item` doing `now`, its cells as `states` say; its first round begun where a round is under way or a
+/// cell has run.
 function work(item: number, now: Now, states: CellNow['state'][] = ['notYet', 'notYet', 'notYet']): Summary {
+  const begun = now.kind === 'round' || states.some((s) => s !== 'notYet' && s !== 'skipped');
   return {
+    from: begun ? 1 : null,
     number: item * 10,
     item,
     flow: 'small',
@@ -349,10 +352,9 @@ describe('what a card shows of an item', () => {
     expect(shown[0].asks).toBe(3);
   });
 
-  it('counts the items an item waits for as those it depends on that are still open: a cancelled one, standing under it, holds it back no more', () => {
+  it('stands every item an item depends on under it, open, done or cancelled', () => {
     const items = [item(1, 'open', [2, 3, 4]), item(2, 'open'), item(3, 'done'), item(4, 'cancelled')];
     const shown = shownTree({ items }, ALL);
-    expect(shown[0].blocked).toBe(1);
     expect(shown[0].children.map((s) => [s.id, s.standing])).toEqual([
       [2, 'open'],
       [3, 'done'],
@@ -360,14 +362,13 @@ describe('what a card shows of an item', () => {
     ]);
   });
 
-  it('shows the work of an item once it has begun, and while it goes on; until it has begun, the items it waits for', () => {
+  it('shows the work of an item once it has begun, and while it goes on', () => {
     const notBegun = item(1, 'open', [2, 3]);
     const listed: Wait[] = ['call-1', 'write-confirmed', 'limit'].map((key) => ({ key, why: `${key}.`, ends: { kind: 'resume' } }));
     const begun: Item = { ...item(2, 'open'), work: { ...work(2, waits, ['done', 'resting', 'notYet']), waits: listed } };
     const shown = shownTree({ items: [notBegun, begun, item(3, 'done')] });
     expect(shown[0].work).toBeNull();
     expect(shown[0].begun).toBe(false);
-    expect(shown[0].blocked).toBe(1);
     const w = shown[0].children[0];
     expect(w.begun).toBe(true);
     expect(w.asks).toBe(3);
@@ -386,7 +387,7 @@ describe('what a card shows of an item', () => {
     expect(made[0].deliver).toBe(false);
   });
 
-  it('shows the work of an item that has not begun while it is paused, at fault or waits, as every new item is', () => {
+  it('draws no work for an item whose work has not run a round, paused, at fault, waiting, or with a cell done by no round', () => {
     const paused: Item = {
       ...item(1, 'open', [4]),
       work: work(1, { kind: 'paused', at: 'plan', by: 'owner', why: null }),
@@ -399,14 +400,21 @@ describe('what a card shows of an item', () => {
     };
     const ruling: Wait = { key: 'write-read', why: 'plan requires test = read, which read keeps from holding.', ends: { kind: 'write', block: 'read', value: 'yes' } };
     const waiting: Item = { ...item(3, 'open'), work: { ...work(3, owner), waits: [ruling] } };
-    const shown = shownTree({ items: [paused, fault, waiting, item(4, 'open')] });
-    expect(shown.map((s) => [s.id, s.begun, s.work?.now.kind])).toEqual([
-      [1, false, 'paused'],
-      [2, false, 'fault'],
-      [3, false, 'waits'],
+    // Brought over from elsewhere: its first cell stands done, and no round of it ever ran.
+    const held: Now = { kind: 'paused', at: 'implement', by: 'owner', why: null };
+    const brought: Item = { ...item(5, 'open'), work: { ...work(5, held, ['done', 'notYet', 'notYet']), from: null } };
+    const shown = shownTree({ items: [paused, fault, waiting, item(4, 'open'), brought] });
+    expect(shown.map((s) => [s.id, s.begun, s.work])).toEqual([
+      [1, false, null],
+      [2, false, null],
+      [3, false, null],
+      [5, false, null],
     ]);
-    // Not begun, it still says how many items it waits for.
-    expect(shown[0].blocked).toBe(1);
+    // Not begun, it still says what it waits on the owner for.
     expect(shown[2].asks).toBe(1);
+    // Once its first round has begun, the same work paused is drawn.
+    const ran = shownTree({ items: [{ ...paused, work: { ...paused.work, from: 1 } }, item(4, 'open')] });
+    expect(ran[0].begun).toBe(true);
+    expect(ran[0].work?.now.kind).toBe('paused');
   });
 });

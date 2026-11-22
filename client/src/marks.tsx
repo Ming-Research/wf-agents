@@ -49,6 +49,7 @@ export type ConsoleMark =
   | 'cardRunning'
   | 'cardWaiting'
   | 'cardPaused'
+  | 'cardNotStarted'
   | 'cardAbove'
   | 'cardMerged'
   | 'cardCancelled'
@@ -56,7 +57,6 @@ export type ConsoleMark =
   | 'cardDelivers'
   | 'forYou'
   | 'sentBack'
-  | 'waitsFor'
   | 'level'
   | 'cells'
   | 'lines'
@@ -92,39 +92,34 @@ function NodeSample({ lit = false }: { lit?: boolean }) {
   return <span className={`legend-node${lit ? ' lit' : ''}`} aria-hidden="true" />;
 }
 
-type CardLook = 'stopped' | 'running' | 'waiting' | 'paused' | 'above' | 'elsewhere' | 'delivers';
+type CardLook = 'stopped' | 'running' | 'waiting' | 'paused' | 'notStarted' | 'above' | 'elsewhere' | 'delivers';
 
 /// A card of the console's tree, as a sample: filled and edged by how its work stands, as the canvas draws it,
-/// stopped in red, running in the accent; waiting for a call edged in its yellow, paused edged in grey, above a work
-/// edged in the accent's light step; a shadow of an item shown elsewhere edged in dashes; an item that delivers no
-/// card, only a line under it.
+/// stopped in red, running in the accent; waiting for a call edged in its yellow, paused edged in grey; an open item
+/// whose work has not run a round plain, of one row, with no work drawn; above a work edged in the accent's light step;
+/// a shadow of an item shown elsewhere edged in dashes; an item that delivers no card, only a line under it.
 function CardSample({ look }: { look: CardLook }) {
   return <span className={`legend-card ${look}`} aria-hidden="true" />;
 }
 
-/// An item's number on a card whose work ended, as a sample: green where it merged, a pale grey where it was cancelled.
+/// An item's number on a card whose work ended, as a sample: green where it merged, a pale grey where it was cancelled,
+/// its title then struck through.
 function NumberSample({ look }: { look: 'merged' | 'cancelled' }) {
   return (
-    <span className={`mono legend-number ${look}`} aria-hidden="true">
-      12
+    <span aria-hidden="true">
+      <span className={`mono legend-number ${look}`}>12</span>
+      {look === 'cancelled' && <span className="legend-title cancelled"> title</span>}
     </span>
   );
 }
 
-/// A tag at a card's right framed in grey, as a sample: the lock with how many items the item waits for, or the arrow
-/// turning back with how many of its work's returns were sent back; drawn as the canvas draws them.
-function FramedTag({ sign, count }: { sign: 'lock' | 'back'; count: number }) {
+/// A tag at a card's right framed in grey, as a sample: the arrow turning back with how many of its work's returns
+/// were sent back, drawn as the canvas draws it.
+function FramedTag({ count }: { count: number }) {
   return (
     <span className="legend-tag" aria-hidden="true">
       <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.2">
-        {sign === 'lock' ? (
-          <>
-            <rect x="1.5" y="4.5" width="7" height="5" rx="1" />
-            <path d="M3 4.5v-2a2 2 0 0 1 4 0v2" />
-          </>
-        ) : (
-          <path d="M8 1.5v5H2M4 4.5 2 6.5l2 2" />
-        )}
+        <path d="M8 1.5v5H2M4 4.5 2 6.5l2 2" />
       </svg>
       {count}
     </span>
@@ -208,6 +203,7 @@ export const MARKS: Record<MarkKey, Entry> = {
   cardRunning: { name: 'running', draw: () => <CardSample look="running" /> },
   cardWaiting: { name: 'waiting', draw: () => <CardSample look="waiting" /> },
   cardPaused: { name: 'paused', draw: () => <CardSample look="paused" /> },
+  cardNotStarted: { name: 'not started', draw: () => <CardSample look="notStarted" /> },
   cardAbove: { name: 'a work under it', draw: () => <CardSample look="above" /> },
   cardMerged: { name: 'merged', draw: () => <NumberSample look="merged" /> },
   cardCancelled: { name: 'cancelled', draw: () => <NumberSample look="cancelled" /> },
@@ -221,8 +217,7 @@ export const MARKS: Record<MarkKey, Entry> = {
       </span>
     ),
   },
-  sentBack: { name: 'sent back', draw: () => <FramedTag sign="back" count={2} /> },
-  waitsFor: { name: 'waits for', draw: () => <FramedTag sign="lock" count={2} /> },
+  sentBack: { name: 'sent back', draw: () => <FramedTag count={2} /> },
   level: { name: 'level', draw: () => <LevelMark level="2" raise={0} /> },
   cells: {
     name: 'cells',

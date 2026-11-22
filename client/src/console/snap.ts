@@ -832,8 +832,9 @@ export type DrawnMark = {
   pulses: boolean;
 };
 
-/// A card's strip as it was drawn: its marks, how many cells did not fit, and where its room ends; and the level its
-/// work's cell runs at, under the card's number, with its colour and whether it is strong.
+/// A card's strip as it was drawn: its marks, how many cells were left out, which is none since every strip fits, and
+/// where its room ends; and the level its work's cell runs at, under the card's number, with its colour and whether it
+/// is strong.
 export type DrawnStrip = {
   marks: DrawnMark[];
   more: number;
@@ -979,6 +980,9 @@ export class SnapScene {
   /// none else, when each is drawn where it stands, whole. And the lit ways drawn at the last frame, each by the item
   /// it runs into, from where it began to where it ended, with its curve and its turns into the cards; for the tests.
   private drawnMoved: { a: Float64Array; bx: Float64Array; by: Float64Array } | null = null;
+  /// The strips of the cards being made, each with where its room begins and ends and how many cells it has, drawn
+  /// once every card is made, at one size of the marks for the whole tree ([`show`]).
+  private strips: { start: number; end: number; count: number; draw: (scale: number) => void }[] = [];
   private waysDrawn: LitWay[] = [];
   /// For each item, whether a work goes on on it or under it: the edges of the cards above a work are lit.
   private lit: Uint8Array = new Uint8Array(0);
@@ -1032,6 +1036,11 @@ export class SnapScene {
   private frames: number[] = [];
   private lastDraw = 0;
   private last = 0;
+  /// Whether something asks for a frame at the next tick ([`ask`]); how long the last frame took to draw and render, in
+  /// milliseconds, and when it ended ([`tick`]).
+  private asked = true;
+  private cost = 0;
+  private drawnAt = 0;
   private dragging: { x: number } | null = null;
   /// Where the pointer went down, so that a press let go where it began is a click, not a drag.
   private down: { x: number; y: number } | null = null;
@@ -1084,7 +1093,10 @@ export class SnapScene {
     host.appendChild(this.app.canvas);
     // The canvas takes the size of what holds it whenever that changes, as when the panel beside it is folded away or
     // dragged, not only when the window does.
-    this.sized = new ResizeObserver(() => this.app.queueResize());
+    this.sized = new ResizeObserver(() => {
+      this.app.queueResize();
+      this.ask();
+    });
     this.sized.observe(host);
     // Light or dark, the system's or the page's switch's, and the accent picked: drawn again in the theme's colours.
     const media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -1117,13 +1129,17 @@ export class SnapScene {
     canvas.addEventListener('pointerleave', () => {
       this.hovered = -1;
       this.pointer = null;
+      this.ask();
     });
     canvas.addEventListener('pointerdown', (e) => {
       this.dragging = { x: e.clientX };
       this.down = { x: e.clientX, y: e.clientY };
+      this.ask();
     });
     window.addEventListener('pointermove', this.drag);
     window.addEventListener('pointerup', this.up);
+    // The scene renders each frame it draws itself ([`tick`]), and no other.
+    this.app.ticker.remove(this.app.render, this.app);
     this.app.ticker.add(this.tick);
     this.ready = true;
   }
@@ -1131,6 +1147,7 @@ export class SnapScene {
   /// Draws while the view is shown, and stops while another view hides it; shown again, it draws at the size of what
   /// holds it, which its observer follows.
   setShown(shown: boolean): void {
+    this.ask();
     if (!this.ready) return;
     if (shown) {
       this.app.queueResize();
@@ -1151,6 +1168,7 @@ export class SnapScene {
 
   /// Takes the theme's colours, and draws the tree again in them where it stands.
   private retheme = () => {
+    this.ask();
     if (!this.ready || this.gone) return;
     Object.assign(PALETTE, themed());
     this.lighting();
@@ -1184,6 +1202,7 @@ export class SnapScene {
   /// the middle of the screen, where that item is still in it, and else where it was; a column new to the tree stands
   /// where its links put it, and at first the middle root stands in the middle.
   show(roots: Shown[]): void {
+    this.ask();
     const old = this.tree;
     const before = this.columns.map((c, d) => {
       if (old === null || old.columns[d].length === 0) return null;
@@ -1247,11 +1266,15 @@ export class SnapScene {
     });
     this.pulses = new Map();
     this.beat = beatOf();
-    // The way from each item whose work runs up to its root, under a turning fold as well: there it is drawn with the
-    // cards as they draw in to the dot or grow out of it ([`ends`] in `draw`). The dot of an item folded, or whose fold
-    // turns, with a running item under it ends the way: the way runs from the root through the item's card to the dot,
-    // which comes and goes with the turn.
-    const running = (s: Shown) => !s.shadow && s.work !== null && moodOf(s.work) === 'running';
+    // The way from each item whose work is under way up to its root, under a turning fold as well: there it is drawn
+    // with the cards as they draw in to the dot or grow out of it ([`ends`] in `draw`). A work is under way while a round
+    // of it runs and while the engine runs a call for it, as its tests: its card says which, and the way, which other
+    // works share, is lit alike for both. The dot of an item folded, or whose fold turns, with such an item under it ends
+    // the way: the way runs from the root through the item's card to the dot, which comes and goes with the turn.
+    const running = (s: Shown) => {
+      const mood = s.shadow || s.work === null ? null : moodOf(s.work);
+      return mood === 'running' || mood === 'calling';
+    };
     const turning = (k: number) => this.turns.has(items[k].id);
     const inside = new Uint8Array(items.length);
     items.forEach((_, k) => {
@@ -1271,7 +1294,18 @@ export class SnapScene {
     this.glowing = new Map();
     this.softLit = new Map();
     this.ages = new Map();
+    this.strips = [];
     this.views = items.map((item, k) => this.node(item, k));
+    // One size for the marks of every strip on the tree: the largest at which each strip fits its room, the strip of
+    // the flow with the most cells the narrowest, and never larger than the marks' own; so that a mark is as large on
+    // one card as on any other ([`strip`]).
+    const { side, gap } = this.measures;
+    const scale = this.strips.reduce((most, p) => {
+      const whole = p.count * (side + gap) - gap;
+      return whole > 0 ? Math.min(most, (p.end - p.start) / whole) : most;
+    }, 1);
+    for (const p of this.strips) p.draw(Math.max(0, scale));
+    this.strips = [];
     this.columns = tree.columns.map(() => ({ at: 0, aim: 0, warm: 0 }));
     if (tree.columns.length === 0) {
       this.buildMap(tree);
@@ -1449,8 +1483,9 @@ export class SnapScene {
   /// state's colour, its title, and at the right how many things its work waits for from the owner, white on red; on
   /// the second row, for an item whose work goes on, under the number the level its cell runs at, the strip of the
   /// work's cells as the works page draws it, the lines the work added and removed where it changed any, and how long
-  /// it has gone on. An item whose work has ended has its one row, with the lines its work changed at its right. A
-  /// node is drawn at its whole size, and made smaller as a whole while a fold over it turns.
+  /// it has gone on. An item whose work has ended has its one row, with the lines its work changed at its right; an
+  /// open item whose work has not run a round has its one row too, as an open item with no work. A node is drawn at its
+  /// whole size, and made smaller as a whole while a fold over it turns.
   private node(item: Shown, k: number): Container {
     const s = this.styles as Styles;
     const view = new Container();
@@ -1488,25 +1523,21 @@ export class SnapScene {
       style: s.mono(NUMBER()[item.standing]),
     });
     number.position.set(x, row1 - number.height / 2);
-    const title = new BitmapText({
-      text: item.title,
-      // An open item nothing has begun on or under is a little greyer than one in work, so that it stands back.
-      style: s.title(
-        item.standing !== 'open'
-          ? PALETTE.faint
-          : this.begun[k] === 1
-            ? PALETTE.ink
-            : between(PALETTE.ink, PALETTE.muted, NOT_BEGUN),
-      ),
-    });
+    // An open item nothing has begun on or under is a little greyer than one in work, so that it stands back.
+    const ink =
+      item.standing !== 'open'
+        ? PALETTE.faint
+        : this.begun[k] === 1
+          ? PALETTE.ink
+          : between(PALETTE.ink, PALETTE.muted, NOT_BEGUN);
+    const title = new BitmapText({ text: item.title, style: s.title(ink) });
     title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
     view.addChild(number, title);
     // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
-    // mark a card has, as what the owner looks for first; its messages unread, white on the accent; its returns sent back,
-    // framed in grey; and, while its work is not drawn, a lock framed in grey with
-    // how many items it waits for to merge, which stand under it.
+    // mark a card has, as what the owner looks for first; its messages unread, white on the accent; and its returns
+    // sent back, framed in grey. What an item waits for stands under it in the tree, and no tag counts it again.
     let right = NODE_W - 8;
-    const tag = (text: string, fill: string, sign: 'back' | 'lock' | null, solid: boolean) => {
+    const tag = (text: string, fill: string, sign: 'back' | null, solid: boolean) => {
       const t = new BitmapText({ text, style: s.mono(solid ? PALETTE.onTag : fill) });
       const pad = 4;
       const icon = sign !== null ? 10 : 0;
@@ -1516,16 +1547,6 @@ export class SnapScene {
       if (solid) g.roundRect(right, row1 - 8, w, 16, 3).fill(fill);
       else g.roundRect(right, row1 - 8, w, 16, 3).stroke({ color: fill, width: 1 });
       const ax = right + pad;
-      if (sign === 'lock') {
-        // A small padlock, drawn: its body, and the shackle over it.
-        g.roundRect(ax + 1, row1 - 1, 7, 5.5, 1)
-          .stroke({ color: fill, width: 1.2 })
-          .moveTo(ax + 2.5, row1 - 1)
-          .lineTo(ax + 2.5, row1 - 3)
-          .arc(ax + 4.5, row1 - 3, 2, Math.PI, 0)
-          .lineTo(ax + 6.5, row1 - 1)
-          .stroke({ color: fill, width: 1.2 });
-      }
       if (sign === 'back') {
         // A small arrow turning back, drawn: the font may have no such sign.
         g.moveTo(ax + 7, row1 - 4)
@@ -1545,7 +1566,6 @@ export class SnapScene {
     if (item.asks > 0) tag(String(item.asks), PALETTE.red, null, true);
     if (item.unread > 0) tag(String(item.unread), PALETTE.unseen, null, true);
     if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, 'back', false);
-    if (item.work === null && item.blocked > 0) tag(String(item.blocked), PALETTE.muted, 'lock', false);
     // Of an item whose work has ended, the lines that work added and removed, at the right of its one row, each in its
     // colour (`LINES_LOOKS`), as the item's window says them.
     const ended = item.work === null ? item.endedLines : null;
@@ -1564,8 +1584,14 @@ export class SnapScene {
       view.addChild(added, removed);
       right -= removed.width + gap + added.width + 8;
     }
-    // The title ends where the badges begin.
+    // The title ends where the badges begin. A cancelled item's is struck through in its own colour, so that it is told
+    // from a done one's.
     fit(title, right - title.x);
+    if (item.standing === 'cancelled') {
+      const through = Math.round(row1) + 0.5;
+      const strike = new Graphics().moveTo(title.x, through).lineTo(title.x + title.width, through);
+      view.addChild(strike.stroke({ color: ink, width: 1 }));
+    }
     if (item.work === null || mood === null) return view;
     const w = item.work;
     const row2 = workRow(h);
@@ -1582,11 +1608,20 @@ export class SnapScene {
     view.addChild(level);
     // The second row: the work's strip, as the works page draws it, from under the title, so that the number stands
     // alone in a column at the card's left, or from past the level where it is wider than that column; ending short of
-    // the lines the work changed.
+    // the lines the work changed. It is drawn once every card is made, at the one size of the tree's marks ([`show`]).
     const at = here(w);
-    this.strip(view, item.id, k, w.cells, Math.max(title.x, x + level.width + 4), row2, LINES_X - 8, at);
-    const drawn = this.drawnStrips.get(item.id);
-    if (drawn !== undefined) drawn.level = { text: level.text, colour, strong };
+    const start = Math.max(title.x, x + level.width + 4);
+    const end = LINES_X - 8;
+    this.strips.push({
+      start,
+      end,
+      count: w.cells.length,
+      draw: (scale) => {
+        this.strip(view, item.id, k, w.cells, start, row2, end, scale, at);
+        const drawn = this.drawnStrips.get(item.id);
+        if (drawn !== undefined) drawn.level = { text: level.text, colour, strong };
+      },
+    });
     // Past the strip, where the work changed lines, those it added and removed, `+210 −40`, each in its colour
     // (`LINES_LOOKS`), a blank of the monospace apart, as the item's window says them.
     if (w.lines !== null) {
@@ -1613,9 +1648,10 @@ export class SnapScene {
 
   /// The strip of a work's cells on the second row of its card, item `id` at `k` in the tree: one mark per cell in the
   /// order of the walk, as the works page's (`state-marks.ts`), from `x` and no further than `end`, their middles on
-  /// `y`. Where the flow has more cells than fit at the marks' size, those that fit are drawn, the first in the walk,
-  /// and after them how many more there are, muted. The marks of cells running fade with the beat while their rounds
-  /// are under way. What it drew is kept, for the tests.
+  /// `y`. Every cell is drawn: the marks, the gaps between them, the dashes' height, the corners and the rings are all
+  /// `scale` of the works page's, which the tree makes small enough for its longest strip to fit ([`show`]); a ring is
+  /// at least a pixel wide. The marks of cells running fade with the beat while their rounds are under way. What it
+  /// drew is kept, for the tests.
   private strip(
     view: Container,
     id: number,
@@ -1624,36 +1660,27 @@ export class SnapScene {
     x: number,
     y: number,
     end: number,
+    scale: number,
     at: { cell: string; colour: string } | null = null,
   ) {
-    const s = this.styles as Styles;
-    const { side, gap } = this.measures;
-    const pitch = side + gap;
-    let shown = cells.length;
-    let more: BitmapText | null = null;
-    if (pitch <= 0) shown = 0;
-    else if (shown * pitch - gap > end - x) {
-      // Room for the count of those left out, at its widest, after the marks that fit.
-      more = new BitmapText({ text: `+${cells.length}`, style: s.mono(PALETTE.muted) });
-      shown = Math.max(0, Math.floor((end - x - 4 - more.width + gap) / pitch));
-      more.text = `+${cells.length - shown}`;
-      more.position.set(x + shown * pitch - gap + 4, y - more.height / 2);
-    }
-    const marks: DrawnMark[] = cells.slice(0, shown).map((c, i) => {
+    const side = this.measures.side * scale;
+    const pitch = side + this.measures.gap * scale;
+    const marks: DrawnMark[] = cells.map((c, i) => {
       const own = this.looks[c.state];
       // The cell the work is at, while it waits for the owner or is halted, in the colour of its state, filled.
       const look = at !== null && at.cell === c.cell ? { ...own, fill: at.colour, edge: at.colour } : own;
+      const height = look.height * scale;
       return {
         cell: c.cell,
         state: c.state,
         x: x + i * pitch,
-        y: y - look.height / 2,
+        y: y - height / 2,
         width: side,
-        height: look.height,
-        corner: look.corner,
+        height,
+        corner: look.corner * scale,
         fill: look.fill,
         edge: look.edge,
-        ring: look.ring,
+        ring: look.ring > 0 ? Math.max(1, look.ring * scale) : 0,
         ringed: look.edge !== null && look.edge !== look.fill,
         pulses: pulsing(c.state),
       };
@@ -1674,14 +1701,13 @@ export class SnapScene {
         });
     }
     view.addChild(still, running);
-    if (more !== null) view.addChild(more);
     if (marks.some((m) => m.pulses)) this.pulses.set(k, running);
-    this.drawnStrips.set(id, { marks, more: cells.length - shown, end, level: null });
+    this.drawnStrips.set(id, { marks, more: 0, end, level: null });
   }
 
   /// What the card of item `id` drew for its work's cells, for the tests: each mark, where it stands from the card's
-  /// left and its middle, its measures and colours, and whether it pulses; how many cells did not fit; where the room
-  /// for the strip ends; and the level under the number. None for an item whose card has no work.
+  /// left and its middle, its measures and colours, and whether it pulses; how many cells were left out, none; where
+  /// the room for the strip ends; and the level under the number. None for an item whose card has no work.
   drawnStrip(id: number): DrawnStrip | null {
     return this.drawnStrips.get(id) ?? null;
   }
@@ -2147,8 +2173,8 @@ export class SnapScene {
     for (let k = 0; k < frames; k += 1) {
       const t0 = performance.now();
       if (k % 6 === 0) this.scroll(1 + (k % 4), ROW * 0.7);
+      this.ask();
       this.tick();
-      this.app.renderer.render(this.app.stage);
       gl?.finish();
       times.push(performance.now() - t0);
     }
@@ -2235,6 +2261,7 @@ export class SnapScene {
   }
 
   private wheel = (e: WheelEvent) => {
+    this.ask();
     e.preventDefault();
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
       this.leftGoal = null;
@@ -2243,6 +2270,7 @@ export class SnapScene {
   };
 
   private hover = (e: PointerEvent) => {
+    this.ask();
     const r = this.app.canvas.getBoundingClientRect();
     const d = Math.floor((e.clientX - r.left - this.left + (PITCH - NODE_W) / 2) / PITCH);
     this.hovered = d >= 0 && d < this.columns.length ? d : -1;
@@ -2284,12 +2312,14 @@ export class SnapScene {
 
   private drag = (e: PointerEvent) => {
     if (this.dragging === null) return;
+    this.ask();
     this.leftGoal = null;
     this.left += e.clientX - this.dragging.x;
     this.dragging = { x: e.clientX };
   };
 
   private up = (e: PointerEvent) => {
+    this.ask();
     this.dragging = null;
     const d = this.down;
     this.down = null;
@@ -2319,6 +2349,7 @@ export class SnapScene {
   /// column is not wholly within the room, the columns moved sideways only until it is, a little in from the side it
   /// was out at. An item already in view stays where it is.
   reveal(id: number, room: number): void {
+    this.ask();
     const t = this.tree;
     const i = this.real.get(id);
     if (t === null || i === undefined) return;
@@ -2354,6 +2385,7 @@ export class SnapScene {
 
   /// Selects the item numbered `id`, or none.
   select(id: number | null): void {
+    this.ask();
     // An item folds hide is selected once the folds over it are opened and it is drawn.
     if (id !== null && !this.real.has(id) && this.unfoldTo(id)) return;
     this.selected = id !== null && this.real.has(id) ? id : null;
@@ -2366,18 +2398,33 @@ export class SnapScene {
     this.onSelect?.(at === undefined ? null : this.shownItems[at]);
   }
 
+  /// Asks for a frame at the next tick, however long the last one took ([`tick`]).
+  private ask() {
+    this.asked = true;
+  }
+
+  /// Draws a frame and renders it, at the browser's frame rate where a frame is quick. Where a frame takes long, as in
+  /// a browser that draws in software, the next is drawn only once as long again has passed with none, so that the page
+  /// keeps at least half of its time for what the owner does and for itself; what the owner does with the tree, and
+  /// new items, are drawn at the next tick all the same. The light keeps its pace either way, as it is placed by the
+  /// time and not by the frame.
   private tick = () => {
     const now = performance.now();
+    if (!this.asked && now - this.drawnAt < this.cost) return;
+    this.asked = false;
     if (this.last > 0) this.frames.push(now - this.last);
     this.last = now;
     if (this.frames.length > 120) this.frames.shift();
     const step = this.advance(now);
     if (this.tree !== null) this.draw(this.tree, now, step);
+    this.app.render();
+    this.drawnAt = performance.now();
+    this.cost = this.drawnAt - now;
     const sorted = [...this.frames].sort((a, b) => a - b);
     const mean = sorted.reduce((a, b) => a + b, 0) / Math.max(1, sorted.length);
     this.stats = {
       ...this.stats,
-      fps: Math.round(this.app.ticker.FPS),
+      fps: mean > 0 ? Math.round(1000 / mean) : 0,
       meanMs: Math.round(mean * 10) / 10,
       p95Ms: Math.round((sorted[Math.floor(sorted.length * 0.95)] ?? 0) * 10) / 10,
     };

@@ -464,8 +464,9 @@ tr.row.chosen > .block-head {
 }
 
 /* The console's marks, as samples (marks.tsx), as its canvas draws them (console/snap.ts). A card, filled and edged by
-   how its work stands: stopped in red, running in the accent; waiting for a call edged in its yellow, paused in grey,
-   above a work in the accent's light step; a shadow edged in dashes; an item that delivers, only a line under it. */
+   how its work stands: stopped in red, running in the accent; waiting for a call edged in its yellow, paused in grey;
+   an open item whose work has not run a round plain, as the card itself is; above a work in the accent's light step;
+   a shadow edged in dashes; an item that delivers, only a line under it. */
 .legend-card {
   display: inline-block;
   width: var(--space-16);
@@ -509,7 +510,8 @@ tr.row.chosen > .block-head {
   background: none;
 }
 
-/* The number of an item whose work ended: green where it merged, pale where it was cancelled. */
+/* The number of an item whose work ended: green where it merged, pale where it was cancelled, the title of a cancelled
+   one grey and struck through. */
 .legend-number.merged {
   color: var(--green);
 }
@@ -518,8 +520,13 @@ tr.row.chosen > .block-head {
   color: var(--option-edge);
 }
 
-/* A card's tags: how many things its work waits for from the owner, white on red; and framed in grey, the lock with
-   how many items it waits for, and the arrow back with how many returns were sent back. */
+.legend-title.cancelled {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* A card's tags: how many things its work waits for from the owner, white on red; and framed in grey, the arrow back
+   with how many returns were sent back. */
 .legend-for-you {
   background: var(--red);
 }
