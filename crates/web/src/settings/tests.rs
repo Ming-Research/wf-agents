@@ -17,7 +17,7 @@ language = "Chinese" # as the owner asked
 command = "claude"
 slots = 2
 args = [
-  "--permission-mode", "acceptEdits",
+  "--allowedTools", "Edit(./**)",
 ]
 permissions = { locks = ["uv lock"] }
 
@@ -169,7 +169,7 @@ fn the_file_is_shown_as_it_writes_the_settings_in_its_order() {
     assert_eq!(language.change, Some(Change::Name));
     assert_eq!(
         key(&page, "agents", "args").written.as_deref(),
-        Some("[\n  \"--permission-mode\", \"acceptEdits\",\n]"),
+        Some("[\n  \"--allowedTools\", \"Edit(./**)\",\n]"),
         "a value as the file writes it, over lines"
     );
     assert_eq!(
