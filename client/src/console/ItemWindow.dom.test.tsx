@@ -744,7 +744,7 @@ describe('the questions put to the owner, in the panel of the item selected', ()
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it *']]);
     await act(async () => button(el, 'Confirm (1/1)').click());
     expect(sent).toEqual([[25, { kind: 'answer', question: 'scope', version: 30, option: 2 }]]);
-    expect(text(el, '.cw-done')).toEqual(['Your answer was sent.']);
+    expect(el.querySelector('.cw-done')).toBeNull();
   });
 
   it('shows the questions the merge waits for, each answerable, and an answered one with its answer, confirmed', async () => {
@@ -899,7 +899,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(options(el)).toEqual([['Keep itRecommended', 'Drop it *']]);
     await act(async () => button(el, 'Confirm (1/1)').click());
     expect(sent).toEqual([[12, { kind: 'answer', question: 'scope', version: 30, option: 2 }]]);
-    expect(text(el, '.cw-done')).toEqual(['Your answer was sent.']);
+    expect(el.querySelector('.cw-done')).toBeNull();
   });
 
   it('shows a question the merge waits for as holding the work, which waits for you, and sends its answer', async () => {
