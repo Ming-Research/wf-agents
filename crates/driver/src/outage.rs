@@ -269,7 +269,7 @@ impl Candidate {
 pub fn candidates(
     outage: &Outage,
     accounts: &Accounts,
-    limits: &BTreeMap<String, Limit>,
+    limits: impl FnOnce() -> BTreeMap<String, Limit>,
     checked: &BTreeMap<Option<String>, (Time, Checked)>,
     now: Time,
 ) -> Vec<(String, Candidate)> {
@@ -279,6 +279,9 @@ pub fn candidates(
     if outage.service != Service::Agents || !outage.holds() || outage.down().0 != Failure::UsageLimit {
         return Vec::new();
     }
+    // The standing limits are worked out from every round of every work, and only for an account no check of this wait
+    // speaks of.
+    let limits = std::cell::LazyCell::new(limits);
     (accounts.live().into_iter())
         .filter(|live| live.name != in_use)
         .map(|live| {
@@ -314,7 +317,7 @@ pub fn candidates(
 pub fn may_move(
     outage: &Outage,
     accounts: &Accounts,
-    limits: &BTreeMap<String, Limit>,
+    limits: impl FnOnce() -> BTreeMap<String, Limit>,
     checked: &BTreeMap<Option<String>, (Time, Checked)>,
     now: Time,
 ) -> bool {
@@ -328,7 +331,7 @@ pub fn may_move(
 pub fn move_on(
     outage: &Outage,
     accounts: &Accounts,
-    limits: &BTreeMap<String, Limit>,
+    limits: impl FnOnce() -> BTreeMap<String, Limit>,
     checked: &BTreeMap<Option<String>, (Time, Checked)>,
     now: Time,
 ) -> Move {
@@ -649,7 +652,7 @@ mod tests {
                 resets: Some(Time(now.0 - 1)),
             },
         );
-        let stands = candidates(&at_limit(None), &accounts, &limits, &checks, now);
+        let stands = candidates(&at_limit(None), &accounts, || limits.clone(), &checks, now);
         assert_eq!(
             stands,
             vec![
@@ -686,7 +689,7 @@ mod tests {
         let limits = BTreeMap::new();
         let mut checks = BTreeMap::new();
         assert_eq!(
-            move_on(&outage, &accounts, &limits, &checks, now),
+            move_on(&outage, &accounts, || limits.clone(), &checks, now),
             Move::Check {
                 name: "a".to_string(),
                 at: Time(2_000)
@@ -700,7 +703,7 @@ mod tests {
         checks.insert(Some("b".to_string()), checked(Found::Well, 3_000, 1));
         checks.insert(Some("c".to_string()), checked(Found::Well, 3_001, 1));
         assert_eq!(
-            move_on(&outage, &accounts, &limits, &checks, now),
+            move_on(&outage, &accounts, || limits.clone(), &checks, now),
             Move::Take {
                 name: "b".to_string(),
                 left_resets: Some(Time(9_000))
@@ -715,7 +718,7 @@ mod tests {
             checked(found_down(Failure::CannotRun, None), 3_001, 1),
         );
         assert_eq!(
-            move_on(&outage, &accounts, &limits, &checks, now),
+            move_on(&outage, &accounts, || limits.clone(), &checks, now),
             Move::Check {
                 name: "b".to_string(),
                 at: Time(7_000)
@@ -727,23 +730,23 @@ mod tests {
             checked(found_down(Failure::CannotRun, None), 3_000, 3),
         );
         assert_eq!(
-            move_on(&outage, &accounts, &limits, &checks, now),
+            move_on(&outage, &accounts, || limits.clone(), &checks, now),
             Move::Check {
                 name: "a".to_string(),
                 at: Time(3_000 + spacing(1))
             }
         );
-        assert!(may_move(&outage, &accounts, &limits, &checks, now));
+        assert!(may_move(&outage, &accounts, || limits.clone(), &checks, now));
         checks.insert(
             Some("a".to_string()),
             checked(found_down(Failure::CannotRun, None), 3_000, 2),
         );
         assert_eq!(
-            move_on(&outage, &accounts, &limits, &checks, now),
+            move_on(&outage, &accounts, || limits.clone(), &checks, now),
             Move::Stay,
             "none is left"
         );
-        assert!(!may_move(&outage, &accounts, &limits, &checks, now));
+        assert!(!may_move(&outage, &accounts, || limits.clone(), &checks, now));
     }
 
     // Microseconds, nothing run: nothing moves where the wait is not at the in-use account's usage limit and holding.
@@ -751,7 +754,7 @@ mod tests {
     fn nothing_moves_unless_the_wait_is_the_agents_at_the_usage_limit_of_an_account_in_use_and_holds() {
         let accounts = accounts(&["use", "a"]);
         let (limits, checks, now) = (BTreeMap::new(), BTreeMap::new(), Time(5_000));
-        let moves = |outage: &Outage, accounts: &Accounts| move_on(outage, accounts, &limits, &checks, now);
+        let moves = |outage: &Outage, accounts: &Accounts| move_on(outage, accounts, || limits.clone(), &checks, now);
         assert_ne!(moves(&at_limit(None), &accounts), Move::Stay);
         let offline = Outage {
             failure: Failure::Offline,
@@ -785,5 +788,17 @@ mod tests {
         };
         assert_eq!(moves(&found_offline, &accounts), Move::Stay);
         assert_eq!(moves(&at_limit(None), &Accounts::default()), Move::Stay, "none in use");
+        // The standing limits are worked out from every round of every work: they are not asked for where nothing
+        // moves, nor where every account has a check of this wait that speaks of it.
+        let never = || -> BTreeMap<String, Limit> { panic!("the standing limits are not asked for") };
+        for stay in [&offline, &host, &well, &found_offline] {
+            assert_eq!(move_on(stay, &accounts, never, &checks, now), Move::Stay);
+            assert!(!may_move(stay, &accounts, never, &checks, now));
+        }
+        let spoken = BTreeMap::from([(Some("a".to_string()), checked(Found::Well, 3_000, 1))]);
+        assert!(matches!(
+            move_on(&at_limit(None), &accounts, never, &spoken, now),
+            Move::Take { name, .. } if name == "a"
+        ));
     }
 }

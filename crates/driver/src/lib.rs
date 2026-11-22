@@ -1369,10 +1369,10 @@ impl Driver {
         if !self.moving_on || self.paused.is_some() {
             return Ok(false);
         }
-        let Some(outage) = self.outage() else {
+        let Some(outage) = self.agents_wait() else {
             return Ok(false);
         };
-        let moved = outage::move_on(&outage, &self.accounts, &self.limits(), &self.checked, now);
+        let moved = outage::move_on(&outage, &self.accounts, || self.limits(), &self.checked, now);
         let Move::Take { name, left_resets } = moved else {
             return Ok(false);
         };
@@ -1485,6 +1485,22 @@ impl Driver {
     /// The wait every work shares for the agents' service, if one stands: worked out from the records of every work
     /// and the rounds the service answered while under way ([`outage`]), with the checks of the outside taken in it.
     pub fn outage(&self) -> Option<Outage> {
+        let mut outage = self.agents_wait()?;
+        outage.may_move = self.moving_on
+            && outage::may_move(
+                &outage,
+                &self.accounts,
+                || self.limits(),
+                &self.checked,
+                self.ticked.unwrap_or(outage.met),
+            );
+        Some(outage)
+    }
+
+    /// The wait every work shares for the agents' service as [`Driver::outage`] gives it, but for whether the engine may
+    /// yet move to another account in it: what the driver decides by, which asks nothing of the accounts' limits, whose
+    /// worth is a scan of every round of every work.
+    fn agents_wait(&self) -> Option<Outage> {
         self.outage_of(Service::Agents)
     }
 
@@ -1504,14 +1520,6 @@ impl Driver {
                     .filter(|(of, _)| *of == outage.since)
                     .map(|(_, checked)| checked.clone());
                 outage.switched = self.accounts.taken_at().filter(|at| *at >= outage.met);
-                outage.may_move = self.moving_on
-                    && outage::may_move(
-                        &outage,
-                        &self.accounts,
-                        &self.limits(),
-                        &self.checked,
-                        self.ticked.unwrap_or(outage.met),
-                    );
             }
             Service::Host => {
                 outage.reached = (self.looked_at_host)
@@ -1533,7 +1541,7 @@ impl Driver {
 
     /// The waits of every service, as they stand.
     fn outages(&self) -> (Option<Outage>, Option<Outage>) {
-        (self.outage(), self.host_outage())
+        (self.agents_wait(), self.host_outage())
     }
 
     /// What carries out a round or a call of the work says where it stands now, or, with none, that it no longer says
@@ -1595,9 +1603,9 @@ impl Driver {
         if began == 0 || ended >= began {
             return Ok(Vec::new());
         }
-        let outage = self.outage();
+        let outage = self.agents_wait();
         self.answered.insert((work, run, began));
-        if self.outage() == outage {
+        if self.agents_wait() == outage {
             return Ok(Vec::new());
         }
         match self.look(now) {
@@ -1615,10 +1623,13 @@ impl Driver {
     /// looked at then, and what still waits waits for a round to end.
     pub fn wake(&self) -> Option<Wake> {
         let ticked = self.ticked;
-        let other = self.next_wake().filter(|wake| ticked.is_none_or(|at| wake.at > at));
+        let (agents, host) = self.outages();
+        let other = self
+            .next_wake(agents.as_ref(), host.as_ref())
+            .filter(|wake| ticked.is_none_or(|at| wake.at > at));
         // A check to move to an account is asked for by what has been checked, never by the time it was last told: a
         // check that is taken is kept, and is not asked for again. It goes before another wake no later than it.
-        match (self.next_move_check(), other) {
+        match (self.next_move_check(agents.as_ref()), other) {
             (Some((at, name)), other) if other.as_ref().is_none_or(|wake| at <= wake.at) => Some(Wake {
                 at,
                 check: true,
@@ -1631,13 +1642,13 @@ impl Driver {
 
     /// The check to move to an account that is due first, and when, where the owner has let the engine move, nothing is
     /// paused and the agents' wait is at the in-use account's usage limit ([`outage::move_on`]).
-    fn next_move_check(&self) -> Option<(Time, String)> {
+    fn next_move_check(&self, agents: Option<&Outage>) -> Option<(Time, String)> {
         if !self.moving_on || self.paused.is_some() {
             return None;
         }
-        let outage = self.outage()?;
+        let outage = agents?;
         let now = self.ticked.unwrap_or(outage.met);
-        match outage::move_on(&outage, &self.accounts, &self.limits(), &self.checked, now) {
+        match outage::move_on(outage, &self.accounts, || self.limits(), &self.checked, now) {
             Move::Check { name, at } => Some((at, name)),
             Move::Take { .. } | Move::Stay => None,
         }
@@ -1645,16 +1656,12 @@ impl Driver {
 
     /// When the driver is to be told the time next, as the waits every work shares say, whether or not it has come:
     /// the earliest of each wait's and of the next keep-warm ping's, with each check and look that is due then.
-    fn next_wake(&self) -> Option<Wake> {
-        let agents = self.outage().and_then(|outage| wake_of(&outage, None));
-        let host = self
-            .host_outage()
-            .and_then(|outage| wake_of(&outage, self.looked_at_host));
+    fn next_wake(&self, agents: Option<&Outage>, host: Option<&Outage>) -> Option<Wake> {
+        let standing = agents.is_some();
+        let agents = agents.and_then(|outage| wake_of(outage, None));
+        let host = host.and_then(|outage| wake_of(outage, self.looked_at_host));
         // A keep-warm ping waits as the agents' rounds do: while their wait stands, its own wakes serve.
-        let ping = match self.outage() {
-            None => self.next_ping(),
-            Some(_) => None,
-        };
+        let ping = if standing { None } else { self.next_ping() };
         let at = [agents.map(|(at, _)| at), host.map(|(at, _)| at), ping]
             .into_iter()
             .flatten()
@@ -1715,7 +1722,7 @@ impl Driver {
         if let Some(fault) = &self.fault {
             return Err(fault.clone());
         }
-        if let Some(since) = self.outage().map(|outage| outage.since) {
+        if let Some(since) = self.agents_wait().map(|outage| outage.since) {
             let key = Some(account.to_string());
             let before = (self.checked.get(&key)).filter(|(of, _)| *of == since);
             let taken = before.map_or(0, |(_, checked)| checked.taken) + 1;
@@ -1832,7 +1839,7 @@ impl Driver {
     /// Which rounds may begin now, as the waits every work shares say: the agents' wait holds the agents' rounds until
     /// a check of the outside finds it well, and the acts' wait the acts' until a look at their host reaches it.
     pub fn gate(&self) -> Gate {
-        gate_of_waits(self.outage().as_ref(), self.host_outage().as_ref())
+        gate_of_waits(self.agents_wait().as_ref(), self.host_outage().as_ref())
     }
 
     /// Looks at every work that has not ended, in the order of their numbers, each with the gate as it is then and
