@@ -338,7 +338,7 @@ describe('the tree in columns', () => {
     ]);
   });
 
-  it("frames on the map the part of the tree the screen shows, round the middle where each column's place is, after a scroll and a pan", async () => {
+  it("frames on the map the part of the tree the screen shows, round the middle where each column's place is, after a scroll and a pan", () => {
     // Thirty roots in the first column, the first with an item under it and one under that: three columns.
     const roots = Array.from({ length: 30 }, (_, k) => card(k + 1, k === 0 ? [card(100, [card(101)])] : []));
     scene.show(roots);
@@ -364,12 +364,10 @@ describe('the tree in columns', () => {
     // A scroll over the first column moves its pieces under the frame, which stays round the middle.
     move(50, line);
     wheel(0, 8 * ROW);
-    await drew();
     settle(scene);
     holds(0, 2);
     // A pan that takes the first column off the screen takes the frame off its bar.
     wheel(PITCH + 100, 0);
-    await drew();
     settle(scene);
     holds(1, 2);
   });
@@ -1006,9 +1004,7 @@ describe('the console page', () => {
     await userEvent.keyboard('/');
     await userEvent.fill(field(), 'flat list');
     await expect.poll(found).toEqual(['35']);
-    // A click on the row, as the page takes it: the browser's own pointer waits for a still frame of a canvas drawn in
-    // software, which a loaded machine stretches past the test's time.
-    (container.querySelector('.console-found-row') as HTMLElement).click();
+    await userEvent.click(container.querySelector('.console-found-row') as HTMLElement);
     await expect.poll(title).toBe('Try the tree as a flat list');
     expect(box('Cancelled').checked).toBe(true);
   });
@@ -1022,9 +1018,7 @@ describe('the console page', () => {
     expect(panel().classList.contains('shown')).toBe(false);
     expect(look().pointerEvents).toBe('none');
     expect(look().visibility).toBe('hidden');
-    // The pointer comes onto the mark and leaves it as the page takes it: the browser's own pointer first waits for
-    // the mark to stand still over two frames of a canvas drawn in software, which a loaded machine stretches.
-    mark.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: document.body }));
+    await userEvent.hover(mark);
     await expect.poll(() => panel().classList.contains('shown')).toBe(true);
     expect(look().pointerEvents).toBe('auto');
     expect(look().visibility).toBe('visible');
@@ -1047,7 +1041,7 @@ describe('the console page', () => {
     expect(marks).toHaveLength(CONSOLE_MARKS.length);
     CONSOLE_MARKS.forEach((key, k) => expect(marks[k]?.endsWith(` ${MARKS[key].name}`)).toBe(true));
     // Once the pointer leaves, it takes the pointer no more at once, and is hidden once it has faded.
-    mark.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+    await userEvent.unhover(mark);
     await expect.poll(() => panel().classList.contains('shown')).toBe(false);
     expect(look().pointerEvents).toBe('none');
     await expect.poll(() => look().visibility).toBe('hidden');
