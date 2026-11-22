@@ -12,6 +12,7 @@ import {
   beneath,
   DOT_AT,
   DOT_R,
+  FOLD_MS,
   FOLD_PAD,
   FOLD_REACH,
   foldWords,
@@ -20,6 +21,7 @@ import {
   type Turn,
   turnEase,
   UNFOLD_EASE,
+  UNFOLD_MS,
   DIM,
   eased,
   gatherAt,
@@ -118,20 +120,21 @@ describe('a fold', () => {
   });
 
   it('grows on the page\'s curve, and shrinks on a gentle ease-out of its own: at once from its first frame, and all the way to the dot', () => {
-    const grows: Turn = { to: 1, from: 0, at: 0, ms: 240 };
-    const shrinks: Turn = { to: 0, from: 1, at: 0, ms: 240 };
+    const grows: Turn = { to: 1, from: 0, at: 0, ms: UNFOLD_MS };
+    const shrinks: Turn = { to: 0, from: 1, at: 0, ms: FOLD_MS };
     // An unfold keeps the page's curve: half its time gone, some 95% of its size.
-    expect(sizeOf(grows, 120)).toBeCloseTo(turnEase(0.5, UNFOLD_EASE), 9);
-    expect(sizeOf(grows, 120)).toBeCloseTo(0.946, 2);
-    // A fold moves in its first frame, by well under a quarter, shrinks at every frame after, and is still drawn
-    // at half its time.
+    expect(sizeOf(grows, UNFOLD_MS / 2)).toBeCloseTo(turnEase(0.5, UNFOLD_EASE), 9);
+    expect(sizeOf(grows, UNFOLD_MS / 2)).toBeCloseTo(0.946, 2);
+    // A fold, in less time, moves in its first frame, by well under a quarter, shrinks at every frame after, and is
+    // still drawn at half its time.
+    expect(FOLD_MS).toBeLessThan(UNFOLD_MS);
     expect(sizeOf(shrinks, 16)).toBeLessThan(0.95);
     expect(sizeOf(shrinks, 16)).toBeGreaterThan(0.8);
-    for (let at = 16; at <= 240; at += 16) expect(sizeOf(shrinks, at)).toBeLessThan(sizeOf(shrinks, at - 16));
-    expect(sizeOf(shrinks, 120)).toBeGreaterThan(0.2);
-    expect([sizeOf(shrinks, 0), sizeOf(shrinks, 240), sizeOf(shrinks, 999)]).toEqual([1, 0, 0]);
+    for (let at = 16; at <= FOLD_MS; at += 16) expect(sizeOf(shrinks, at)).toBeLessThan(sizeOf(shrinks, at - 16));
+    expect(sizeOf(shrinks, FOLD_MS / 2)).toBeGreaterThan(0.2);
+    expect([sizeOf(shrinks, 0), sizeOf(shrinks, FOLD_MS), sizeOf(shrinks, 999)]).toEqual([1, 0, 0]);
     // A fold reversed part of the way goes on from the size it had reached.
-    const back: Turn = { to: 0, from: 0.6, at: 0, ms: 240 * 0.6 };
+    const back: Turn = { to: 0, from: 0.6, at: 0, ms: FOLD_MS * 0.6 };
     expect(sizeOf(back, 0)).toBe(0.6);
     expect(sizeOf(back, 16)).toBeLessThan(0.6);
   });

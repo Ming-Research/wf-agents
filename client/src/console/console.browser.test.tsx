@@ -27,7 +27,7 @@ import { fixtureSource } from './fixtures';
 import type { Heard } from './source';
 import { ConsolePage } from './index';
 import type { Shown } from './items';
-import { DOT_AT, KEEP, NODE_W, PACE, PITCH, ROW, SnapScene, TURN_MS, themed } from './snap';
+import { DOT_AT, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, SnapScene, themed } from './snap';
 
 const WIDTH = 1000;
 const HEIGHT = 640;
@@ -178,11 +178,11 @@ describe('the tree in columns', () => {
     expect(told).not.toHaveBeenCalled();
     expect(canvas().title).toBe('Fold the items under it away (e): open 1');
     expect(canvas().style.cursor).toBe('pointer');
-    // Folded, what is under it draws in to the dot over the fold's time, and is then drawn no more.
+    // Folded, what is under it draws in to the dot over the fold's time, 180 ms, gone at the 12th frame of 16 ms.
     scene.show(tree(true));
     expect(scene.place().turns).toBe(1);
     expect(scene.stats.items).toBe(2);
-    for (let k = 0; k <= TURN_MS / 16; k += 1) scene.step();
+    for (let k = 0; k <= FOLD_MS / 16; k += 1) scene.step();
     expect(scene.place().turns).toBe(0);
     expect(scene.stats.items).toBe(1);
     // The dot just past the card's edge is the fold now: a click on it shows what is under it again, at once, growing
@@ -235,7 +235,7 @@ describe('the tree in columns', () => {
     scene.show(tree(false));
     settle(scene);
     // How large item 2 is drawn at each frame of the fold, 16 ms apart, but the last, once the fold is shown so.
-    const frames = TURN_MS / 16;
+    const frames = FOLD_MS / 16;
     scene.show(tree(true));
     const folding: number[] = [];
     for (let k = 1; k < frames; k += 1) {
@@ -267,9 +267,10 @@ describe('the tree in columns', () => {
     scene.step(1000);
     expect(scene.place().turns).toBe(0);
     expect(scene.stats.items).toBe(2);
-    // At the page's own rate, the turn is under way for as many frames as its time holds.
+    // At the page's own rate, a fold is under way for as many frames as its time holds: 11 frames of 16 ms, ending on
+    // the 12th.
     scene.show(tree(true));
-    for (let k = 1; k < TURN_MS / 16; k += 1) scene.step(16);
+    for (let k = 1; k < FOLD_MS / 16; k += 1) scene.step(16);
     expect(scene.place().turns).toBe(1);
     scene.step(16);
     expect(scene.place().turns).toBe(0);

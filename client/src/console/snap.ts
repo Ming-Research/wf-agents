@@ -231,15 +231,17 @@ export const DOT_R = 4.5;
 export const DOT_AT = 12;
 export const FOLD_REACH = 24;
 export const FOLD_PAD = 3;
-/// How a fold turns, over this many milliseconds, the page's time for opening and closing a part: the funnel and the
-/// items under it grow out of the dot on the page's curve for it, the window's as it slides (styles/parts.css, `.cw`)
-/// and a question card's as it folds (`--turn-time`, `--turn-ease`); and draw in to the dot on a plain ease-out of
-/// their own. The two differ because the page's curve goes most of its way in its first frames: run forward on a
-/// shrink, it empties the cards in those frames, and the fold looks instant; run backwards, it stalls at the start,
-/// and the fold looks stuck. The plain ease-out moves at once, but gently, so the cards are seen drawing in all the
-/// way to the dot.
-export const TURN_MS = 240;
+/// How a fold turns. The funnel and the items under it grow out of the dot in the page's motion for opening and
+/// closing a part, the window's as it slides (styles/parts.css, `.cw`) and a question card's as it folds
+/// (`--turn-time`, `--turn-ease`): this many milliseconds, on this cubic Bézier. They draw in to the dot on a plain
+/// ease-out of their own, in less time. The curves differ because the page's goes most of its way in its first frames:
+/// run forward on a shrink, it empties the cards in those frames, and the fold looks instant; run backwards, it stalls
+/// at the start, and the fold looks stuck. The plain ease-out moves at once, but gently, so the cards are seen drawing
+/// in all the way to the dot; over the whole time of an unfold it is slow, and a fold put away a little faster reads
+/// better.
+export const UNFOLD_MS = 240;
 export const UNFOLD_EASE = [0.2, 0.8, 0.2, 1] as const;
+export const FOLD_MS = 180;
 export const FOLD_EASE = [0, 0, 0.58, 1] as const;
 /// What pointing at the funnel or the dot says a click does, with the key that does it over the card, before how many
 /// items stand under the item, by kind.
@@ -681,7 +683,7 @@ export function inFunnel(
 export type Turn = { to: number; from: number; at: number; ms: number };
 
 /// How large the items under a turning fold are drawn at the scene's time `clock`, from 0 folded away to 1 shown, from
-/// the size the turn began at: growing on the unfold's curve, shrinking on the fold's ([`TURN_MS`]).
+/// the size the turn began at: growing on the unfold's curve, shrinking on the fold's ([`UNFOLD_MS`]).
 export function sizeOf(turn: Turn, clock: number): number {
   const t = turn.ms <= 0 ? 1 : (clock - turn.at) / turn.ms;
   return turn.from + (turn.to - turn.from) * turnEase(t, turn.to >= turn.from ? UNFOLD_EASE : FOLD_EASE);
@@ -1289,7 +1291,7 @@ export class SnapScene {
       const turning = this.turns.get(id);
       const from = turning === undefined ? (now ? 1 : 0) : sizeOf(turning, this.clock);
       const to = now ? 0 : 1;
-      this.turns.set(id, { to, from, at: this.clock, ms: TURN_MS * Math.abs(to - from) });
+      this.turns.set(id, { to, from, at: this.clock, ms: (now ? FOLD_MS : UNFOLD_MS) * Math.abs(to - from) });
     }
     for (const id of [...this.turns.keys()]) if (!folded.has(id)) this.turns.delete(id);
     this.wasFolded = folded;
