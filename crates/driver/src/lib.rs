@@ -54,10 +54,10 @@
 //!
 //! What happens to one work also reaches every other where a round of an agent failed for a cause outside every work,
 //! such as the account's usage limit: no agent's round of any work begins while that wait stands ([`outage`]). It is
-//! worked out from the records of every work, and given to the engine's loop for each work as a [`Gate`] in its
-//! [`Hold`]; once it changes, every work is looked at again. When the outside is to be checked, and the acts' host
-//! looked at, is the driver's to say ([`Driver::wake`]) and its caller's, which reads the clock and reaches the
-//! outside, to tell it with what the check or the look found ([`Driver::tick`]).
+//! worked out from the records of every work, and given to the engine's loop for each work as a [`Gate`]; once it
+//! changes, every work is looked at again. When the outside is to be checked, and the acts' host looked at, is the
+//! driver's to say ([`Driver::wake`]) and its caller's, which reads the clock and reaches the outside, to tell it with
+//! what the check or the look found ([`Driver::tick`]).
 //!
 //! The accounts the agents' program may run under are the engine's own state, as the pause of everything is, kept in
 //! the store as the owner adds, removes and takes them ([`accounts`]). Every round is handed out with the account in
@@ -78,10 +78,10 @@
 //!
 //! The driver alone sees every work, so it is also what judges by history (principle `judged-by-own-history`): it
 //! gathers what the rounds of every work on a flow came to ([`history`]), and gives each round the lines it is judged
-//! by as it runs. It gives the keep-warm pings of the sessions as their time comes, each by its own last call and none
-//! while a round of its own line is under way, the time being among what it asks to be told ([`warm`]); it tells a
-//! round that missed its session's prompt cache from the records ([`cache`]); and it tells how each round and each
-//! call of a tool went against the lines of its history, which stops nothing ([`judged`]).
+//! by as it runs. It gives the keep-warm pings of the sessions of lines that wait as their time comes, the time being
+//! among what it asks to be told ([`warm`]); it tells a round that missed its session's prompt cache from the records
+//! ([`cache`]); and it tells how each round and each call of a tool went against the lines of its history, which stops
+//! nothing ([`judged`]).
 //!
 //! It keeps, while a round or a call is under way, where it stands as what carries it out says as it goes ([`along`]).
 
@@ -122,7 +122,7 @@ pub use accounts::{Accounts, Instead, Live};
 pub use along::{Along, Under};
 use decide::run::Failure;
 use decide::{BlockId, CellId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
-use engine::{Effect, Event, Gate, Hold, Refused, handle_held, handle_then, held};
+use engine::{Effect, Event, Gate, Refused, handle_held, handle_then, held};
 use flow::Compiled;
 use flow::agents::fill;
 pub use outage::{Checked, Found, Limit, Outage, Service, Until};
@@ -284,8 +284,8 @@ pub struct Driver {
     /// Each round, of a work and run by its number, that the agents' service answered while it was under way. What
     /// the outside says at a moment, kept only in memory: lost in a stop, the round is given again and answers again.
     answered: BTreeSet<(WorkNumber, decide::RunId, usize)>,
-    /// The keep-warm pings given and not yet said to have ended, by work and line ([`warm`]): while one of a line is,
-    /// no round of that line of the work begins. Lost in a stop, when a ping still due is given again.
+    /// The keep-warm pings given and not yet said to have ended, by work and line ([`warm`]): while one of a work is,
+    /// no round of the work begins. Lost in a stop, when a ping still due is given again.
     pinging: BTreeSet<(WorkNumber, String)>,
     /// Where each round or call under way stands, of a work, as what carries it out last said ([`along`]). What the
     /// outside says at a moment, kept only in memory: lost in a stop, it is said again as what is given again goes on.
@@ -1662,17 +1662,13 @@ impl Driver {
             .min()
     }
 
-    /// The rounds a work is stepped with held back: those the wait every work shares holds, and, for each line of the
-    /// work whose session a keep-warm ping is under way for, those of its cells, so that the line's next round begins
-    /// once the ping has ended, after whatever the ping did to the session, and is filled as it then stands. The
-    /// rounds of the work's other lines begin as they would without the ping.
-    pub fn gate_of(&self, work: WorkNumber) -> Hold {
-        Hold {
-            gate: self.gate(),
-            lines: (self.pinging.iter())
-                .filter(|(w, _)| *w == work)
-                .map(|(_, line)| line.clone())
-                .collect(),
+    /// The gate a work is stepped with: the wait every work shares, and while a keep-warm ping of the work is under
+    /// way, every round of it, so that its next round begins once the ping has ended, after whatever the ping did to
+    /// its sessions, and is filled as they then stand.
+    pub fn gate_of(&self, work: WorkNumber) -> Gate {
+        match self.pinging.iter().any(|(w, _)| *w == work) {
+            true => Gate::Every,
+            false => self.gate(),
         }
     }
 
@@ -1745,9 +1741,9 @@ impl Driver {
         let mut todos = Vec::new();
         let (mut failed, mut written) = (None, false);
         let room = self.room(None, false);
-        let gates: BTreeMap<WorkNumber, Hold> = (self.works.keys()).map(|n| (*n, self.gate_of(*n))).collect();
+        let gates: BTreeMap<WorkNumber, Gate> = (self.works.keys()).map(|n| (*n, self.gate_of(*n))).collect();
         for (number, held) in &mut self.works {
-            let gate = gates.get(number).cloned().unwrap_or_default();
+            let gate = gates.get(number).copied().unwrap_or_default();
             if held.standing != Standing::Going || held.item.project.as_deref() != Some(project) {
                 continue;
             }
@@ -2203,7 +2199,7 @@ fn step(
     now: Time,
     event: Event,
     room: Room,
-    gate: Hold,
+    gate: Gate,
 ) -> Result<Vec<Effect>, Halt> {
     let before = held.work.tick();
     // A work that ended on a version not installed, or on none kept, takes what no flow decides, by its end alone.
