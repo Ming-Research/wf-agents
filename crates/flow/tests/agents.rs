@@ -217,6 +217,32 @@ fn a_field_a_file_does_not_know_is_refused_with_the_path_of_its_file() {
     assert!(refused.contains("colour"), "{refused}");
 }
 
+// A project that declares `[ci]` declares both workflows: `run_tests` runs only the fast one and the check before the
+// merge only the full ones, so a declaration with one of them leaves one of the two with nothing to run.
+#[test]
+fn a_declaration_of_ci_that_lacks_one_of_its_two_workflows_is_refused_with_the_path_of_its_file() {
+    let dir = copy("ci");
+    let project = dir.join("project.toml");
+    let text = fs::read_to_string(&project).unwrap();
+    let fast = "\n[ci.fast]\nworkflow = \"fast.yml\"\nrunner = \"github\"\n";
+    let full = "\n[ci.full]\nworkflows = [\"ci.yml\"]\nrunner = \"github\"\ntoo_long = \"2h\"\n";
+    fs::write(&project, format!("{text}{fast}")).unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    assert!(refused.contains(&project.display().to_string()), "{refused}");
+    assert!(refused.contains("missing field `full`"), "{refused}");
+    fs::write(&project, format!("{text}{full}")).unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    assert!(refused.contains("missing field `fast`"), "{refused}");
+    fs::write(&project, format!("{text}{fast}{full}")).unwrap();
+    let read = agents::read(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
+    let ci = read.project.ci.expect("it declares both");
+    assert_eq!(
+        (ci.fast.workflow.as_str(), ci.full.workflows.as_slice()),
+        ("fast.yml", &["ci.yml".to_string()][..])
+    );
+}
+
 #[test]
 fn a_value_no_kind_of_it_has_is_refused_with_the_path_of_its_file() {
     let dir = copy("value");

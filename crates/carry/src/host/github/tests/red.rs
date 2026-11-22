@@ -191,7 +191,7 @@ async fn a_red_lint_beside_a_failed_test_fails_the_commit_when_it_is_red_again()
 }
 
 // What failed beside the tests is not run again: a job that ended without judging the code, a unit not built. Nor is
-// anything where the project has no fast workflow, which is said.
+// anything where the fast workflow runs where the installation has no runner, which is said.
 #[tokio::test]
 async fn nothing_is_run_again_where_more_than_tests_failed_or_nothing_can_run_them() {
     let unbuilt = r#"<testsuites><testsuite name="carry"><testcase name="tools::tests::b"><failure/></testcase></testsuite>
@@ -215,7 +215,7 @@ async fn nothing_is_run_again_where_more_than_tests_failed_or_nothing_can_run_th
     }
     let hub = Hub::new().with(|config| {
         if let Some(ci) = &mut config.ci {
-            ci.fast = None;
+            ci.fast.runner = "14900K".to_string();
         }
     });
     let (head, _) = hub.red_by_b().await;
@@ -228,8 +228,8 @@ async fn nothing_is_run_again_where_more_than_tests_failed_or_nothing_can_run_th
         .expect("failed");
     assert!(
         failed.ends_with(
-            "What failed was not run again: Nothing was run: you named tests or checks, but the project declares no \
-             fast workflow, and only a fast workflow runs just what is named. Name none to run the full workflows."
+            "What failed was not run again: Nothing was run: the workflow runs on 14900K, and this installation has \
+             only github."
         ),
         "{failed}"
     );

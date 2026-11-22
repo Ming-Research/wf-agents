@@ -54,7 +54,7 @@ fn tool() -> flow::agents::Tool {
 fn ci() -> flow::agents::Ci {
     use flow::agents::{Ci, CiFast, CiFull};
     Ci {
-        fast: Some(CiFast {
+        fast: CiFast {
             workflow: "fast.yml".to_string(),
             runner: "github".to_string(),
             commit_input: "commit".to_string(),
@@ -63,15 +63,15 @@ fn ci() -> flow::agents::Ci {
             checks_input: "checks".to_string(),
             checks: vec!["lint".to_string()],
             results: "test-results".to_string(),
-        }),
-        full: Some(CiFull {
+        },
+        full: CiFull {
             workflows: vec!["ci.yml".to_string()],
             runner: "github".to_string(),
             too_long: "1m".to_string(),
             commit_input: "commit".to_string(),
             call_input: "call".to_string(),
             results: "test-results".to_string(),
-        }),
+        },
     }
 }
 
@@ -208,6 +208,15 @@ impl Hub {
         self.green(&commit);
         self.verdict(&commit).await.unwrap().unwrap();
         commit
+    }
+
+    /// The branches of calls of `run_tests` that GitHub holds commits on, by name.
+    fn trials(&self) -> Vec<String> {
+        let found = run(
+            &self.github().bare,
+            &["for-each-ref", "--format=%(refname:short)", "refs/heads/wf-try"],
+        );
+        found.lines().map(str::to_string).collect()
     }
 
     /// How many pull requests were opened.
@@ -613,11 +622,10 @@ fn cancelled(hub: &Hub) -> Vec<u64> {
 }
 
 // A full run no runner took is the engine's own to cancel, and fails the round in passing: what stops it is no work's,
-// and asked for again after a wait it may start. A project that declares no full workflows has no check, which only
-// its owner mends.
+// and asked for again after a wait it may start. A project that declares no workflows has no check, which only its
+// owner mends.
 #[tokio::test]
-async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_project_with_no_full_workflows_has_no_check()
-{
+async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_project_with_no_workflows_has_no_check() {
     let hub = Hub::new();
     let head = hub.committed().await;
     hub.github().no_runner();
@@ -631,12 +639,12 @@ async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_proje
     assert!(failed.why.ends_with("and the engine cancelled it"), "{failed}");
     assert_eq!(failed.kind, Some(Failure::Passing));
     assert_eq!(cancelled(&hub), [1000], "the run asked for is cancelled");
-    let hub = Hub::new().with(|config| config.ci.as_mut().expect("a declaration").full = None);
+    let hub = Hub::new().with(|config| config.ci = None);
     let head = hub.committed().await;
     let failed = hub.failing(&head).await.expect_err("the round fails");
     assert_eq!(
         failed.why,
-        "Nothing was run: the project declares no full workflows; name the tests to run."
+        "Nothing was run: the project declares no workflows, so the check before the merge has none to run."
     );
     assert_eq!(failed.kind, Some(Failure::Other));
 }

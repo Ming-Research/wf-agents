@@ -313,6 +313,30 @@ async fn a_work_that_ended_without_merging_has_its_pull_request_closed_saying_so
     );
 }
 
+// A call of `run_tests` that the engine stopped before it read the result left a branch of its own on GitHub: it is the
+// work's, and goes when the work ends, merged or not, whatever other works have left.
+#[tokio::test]
+async fn a_work_that_ended_has_the_branches_its_calls_of_run_tests_left_deleted_merged_or_not() {
+    for merged in [true, false] {
+        let hub = Hub::new();
+        let head = hub.committed().await;
+        let place = hub.place();
+        let bare = hub.github().bare.display().to_string();
+        let left = format!("wf-try/{}/call/9", place.branch);
+        for name in [left.as_str(), "wf-try/another-work/call/1"] {
+            run(
+                &hub.repo.project.repo,
+                &["push", "-q", &bare, &format!("{head}:refs/heads/{name}")],
+            );
+        }
+        hub.host.end(&branch(&place), merged).await.expect("it ends");
+        let deleted: Vec<Asked> = (hub.github().asked().into_iter())
+            .filter(|a| matches!(a, Asked::Delete(_)))
+            .collect();
+        assert_eq!(deleted, [Asked::Delete(left)], "merged: {merged}");
+    }
+}
+
 #[tokio::test]
 async fn a_reopened_work_has_the_pull_request_its_cancel_closed_opened_again_once_however_often_it_starts() {
     let hub = Hub::new();

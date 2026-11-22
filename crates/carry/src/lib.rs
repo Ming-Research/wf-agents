@@ -306,8 +306,8 @@ mod tests {
             .expect("what is written beside the flows is read")
             .project;
         let ci = project.ci.expect("it declares its workflows");
-        assert_eq!(ci.fast.expect("fast").workflow, "fast.yml");
-        let full = ci.full.expect("full");
+        assert_eq!(ci.fast.workflow, "fast.yml");
+        let full = ci.full;
         assert_eq!(
             (full.workflows.as_slice(), full.too_long.as_str()),
             (&["ci.yml".to_string()][..], "2h")
@@ -321,7 +321,10 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
         let mut beside = flow::agents::read(&root).expect("what is written beside the flows is read");
         let github = beside.tools["run_tests"].words.clone();
-        assert!(github.contains("last commit of the work's branch"), "{github}");
+        assert!(
+            github.contains("with none, it is the last commit of the work's branch"),
+            "{github}"
+        );
         crate::projects::local_words(&mut beside);
         let local = &beside.tools["run_tests"].words;
         assert!(

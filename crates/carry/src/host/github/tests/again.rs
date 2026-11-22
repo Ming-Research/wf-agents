@@ -1,6 +1,7 @@
 //! A check or a call of `run_tests` given again after the engine started again, on the GitHub host: it finds the run
 //! it asked for by the value the run's name holds, waits for it or reads it where it has ended, and asks for a run
-//! again only where it finds none of its own, or only cancelled ones; for the full workflows and the fast one alike.
+//! again only where it finds none of its own, or only cancelled ones; for the full workflows and the fast one alike,
+//! and where it was told to stop, the branch its commit was pushed to is kept until the result is read.
 
 use std::future::Future;
 
@@ -98,32 +99,38 @@ async fn a_call_given_again_while_its_fast_run_goes_on_waits_for_that_run_and_on
     let asked = named(&["tools::tests::a"], &[]);
     let call = hub.call();
     cut_off(&hub, hub.tests_asked(&asked, call)).await;
+    // The run goes on, and the commit it checks out is still on the branch pushed for the call.
+    assert_eq!(hub.trials().len(), 1, "the branch is kept while the run is not read");
     let (said, ()) = tokio::join!(hub.tests_asked(&asked, call), hub.finished_after_a_while(1));
     let said = said.unwrap().expect("nothing stopped it");
     let ran =
         format!("The fast workflow ran on the commit {head} (https://github.example/actions/runs/1000): 1 of the 1");
     assert!(said.starts_with(&ran), "{said}");
+    assert!(hub.trials().is_empty(), "the branch is deleted once the result is read");
     // Given again once more, the run has ended: it is read, and no other is asked for.
     let again = hub.tests_asked(&asked, call).await.unwrap().expect("read");
     assert_eq!(again, said);
     assert_eq!(hub.dispatched().len(), 1);
+    assert!(hub.trials().is_empty());
 }
 
-// The engine stopped while the full workflows ran for a call that named nothing, and the run ended before it started
-// again: the call, given again, reads that run's result.
+// The engine stopped while the full workflows ran for the check before the merge, and the run ended before it started
+// again: the check, given again, reads that run's result.
 #[tokio::test]
-async fn a_call_given_again_after_its_full_run_ended_reads_that_run() {
+async fn a_check_given_again_after_its_full_run_ended_reads_that_run() {
     let hub = Hub::new();
     let head = hub.committed().await;
     hub.green(&head);
     hub.github().runs_go_on();
-    let call = hub.call();
-    cut_off(&hub, hub.tests_asked(&Named::default(), call)).await;
+    let round = hub.round();
+    cut_off(&hub, hub.judged(&head, round)).await;
     hub.github().finish_runs();
-    let said = hub.tests_asked(&Named::default(), call).await.unwrap().expect("read");
-    let ran =
-        format!("The full workflows ran on the commit {head} (https://github.example/actions/runs/1000): 1 of the 1");
-    assert!(said.starts_with(&ran), "{said}");
+    let verdict = hub.judged(&head, round).await.unwrap().expect("read");
+    assert_eq!(verdict.failed, None);
+    assert_eq!(
+        verdict.by.as_deref(),
+        Some("the full workflows of the commit (https://github.example/actions/runs/1000)")
+    );
     assert_eq!(hub.dispatched().len(), 1);
 }
 
@@ -165,7 +172,7 @@ async fn a_request_given_again_that_finds_no_run_of_its_own_asks_for_one() {
     let head = hub.committed().await;
     hub.green(&head);
     hub.judged(&head, hub.round()).await.unwrap().expect("judged");
-    hub.tests_asked(&Named::default(), hub.call())
+    hub.tests_asked(&named(&["tools::tests::a"], &[]), hub.call())
         .await
         .unwrap()
         .expect("run");

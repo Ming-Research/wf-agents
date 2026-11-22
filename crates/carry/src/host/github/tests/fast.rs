@@ -1,7 +1,6 @@
 //! The agents' `run_tests` on the GitHub host with the tests and checks they name, run by the project's fast workflow,
-//! and with none named, run by its full workflows: workflows run by hand on main's file with the commit given, whose
-//! JUnit results say each test's own result and time, and whose jobs' logs say why a job failed that no test of its own
-//! says.
+//! and with none named, run by nothing: a workflow run by hand on main's file with the commit given, whose JUnit
+//! results say each test's own result and time, and whose jobs' logs say why a job failed that no test of its own says.
 
 use super::super::api::{Check, Outcome};
 use super::*;
@@ -12,6 +11,7 @@ pub(super) fn named(tests: &[&str], checks: &[&str]) -> Named {
     Named {
         tests: all(tests),
         checks: all(checks),
+        commit: None,
     }
 }
 
@@ -171,14 +171,6 @@ fn inputs(commit: &str, tests: &str, checks: Option<&str>) -> Vec<(String, Strin
     inputs
 }
 
-/// The inputs of a run of a full workflow on the commit.
-fn full_inputs(commit: &str) -> Vec<(String, String)> {
-    vec![
-        ("commit".to_string(), commit.to_string()),
-        ("call".to_string(), "<call>".to_string()),
-    ]
-}
-
 #[tokio::test]
 async fn the_tests_named_run_by_the_fast_workflow_and_each_is_said_with_its_result_and_time() {
     let hub = Hub::new();
@@ -210,8 +202,7 @@ async fn the_tests_named_run_by_the_fast_workflow_and_each_is_said_with_its_resu
             inputs: inputs(&head, "tools::tests::a\ntools::tests::b\na_name_of_no_test\n", None),
         }]
     );
-    assert_eq!(hub.pushed(), head);
-    assert_eq!(hub.opened(), 1, "the work's pull request is opened as for any run");
+    assert_eq!(hub.opened(), 0, "no pull request is opened for a run");
 }
 
 #[tokio::test]
@@ -305,8 +296,10 @@ async fn a_run_that_uploads_no_junit_is_said_so_and_a_log_that_cannot_be_read_is
     assert_eq!(hub.github().logs_asked(), [5]);
 }
 
+// What did not pass comes first, then the jobs, then the tests that passed, each with its time: a result cut short loses
+// what passed first, which is what the agent least needs. Where the names are few, nothing is left out of it.
 #[tokio::test]
-async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_test_and_check_is_said() {
+async fn what_did_not_pass_and_the_jobs_are_said_before_the_tests_that_passed_each_with_its_time() {
     let hub = Hub::new();
     let head = hub.committed().await;
     let lint = Check {
@@ -315,20 +308,19 @@ async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_t
     };
     let jobs = vec![lint, job("test", Outcome::Failed("failure".into()), 5)];
     hub.github().fast(&head, jobs, Some(("test-results", junit())));
-    let said = hub.named_check(&Named::default()).await.unwrap().expect("run");
+    let asked = named(&["tools::tests::a", "tools::tests::b"], &["lint"]);
+    let said = hub.named_check(&asked).await.unwrap().expect("run");
     assert!(
         said.starts_with(&format!(
-            "The full workflows ran on the commit {head} (https://github.example/actions/runs/1000): 1 of the 2 tests \
-             passed; 1 of the 2 checks passed."
+            "The fast workflow ran on the commit {head} (https://github.example/actions/runs/1000): 1 of the 2 tests \
+             passed; 1 of the 1 checks passed."
         )),
         "{said}"
     );
-    // What did not pass comes first, each with its time.
     let b = said.find("- tools::tests::b: failed in 0.3 s").expect("b");
     let a = said.find("- tools::tests::a: passed in 0.12 s").expect("a");
     assert!(b < a, "{said}");
     assert!(said.contains("assertion failed: said.is_empty()"), "{said}");
-    // What did not pass and the jobs come before what passed, which a result cut short loses first.
     let jobs = "The jobs:\n- lint: passed in 192 s https://github.example/checks/lint\n- test: failed (failure) in 60 \
                 s https://github.example/checks/test";
     let at = said.find(jobs).expect("the jobs");
@@ -340,9 +332,9 @@ async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_t
     assert_eq!(
         hub.dispatched_as_said(),
         [Asked::Dispatch {
-            workflow: "ci.yml".to_string(),
+            workflow: "fast.yml".to_string(),
             branch: "main".to_string(),
-            inputs: full_inputs(&head),
+            inputs: inputs(&head, "tools::tests::a\ntools::tests::b\n", Some("[\"lint\"]")),
         }]
     );
 }
@@ -351,7 +343,10 @@ async fn with_nothing_named_the_full_workflows_run_on_the_last_commit_and_each_t
 // cancelled says so in place of a time, and a job that did not run is no check that came to anything.
 #[tokio::test]
 async fn each_job_is_said_with_how_it_ended_and_its_wall_time_or_why_it_has_none() {
-    let hub = Hub::new();
+    let hub = Hub::new().with(|config| {
+        let ci = config.ci.as_mut().expect("a declaration");
+        ci.fast.checks = ["lint", "page", "docs", "deploy", "test"].map(String::from).to_vec();
+    });
     let head = hub.committed().await;
     let jobs = vec![
         Check {
@@ -367,7 +362,8 @@ async fn each_job_is_said_with_how_it_ended_and_its_wall_time_or_why_it_has_none
         },
     ];
     hub.github().fast(&head, jobs, Some(("test-results", junit_green())));
-    let said = hub.named_check(&Named::default()).await.unwrap().expect("run");
+    let every = named(&["tools::tests::a"], &["lint", "page", "docs", "deploy", "test"]);
+    let said = hub.named_check(&every).await.unwrap().expect("run");
     assert!(said.contains("; 2 of the 4 checks passed."), "{said}");
     assert!(
         said.contains(
@@ -420,32 +416,45 @@ async fn the_fast_workflows_run_says_every_job_of_it_and_a_check_named_that_it_h
 }
 
 #[tokio::test]
-async fn names_given_where_the_project_has_no_fast_workflow_are_refused_and_so_is_none_where_it_has_no_full_ones() {
-    let hub = Hub::new().with(|config| {
-        let ci = config.ci.as_mut().expect("a declaration");
-        ci.fast = None;
-    });
+async fn nothing_can_be_run_where_the_project_declares_no_workflows() {
+    let hub = Hub::new().with(|config| config.ci = None);
     hub.committed().await;
     let said = hub.named_check(&named(&["a"], &[])).await.unwrap().expect("said");
-    assert!(said.starts_with("Nothing was run: you named tests or checks, but the project declares no fast workflow"));
-    let hub = Hub::new().with(|config| {
-        let ci = config.ci.as_mut().expect("a declaration");
-        ci.full = None;
-    });
-    hub.committed().await;
-    let said = hub.named_check(&Named::default()).await.unwrap().expect("said");
     assert_eq!(
         said,
-        "Nothing was run: the project declares no full workflows; name the tests to run."
+        "Nothing was run: the project declares no workflows, so nothing can be run through run_tests."
     );
     assert!(hub.github().asked().is_empty(), "nothing was pushed or asked");
+    assert!(hub.trials().is_empty());
+}
+
+// Only what is named is run: a request that names neither a test nor a check, a commit alone included, runs nothing, and
+// pushes nothing, whatever the project's workflows are.
+#[tokio::test]
+async fn a_request_that_names_neither_a_test_nor_a_check_runs_nothing_and_pushes_nothing() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let commit_alone = Named {
+        commit: Some(head),
+        ..Named::default()
+    };
+    for nothing in [Named::default(), commit_alone] {
+        let said = hub.named_check(&nothing).await.unwrap().expect("said");
+        assert_eq!(
+            said,
+            "Nothing was run: you named no test and no check, and only what is named is run. Name what to run, and ask \
+             again. Nothing was pushed."
+        );
+    }
+    assert!(hub.github().asked().is_empty(), "nothing was pushed or asked");
+    assert!(hub.trials().is_empty());
 }
 
 #[tokio::test]
 async fn a_workflow_that_runs_where_the_installation_has_no_runner_is_not_run() {
     let hub = Hub::new().with(|config| {
         let ci = config.ci.as_mut().expect("a declaration");
-        ci.fast.as_mut().expect("fast").runner = "14900K".to_string();
+        ci.fast.runner = "14900K".to_string();
     });
     hub.committed().await;
     let said = hub.named_check(&named(&["a"], &[])).await.unwrap().expect("said");
@@ -466,9 +475,10 @@ async fn a_workflow_that_runs_where_the_installation_has_no_runner_is_not_run() 
 }
 
 // The work's branch may hold no file of the workflow, or one of its own making: the run is always asked for on main,
-// by main's file, with the commit to test given, and nothing but the work's commit is pushed for it.
+// by main's file, with the commit to test given, and the commit is pushed to a branch of its own that is gone once the
+// result is read: nothing stays on GitHub but main.
 #[tokio::test]
-async fn the_workflow_is_run_by_mains_file_with_the_commit_given_and_nothing_else_is_pushed() {
+async fn the_workflow_is_run_by_mains_file_with_the_commit_given_and_nothing_stays_pushed() {
     let hub = Hub::new();
     let head = hub.committed().await;
     hub.github().fast(&head, vec![], Some(("test-results", junit())));
@@ -482,11 +492,14 @@ async fn the_workflow_is_run_by_mains_file_with_the_commit_given_and_nothing_els
         &hub.github().bare,
         &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
     );
-    let mut expected = vec!["main".to_string(), hub.place().branch];
-    expected.sort();
-    let mut branches: Vec<String> = branches.lines().map(str::to_string).collect();
-    branches.sort();
-    assert_eq!(branches, expected, "only the work's commit is pushed");
+    assert_eq!(branches, "main", "the branch pushed for the run is deleted");
+    assert!(
+        hub.github()
+            .asked()
+            .iter()
+            .any(|a| matches!(a, Asked::Delete(name) if name.starts_with("wf-try/"))),
+        "it was deleted by asking GitHub"
+    );
 }
 
 // With no runner online, the run is listed at once, queued: it is given up as never started once the start is waited
