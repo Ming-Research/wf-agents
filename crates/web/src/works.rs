@@ -2542,9 +2542,10 @@ impl Now {
                     })
                     .collect::<Result<_, Broken>>()?,
             },
-            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Abandon { cell, .. } => {
-                Now::Next { cell: cell.to_string() }
-            }
+            Decision::Run { cell, .. }
+            | Decision::GoOn { cell, .. }
+            | Decision::Hurry { cell, .. }
+            | Decision::Abandon { cell, .. } => Now::Next { cell: cell.to_string() },
             // A stalled work that its own pause holds is shown paused: it is the pauser's to let on.
             Decision::Stalled { at, .. } if decide::paused(&work.records) => Now::paused(work, at)?,
             Decision::Stalled { at, on, by } => {

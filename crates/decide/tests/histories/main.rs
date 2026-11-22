@@ -512,6 +512,24 @@ impl History {
                 self.engine(run);
                 true
             }
+            Decision::Hurry { run, cell, .. } => {
+                let run = *run;
+                self.w.hurry();
+                self.note(format!("{cell}'s round is told to hand in what it has"));
+                // The round is given the telling before it ends in half of them, the engine knowing so after the
+                // round's carrier says it was.
+                if self.rng.chance(50) {
+                    let hurried = self.w.records.hurried.last().expect("the round was told").clone();
+                    let at = self.w.tick();
+                    self.w.records.put_in.push(PutIn {
+                        run,
+                        block: hurried.block,
+                        version: hurried.version,
+                        at,
+                    });
+                }
+                true
+            }
             Decision::Abandon { run, cell, .. } => {
                 let run = *run;
                 let before = self.consumed_by(cell);
@@ -582,7 +600,10 @@ impl History {
         assert!(under_way <= 1, "{under_way} runs have a round under way");
         if under_way == 1 {
             assert!(
-                matches!(decision, Decision::Busy { .. } | Decision::Abandon { .. }),
+                matches!(
+                    decision,
+                    Decision::Busy { .. } | Decision::Hurry { .. } | Decision::Abandon { .. }
+                ),
                 "a round is under way and the walk decides {decision:?}"
             );
         }

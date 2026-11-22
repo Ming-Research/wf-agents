@@ -1,5 +1,6 @@
-//! The owner turning to a cell (design document `data-and-context`, 33, 37, 41): a round under way of a cell after it
-//! is stopped, consuming nothing, the cell turned to runs, and the stopped cell runs again later.
+//! The owner turning to a cell (design document `data-and-context`, 35): a round under way of an agent's cell after it
+//! is told to hand in what it has, an act of the engine's after it is stopped, consuming nothing; the cell turned to
+//! runs, and the cell of the round runs again later, for what its round left undealt with.
 
 use super::*;
 
@@ -21,43 +22,89 @@ fn implementing() -> (World, Seq, Seq, RunId) {
     (w, first, second, run)
 }
 
-#[test]
-fn the_owner_turning_to_an_earlier_cell_stops_a_later_round_and_the_earlier_cell_runs_first() {
-    let (mut w, _, _, run) = implementing();
-    w.outside_writes("spoken to research");
-    let stopped = Abandoning::Stopped {
-        cell: "research".into(),
+/// The hurry the walk decides on for the run, for the owner's words at this version.
+fn hurry(run: RunId, version: Seq) -> Decision {
+    Decision::Hurry {
+        cell: "implement".into(),
+        run,
+        turned_to: "research".into(),
         block: "spoken to research".into(),
-    };
-    assert_eq!(w.decide(), abandon("implement", run, stopped));
-    w.abandon();
-    // Nothing begins until the stopped round has ended.
+        version,
+    }
+}
+
+#[test]
+fn the_owner_turning_to_an_earlier_cell_tells_the_round_of_a_later_agent_to_hand_in_what_it_has_once_for_a_version() {
+    let (mut w, _, _, run) = implementing();
+    let words = w.outside_writes("spoken to research");
+    assert_eq!(w.decide(), hurry(run, words));
+    assert_eq!(w.hurry().as_str(), "research");
+    // Told once: the round is under way until it ends, and nothing else begins.
     assert_eq!(w.decide(), busy("implement", run));
-    w.stopped(run);
+    // A later version tells it again.
+    let later = w.outside_writes("spoken to research");
+    assert_eq!(w.decide(), hurry(run, later));
+    w.hurry();
+    assert_eq!(w.decide(), busy("implement", run));
+}
+
+#[test]
+fn a_round_told_to_hand_in_what_it_has_is_taken_as_any_return_is_and_the_earlier_cell_runs_before_its_cell_again() {
+    let (mut w, first, _, run) = implementing();
+    let words = w.outside_writes("spoken to research");
+    w.hurry();
+    w.given_the_hurry("implement", "spoken to research", words);
+    // It hands in what it has, dealing with nothing: the run finishes, and is not abandoned.
+    let told = decide::told(&w.flow, &w.records, run).expect("the run started");
+    assert!(told.hurried);
+    w.finish_dealing("implement", &[], &[("code", Matters)]);
+    assert!(w.records.abandoned.is_empty());
+    // The earlier cell runs first, for the owner's words.
     let Decision::Run { cell, because, .. } = w.decide() else {
         panic!("nothing runs: {:?}", w.decide())
     };
     assert_eq!(cell.as_str(), "research");
     assert_eq!(because, vec![changed("spoken to research", None, false)]);
-}
-
-#[test]
-fn a_stopped_round_consumed_nothing_and_its_cell_runs_again_for_what_ran_it() {
-    let (mut w, first, second, run) = implementing();
-    w.outside_writes("spoken to research");
-    w.abandon();
-    w.stopped(run);
-    w.run("research", &[]);
+    // Then the later cell runs again, for the plan it did not deal with.
+    w.run("research", &[("plan", Matters)]);
     let Decision::Run { cell, because, .. } = w.decide() else {
         panic!("nothing runs: {:?}", w.decide())
     };
     assert_eq!(cell.as_str(), "implement");
-    assert_eq!(because, vec![changed("plan", Some(first), false)]);
-    let _ = second;
+    assert!(because.contains(&changed("plan", Some(first), false)), "{because:?}");
 }
 
 #[test]
-fn a_round_under_way_is_not_stopped_for_what_is_not_the_owner_turning_to_an_earlier_cell() {
+fn only_a_round_given_the_telling_after_it_began_is_hurried() {
+    let (mut w, _, _, run) = implementing();
+    let words = w.outside_writes("spoken to research");
+    w.hurry();
+    // The telling was decided on, and the round was not given it: it is held to what its cell must write.
+    let told = decide::told(&w.flow, &w.records, run).expect("the run started");
+    assert!(!told.hurried);
+    // Given the telling after it began, it is hurried.
+    w.given_the_hurry("implement", "spoken to research", words);
+    assert!(decide::told(&w.flow, &w.records, run).expect("the run started").hurried);
+    // A later round of the same run was not given it.
+    w.returns("implement");
+    let at = w.tick();
+    w.records.rounds.push(Round { run, at });
+    assert!(!decide::told(&w.flow, &w.records, run).expect("the run started").hurried);
+}
+
+#[test]
+fn what_is_put_in_to_a_round_that_its_own_cell_runs_on_is_no_telling_to_hand_in() {
+    let mut w = World::with_gate(vec![cell("research", &["brief", "spoken to research"], &["plan"])]);
+    w.turning("spoken to research");
+    w.person_writes("brief");
+    let run = w.start("research");
+    let words = w.outside_writes("spoken to research");
+    w.given_the_hurry("research", "spoken to research", words);
+    assert!(!decide::told(&w.flow, &w.records, run).expect("the run started").hurried);
+}
+
+#[test]
+fn a_round_under_way_is_not_hurried_for_what_is_not_the_owner_turning_to_an_earlier_cell() {
     // A person writes the brief, which runs the research too.
     let (mut w, _, _, run) = implementing();
     w.person_writes("brief");
@@ -75,7 +122,7 @@ fn a_round_under_way_is_not_stopped_for_what_is_not_the_owner_turning_to_an_earl
 }
 
 #[test]
-fn a_round_under_way_is_not_stopped_for_an_earlier_cell_that_could_not_run() {
+fn a_round_under_way_is_not_hurried_for_an_earlier_cell_that_could_not_run() {
     // The research waits on a precondition that does not hold.
     let mut w = World::with_gate(vec![
         requiring("ready", cell("research", &["brief", "spoken to research"], &["plan"])),
@@ -88,15 +135,36 @@ fn a_round_under_way_is_not_stopped_for_an_earlier_cell_that_could_not_run() {
     w.says("ready", false);
     w.outside_writes("spoken to research");
     assert_eq!(w.decide(), busy("implement", run));
-    // The precondition holds again: the round is stopped.
+    // The precondition holds again: the round is told to hand in what it has.
     w.says("ready", true);
-    assert!(matches!(
-        w.decide(),
-        Decision::Abandon {
-            because: Abandoning::Stopped { .. },
-            ..
-        }
-    ));
+    assert!(matches!(w.decide(), Decision::Hurry { .. }));
+}
+
+#[test]
+fn a_round_of_an_act_of_the_engine_cannot_be_told_and_is_stopped_for_the_owner_turning_to_an_earlier_cell() {
+    let mut act = cell("check", &["plan"], &["checked"]);
+    act.slot = false;
+    let mut w = World::with_gate(vec![cell("research", &["brief", "spoken to research"], &["plan"]), act]);
+    w.turning("spoken to research");
+    w.person_writes("brief");
+    w.run("research", &[("plan", Matters)]);
+    w.person_writes("brief");
+    w.run("research", &[("plan", Matters)]);
+    let run = w.start("check");
+    w.outside_writes("spoken to research");
+    let stopped = Abandoning::Stopped {
+        cell: "research".into(),
+        block: "spoken to research".into(),
+    };
+    assert_eq!(w.decide(), abandon("check", run, stopped));
+    w.abandon();
+    // Nothing begins until the stopped round has ended; the cell it was stopped for then runs first.
+    assert_eq!(w.decide(), busy("check", run));
+    w.stopped(run);
+    let Decision::Run { cell, .. } = w.decide() else {
+        panic!("nothing runs: {:?}", w.decide())
+    };
+    assert_eq!(cell.as_str(), "research");
 }
 
 #[test]

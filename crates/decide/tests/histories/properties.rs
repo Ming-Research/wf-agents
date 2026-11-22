@@ -51,7 +51,8 @@ pub const UNSEEN: &str = "nothing is written over unseen";
 pub const CONSUMED: &str = "a datum is consumed only by a return that dealt with it";
 pub const ENTERED: &str = "a cell is entered only for what is new to it";
 pub const FIRST: &str = "the cell entered is the first that something new runs";
-pub const STOPPED: &str = "a round is stopped only for the owner turning to a cell before it";
+pub const STOPPED: &str = "an act of the engine's is stopped only for the owner turning to a cell before it";
+pub const HURRIED: &str = "a round of an agent is told to hand in what it has only for the owner turning to a cell before it, once for a version";
 pub const SPOKE: &str = "who wrote what is new is counted right";
 pub const PURE: &str = "the decision is a function of the records";
 pub const REACHES: &str = "a person's write reaches the cells it runs";
@@ -83,7 +84,7 @@ pub const REACHED: &[&str] = &[
     CAUSES_CHECKED,
     RESULTS_ENTERED,
     TURNED_TO_WHILE_WAITING,
-    STOPS,
+    HURRIES,
     WAY_BACK_FIRST,
     LIMITS_CHECKED,
     CALL_LIMITS_CHECKED,
@@ -123,7 +124,9 @@ const UNCHANGED_RUNS_NONE: &str = "a version handed in as changing nothing in me
 const CAUSES_CHECKED: &str = "the reasons of a run as it starts";
 const RESULTS_ENTERED: &str = "a cell is entered for the results of its calls";
 const TURNED_TO_WHILE_WAITING: &str = "a cell waiting for the results of its calls is entered for the owner's words";
-const STOPS: &str = "a round under way is stopped for the owner turning to a cell before it";
+const HURRIES: &str = "a round under way is told to hand in what it has for the owner turning to a cell before it";
+/// Not required: the histories' cells all take a slot, as an agent's do, so none is an act of the engine's.
+const STOPS: &str = "an act under way is stopped for the owner turning to a cell before it";
 const WAY_BACK_FIRST: &str = "a way back is entered while a cell after it has something of its own to run for";
 const LIMITS_CHECKED: &str = "a work waits at a cell's limit of ways round";
 const CALL_LIMITS_CHECKED: &str = "a work waits at a cell's limit of calls";
@@ -208,6 +211,7 @@ pub fn last_place(r: &Records) -> Seq {
         .chain(r.finished.iter().map(|e| e.at))
         .chain(r.abandoned.iter().map(|e| e.at))
         .chain(r.put_in.iter().map(|e| e.at))
+        .chain(r.hurried.iter().map(|e| e.at))
         .chain(r.written.iter().map(|e| e.at))
         .chain(r.questions.iter().map(|e| e.at))
         .chain(r.answers.iter().map(|e| e.at))
@@ -233,6 +237,7 @@ pub fn as_of(r: &Records, upto: Seq) -> Records {
         finished: kept(&r.finished, |e| e.at, upto),
         abandoned: kept(&r.abandoned, |e| e.at, upto),
         put_in: kept(&r.put_in, |e| e.at, upto),
+        hurried: kept(&r.hurried, |e| e.at, upto),
         written: kept(&r.written, |e| e.at, upto),
         questions: kept(&r.questions, |e| e.at, upto),
         answers: kept(&r.answers, |e| e.at, upto),
@@ -265,6 +270,7 @@ fn shuffled(r: &Records, seed: u64) -> Records {
     }
     shuffle(&mut r.abandoned, &mut rng);
     shuffle(&mut r.put_in, &mut rng);
+    shuffle(&mut r.hurried, &mut rng);
     shuffle(&mut r.written, &mut rng);
     shuffle(&mut r.questions, &mut rng);
     shuffle(&mut r.answers, &mut rng);
@@ -684,6 +690,13 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
             }
         }
         Decision::Abandon { run, because, .. } => abandoned(v, flow, reading, *run, because),
+        Decision::Hurry {
+            run,
+            turned_to,
+            block,
+            version,
+            ..
+        } => hurried(v, flow, reading, *run, turned_to, block, *version),
         Decision::Stalled { at, on, by } => stalled(v, flow, reading, at, on, by),
         _ => {}
     }
@@ -948,9 +961,54 @@ fn stalled(
     }
 }
 
+/// Property a-round-is-hurried-only-for-the-owner-turning (design document `data-and-context`, 35): a round of an
+/// agent is told to hand in what it has only while it is under way, for a cell before its own that applies and to
+/// which something that interrupts is new, by the latest version of it that the cell did not write itself, and once for
+/// a version.
+fn hurried(
+    v: &mut Verdict,
+    flow: &Flow,
+    reading: &Reading,
+    run: RunId,
+    turned_to: &decide::CellId,
+    block: &BlockId,
+    version: Seq,
+) {
+    v.count(HURRIES);
+    let s = reading.started[&run];
+    let now = Seq(u64::MAX);
+    let place = |c: &decide::CellId| flow.place(c);
+    let before = place(turned_to).zip(place(&s.cell)).is_some_and(|(j, i)| j < i);
+    let new = !reading.new_to(turned_to, block, now).is_empty();
+    let applies = place(turned_to).is_some_and(|j| reading.applies(flow, j));
+    let agent = place(&s.cell).is_some_and(|i| flow.cells()[i].slot);
+    let r = reading.records;
+    let under_way = r.rounds.iter().filter(|x| x.run == run).count()
+        > r.returned.iter().filter(|x| x.run == run).count()
+        && !r.finished.iter().any(|f| f.run == run)
+        && !r.abandoned.iter().any(|a| a.run == run);
+    let theirs = (reading.of(block).iter().rev())
+        .find(|w| !matches!(&w.by, Writer::Cell(c, _) if c == turned_to))
+        .map(|w| w.at);
+    let once = !r
+        .hurried
+        .iter()
+        .any(|h| h.run == run && &h.block == block && h.version == version);
+    if !(before && new && applies && agent && under_way && flow.interrupts(block) && theirs == Some(version) && once) {
+        v.fail(
+            HURRIED,
+            format!(
+                "the round of run {run:?} of {} is told to hand in what it has, for {block} at {version:?} turned to {turned_to}, which the records do not bear out",
+                s.cell
+            ),
+        );
+    }
+}
+
 /// Why a run was abandoned (properties one-round-of-a-work-at-a-time and consumed-only-by-what-a-return-dealt-with): as
 /// cancelled only in a cancelled work; as no longer applying only when its cell is skipped; as stopped only while a
-/// round of it is under way, for a cell before it that applies, to which something that interrupts is new.
+/// round of it, an act of the engine's, is under way, for a cell before it that applies, to which something that
+/// interrupts is new.
 pub fn abandoned(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, because: &Abandoning) {
     let s = reading.started[&run];
     let now = Seq(u64::MAX);
@@ -963,7 +1021,8 @@ pub fn abandoned(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, be
             let before = place(cell).zip(place(&s.cell)).is_some_and(|(j, i)| j < i);
             let new = !reading.new_to(cell, block, now).is_empty();
             let applies = place(cell).is_some_and(|j| reading.applies(flow, j));
-            before && new && applies && flow.interrupts(block)
+            let act = place(&s.cell).is_some_and(|i| !flow.cells()[i].slot);
+            before && new && applies && act && flow.interrupts(block)
         }
     };
     if !ok {

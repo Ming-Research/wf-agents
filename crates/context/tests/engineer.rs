@@ -405,7 +405,7 @@ fn a_reopened_session_s_reading_of_the_tree_leaves_the_line_where_its_cell_that_
 }
 
 #[test]
-fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
+fn words_to_an_earlier_cell_tell_the_round_under_way_to_hand_in_what_it_has_and_its_session_holds_them() {
     let (mut sim, implement) = deeply_until("I1");
     tried(&mut sim, &implement);
     // The reviews ask nothing, and none of their cells has words of its own: words to their lines are refused, the
@@ -418,13 +418,11 @@ fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
         to: To::Line("engineer".into()),
         words: "Look at the names too.".to_string(),
     });
-    let versions = (effects.into_iter())
-        .find_map(|e| match e {
-            Effect::Tell { telling, .. } => Some(telling.versions),
-            _ => None,
-        })
-        .expect("the implementation under way is told");
-    // Words to the deep research, before the implementation, stop the implementation's round.
+    let own = tellings(&effects);
+    assert_eq!(own.len(), 1, "the implementation under way is told: {effects:?}");
+    assert!(!own[0].hurry, "its own words are no hurry");
+    // Words to the deep research, before the implementation, tell the implementation's round to hand in what it has:
+    // the round is not stopped.
     assert_eq!(
         receiver(&sim, To::Line("deep_researcher".into())),
         Ok(CellId::from("D1"))
@@ -433,45 +431,45 @@ fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
         to: To::Line("deep_researcher".into()),
         words: "Shorter, please.".to_string(),
     });
-    assert!(
-        effects
-            .iter()
-            .any(|e| matches!(e, Effect::Stop { run } if *run == implement.run))
-    );
-    // The hook gave the implementation the owner's words before its round ended.
-    sim.take(Event::SaidToRound {
-        run: implement.run,
-        versions,
-    });
-    sim.returns(&implement, Came::default(), 0);
+    assert!(!effects.iter().any(|e| matches!(e, Effect::Stop { .. })), "{effects:?}");
+    let hurry = tellings(&effects);
+    assert_eq!(hurry.len(), 1, "{effects:?}");
+    assert!(hurry[0].hurry);
+    assert_eq!(hurry[0].block.as_str(), "d1_words");
+    // The hook gave the implementation both before its round ended.
+    for versions in [own[0].versions.clone(), hurry[0].versions.clone()] {
+        sim.take(Event::SaidToRound {
+            run: implement.run,
+            versions,
+        });
+    }
+    // It hands in what it has, and nothing more is asked of it: the deep research is entered for its words next.
+    sim.hands_in(&implement, &[("code", "abc", None)]);
+    let finished = (sim.work.records.finished.iter()).any(|f| f.run == implement.run);
+    assert!(finished, "the implementation's hand-in is taken, not sent back");
     let rethought = sim.round().expect("a round is given");
     assert_eq!(rethought.cell.as_str(), "D1");
-    tried(&mut sim, &rethought);
-    sim.hands_in(&rethought, &[]);
-    // The implementation runs again for the words it never dealt with; its session holds them, and is given what it
-    // lacks.
-    let again = sim.round().expect("a round is given");
-    assert_eq!(again.cell.as_str(), "I1");
-    let entered = sim.enter(&again, sim.begins(&again));
+    // Its session holds the deep research's words, which the round was told: they were put into it.
+    let put_in = (sim.work.records.put_in.iter())
+        .filter(|p| p.run == implement.run)
+        .map(|p| p.block.as_str())
+        .collect::<Vec<_>>();
     assert!(
-        entered.text.contains("The owner:\n\nShorter, please."),
-        "{}",
-        entered.text
+        put_in.contains(&"d1_words") && put_in.contains(&"i1_words"),
+        "{put_in:?}"
     );
-    assert!(
-        !entered.text.contains("Look at the names too."),
-        "given again:\n{}",
-        entered.text
-    );
-    // Each cell's words hold what was said to it; the implementation is given the deep research's too, which names no
-    // cell.
+    // Each cell's words hold what was said to it.
     assert_eq!((sim.versions("i1_words").len(), sim.versions("d1_words").len()), (1, 1));
-    let given = record_given(&entered.text, "d1_words");
-    assert!(
-        !given.is_empty() && !given.iter().any(|g| names_a_cell(&sim.flow, g)),
-        "{given:?}"
-    );
-    assert!(entered.text.contains("- `i1_words`"), "{}", entered.text);
+}
+
+/// What the effects tell the rounds under way, each telling as the engine gives it.
+fn tellings(effects: &[Effect]) -> Vec<&engine::spoken::Telling> {
+    (effects.iter())
+        .filter_map(|e| match e {
+            Effect::Tell { telling, .. } => Some(&**telling),
+            _ => None,
+        })
+        .collect()
 }
 
 // A cell is told how to write a block, in the words of the block's own file, after the list of what it returns, only
@@ -670,16 +668,25 @@ fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_giv
 fn an_answer_added_while_another_cell_was_spoken_to_in_its_round_is_taken() {
     let (mut sim, implement) = deeply_until("I1");
     tried(&mut sim, &implement);
-    // Words to the deep research stop the implementation, and the deep research is entered for them.
-    sim.take(Event::Said {
+    // Words to the deep research tell the implementation to hand in what it has, and the deep research is entered for
+    // them once it has.
+    let effects = sim.take(Event::Said {
         to: To::Line("deep_researcher".into()),
         words: "Shorter, please.".to_string(),
     });
-    sim.returns(&implement, Came::default(), 0);
+    let versions = tellings(&effects)
+        .first()
+        .map(|t| t.versions.clone())
+        .expect("the round is told");
+    sim.take(Event::SaidToRound {
+        run: implement.run,
+        versions,
+    });
+    sim.hands_in(&implement, &[("code", "abc", None)]);
     let rethought = sim.round().expect("a round is given");
     assert_eq!(rethought.cell.as_str(), "D1");
     tried(&mut sim, &rethought);
-    // While it runs, the owner speaks to the implementation, after it: its round goes on, never told of the words.
+    // While it runs, the owner speaks to the implementation, after it: no round of it is under way to be told.
     assert_eq!(receiver(&sim, To::Line("engineer".into())), Ok(CellId::from("I1")));
     let effects = sim.take(Event::Said {
         to: To::Line("engineer".into()),

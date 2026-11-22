@@ -350,12 +350,23 @@ fn any_answer_to_a_question_that_waits_runs_the_asking_cell_again_by_a_version_o
 }
 
 #[test]
-fn an_answer_taking_another_option_than_the_one_the_work_goes_by_stops_a_later_round_and_runs_the_cell() {
+fn an_answer_taking_another_option_than_the_one_the_work_goes_by_tells_a_later_round_to_hand_in_what_it_has_and_runs_the_cell()
+ {
     let (mut w, effects) = researched(vec![asked("which", false)]);
     let (implementing, ..) = round(&effects);
     let version = w.version("which");
     let effects = w.answers("which", version, 2);
-    assert_eq!(effects, [Effect::Stop { run: implementing }]);
+    let [Effect::Tell { run: told, telling }] = effects.as_slice() else {
+        panic!("the implementation is not told to hand in what it has: {effects:?}");
+    };
+    assert_eq!(*told, implementing);
+    assert!(telling.hurry);
+    assert_eq!(telling.block.as_str(), "research_questions");
+    let versions = telling.versions.clone();
+    w.on(Event::SaidToRound {
+        run: implementing,
+        versions,
+    });
     let effects = w.returns(implementing, Came::hands_in(Vec::new()));
     let (_, cell, ..) = round(&effects);
     assert_eq!(cell, "research");

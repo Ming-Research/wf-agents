@@ -2287,7 +2287,8 @@ fn words(base: &Path) -> Words {
 }
 
 /// What the owner said to a round under way, as its session is given it: in the words of `said` in the message's
-/// file, with what the cell does when its words are new as the part of what is new says it.
+/// file, with what the cell does when its words are new as the part of what is new says it; or, for a round told to
+/// hand in what it has for the owner turning to a cell before its own, in the words of `hurried`.
 fn said(beside: &Beside, told: &Telling) -> String {
     let message = &beside.message;
     let part = message.parts.iter().find(|p| p.part == flow::agents::Part::New);
@@ -2302,7 +2303,8 @@ fn said(beside: &Beside, told: &Telling) -> String {
         ("number", number.as_str()),
         ("do", does.as_str()),
     ];
-    flow::agents::fill(&message.said, &places)
+    let text = if told.hurry { &message.hurried } else { &message.said };
+    flow::agents::fill(text, &places)
 }
 
 /// Writes the file, making its directory where there is none.

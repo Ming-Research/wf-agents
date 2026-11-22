@@ -21,7 +21,7 @@
 
 use std::borrow::Cow;
 
-use decide::{BlockId, CellId, Decision, Outsider, PutIn, RunId, Seq, Written, decide};
+use decide::{BlockId, CellId, Decision, Hurried, Outsider, PutIn, RunId, Seq, Written, decide};
 use flow::Compiled;
 use flow::agents::fill;
 use work::Work;
@@ -44,6 +44,9 @@ pub struct Telling {
     pub number: u64,
     pub does: Option<String>,
     pub versions: Vec<(BlockId, Seq)>,
+    /// The round is told to hand in what it has now, because the owner turned to a cell before its own, and not to
+    /// answer words said to its own cell.
+    pub hurry: bool,
 }
 
 /// What the owner's words are said to.
@@ -152,6 +155,7 @@ pub(crate) fn said(
             number,
             does: watched.and_then(|w| w.does.clone()),
             versions: vec![(block, at)],
+            hurry: false,
         };
         effects.push(Effect::Tell {
             run,
@@ -161,11 +165,41 @@ pub(crate) fn said(
     Ok(())
 }
 
+/// Begins to tell the round of the run, which is under way, to hand in what it has now, for this version of a block the
+/// owner wrote to turn to a cell before the run's: records that it is told, which the walk reads so that a round is
+/// told once for a version, and gives its carrier the version to hand to the round after its next use of a tool
+/// ([`Effect::Tell`]). The round is put the version only once its carrier says it was given it ([`heard`]).
+pub(crate) fn hurry(work: &mut Work, run: RunId, block: BlockId, version: Seq, effects: &mut Vec<Effect>) {
+    let at = work.tick();
+    work.records.hurried.push(Hurried {
+        run,
+        block: block.clone(),
+        version,
+        at,
+    });
+    let entry = (work.contents.get(&(block.clone(), version)))
+        .cloned()
+        .unwrap_or_default();
+    let number = work.records.number([&block], version).unwrap_or_default();
+    let telling = Telling {
+        entry,
+        block: block.clone(),
+        number,
+        does: None,
+        versions: vec![(block, version)],
+        hurry: true,
+    };
+    effects.push(Effect::Tell {
+        run,
+        telling: Box::new(telling),
+    });
+}
+
 /// Puts into the round of the run that is under way these versions, which the engine gave its carrier to tell the
 /// round ([`Effect::Tell`]) and the carrier says the round was given; or why they cannot be: no round of the run is
-/// under way, or one of them is no version the owner's words wrote. Of a run abandoned meanwhile, whose round is being
-/// stopped, they are put in all the same, so that its session is known to hold them; its return is dropped, and they
-/// stay new to the cell.
+/// under way, or one of them is no version the owner wrote to turn to a cell, words or an answer. Of a run abandoned
+/// meanwhile, whose round is being stopped, they are put in all the same, so that its session is known to hold them;
+/// its return is dropped, and they stay new to the cell.
 pub(crate) fn heard(
     flow: &Compiled,
     work: &mut Work,
@@ -179,9 +213,9 @@ pub(crate) fn heard(
         return Err(Refused::NoRoundUnderWay(run));
     }
     for (block, version) in &versions {
-        let words = (flow.blocks.get(block)).is_some_and(|b| b.writers.outside.as_deref() == Some(flow::WORDS));
+        let turning = flow.flow.interrupts(block);
         let written = r.written.iter().any(|w| w.block == *block && w.at == *version);
-        if !words || !written {
+        if !turning || !written {
             return Err(Refused::NoSuchBlock(block.clone()));
         }
     }

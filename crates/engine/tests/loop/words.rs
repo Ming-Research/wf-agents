@@ -27,13 +27,23 @@ fn versions(w: &W, block: &str) -> Vec<(Outsider, bool, String)> {
 }
 
 #[test]
-fn words_said_to_a_cell_are_the_next_version_of_its_words_which_runs_it_and_stops_a_later_round() {
+fn words_said_to_a_cell_are_the_next_version_of_its_words_which_runs_it_and_tells_a_later_round_to_hand_in_what_it_has()
+{
     let (mut w, run) = researching();
     let effects = w.returns(run, Came::hands_in(vec![handed("plan", None)]));
     let (implementing, cell, ..) = round(&effects);
     assert_eq!(cell, "implement");
     let effects = w.says(To::Cell("research".into()), "Keep it short.");
-    assert_eq!(effects, [Effect::Stop { run: implementing }]);
+    // The implementation's round is told, after its next use of a tool, to hand in what it has; it is not stopped.
+    let [Effect::Tell { run: told, telling }] = effects.as_slice() else {
+        panic!("the implementation is not told to hand in what it has: {effects:?}");
+    };
+    assert_eq!(*told, implementing);
+    assert!(telling.hurry);
+    assert_eq!(telling.block.as_str(), "research_words");
+    let versions = telling.versions.clone();
+    // The engine keeps that it told the round, so that the walk tells it once for these words.
+    assert_eq!(w.work.records.hurried.len(), 1);
     assert_eq!(
         versions(&w, "research_words"),
         [(Outsider::Outside, true, "The owner: Keep it short.".to_string())]
@@ -42,6 +52,11 @@ fn words_said_to_a_cell_are_the_next_version_of_its_words_which_runs_it_and_stop
         w.work.records.written.iter().all(|v| v.said_to.is_none()),
         "said to no cell but by the datum"
     );
+    // Its carrier gave it the text, so what it hands in is taken though it holds nothing its cell must write.
+    w.on(Event::SaidToRound {
+        run: implementing,
+        versions,
+    });
     let effects = w.returns(implementing, Came::hands_in(Vec::new()));
     let (run, cell, ..) = round(&effects);
     assert_eq!(cell, "research");
