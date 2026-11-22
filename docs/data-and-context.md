@@ -40,10 +40,9 @@ the owner's pauses, when a work is at its end.
    is consumed yet, and everything it watches is new.
 
 6. The engine chooses by this. Going through the flow from its start, it takes the first cell that watches a datum new
-   to it and that the flow lets run, and runs it for one round; but a cell run only by what cells after it wrote waits
-   while one after it, short of the next cell with preconditions, has something else to run for or waits for the
-   results of its calls. So the cells a change reaches run in one pass, and what they send back is answered after it,
-   all at once. Entering a cell means this: each round is one entering.
+   to it and that the flow lets run, whether a cell before it or after it wrote that datum, and runs it for one round.
+   So a judge's point reaches the maker before the next judge looks, and that judge sees what the maker made of it.
+   Entering a cell means this: each round is one entering.
 
 7. Nothing else runs a cell (principle a-cell-knows-only-its-data). The engine knows nothing of sessions either: a
    session that is reopened reaches it only as a new version of data (25), and it chooses as always.
