@@ -307,14 +307,9 @@ export function waitedWords(waited: Waited): string {
     case 'turn':
       return `the project's turn to check and merge, which W${waited.holder} holds`;
     case 'items':
-      return [itemsWords(waited.items), cancelledWords(waited.cancelled ?? [])].filter((x) => x !== '').join('; ');
+      return itemsWords(waited.items);
   }
 }
-
-/// Of the items a work waits for, those that were cancelled, which never merge, so that it waits for good; nothing
-/// where none was.
-export const cancelledWords = (items: number[]): string =>
-  items.length === 0 ? '' : `it waits for good on ${itemsWords(items)}, cancelled`;
 
 /// Items by their numbers, as a line names them: `#5`, `#5 and #7`, `#5, #6 and #7`.
 export function itemsWords(items: number[]): string {

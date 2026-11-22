@@ -1,14 +1,27 @@
 // @vitest-environment happy-dom
 // What the canvas draws of a work on its card, apart from drawing it: the colour of its age, how its rings move and the
-// mood its card takes.
+// mood its card takes; and what a fold hides, which counts at the item folded.
 
 import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Now } from '../works-api';
 import { stateOf } from '../works/words';
-import { age } from './items';
+import { age, type Shown } from './items';
 import {
   beatOf,
+  beneath,
+  DOT_AT,
+  DOT_R,
+  FOLD_MS,
+  FOLD_PAD,
+  FOLD_REACH,
+  foldWords,
+  inFunnel,
+  sizeOf,
+  type Turn,
+  turnEase,
+  UNFOLD_EASE,
+  UNFOLD_MS,
   DIM,
   eased,
   gatherAt,
@@ -61,6 +74,93 @@ describe("a card's mood", () => {
     const act: Now = { kind: 'round', cell: 'M2', run: 2, round: 1, since: 0 };
     expect(stateOf({ now: act, cells: at, waits: [] }).tone).toBe('running');
     expect(moodOf({ now: act, cells: at, waits: [] })).toBe('running');
+  });
+});
+
+describe('what a fold hides', () => {
+  const item = (id: number, children: Shown[] = [], shadow = false): Shown => ({
+    id,
+    title: `Item ${id}`,
+    standing: 'open',
+    asks: 0,
+    deliver: false,
+    blocked: 0,
+    unseen: false,
+    unread: 0,
+    begun: false,
+    shadow,
+    work: null,
+    children,
+  });
+  // 1 holds 2, which holds 3, folded away under 2, and a shadow of 4.
+  const folded = { folded: true, under: { open: 1, done: 0, cancelled: 0, elsewhere: 0 } };
+  const tree = item(1, [{ ...item(2, [item(3), item(4, [], true)]), fold: folded }]);
+
+  it('is what stands under an item at any depth, folded away or not, and no shadow, whose item stands elsewhere', () => {
+    expect(beneath(tree, (s) => s.id === 3)).toBe(true);
+    expect(beneath(tree, (s) => s.id === 2)).toBe(true);
+    expect(beneath(tree, (s) => s.id === 4)).toBe(false);
+    expect(beneath(tree, (s) => s.id === 1)).toBe(false);
+  });
+});
+
+describe('a fold', () => {
+  it("folds into a dot 9 pixels across, its middle 12 pixels past the card's edge, within the room a press on it takes", () => {
+    expect({ across: 2 * DOT_R, out: DOT_AT }).toEqual({ across: 9, out: 12 });
+    // The dot, and the disc of the pointer's tint round it, lie past the card's edge and within the room of a press.
+    expect(DOT_AT - DOT_R - FOLD_PAD).toBeGreaterThan(0);
+    expect(DOT_AT + DOT_R + FOLD_PAD).toBeLessThanOrEqual(FOLD_REACH);
+  });
+
+  it("turns in the page's motion for opening and closing a part: from none of the way to all of it, most of it early, never back and never past its end", () => {
+    expect([turnEase(-1), turnEase(0), turnEase(1), turnEase(2)]).toEqual([0, 0, 1, 1]);
+    // cubic-bezier(0.2, 0.8, 0.2, 1): half its time gone, some 95% of the way.
+    expect(turnEase(0.5)).toBeCloseTo(0.946, 2);
+    for (let t = 0; t < 1; t += 0.05) expect(turnEase(t + 0.05)).toBeGreaterThanOrEqual(turnEase(t));
+  });
+
+  it('grows on the page\'s curve, and shrinks on a gentle ease-out of its own: at once from its first frame, and all the way to the dot', () => {
+    const grows: Turn = { to: 1, from: 0, at: 0, ms: UNFOLD_MS };
+    const shrinks: Turn = { to: 0, from: 1, at: 0, ms: FOLD_MS };
+    // An unfold keeps the page's curve: half its time gone, some 95% of its size.
+    expect(sizeOf(grows, UNFOLD_MS / 2)).toBeCloseTo(turnEase(0.5, UNFOLD_EASE), 9);
+    expect(sizeOf(grows, UNFOLD_MS / 2)).toBeCloseTo(0.946, 2);
+    // A fold, in less time, moves in its first frame, by well under a quarter, shrinks at every frame after, and is
+    // still drawn at half its time.
+    expect(FOLD_MS).toBeLessThan(UNFOLD_MS);
+    expect(sizeOf(shrinks, 16)).toBeLessThan(0.95);
+    expect(sizeOf(shrinks, 16)).toBeGreaterThan(0.8);
+    for (let at = 16; at <= FOLD_MS; at += 16) expect(sizeOf(shrinks, at)).toBeLessThan(sizeOf(shrinks, at - 16));
+    expect(sizeOf(shrinks, FOLD_MS / 2)).toBeGreaterThan(0.2);
+    expect([sizeOf(shrinks, 0), sizeOf(shrinks, FOLD_MS), sizeOf(shrinks, 999)]).toEqual([1, 0, 0]);
+    // A fold reversed part of the way goes on from the size it had reached.
+    const back: Turn = { to: 0, from: 0.6, at: 0, ms: FOLD_MS * 0.6 };
+    expect(sizeOf(back, 0)).toBe(0.6);
+    expect(sizeOf(back, 16)).toBeLessThan(0.6);
+  });
+
+  it('is pressed in its funnel, between the curves the funnel is drawn with, and nowhere past either end of it', () => {
+    // A card 26 pixels high ending at 300, the items under it starting at 370, from 100 to 200 down the screen. Half
+    // way across, each curve has gone half way down: from -13 to 43.5, and from 13 to 106.5.
+    const at = (x: number, y: number) => inFunnel(300, -13, 13, 370, 100, 200, x, y);
+    expect([at(335, 44), at(335, 106), at(301, 0), at(369, 150)]).toEqual([true, true, true, true]);
+    expect([at(335, 43), at(335, 107), at(369, 0), at(299, 0), at(371, 150)]).toEqual(Array(5).fill(false));
+  });
+
+  it('says on pointing what a click on it does, then how many items stand under it by kind and how many shadows, any with none left out', () => {
+    expect(foldWords({ folded: false, under: { open: 2, done: 4, cancelled: 0, elsewhere: 0 } })).toBe(
+      'Fold the items under it away (e): open 2, done 4',
+    );
+    expect(foldWords({ folded: true, under: { open: 0, done: 1, cancelled: 2, elsewhere: 0 } })).toBe(
+      'Show the items under it (e): done 1, cancelled 2',
+    );
+    // The shadows under it are counted apart, after the items, as their items are shown elsewhere.
+    expect(foldWords({ folded: false, under: { open: 0, done: 0, cancelled: 0, elsewhere: 1 } })).toBe(
+      'Fold the items under it away (e): 1 shown elsewhere',
+    );
+    expect(foldWords({ folded: false, under: { open: 2, done: 0, cancelled: 0, elsewhere: 1 } })).toBe(
+      'Fold the items under it away (e): open 2, 1 shown elsewhere',
+    );
   });
 });
 

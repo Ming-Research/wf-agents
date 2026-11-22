@@ -5,7 +5,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { useKept, useKeptTicks } from './kept';
+import { useKept, useKeptFolds, useKeptTicks } from './kept';
 
 afterEach(() => {
   localStorage.clear();
@@ -62,5 +62,42 @@ describe('the boxes the owner ticks of what a view shows', () => {
     expect([...hook(() => useKeptTicks('k', ['open'], KINDS)).now()[0]]).toEqual(['done']);
     localStorage.setItem('k', 'shut,gone');
     expect([...hook(() => useKeptTicks('k', ['open'], KINDS)).now()[0]]).toEqual(['open']);
+  });
+});
+
+describe('the items the owner folds and unfolds in a tree', () => {
+  /// What is kept, by the items' numbers in order.
+  const inOrder = (folds: ReadonlyMap<number, boolean>) => [...folds].sort(([a], [b]) => a - b);
+
+  it('are none until the owner folds or unfolds one, and keep the last he chose of each, in the browser for the next page', () => {
+    const a = hook(() => useKeptFolds('k'));
+    expect(inOrder(a.now()[0])).toEqual([]);
+    expect(localStorage.getItem('k')).toBeNull();
+    act(() => a.now()[1](27, false));
+    act(() => a.now()[1](5, true));
+    act(() => a.now()[1](27, true));
+    expect(inOrder(a.now()[0])).toEqual([
+      [5, true],
+      [27, true],
+    ]);
+    expect(JSON.parse(localStorage.getItem('k') ?? '')).toEqual({ 5: 'folded', 27: 'folded' });
+    act(() => a.now()[1](5, false));
+    a.unmount();
+    expect(inOrder(hook(() => useKeptFolds('k')).now()[0])).toEqual([
+      [5, false],
+      [27, true],
+    ]);
+  });
+
+  it('take what an earlier page kept that is no such choice as none kept', () => {
+    for (const kept of ['not json', '[1, 2]', 'null', '"folded"']) {
+      localStorage.setItem('k', kept);
+      expect(inOrder(hook(() => useKeptFolds('k')).now()[0])).toEqual([]);
+    }
+    localStorage.setItem('k', JSON.stringify({ 3: 'folded', 4: 'open', x: 'folded', 0: 'unfolded', 5: 'unfolded' }));
+    expect(inOrder(hook(() => useKeptFolds('k')).now()[0])).toEqual([
+      [3, true],
+      [5, false],
+    ]);
   });
 });

@@ -1,7 +1,9 @@
 // The items as the console shows them: a tree by their dependencies, each item under the item whose dependency on it is
 // its main one, at the top the items nothing depends on; under each other item that depends on it, after the items
-// standing there, a shadow of it that points to its place. Done and cancelled items are left out, unless something
-// under them is still open or the owner asked to see every item. Each item carries its own state, its work while it
+// standing there, a shadow of it that points to its place, a done or a cancelled item as any other. The tree holds the
+// items that stand as one of the kinds the owner ticks, and what stands over them. Each item with items under it folds
+// them away, as the owner last chose or else where neither it nor any of them is open, and counts them by how they
+// stand, and apart the shadows among them, which fold with them. Each item carries its own state, its work while it
 // goes on, whether the work has begun, and how many of the things its work waits for wait for the owner; and a work's
 // age and what it has taken, as a card and the item's window say them. Pure, so that it is tested on its own.
 //
@@ -50,6 +52,13 @@ export type ShownWork = {
 /// The lines a work added and removed, and in how many files.
 export type Lines = { added: number; removed: number; files: number };
 
+/// How many items stand under an item, at every depth, by how they stand; and apart, how many shadows stand there,
+/// each of an item that stands elsewhere and is counted where it stands.
+export type Under = Record<ItemStanding, number> & { elsewhere: number };
+
+/// Whether the items under an item are folded away, and how many stand there by how they stand.
+export type Fold = { folded: boolean; under: Under };
+
 /// The lines a work added and removed, as its summary counts them; none where it changed no line, or the engine has
 /// nothing to tell.
 export function linesOf(w: Pick<Summary, 'changed'>): Lines | null {
@@ -69,7 +78,7 @@ export type Shown = {
   /// It is a deliverable: an item that says what is to be delivered and is made of the items under it, with no work
   /// of its own to show. Its flow says so (`deliver`); until the engine has that flow, the page's rule above does.
   deliver: boolean;
-  /// How many items it depends on are not merged yet.
+  /// How many items it depends on are still open: neither merged nor cancelled, which it no longer waits for.
   blocked: number;
   /// New to the owner, or changed since they last read it (mock: `mock.ts`).
   unseen: boolean;
@@ -82,7 +91,11 @@ export type Shown = {
   shadow: boolean;
   /// Its work while it goes on and says something: once it has begun, or while it is paused, at fault or waits.
   work: ShownWork | null;
+  /// Every item under it, whether or not they are folded away.
   children: Shown[];
+  /// Of an item with items or shadows under it: whether they are folded away, and how many stand there as the tree
+  /// holds them. None for an item with nothing under it, and for a shadow.
+  fold?: Fold | null;
 };
 
 /// What an item's work makes of it.
@@ -112,8 +125,13 @@ const drawn = (w: Summary) =>
     w.now.kind === 'waits' ||
     w.now.kind === 'stalled');
 
-/// The tree of the items that stand as one of `shown` stands, and what stands over them.
-export function shownTree(data: Items, shown: ReadonlySet<ItemStanding> = new Set(['open'])): Shown[] {
+/// The tree of the items that stand as one of `shown` stands, and what stands over them; each item the owner folded or
+/// unfolded in `folds` as he last chose, the others folded where neither they nor anything under them is open.
+export function shownTree(
+  data: Items,
+  shown: ReadonlySet<ItemStanding> = new Set(['open']),
+  folds: ReadonlyMap<number, boolean> = new Map(),
+): Shown[] {
   const byId = new Map(data.items.map((i) => [i.number, i]));
   const standing = (id: number): ItemStanding => standingOf(byId.get(id));
   // Each item's main dependent: the first by number of the items that depend on it.
@@ -161,13 +179,22 @@ export function shownTree(data: Items, shown: ReadonlySet<ItemStanding> = new Se
       w !== undefined &&
       !started(w) &&
       (under.get(id) ?? []).some((c) => keep(c) && !making.has(c));
+    const children = [...(under.get(id) ?? [])]
+      .filter((c) => keep(c) && !making.has(c))
+      .sort((a, b) => a - b)
+      .map(make);
+    const shadows = [...(besides.get(id) ?? [])]
+      .filter(keep)
+      .sort((a, b) => a - b)
+      .map(shadow);
     const shown: Shown = {
       id,
       title: i?.title ?? '',
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w),
       deliver: deliverable || w?.delivers === true,
-      blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) !== 'done').length,
+      // A cancelled item it depends on holds it back no more: only what is still open does.
+      blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) === 'open').length,
       // New to the owner exactly when something is unread: one fact, not two.
       unseen: (mock?.unread ?? 0) > 0,
       unread: mock?.unread ?? 0,
@@ -192,16 +219,9 @@ export function shownTree(data: Items, shown: ReadonlySet<ItemStanding> = new Se
             }
           : null,
       endedLines: w !== undefined && !drawn(w) ? linesOf(w) : null,
-      children: [
-        ...[...(under.get(id) ?? [])]
-          .filter((c) => keep(c) && !making.has(c))
-          .sort((a, b) => a - b)
-          .map(make),
-        ...[...(besides.get(id) ?? [])]
-          .filter(keep)
-          .sort((a, b) => a - b)
-          .map(shadow),
-      ],
+      children: [...children, ...shadows],
+      fold:
+        children.length + shadows.length === 0 ? null : foldOf(standing(id), children, shadows.length, folds.get(id)),
     };
     making.delete(id);
     return shown;
@@ -224,6 +244,20 @@ export function shownTree(data: Items, shown: ReadonlySet<ItemStanding> = new Se
     .filter((i) => !above.has(i.number) && keep(i.number))
     .sort((a, b) => a.number - b.number)
     .map((i) => make(i.number));
+}
+
+/// The fold of an item that stands as `own` stands, with `children` standing under it and `shadows` shadows beside
+/// them: how many items stand under it by how they stand, at every depth, and how many shadows; folded as the owner
+/// last chose (`chosen`), or else where neither it nor any item under it is open, so that what still has open work in
+/// it shows how far it has come. A shadow's item, which stands elsewhere, does not count for that.
+function foldOf(own: ItemStanding, children: Shown[], shadows: number, chosen: boolean | undefined): Fold {
+  const under: Under = { open: 0, done: 0, cancelled: 0, elsewhere: shadows };
+  for (const c of children) {
+    under[c.standing] += 1;
+    for (const s of STANDINGS) under[s] += c.fold?.under[s] ?? 0;
+    under.elsewhere += c.fold?.under.elsewhere ?? 0;
+  }
+  return { folded: chosen ?? (own !== 'open' && under.open === 0), under };
 }
 
 /// How long a work has gone on, as a short label and the tone of its age: under half an hour, under an hour, or an

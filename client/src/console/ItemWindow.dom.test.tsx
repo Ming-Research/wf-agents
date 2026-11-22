@@ -194,13 +194,13 @@ describe('the panel of the item selected', () => {
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
   });
 
-  it('says the items a work waits for once, on its line, as the engine gives them, one cancelled said so', () => {
-    const now: Now = { kind: 'waits', at: 'S1', on: [{ kind: 'items', items: [5, 7], cancelled: [7] }] };
+  it('says the items a work waits for once, on its line, as the engine gives them', () => {
+    const now: Now = { kind: 'waits', at: 'S1', on: [{ kind: 'items', items: [5, 7] }] };
     const el = drawQuestions(now, [], answered([]));
     const [itemLine, workLine] = lines(el);
     expect(itemLine).not.toContain('#5');
     expect(workLine).toContain('Waiting for the items it depends on');
-    expect(workLine).toContain('#5 and #7; it waits for good on #7, cancelled');
+    expect(workLine).toContain('#5 and #7');
     expect(el.textContent?.split('Waiting for the items it depends on').length).toBe(2);
   });
 

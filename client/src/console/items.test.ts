@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Item, Items, Now, Summary, Wait } from '../works-api';
-import { asksOf, shownTree, type Shown } from './items';
+import { asksOf, STANDINGS, shownTree, type Shown } from './items';
 import { indexTree } from './tree';
 
 const CELLS = ['plan', 'implement', 'merge'];
@@ -50,6 +50,20 @@ function item(number: number, standing: 'open' | 'done' | 'cancelled', dependsOn
 /// A tree as lines: each item's number, indented by its depth, a shadow's marked.
 const lines = (roots: Shown[], depth = 0): string[] =>
   roots.flatMap((r) => [`${'  '.repeat(depth)}${r.id}${r.shadow ? ' shadow' : ''}`, ...lines(r.children, depth + 1)]);
+
+/// A tree as the console draws it: as `lines`, without what a folded item folds away, the folded item marked with how
+/// many stand under it by how they stand.
+const drawnLines = (roots: Shown[], depth = 0): string[] =>
+  roots.flatMap((r) => {
+    const head = `${'  '.repeat(depth)}${r.id}${r.shadow ? ' shadow' : ''}`;
+    if (r.fold?.folded !== true) return [head, ...drawnLines(r.children, depth + 1)];
+    const under = r.fold.under;
+    const counts = STANDINGS.filter((s) => under[s] > 0).map((s) => ` ${s} ${under[s]}`);
+    if (under.elsewhere > 0) counts.push(` elsewhere ${under.elsewhere}`);
+    return [`${head} folded${counts.join('')}`];
+  });
+
+const ALL = new Set(STANDINGS);
 
 describe('the tree the console shows', () => {
   // 1 needs 2 and 3, and 4 needs 3 too, its main dependent 1, the first by number; 3 needs 5, which is cancelled; 6 and
@@ -131,6 +145,108 @@ describe('the tree the console shows', () => {
   });
 });
 
+describe('the folds of the tree', () => {
+  // 10, open, depends on 11 and 12. 11, done, depends on 13 and 14, both done. 12, done, depends on 15, done, which
+  // depends on 16, done, and 17, cancelled. 18, open, depends on 19, open, and 20, done. 21, cancelled, depends on 22,
+  // open.
+  const data: Items = {
+    items: [
+      item(10, 'open', [11, 12]),
+      item(11, 'done', [13, 14]),
+      item(12, 'done', [15]),
+      item(13, 'done'),
+      item(14, 'done'),
+      item(15, 'done', [16, 17]),
+      item(16, 'done'),
+      item(17, 'cancelled'),
+      item(18, 'open', [19, 20]),
+      item(19, 'open'),
+      item(20, 'done'),
+      item(21, 'cancelled', [22]),
+      item(22, 'open'),
+    ],
+  };
+
+  it('fold an item where neither it nor anything under it is open, and leave the others unfolded, each counting what stands under it by how it stands', () => {
+    expect(drawnLines(shownTree(data, ALL))).toEqual([
+      '10',
+      '  11 folded done 2',
+      '  12 folded done 2 cancelled 1',
+      '18',
+      '  19',
+      '  20',
+      '21',
+      '  22',
+    ]);
+    // A folded item still holds what stands under it; an item with nothing under it has no fold.
+    const [ten] = shownTree(data, ALL);
+    expect(ten.fold).toEqual({ folded: false, under: { open: 0, done: 6, cancelled: 1, elsewhere: 0 } });
+    expect(ten.children[0].children.map((c) => c.id)).toEqual([13, 14]);
+    expect(ten.children[0].children[0].fold).toBeNull();
+  });
+
+  it('fold or unfold an item as the owner last chose, over their own rule', () => {
+    const chosen = new Map([
+      [12, false],
+      [21, true],
+    ]);
+    expect(drawnLines(shownTree(data, ALL, chosen))).toEqual([
+      '10',
+      '  11 folded done 2',
+      '  12',
+      '    15 folded done 1 cancelled 1',
+      '18',
+      '  19',
+      '  20',
+      '21 folded open 1',
+    ]);
+  });
+
+  it('fold the shadows under an item as well, an item with shadows alone under it too, counting them apart', () => {
+    // 1, open, depends on 2 and 3, both open, which stand under it; 4, done, depends on 2, and 5, open, on 3: a shadow
+    // of each stands under them, alone. 6, done, depends on 7, done, and on 2, its shadow beside 7.
+    const shadowed: Items = {
+      items: [
+        item(1, 'open', [2, 3]),
+        item(2, 'open'),
+        item(3, 'open'),
+        item(4, 'done', [2]),
+        item(5, 'open', [3]),
+        item(6, 'done', [7, 2]),
+        item(7, 'done'),
+      ],
+    };
+    expect(drawnLines(shownTree(shadowed, ALL))).toEqual([
+      '1',
+      '  2',
+      '  3',
+      '4 folded elsewhere 1',
+      '5',
+      '  3 shadow',
+      '6 folded done 1 elsewhere 1',
+    ]);
+    const five = shownTree(shadowed, ALL).find((s) => s.id === 5);
+    expect(five?.fold).toEqual({ folded: false, under: { open: 0, done: 0, cancelled: 0, elsewhere: 1 } });
+  });
+
+  it('count and fold only what the boxes ticked show, and hide what is under an item whatever the boxes show', () => {
+    expect(drawnLines(shownTree(data))).toEqual(['10', '18', '  19', '21', '  22']);
+    expect(drawnLines(shownTree(data, new Set(['done'])))).toEqual([
+      '10',
+      '  11 folded done 2',
+      '  12 folded done 2',
+      '18',
+      '  20',
+    ]);
+    expect(drawnLines(shownTree(data, new Set(['open']), new Map([[18, true]])))).toEqual([
+      '10',
+      '18 folded open 1',
+      '21',
+      '  22',
+    ]);
+  });
+});
+
 describe('what a card shows of an item', () => {
   const waits: Now = {
     kind: 'waits',
@@ -162,6 +278,17 @@ describe('what a card shows of an item', () => {
     // A card's mark is the same count.
     const shown = shownTree({ items: [{ ...item(1, 'open'), work: { ...work(1, waits, ['done', 'resting', 'notYet']), waits: listed } }] });
     expect(shown[0].asks).toBe(3);
+  });
+
+  it('counts the items an item waits for as those it depends on that are still open: a cancelled one, standing under it, holds it back no more', () => {
+    const items = [item(1, 'open', [2, 3, 4]), item(2, 'open'), item(3, 'done'), item(4, 'cancelled')];
+    const shown = shownTree({ items }, ALL);
+    expect(shown[0].blocked).toBe(1);
+    expect(shown[0].children.map((s) => [s.id, s.standing])).toEqual([
+      [2, 'open'],
+      [3, 'done'],
+      [4, 'cancelled'],
+    ]);
   });
 
   it('shows the work of an item once it has begun, and while it goes on; until it has begun, the items it waits for', () => {
