@@ -171,6 +171,8 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 }
             }
         };
+        // The version of the flow shown that the engine starts with, which the page says beside the files it reads.
+        let installed = web::installed_version(&flows);
         let (service, inbox) = match Service::open(Box::new(store), flows, carriers, Arc::new(SystemClock)) {
             Ok(opened) => opened,
             Err(fault) => {
@@ -192,6 +194,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         let in_dir = shown.clone();
         let mut flows_shown = web::Flows::dirs(shown.clone(), Box::new(move |_: &Source| has(&in_dir)));
         flows_shown.alike.project = project;
+        flows_shown.installed = installed;
         // One task keeps the copies, a step at a time, with the time the loop reads from its clock; an engine that
         // keeps none says so on the route of the copies.
         let handle = service.handle();

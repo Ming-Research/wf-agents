@@ -21,6 +21,7 @@ fn beside_the_repository_s_flows() -> axum::Router {
             flow: None,
             project: None,
         },
+        installed: None,
     })
 }
 
