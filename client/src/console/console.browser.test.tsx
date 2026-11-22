@@ -207,6 +207,29 @@ describe('the tree in columns', () => {
     expect(canvas().title).toBe('');
   });
 
+  it('draws a fold as it stands at the end of its turn in the first frame after its time, however far apart the frames come', () => {
+    const under = { open: 1, done: 0, cancelled: 0 };
+    const tree = (folded: boolean) => [{ ...card(1, [card(2)]), fold: { folded, under } }];
+    scene.show(tree(false));
+    settle(scene);
+    // A frame a second, as a browser gives a page it does not show: the first frame after the fold is its end, with
+    // nothing left over of what drew in to the dot, and the first after the unfold has it whole.
+    scene.show(tree(true));
+    scene.step(1000);
+    expect(scene.place().turns).toBe(0);
+    expect(scene.stats.items).toBe(1);
+    scene.show(tree(false));
+    scene.step(1000);
+    expect(scene.place().turns).toBe(0);
+    expect(scene.stats.items).toBe(2);
+    // At the page's own rate, the turn is under way for as many frames as its time holds.
+    scene.show(tree(true));
+    for (let k = 1; k < TURN_MS / 16; k += 1) scene.step(16);
+    expect(scene.place().turns).toBe(1);
+    scene.step(16);
+    expect(scene.place().turns).toBe(0);
+  });
+
   it('asks for the folds over an item folded away to be opened, at a click on its shadow or its selection, and selects it once it is drawn', async () => {
     const told = vi.fn<(item: Shown | null) => void>();
     const turned = vi.fn<(id: number, folded: boolean) => void>();

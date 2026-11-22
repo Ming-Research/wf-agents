@@ -2034,9 +2034,20 @@ export class SnapScene {
   /// does not show, so a test that waits for them waits on the machine's load; stepping, it waits on nothing.
   step(ms = 16): void {
     if (this.tree === null) return;
+    const now = (this.lastDraw > 0 ? this.lastDraw : performance.now()) + ms;
+    const step = this.advance(now);
+    if (this.tree !== null) this.draw(this.tree, now, step);
+  }
+
+  /// Goes on to the frame drawn at `now`: the time since the frame before, by which the scene's own clock goes on; and
+  /// each fold whose turn that time ends, drawn as it then stands in this same frame, however long the browser took to
+  /// give it. Gives that time.
+  private advance(now: number): number {
+    const step = this.lastDraw > 0 ? Math.max(0, now - this.lastDraw) : 16;
+    this.lastDraw = now;
+    this.clock += step;
     this.endTurns();
-    if (this.tree === null) return;
-    this.draw(this.tree, (this.lastDraw > 0 ? this.lastDraw : performance.now()) + ms);
+    return step;
   }
 
   /// Draws `frames` frames, every sixth with a scroll of most of a row over a column, waiting for the GPU each; gives
@@ -2267,9 +2278,8 @@ export class SnapScene {
     if (this.last > 0) this.frames.push(now - this.last);
     this.last = now;
     if (this.frames.length > 120) this.frames.shift();
-    // A fold whose turn is over is drawn as it stands before the frame is.
-    this.endTurns();
-    if (this.tree !== null) this.draw(this.tree, now);
+    const step = this.advance(now);
+    if (this.tree !== null) this.draw(this.tree, now, step);
     const sorted = [...this.frames].sort((a, b) => a - b);
     const mean = sorted.reduce((a, b) => a + b, 0) / Math.max(1, sorted.length);
     this.stats = {
@@ -2280,14 +2290,12 @@ export class SnapScene {
     };
   };
 
-  private draw(t: Tree, now: number) {
+  /// Draws the frame at `now`, `step` milliseconds after the one before ([`advance`]).
+  private draw(t: Tree, now: number, step: number) {
     const { width, height } = this.app.screen;
     const line = height / 2;
-    // The column followed goes a part of the way to where it is taken; the others after it, out from it each way.
-    const step = this.lastDraw > 0 ? Math.max(0, now - this.lastDraw) : 16;
-    this.lastDraw = now;
-    // The folds turning go on with the scene's own time, and the columns take the sizes they give.
-    this.clock += step;
+    // The columns take the sizes the folds turning give them now. The column followed goes a part of the way to where
+    // it is taken; the others after it, out from it each way.
     if (this.turns.size > 0) this.shape();
     const was = this.columns.map((c) => c.at);
     this.columns.forEach((c, d) => {
