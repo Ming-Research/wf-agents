@@ -117,6 +117,27 @@ async fn start_twice_gives_one_worktree() {
     assert_eq!(worktrees.lines().filter(|l| l.starts_with("worktree ")).count(), 2);
 }
 
+// A command run in a worktree may leave directories that do not let their owner take a file out, at any depth: the
+// worktree is still taken away, since git alone cannot, and the repository no longer names it.
+#[tokio::test]
+async fn a_worktree_with_directories_that_cannot_be_written_or_read_is_taken_away() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = Repo::new("true");
+    let started = start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+    let (outer, inner) = (started.place.dir.join("sealed"), started.place.dir.join("sealed/inner"));
+    std::fs::create_dir_all(&inner).unwrap();
+    std::fs::write(inner.join("entry"), "x").unwrap();
+    for (dir, mode) in [(&inner, 0o555), (&outer, 0o000)] {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    remove(&repo.project, &repo.place(WORK))
+        .await
+        .expect("the worktree is taken away");
+    assert!(!started.place.dir.exists());
+    let worktrees = run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
+    assert_eq!(worktrees.lines().filter(|l| l.starts_with("worktree ")).count(), 1);
+}
+
 #[tokio::test]
 async fn the_merge_puts_the_checked_commit_on_main_once() {
     let repo = Repo::new("true");
@@ -309,4 +330,97 @@ fn every_key_that_could_run_a_program_is_named() {
     assert!(allowed(&patterns, "filter.lfs.clean"));
     assert!(allowed(&patterns, "core.pager"));
     assert!(!allowed(&patterns, "filter.crypt.clean"));
+}
+
+// What a worktree holds that is not committed is the change of a file git tracks, staged or not; a file git does not
+// track is none, however many there are, and is named apart: a directory of them as one line, what git ignores not at
+// all.
+#[tokio::test]
+async fn a_file_git_does_not_track_is_no_change_and_an_edit_of_a_tracked_one_is() {
+    let repo = Repo::new("true");
+    let dir = &repo.project.repo;
+    commit(dir, ".gitignore", "target/\n");
+    assert_eq!(uncommitted(dir).await.unwrap(), "");
+    assert_eq!(untracked(dir).await.unwrap(), "");
+
+    std::fs::write(dir.join("notes.txt"), "Notes.\n").unwrap();
+    std::fs::create_dir_all(dir.join("cache/deep")).unwrap();
+    std::fs::write(dir.join("cache/one"), "1\n").unwrap();
+    std::fs::write(dir.join("cache/deep/two"), "2\n").unwrap();
+    std::fs::create_dir_all(dir.join("target")).unwrap();
+    std::fs::write(dir.join("target/out"), "built\n").unwrap();
+    assert_eq!(
+        uncommitted(dir).await.unwrap(),
+        "",
+        "files git does not track are no change"
+    );
+    assert_eq!(untracked(dir).await.unwrap(), "cache/\nnotes.txt");
+
+    std::fs::write(dir.join("greeting.txt"), "Hello, there.\n").unwrap();
+    assert_eq!(uncommitted(dir).await.unwrap(), " M greeting.txt");
+    run(dir, &["add", "greeting.txt"]);
+    assert_eq!(
+        uncommitted(dir).await.unwrap(),
+        "M  greeting.txt",
+        "a staged edit is one too"
+    );
+    assert_eq!(
+        untracked(dir).await.unwrap(),
+        "cache/\nnotes.txt",
+        "a tracked file is not untracked"
+    );
+}
+
+// Reference: the output of `git status --porcelain` as git's documentation gives its status codes (`A ` added, ` D`
+// deleted, `R ` renamed, ` T` type changed). Whatever git tracks and the worktree or index changes is not committed;
+// the one definition the check, the round's end and the repository's merge share must list each kind of it, and must
+// not depend on the repository's own configuration of how status shows files git does not track.
+#[tokio::test]
+async fn every_change_to_a_tracked_file_is_uncommitted_whatever_the_repository_says_of_untracked_files() {
+    let repo = Repo::new("true");
+    let dir = &repo.project.repo;
+    commit(dir, "old.txt", "Old.\n");
+    commit(dir, "gone.txt", "Gone.\n");
+    commit(dir, "same.txt", "Same.\n");
+    // Where the repository's configuration says to show every untracked file, the list still holds none.
+    run(dir, &["config", "status.showUntrackedFiles", "all"]);
+    std::fs::write(dir.join("notes.txt"), "Notes.\n").unwrap();
+    assert_eq!(uncommitted(dir).await.unwrap(), "");
+
+    // A new file that is staged is tracked, and not committed.
+    std::fs::write(dir.join("new.txt"), "New.\n").unwrap();
+    run(dir, &["add", "new.txt"]);
+    assert_eq!(uncommitted(dir).await.unwrap(), "A  new.txt");
+    // A tracked file deleted, not staged, and one removed from the index.
+    std::fs::remove_file(dir.join("gone.txt")).unwrap();
+    run(dir, &["rm", "-q", "same.txt"]);
+    // A rename, staged.
+    run(dir, &["mv", "old.txt", "renamed.txt"]);
+    let listed = uncommitted(dir).await.unwrap();
+    let mut lines: Vec<&str> = listed.lines().collect();
+    lines.sort_unstable();
+    assert_eq!(
+        lines,
+        [" D gone.txt", "A  new.txt", "D  same.txt", "R  old.txt -> renamed.txt"],
+        "{listed}"
+    );
+    // The untracked file is still not among them, and is the one `untracked` gives.
+    assert_eq!(untracked(dir).await.unwrap(), "notes.txt");
+}
+
+// Reference: git's documentation of `ls-files --others --exclude-standard --directory`: a directory classified as
+// "other" is shown by its name alone, and one that holds a tracked file is not, its untracked files shown one by one;
+// a name with a space is a line of its own, unquoted.
+#[tokio::test]
+async fn untracked_names_a_directory_with_a_tracked_file_by_its_files_and_a_name_with_a_space_whole() {
+    let repo = Repo::new("true");
+    let dir = &repo.project.repo;
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    commit(dir, "src/lib.txt", "Lib.\n");
+    std::fs::write(dir.join("src/extra.txt"), "Extra.\n").unwrap();
+    std::fs::write(dir.join("my notes.txt"), "Notes.\n").unwrap();
+    std::fs::create_dir_all(dir.join("out dir")).unwrap();
+    std::fs::write(dir.join("out dir/one"), "1\n").unwrap();
+    assert_eq!(untracked(dir).await.unwrap(), "my notes.txt\nout dir/\nsrc/extra.txt");
+    assert_eq!(uncommitted(dir).await.unwrap(), "");
 }

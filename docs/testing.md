@@ -69,7 +69,9 @@ of each part.
    view draws from it, and in a real browser for what only a browser does: drawing, layout, the pointer, the keys and
    motion. A fault that shows only in a browser gets its test in a browser (principle
    a-defect-is-seen-before-it-is-fixed), which runs in CI, as no tool an agent has opens one (principle
-   no-tool-opens-a-browser).
+   no-tool-opens-a-browser). A browser test of the page waits on a condition with `expect.poll`, never for a fixed time,
+   and the bound of that wait and a test's own limit are set once, in the browser project of `client/vite.config.ts`:
+   the machine that runs the tests runs other work too, so what a test waits for takes longer at times.
 
 9. A test that fails and then passes on the same commit is a fault of the test or of the code, never noise: it is
    kept as an observation that becomes an item (decision a-red-the-change-did-not-make-is-not-sent-back).
@@ -199,10 +201,11 @@ of each part.
 28. What is read of each round is read where it shows: its inputs on the round's panel, as they were sent, and in its
     line's system prompt, against what its cell names and the order the flow declares (principle cache-order); its
     return, what was sent back and why, and the engine's reason for what runs next, on the work's page; what its agent
-    reported in `observations`, in the Observations view; its numbers on the same panel, each against the line of its
-    own history (principle judged-by-own-history), and in the System view what went past those lines; and in the
-    engine's log, what the engine met outside any work. The assistant reads the same through the commands that show a
-    work (principle a-look-brings-back-little).
+    reported in `observations`, in the Observations view; its numbers on the same panel, and each against the line of
+    its own history (principle judged-by-own-history) in the data the page is given, with what went past those lines in
+    the System data and in `wf-agents system`, none of it drawn on the page (decision
+    what-went-past-its-line-is-given-in-data-only); and in the engine's log, what the engine met outside any work. The
+    assistant reads the same through the commands that show a work (principle a-look-brings-back-little).
 
 29. Every return sent back, and every way round between the same two cells after the first, is a finding (principles
     converging-fixes and report-all-at-once). Each finding is recorded at once, as an observation or an item. A fault of

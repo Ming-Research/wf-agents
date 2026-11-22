@@ -15,6 +15,11 @@ When a round of a line that changes only the tests ends, it is sent back for eac
 A line that changes only the tests is told in its system prompt the paths it may change, and that if a test must go into another file, it says so in what it hands in.
 - rejected: an agent proposed telling it only to change the files those paths match; the owner rejected it, because the line was then not told what to do with a test that must go into a source file.
 
+### decision a-return-that-hands-in-leaves-the-worktree-committed
+A return asking for no call, from a line that may change the work, is sent back while the worktree holds a tracked file's uncommitted change or an unfinished merge; untracked files do not stop it.
+- rejected: an agent proposed leaving the judgment to the check before the merge and only dropping untracked files from what counts as not committed; the owner rejected it, because a tracked file a local command rewrote would still stop the work before the merge, with nothing to run the check again.
+- rejected: an agent proposed that the engine delete every untracked file as a round ends; the owner rejected it, because it would delete a new file the agent forgot to commit, losing work already paid for, and cannot tell a cache from a new file.
+
 ### decision heavy-commands-are-the-projects
 Every agent is refused pushing, which the files beside the flows refuse to every agent, and the heavy commands that its project's declaration names.
 - replaced: A list of heavy commands written in the engine, other projects' commands among them, with pushing refused in the code, was on main; the owner changed it, because what belongs to a project goes in its own declaration, and only the engine pushes.

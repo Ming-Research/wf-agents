@@ -109,6 +109,7 @@ impl Host for Fake {
         commit: &str,
         _: &str,
         asking: Asking,
+        _: &tokio::sync::Mutex<()>,
         _: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
         self.given(branch);

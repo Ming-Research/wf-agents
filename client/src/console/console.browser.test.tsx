@@ -118,10 +118,11 @@ describe('the tree in columns', () => {
   const move = (x: number, y: number) => canvas().dispatchEvent(new PointerEvent('pointermove', at(x, y)));
   const wheel = (deltaX: number, deltaY: number) =>
     canvas().dispatchEvent(new WheelEvent('wheel', { deltaX, deltaY, bubbles: true, cancelable: true }));
-  /// A click where the pointer is, after a frame that finds the item under it.
-  async function click(x: number, y: number) {
+  /// A click where the pointer is, after a frame that finds the item under it, drawn by the scene's own `step`: the
+  /// browser gives a frame when it will, and a click that waited for one would wait on the machine's load.
+  function click(x: number, y: number) {
     move(x, y);
-    await drew();
+    scene.step();
     canvas().dispatchEvent(new PointerEvent('pointerdown', at(x, y)));
     canvas().dispatchEvent(new PointerEvent('pointerup', at(x, y)));
   }
@@ -173,13 +174,13 @@ describe('the tree in columns', () => {
     settle(scene);
     // Item 2 stands in the middle; item 1 a row above it.
     const x = scene.place().left + 100;
-    await click(x, line);
+    click(x, line);
     expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 2 }));
-    await click(x, line);
+    click(x, line);
     expect(told).toHaveBeenLastCalledWith(null);
-    await click(x, line - ROW);
+    click(x, line - ROW);
     expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 1 }));
-    await click(x, HEIGHT - 20);
+    click(x, HEIGHT - 20);
     expect(told).toHaveBeenLastCalledWith(null);
   });
 
@@ -196,7 +197,7 @@ describe('the tree in columns', () => {
     // Item 1 stands in the middle of the first column and item 2 level with it in the second: the funnel between them
     // is at the middle of the screen, all the way between the columns.
     const left = scene.place().left;
-    await click(left + NODE_W + (PITCH - NODE_W) / 2, line);
+    click(left + NODE_W + (PITCH - NODE_W) / 2, line);
     expect(turned).toHaveBeenLastCalledWith(1, true);
     expect(told).not.toHaveBeenCalled();
     expect(canvas().title).toBe('Fold the items under it away (e): open 1');
@@ -211,7 +212,7 @@ describe('the tree in columns', () => {
     // The dot just past the card's edge is the fold now: a click on it shows what is under it again, at once, growing
     // out of the dot over the fold's time.
     told.mockClear();
-    await click(left + NODE_W + DOT_AT, line);
+    click(left + NODE_W + DOT_AT, line);
     expect(turned).toHaveBeenLastCalledWith(1, false);
     expect(told).not.toHaveBeenCalled();
     expect(canvas().title).toBe('Show the items under it (e): open 1');
@@ -221,11 +222,11 @@ describe('the tree in columns', () => {
     settle(scene);
     expect(scene.place().turns).toBe(0);
     // A click on the card selects it and folds nothing; past the edge of an item with nothing under it, nothing folds.
-    await click(left + 100, line);
+    click(left + 100, line);
     expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 1 }));
     scene.show([card(1)]);
     settle(scene);
-    await click(left + NODE_W + DOT_AT, line);
+    click(left + NODE_W + DOT_AT, line);
     expect(turned).toHaveBeenCalledTimes(2);
     expect(canvas().title).toBe('');
   });
@@ -241,13 +242,13 @@ describe('the tree in columns', () => {
     settle(scene);
     // Item 1 stands in the middle of the first column: its funnel leaves its right edge there.
     const left = scene.place().left;
-    await click(left + NODE_W + 4, line);
+    click(left + NODE_W + 4, line);
     expect(turned).toHaveBeenLastCalledWith(1, true);
     expect(canvas().title).toBe('Fold the items under it away (e): 1 shown elsewhere');
     scene.show(tree(true));
     settle(scene);
     expect(scene.stats.items).toBe(3);
-    await click(left + NODE_W + DOT_AT, line);
+    click(left + NODE_W + DOT_AT, line);
     expect(turned).toHaveBeenLastCalledWith(1, false);
     expect(canvas().title).toBe('Show the items under it (e): 1 shown elsewhere');
   });
@@ -486,7 +487,7 @@ describe('the tree in columns', () => {
     scene.onSelect = told;
     // The shadow is the only item of the second column, its middle half a row from the column's top.
     const p = scene.place();
-    await click(p.left + PITCH + 100, line + (0.5 - p.columns[1].at) * ROW);
+    click(p.left + PITCH + 100, line + (0.5 - p.columns[1].at) * ROW);
     expect(turned).toHaveBeenLastCalledWith(1, false);
     expect(told).not.toHaveBeenCalled();
     scene.show(tree(false));
@@ -514,7 +515,7 @@ describe('the tree in columns', () => {
     settle(scene);
     const p = scene.place();
     // The shadow is the second of its column, its middle 1.5 rows from the column's top.
-    await click(p.left + PITCH + 100, line + (1.5 - p.columns[1].at) * ROW);
+    click(p.left + PITCH + 100, line + (1.5 - p.columns[1].at) * ROW);
     expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 3, shadow: false }));
     expect(scene.place().driver).toBe(1);
     settle(scene);

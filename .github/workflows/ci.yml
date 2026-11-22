@@ -268,17 +268,24 @@ jobs:
         env:
           PARTITION: ${{ matrix.partition }}
         run: |
+          rm -f target/nextest/ci/junit.xml
           cargo nextest run --workspace --locked --cargo-profile ci --profile ci --no-fail-fast \
             --partition "count:$PARTITION/3"
       # What became of each test of the job, in a file named by the job, so that the engine tells what each job
       # reported: a step of the job's own that failed, or its tests' where they wrote nothing, is said in it as a
       # testsuite of the job's name with an error naming the step, as a unit not built is, whatever became of the steps
       # before; a job red with no failed test of its own is then not run again by the check before a merge.
+      #
+      # They are the results of this run and of no earlier one. The file is in the runner's temporary directory, which
+      # the runner empties as a job begins, while `target/` stays between runs; nextest's own `junit.xml`, the one
+      # file of them in `target/`, is removed as the tests step begins and is taken only if that step ran, so that
+      # neither a build that fails nor a step before it that failed leaves the results of the last run to be uploaded
+      # as this one's.
       - name: Name the results
         if: ${{ !cancelled() }}
         env:
           JOB: test ${{ matrix.partition }} of 3
-          RESULTS: target/nextest/ci/test ${{ matrix.partition }} of 3.xml
+          RESULTS: ${{ runner.temp }}/test ${{ matrix.partition }} of 3.xml
           TESTED: ${{ steps.tests.outcome }} Test
           STEPS: |
             ${{ steps.checkout.outcome }} Check out the commit
@@ -289,7 +296,7 @@ jobs:
             ${{ steps.page.outcome }} Build the page
         run: |
           junit=target/nextest/ci/junit.xml
-          if [ -f "$junit" ]; then mv "$junit" "$RESULTS"; fi
+          if [ "${TESTED%% *}" != skipped ] && [ -f "$junit" ]; then mv "$junit" "$RESULTS"; fi
           mkdir -p "$(dirname "$RESULTS")"
           failed=$(printf '%s\n' "$STEPS" | awk '$1 == "failure" { $1 = ""; print substr($0, 2); exit }')
           if [ -z "$failed" ] && [ ! -f "$RESULTS" ] && [ "${TESTED%% *}" = failure ]; then failed=${TESTED#* }; fi
@@ -305,7 +312,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: junit-${{ matrix.partition }}
-          path: target/nextest/ci/test ${{ matrix.partition }} of 3.xml
+          path: ${{ runner.temp }}/test ${{ matrix.partition }} of 3.xml
           if-no-files-found: ignore
 
   # Red whenever the page, the lint or a job of the tests did not pass, cancelled ones included; and the one place the

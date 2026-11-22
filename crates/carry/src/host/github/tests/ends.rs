@@ -48,7 +48,14 @@ async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follo
     let place = hub.place();
     let branch = about(&place, "Greets the user by name, and by title where one is known.");
     hub.host
-        .verdict(&branch, &head, &hub.main_on_github(), hub.round(), &mut Stop::never())
+        .verdict(
+            &branch,
+            &head,
+            &hub.main_on_github(),
+            hub.round(),
+            &Mutex::new(()),
+            &mut Stop::never(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -84,7 +91,7 @@ async fn each_check_says_the_pull_request_it_checks_the_work_through_for_the_wor
     for _ in 0..2 {
         let main = hub.main_on_github();
         (hub.host
-            .verdict(&branch(&place), &head, &main, hub.round(), &mut stop)
+            .verdict(&branch(&place), &head, &main, hub.round(), &Mutex::new(()), &mut stop)
             .await)
             .expect("checked")
             .expect("nothing stopped it");
@@ -162,6 +169,7 @@ async fn titled(hub: &Hub, commit: &str, name: &str) -> String {
             commit,
             &hub.main_on_github(),
             hub.round(),
+            &Mutex::new(()),
             &mut Stop::never(),
         )
         .await)
@@ -188,6 +196,7 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
             &head,
             &hub.main_on_github(),
             hub.round(),
+            &Mutex::new(()),
             &mut Stop::never(),
         )
         .await
@@ -221,6 +230,7 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
             &head,
             &hub.main_on_github(),
             hub.round(),
+            &Mutex::new(()),
             &mut Stop::never(),
         )
         .await

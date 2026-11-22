@@ -308,7 +308,7 @@ describe('why a run ran, in words', () => {
   });
 
   it('says a call of an abandoned run with no result was withdrawn with it', () => {
-    const row = { call: 4, what: { kind: 'tool', name: 'shell', input: 'ls' } as const, made: 0, done: null, chars: null, time: null };
+    const row = { call: 4, what: { kind: 'tool', name: 'shell', input: 'ls' } as const, made: 0, done: null, chars: null, time: null, size: null };
     expect(callState(row)).toBe(`made ${clock(0)}, no result yet`);
     expect(callState(row, true)).toBe(`made ${clock(0)}, withdrawn with its run`);
     expect(callState({ ...row, done: 12_000, chars: 3 }, true)).toBe(`made ${clock(0)}, done in 12s`);
@@ -346,6 +346,12 @@ describe('why a run ran, in words', () => {
     );
     expect(unmetWords({ kind: 'notATest', path: 'src/lib.rs' })).toBe(
       'it changed src/lib.rs, which is none of the project\'s tests',
+    );
+    expect(unmetWords({ kind: 'uncommitted', changes: ' M src/lib.rs' })).toBe(
+      'it ended its round with changes to tracked files that are not committed',
+    );
+    expect(unmetWords({ kind: 'merging', changes: 'M  src/lib.rs' })).toBe(
+      'it ended its round with a merge under way that is not committed',
     );
     expect(unmetWords({ kind: 'treeUnchanged', name: 'placement' })).toBe(
       'it handed in the change, which changes nothing in the design tree, while placement, marked tree, has the owner\'s answer',

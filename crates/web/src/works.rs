@@ -628,16 +628,30 @@ pub enum CellState {
     /// Its run's last round failed: the run is at rest, and its next round, once the work is let on, is that round
     /// again.
     Failed,
-    /// Its condition is not met, so it is skipped this time; what it wrote before still counts.
+    /// Its condition is not met, and it never finished a run.
     Skipped,
     /// It has no record: it never finished a run.
     NotYet,
     /// It has a record, and a block it reads has changed in meaning since: it runs again when the walk reaches it.
     Again,
-    /// Its record knows the current meaning of every block it reads; of a work that ended, a run of it finished.
+    /// Its record knows the current meaning of every block it reads, or its condition is not met now and what it wrote
+    /// still counts; of a work that ended, a run of it finished.
     Done,
     /// Of a work that ended, no run of it finished (decision `a-works-past-is-drawn-from-its-outline`).
     NotRun,
+}
+
+/// How a cell with no run open stands: where its condition does not hold, done if it finished a run, since what it
+/// wrote still counts (decision `conditions-and-preconditions`), and skipped if it never did; where its condition holds,
+/// not yet run with no record, to run again where a block it reads has changed in meaning since, and else done.
+fn settled(applies: bool, ran: bool, changed: bool) -> CellState {
+    match (applies, ran) {
+        (false, false) => CellState::Skipped,
+        (false, true) => CellState::Done,
+        (true, false) => CellState::NotYet,
+        (true, true) if changed => CellState::Again,
+        (true, true) => CellState::Done,
+    }
 }
 
 /// What rounds took.
@@ -1114,7 +1128,7 @@ pub struct Judged {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Against {
-    /// The measure: millionths of a dollar for a cost, milliseconds for a time.
+    /// The measure: millionths of a dollar for a cost, milliseconds for a time, bytes for a size.
     pub value: u64,
     /// Its line, in the same units.
     pub line: Line,
@@ -1318,6 +1332,10 @@ pub enum Unmet {
     Unexplained { path: String },
     /// The run of a line that changes only the project's tests changed this file, which is none of them.
     NotATest { path: String },
+    /// A round that asks for no call ended with changes to tracked files that are not committed.
+    Uncommitted { changes: String },
+    /// A round that asks for no call ended with a merge begun in the worktree and not committed.
+    Merging { changes: String },
     /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
     /// change changes nothing in the design tree.
     TreeUnchanged { name: String },
@@ -1383,6 +1401,11 @@ pub struct CallRow {
     /// of the calls of its tool as it stood when it was made. Worked out for a work's page only.
     #[serde(default)]
     pub time: Option<Against>,
+    /// How long the result of a call of a tool is, in bytes, as the engine keeps it and tells an agent it is cut,
+    /// against the line of the results of the calls of its tool as it stood when it was made: none while it has no
+    /// result. Worked out for a work's page only.
+    #[serde(default)]
+    pub size: Option<Against>,
 }
 
 /// How a run ended.
@@ -2123,10 +2146,7 @@ impl Summary {
                         _ if calling == Some(cell.cell.as_str()) => CellState::Calling,
                         (Some(open), ..) if failed(work, open.run) => CellState::Failed,
                         (Some(_), ..) => CellState::Resting,
-                        (None, false, _) => CellState::Skipped,
-                        (None, true, None) => CellState::NotYet,
-                        (None, true, Some(_)) if !cell.needs.is_empty() => CellState::Again,
-                        (None, true, Some(_)) => CellState::Done,
+                        (None, applies, record) => settled(applies, record.is_some(), !cell.needs.is_empty()),
                     },
                     finished: (runs.iter())
                         .filter(|run| {
@@ -3232,6 +3252,12 @@ impl Unmet {
             UnmetOf::NotAnswered { name } => Unmet::NotAnswered { name: name.clone() },
             UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
             UnmetOf::NotATest { path } => Unmet::NotATest { path: path.clone() },
+            UnmetOf::Uncommitted { changes } => Unmet::Uncommitted {
+                changes: changes.clone(),
+            },
+            UnmetOf::Merging { changes } => Unmet::Merging {
+                changes: changes.clone(),
+            },
             UnmetOf::TreeUnchanged { name } => Unmet::TreeUnchanged { name: name.clone() },
             UnmetOf::Unanswered { block } => Unmet::Unanswered {
                 block: block.to_string(),
@@ -3271,7 +3297,9 @@ fn in_detail(
         let run = RunId(r.run);
         let line = line_of(run);
         for call in &mut r.calls {
-            call.time = judged.calls.get(&(of_work, CallId(call.call))).map(Against::of);
+            let against = judged.calls.get(&(of_work, CallId(call.call)));
+            call.time = against.and_then(|against| against.time.as_ref()).map(Against::of);
+            call.size = against.and_then(|against| against.size.as_ref()).map(Against::of);
         }
         for round in &mut r.rounds {
             let number = round.number;
@@ -3414,6 +3442,7 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 done: done.map(|done| time(work, done.at)).transpose()?,
                 chars: work.results.get(&called.call).map(|result| result.chars().count()),
                 time: None,
+                size: None,
             });
         }
         let finished = records.finished.iter().find(|finished| finished.run == run);
@@ -4205,5 +4234,18 @@ pub(crate) mod tests {
             serde_json::json!({ "kind": "changed", "context": 86_953 })
         );
         assert_eq!(given(None), serde_json::json!({ "kind": "changed", "context": null }));
+    }
+
+    // A cell its condition passes over stands as its record does: done where it finished a run, as R2 does once it has
+    // run, what it wrote still counting; skipped only where it never ran (decision conditions-and-preconditions). It
+    // does not run again for a block it reads that changed, since the walk passes it.
+    #[test]
+    fn a_cell_passed_over_is_done_where_it_ran_and_skipped_where_it_never_did() {
+        assert_eq!(settled(false, true, false), CellState::Done);
+        assert_eq!(settled(false, true, true), CellState::Done);
+        assert_eq!(settled(false, false, false), CellState::Skipped);
+        assert_eq!(settled(true, false, false), CellState::NotYet);
+        assert_eq!(settled(true, true, true), CellState::Again);
+        assert_eq!(settled(true, true, false), CellState::Done);
     }
 }

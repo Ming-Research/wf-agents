@@ -67,9 +67,12 @@
 //! either kind, what the work itself changed from the version of its head the run began on to its head as the round
 //! ended is held to the tests, and the return is found wanting for each file that is none of them; a look that cannot
 //! be made, a read of the branch that failed among them, fails the round ([`tests_only`](crate::tests_only)). As a
-//! round ends whose return writes a block handed in only with the owner's answers in the design tree, the return is
-//! found wanting for each question marked `tree` that has the owner's answer, while the work's change against main
-//! changes nothing in the tree; a look that cannot be made fails the round ([`tree`](crate::tree)).
+//! round of a line that may change the work ends with a return that asks for no call, the return is found wanting where
+//! the worktree holds changes to files git tracks that are not committed, or a merge begun and not committed; a file
+//! git does not track is none. As a round ends whose return writes a block handed in only with the owner's answers in
+//! the design tree, the return is found wanting for each question marked `tree` that has the owner's answer, while the
+//! work's change against main changes nothing in the tree; a look that cannot be made fails the round
+//! ([`tree`](crate::tree)).
 //!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
@@ -842,6 +845,23 @@ impl Inner {
                             .found
                             .extend(outside.into_iter().map(|path| Unmet::NotATest { path })),
                         // Nothing after it holds the line to the tests: the round fails, and the work waits.
+                        Err(why) => {
+                            return Ok(Carried::Failed(
+                                why,
+                                Failure::Other,
+                                failure::Said::default(),
+                                read.spent,
+                            ));
+                        }
+                    }
+                }
+                // A return that does the cell's work, of a line that may change the work, leaves nothing of the work
+                // uncommitted: its agent is here to put it right, which nothing later can, since nothing runs a cell
+                // for the worktree. A return that asks for calls is held to nothing: the run entered for the results
+                // goes on in the same worktree. A look that cannot be made fails the round, as the look at the tests does.
+                if !round.cell.reads_only && came.asks.is_empty() {
+                    match uncommitted_in(&place).await {
+                        Ok(found) => came.found.extend(found),
                         Err(why) => {
                             return Ok(Carried::Failed(
                                 why,
@@ -1846,6 +1866,21 @@ impl Drop for StandIn {
             drop(holding);
         });
     }
+}
+
+/// What of the work the worktree holds uncommitted as a round of a line that may change the work ends: a merge begun
+/// and not committed, with what git says of it, or else the files git tracks that are changed and not committed. A
+/// file git does not track is no change of the work: it is in no commit, whoever left it, and holds nothing back.
+async fn uncommitted_in(place: &git::Place) -> Result<Vec<Unmet>, String> {
+    let dir = git::worktree(place)?;
+    let changes = git::uncommitted(&dir).await?;
+    if git::merging(&dir).await? {
+        return Ok(vec![Unmet::Merging { changes }]);
+    }
+    if changes.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(vec![Unmet::Uncommitted { changes }])
 }
 
 /// Takes away the checkout at the place a fork of the work ran in, saying where it cannot; one already gone is passed.
