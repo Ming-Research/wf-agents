@@ -8,10 +8,10 @@
 //! finds the run it asked for before and waits for it, or reads it where it has ended, and asks for a run again only
 //! where it finds none but runs that were cancelled, which judged nothing.
 //!
-//! - fast: runs only the tests and checks a request names, and builds only what they need; every `run_tests` that
-//!   names tests or checks is run by it, and so is what the check before a merge runs again of what failed.
-//! - full: the workflows that hold every job required to merge; a `run_tests` that names none is run by them, once, on
-//!   the work's last commit, and so is the check before a merge.
+//! - fast: runs only the tests and checks a request names, and builds only what they need; every `run_tests` is run by
+//!   it, and so is what the check before a merge runs again of what failed.
+//! - full: the workflows that hold every job required to merge; the check before a merge runs them, once, on the
+//!   commit to merge, and nothing else does.
 //!
 //! What is said of a run: each test, with what became of it, how long it took and what a failed one said; and each
 //! job of the workflow, with how it ended and, where it ran to a conclusion, the wall time GitHub records for it. A
@@ -182,28 +182,30 @@ impl<A: Api> GitHub<A> {
             .ok_or_else(|| "the words of run_tests (agents/tools/run_tests.toml) are not given".to_string())
     }
 
-    /// Why a request cannot be run by the project's workflows, in the words of the tool's file, or the workflow it is
-    /// run by: the fast one where it names tests or checks, the full ones where it names none.
-    pub(super) fn role<'a>(&'a self, ci: Option<&'a Ci>, named: &Named) -> Result<Result<Role<'a>, String>, String> {
+    /// Why a runner is not one this installation has, in the words of the tool's file; none where it is.
+    fn runner_missing(&self, runner: &str) -> Result<Option<String>, String> {
         let words = self
             .tool()?
             .github
             .as_ref()
             .ok_or("the words of run_tests have no [github]")?;
         let have = self.config.runners.join(", ");
-        let runner_missing = |runner: &str| {
-            (!self.config.runners.iter().any(|r| r == runner))
-                .then(|| fill(&words.runner_missing, &[("runner", runner), ("have", &have)]))
-        };
-        if named.is_empty() {
-            let Some(full) = ci.and_then(|ci| ci.full.as_ref()) else {
-                return Ok(Err(words.no_full.clone()));
-            };
-            return Ok(runner_missing(&full.runner).map_or(Ok(Role::Full(full)), Err));
-        }
-        let Some(fast) = ci.and_then(|ci| ci.fast.as_ref()) else {
+        Ok((!self.config.runners.iter().any(|r| r == runner))
+            .then(|| fill(&words.runner_missing, &[("runner", runner), ("have", &have)])))
+    }
+
+    /// Why a request that names tests or checks cannot be run by the project's fast workflow, in the words of the tool's
+    /// file, or that workflow as its role. A request that names neither is refused by its caller, before this is asked.
+    pub(super) fn role<'a>(&'a self, ci: Option<&'a Ci>, named: &Named) -> Result<Result<Role<'a>, String>, String> {
+        let words = self
+            .tool()?
+            .github
+            .as_ref()
+            .ok_or("the words of run_tests have no [github]")?;
+        let Some(ci) = ci else {
             return Ok(Err(words.no_fast.clone()));
         };
+        let fast = &ci.fast;
         let unknown: Vec<&str> = (named.checks.iter())
             .filter(|c| !fast.checks.contains(c))
             .map(String::as_str)
@@ -215,7 +217,20 @@ impl<A: Api> GitHub<A> {
                 &[("runs", &runs), ("unknown", &unknown)],
             )));
         }
-        Ok(runner_missing(&fast.runner).map_or(Ok(Role::Fast(fast)), Err))
+        Ok(self.runner_missing(&fast.runner)?.map_or(Ok(Role::Fast(fast)), Err))
+    }
+
+    /// Why the check before a merge cannot run the project's full workflows, in the words of the check's file, or those
+    /// workflows as their role.
+    pub(super) fn full_role<'a>(&'a self, ci: Option<&'a Ci>) -> Result<Result<Role<'a>, String>, String> {
+        let check = (self.config.check.as_ref())
+            .ok_or("the words of the check before a merge (agents/acts/check.toml) are not given")?;
+        let Some(ci) = ci else {
+            return Ok(Err(check.no_full.clone()));
+        };
+        Ok(self
+            .runner_missing(&ci.full.runner)?
+            .map_or(Ok(Role::Full(&ci.full)), Err))
     }
 
     /// Runs the workflows of the role on the commit, pushed already, and says what became of them; none where it was
@@ -236,7 +251,7 @@ impl<A: Api> GitHub<A> {
             .result
             .as_ref()
             .ok_or("the words of run_tests have no [result]")?;
-        Ok(Some(said(words, &role, request.commit, &ran, named, false)))
+        Ok(Some(said(words, &role, request.commit, &ran, named)))
     }
 
     /// The jobs of the full workflows that did not pass may be let through with no failed test of their own, as the
@@ -246,8 +261,8 @@ impl<A: Api> GitHub<A> {
     /// ([`super::workflow::summing`]). A workflow whose file cannot be read lets none through for summing up.
     pub(super) async fn accounted(&self, main: &str) -> Vec<String> {
         let ci = self.config.ci.as_ref();
-        let mut accounted = (ci.and_then(|ci| ci.fast.as_ref())).map_or_else(Vec::new, |fast| fast.checks.clone());
-        let workflows = (ci.and_then(|ci| ci.full.as_ref())).map_or(&[][..], |full| &full.workflows[..]);
+        let mut accounted = ci.map_or_else(Vec::new, |ci| ci.fast.checks.clone());
+        let workflows = ci.map_or(&[][..], |ci| &ci.full.workflows[..]);
         for workflow in workflows {
             let file = format!("{main}:.github/workflows/{workflow}");
             if let Ok(said) = git::said(&self.project.repo, &["show", &file]).await
@@ -346,7 +361,7 @@ impl<A: Api> GitHub<A> {
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
         let (commit, named) = (request.commit, Named::default());
-        let role = match self.role(self.config.ci.as_ref(), &named)? {
+        let role = match self.full_role(self.config.ci.as_ref())? {
             Ok(role) => role,
             Err(refused) => return Err(Failed::refused(refused)),
         };
@@ -382,7 +397,7 @@ impl<A: Api> GitHub<A> {
         if !red {
             return Ok(Some(verdict));
         }
-        let first = said(words, &role, commit, &ran, &named, true);
+        let first = said(words, &role, commit, &ran, &named);
         let accounted = self.accounted(main).await;
         let Some(tests) = failed_alone(&ran, &accounted) else {
             verdict.failed = Some(first);
@@ -424,10 +439,11 @@ impl<A: Api> GitHub<A> {
         let check = (self.config.check.as_ref())
             .ok_or("the words of the check before a merge (agents/acts/check.toml) are not given")?;
         let ci = self.config.ci.as_ref();
-        let checks = (ci.and_then(|ci| ci.fast.as_ref())).map_or_else(Vec::new, |fast| fast.checks.clone());
+        let checks = ci.map_or_else(Vec::new, |ci| ci.fast.checks.clone());
         let named = Named {
             tests: tests.clone(),
             checks,
+            commit: None,
         };
         let role = match self.role(ci, &named)? {
             Ok(role) => role,
@@ -443,7 +459,7 @@ impl<A: Api> GitHub<A> {
             return Ok(None);
         };
         let section = |word: &str, head: &str, ran: &[Ran], named: &Named| {
-            let run = said(words, &role, head, ran, named, false);
+            let run = said(words, &role, head, ran, named);
             let slots = [("main", self.project.main.as_str()), ("head", head), ("run", &run)];
             fill(word, &slots)
         };
@@ -498,6 +514,7 @@ impl<A: Api> GitHub<A> {
         let named_main = Named {
             tests: red_again.clone(),
             checks: Vec::new(),
+            commit: None,
         };
         let Some(on_main) = self.execute_role(&role, at_main, &named_main, stop).await? else {
             return Ok(None);
@@ -658,9 +675,10 @@ impl<A: Api> GitHub<A> {
 }
 
 /// What became of the runs, in words for the agent: a line of what they came to, the tests that did not pass, each
-/// job, and the tests that passed, so that what a cut result gives is what matters. A run whose results could not be
-/// read says no test's result is known.
-fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: &Named, red_only: bool) -> String {
+/// job, and the tests that passed, so that what a cut result gives is what matters. Of the fast workflow it says each
+/// test the request named, and each job; of the full workflows, which name no test, only what did not pass: the tests
+/// that failed, and the jobs that did not pass. A run whose results could not be read says no test's result is known.
+fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: &Named) -> String {
     let which = match role {
         Role::Fast(_) => &words.which_fast,
         Role::Full(_) => &words.which_full,
@@ -697,9 +715,6 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
                     total += 1;
                     if case.outcome == results::Outcome::Passed {
                         passed += 1;
-                        if !red_only {
-                            green.extend(case_lines(words, case));
-                        }
                     } else {
                         tests.extend(case_lines(words, case));
                     }
@@ -758,7 +773,7 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
     // Every job of the runs, with how it ended and how long it took, and beneath one whose log was read what it says;
     // only those that did not pass where only what did not pass is said, the others being the note of the check.
     let ends: Vec<&StepEnd> = ran.iter().flat_map(|r| &r.ends).collect();
-    let shown = jobs.iter().filter(|j| !red_only || red_job(j));
+    let shown = jobs.iter().filter(|j| matches!(role, Role::Fast(_)) || red_job(j));
     let mut said_jobs: Vec<String> = shown.map(|j| job_said(words, j, &ends)).collect();
     said_jobs.extend(missing.iter().map(|c| {
         fill(

@@ -1,9 +1,10 @@
 //! What happens to a work, and what is to be done for it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
+use flow::{Compiled, Kind};
 
 use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Why};
 
@@ -203,8 +204,8 @@ pub enum Effect {
     /// worktree, and its pull request where it did not merge; its branch stays). It is to be done until the work is
     /// said to have released it.
     Release { end: End },
-    /// The session of this number of the line, which waits for the line's next round, is sent a keep-warm ping, so that
-    /// the prompt cache does not let it go. Whatever drives the engine gives it, not the work's loop: it is to be done
+    /// The session of this number of the line, which has no round under way, is sent a keep-warm ping, so that the
+    /// prompt cache does not let it go. Whatever drives the engine gives it, not the work's loop: it is to be done
     /// until the ping is said to have ended or failed, and given again where it is still due after a stop.
     Ping { line: String, session: u32 },
 }
@@ -244,6 +245,50 @@ impl Gate {
             (Gate::Acts, Gate::Acts) => Gate::Acts,
             _ => Gate::Every,
         }
+    }
+}
+
+/// Which rounds of a work may begin: those the wait every work shares lets ([`Gate`]), and those of a cell in none of
+/// the lines whose session a keep-warm ping of the work has under way, which the session's program runs once for each
+/// at a time. Whatever drives the engine works it out from the records of every work and the pings it has given.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Hold {
+    /// The rounds the wait every work shares holds.
+    pub gate: Gate,
+    /// The lines whose session is being pinged: no round of a cell of one of them begins.
+    pub lines: BTreeSet<String>,
+}
+
+impl From<Gate> for Hold {
+    fn from(gate: Gate) -> Hold {
+        Hold {
+            gate,
+            lines: BTreeSet::new(),
+        }
+    }
+}
+
+impl Hold {
+    /// The hold that holds what this does and what the gate does.
+    pub fn and(mut self, gate: Gate) -> Hold {
+        self.gate = self.gate.and(gate);
+        self
+    }
+
+    /// Whether the rounds of the cell are held: by the gate, which holds every round, or an agent's and the cell is
+    /// one an agent carries out, or an act's and the cell is one the engine carries out; or by its line being pinged.
+    pub fn holds(&self, flow: &Compiled, cell: &CellId) -> bool {
+        let spec = (flow.cells.iter()).find(|spec| spec.id == *cell);
+        let by_gate = match self.gate {
+            Gate::Open => false,
+            Gate::Every => true,
+            Gate::Agents => spec.is_some_and(|spec| spec.kind == Kind::Agent),
+            Gate::Acts => spec.is_some_and(|spec| spec.kind == Kind::Engine),
+        };
+        by_gate
+            || spec
+                .and_then(|spec| spec.line.as_ref())
+                .is_some_and(|line| self.lines.contains(line))
     }
 }
 
@@ -289,4 +334,99 @@ pub enum Refused {
     /// The work ended on a version of its flow that is not installed, or on none that was kept, and no flow decides it
     /// now: what happened would be decided by one.
     NotInstalled,
+}
+
+#[cfg(test)]
+mod tests {
+    //! Which rounds a hold holds back.
+
+    use flow::{Has, Source, compile};
+
+    use super::*;
+
+    /// Two agent cells on two lines, `write` on `main` and `judge` on `second`, and the merge, an act of the engine.
+    fn flow() -> Compiled {
+        let text = r#"
+            name = "lines"
+            order = ["write", "judge", "merge"]
+            [limits]
+            runs = 3
+            returns = 2
+            calls = 3
+            [lines.main]
+            [lines.second]
+            [blocks.request]
+            people = true
+            [blocks.text]
+            [blocks.verdict]
+            [blocks.merged]
+            shown = true
+        "#;
+        let cell = |line: &str, watches: &str, outputs: &str| {
+            format!(
+                "title = \"A cell\"\nkind = \"agent\"\neffort = \"high\"\nline = \"{line}\"\ntask = \"Do it.\"\n\
+                 watches = [\"{watches}\"]\noutputs = [\"{outputs}\"]\n[kinds]\n{watches} = \"last_and_latest\"\n"
+            )
+        };
+        let merge =
+            "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"verdict\"]\noutputs = [\"merged\"]\n";
+        let source = Source {
+            flow: text.to_string(),
+            cells: [
+                ("write", cell("main", "request", "text")),
+                ("judge", cell("second", "text", "verdict")),
+                ("merge", merge.to_string()),
+            ]
+            .into_iter()
+            .map(|(id, text)| (id.to_string(), text))
+            .collect(),
+            files: [(
+                flow::waits_file(),
+                include_str!("../../../flow/agents/waits.toml").to_string(),
+            )]
+            .into(),
+            ..Source::default()
+        };
+        let has = Has {
+            acts: ["merge".to_string()].into(),
+            ..Has::default()
+        };
+        compile(&source, &has).expect("the definition compiles")
+    }
+
+    // The gate holds the agents' rounds, the acts' or every one, and a pinged line holds the rounds of its cells and no
+    // other's, each as the table says: whether the rounds of `write`, `judge` and `merge` are held. Fails where the
+    // gate's agents and acts are taken the other way round, where a line holds the cells of another, or where a hold
+    // by line holds an act. Microseconds.
+    #[test]
+    fn a_hold_holds_the_rounds_its_gate_holds_and_those_of_the_cells_of_a_pinged_line() {
+        let flow = flow();
+        let table: [(Gate, Vec<&str>, [bool; 3]); 12] = [
+            (Gate::Open, vec![], [false, false, false]),
+            (Gate::Open, vec!["main"], [true, false, false]),
+            (Gate::Open, vec!["second"], [false, true, false]),
+            (Gate::Agents, vec![], [true, true, false]),
+            (Gate::Agents, vec!["main"], [true, true, false]),
+            (Gate::Agents, vec!["second"], [true, true, false]),
+            (Gate::Acts, vec![], [false, false, true]),
+            (Gate::Acts, vec!["main"], [true, false, true]),
+            (Gate::Acts, vec!["second"], [false, true, true]),
+            (Gate::Every, vec![], [true, true, true]),
+            (Gate::Every, vec!["main"], [true, true, true]),
+            (Gate::Every, vec!["second"], [true, true, true]),
+        ];
+        for (gate, lines, held) in table {
+            let hold = Hold {
+                gate,
+                lines: lines.iter().map(|line| line.to_string()).collect(),
+            };
+            for (cell, held) in ["write", "judge", "merge"].into_iter().zip(held) {
+                assert_eq!(
+                    hold.holds(&flow, &CellId::from(cell)),
+                    held,
+                    "{gate:?} and the lines {lines:?} for {cell}"
+                );
+            }
+        }
+    }
 }

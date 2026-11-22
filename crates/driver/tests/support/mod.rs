@@ -1183,15 +1183,23 @@ impl H {
                 }
                 Effect::Ping { line, .. } => {
                     // A ping is of the time, kept nowhere as to be done: given once at a time, and never beside a
-                    // round of its work.
+                    // round of its line.
                     let twice = (self.outstanding.iter())
                         .any(|t| t.work == todo.work && matches!(&t.effect, Effect::Ping { line: l, .. } if l == line));
                     assert!(!twice, "a ping given while one of its line is under way: {todo:?}");
-                    let work = self.d().work(todo.work).expect("the work").work;
-                    assert!(
-                        work.records.rounds.len() == work.records.returned.len(),
-                        "a ping given beside a round of its work: {todo:?}"
-                    );
+                    let kept = self.d().work(todo.work).expect("the work");
+                    let records = &kept.work.records;
+                    let on_line = |run: RunId| {
+                        let cell = (records.started.iter()).find(|s| s.run == run).map(|s| s.cell.clone());
+                        let spec = cell.and_then(|cell| kept.flow.cells.iter().find(|c| c.id == cell));
+                        spec.and_then(|spec| spec.line.as_deref()) == Some(line.as_str())
+                    };
+                    let busy = (records.started.iter()).filter(|s| on_line(s.run)).any(|s| {
+                        let count = |runs: &mut dyn Iterator<Item = RunId>| runs.filter(|r| *r == s.run).count();
+                        count(&mut records.rounds.iter().map(|r| r.run))
+                            > count(&mut records.returned.iter().map(|r| r.run))
+                    });
+                    assert!(!busy, "a ping given beside a round of its line: {todo:?}");
                     self.outstanding.push(todo.clone());
                     continue;
                 }
@@ -1417,7 +1425,7 @@ impl H {
 
     /// What the work does next agrees with what is to be done for it: after a call, no run is left to start and none
     /// left to be abandoned, and a run goes on with its round held only while the work is paused, unless a wait every
-    /// work shares holds the rounds of the cell's agent, or a keep-warm ping of the work every round of it; a work is
+    /// work shares holds the rounds of the cell's agent, or a keep-warm ping of a line of the work every round of the line's cells; a work is
     /// busy with a run exactly when a round of that run is given to be done; and a work paused began no round after the
     /// pause but of a run for a note a person wrote ([`for_a_note`]), and none given again after it failed.
     fn agrees_with_what_is_pending(&self, number: WorkNumber, flow: &Compiled, work: &Work, shown: &Decision) {
@@ -1430,17 +1438,10 @@ impl H {
             })
             .collect();
         // A wait every work shares, where it holds rounds now, leaves the run of a cell whose rounds it holds to start
-        // or go on: the agents' wait an agent's, and the acts' wait an act's; and a keep-warm ping of the work under way
-        // leaves every run of it so.
-        let agents = |cell: &decide::CellId| {
-            let kind = (flow.cells.iter()).find(|spec| spec.id == *cell).map(|spec| spec.kind);
-            match self.d().gate_of(number) {
-                engine::Gate::Open => false,
-                engine::Gate::Agents => kind == Some(flow::Kind::Agent),
-                engine::Gate::Acts => kind == Some(flow::Kind::Engine),
-                engine::Gate::Every => true,
-            }
-        };
+        // or go on: the agents' wait an agent's, and the acts' wait an act's; and a keep-warm ping of a line of the
+        // work under way the rounds of the line's cells.
+        let hold = self.d().gate_of(number);
+        let agents = |cell: &decide::CellId| hold.holds(flow, cell);
         match shown {
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if agents(cell) => {}
             Decision::Run { .. } | Decision::Abandon { .. } | Decision::Fault(_) => {

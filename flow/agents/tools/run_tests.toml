@@ -1,23 +1,25 @@
 # Runs tests and checks in the project's CI, run by the engine.
 words = '''
-`run_tests`: runs the project's tests on the last commit of the work's branch, which the engine pushes; anything not
-  committed is not run. Ask as `{"tests": [...], "checks": [...]}`. Name tests as `project.test_names` says,
-  and checks among {named_checks}; the project's fast workflow then runs only what you name. Name none to run the
-  project's full workflows. It gives each test, passed or failed, with the time it took and what a failed one said,
-  and each job, with how it ended and its wall time.'''
+`run_tests`: runs the tests and checks you name in the project's CI, on a commit the engine pushes. Ask as
+  `{"tests": [...], "checks": [...], "commit": "..."}`. Name tests as `project.test_names` says,
+  and checks among {named_checks}; only what you name is run, and a request that names neither runs nothing.
+  `commit` is the commit to run on, as git names one in your worktree; with none, it is
+  the last commit of the work's branch, and anything not committed is not run. It gives each test you named,
+  passed or failed, with the time it took and what a failed one said, and each job, with how it ended and its
+  wall time.'''
 
 # What it says in place of `words` where the host is the local repository.
 words_local = '''
 `run_tests`: runs the project's check command on your worktree as it is, including what is not committed. Ask as
-  `{"tests": [...], "checks": [...]}`; the whole command runs, whatever you name. It gives whether the command passed
-  and what it said.'''
+  `{"tests": [...], "checks": [...]}`; the whole command runs, whatever you name, and no commit can be named. It gives
+  whether the command passed and what it said.'''
 
 # What a request that cannot be read as that shape is told, nothing having been run: `{error}` what the reading said.
-unread = "Nothing was run: the request is not `{\"tests\": [...], \"checks\": [...]}`, where each list holds names and either may be left out: {error}."
+unread = "Nothing was run: the request is not `{\"tests\": [...], \"checks\": [...], \"commit\": \"...\"}`, where each list holds names, the commit is one name, and each may be left out: {error}."
 
 [request]
 type = "object"
-properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } } }
+properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } }, commit = { type = "string" } }
 additionalProperties = false
 
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
@@ -70,14 +72,15 @@ no_such_test = "no test in the run has this name: a name is a test's name exactl
 no_such_test_unbuilt = "no test in the run has this name, but these units were not built, so it may be in one of them: {units}"
 all_skipped = "each test it names was skipped"
 
-# What it says where the host is GitHub.
+# What it says where the host is GitHub. `merge_under_way`, `uncommitted` and `untracked` are said only where no commit
+# is named: a commit that is named is the one run, whatever the worktree holds.
 [github]
 merge_under_way = "A merge is under way in the worktree and is not committed: finish it and commit it, or take it back. Nothing was pushed.\n{changes}"
 uncommitted = "The worktree has changes to tracked files that are not committed, and only what is committed is run: commit them, or take them back, and ask again. Nothing was pushed.\n{changes}"
 untracked = "These files are not tracked by git, so they are not in the run, which runs only what is committed. Commit those that belong to the change:\n{files}"
-no_own_commit = "The work's branch has no commit of its own beyond {main}: commit your change, and ask again. Nothing was pushed."
-no_fast = "Nothing was run: you named tests or checks, but the project declares no fast workflow, and only a fast workflow runs just what is named. Name none to run the full workflows."
-no_full = "Nothing was run: the project declares no full workflows; name the tests to run."
+none_named = "Nothing was run: you named no test and no check, and only what is named is run. Name what to run, and ask again. Nothing was pushed."
+commit_unknown = "Nothing was run: git finds no commit in your worktree by the name you gave: {why}. Nothing was pushed."
+no_fast = "Nothing was run: the project declares no workflows, so nothing can be run through run_tests."
 unknown_checks = "Nothing was run: the fast workflow runs only these checks by name: {runs}; not {unknown}."
 runner_missing = "Nothing was run: the workflow runs on {runner}, and this installation has only {have}."
 
@@ -88,12 +91,12 @@ passed = "passed"
 failed = "failed ({status})"
 could_not = "The check `{command}` could not be run: {why}"
 not_apart = "The tests and checks you named are not run separately: the whole command runs."
+no_commit = "Nothing was run: the check runs on your worktree as it is, so no commit can be named. Ask again with none."
 
 # What fills `{named_checks}`, the checks an agent may name, as the project declares its fast workflow (`[ci.fast]` of
 # flow/project.toml): `named`, `{checks}` the checks it runs by name, each between backticks and joined by commas;
-# `none_named`, where it runs none by name; `whole`, where the project declares no fast workflow, so that nothing is run
-# alone.
+# `none_named`, where it runs none by name; `whole`, where the project declares no workflows, so that nothing is run.
 [places.named_checks]
 named = "{checks}"
 none_named = "none, since the project's fast workflow runs no check by name"
-whole = "none, since the project declares no fast workflow: nothing can be run alone, so a request names none"
+whole = "none, since the project declares no workflows: nothing can be run through run_tests"
