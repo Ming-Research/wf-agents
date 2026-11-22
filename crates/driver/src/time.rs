@@ -91,7 +91,7 @@ pub fn stretches(kept: &Kept<'_>, spans: &[Span], cannot_run: Option<(Time, &str
     points.dedup();
     let everything_at = |at: Time| {
         (spans.iter())
-            .find(|span| span.from <= at && span.until.is_none_or(|until| at < until))
+            .find(|span| span.from <= at && span.until.is_none_or(|until| at <= until))
             .map(|span| span.by)
     };
     // What the work waited for in a stretch, by the place of the first entry after its start, the records as they stood
@@ -397,5 +397,120 @@ mod tests {
                 stretch(5500, 6000, Went::Paused),
             ]
         );
+    }
+
+    // A measurement kept for one run (research/flow-versions/bar-cost.md): what drawing a live work's bar takes, as the
+    // stretches decide each wait exactly, against main's 96 cells, each idle one decided at its middle, cached by place.
+    #[test]
+    fn measure_what_the_bar_takes() {
+        use std::time::{Duration, Instant};
+
+        let flow = flow();
+        // A work whose writer's round fails `cycles` times, the owner letting it on a second after each failure.
+        let make = |cycles: u64| {
+            let mut work = Work::default();
+            let wrote = Event::Wrote {
+                block: "request".into(),
+                by: Outsider::Person,
+                content: "Greet.".to_string(),
+                matters: true,
+                value: None,
+            };
+            let round_of = |effects: &[Effect]| {
+                effects.iter().find_map(|effect| match effect {
+                    Effect::Round { run, .. } => Some(*run),
+                    _ => None,
+                })
+            };
+            let effects = engine::handle(&flow, &mut work, Time(0), wrote).expect("the request is taken");
+            let mut run = round_of(&effects).expect("a round");
+            let mut t = 0;
+            for _ in 0..cycles {
+                t += 1000;
+                let failed = Event::Failed {
+                    run,
+                    why: "it broke".to_string(),
+                    failure: Failure::Other,
+                    resets: None,
+                    spent: Spent::default(),
+                };
+                engine::handle(&flow, &mut work, Time(t), failed).expect("the round fails");
+                t += 1000;
+                let effects = engine::handle(&flow, &mut work, Time(t), Event::Resumed).expect("it is let on");
+                run = round_of(&effects).expect("a round again");
+            }
+            (work, Time(t + 1000))
+        };
+        let median = |mut times: Vec<Duration>| {
+            times.sort();
+            times[times.len() / 2]
+        };
+        let mut out = String::new();
+        for cycles in [20, 100, 200] {
+            let (work, now) = make(cycles);
+            let (head, places) = with_kept(&flow, &work, |kept| {
+                let mut times = Vec::new();
+                let mut drawn = Vec::new();
+                for _ in 0..9 {
+                    let begun = Instant::now();
+                    drawn = stretches(kept, &[], None, now);
+                    times.push(begun.elapsed());
+                }
+                let waits = drawn
+                    .iter()
+                    .filter(|s| !matches!(s.went, Went::Model | Went::Tools))
+                    .count();
+                (times, waits)
+            });
+            let (main, decided) = with_kept(&flow, &work, |kept| {
+                let mut times = Vec::new();
+                let mut decided = 0;
+                for _ in 0..9 {
+                    let begun = Instant::now();
+                    let runs = ran(kept.work, &|_| true, now);
+                    let from = runs.iter().map(|s| s.from.0).min().unwrap();
+                    let until = runs.iter().map(|s| s.until.0).max().unwrap();
+                    let span = until - from;
+                    let mut cache: BTreeMap<Option<Seq>, Went> = BTreeMap::new();
+                    for i in 0..96_u64 {
+                        let middle = from + (span * (2 * i + 1)) / (2 * 96);
+                        if runs.iter().any(|s| s.from.0 <= middle && middle < s.until.0) {
+                            continue;
+                        }
+                        let place = (kept.work.moments.iter()).find(|m| m.at.0 > middle).map(|m| m.from);
+                        cache.entry(place).or_insert_with(|| {
+                            let then = owner::Shared {
+                                everything: None,
+                                cannot_run: None,
+                            };
+                            match place {
+                                Some(place) => waited(kept, &kept.work.records.before(place), then),
+                                None => waited(kept, &kept.work.records, then),
+                            }
+                        });
+                    }
+                    times.push(begun.elapsed());
+                    decided = cache.len();
+                }
+                (times, decided)
+            });
+            let head_median = median(head.clone());
+            out += &format!(
+                "cycles={cycles} moments={} entries={} head: waits={places} median={:?} min={:?} max={:?}; main: decided={decided} median={:?} min={:?} max={:?}\n",
+                work.moments.len(),
+                work.tick().0,
+                head_median,
+                head.iter().min().unwrap(),
+                head.iter().max().unwrap(),
+                median(main.clone()),
+                main.iter().min().unwrap(),
+                main.iter().max().unwrap(),
+            );
+            // The smallest sample first: a larger one only where it took under a second.
+            if head_median > Duration::from_secs(1) {
+                break;
+            }
+        }
+        panic!("{out}");
     }
 }

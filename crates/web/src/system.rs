@@ -143,7 +143,7 @@ impl RanOn {
     fn of(kept: Kept<'_>, cell: &str, model: Option<&String>) -> RanOn {
         match model {
             Some(model) => RanOn::Model { model: model.clone() },
-            None if (kept.cell(&CellId::from(cell))).is_some_and(|cell| !cell.agent) => RanOn::Act,
+            None if (kept.flow.cells.iter()).any(|spec| spec.id.as_str() == cell && spec.act.is_some()) => RanOn::Act,
             None => RanOn::NotRecorded,
         }
     }

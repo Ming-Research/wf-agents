@@ -1454,20 +1454,19 @@ fn cell_spec<'a>(flow: &'a Compiled, cell: &CellId) -> Option<&'a CellSpec> {
 /// Who runs the cell of the work, an agent or the engine's act, as the version the work is on has it: none of a cell
 /// that version has not, or of a work on none kept, whose round both carriers are asked of.
 fn kind_of(kept: &driver::Kept<'_>, cell: &CellId) -> Option<Kind> {
-    kept.cell(cell)
-        .map(|c| if c.agent { Kind::Agent } else { Kind::Engine })
+    cell_spec(kept.flow, cell).map(|spec| spec.kind)
 }
 
 /// What a fork of a round of the work reads which session the round ran in by: the outline of the version the work is
 /// on. A work on none kept has none, and the fork is refused, with why.
 fn fork_outline(kept: &driver::Kept<'_>) -> Result<Arc<flow::Outline>, String> {
-    let outline = kept.on.outline().ok_or_else(|| {
+    let outline = Some(flow::Outline::of(kept.flow)).ok_or_else(|| {
         format!(
             "The version of the flow work {} ran on was not kept: which session its round ran in is not known.",
             kept.head.number.0
         )
     })?;
-    Ok(Arc::new(outline.clone()))
+    Ok(Arc::new(outline))
 }
 
 /// The fault of an answer the driver did not take. This ends the process, and is meant to: an answer that cannot have

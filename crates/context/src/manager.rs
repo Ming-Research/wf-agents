@@ -594,9 +594,9 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
         for fill in &f.fills {
             match fill {
                 Fill::Whole { block, version } | Fill::Change { block, version, .. } => {
-                    if filled_kept(block, f.at) {
-                        hold(&mut held, block, *version);
-                    }
+                    let _ = filled_kept;
+                    let now = since(f.at).fold(block.clone(), |b, r| r.blocks.get(&b).cloned().unwrap_or(b));
+                    hold(&mut held, &now, *version);
                 }
                 Fill::Part { .. } => held.parts.push(fill.clone()),
                 Fill::Results(calls) => held.results.extend(calls.iter().copied()),
