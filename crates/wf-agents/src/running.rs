@@ -23,9 +23,9 @@ use store::Store;
 const HELD: &str = "engine.lock";
 
 /// What a flow run here may name: what every definition is compiled against. Of the sources, this process writes the
-/// driver's, whether the items an item depends on have merged, and, with the real carriers, `main`, through the
-/// acts' watch of main; nothing writes `session` or `tree` yet, so a block of either stays unwritten, and a cell that
-/// reads one starts from no version of it.
+/// driver's, whether the items an item depends on have merged or were cancelled, and, with the real carriers, `main`,
+/// through the acts' watch of main; nothing writes `session` or `tree` yet, so a block of either stays unwritten, and a
+/// cell that reads one starts from no version of it.
 fn has(dir: &Path) -> Has {
     crate::has(dir)
 }

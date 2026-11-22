@@ -82,10 +82,11 @@ fn after_every_call_the_store_holds_what_the_driver_shows() {
     let came = hands_in(&[("text", None)]);
     let todos = h.on(wa, Event::Returned { run, came, spent });
     h.released(todos);
-    // The other work, let on, waits for the cancelled one, which never merges.
-    assert_eq!(h.let_on(wb), vec![]);
-    assert_eq!(h.decision(wb), waits_for_dependencies("write"));
-    assert_eq!(h.d().pending(), vec![]);
+    // The other work, let on, begins: the cancelled item it depends on holds it no more. Nothing of the cancelled
+    // work is left to be done.
+    let todos = h.let_on(wb);
+    assert_eq!(rounds(&todos), [(wb, "write".to_string(), 1)]);
+    assert_eq!(h.d().pending(), todos);
     let kept = h.d().work(wa).expect("the work is there");
     let r = &kept.work.records;
     let kinds = [

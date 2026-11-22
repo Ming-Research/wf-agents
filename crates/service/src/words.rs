@@ -85,10 +85,6 @@ fn failed_words(failed: &Failed) -> String {
         }
         Failed::BlankTitle => blank_title().to_string(),
         Failed::BadTag(tag) => bad_tag(tag),
-        Failed::OnCancelled(on) => format!(
-            "the item would depend on {}, cancelled, and wait for good: reopen it first, or leave it out",
-            items(on)
-        ),
         Failed::NoSuchWork(work) => format!("there is no work {}", work.0),
         Failed::NoSuchFlow(flow) => format!("there is no flow named {flow}"),
         Failed::Refused(refused) => refused_words(refused),
@@ -160,26 +156,21 @@ fn unchangeable_words(item: ItemNumber, why: &Unchangeable) -> String {
         }
         Unchangeable::NotDependent(on) => format!("#{item} does not depend on #{}", on.0),
         Unchangeable::NotTagged(tag) => format!("#{item} does not carry the tag {tag}"),
-        Unchangeable::OpenDependants(open) => {
-            let (depend, have, them) = match open.len() {
-                1 => ("depends", "has", "it"),
-                _ => ("depend", "have", "them"),
-            };
-            format!(
-                "{} {depend} on #{item} and {have} not ended, and would wait for it for good: cancel {them} first, in \
-                 the same change before it, or take that dependency away",
-                items(open)
-            )
-        }
-        Unchangeable::OnCancelled(on) => format!(
-            "#{item} would depend on {}, cancelled, and wait for good: reopen {} first",
-            items(on),
-            if on.len() == 1 { "it" } else { "them" }
-        ),
         Unchangeable::MergedDependants(merged) => format!(
-            "{} merged depending on #{item}, and a merged item depends on nothing that is not done",
+            "{} merged depending on #{item}, and a merged item depends on nothing that has not ended",
             items(merged)
         ),
+        Unchangeable::StartedDependants(started) => {
+            let (depend, works, they) = match started.len() {
+                1 => ("depends", "its work has", "it has"),
+                _ => ("depend", "their works have", "they have"),
+            };
+            format!(
+                "{} {depend} on #{item}, and {works} started: a work goes on from what it depended on as it \
+                 started, so #{item} is not reopened while {they} not ended",
+                items(started)
+            )
+        }
         Unchangeable::NotCancelled => format!("#{item} is not cancelled: only a cancelled item is reopened"),
         Unchangeable::LettingGo => {
             format!("the cancel of #{item} is still letting go of what its work held: reopen it once that is done")

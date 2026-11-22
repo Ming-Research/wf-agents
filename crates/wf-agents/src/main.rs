@@ -134,7 +134,8 @@ enum Command {
         at: At,
     },
     /// Makes an item depend on another, while its work has started no run: its work then waits for that one to merge as
-    /// well. Refused where that one depends on it already, by way of any items, or is cancelled.
+    /// well, unless that one is cancelled, when it waits for nothing. Refused where that one depends on it already, by
+    /// way of any items.
     AddDependency {
         item: u64,
         /// The item it comes to depend on.
@@ -173,8 +174,9 @@ enum Command {
         at: At,
     },
     /// Reopens a cancelled item: its work is paused, and goes on from its records once it is let on with `wf-agents
-    /// resume`, making its place again on the branch it kept. Refused while it depends on a cancelled item, or a
-    /// merged item depends on it.
+    /// resume`, making its place again on the branch it kept; the items that depend on it wait for it again. Refused
+    /// while an item whose work has started and was not cancelled, merged or not, depends on it, or while its cancel
+    /// still lets go of what its work held.
     Reopen {
         item: u64,
         #[command(flatten)]
@@ -206,8 +208,8 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// The items that could be let on now: paused, every item they depend on merged. Those more open items wait for
-    /// come first; the choice is yours.
+    /// The items that could be let on now: paused, every item they depend on merged or cancelled. Those more open items
+    /// wait for come first; the choice is yours.
     Candidates {
         #[command(flatten)]
         at: At,
@@ -300,8 +302,8 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Cancels a work's item, saying why: nothing of the work goes on. Refused while an item that has not ended depends
-    /// on it; `wf-agents change` cancels several at once, by item.
+    /// Cancels a work's item, saying why: nothing of the work goes on. The items that depend on it keep that
+    /// dependency, and no longer wait for it; `wf-agents change` cancels several at once, by item.
     Cancel {
         work: u64,
         /// Why it is cancelled, in a sentence, such as the item it was joined into; kept with the cancel.

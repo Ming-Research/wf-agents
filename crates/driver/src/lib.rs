@@ -8,12 +8,12 @@
 //! reads no clock (principle `outside-behind-interfaces`).
 //!
 //! What happens to one work reaches another only as a write of a block of the other. The driver is itself what writes
-//! one such block: the block of a flow whose source is [`DEPENDENCIES`] says whether the items the work's item
-//! depends on have merged. The driver writes it as the item is added, whenever one of those items merges, is cancelled
-//! or is reopened, and, on opening, wherever the block and what it stands for have come apart; it writes no block of a
-//! work that has ended. A work whose flow has no such block waits for no item. No item is cancelled while an item
-//! that has not ended depends on it, and none comes to depend on a cancelled one; an item that depends on a cancelled
-//! one, as one kept before that held, waits for good, its block saying which.
+//! one such block: the block of a flow whose source is [`DEPENDENCIES`] says whether the work still waits for the
+//! items its item depends on: it waits for each until it has merged or was cancelled, a dependency on a cancelled item
+//! holding as one on a merged item does (decision `a-cancelled-item-keeps-its-place`). The driver writes it as the
+//! item is added, whenever one of those items merges, is cancelled or is reopened, and, on opening, wherever the block
+//! and what it stands for have come apart; it writes no block of a work that has ended. A work whose flow has no such
+//! block waits for no item.
 //!
 //! Whoever plans the work changes items after they were added, several at once all or none, each change saying why:
 //! an item's title, level and tags, and, while its work has started no run, what it depends on; its cancel; and the
@@ -130,12 +130,14 @@ pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
 pub use sessions::{Policy, SESSION, Warm};
 pub use usage::{LOOK_AFTER_MS, Said, Usage, Usages, Window};
 
-/// The source of the blocks the driver writes: whether the items the work's item depends on have merged. Such a block
-/// is a choice of [`WAITING`] and [`MERGED`].
+/// The source of the blocks the driver writes: whether the items the work's item depends on have merged or were
+/// cancelled. Such a block is a choice of [`WAITING`] and [`MERGED`].
 pub const DEPENDENCIES: &str = "dependencies";
-/// The value of a [`DEPENDENCIES`] block while an item the work's item depends on has not merged.
+/// The value of a [`DEPENDENCIES`] block while an item the work's item depends on has neither merged nor been
+/// cancelled.
 pub const WAITING: &str = "waiting";
-/// The value of a [`DEPENDENCIES`] block once every item the work's item depends on has merged, or it depends on none.
+/// The value of a [`DEPENDENCIES`] block once every item the work's item depends on has merged or was cancelled, or it
+/// depends on none.
 pub const MERGED: &str = "merged";
 
 /// The source of the block the driver writes as the owner starts a work: the work, added paused, is let on with nothing
@@ -153,7 +155,7 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::handed_in::HANDED_IN;
     let session: Vec<&str> = ["text"].into_iter().chain(work::Why::KINDS).collect();
     let needs: [(&str, &[&str]); 5] = [
-        (DEPENDENCIES, &[MERGED, WAITING, "cancelled", "between"]),
+        (DEPENDENCIES, &[MERGED, WAITING, "between"]),
         (SESSION, &session),
         (START, &["text"]),
         (ASKED, &[ANSWERED, UNANSWERED, "between"]),
@@ -281,13 +283,6 @@ pub struct Driver {
     /// outside says at a moment, kept only in memory and read by nothing that decides: lost in a stop, it is said again
     /// at the next call under each account, or the next look.
     usage: Usages,
-}
-
-/// An item a work's item depends on that has not merged, and whether it was cancelled, so that it never will.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Unmerged {
-    pub item: ItemNumber,
-    pub cancelled: bool,
 }
 
 /// A stretch the pause of everything held: from when it was set and by whom, to when it was lifted; none while it
@@ -494,9 +489,6 @@ pub enum Failed {
     BlankTitle,
     /// An item was to be added carrying a tag that is no name an item may carry. Nothing was changed.
     BadTag(String),
-    /// An item was to be added depending on these items, which are cancelled: it would wait for them for good.
-    /// Nothing was changed.
-    OnCancelled(Vec<ItemNumber>),
     /// Changes asked together were refused, each of these for its reason. None of them was made.
     NotChanged { asked: usize, refused: Vec<NotMade> },
     /// The driver has no such work. Nothing was changed.
@@ -687,12 +679,6 @@ impl Driver {
         let mut depends_on = new.depends_on;
         depends_on.sort();
         depends_on.dedup();
-        let cancelled: Vec<ItemNumber> = (depends_on.iter().copied())
-            .filter(|on| self.standing_of_item(*on) == Some(Standing::Ended(End::Cancelled)))
-            .collect();
-        if !cancelled.is_empty() {
-            return Err(Failed::OnCancelled(cancelled));
-        }
         let mut tags = new.tags;
         tags.sort();
         tags.dedup();
@@ -872,12 +858,6 @@ impl Driver {
             }
         }
         self.filled_after(now, todos).map(|todos| (changed, todos))
-    }
-
-    /// How the work of this item stands, where the driver has the item.
-    fn standing_of_item(&self, item: ItemNumber) -> Option<Standing> {
-        let work = self.of_item.get(&item)?;
-        self.works.get(work).map(|held| held.standing)
     }
 
     /// Takes one thing that happened to a work, at the time the caller's clock gives, and gives what is to be done:
@@ -1689,31 +1669,25 @@ impl Driver {
         &self.spans
     }
 
-    /// The items the work's item depends on whose works have not merged, in the order the item names them, as the
-    /// block of [`DEPENDENCIES`] says they are waited for, each with whether it was cancelled, which the work then
-    /// waits for for good; none where there is no such work.
-    pub fn unmerged(&self, number: WorkNumber) -> Vec<Unmerged> {
+    /// The items the work's item depends on that its work waits for, those whose works have neither merged nor been
+    /// cancelled, in the order the item names them, as the block of [`DEPENDENCIES`] says they are waited for; none
+    /// where there is no such work.
+    pub fn items_waited_for(&self, number: WorkNumber) -> Vec<ItemNumber> {
         let Some(held) = self.works.get(&number) else {
             return Vec::new();
         };
-        (self.waited_for(&held.item.depends_on).into_iter())
-            .map(|(item, standing)| Unmerged {
-                item,
-                cancelled: standing == Standing::Ended(End::Cancelled),
-            })
-            .collect()
+        self.waited_for(&held.item.depends_on)
     }
 
-    /// Of these items, each whose work has not merged, with how it stands: the one reading of what a block of
+    /// Of these items, each whose work has not ended, merged or cancelled: the one reading of what a block of
     /// [`DEPENDENCIES`] waits for, which writes the block and says which items a work waits for. An item with no work
     /// yet goes on.
-    fn waited_for(&self, depends_on: &[ItemNumber]) -> Vec<(ItemNumber, Standing)> {
-        (depends_on.iter())
-            .map(|on| {
+    fn waited_for(&self, depends_on: &[ItemNumber]) -> Vec<ItemNumber> {
+        (depends_on.iter().copied())
+            .filter(|on| {
                 let work = self.of_item.get(on).and_then(|work| self.works.get(work));
-                (*on, work.map_or(Standing::Going, |held| held.standing))
+                !work.is_some_and(|held| matches!(held.standing, Standing::Ended(_)))
             })
-            .filter(|(_, standing)| *standing != Standing::Ended(End::Merged))
             .collect()
     }
 
@@ -1845,17 +1819,14 @@ impl Driver {
     }
 
     /// The write of the flow's [`DEPENDENCIES`] block, for a work whose item depends on these items, that makes it
-    /// say whether they have all merged, and which it waits for, in the words its definition gives (`writes`); none
-    /// where the flow has no such block, or the block says so already.
+    /// say whether they have all merged or were cancelled, and which it waits for, in the words its definition gives
+    /// (`writes`); none where the flow has no such block, or the block says so already.
     fn block(&self, flow: &Compiled, depends_on: &[ItemNumber], work: &Work) -> Option<Event> {
         let (block, declared) =
             (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES))?;
         let says = |name: &str| declared.writes.get(name).unwrap_or_default();
         let waited: Vec<String> = (self.waited_for(depends_on).into_iter())
-            .map(|(on, standing)| match standing {
-                Standing::Ended(End::Cancelled) => fill(says("cancelled"), &[("item", &on.0.to_string())]),
-                Standing::Ended(End::Merged) | Standing::Going | Standing::AtFault => on.0.to_string(),
-            })
+            .map(|on| on.0.to_string())
             .collect();
         let (value, content) = if waited.is_empty() {
             (MERGED, says(MERGED).to_string())

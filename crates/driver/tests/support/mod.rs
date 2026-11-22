@@ -12,10 +12,10 @@
 //!   left to start or to abandon, a run goes on with its round held only while the work is paused, a work is busy
 //!   with a run exactly when a round of that run is given to be done, and a work paused began no round after the
 //!   pause but of a run for a note a person wrote, and none given again after it failed;
-//! - the dependencies block of every work that has not ended says whether the items its item depends on have merged,
-//!   and its text names those still waited for, saying which were cancelled; the block of a work that has ended was
-//!   not written after it ended; no work whose dependencies have not all merged has started a run where its flow
-//!   holds it for them; and a work never let on has started no run;
+//! - the dependencies block of every work that has not ended says whether the items its item depends on have all
+//!   merged or were cancelled, and its text names those still waited for; the block of a work that has ended was not
+//!   written after it ended; no work began a run while its block said it waited, where its flow holds it for them, nor
+//!   merged while an item it depends on had not ended; and a work never let on has started no run;
 //! - no more rounds that take a slot are under way than the driver has slots, as the driver says; no work waits for a
 //!   slot while one is free; and while the pause of everything holds, the owner's or the driver's own as it opened on
 //!   works going on, no work began a round after it was set but of a run for a note a person wrote, and none given
@@ -74,12 +74,12 @@ const START_BLOCK: &str = r#"
 "#;
 
 /// The dependencies block, which the driver writes, and the named test the first cell of a flow waits on: that every
-/// item the work's item depends on has merged.
+/// item the work's item depends on has merged or was cancelled.
 const DEPENDENCIES_BLOCK: &str = r#"
         [blocks.deps]
         values = ["waiting", "merged"]
         outside = "dependencies"
-        writes = { merged = "Every item this one depends on has merged.", waiting = "Waits for the items {items} to merge.", cancelled = "{item} (cancelled)", between = ", " }
+        writes = { merged = "Every item this one depends on has merged.", waiting = "Waits for the items {items} to merge.", between = ", " }
         [tests.ready]
         says = "Every item this one depends on has merged"
         kind = "all"
@@ -1186,10 +1186,10 @@ impl H {
                 );
             }
             if let Some(value) = dependencies_value(kept.flow, kept.work) {
+                // A cancelled item is waited for no more than a merged one.
                 let waited: BTreeSet<String> = (kept.item.depends_on.iter())
                     .filter_map(|on| match ends.get(on) {
-                        Some(Some(End::Merged)) => None,
-                        Some(Some(End::Cancelled)) => Some(format!("{}c", on.0)),
+                        Some(Some(_)) => None,
                         _ => Some(on.0.to_string()),
                     })
                     .collect();
@@ -1219,10 +1219,28 @@ impl H {
                         number.0
                     );
                 }
-                if !waited.is_empty() {
+                // Every run began while the block said nothing was waited for. A run that began so stays begun when
+                // an item it depends on is reopened, and the block comes to wait for it again.
+                let block = dependencies_block(kept.flow).expect("the flow has the block");
+                let versions = decide::versions(&kept.work.records);
+                for started in &kept.work.records.started {
+                    let said = (versions.get(block).into_iter().flatten())
+                        .rfind(|v| v.at < started.at)
+                        .and_then(|v| v.value.as_deref());
+                    assert_eq!(
+                        said,
+                        Some(MERGED),
+                        "work {} began run {} before its dependencies merged or were cancelled",
+                        number.0,
+                        started.run.0
+                    );
+                }
+                // Nor does one merge while an item it depends on has not ended: no reopen comes under it once it has
+                // begun.
+                if shown == Decision::Ended(End::Merged) {
                     assert!(
-                        kept.work.records.started.is_empty(),
-                        "work {} ran before its dependencies merged",
+                        waited.is_empty(),
+                        "work {} merged while it depends on {waited:?}, which have not ended",
                         number.0
                     );
                 }
@@ -1711,9 +1729,8 @@ pub fn dependencies_text(flow: &Compiled, work: &Work) -> Option<String> {
     work.contents.get(&(block.clone(), at)).cloned()
 }
 
-/// The items a dependencies block's text names: each number, followed by `c` where the text says it was cancelled.
+/// The items a dependencies block's text names, by their numbers.
 pub fn named(text: &str) -> BTreeSet<String> {
-    let text = text.replace(" (cancelled)", "c");
     (text.split(|c: char| !c.is_ascii_alphanumeric()))
         .filter(|word| word.starts_with(|c: char| c.is_ascii_digit()))
         .map(str::to_string)

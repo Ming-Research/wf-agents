@@ -8,7 +8,7 @@ The flow's order is S1, R0, R1, R2, D1, D2, P1, P2, I1, T1, T2, T3, T4, M1, M2, 
 - rejected: an agent proposed mapping the old cells onto thirteen new ones; the owner rejected it, because what he wants is the problems solved, by a layout that follows the new design, not the old cells copied.
 
 ### decision the-work-is-started-by-the-owner
-S1 runs on `start`, which the engine writes when the owner first lets the work begin, and only once the items it depends on have merged.
+S1 runs on `start`, which the engine writes when the owner first lets the work begin, and only once the items it depends on have merged or been cancelled.
 - replaced: A rule that a cell runs once if it has never run was on main; the owner changed it, because that rule was an exception for two cells, and the work starts when the owner lets it begin.
 - rejected: an agent proposed that S1 run on `dependencies`; the owner rejected it, because for now the work is started by hand, and if the start is made automatic later, it will write the same datum.
 
