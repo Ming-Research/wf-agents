@@ -42,9 +42,8 @@ impl Hub {
     async fn judged(&self, commit: &str, round: Asking) -> Result<Option<Verdict>, String> {
         let place = self.place();
         let (branch, main, mut stop) = (branch(&place), self.main_on_github(), Stop::never());
-        let verdict = self
-            .host
-            .verdict(&branch, commit, &main, round, &Mutex::new(()), &mut stop);
+        let repository = Mutex::new(());
+        let verdict = self.host.verdict(&branch, commit, &main, round, &repository, &mut stop);
         verdict.await.map_err(String::from)
     }
 
