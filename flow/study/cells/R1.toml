@@ -8,7 +8,9 @@ effort = "xhigh"
 task = '''
 Study what the item asks, starting from the tree you read. Check each fact it rests on where it can be seen, and
 research every approach that could work. Where a fact can be checked only by changing code, say in `conclusion` which
-item is to check it. Before handing in, ask yourself where the conclusion is most likely wrong, and check that point.
+item is to check it. Where the design tree's rules say a choice is the owner's, ask it in a question of its own, with
+each approach as an option and what it gains and costs. Before handing in, ask yourself where the conclusion is most
+likely wrong, and check that point.
 '''
 watches = ["background", "r1_questions", "r1_words"]
 reads = ["tree"]

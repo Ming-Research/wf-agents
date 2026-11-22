@@ -1,11 +1,10 @@
 //! The engine's own acts, as the rounds of the cells they carry out (`CellSpec.act`): `start` makes the work's branch
 //! and worktree, `check` checks the work before its merge, `merge` merges the commit the check passed, `deliver` says
 //! that a deliverable item, made of the items it depends on, is delivered, and `conclude` says that a study is
-//! concluded. An act hands in the cell's outputs with
-//! what it did, and only the check writes a choice ([`faults`] says what a flow needs for them, [`main_faults`] what
-//! the watch of main needs, [`word_faults`] what the merge needs of the check's words); where git or the host fails,
-//! or the act cannot be done, the round fails and hands in nothing. A stopped act ends its round with nothing handed
-//! in. An act takes no cost and no tokens.
+//! concluded. An act hands in the cell's outputs with what it did, and only the check writes a choice ([`faults`] says
+//! what a flow needs for them, [`main_faults`] what the watch of main needs, [`word_faults`] what the merge needs of
+//! the check's words); where git or the host fails, or the act cannot be done, the round fails and hands in nothing. A
+//! stopped act ends its round with nothing handed in. An act takes no cost and no tokens.
 //!
 //! What is done in the project's local repository is done the same whatever the host; the host gives the head of
 //! main, the verdict on the work's commit and the merge ([`Host`]).
@@ -985,8 +984,9 @@ pub fn main_faults(flow: &Compiled) -> Vec<String> {
 }
 
 /// What is wrong with the flow for the acts, each in words with the cell: the cell of `check` has one choice among its
-/// outputs, and it offers the values the check writes; the cells of `start`, `merge`, `deliver` and `conclude` have no choice among
-/// their outputs, since they have no outcome to choose. A flow with any of these is not run with the real carriers.
+/// outputs, and it offers the values the check writes; the cells of `start`, `merge`, `deliver` and `conclude` have no
+/// choice among their outputs, since they have no outcome to choose. A flow with any of these is not run with the real
+/// carriers.
 pub fn faults(flow: &Compiled, values: &CheckValues) -> Vec<String> {
     let (passed, failed) = (&values.passed, &values.failed);
     let mut faults = Vec::new();

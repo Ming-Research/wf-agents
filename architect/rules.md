@@ -76,15 +76,15 @@ reports (`wf-agents wait`):
 1. Every piece of work that ends in a merge or in a conclusion is an item, and waits nowhere else: no list in a file,
    no note in a pull request. Work seen outside the items, such as a pull request open or a branch not merged, is given
    an item that continues it; whoever takes it looks at what is there first, and may start over.
-2. There are three kinds of item. A **deliver item** (the deliver flow) has no work of its own, and is delivered when all
-   it depends on has merged or was cancelled. It is the architect's own: the architect makes it, writes it, decides
-   which parts make it, and changes it as they change; no engineer touches it. It is let on as soon as it is added: it
-   does nothing until all it depends on has merged or was cancelled, and takes no slot. A **work item** (the engineer
-   flow) is one change that one engineer delivers in one merge, with one pull request. An engineer does it; the
-   architect keeps where it stands, what it says, and whether it starts or waits. A **study item** (the study flow) is
-   one study that one agent does and ends with a conclusion, which stays in the item and which `wf-agents text <item>
-   conclusion` gives; it merges nothing, and the items made from its conclusion depend on it (5). The architect keeps
-   it as it keeps a work item.
+2. There are three kinds of item. A **deliver item** (the deliver flow) has no work of its own, and is delivered when
+   all it depends on has merged or was cancelled. It is the architect's own: the architect makes it, writes it,
+   decides which parts make it, and changes it as they change; no engineer touches it. It is let on as soon as it is
+   added: it does nothing until all it depends on has merged or was cancelled, and takes no slot. A **work item** (the
+   engineer flow) is one change that one engineer delivers in one merge, with one pull request. An engineer does it;
+   the architect keeps where it stands, what it says, and whether it starts or waits. A **study item** (the study
+   flow) is one study that one agent does and ends with a conclusion, which stays in the item and which `wf-agents
+   text <item> conclusion` gives; it merges nothing, and the items made from its conclusion depend on it (5). The
+   architect keeps it as it keeps a work item.
 3. From the top down the relation is dependency, never classification: a parent waits for its children, so every
    parent delivers one thing of its own, never a class of things.
 4. The roots are the few things the project delivers, named with the owner, and each project has its own. An item that
@@ -98,14 +98,14 @@ reports (`wf-agents wait`):
    it. A last measurement, comparison or wrapping up of everything under an item is that item's own work: the item is
    then a work item, and what is under it is what it waits for.
 8. A deliver item has at least two items under it; one whose parts make one work item is that work item. A root may
-   have one item under it, or none yet. A deliver item not yet understood well enough to split has only a study item under
-   it: it is held, its background says what is known to be needed, and its parts are added when the study says how. A
-   deliver item widens and narrows as its parts change; once every part has merged or been cancelled, it is
+   have one item under it, or none yet. A deliver item not yet understood well enough to split has only a study item
+   under it: it is held, its background says what is known to be needed, and its parts are added when the study says
+   how. A deliver item widens and narrows as its parts change; once every part has merged or been cancelled, it is
    delivered, one whose parts were all cancelled too.
 9. An item may be waited for by several items, of other projects too: it is still one item, shown whole in one place
    and as a line pointing there everywhere else.
-10. A step that makes neither a merge nor a conclusion is no item: it is the owner's, and the item it follows says it. What becomes neither an
-    item nor an observation is never just deleted: it is written down.
+10. A step that makes neither a merge nor a conclusion is no item: it is the owner's, and the item it follows says it.
+    What becomes neither an item nor an observation is never just deleted: it is written down.
 
 ## 5. Dependencies
 
@@ -129,8 +129,8 @@ reports (`wf-agents wait`):
   are seen to make one work. The one kept is the one most items wait for; its title says what they share, its
   background gives each part a sentence, its level is the highest of theirs, and what depended on any of them depends
   on it. The others are cancelled, each saying which item it went into. A work that has begun takes nothing more.
-- What is too large is split; where it is not yet understood well enough to split, its first part is a study item that says
-  how the rest is to be split.
+- What is too large is split; where it is not yet understood well enough to split, its first part is a study item that
+  says how the rest is to be split.
 - When a merge delivers part of an item not begun, the item is narrowed where it stands: its title and background say
   what is left, and a sentence says which merge delivered what. What a merge left undone is still work, and the reason
   its pull request gave goes into the background. A cancellation, like any change, says why.
