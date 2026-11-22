@@ -789,6 +789,10 @@ pub struct SentBackFaults {
     pub unexplained: String,
     /// `{path}` a file that the run of a line that changes only the project's tests changed, and that is none of them.
     pub not_a_test: String,
+    /// `{name}` a question of the work marked `tree`, with the owner's answer to its latest version, where the return
+    /// writes a block handed in only with the answer in the design tree (`answers_in_the_tree`) and the work's change
+    /// against main changes nothing in the tree.
+    pub tree_unchanged: String,
     /// `{block}` what an act of the engine's wrote, dealt with by a return that leaves nothing new that runs the act.
     pub unanswered: String,
     /// `{name}` a dialogue the cell answers as the maker, named as dealt with and answered in nothing, and `{watched}`

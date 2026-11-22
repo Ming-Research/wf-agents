@@ -874,6 +874,7 @@ impl Build<'_> {
             Unmet::NotAnswered { name } => (&f.not_answered, vec![("name", name.clone())]),
             Unmet::Unexplained { path } => (&f.unexplained, vec![("path", path.clone())]),
             Unmet::NotATest { path } => (&f.not_a_test, vec![("path", path.clone())]),
+            Unmet::TreeUnchanged { name } => (&f.tree_unchanged, vec![("name", name.clone())]),
             Unmet::Unanswered { block } => (&f.unanswered, vec![("block", block.to_string())]),
             Unmet::WordOwed { name, watched } => {
                 let ticked: Vec<String> = watched.iter().map(|b| format!("`{b}`")).collect();

@@ -3,10 +3,19 @@
 //! branch's commit and the id of the git tree of the design tree at it, so that the files of the tree that changed
 //! between the version a cell last worked from and the latest are one `git diff --name-only` of the two commits
 //! ([`changed`]), which a round is given as what changed in the datum.
+//!
+//! As a round ends whose return writes a block handed in only with the owner's answers in the tree
+//! (`answers_in_the_tree` of its file), the engine also looks whether the work's own change against main changes the
+//! tree at all, where a question of the work marked `tree` has the owner's answer ([`unwritten`]): the return is sent
+//! back for each such question while it does not.
 
 use std::path::Path;
 
+use decide::questions::{Standing, questions};
+use work::{Question, Said, Work};
+
 use crate::git::{self, Place};
+use crate::settings::Project;
 
 /// The source outside the work that writes the block of the design tree.
 pub const TREE: &str = "tree";
@@ -96,6 +105,65 @@ async fn between(dir: &Path, tree: &str, was: &str, now: &str) -> Result<Vec<Str
     )
     .await?;
     Ok(names.lines().map(str::to_string).collect())
+}
+
+/// The name of each question of the work whose answer the design tree in this directory of the checkout does not hold,
+/// as a round ends whose return writes a block handed in only with the answers there (`answers_in_the_tree` of its
+/// file), the return saying this beside its work: each question marked `tree` that has the owner's answer to its latest
+/// version ([`answered`]), where the work's own change against main changes no file of the tree; none where it changes
+/// one. In the order of their names. A question kept before questions said `tree` is marked by none.
+pub(crate) async fn unwritten(
+    project: &Project,
+    place: &Place,
+    main: &str,
+    tree: &str,
+    work: &Work,
+    said: &Said,
+) -> Result<Vec<String>, String> {
+    let answered = answered(work, said);
+    if answered.is_empty() || changed_by_the_work(project, place, main, tree).await? {
+        return Ok(Vec::new());
+    }
+    Ok(answered)
+}
+
+/// Each question of the work marked `tree` that has the owner's answer to its latest version, by its name, in the order
+/// of the names: but one that the return saying this asks anew or withdraws, which has no answer to its latest version
+/// once the return is taken.
+fn answered(work: &Work, said: &Said) -> Vec<String> {
+    let marked = |q: &Standing<'_>| matches!(work.question(q.latest), Some(Question::Asked { tree: Some(true), .. }));
+    let rewritten = |name: &str| said.questions.iter().any(|q| q.name() == name);
+    (questions(&work.records).into_iter())
+        .filter(|(name, q)| q.stands() && q.answer.is_some() && marked(q) && !rewritten(*name))
+        .map(|(name, _)| name.to_string())
+        .collect()
+}
+
+/// Whether the work's own change against main, from where its branch left main as the reference `main` holds it to
+/// the branch's head, changes a file of the design tree in this directory of the checkout. Git is run as the look at
+/// the protected paths runs it: the configuration that could make it run a program is refused first, and no external
+/// diff or conversion is run.
+async fn changed_by_the_work(project: &Project, place: &Place, main: &str, tree: &str) -> Result<bool, String> {
+    git::configuration(project, place).await?;
+    let head = place.reference();
+    let base = git::git(&place.dir, &["merge-base", main, head.as_str()]).await?;
+    let names = git::git(
+        &place.dir,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            base.as_str(),
+            head.as_str(),
+            "--",
+            tree.trim_end_matches('/'),
+        ],
+    )
+    .await?;
+    Ok(!names.is_empty())
 }
 
 #[cfg(test)]

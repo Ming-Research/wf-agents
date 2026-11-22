@@ -427,6 +427,10 @@ pub struct BlockFile {
     /// of what its cell may write; none where it says none.
     #[serde(default)]
     pub with_nothing_but: BTreeMap<String, Vec<String>>,
+    /// A return that writes it is sent back while a question of the work marked `tree` has the owner's answer to its
+    /// latest version and the work's change against main changes nothing in the project's design tree.
+    #[serde(default)]
+    pub answers_in_the_tree: bool,
 }
 
 /// Who changes what a source outside the work writes of a block, by their acts: the owner, as the record of the
@@ -475,6 +479,10 @@ pub struct LaidOutBlockFile {
     /// of what its cell may write, its questions and its words among them; none where it says none.
     #[serde(default)]
     pub with_nothing_but: BTreeMap<String, Vec<String>>,
+    /// A return that writes it is sent back while a question of the work marked `tree` has the owner's answer to its
+    /// latest version and the work's change against main changes nothing in the project's design tree.
+    #[serde(default)]
+    pub answers_in_the_tree: bool,
 }
 
 /// Who writes a block from outside the cells, as `from` says it: whether the owner does, and the source outside the
@@ -503,6 +511,7 @@ impl From<LaidOutBlockFile> for BlockFile {
             writes: block.writes,
             changed_by: block.changed_by,
             with_nothing_but: block.with_nothing_but,
+            answers_in_the_tree: block.answers_in_the_tree,
         }
     }
 }

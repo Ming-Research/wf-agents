@@ -157,6 +157,34 @@ fn engineer() -> Compiled {
     flow::compile(&source, &has).expect("the engineer's flow compiles")
 }
 
+// Every question a cell asks says in `tree` whether the option taken goes into the design tree: a yes or no the form
+// requires, with no default, so that the asking cell judges it each time and the agents' program holds each return of
+// a session given the form to it. The change is handed in only with the answers so marked in the tree.
+#[test]
+fn every_question_says_whether_its_answer_goes_into_the_tree_and_the_change_is_held_to_those_answers() {
+    let flow = engineer();
+    let shape = flow.blocks[&BlockId::from("r1_questions")]
+        .shape
+        .clone()
+        .expect("the questions' shape")
+        .0;
+    let shape = serde_json::to_value(&shape).expect("the shape is JSON");
+    let asked = &shape["items"]["anyOf"][0];
+    assert_eq!(asked["properties"]["tree"], json!({ "type": "boolean" }), "{asked}");
+    let required = asked["required"].as_array().expect("what it requires");
+    assert!(required.contains(&json!("tree")), "{asked}");
+    assert!(
+        required.contains(&json!("ask")),
+        "the shape is the question asked: {asked}"
+    );
+    // The change of the engineer's flow is handed in only with those answers in the tree: its `code`, and no other.
+    let held: Vec<&str> = (flow.blocks.iter())
+        .filter(|(_, block)| block.answers_in_the_tree)
+        .map(|(name, _)| name.as_str())
+        .collect();
+    assert_eq!(held, ["code"]);
+}
+
 // A cell's questions are in the form of its line, in the shape their file gives, and in no other line's: a cell of a
 // line that writes none is not told by its form that it may ask. So are its words, a text.
 #[test]

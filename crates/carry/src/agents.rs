@@ -64,7 +64,10 @@
 //! ([`protected`](crate::protected)). As a round of a line that changes only the project's tests ends with a return of
 //! either kind, what the work itself changed from the version of its head the run began on to its head as the round
 //! ended is held to the tests, and the return is found wanting for each file that is none of them; a look that cannot
-//! be made, a read of the branch that failed among them, fails the round ([`tests_only`](crate::tests_only)).
+//! be made, a read of the branch that failed among them, fails the round ([`tests_only`](crate::tests_only)). As a
+//! round ends whose return writes a block handed in only with the owner's answers in the design tree, the return is
+//! found wanting for each question marked `tree` that has the owner's answer, while the work's change against main
+//! changes nothing in the tree; a look that cannot be made fails the round ([`tree`](crate::tree)).
 //!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
@@ -743,6 +746,26 @@ impl Inner {
                 came.engine.extend(looked.asks);
                 let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });
                 came.found.extend(unexplained);
+                // A return that writes a block handed in only with the owner's answers in the design tree is held to
+                // each question marked `tree` that has an answer, while the work's change leaves the tree as main has
+                // it. A look that cannot be made fails the round, as the look at the tests does, rather than take the
+                // change as holding them.
+                let with_the_tree =
+                    (came.writes.iter()).any(|h| (flow.blocks.get(&h.block)).is_some_and(|b| b.answers_in_the_tree));
+                if with_the_tree {
+                    let (project, tree) = (&of.project, of.project.tree.as_str());
+                    match crate::tree::unwritten(project, &place, &of.main, tree, &round.kept, &came.said).await {
+                        Ok(names) => (came.found).extend(names.into_iter().map(|name| Unmet::TreeUnchanged { name })),
+                        Err(why) => {
+                            return Ok(Carried::Failed(
+                                why,
+                                Failure::Other,
+                                failure::Said::default(),
+                                read.spent,
+                            ));
+                        }
+                    }
+                }
                 // Every return of a line that changes only the project's tests is held to what its run changed, one
                 // that asks for calls as well: taken, it ends the run, and the run entered for the results begins on
                 // the head it left.

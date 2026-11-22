@@ -1,8 +1,12 @@
-//! The tree's versions against a work's branch in a repository made for each test.
+//! The tree's versions against a work's branch in a repository made for each test, and the look at whether the work's
+//! change holds the owner's answers marked `tree` there. Each test makes a repository of a few commits and runs a few
+//! git commands, in well under a second.
 
 use std::path::Path;
 
+use decide::{Answered, Questioned, Returned, RunId, Seq, Started};
 use store::WorkNumber;
+use work::{Back, Way};
 
 use super::*;
 use crate::git::tests::{Repo, run};
@@ -167,4 +171,173 @@ async fn a_version_that_is_not_the_trees_has_no_files() {
     let (_repo, place) = started().await;
     let files = changed(&place.dir, "design/", "nothing", "not of the tree at all").await;
     assert_eq!(files.unwrap(), "");
+}
+
+/// A question of the cell `build`, marked `tree` as given, recommending the first of two options.
+fn asked(name: &str, tree: Option<bool>) -> Question {
+    let way = |does: &str| Way {
+        does: does.to_string(),
+        follows: format!("what follows from {does}"),
+    };
+    Question::Asked {
+        name: name.to_string(),
+        waits: false,
+        tree,
+        recommends: Some(1),
+        ask: format!("Which way for {name}?"),
+        options: vec![way("the short way"), way("the long way")],
+        about: None,
+        reasons: Default::default(),
+    }
+}
+
+/// A work whose one run of `build` asked these questions as its first round ended, as the loop keeps them, each
+/// answered with its first option where it says so.
+fn asked_in(questions: Vec<(Question, bool)>) -> Work {
+    let run = RunId(1);
+    let mut work = Work::default();
+    work.records.started.push(Started {
+        run,
+        cell: "build".into(),
+        at: Seq(1),
+        because: Vec::new(),
+        basis: Default::default(),
+    });
+    work.records.returned.push(Returned { run, at: Seq(2) });
+    let mut said = Said::default();
+    for (i, (question, answered)) in questions.into_iter().enumerate() {
+        let at = Seq(3 + 2 * i as u64);
+        work.records.questions.push(Questioned {
+            name: question.name().to_string(),
+            cell: "build".into(),
+            run,
+            engine: false,
+            waits: false,
+            withdrawn: false,
+            at,
+        });
+        if answered {
+            work.records.answers.push(Answered {
+                question: question.name().to_string(),
+                version: at,
+                option: 1,
+                why: None,
+                at: Seq(at.0 + 1),
+            });
+        }
+        said.questions.push(question);
+    }
+    let back = Back::Returned {
+        dealt_with: Vec::new(),
+        handed: Vec::new(),
+        asks: Vec::new(),
+        found: Vec::new(),
+        said,
+        engine: Vec::new(),
+        waits_for: None,
+        read: Vec::new(),
+    };
+    work.back.insert((run, 1), back);
+    work
+}
+
+/// The questions whose answer the tree does not hold, as a round ends with the work's branch as it is, its return
+/// saying this beside its work, main where the reference `main` holds it.
+async fn unwritten_in(repo: &Repo, place: &Place, work: &Work, said: &Said) -> Result<Vec<String>, String> {
+    unwritten(&repo.project, place, "main", "design/", work, said).await
+}
+
+// The work's own change is held against main where the branch left it: main changing its own tree since is not the
+// work's change.
+#[tokio::test]
+async fn an_answered_question_marked_tree_is_named_while_the_work_changes_nothing_in_the_tree() {
+    let (repo, place) = started().await;
+    write(&place.dir, "src/greeting.rs", "pub fn greet() {}\n");
+    write(&repo.project.repo, "design/main.md", "Main's own entry.\n");
+    let work = asked_in(vec![(asked("placement", Some(true)), true)]);
+    let named = unwritten_in(&repo, &place, &work, &Said::default()).await;
+    assert_eq!(named, Ok(vec!["placement".to_string()]));
+}
+
+#[tokio::test]
+async fn once_the_work_changes_the_tree_no_question_is_named() {
+    let (repo, place) = started().await;
+    write(&place.dir, "design/decisions/greeting.md", "The option taken.\n");
+    let work = asked_in(vec![(asked("placement", Some(true)), true)]);
+    assert_eq!(
+        unwritten_in(&repo, &place, &work, &Said::default()).await,
+        Ok(Vec::new())
+    );
+}
+
+// Each with the tree as main has it: a question not answered, one marked no, one kept before questions said `tree`,
+// one withdrawn since its answer, and one the return asks anew, whose latest version then has no answer. Of several
+// answered and marked, each is named, in the order of the names.
+#[tokio::test]
+async fn only_a_standing_question_marked_tree_with_an_answer_to_its_latest_version_is_named() {
+    let (repo, place) = started().await;
+    write(&place.dir, "src/greeting.rs", "pub fn greet() {}\n");
+    let none: Result<Vec<String>, String> = Ok(Vec::new());
+    let unanswered = asked_in(vec![(asked("placement", Some(true)), false)]);
+    assert_eq!(unwritten_in(&repo, &place, &unanswered, &Said::default()).await, none);
+    let marked_no = asked_in(vec![(asked("placement", Some(false)), true)]);
+    assert_eq!(unwritten_in(&repo, &place, &marked_no, &Said::default()).await, none);
+    let not_marked = asked_in(vec![(asked("placement", None), true)]);
+    assert_eq!(unwritten_in(&repo, &place, &not_marked, &Said::default()).await, none);
+    let mut withdrawn = asked_in(vec![(asked("placement", Some(true)), true)]);
+    withdrawn.records.questions.push(Questioned {
+        name: "placement".to_string(),
+        cell: "build".into(),
+        run: RunId(1),
+        engine: false,
+        waits: false,
+        withdrawn: true,
+        at: Seq(10),
+    });
+    assert_eq!(unwritten_in(&repo, &place, &withdrawn, &Said::default()).await, none);
+    let answered = asked_in(vec![(asked("placement", Some(true)), true)]);
+    let anew = Said {
+        questions: vec![asked("placement", Some(true))],
+        observations: Vec::new(),
+    };
+    assert_eq!(unwritten_in(&repo, &place, &answered, &anew).await, none);
+    let several = asked_in(vec![
+        (asked("wording", Some(true)), true),
+        (asked("colour", Some(false)), true),
+        (asked("placement", Some(true)), true),
+    ]);
+    let named = unwritten_in(&repo, &place, &several, &Said::default()).await;
+    assert_eq!(named, Ok(vec!["placement".to_string(), "wording".to_string()]));
+}
+
+// A question kept before questions said `tree` is read as not marked, and is written again the same, with no mark.
+#[tokio::test]
+async fn a_question_kept_before_questions_said_tree_is_read_as_not_marked_and_named_by_none() {
+    let kept = r#"{"Asked":{"name":"placement","waits":false,"recommends":1,"ask":"Where?","options":[{"does":"here","follows":"near"}]}}"#;
+    let question: Question = serde_json::from_str(kept).expect("a question kept before is read");
+    assert!(matches!(&question, Question::Asked { tree: None, .. }), "{question:?}");
+    assert_eq!(serde_json::to_string(&question).expect("it is written"), kept);
+    let (repo, place) = started().await;
+    let work = asked_in(vec![(question, true)]);
+    assert_eq!(
+        unwritten_in(&repo, &place, &work, &Said::default()).await,
+        Ok(Vec::new())
+    );
+}
+
+// Where the look cannot be made, it says why, rather than take the work as changing the tree or as not.
+#[tokio::test]
+async fn a_look_that_cannot_be_made_says_why() {
+    let (repo, place) = started().await;
+    let work = asked_in(vec![(asked("placement", Some(true)), true)]);
+    let looked = unwritten(
+        &repo.project,
+        &place,
+        "no-such-main",
+        "design/",
+        &work,
+        &Said::default(),
+    )
+    .await;
+    assert!(matches!(&looked, Err(why) if why.contains("merge-base")), "{looked:?}");
 }

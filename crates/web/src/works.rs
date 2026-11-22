@@ -1291,6 +1291,9 @@ pub enum Unmet {
     Unexplained { path: String },
     /// The run of a line that changes only the project's tests changed this file, which is none of them.
     NotATest { path: String },
+    /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
+    /// change changes nothing in the design tree.
+    TreeUnchanged { name: String },
     /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question with an
     /// answer to come.
     Unanswered { block: String },
@@ -3172,6 +3175,7 @@ impl Unmet {
             UnmetOf::NotAnswered { name } => Unmet::NotAnswered { name: name.clone() },
             UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
             UnmetOf::NotATest { path } => Unmet::NotATest { path: path.clone() },
+            UnmetOf::TreeUnchanged { name } => Unmet::TreeUnchanged { name: name.clone() },
             UnmetOf::Unanswered { block } => Unmet::Unanswered {
                 block: block.to_string(),
             },
