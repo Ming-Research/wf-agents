@@ -164,11 +164,19 @@ tr.row.chosen > .block-head {
   padding: var(--space-4) var(--space-2);
 }
 
-.flow .cell-id {
+.flow .cell-id,
+.flow .cell-effort {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Under a cell's id on the flow's chart, the effort its rounds run at, in the muted monospace of a cell's id, small. */
+.cell-effort {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--size-small);
 }
 
 .flow .cell-id {
