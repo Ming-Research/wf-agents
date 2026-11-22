@@ -2343,7 +2343,7 @@ fn bar(kept: Kept<'_>, all: &HeldAll, now: Time) -> String {
     }
     // What the work waited for in a cell: the wait that held at the cell's middle, decided there for a work going on as
     // it was decided at the start of the stretch that holds it for what a work kept as it ended.
-    let mut waited_in = |i: u64| went.waited_at(Time(from + (span * i) / BAR_CELLS));
+    let mut waited_in = |i: u64| went.waited_at(Time(from + (span * (2 * i + 1)) / (2 * BAR_CELLS)));
     (in_cell.iter().zip(0..))
         .map(|(&(model, tool), i)| {
             if (model + tool) * 2 < span {
@@ -4206,6 +4206,9 @@ pub(crate) mod tests {
                 let begun = Instant::now();
                 was = main_bar(kept, &runs, &all, now);
                 main.push(begun.elapsed());
+            }
+            if cycles == 20 {
+                out += &format!("head={drawn}\nmain={was}\n");
             }
             out += &format!(
                 "waits={cycles} moments={} entries={} same={} head: {}; main: {}\n",
