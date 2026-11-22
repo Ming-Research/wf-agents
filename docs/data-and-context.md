@@ -171,10 +171,11 @@ new session lacks it.
     also says, in `tree`, whether the answer settles a choice the design tree's rules give the owner, so that the option
     taken goes into the tree; a return that hands in the change (in the engineer flow, the implementation's `code`) is
     sent back while a question so marked has the owner's answer and the work's change against main changes nothing in
-    the tree. The owner's answer is the option taken and nothing else, written as the next version of that datum. A
-    version that asks, whoever wrote it, is new to no cell: an answer is new to the cells that watch the questions it
-    answers, the cell whose questions they are and the one that took charge from it (28), and the one that acts follows
-    the option taken. A session reopened is filled with the answer as with any datum.
+    the tree. The check before the merge fails on the same look, since an answer given after the change was handed in
+    may change nothing and run no cell (31). The owner's answer is the option taken and nothing else, written as the
+    next version of that datum. A version that asks, whoever wrote it, is new to no cell: an answer is new to the cells
+    that watch the questions it answers, the cell whose questions they are and the one that took charge from it (28),
+    and the one that acts follows the option taken. A session reopened is filled with the answer as with any datum.
 
 31. An answer that changes nothing the cell goes by is kept, and is new to no cell (9): one that takes the option the
     cell recommends, to a question the work does not wait for; and one to a question as it was asked before it was
