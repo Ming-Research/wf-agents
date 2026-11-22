@@ -476,10 +476,10 @@ impl History {
             let name = format!("W{} run {} round {number}", work.0, run.0);
             ended.then(|| (name, format!("{:?} {:?}", round.cost, round.time)))
         });
-        let calls = (judged.calls.iter()).filter_map(|((work, call), time)| {
+        let calls = (judged.calls.iter()).filter_map(|((work, call), against)| {
             let kept = d.work(*work)?;
             let done = kept.work.records.done.iter().any(|done| done.call == *call);
-            done.then(|| (format!("W{} call {}", work.0, call.0), format!("{time:?}")))
+            done.then(|| (format!("W{} call {}", work.0, call.0), format!("{against:?}")))
         });
         for (name, judged) in rounds.chain(calls) {
             match self.judged.get(&name) {

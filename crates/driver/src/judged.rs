@@ -1,9 +1,10 @@
 //! How each round and each call of a tool went against the lines of their history (principle
 //! `judged-by-own-history`): what an agent's round cost and how long it took, how long a round of an act of the
 //! engine's own took, such as the check before the merge, which waits for the project's CI, and how long a call of a
-//! tool took, such as the one that runs the project's fast tests. None of it stops anything, and none of it is stored:
-//! it is worked out from the records whenever it is read (principle `state-from-records`), for the owner's page and
-//! the command line to say what went past its line. What stops a round is the run guard's alone ([`crate::history`]).
+//! tool took and how large its result was, such as the one that runs the project's fast tests. None of it stops
+//! anything, and none of it is stored: it is worked out from the records whenever it is read (principle
+//! `state-from-records`), for the owner's page and the command line to say what went past its line. What stops a round
+//! is the run guard's alone ([`crate::history`]).
 //!
 //! A thing is judged by the line its history gave as it began: of the other works on its flow, the rounds and calls
 //! that had ended by then, and of its own work, those that ended before it in the work's order. So a round is judged by
@@ -16,8 +17,8 @@
 //!   its program saying only then what it took.
 //! - A round of an act: its time, against the rounds of its cell that handed something in and nothing else, the flow's
 //!   other cells being agents' or other acts'. An act costs nothing.
-//! - A call of a tool: its time, from when it was made until it had its result, against the calls of the same tool
-//!   that had theirs. A call withdrawn, its run abandoned or its work's item cancelled before it had its result, is
+//! - A call of a tool: its time, from when it was made until it had its result, and the size of its result in bytes,
+//!   each against the calls of the same tool that had theirs. A call withdrawn, its run abandoned or its work's item cancelled before it had its result, is
 //!   neither judged nor history: the withdrawal cut it short, not its tool.
 
 use std::collections::BTreeMap;
@@ -48,7 +49,7 @@ pub struct Of<'a> {
 /// A measure against the line of its history.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Against {
-    /// The measure, in the line's units: millionths of a dollar for a cost, milliseconds for a time.
+    /// The measure, in the line's units: millionths of a dollar for a cost, milliseconds for a time, bytes for a size.
     pub value: f64,
     pub line: Line,
 }
@@ -73,13 +74,23 @@ pub struct Round {
     pub lines: Option<Lines>,
 }
 
+/// A call of a tool against the lines of its history.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CallAgainst {
+    /// How long it took, or has taken so far while it is under way; none where too few calls of its tool tell the line.
+    pub time: Option<Against>,
+    /// How many bytes its result is, once it had one; none while it is under way and where too few calls of its tool
+    /// had results to tell the line.
+    pub size: Option<Against>,
+}
+
 /// The rounds and the calls of tools of the works judged, each against the lines of its history.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Judged {
     /// Each round its history tells a line of, by its work, its run and its number in the run, the first being one.
     pub rounds: BTreeMap<(WorkNumber, RunId, usize), Round>,
     /// Each call of a tool its history tells a line of, by its work and its name.
-    pub calls: BTreeMap<(WorkNumber, CallId), Against>,
+    pub calls: BTreeMap<(WorkNumber, CallId), CallAgainst>,
 }
 
 /// Each round and each call of a tool of the works `picked` names, against the line its history gave as it began,
@@ -141,8 +152,9 @@ enum Kind<'a> {
     Agent(&'a Sample),
     /// A round of an act's cell that handed something in, with how long it took.
     Act(&'a CellId, f64),
-    /// A call of a tool that had its result, with how long it took.
-    Tool(&'a str, f64),
+    /// A call of a tool that had its result, with how long it took and how many bytes the result is, where the records
+    /// hold it.
+    Tool(&'a str, f64, Option<f64>),
 }
 
 /// A round or a call to be judged: when it began, where in its work's order, and what it is.
@@ -171,6 +183,8 @@ enum What<'a> {
         call: CallId,
         tool: &'a str,
         time: f64,
+        /// How many bytes its result is, once it had one.
+        size: Option<f64>,
     },
 }
 
@@ -281,7 +295,7 @@ fn values<'a>(of: &Of<'a>) -> Vec<Value<'a>> {
                 ended: at.0,
                 work: of.number,
                 at: done.at,
-                kind: Kind::Tool(name, took),
+                kind: Kind::Tool(name, took, work.results.get(&called.call).map(|r| r.len() as f64)),
             });
         }
     }
@@ -325,9 +339,11 @@ fn judging<'a>(of: &Of<'a>, now: Time) -> Vec<Judging<'a>> {
         if withdrawn(work, called.call) {
             continue;
         }
-        let done = (work.records.done.iter())
-            .find(|done| done.call == called.call)
-            .and_then(|done| work.time_of(done.at));
+        let done = (work.records.done.iter()).find(|done| done.call == called.call);
+        let ended = done.and_then(|done| work.time_of(done.at));
+        let size = done
+            .and_then(|done| work.results.get(&done.call))
+            .map(|r| r.len() as f64);
         out.push(Judging {
             began: made.0,
             work: of.number,
@@ -335,7 +351,8 @@ fn judging<'a>(of: &Of<'a>, now: Time) -> Vec<Judging<'a>> {
             what: What::Call {
                 call: called.call,
                 tool: name,
-                time: done.unwrap_or(now).0.saturating_sub(made.0) as f64,
+                time: ended.unwrap_or(now).0.saturating_sub(made.0) as f64,
+                size,
             },
         });
     }
@@ -357,6 +374,8 @@ struct History<'a> {
     acts: BTreeMap<&'a CellId, Vec<f64>>,
     /// How long the calls of tools took, by tool.
     tools: BTreeMap<&'a str, Vec<f64>>,
+    /// How many bytes the results of the calls of tools are, by tool.
+    sizes: BTreeMap<&'a str, Vec<f64>>,
 }
 
 impl<'a> History<'a> {
@@ -398,7 +417,10 @@ impl<'a> History<'a> {
                 }
             }
             Kind::Act(cell, ms) => f(self.acts.entry(cell).or_default(), ms),
-            Kind::Tool(tool, ms) => f(self.tools.entry(tool).or_default(), ms),
+            Kind::Tool(tool, ms, size) => {
+                f(self.tools.entry(tool).or_default(), ms);
+                let _ = size;
+            }
         }
     }
 
@@ -456,9 +478,16 @@ impl<'a> History<'a> {
                     out.rounds.insert((one.work, run, number), judged);
                 }
             }
-            What::Call { call, tool, time } => {
-                if let Some(line) = judged_sorted(of(self.tools.get(tool)), none, least, Scope::Tool, Scope::Tool) {
-                    out.calls.insert((one.work, call), Against { value: time, line });
+            What::Call { call, tool, time, size } => {
+                let line = |list: Option<&Vec<f64>>| judged_sorted(of(list), none, least, Scope::Tool, Scope::Tool);
+                let judged = CallAgainst {
+                    time: line(self.tools.get(tool)).map(|line| Against { value: time, line }),
+                    size: size
+                        .zip(line(self.sizes.get(tool)))
+                        .map(|(value, line)| Against { value, line }),
+                };
+                if judged != CallAgainst::default() {
+                    out.calls.insert((one.work, call), judged);
                 }
             }
         }
