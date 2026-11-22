@@ -303,6 +303,42 @@ describe('the tree in columns', () => {
     endsAtCard();
   });
 
+  it('makes nothing again for a tree that draws the same, as a new read of the items gives it, and of one changed only the card that changed', () => {
+    const tree = (title: string) => [card(1, [card(2), { ...card(3), title }, card(4)])];
+    scene.show(tree('Item 3'));
+    expect(scene.stats.made).toBe(4);
+    settle(scene);
+    const place = JSON.stringify(scene.place());
+    const redraws = scene.stats.redraws;
+    // The same tree, read again: no card is made, and the next frame draws nothing of what stands again.
+    scene.show(structuredClone(tree('Item 3')));
+    expect(scene.stats.made).toBe(0);
+    scene.step();
+    expect(scene.stats.redraws).toBe(redraws);
+    expect(JSON.stringify(scene.place())).toBe(place);
+    // Item 3 retitled: its card alone is made again, and the others are kept as they were.
+    scene.show(tree('A new title'));
+    expect(scene.stats.made).toBe(1);
+    expect(scene.stats.items).toBe(4);
+  });
+
+  it('draws a frame in which only the lights move without drawing the cards, the funnels or the map again', () => {
+    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    settle(scene);
+    scene.step();
+    const redraws = scene.stats.redraws;
+    // The light runs down the way into item 2 frame after frame; nothing else moves.
+    for (let k = 0; k < 10; k += 1) {
+      scene.step(50);
+      expect(scene.litWays().map((w) => w.id)).toEqual([2]);
+    }
+    expect(scene.stats.redraws).toBe(redraws);
+    // The pointer coming over the tree draws what stands again.
+    move(50, line);
+    scene.step();
+    expect(scene.stats.redraws).toBe(redraws + 1);
+  });
+
   it("draws each item on the map in the colour of its card's state: running, in a call, for the owner, halted, paused, not begun, done or cancelled", () => {
     const now = Date.now();
     const call: Now = {
