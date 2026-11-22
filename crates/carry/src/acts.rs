@@ -936,7 +936,7 @@ pub(crate) async fn check(
         }
     }
     let Some(verdict) = host
-        .verdict(branch, &checked.commit, &checked.main, asking, stop)
+        .verdict(branch, &checked.commit, &checked.main, asking, repository, stop)
         .await?
     else {
         return Ok(None);
@@ -2447,6 +2447,108 @@ mod tests {
 
     // A run of the check that was stopped with the engine may leave its checkout, which the next run of the work's
     // check takes away first, and the work's end takes away with its worktree.
+    /// A work with one commit in a repository whose check command writes `started` in its data directory, waits for
+    /// `release` there and writes `ended`, so that a test can act while the command runs; with the host that runs it,
+    /// the commit, and the three files.
+    async fn waiting_check() -> (Repo, Local, Place, String, [PathBuf; 3]) {
+        let mut repo = Repo::new("true");
+        let files = ["started", "release", "ended"].map(|name| repo.data.join(name));
+        let [started, release, ended] = &files;
+        repo.project.check = format!(
+            "touch '{}'; while [ ! -f '{}' ]; do sleep 0.02; done; touch '{}'",
+            started.display(),
+            release.display(),
+            ended.display()
+        );
+        let host = Local::new(repo.project.clone());
+        let work = start_with(&repo, &host).await.unwrap();
+        let commit = commit(&work.place.dir, "farewell.txt", "Bye.\n");
+        (repo, host, work.place, commit, files)
+    }
+
+    /// Waits until the file is there, for ten seconds at the most.
+    async fn appears(file: &std::path::Path) {
+        for _ in 0..200 {
+            if file.exists() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("{} did not appear", file.display());
+    }
+
+    // The checkout registers a worktree in the repository, as the acts' own worktrees are, so it is made holding the
+    // repository (decision the-repository-is-worked-in-one-act-at-a-time): nothing of it begins while another act
+    // holds the lock.
+    #[tokio::test]
+    async fn the_local_check_makes_its_checkout_holding_the_repository() {
+        let (repo, host, place, commit, [started, release, _]) = waiting_check().await;
+        let lock = Mutex::new(());
+        let held = lock.lock().await;
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let (branched, mut stop) = (branch(&place), Stop::never());
+        let verdict = host.verdict(&branched, &commit, &main, ROUND, &lock, &mut stop);
+        let driver = async {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            assert!(
+                !git::checking(&place).exists(),
+                "the checkout was made while the repository was held"
+            );
+            assert!(!started.exists(), "the command ran while the repository was held");
+            drop(held);
+            std::fs::write(release, "").unwrap();
+        };
+        let (verdict, ()) = tokio::join!(verdict, driver);
+        assert_eq!(verdict.unwrap().expect("judged").failed, None);
+    }
+
+    // The command takes as long as the project's check takes: it runs without the repository, which the acts of other
+    // works need meanwhile.
+    #[tokio::test]
+    async fn the_local_check_runs_its_command_without_the_repository() {
+        let (repo, host, place, commit, [started, release, _]) = waiting_check().await;
+        let lock = Mutex::new(());
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let (branched, mut stop) = (branch(&place), Stop::never());
+        let verdict = host.verdict(&branched, &commit, &main, ROUND, &lock, &mut stop);
+        let driver = async {
+            appears(&started).await;
+            assert!(lock.try_lock().is_ok(), "the repository was held while the command ran");
+            std::fs::write(release, "").unwrap();
+        };
+        let (verdict, ()) = tokio::join!(verdict, driver);
+        assert_eq!(verdict.unwrap().expect("judged").failed, None);
+    }
+
+    // The checkout is dropped from the repository's worktrees holding it too: it is not taken away while another act
+    // holds the repository.
+    #[tokio::test]
+    async fn the_local_check_takes_its_checkout_away_holding_the_repository() {
+        let (repo, host, place, commit, [started, release, ended]) = waiting_check().await;
+        let lock = Mutex::new(());
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let (branched, mut stop) = (branch(&place), Stop::never());
+        let verdict = host.verdict(&branched, &commit, &main, ROUND, &lock, &mut stop);
+        let driver = async {
+            appears(&started).await;
+            let held = lock.lock().await;
+            std::fs::write(release, "").unwrap();
+            appears(&ended).await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            assert!(
+                git::checking(&place).exists(),
+                "the checkout was taken away while the repository was held"
+            );
+            drop(held);
+        };
+        let (verdict, ()) = tokio::join!(verdict, driver);
+        assert_eq!(verdict.unwrap().expect("judged").failed, None);
+        assert!(
+            !git::checking(&place).exists(),
+            "the checkout is taken away once the repository is free"
+        );
+    }
+
     #[tokio::test]
     async fn a_checkout_a_stopped_engine_left_is_taken_away_before_the_next_is_made_and_with_the_work() {
         let repo = Repo::new("test -f farewell.txt");

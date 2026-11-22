@@ -357,6 +357,7 @@ impl<A: Api> Host for GitHub<A> {
         commit: &str,
         main: &str,
         asking: Asking,
+        _: &tokio::sync::Mutex<()>,
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
         self.push(branch, commit).await?;

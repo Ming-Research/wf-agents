@@ -152,7 +152,14 @@ impl Hub {
         let place = self.place();
         let main = self.main_on_github();
         self.host
-            .verdict(&branch(&place), commit, &main, self.round(), &mut Stop::never())
+            .verdict(
+                &branch(&place),
+                commit,
+                &main,
+                self.round(),
+                &Mutex::new(()),
+                &mut Stop::never(),
+            )
             .await
     }
 

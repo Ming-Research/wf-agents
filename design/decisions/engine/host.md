@@ -44,9 +44,11 @@ The check before the merge judges only the work's commit: what the worktree hold
 - replaced: The check failing while the worktree held anything not committed, untracked files too, was on main; the owner changed it, because that state is in no datum, so once the leftover was deleted nothing ran the check again and the work stopped before the merge.
 
 ### decision the-local-check-runs-on-a-checkout-of-the-commit
-The local host runs the project's check command on a clean checkout of the commit to merge, taken away when the command ends or is stopped.
+The local host runs the project's check command on a clean checkout of the commit to merge, made and taken away holding the repository, the command itself running without it.
 - replaced: Running the command in the work's worktree as it stood was on main; the owner changed it, because the check no longer refuses what the worktree holds, so a file left out of every commit would pass and merge a commit that lacks it.
 - rejected: an agent proposed running it in the worktree and refusing any untracked or uncommitted file there; the owner rejected it, because on a local host a leftover would still stop the work before the merge, and it is a second way beside the rule for every host.
+- rejected: an agent proposed making and taking away the checkout without the repository lock, with an exception to decision the-repository-is-worked-in-one-act-at-a-time; the owner rejected it, because the exception rests on a marker git writes, which no test shows.
+- rejected: an agent proposed a separate checkout made by `git clone --shared` outside the repository; the owner rejected it, because a clone carries none of the repository's filters, such as LFS, so the check would see pointer files, not the commit that merges.
 
 ### decision the-pull-request-says-what-the-work-wrote
 A work's pull request is a draft until just before its merge, and its body is what the work wrote in the blocks the check names, with nothing in it left that GitHub would act on.
