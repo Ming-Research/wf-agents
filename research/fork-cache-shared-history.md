@@ -22,7 +22,7 @@ beside the rounds), read from each stream's first assistant message:
   example) and one, twelve hours after the one before, read nothing. The gaps between the others were from the same
   minute to hours: those a minute or two apart (work 11 run 13, forks 2 to 4) read the same as those hours apart, so
   the cache's life is not the cause for them.
-- The first fork of a round read nothing (5 of 9 rounds) or only the system part, and wrote the rest. Whether the
+- The first fork of a round read nothing (6 of 9 rounds) or only the system part, and wrote the rest. Whether the
   cache had let the session go is not read here (inferred from the hours between the round's end and the fork).
 - Within one fork, the second call of the fork read all that the first wrote (fork 4 of run 26: 106,408 read of 106,408
   written before), so the cache works inside a fork.
