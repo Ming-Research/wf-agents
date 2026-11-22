@@ -18,8 +18,8 @@
 //! - A round of an act: its time, against the rounds of its cell that handed something in and nothing else, the flow's
 //!   other cells being agents' or other acts'. An act costs nothing.
 //! - A call of a tool: its time, from when it was made until it had its result, and the size of its result in bytes,
-//!   each against the calls of the same tool that had theirs. A call withdrawn, its run abandoned or its work's item cancelled before it had its result, is
-//!   neither judged nor history: the withdrawal cut it short, not its tool.
+//!   each against the calls of the same tool that had theirs. A call withdrawn, its run abandoned or its work's item
+//!   cancelled before it had its result, is neither judged nor history: the withdrawal cut it short, not its tool.
 
 use std::collections::BTreeMap;
 
