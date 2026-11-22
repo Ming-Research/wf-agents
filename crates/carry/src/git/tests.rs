@@ -310,3 +310,42 @@ fn every_key_that_could_run_a_program_is_named() {
     assert!(allowed(&patterns, "core.pager"));
     assert!(!allowed(&patterns, "filter.crypt.clean"));
 }
+
+// What a worktree holds that is not committed is the change of a file git tracks, staged or not; a file git does not
+// track is none, however many there are, and is named apart: a directory of them as one line, what git ignores not at
+// all.
+#[tokio::test]
+async fn a_file_git_does_not_track_is_no_change_and_an_edit_of_a_tracked_one_is() {
+    let repo = Repo::new("true");
+    let dir = &repo.project.repo;
+    commit(dir, ".gitignore", "target/\n");
+    assert_eq!(uncommitted(dir).await.unwrap(), "");
+    assert_eq!(untracked(dir).await.unwrap(), "");
+
+    std::fs::write(dir.join("notes.txt"), "Notes.\n").unwrap();
+    std::fs::create_dir_all(dir.join("cache/deep")).unwrap();
+    std::fs::write(dir.join("cache/one"), "1\n").unwrap();
+    std::fs::write(dir.join("cache/deep/two"), "2\n").unwrap();
+    std::fs::create_dir_all(dir.join("target")).unwrap();
+    std::fs::write(dir.join("target/out"), "built\n").unwrap();
+    assert_eq!(
+        uncommitted(dir).await.unwrap(),
+        "",
+        "files git does not track are no change"
+    );
+    assert_eq!(untracked(dir).await.unwrap(), "cache/\nnotes.txt");
+
+    std::fs::write(dir.join("greeting.txt"), "Hello, there.\n").unwrap();
+    assert_eq!(uncommitted(dir).await.unwrap(), " M greeting.txt");
+    run(dir, &["add", "greeting.txt"]);
+    assert_eq!(
+        uncommitted(dir).await.unwrap(),
+        "M  greeting.txt",
+        "a staged edit is one too"
+    );
+    assert_eq!(
+        untracked(dir).await.unwrap(),
+        "cache/\nnotes.txt",
+        "a tracked file is not untracked"
+    );
+}

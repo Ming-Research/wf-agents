@@ -347,6 +347,12 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'notATest', path: 'src/lib.rs' })).toBe(
       'it changed src/lib.rs, which is none of the project\'s tests',
     );
+    expect(unmetWords({ kind: 'uncommitted', changes: ' M src/lib.rs' })).toBe(
+      'it ended its round with changes to tracked files that are not committed',
+    );
+    expect(unmetWords({ kind: 'merging', changes: 'M  src/lib.rs' })).toBe(
+      'it ended its round with a merge under way that is not committed',
+    );
     expect(unmetWords({ kind: 'treeUnchanged', name: 'placement' })).toBe(
       'it handed in the change, which changes nothing in the design tree, while placement, marked tree, has the owner\'s answer',
     );

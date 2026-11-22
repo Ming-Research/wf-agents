@@ -480,6 +480,9 @@ impl<A: Api> Host for GitHub<A> {
         if !changes.is_empty() {
             return Ok(Some(fill(&words.uncommitted, &[("changes", &changes)])));
         }
+        // What git does not track is in no commit, so it is not in the run: it is said with the result, where a test
+        // an agent forgot to commit would otherwise be missing from it unseen.
+        let untracked = git::untracked(&dir).await?;
         let ci = self.config.ci.as_ref();
         let role = match self.role(ci, named)? {
             Ok(role) => role,
@@ -503,7 +506,11 @@ impl<A: Api> Host for GitHub<A> {
             commit: &commit,
             asking,
         };
-        self.run_role(role, request, named, stop).await
+        let said = self.run_role(role, request, named, stop).await?;
+        Ok(said.map(|said| match untracked.is_empty() {
+            true => said,
+            false => format!("{}\n\n{said}", fill(&words.untracked, &[("files", &untracked)])),
+        }))
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {

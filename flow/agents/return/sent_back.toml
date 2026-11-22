@@ -14,7 +14,7 @@ again = "Return again, with everything this return should say in one return."
 # The words of each thing that can be wrong. In a text, `{block}` is a block's name; `{name}` a name as the return wrote
 # it, or, of what it dealt with, the name of the block or group; `{value}` a value it wrote; `{values}` the values of a
 # choice, each between backticks, joined by `between`; `{version}` a version's number; `{why}` why what came back could
-# not be read; `{path}` a file's path.
+# not be read; `{path}` a file's path; `{changes}` what git says the worktree holds that is not committed.
 [faults]
 # The block is not one the cell writes in `outputs`: no block of the cell's.
 not_an_output = "`{block}` is not a block this cell writes in `outputs`."
@@ -55,6 +55,11 @@ unexplained = "`{path}` is a file the project protects. The work's branch change
 # A file, `{path}`, that the run of a line that changes only the project's tests changed on the work's branch, and that
 # is none of the project's tests (`[tests]` of `project.toml`).
 not_a_test = "`{path}` is not one of the project's tests, which are the only files your line changes: take back what this run changed in it."
+# The worktree, as the round of a line that may change the work ended with a return that asks for no call, holds, of the
+# files git tracks, `{changes}` as `git status --porcelain` lists them, that are not committed; or a merge begun in it is
+# not committed. A file git does not track is none.
+uncommitted = "The worktree has changes to tracked files that are not committed:\n{changes}\nCommit what belongs to your change, and take back the rest."
+merging = "A merge is under way in the worktree and is not committed:\n{changes}\nFinish the merge and commit it, or take it back."
 # A question of the work, `{name}`, marked `tree`, with the owner's answer to its latest version, where the return
 # writes a block whose file says `answers_in_the_tree` and the work's change against main changes nothing in the
 # project's design tree.

@@ -1,6 +1,7 @@
-//! The local repository as the host: main is its own main branch, the verdict is the project's check command run in
-//! the work's worktree, and the merge is made in its checkout. An agent's `run_tests` runs the same command on the
-//! worktree as it stands, what is not committed included, and says what it said, whether it passed or not.
+//! The local repository as the host: main is its own main branch, the verdict is the project's check command run on a
+//! checkout of the commit to merge and of nothing else, taken away as the command ends, and the merge is made in the
+//! repository's checkout. An agent's `run_tests` runs the same command on the worktree as it stands, what is not
+//! committed included, and says what it said, whether it passed or not.
 
 use std::path::Path;
 
@@ -76,24 +77,34 @@ impl Host for Local {
         git::git(&self.project.repo, &["rev-parse", "--verify", &self.kept_main()]).await
     }
 
+    /// The command runs on a checkout of the commit alone, which the verdict is on and which is what a merge would
+    /// land: what the work's worktree holds besides it, a file left there and not committed or an ignored cache, is no
+    /// part of what is judged. The checkout is taken away when the command ends, or is stopped.
     async fn verdict(
         &self,
         branch: &Branch<'_>,
-        _: &str,
+        commit: &str,
         _: &str,
         _: Asking,
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
-        let dir = git::worktree(branch.place)?;
         let check = &self.project.check;
-        let failed = match process::run(process::shell(check, &dir, &self.env), None, None, stop).await? {
+        let dir = git::check_out(&self.project, branch.place, commit).await?;
+        let ran = process::run(process::shell(check, &dir, &self.env), None, None, stop).await;
+        let taken = (git::take_away_check(&self.project, branch.place).await)
+            .map_err(|why| format!("the checkout the check ran on could not be taken away: {why}"));
+        let failed = match ran? {
             Ran::Ended { status, stdout, .. } if !status.success() => Some(format!(
                 "The check `{check}` failed ({status}). The end of what it said:\n{}",
                 process::tail(&stdout)
             )),
             Ran::Ended { .. } => None,
-            Ran::Stopped => return Ok(None),
+            Ran::Stopped => {
+                taken?;
+                return Ok(None);
+            }
         };
+        taken?;
         Ok(Some(Verdict {
             failed,
             ..Verdict::default()
