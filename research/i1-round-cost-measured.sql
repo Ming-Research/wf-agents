@@ -81,3 +81,20 @@ join rt on rt.work = sp.work and rt.run = sp.run and rt.round = sp.round
 join measured m on m.work = sp.work and m.run = sp.run and m.round = sp.round and m.attempt = 1
 where s.cell = 'I1' and rt.t <= 1795347900000
 group by 1 order by 1;
+
+-- Q6: the works whose I1 rounds were compacted, or ran at level 3, with their I1 rounds' cost and models.
+-- Result: W21 43 rounds $146.52, 8 compactions, Opus; W20 34 rounds $45.04, none, Opus; W23 27 rounds $9.84, 1, Sonnet;
+-- W12 23 rounds $5.02, 1, Sonnet. The Opus rounds of Q3 are those of W20 and W21 (43 + 34 = 77).
+with rt as (
+  select r.work, r.run, row_number() over (partition by r.work, r.run order by r.at) as round,
+         (select mo.time from moments mo where mo.work = r.work and mo.place <= r.at order by mo.place desc limit 1) as t
+  from rounds r)
+select s.work, count(*) as rounds, round(sum(sp.usd_micros) / 1e6, 2) as usd, sum(sp.compactions) as compactions,
+       group_concat(distinct coalesce(x.model, 'none')) as models
+from started s
+join spent sp on sp.work = s.work and sp.run = s.run
+join rt on rt.work = sp.work and rt.run = sp.run and rt.round = sp.round
+left join ran x on x.work = sp.work and x.run = sp.run and x.round = sp.round and x.attempt = 1
+where s.cell = 'I1' and rt.t <= 1795347900000
+group by s.work having sum(sp.compactions) > 0 or s.work in (20, 21)
+order by sum(sp.usd_micros) desc;
