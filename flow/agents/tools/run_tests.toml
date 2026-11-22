@@ -57,6 +57,11 @@ job_pending = "not complete"
 job_skipped = "did not run"
 job_untimed = " (GitHub gives no time for it)"
 job_missing = "the run has no job of that name"
+# Beneath a job that failed with no failed test of its own to say why, as a lint: `{said}` the end of what the step that
+# failed it printed, as the job's log on GitHub holds it, without its colours and times; or `{why}` its log could not be
+# read.
+step_end = "  The end of what its failed step printed:\n{said}"
+log_unread = "  Its log could not be read: {why}"
 no_junit = "The run uploaded no JUnit results the engine can read, so no test's result is known, and the engine reads no log to guess one: {why}."
 verdict_by = "the full workflows of the commit ({urls})"
 verdict_jobs = "The jobs of the full workflows, each with how it ended and its wall time:\n  {jobs}"

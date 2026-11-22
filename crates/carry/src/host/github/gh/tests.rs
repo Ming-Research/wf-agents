@@ -6,7 +6,7 @@ use super::*;
 fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_skipped() {
     let job = |status: &str, conclusion: Option<&str>| {
         job(
-            &json!({ "name": "test", "status": status, "conclusion": conclusion, "html_url": "https://github.com/o/r/runs/1/job/2" }),
+            &json!({ "id": 2, "name": "test", "status": status, "conclusion": conclusion, "html_url": "https://github.com/o/r/runs/1/job/2" }),
         )
     };
     assert_eq!(
@@ -14,8 +14,9 @@ fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_skipped() {
         Some(Outcome::Passed)
     );
     assert_eq!(
-        job("completed", Some("failure")).map(|j| j.outcome),
-        Some(Outcome::Failed("failure".to_string()))
+        job("completed", Some("failure")).map(|j| (j.id, j.outcome)),
+        Some((2, Outcome::Failed("failure".to_string()))),
+        "a job is read with the id its log is read by"
     );
     assert_eq!(
         job("completed", Some("cancelled")).map(|j| j.outcome),
@@ -35,7 +36,7 @@ fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_skipped() {
 fn a_jobs_wall_time_is_read_from_its_two_stamps_when_it_ran_to_a_conclusion() {
     let took = |status: &str, conclusion: Option<&str>, started: Value, completed: Value| {
         job(&json!({
-            "name": "test", "status": status, "conclusion": conclusion,
+            "id": 2, "name": "test", "status": status, "conclusion": conclusion,
             "started_at": started, "completed_at": completed,
         }))
         .map(|j| j.took)
@@ -211,7 +212,7 @@ fn a_stamp_with_anything_but_digits_in_a_field_or_in_another_form_is_no_stamp() 
 fn a_neutral_job_is_timed_and_one_that_ended_without_judging_the_code_is_not() {
     let took = |conclusion: &str| {
         job(&json!({
-            "name": "test", "status": "completed", "conclusion": conclusion,
+            "id": 2, "name": "test", "status": "completed", "conclusion": conclusion,
             "started_at": "2026-11-14T10:00:00Z", "completed_at": "2026-11-14T10:00:07Z",
         }))
         .map(|j| (j.outcome, j.took))
@@ -428,4 +429,36 @@ async fn a_gh_that_never_answers_is_given_up_within_its_limit() {
         "no answer tells no kind: the words are read for the network's"
     );
     assert!(began.elapsed() < std::time::Duration::from_secs(10));
+}
+
+// A job's log is asked for at its path with the escapes that colour it allowed, which `gh` otherwise refuses to print,
+// and comes back as GitHub gave it, escapes and times and all; a log GitHub does not give is its refusal, in its words.
+// A script stands in for `gh`: it runs in milliseconds, and no other test holds the request of a log.
+#[tokio::test]
+async fn a_jobs_log_is_asked_for_with_its_escapes_allowed_and_given_as_github_gave_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (script, args) = (dir.path().join("gh"), dir.path().join("args"));
+    let text = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\ncase \"$*\" in\n*jobs/5/logs*) printf 'HTTP/2.0 200 OK\\r\\n\\r\\n\
+         2026-11-21T09:00:00.0000000Z \\033[91merror\\033[0m: it failed\\n' ;;\n*) printf 'HTTP/2.0 404 Not \
+         Found\\r\\n\\r\\n{{\"message\":\"Not Found\"}}' ;;\nesac\n",
+        args.display()
+    );
+    std::fs::write(&script, text).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path());
+    let log = gh.log(5).await.expect("the log");
+    assert_eq!(
+        log,
+        "2026-11-21T09:00:00.0000000Z \u{1b}[91merror\u{1b}[0m: it failed\n"
+    );
+    let asked = std::fs::read_to_string(&args).unwrap();
+    let asked: Vec<&str> = asked.lines().collect();
+    assert!(
+        asked.contains(&"repos/o/r/actions/jobs/5/logs") && asked.contains(&"--allow-escape-sequences"),
+        "{asked:?}"
+    );
+    let refused = gh.log(6).await.expect_err("no log");
+    assert_eq!(refused.why, "HTTP 404: Not Found");
 }
