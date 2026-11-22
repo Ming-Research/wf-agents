@@ -1,6 +1,7 @@
 //! The settings as the page shows them and changes them, over a file of their own in a directory of its own, read by
 //! a reading that stands in for the engine's: it refuses no slots and a key it does not know, and gives a context
-//! limit and a budget where the file leaves them out.
+//! limit and a budget where the file leaves them out. The engine holds the slots the file gives as it starts
+//! ([`RUNNING`]), but where a test says it holds others.
 
 use std::process::Command;
 
@@ -32,6 +33,9 @@ model = "claude-sonnet-5-5"
 default_level = "1"
 title_max = 40
 "#;
+
+/// The slots the engine holds, as [`FILE`] gives them.
+const RUNNING: usize = 2;
 
 /// The keys the stand-in reading knows, by table.
 const KNOWN: [(&str, &[&str]); 4] = [
@@ -130,7 +134,7 @@ fn set(base: &str, sets: &[(&str, JsonValue)]) -> SettingsChange {
     }
 }
 
-fn refusal(result: Result<Saved, Refused>) -> (StatusCode, String) {
+fn refusal(result: Result<(Saved, Option<usize>), Refused>) -> (StatusCode, String) {
     match result {
         Ok(saved) => panic!("it was saved: {saved:?}"),
         Err(Refused(status, why)) => (status, why),
@@ -141,7 +145,7 @@ fn refusal(result: Result<Saved, Refused>) -> (StatusCode, String) {
 fn the_file_is_shown_as_it_writes_the_settings_in_its_order() {
     let dir = tempfile::tempdir().unwrap();
     let install = install(dir.path(), FILE);
-    let page = shown(&install).map_err(|r| r.1).unwrap();
+    let page = shown(&install, RUNNING).map_err(|r| r.1).unwrap();
     let names: Vec<&str> = page.tables.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(
         names,
@@ -195,8 +199,8 @@ fn the_file_is_shown_as_it_writes_the_settings_in_its_order() {
 fn a_change_is_written_with_the_files_comments_and_layout_kept() {
     let dir = tempfile::tempdir().unwrap();
     let install = install(dir.path(), FILE);
-    let base = shown(&install).map_err(|r| r.1).unwrap().base;
-    let saved = changed(
+    let base = shown(&install, RUNNING).map_err(|r| r.1).unwrap().base;
+    let (saved, slots) = changed(
         &install,
         &set(
             &base,
@@ -230,20 +234,47 @@ fn a_change_is_written_with_the_files_comments_and_layout_kept() {
         "{text}"
     );
     assert!(text.contains("[sessions]\ncompact_at = 400000\n"), "{text}");
-    let page = shown(&install).map_err(|r| r.1).unwrap();
-    assert_eq!(
-        key(&page, "agents", "slots").running.as_deref(),
-        Some("2"),
-        "the engine runs with what it started with until it starts again"
-    );
+    // The engine takes the slots at once, as the file gives them, and the rest as it starts again.
+    assert_eq!(slots, Some(3));
+    let page = shown(&install, 3).map_err(|r| r.1).unwrap();
+    assert_eq!(key(&page, "agents", "slots").running, None);
     assert_eq!(key(&page, "owner", "language").running.as_deref(), Some("\"Chinese\""));
+    assert_eq!(key(&page, "sessions", "compact_at").running.as_deref(), Some("500000"));
+}
+
+// Only a change that sets the slots and is written gives the engine slots to take: one of other keys gives none, and
+// so does one that sets them to what the file already gives. The page shows beside the file's slots those the engine
+// holds, whatever it started with.
+#[test]
+fn the_engine_takes_slots_only_from_a_change_of_them_that_is_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let install = install(dir.path(), FILE);
+    let base = shown(&install, RUNNING).map_err(|r| r.1).unwrap().base;
+    let (saved, slots) = changed(
+        &install,
+        &set(&base, &[("owner.language", serde_json::json!("English"))]),
+    )
+    .map_err(|r| r.1)
+    .unwrap();
+    assert_eq!(
+        (saved.said.as_str(), slots),
+        ("owner.language = \"English\" instead of \"Chinese\"", None)
+    );
+    let base = shown(&install, RUNNING).map_err(|r| r.1).unwrap().base;
+    let (saved, slots) = changed(&install, &set(&base, &[("agents.slots", serde_json::json!(2))]))
+        .map_err(|r| r.1)
+        .unwrap();
+    assert_eq!((saved.said.as_str(), slots), ("nothing changed", None));
+    let page = shown(&install, 5).map_err(|r| r.1).unwrap();
+    let row = key(&page, "agents", "slots");
+    assert_eq!((row.written.as_deref(), row.running.as_deref()), (Some("2"), Some("5")));
 }
 
 #[test]
 fn a_change_the_page_may_not_make_is_refused_and_nothing_is_written() {
     let dir = tempfile::tempdir().unwrap();
     let install = install(dir.path(), FILE);
-    let base = shown(&install).map_err(|r| r.1).unwrap().base;
+    let base = shown(&install, RUNNING).map_err(|r| r.1).unwrap().base;
     for (sets, why) in [
         (
             vec![("agents.command", serde_json::json!("other"))],
@@ -281,7 +312,7 @@ fn a_change_the_page_may_not_make_is_refused_and_nothing_is_written() {
 fn a_change_against_a_file_changed_since_or_one_that_would_not_read_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let install = install(dir.path(), FILE);
-    let base = shown(&install).map_err(|r| r.1).unwrap().base;
+    let base = shown(&install, RUNNING).map_err(|r| r.1).unwrap().base;
     let edited = FILE.replace("slots = 2", "slots = 4");
     std::fs::write(&install.file, &edited).unwrap();
     let (status, said) = refusal(changed(
@@ -292,7 +323,7 @@ fn a_change_against_a_file_changed_since_or_one_that_would_not_read_is_refused()
     assert!(said.contains("changed since the page read it"), "{said}");
     let wrong = FILE.replace("[items]", "[items]\nunknown = 1");
     std::fs::write(&install.file, &wrong).unwrap();
-    let page = shown(&install).map_err(|r| r.1).unwrap();
+    let page = shown(&install, RUNNING).map_err(|r| r.1).unwrap();
     assert_eq!(page.unreadable.as_deref(), Some("items.unknown: no such key"));
     let (status, said) = refusal(changed(
         &install,
@@ -317,12 +348,13 @@ fn where_git_keeps_the_file_a_change_is_committed_and_none_goes_onto_changes_not
     git_in(dir.path(), &["config", "user.email", "t@t"]);
     git_in(dir.path(), &["add", "install.toml"]);
     git_in(dir.path(), &["commit", "-q", "-m", "The settings"]);
-    let page = shown(&install).map_err(|r| r.1).unwrap();
+    let page = shown(&install, RUNNING).map_err(|r| r.1).unwrap();
     assert_eq!(page.git, Some(Kept { committed: true }));
-    let saved = changed(&install, &set(&page.base, &[("agents.slots", serde_json::json!(3))]))
+    let (saved, slots) = changed(&install, &set(&page.base, &[("agents.slots", serde_json::json!(3))]))
         .map_err(|r| r.1)
         .unwrap();
     assert!(saved.committed);
+    assert_eq!(slots, Some(3));
     assert_eq!(
         git_in(dir.path(), &["log", "-1", "--format=%s"]).trim(),
         "The owner changed the settings on the page: agents.slots = 3 instead of 2"
@@ -333,7 +365,7 @@ fn where_git_keeps_the_file_a_change_is_committed_and_none_goes_onto_changes_not
         FILE.replace("command = \"claude\"", "command = \"claude2\""),
     )
     .unwrap();
-    let page = shown(&install).map_err(|r| r.1).unwrap();
+    let page = shown(&install, RUNNING).map_err(|r| r.1).unwrap();
     assert_eq!(page.git, Some(Kept { committed: false }));
     let (status, said) = refusal(changed(
         &install,

@@ -3,7 +3,7 @@
 // line begins a new session, and how many rounds run at once), each as a box, and the accounts the agents run under,
 // which are the engine's own state and change at once; then what only the file changes, table by table, each key with
 // its value as written. Beside a value the engine runs at another, which it does until it starts again, since it reads
-// the file as it starts, is the value it runs with.
+// the file as it starts, is the value it runs with; but the slots, which a save gives the engine at once.
 // Save, the one action the view is for, writes what changed into the file, its comments and layout kept, and commits
 // it where the file's directory keeps it in git; what the engine would refuse is refused before anything is written,
 // in the engine's words. What the owner typed and did not save is kept in the browser, key by key, through a reload, a
@@ -135,7 +135,19 @@ function stillChanged(draft: Draft, keys: Changeable[]): Draft {
 }
 
 /// What a request said: done, with what, or refused, with why.
-type Said = { ok: true; saved: Saved } | { ok: false; why: string } | null;
+type Said = { ok: true; saved: Saved; keys: string[] } | { ok: false; why: string } | null;
+
+/// The key whose saved value the engine takes at once (decision the-slots-change-at-once); every other waits for the
+/// engine to start again.
+const AT_ONCE = 'agents.slots';
+
+/// What a save says of when the engine takes what it saved, by the keys it set.
+function takes(keys: string[]): string {
+  if (!keys.includes(AT_ONCE)) return 'The engine takes it as it starts again.';
+  return keys.length === 1
+    ? 'The engine runs with it now.'
+    : 'The engine runs with the slots now, and takes the rest as it starts again.';
+}
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -207,7 +219,7 @@ function SettingsForm({ page, failed, said, onSaid, reread }: {
           const left = Object.fromEntries(Object.entries(values).filter(([key]) => !changed.some((c) => c.key === key)));
           setTyped(left);
           keepDraft(left);
-          onSaid({ ok: true, saved });
+          onSaid({ ok: true, saved, keys: changed.map((c) => c.key) });
         },
         // Refused, what was typed stays, and the file is read anew: where it changed since, the change is made on it.
         (e: unknown) => onSaid({ ok: false, why: message(e) }),
@@ -259,7 +271,11 @@ function SettingsForm({ page, failed, said, onSaid, reread }: {
                 </td>
                 <td
                   className="mono muted"
-                  title="The engine reads the file as it starts, and runs with what it read until it starts again"
+                  title={
+                    c.key === AT_ONCE
+                      ? 'The engine runs with this now: a save here gives it at once'
+                      : 'The engine reads the file as it starts, and runs with what it read until it starts again'
+                  }
                 >
                   {c.running ?? ''}
                   {c.leftOut && ' · left out of the file'}
@@ -278,7 +294,7 @@ function SettingsForm({ page, failed, said, onSaid, reread }: {
             (said.ok ? (
               <p className="said" role="status">
                 Saved: <span className="mono">{said.saved.said}</span>
-                {said.saved.committed ? ', and committed' : ''}. The engine takes it as it starts again.
+                {said.saved.committed ? ', and committed' : ''}. {takes(said.keys)}
               </p>
             ) : (
               <p className="failed" role="alert">

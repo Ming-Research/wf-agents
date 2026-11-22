@@ -1,7 +1,8 @@
 //! The driver as the scheduler: a work is added paused and goes on once the owner lets it on; no more rounds of
 //! agents go on at once than there are slots, a work whose round ends keeping its slot for its next round, and a slot
-//! that comes free going to the works that wait for one in the engine's order; and the owner's pause of everything,
-//! kept in the store, holds back what each work's own pause would until it is lifted.
+//! that comes free going to the works that wait for one in the engine's order; the slots the owner sets take effect at
+//! once, those added given away as they are and none begun while more are under way than the slots allow; and the
+//! owner's pause of everything, kept in the store, holds back what each work's own pause would until it is lifted.
 
 use decide::Holder;
 
@@ -119,6 +120,65 @@ fn a_slot_that_comes_free_goes_to_a_work_that_has_begun_before_one_that_has_not(
         "the merge, an act of the engine's own, takes no slot"
     );
     assert_eq!(h.decision(two), waits_for_a_slot());
+}
+
+#[test]
+fn slots_added_go_at_once_to_the_works_that_wait_for_one_in_the_engines_order() {
+    let mut h = H::with_slots(flows(), 1);
+    let (_, one) = h.add_let_on(new_item("one", &[], "plain"));
+    let (_, two) = h.add(new_item("two", &[], "plain"));
+    let (_, three) = h.add_let_on(new_item("three", &[], "plain"));
+    let one_call = asks_a_tool(&mut h, one);
+    assert_eq!(h.round(three).1, "write");
+    h.answer(one, one_call);
+    let three_call = asks_a_tool(&mut h, three);
+    assert_eq!(h.round(one).1, "write");
+    // The second work, let on, has not begun; the third, whose tool is done, has; both wait for the one slot.
+    h.let_on(two);
+    h.answer(three, three_call);
+    assert_eq!(h.d().held(two), Some(Holder::Slot));
+    assert_eq!(h.d().held(three), Some(Holder::Slot));
+    // A second slot goes at once to the third, which has begun, before the second; a third slot to the second.
+    assert_eq!(rounds(&h.set_slots(2)), [(three, "write".to_string(), 1)]);
+    assert_eq!(h.decision(two), waits_for_a_slot());
+    assert_eq!(rounds(&h.set_slots(3)), [(two, "write".to_string(), 1)]);
+    assert_eq!(h.d().slots(), driver::Slots { slots: 3, taken: 3 });
+    // Set as they stand, they change nothing, and the store is not asked.
+    h.arm(Plan::Never);
+    assert_eq!(h.set_slots(3), []);
+    assert_eq!(h.ops(), []);
+}
+
+#[test]
+fn with_fewer_slots_no_round_under_way_is_stopped_and_none_begins_until_fewer_are_under_way() {
+    let mut h = H::with_slots(flows(), 3);
+    let works: Vec<WorkNumber> = (0..4)
+        .map(|i| h.add_let_on(new_item(&format!("{i}"), &[], "plain")).1)
+        .collect();
+    let &[a, b, c, d] = works.as_slice() else {
+        panic!("four works were added: {works:?}")
+    };
+    assert_eq!(h.decision(d), waits_for_a_slot());
+    // Three rounds go on under one slot: none is stopped, and the driver says three are taken of one.
+    assert_eq!(h.set_slots(1), []);
+    assert_eq!(h.d().slots(), driver::Slots { slots: 1, taken: 3 });
+    assert_eq!(rounds(&h.d().pending()).len(), 3);
+    // One rests at a call and two go on: nothing begins.
+    let call = asks_a_tool(&mut h, a);
+    assert_eq!(h.d().slots().taken, 2);
+    assert_eq!(h.decision(d), waits_for_a_slot());
+    // What one of those two hands in is sent back, and its next round waits while the other goes on, as does the first
+    // work's once its tool is done: a work whose round ends keeps its slot only where the others leave one free.
+    assert_eq!(rounds(&h.returns(b, hands_in(&[("merged", None)]))), []);
+    assert_eq!(h.d().held(b), Some(Holder::Slot));
+    assert_eq!(rounds(&h.answer(a, call)), []);
+    assert_eq!(h.d().held(a), Some(Holder::Slot));
+    // The last round under way rests at a call: the one slot goes to the first work, in the engine's order.
+    asks_a_tool(&mut h, c);
+    assert_eq!(h.round(a).1, "write");
+    assert_eq!(h.d().slots(), driver::Slots { slots: 1, taken: 1 });
+    assert_eq!(h.d().held(b), Some(Holder::Slot));
+    assert_eq!(h.decision(d), waits_for_a_slot());
 }
 
 /// A flow whose first cell is the engine's own act, which takes no slot: it makes the place the writer, an agent,

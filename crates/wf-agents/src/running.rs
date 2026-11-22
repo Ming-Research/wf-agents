@@ -795,7 +795,8 @@ mod tests {
     }
 
     // A value the engine reads as the one it runs with is shown with no other beside it, however the file writes it: a
-    // whole number for a decimal one, a table written in part; one the file changed since the engine started is.
+    // whole number for a decimal one, a table written in part; one changed in the file by hand since the engine started
+    // is, the slots too, which the engine takes at once only as the page changes them.
     #[test]
     fn the_page_shows_beside_a_key_only_a_value_the_engine_reads_otherwise() {
         let sample = include_str!("../../carry/install.sample.toml")
@@ -818,11 +819,11 @@ mod tests {
                 })
                 .collect()
         };
-        let page = web::settings::page_of(&install).expect("it is shown");
+        let page = web::settings::page_of(&install, settings.agents.slots).expect("it is shown");
         assert_eq!(page.unreadable, None);
         assert_eq!(differ(&page), Vec::<String>::new());
         std::fs::write(&file, sample.replace("slots = 2", "slots = 3")).unwrap();
-        let page = web::settings::page_of(&install).expect("it is shown");
+        let page = web::settings::page_of(&install, settings.agents.slots).expect("it is shown");
         assert_eq!(differ(&page), ["agents.slots runs with 2"]);
     }
 }

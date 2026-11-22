@@ -21,8 +21,10 @@
 //! its layout kept, only where the file it makes reads as settings, holds each value as asked, and has not changed
 //! since the page read it; where the directory the file is in keeps it in git, the change is committed there, saying
 //! what changed, and nothing is written onto a file whose changes are not committed. The engine reads the file as it
-//! starts: until it starts again, each key it runs at another value than the file gives, as the engine reads the file,
-//! is shown with that value beside it.
+//! starts, and runs with what it read until it starts again, but for the slots: once a change of them is written, the
+//! engine takes them at once, as the file then gives them (decision the-slots-change-at-once). Each key the engine
+//! runs at another value than the file gives, as the engine reads the file, is shown with that value beside it, the
+//! slots with those the engine holds now.
 //!
 //! The settings hold no secret: a token is given to the engine in a variable of its environment, which the file names.
 //! An account's token is taken in once, as it is added, and kept outside the engine; no answer of these routes holds
@@ -261,35 +263,78 @@ fn change_of(path: &[String]) -> Option<Change> {
 /// One writer of the file at a time: two changes at once would each be made on the text the other replaces.
 static WRITING: Mutex<()> = Mutex::new(());
 
+/// The key of the slots, by its table and itself: of the keys the page changes, the one the engine takes at once.
+const SLOTS: [&str; 2] = ["agents", "slots"];
+
+/// What the routes of the file reach: the file, and the engine's loop, which takes the slots at once.
+#[derive(Clone)]
+struct Installed {
+    install: Arc<Install>,
+    handle: service::Handle,
+    /// One change at a time, from the file's write to the engine taking the slots it gives, so that the engine runs
+    /// with the slots of the file written last.
+    saving: Arc<tokio::sync::Mutex<()>>,
+}
+
 /// What the routes of the accounts reach: the engine's loop.
 #[derive(Clone)]
 struct Accounted {
     handle: service::Handle,
 }
 
-/// The routes of the settings, and of the accounts through the engine's loop.
+/// The routes of the settings, and of the accounts, through the engine's loop.
 pub fn router(install: Install, handle: service::Handle) -> Router {
-    let install = Arc::new(install);
+    let installed = Installed {
+        install: Arc::new(install),
+        handle: handle.clone(),
+        saving: Arc::default(),
+    };
     let accounts = Router::new()
         .route("/api/v1/settings/accounts", get(accounts).post(account))
         .route("/api/v1/settings/accounts/look", post(look))
         .with_state(Accounted { handle });
     Router::new()
         .route("/api/v1/settings", get(page).post(save))
-        .with_state(install)
+        .with_state(installed)
         .merge(accounts)
 }
 
-async fn page(State(install): State<Arc<Install>>) -> Response {
-    off_the_loop(move || shown(&install)).await
+/// The file as it writes the settings, beside what the engine runs with, the slots as it holds them now.
+async fn page(State(at): State<Installed>) -> Response {
+    let slots = match at.handle.read(|driver| driver.slots().slots).await {
+        Ok(slots) => slots,
+        Err(refusal) => return refused(&refusal),
+    };
+    off_the_loop(move || shown(&at.install, slots)).await
 }
 
-async fn save(State(install): State<Arc<Install>>, body: Bytes) -> Response {
+/// Writes the owner's change into the file; where it sets the slots, the engine then takes them as the file gives
+/// them. Where the engine cannot take them, the file stays as written, and the answer says so.
+async fn save(State(at): State<Installed>, body: Bytes) -> Response {
     let change: SettingsChange = match serde_json::from_slice(&body) {
         Ok(change) => change,
         Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The change cannot be read: {e}.")),
     };
-    off_the_loop(move || changed(&install, &change)).await
+    let _one = at.saving.lock().await;
+    let install = at.install.clone();
+    let (saved, slots) = match on_a_thread(move || changed(&install, &change)).await {
+        Ok(made) => made,
+        Err(Refused(status, why)) => return fail(status, why),
+    };
+    if let Some(slots) = slots
+        && let Err(refusal) = at.handle.set_slots(slots).await
+    {
+        let committed = if saved.committed { " and committed" } else { "" };
+        return fail(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "{} was written{committed}, but the engine did not take the slots: {refusal}. It takes them as it \
+                 starts again.",
+                saved.said
+            ),
+        );
+    }
+    Json(saved).into_response()
 }
 
 /// The accounts as the engine holds them, each with when its token lasts until, the usage limit the engine holds its
@@ -409,14 +454,25 @@ where
     T: Serialize + Send + 'static,
     F: FnOnce() -> Result<T, Refused> + Send + 'static,
 {
-    match tokio::task::spawn_blocking(f).await {
-        Ok(Ok(made)) => Json(made).into_response(),
-        Ok(Err(Refused(status, why))) => fail(status, why),
-        Err(e) => fail(
+    match on_a_thread(f).await {
+        Ok(made) => Json(made).into_response(),
+        Err(Refused(status, why)) => fail(status, why),
+    }
+}
+
+/// Reads and writes the disk on a thread of its own, off the threads that serve requests: what it made, or why it was
+/// refused.
+async fn on_a_thread<T, F>(f: F) -> Result<T, Refused>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, Refused> + Send + 'static,
+{
+    tokio::task::spawn_blocking(f).await.unwrap_or_else(|e| {
+        Err(Refused(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("The settings cannot be read: {e}."),
-        ),
-    }
+        ))
+    })
 }
 
 /// The file's text, or why it cannot be read.
@@ -440,13 +496,30 @@ fn digest(text: &str) -> String {
     format!("{:016x}{:016x}", first.finish(), second.finish())
 }
 
-/// The file as it writes the settings, and what the engine runs with beside it; or why it cannot be shown.
-pub fn page_of(install: &Install) -> Result<SettingsPage, String> {
-    shown(install).map_err(|Refused(_, why)| why)
+/// The file as it writes the settings, and what the engine runs with beside it, holding these slots; or why it cannot
+/// be shown.
+pub fn page_of(install: &Install, slots: usize) -> Result<SettingsPage, String> {
+    shown(install, slots).map_err(|Refused(_, why)| why)
 }
 
-/// The file as it writes the settings, and what the engine runs with beside it.
-fn shown(install: &Install) -> Result<SettingsPage, Refused> {
+/// The settings the engine runs with now: those it read as it started, but for the slots, which it takes at once as the
+/// page changes them, and holds as these.
+fn running(install: &Install, slots: usize) -> JsonValue {
+    let mut running = install.running.clone();
+    let [table, key] = SLOTS;
+    if let Some(all) = running.as_object_mut() {
+        let table = all
+            .entry(table)
+            .or_insert_with(|| JsonValue::Object(Default::default()));
+        if let Some(table) = table.as_object_mut() {
+            table.insert(key.to_string(), JsonValue::from(slots));
+        }
+    }
+    running
+}
+
+/// The file as it writes the settings, and what the engine runs with beside it, holding these slots.
+fn shown(install: &Install, slots: usize) -> Result<SettingsPage, Refused> {
     let text = text_of(&install.file)?;
     let doc: DocumentMut = text.parse().map_err(|e| {
         Refused(
@@ -455,6 +528,7 @@ fn shown(install: &Install) -> Result<SettingsPage, Refused> {
         )
     })?;
     let read = (install.read)(&text);
+    let running = running(install, slots);
     let mut tables = written(&doc);
     // Each value written beside the engine's, where they differ as the engine reads them: `5` and `5.0` are one value
     // to it, and a table written in part is filled with what the engine takes for the rest. Where the file does not
@@ -463,7 +537,7 @@ fn shown(install: &Install) -> Result<SettingsPage, Refused> {
         let base = path_of(&table.name);
         for key in &mut table.keys {
             let path: Vec<String> = base.iter().cloned().chain(path_of(&key.key)).collect();
-            let running = at(&install.running, &path);
+            let running = at(&running, &path);
             let written = match &read {
                 Ok(read) => at(read, &path).cloned(),
                 Err(_) => key.written.as_deref().and_then(json_of),
@@ -474,7 +548,7 @@ fn shown(install: &Install) -> Result<SettingsPage, Refused> {
             key.change = change_of(&path);
         }
     }
-    left_out(&install.running, &mut Vec::new(), &doc, &mut tables);
+    left_out(&running, &mut Vec::new(), &doc, &mut tables);
     let levels = (doc.get("agents").and_then(|agents| agents.get("levels")))
         .and_then(Item::as_table_like)
         .map(|levels| levels.iter().map(|(name, _)| name.to_string()).collect())
@@ -728,8 +802,9 @@ fn kept(install: &Install) -> Result<Option<Kept>, String> {
     }))
 }
 
-/// Writes the owner's change into the file and commits it, saying what changed; or says why it is refused.
-fn changed(install: &Install, change: &SettingsChange) -> Result<Saved, Refused> {
+/// Writes the owner's change into the file and commits it, saying what changed, with the slots the engine is to take at
+/// once: where the change sets them and the file was written, as the file then gives them. Or says why it is refused.
+fn changed(install: &Install, change: &SettingsChange) -> Result<(Saved, Option<usize>), Refused> {
     let refused = |why: String| Refused(StatusCode::UNPROCESSABLE_ENTITY, why);
     let _writing = WRITING.lock().unwrap_or_else(|e| e.into_inner());
     let text = text_of(&install.file)?;
@@ -749,14 +824,18 @@ fn changed(install: &Install, change: &SettingsChange) -> Result<Saved, Refused>
         let value = valued(&set.key, &kind, &set.value, &levels).map_err(refused)?;
         sets.push((path, value));
     }
-    write(
+    let (saved, read) = write(
         install,
         &text,
         &mut doc,
         &change.base,
         &sets,
         "The owner changed the settings on the page",
-    )
+    )?;
+    let slots = (read.filter(|_| sets.iter().any(|(path, _)| *path == SLOTS)))
+        .and_then(|read| at(&read, &SLOTS.map(String::from)).and_then(JsonValue::as_u64))
+        .and_then(|slots| usize::try_from(slots).ok());
+    Ok((saved, slots))
 }
 
 /// The value asked for a key, checked against what the key may be; or why it may not be that.
@@ -777,7 +856,8 @@ fn valued(key: &str, kind: &Change, value: &JsonValue, levels: &[String]) -> Res
 
 /// Sets each key to its value in the document, its comments and its layout kept, and writes it as the file where the
 /// file has not changed since `base`, it then reads as settings with each value as set, and its directory's git has
-/// no change of it not committed; commits it there, saying what was set. A commit that fails puts the file back.
+/// no change of it not committed; commits it there, saying what was set, and gives the settings the file then gives as
+/// the engine reads them, none where nothing was set. A commit that fails puts the file back.
 fn write(
     install: &Install,
     text: &str,
@@ -785,7 +865,7 @@ fn write(
     base: &str,
     sets: &[(Vec<String>, Value)],
     saying: &str,
-) -> Result<Saved, Refused> {
+) -> Result<(Saved, Option<JsonValue>), Refused> {
     let conflict = |why: String| Refused(StatusCode::CONFLICT, why);
     let refused = |why: String| Refused(StatusCode::UNPROCESSABLE_ENTITY, why);
     if digest(text) != base {
@@ -816,10 +896,11 @@ fn write(
         });
     }
     if said.is_empty() {
-        return Ok(Saved {
+        let saved = Saved {
             said: "nothing changed".to_string(),
             committed: false,
-        });
+        };
+        return Ok((saved, None));
     }
     let new = doc.to_string();
     let read = (install.read)(&new).map_err(|why| refused(format!("the settings would not read: {why}")))?;
@@ -853,7 +934,7 @@ fn write(
             true
         }
     };
-    Ok(Saved { said, committed })
+    Ok((Saved { said, committed }, Some(read)))
 }
 
 /// The value written at a path, as TOML writes it; none where nothing is.

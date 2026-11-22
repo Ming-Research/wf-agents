@@ -36,9 +36,10 @@
 //! says of an account's usage, a carrier says under the account its call was handed out with, and the driver keeps it;
 //! as the owner opens the accounts, a look is taken under each whose usage was last heard of long enough ago, with the
 //! check of the outside, off the loop (crate `driver`, module `usage`). How many rounds of agents go on at once is what
-//! the carriers say ([`Carriers::slots`]), and the driver gives no more. Whether a pause holds a work back the carriers
-//! are told as the loop opens and whenever it may have changed ([`Rounds::paused`]), for what a carrier holds back of a
-//! round for itself.
+//! the carriers say as the loop opens ([`Carriers::slots`]), and then what the owner last set ([`Handle::set_slots`]),
+//! which the driver takes at once; it gives no more. Whether a pause holds a work back the carriers are told as the
+//! loop opens and whenever it may have changed ([`Rounds::paused`]), for what a carrier holds back of a round for
+//! itself.
 //!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
@@ -133,6 +134,11 @@ pub enum Message {
     /// The owner has the sessions of works that wait kept warm, or has them kept no longer.
     KeepWarm {
         warm: bool,
+        reply: oneshot::Sender<Result<(), Refusal>>,
+    },
+    /// The owner sets how many rounds of agents may go on at once.
+    Slots {
+        slots: usize,
         reply: oneshot::Sender<Result<(), Refusal>>,
     },
     /// The owner adds, removes or takes the account of this name; one added has its token kept already, and one
@@ -392,6 +398,8 @@ impl Service {
         let mut accounts = false;
         // Whether the rounds the service answered changed, which the usage limits that stand are worked out from.
         let mut answered = false;
+        // Whether the engine's own state changed, which no record of a work holds.
+        let mut engine = false;
         match message {
             Message::Read(read) => {
                 let now = self.now()?;
@@ -574,6 +582,24 @@ impl Service {
                     }
                 }
             }
+            Message::Slots { slots, reply } => {
+                let now = self.now()?;
+                match self.driver.set_slots(now, slots) {
+                    Ok(todos) => {
+                        let _ = reply.send(Ok(()));
+                        self.hand(now, todos)?;
+                        engine = true;
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
+            }
             Message::Account { name, what, reply } => {
                 let now = self.now()?;
                 let done = match what {
@@ -643,7 +669,7 @@ impl Service {
             }
         }
         self.set_wake();
-        self.tell(&before, items, accounts, answered);
+        self.tell(&before, items, accounts, answered, engine);
         Ok(())
     }
 
@@ -968,8 +994,17 @@ impl Service {
     /// Tells whoever listens which works grew since `before`, whether an item was added, and whether the accounts
     /// changed, as `accounts` says or as the usage limits that stand did; and the carriers whether a pause holds each
     /// work that grew. The limits are worked out from every work's rounds and the rounds the service answered, so they
-    /// are worked out again only where a work grew or, as `answered` says, the service answered a round.
-    fn tell(&mut self, before: &BTreeMap<WorkNumber, usize>, items: bool, accounts: bool, answered: bool) {
+    /// are worked out again only where a work grew or, as `answered` says, the service answered a round. Where `engine`
+    /// says the engine's own state changed, whoever listens is told even where nothing else changed: the notice says
+    /// that something happened, on which the pages read the engine again.
+    fn tell(
+        &mut self,
+        before: &BTreeMap<WorkNumber, usize>,
+        items: bool,
+        accounts: bool,
+        answered: bool,
+        engine: bool,
+    ) {
         let works: Vec<WorkNumber> = (self.sizes().into_iter())
             .filter(|(work, size)| before.get(work) != Some(size))
             .map(|(work, _)| work)
@@ -981,7 +1016,7 @@ impl Service {
             accounts |= limits != self.limits;
             self.limits = limits;
         }
-        if !works.is_empty() || items || accounts {
+        if !works.is_empty() || items || accounts || engine {
             // Nobody may be listening.
             let _ = self.changed.send(Changed {
                 works,
@@ -1071,6 +1106,17 @@ impl Handle {
         let (reply, answer) = oneshot::channel();
         (self.to)
             .send(Message::KeepWarm { warm, reply })
+            .map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
+    /// Sets how many rounds of agents may go on at once, which the engine takes at once: the slots added go to the works
+    /// that wait for one, and with fewer no round under way is stopped. The engine keeps them only while it runs:
+    /// whoever sets them keeps them where it reads them as it starts again.
+    pub async fn set_slots(&self, slots: usize) -> Result<(), Refusal> {
+        let (reply, answer) = oneshot::channel();
+        (self.to)
+            .send(Message::Slots { slots, reply })
             .map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
     }

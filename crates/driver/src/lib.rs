@@ -46,8 +46,11 @@
 //! round, if it begins one at once, as its session is then warm; and a slot that comes free otherwise is given to the
 //! works that wait for one in the engine's order, those that have begun a round before those that have not, each in the
 //! order of their numbers, so that what was begun is carried on before something new begins. No work waits for a slot
-//! while one is free: each call gives away what came free before it returns. A work is added paused, and goes on once
-//! the owner lets it on, so that whoever plans orders what runs.
+//! while one is free: each call gives away what came free before it returns. The driver opens with its slots and is
+//! given them again whenever the owner changes them ([`Driver::set_slots`]): slots added go at once to the works that
+//! wait for one, in the engine's order; with fewer, no round under way is stopped, and none begins until fewer are
+//! under way than there are slots. A work is added paused, and goes on once the owner lets it on, so that whoever
+//! plans orders what runs.
 //!
 //! What happens to one work also reaches every other where a round of an agent failed for a cause outside every work,
 //! such as the account's usage limit: no agent's round of any work begins while that wait stands ([`outage`]). It is
@@ -252,7 +255,8 @@ pub struct Driver {
     works: BTreeMap<WorkNumber, Held>,
     /// The work of each item.
     of_item: BTreeMap<ItemNumber, WorkNumber>,
-    /// How many rounds of cells that take a slot may go on at once.
+    /// How many rounds of cells that take a slot may go on at once, as the driver opened with them or was last given
+    /// them ([`Driver::set_slots`]).
     slots: usize,
     /// The pause of everything, while it holds, as the store keeps it.
     paused: Option<EverythingPaused>,
@@ -346,7 +350,8 @@ pub struct Slots {
     /// How many rounds of cells that take a slot may go on at once.
     pub slots: usize,
     /// How many such rounds are under way: one for each work that has one, a round being stopped among them until it
-    /// has ended. More may be under way than there are slots, where the slots were fewer when the engine started again.
+    /// has ended. More may be under way than there are slots, where the slots were made fewer while they were under
+    /// way, or were fewer when the engine started again.
     pub taken: usize,
 }
 
@@ -1220,6 +1225,20 @@ impl Driver {
         }
         self.keep_warm = warm;
         Ok(())
+    }
+
+    /// Sets how many rounds of cells that take a slot may go on at once, at the time the caller's clock gives, and gives
+    /// what is to be done: with more, the slots free now go to the works that wait for one, in the engine's order; with
+    /// fewer, no round under way is stopped, and none begins until fewer are under way than there are slots. The store
+    /// keeps no slots: whoever sets them keeps them, so that the driver is opened with them again. Setting them as they
+    /// stand changes nothing.
+    pub fn set_slots(&mut self, now: Time, slots: usize) -> Result<Vec<Todo>, Failed> {
+        self.going()?;
+        if slots == self.slots {
+            return Ok(Vec::new());
+        }
+        self.slots = slots;
+        self.filled_after(now, Vec::new())
     }
 
     /// The accounts the agents' program may run under, as the owner added, removed and took them.
