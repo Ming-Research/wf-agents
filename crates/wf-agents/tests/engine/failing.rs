@@ -22,7 +22,7 @@ fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
         "--write",
         "request=Greet the user, please.",
     ]);
-    assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
+    assert_eq!(engine.says(&["resume", "1"]), "Work W1 goes on.\n");
     // The engine's pause and its reason, each a sentence.
     let paused =
         format!("#1 \"Greet the user\" at level 1, project script, W1 on trial: paused at plan by the engine. {WHY}.");
@@ -47,7 +47,7 @@ fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
         "{shown}"
     );
 
-    assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
+    assert_eq!(engine.says(&["resume", "1"]), "Work W1 goes on.\n");
     engine.until(&["list", "--all"], |line| {
         line == "#1 \"Greet the user\" at level 1, project script, W1 on trial: merged"
     });

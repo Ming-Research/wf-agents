@@ -35,7 +35,7 @@ async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follo
     assert_eq!(pulls[0].title, "Greet the user");
     let body = &pulls[0].body;
     assert!(body.contains("\n```text\nGreets the user by name.\n```\n"), "{body}");
-    assert!(body.contains("\n---\n\nThis pull request carries work 1"), "{body}");
+    assert!(body.contains("\n---\n\nThis pull request carries work W1"), "{body}");
     let edits = |hub: &Hub| {
         (hub.github().asked().into_iter())
             .filter(|a| matches!(a, Asked::Edit { .. }))
@@ -115,7 +115,7 @@ async fn the_pull_request_is_named_as_the_works_merge_is_and_follows_it_to_the_c
     let checked = hub.committed().await;
     hub.green(&checked);
     // Checked before the work wrote the name of its merge, then after.
-    for name in ["Work 1", "Greet the user by name"] {
+    for name in ["Work W1", "Greet the user by name"] {
         assert_eq!(titled(&hub, &checked, name).await, name);
     }
     // Named anew after its check, it merges by the name it has now.
@@ -137,7 +137,7 @@ async fn the_pull_request_is_named_as_the_works_merge_is_and_follows_it_to_the_c
     assert_eq!(
         titles,
         [
-            "Work 1".to_string(),
+            "Work W1".to_string(),
             "Greet the user by name".to_string(),
             name.to_string(),
             format!("{name} (#1)"),
@@ -421,4 +421,75 @@ async fn a_pull_request_merged_or_none_at_all_is_not_closed() {
     hub.host.end(&branch(&place), false).await.expect("nothing to close");
     assert!(!hub.github().asked().iter().any(|a| matches!(a, Asked::Close { .. })));
     assert_eq!(hub.github().pull_requests()[0].state, State::Merged);
+}
+
+/// A host whose words for what it writes on a pull request are not those of the repository's files: every part of them
+/// is marked, so that what the host writes is told from what it has no words for.
+fn hub_with_other_words() -> Hub {
+    let mut hub = Hub::new();
+    hub.host.config.words = flow::agents::PullRequest {
+        about: "ABOUT\n{about}\nEND\n".to_string(),
+        body: "BODY {work}.".to_string(),
+        cut: "CUT".to_string(),
+        merged: "MERGED {name} no.{number}".to_string(),
+        closed: "CLOSED".to_string(),
+        withheld: flow::agents::Withheld {
+            data: "<D>".to_string(),
+            repository: "<R>".to_string(),
+            home: "<H>".to_string(),
+        },
+    };
+    let words = hub.host.config.words.withheld.clone();
+    hub.host.config.withheld = withheld(&hub.repo.data, &hub.repo.project.repo, None, &words);
+    hub
+}
+
+// What the engine writes on the pull request is the words of its file, and nothing else: with other words, the body,
+// the mark of a cut, what stands for a path of this machine, the title the merge makes and the comment a closed one
+// has are those, with the work's number written as a work's is.
+#[tokio::test]
+async fn what_the_engine_writes_on_the_pull_request_is_the_words_of_its_file_and_nothing_else() {
+    let hub = hub_with_other_words();
+    let head = hub.committed().await;
+    hub.green(&head);
+    let data = hub.repo.data.display().to_string();
+    let place = hub.place();
+    let long = format!("See {data}/x. {}", "word ".repeat(10_000));
+    hub.host
+        .verdict(
+            &about(&place, &long),
+            &head,
+            &hub.main_on_github(),
+            hub.round(),
+            &Mutex::new(()),
+            &mut Stop::never(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let body = &hub.github().pull_requests()[0].body;
+    assert!(body.starts_with("ABOUT\n```text\nSee <D>/x. word"), "{body}");
+    assert!(body.ends_with("\nCUT\n```\nEND\nBODY W1."), "{body}");
+    assert!(!body.contains(&data), "{body}");
+    (hub.host.merge(&named(&place, "Greet"), Some(&head)).await).expect("it merges");
+    assert_eq!(
+        run(&hub.github().bare, &["log", "-1", "--format=%s", "main"]),
+        "MERGED Greet no.1"
+    );
+
+    let hub = hub_with_other_words();
+    let head = hub.committed().await;
+    hub.green(&head);
+    hub.verdict(&head).await.unwrap().unwrap();
+    hub.host.end(&branch(&hub.place()), false).await.expect("it closes");
+    let closed: Vec<Asked> = (hub.github().asked().into_iter())
+        .filter(|a| matches!(a, Asked::Close { .. }))
+        .collect();
+    assert_eq!(
+        closed,
+        [Asked::Close {
+            number: 1,
+            comment: "CLOSED".to_string()
+        }]
+    );
 }

@@ -121,9 +121,10 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
         match asked {
             Asked::Add(item) => {
                 let added: Added = send(address, Method::POST, "/api/v1/items", Some(&item)).await?;
+                let (item, work) = (item_number(added.item), work_number(added.work));
                 Ok(format!(
-                    "Added item {} with its work {}, paused: let it on with `wf-agents resume {}`.",
-                    added.item, added.work, added.work
+                    "Added item {item} with its work {work}, paused: let it on with `wf-agents resume {}`.",
+                    added.work
                 ))
             }
             Asked::List(listing) => {
@@ -235,9 +236,10 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 // A work let on that the pause of everything holds back is said to be held, not to go on.
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
                 Ok(match page.summary.now {
-                    Now::Everything { .. } => format!(
-                        "Work {work} is let on, and held back by the pause of everything until `wf-agents resume --all`."
-                    ),
+                    Now::Everything { .. } => {
+                        let work = work_number(work);
+                        format!("Work {work} is let on, and held back by the pause of everything until `wf-agents resume --all`.")
+                    }
                     _ => done,
                 })
             }
@@ -250,6 +252,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                     send::<(), _>(address, Method::POST, &path, Some(&act)).await?;
                 }
                 let after: WorkPage = send(address, Method::GET, &page, None::<&()>).await?;
+                let work = work_number(work);
                 match after.summary.now {
                     Now::Cancelled => Ok(format!("Work {work} is cancelled.")),
                     Now::Merged => Err(format!("Work {work} is not cancelled: it has merged.")),
@@ -523,9 +526,20 @@ fn question(q: &QuestionPage) -> Vec<String> {
     lines
 }
 
+/// A work's number as the engine writes it in words, everywhere: `W5`.
+fn work_number(number: u64) -> String {
+    store::WorkNumber(number).to_string()
+}
+
+/// An item's number as the engine writes it in words, everywhere: `#5`.
+fn item_number(number: u64) -> String {
+    store::ItemNumber(number).to_string()
+}
+
 /// What a command that acts says once it is done, with what the engine answered: of words said, the cell it gave them
 /// to.
 fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
+    let work = work_number(work);
     match act {
         Act::Write { block, .. } => format!("Wrote {block} for work {work}."),
         Act::LetGo { cell } => format!("Cell {cell} of work {work} goes on."),
@@ -698,11 +712,10 @@ fn show(page: &WorkPage) -> String {
     let summary = &page.summary;
     let work = summary.number;
     let happened = entries(page, Part::History);
+    let (named_work, named_item) = (work_number(work), item_number(summary.item));
     let mut lines = vec![
         format!(
-            "Work {} of item {} \"{}\" at {}, {}, on the flow {}.",
-            summary.number,
-            summary.item,
+            "Work {named_work} of item {named_item} \"{}\" at {}, {}, on the flow {}.",
             page.title,
             level(page.level.as_deref()),
             project(page.project.as_deref()),
@@ -726,7 +739,11 @@ fn show(page: &WorkPage) -> String {
             }
         ),
         format!("Spent: {}.", spent(&summary.spent)),
-        format!("Item {} {}", summary.item, added(&page.history, happened.is_empty())),
+        format!(
+            "Item {} {}",
+            item_number(summary.item),
+            added(&page.history, happened.is_empty())
+        ),
     ];
     latest(&mut lines, &happened, work, Part::History);
     lines.push("Cells:".to_string());
@@ -802,7 +819,8 @@ fn show(page: &WorkPage) -> String {
 /// One part of a work alone: at most [`LISTED`] of its entries in their order, from the one at this place, the first
 /// being one, with how many more there are and the command that gives them.
 fn show_part(page: &WorkPage, part: Part, from: usize) -> String {
-    let (work, said) = (page.summary.number, part.said());
+    let (number, said) = (page.summary.number, part.said());
+    let work = work_number(number);
     let all = entries(page, part);
     let from = from.max(1);
     if all.is_empty() {
@@ -816,7 +834,7 @@ fn show_part(page: &WorkPage, part: Part, from: usize) -> String {
     lines.extend(all[from - 1..to].iter().flatten().cloned());
     if to < all.len() {
         lines.push(format!(
-            "And {} more: wf-agents show {work} {} --from {}",
+            "And {} more: wf-agents show {number} {} --from {}",
             all.len() - to,
             part.name(),
             to + 1
@@ -1499,11 +1517,10 @@ fn heed(line: &Line, now: u64) -> String {
             format!("{}, {} ago", self::now(is), duration(now.saturating_sub(*since))),
         ),
     };
+    let (item, work) = (item_number(of.item), work_number(of.work));
     format!(
-        "Item {} \"{}\", work {}: {}",
-        of.item,
+        "Item {item} \"{}\", work {work}: {}",
         cut_title(&of.title),
-        of.work,
         sentence(&said)
     )
 }
@@ -1674,7 +1691,10 @@ fn waited(waited: &Waited) -> String {
         ),
         Waited::Slot {} => "a free slot".to_string(),
         Waited::Answer { question } => format!("the owner to answer the question {question}"),
-        Waited::Turn { holder, .. } => format!("the project's turn to check and merge, which work {holder} holds"),
+        Waited::Turn { holder, .. } => {
+            let holder = work_number(holder);
+            format!("the project's turn to check and merge, which work {holder} holds")
+        }
         Waited::Agents { outage: o } => format!("the agents' rounds to begin again, as {}", cause(o)),
         Waited::Outside { source, cell, why } => format!("the outside ({source}), before {cell} runs again: {why}"),
         Waited::Items { items } => format!("the items it depends on to merge: {}", numbers(items)),
@@ -2274,7 +2294,7 @@ mod tests {
         };
         assert_eq!(
             heed(&line, 2 * hour),
-            "Item 2 \"item 2\", work 2: for 1h 00m, stalled at merge. Nothing new runs this last cell, and no cell can \
+            "Item #2 \"item 2\", work W2: for 1h 00m, stalled at merge. Nothing new runs this last cell, and no cell can \
              write what runs it."
         );
     }
@@ -2537,21 +2557,21 @@ mod tests {
         let page = work(250, 0, 0, 0, 0);
         let first = show_part(&page, Part::Runs, 1);
         let lines: Vec<&str> = first.lines().collect();
-        assert_eq!(lines[0], "Work 1, its runs, 1 to 100 of 250:");
+        assert_eq!(lines[0], "Work W1, its runs, 1 to 100 of 250:");
         assert_eq!(lines.len(), LISTED + 2);
         assert!(lines[1].starts_with("  run 1 of plan: ") && lines[LISTED].starts_with("  run 100 of plan: "));
         assert_eq!(lines[LISTED + 1], "And 150 more: wf-agents show 1 runs --from 101");
         let last = show_part(&page, Part::Runs, 201);
         assert!(
-            last.starts_with("Work 1, its runs, 201 to 250 of 250:\n  run 201 of plan: "),
+            last.starts_with("Work W1, its runs, 201 to 250 of 250:\n  run 201 of plan: "),
             "{last}"
         );
         assert_eq!(last.lines().count(), 51, "the last answer says nothing more: {last}");
         assert_eq!(
             show_part(&page, Part::Runs, 251),
-            "Work 1, its runs: 250, fewer than 251."
+            "Work W1, its runs: 250, fewer than 251."
         );
-        assert_eq!(show_part(&page, Part::Sessions, 1), "Work 1, its sessions: none.");
+        assert_eq!(show_part(&page, Part::Sessions, 1), "Work W1, its sessions: none.");
     }
 
     // What happened to an item is one history in the order it happened: the changes made to it, and the cancels and
@@ -2571,7 +2591,7 @@ mod tests {
         });
         let said = show_part(&page, Part::History, 1);
         let lines = [
-            "Work 1, what happened to its item, 1 to 4 of 4:".to_string(),
+            "Work W1, what happened to its item, 1 to 4 of 4:".to_string(),
             format!("  {}: tagged t1", utc(10)),
             format!("  {}: cancelled, no reason being given", utc(15)),
             format!("  {}: tagged t2", utc(20)),

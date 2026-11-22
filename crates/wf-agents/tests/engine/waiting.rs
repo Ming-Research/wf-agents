@@ -35,7 +35,7 @@ fn wait_gives_the_question_once_it_is_asked_then_nothing_from_its_mark_then_the_
     let said = engine.says(&["wait"]);
     let (lines, mark) = split(&said);
     assert!(
-        lines.starts_with("Item 1 \"Greet the user\", work 1: waits for the owner at plan for ")
+        lines.starts_with("Item #1 \"Greet the user\", work W1: waits for the owner at plan for ")
             && lines.ends_with(": Should the greeting name the user?"),
         "{said}"
     );
@@ -48,7 +48,7 @@ fn wait_gives_the_question_once_it_is_asked_then_nothing_from_its_mark_then_the_
     let said = engine.says(&["wait", "--since", mark]);
     let (lines, _) = split(&said);
     assert!(
-        lines.starts_with("Item 1 \"Greet the user\", work 1: merged, ") && lines.ends_with(" ago."),
+        lines.starts_with("Item #1 \"Greet the user\", work W1: merged, ") && lines.ends_with(" ago."),
         "{said}"
     );
 }

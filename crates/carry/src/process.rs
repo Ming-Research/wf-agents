@@ -422,17 +422,34 @@ pub(crate) fn shell(command: &str, dir: &std::path::Path, named: &[String]) -> C
     shell
 }
 
+/// Why a program run for what it prints gave none: the kind is the type, so that nothing reads the words to tell it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Unrun {
+    /// It could not be run, as the system says.
+    Cannot(String),
+    /// It did not end within the limit, and was stopped.
+    Timeout(String),
+}
+
+impl From<Unrun> for String {
+    fn from(unrun: Unrun) -> String {
+        match unrun {
+            Unrun::Cannot(why) | Unrun::Timeout(why) => why,
+        }
+    }
+}
+
 /// Runs the program to its end and gives what it printed; or, where it does not end within the limit, kills it and
 /// says so: a program the engine waits for, a network call above all, must not hold the engine for ever.
-pub(crate) async fn output(mut command: Command, limit: Duration) -> Result<std::process::Output, String> {
+pub(crate) async fn output(mut command: Command, limit: Duration) -> Result<std::process::Output, Unrun> {
     let program = command.as_std().get_program().to_string_lossy().into_owned();
     command.kill_on_drop(true);
     match tokio::time::timeout(limit, command.output()).await {
-        Ok(output) => output.map_err(|e| format!("{program} cannot be run: {e}")),
-        Err(_) => Err(format!(
+        Ok(output) => output.map_err(|e| Unrun::Cannot(format!("{program} cannot be run: {e}"))),
+        Err(_) => Err(Unrun::Timeout(format!(
             "{program} did not end within {} seconds, and was stopped",
             limit.as_secs()
-        )),
+        ))),
     }
 }
 
@@ -888,7 +905,7 @@ mod tests {
         command.args(["-c", &format!("echo $$ > '{}'; exec sleep 30", pid.display())]);
         let began = std::time::Instant::now();
         let given_up = output(command, Duration::from_millis(500)).await.expect_err("given up");
-        assert!(given_up.contains("did not end within"), "{given_up}");
+        assert!(matches!(given_up, Unrun::Timeout(_)), "{given_up:?}");
         assert!(began.elapsed() < Duration::from_secs(10));
         let pid: u32 = std::fs::read_to_string(&pid).unwrap().trim().parse().unwrap();
         let gone = std::time::Instant::now();

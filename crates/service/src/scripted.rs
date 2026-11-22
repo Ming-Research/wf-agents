@@ -20,7 +20,6 @@ use store::WorkNumber;
 
 use crate::carriers::{
     CallReply, Carriers, Heard, KeptTokens, Network, Outside, Round, RoundReply, Rounds, Token, ToolCall, Tools,
-    WITHDRAWN,
 };
 use crate::script::{Ends, Planned, Script};
 
@@ -63,6 +62,17 @@ impl Scripted {
             outside: Arc::new(self.clone()),
             host: Some(Arc::new(self.clone())),
             tokens: Arc::new(KeptTokens::new()),
+            calls: Scripted::calls(),
+        }
+    }
+
+    /// The words a call the engine ends itself has for its result, for the tests: those beside this repository's
+    /// flows, written out.
+    pub fn calls() -> flow::agents::Calls {
+        flow::agents::Calls {
+            withdrawn: "Withdrawn: its run was abandoned before it had its result.".to_string(),
+            waited: "The wait is over: the round is tried again.".to_string(),
+            no_such_tool: "No such tool: {name}. The tools are: {tools}.".to_string(),
         }
     }
 
@@ -209,7 +219,7 @@ impl Tools for Scripted {
             }
         };
         if let Some(reply) = reply {
-            reply.done(WITHDRAWN.to_string());
+            reply.done(Scripted::calls().withdrawn);
         }
     }
 }

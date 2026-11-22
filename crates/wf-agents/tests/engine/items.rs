@@ -19,13 +19,13 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
             "--write",
             "request=Greet the user, please."
         ]),
-        "Added item 1 with its work 1, paused: let it on with `wf-agents resume 1`.\n"
+        "Added item #1 with its work W1, paused: let it on with `wf-agents resume 1`.\n"
     );
     assert_eq!(
         engine.says(&["list"]),
         "Works go on; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: paused at plan\n"
     );
-    assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
+    assert_eq!(engine.says(&["resume", "1"]), "Work W1 goes on.\n");
     let now = engine.until(&["show", "1"], |line| line.starts_with("Now: waits"));
     assert_eq!(
         now,
@@ -33,7 +33,7 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
     );
     let shown = engine.says(&["show", "1"]);
     assert!(
-        shown.starts_with("Work 1 of item 1 \"Greet the user\" at level 1, project script, on the flow trial.\n"),
+        shown.starts_with("Work W1 of item #1 \"Greet the user\" at level 1, project script, on the flow trial.\n"),
         "{shown}"
     );
     // The plan's return asked, which ended its run: it is to run again once the owner answers.
@@ -52,7 +52,7 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
 
     assert_eq!(
         engine.says(&["result", "1", "2", "Yes, by name."]),
-        "Call 2 of work 1 has its result.\n"
+        "Call 2 of work W1 has its result.\n"
     );
     engine.until(&["list", "--all"], |line| {
         line == "#1 \"Greet the user\" at level 1, project script, W1 on trial: merged"
@@ -70,7 +70,7 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
     // A work that merged is not cancelled, and is not said to be.
     assert_eq!(
         engine.refuses(&["cancel", "1", "--why", "No longer wanted."]),
-        "Work 1 is not cancelled: it has merged.\n"
+        "Work W1 is not cancelled: it has merged.\n"
     );
 }
 
@@ -150,7 +150,7 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
             "--write",
             "request=Bye."
         ]),
-        "Added item 2 with its work 2, paused: let it on with `wf-agents resume 2`.\n"
+        "Added item #2 with its work W2, paused: let it on with `wf-agents resume 2`.\n"
     );
     // A precondition holds the work before its cell whether or not it is paused, and the items it depends on, not the
     // owner, can make it hold: it waits for those that have not merged.
@@ -162,21 +162,21 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
         )),
         "{list}"
     );
-    assert_eq!(engine.says(&["resume", "2"]), "Work 2 goes on.\n");
+    assert_eq!(engine.says(&["resume", "2"]), "Work W2 goes on.\n");
     let shown = engine.says(&["show", "2"]);
     assert!(shown.contains(&format!("\nNow: {waits}.\nPaused: no.\n")), "{shown}");
-    assert_eq!(engine.says(&["pause", "2"]), "Work 2 is paused.\n");
+    assert_eq!(engine.says(&["pause", "2"]), "Work W2 is paused.\n");
     assert_eq!(
         engine.says(&["write", "2", "opinions", "--text", "Keep it short."]),
-        "Wrote opinions for work 2.\n"
+        "Wrote opinions for work W2.\n"
     );
     assert_eq!(
         engine.says(&["let-go", "2", "build"]),
-        "Cell build of work 2 goes on.\n"
+        "Cell build of work W2 goes on.\n"
     );
     assert_eq!(
         engine.says(&["cancel", "2", "--why", "No longer wanted."]),
-        "Work 2 is cancelled.\n"
+        "Work W2 is cancelled.\n"
     );
     engine.until(&["list", "--all"], |line| {
         line == "#2 \"Say goodbye\" at level 1, project script, W2 on trial, after #1: cancelled"
@@ -186,7 +186,7 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
         engine.refuses(&["write", "2", "opinions"]),
         "Nothing is given to write: write takes --text, --file or --value.\n"
     );
-    assert_eq!(engine.refuses(&["show", "9"]), "There is no work 9.\n");
+    assert_eq!(engine.refuses(&["show", "9"]), "There is no work W9.\n");
     assert_eq!(
         engine.refuses(&["write", "2", "plan", "--text", "Mine."]),
         "People do not write the block plan.\n"

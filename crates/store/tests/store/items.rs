@@ -175,3 +175,12 @@ fn an_item_whose_work_cannot_be_kept_is_not_added() {
         Ok((ItemNumber(1), WorkNumber(1)))
     );
 }
+
+// A number is written as what it numbers wherever the engine writes one in words, by one writer: an item with a `#`, a
+// work with a `W`.
+#[test]
+fn an_item_number_is_written_with_a_hash_and_a_work_number_with_a_w() {
+    assert_eq!(ItemNumber(79).to_string(), "#79");
+    assert_eq!(WorkNumber(43).to_string(), "W43");
+    assert_eq!(format!("{} of {}", WorkNumber(1), ItemNumber(2)), "W1 of #2");
+}

@@ -17,6 +17,21 @@ pub struct ItemNumber(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WorkNumber(pub u64);
 
+/// An item's number as it is written wherever the engine writes one in words: `#79`. A number in an address, a branch's
+/// or a session's name, or an argument of the command line is the bare number.
+impl std::fmt::Display for ItemNumber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#{}", self.0)
+    }
+}
+
+/// A work's number as it is written wherever the engine writes one in words: `W43`.
+impl std::fmt::Display for WorkNumber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "W{}", self.0)
+    }
+}
+
 /// A thing to be done, as it stands: what it was added as, with each change made to it since, in turn. What it stands
 /// as is worked out of those by [`Item::new`] and [`Item::changed`] alone.
 #[derive(Clone, Debug, PartialEq, Eq)]

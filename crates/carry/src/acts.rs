@@ -1022,7 +1022,7 @@ pub fn faults(flow: &Compiled, values: &CheckValues) -> Vec<String> {
 
 /// What `deliver` writes: that the item is delivered, and the items it was made of, by their numbers in order.
 fn delivered(made_of: &[ItemNumber], words: &Deliver) -> String {
-    let numbers: Vec<String> = made_of.iter().map(|item| item.0.to_string()).collect();
+    let numbers: Vec<String> = made_of.iter().map(ToString::to_string).collect();
     match numbers.as_slice() {
         [] => words.none.clone(),
         [one] => fill(&words.one, &[("item", one)]),
@@ -1187,7 +1187,7 @@ pub(crate) fn name(flow: &Compiled, work: &Work, number: WorkNumber, commits: &f
     let written = described(&named, work);
     let line = written.lines().map(str::trim).find(|line| !line.is_empty());
     line.map_or_else(
-        || fill(&commits.unnamed, &[("work", &number.0.to_string())]),
+        || fill(&commits.unnamed, &[("work", &number.to_string())]),
         str::to_string,
     )
 }
@@ -1413,15 +1413,15 @@ mod tests {
         );
         assert_eq!(
             delivered(&items(&[4]), &words().deliver),
-            "Delivered, made of the item 4."
+            "Delivered, made of the item #4."
         );
         assert_eq!(
             delivered(&items(&[2, 4]), &words().deliver),
-            "Delivered, made of the items 2 and 4."
+            "Delivered, made of the items #2 and #4."
         );
         assert_eq!(
             delivered(&items(&[2, 4, 7]), &words().deliver),
-            "Delivered, made of the items 2, 4 and 7."
+            "Delivered, made of the items #2, #4 and #7."
         );
     }
 

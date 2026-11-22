@@ -8,9 +8,10 @@ A flow is data in files of wf-agents' own format: the engine's compiler checks t
 - rejected: an agent proposed drawing the changed chart from the Chinese source with the old generator, and copying each change into the repository's English definition; the owner rejected it, because the chart is to be drawn from the repository's definition, the one source.
 
 ### decision what-agents-are-sent-is-in-the-flows-files
-Everything the engine sends agents is in the flow's files, never in the code or the installation's settings: its own words, the words its acts write, and the project's paths it names.
+Everything the engine sends agents, writes on GitHub and says on the owner's pause and wait cards is in the flow's files, never in the code or the installation's settings: its words and its paths.
 - rejected: an agent proposed keeping the paths of the project's guide, constitution and tree rules, and the owner's language, in the installation's settings; the owner rejected it, because he checks the flow's files for repetition, copies and hard-coding, and the page for what the files lack.
 - replaced: Keeping in the engine's code the words that its acts write into blocks and commits was on main; the owner changed it, because what an agent is sent comes from the flow's files.
+- replaced: Keeping in the engine's code the words it writes on a pull request, in a call's result it ends itself, and as a pause's reason was on main; the owner changed it, because words in the code are ones he can neither see in the flow's files nor change.
 
 ### decision the-flows-files-are-a-tree-of-concepts
 The flow's files are laid out by concept, one thing to a file: the project's declaration, what every agent is sent, and each flow's lines, cells, blocks and tests.

@@ -71,8 +71,9 @@ mod tests {
             about: "",
             place: &place,
         };
+        let said = super::super::tests::said();
         let told = Told {
-            unread: None,
+            said: &said,
             tools: &[],
         };
         let call = Call {

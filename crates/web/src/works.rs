@@ -2604,7 +2604,7 @@ fn stalled_words(words: &flow::agents::StalledWords, on: &[CellKey], by: &[Stall
             Unrun::NothingNew {} => words.nothing_new.clone(),
             Unrun::Held {} => words.held.clone(),
         };
-        fill(&words.unrun, &[("cell", &name(&stalling.cell)), ("why", &why)])
+        fill(&words.unrun, &[("cell", &name(&stalling.cell)), ("because", &why)])
     });
     let parts: Vec<String> = std::iter::once(waits).chain(unrun).collect();
     flow::agents::sentence(&parts.join(&words.then))
@@ -3070,8 +3070,7 @@ fn numbered(records: &Records, block: &BlockId, at: Seq) -> Result<u64, Broken> 
 
 /// The deciding code's view of the work, which the driver holds, in the room what holds every work at once leaves it.
 pub(crate) fn viewed_at(driver: &Driver, number: WorkNumber, at_once: &driver::AtOnce) -> Result<View, Broken> {
-    (driver.view_at(number, at_once))
-        .ok_or_else(|| Broken(format!("the driver shows work {} and has no view of it", number.0)))
+    (driver.view_at(number, at_once)).ok_or_else(|| Broken(format!("the driver shows {number} and has no view of it")))
 }
 
 /// The link of the CI run a round or a call runs as, where what carries it out says it does.

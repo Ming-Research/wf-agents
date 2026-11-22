@@ -747,6 +747,57 @@ fn no_source_names_a_cell_line_group_or_block_of_a_flow() {
     );
 }
 
+/// Whether a text puts a number after the noun it numbers with a place that names nothing, as `work {}` or `Items {}`:
+/// a number the engine writes in words is written by one writer (`store::WorkNumber`, `store::ItemNumber`), named for
+/// what it is where the place stands, as `{work}` or `{item}` is.
+fn written_bare(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    ["work", "item", "works", "items"]
+        .iter()
+        .any(|noun| (lower.match_indices(&format!("{noun} {{}}"))).any(|(at, _)| !lower[..at].ends_with(ident)))
+}
+
+#[test]
+fn no_source_writes_the_number_of_a_work_or_an_item_into_a_sentence_by_a_place_that_names_nothing() {
+    let root = root();
+    let mut found = Vec::new();
+    let mut read = 0;
+    for (path, scanned) in rust_sources() {
+        let at = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
+        read += scanned.literals.len();
+        for literal in scanned.literals.iter().filter(|l| written_bare(&l.text)) {
+            found.push(format!("{at}:{}: \"{}\"", literal.line, literal.text));
+        }
+    }
+    assert!(read > 1000, "the sources are read: {read} literals");
+    assert!(
+        found.is_empty(),
+        "these sentences write a number bare, which the engine writes as `W5` and `#5`, by one writer:\n{}",
+        found.join("\n")
+    );
+}
+
+#[test]
+fn a_noun_followed_by_a_place_that_names_nothing_is_found_and_a_named_place_is_not() {
+    for bare in [
+        "Work {} is paused.",
+        "the items {} merged",
+        "of item {}: it",
+        "no WORK {}",
+    ] {
+        assert!(written_bare(bare), "{bare}");
+    }
+    for fine in [
+        "Work {work} is paused.",
+        "a network {}",
+        "{} has no version",
+        "the item {item} merged",
+        "framework {}",
+    ] {
+        assert!(!written_bare(fine), "{fine}");
+    }
+}
+
 #[test]
 fn a_name_is_found_in_rust_code_and_not_in_its_comments_its_tests_or_its_characters() {
     let text = r####"

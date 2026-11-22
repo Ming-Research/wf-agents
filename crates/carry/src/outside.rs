@@ -29,9 +29,6 @@ use crate::{account, cli, failure, process};
 /// itself, for a while, before it says so.
 const REQUEST_WAIT: Duration = Duration::from_secs(120);
 
-/// What the short request asks.
-const REQUEST: &str = "Reply with the single word ok.";
-
 /// The check of the outside of the agents' rounds, as the installation's settings say how they run.
 pub struct Check {
     /// The agents' command line, as `agents.command` names it.
@@ -188,20 +185,20 @@ impl Check {
             &self.setting_sources,
             "--settings",
             &settings,
-            REQUEST,
+            &self.said.request,
         ];
         let output = match process::output(self.command(&args, token), REQUEST_WAIT).await {
             Ok(output) => output,
-            Err(why) => {
+            Err(unrun) => {
                 // One that did not end in time had no answer from the service; one that cannot be started is the
                 // command line failing to run.
-                let failure = match why.contains("did not end within") {
-                    true => decide::run::Failure::Unavailable,
-                    false => failure::of(&why, &failure::Said::default(), None),
+                let failure = match &unrun {
+                    process::Unrun::Timeout(_) => decide::run::Failure::Unavailable,
+                    process::Unrun::Cannot(why) => failure::of(why, &failure::Said::default(), None),
                 };
                 let down = Found::Down {
                     failure,
-                    why,
+                    why: unrun.into(),
                     resets: None,
                 };
                 return (down, None);
@@ -216,7 +213,7 @@ impl Check {
             return (Found::Well, said);
         }
         let had_result = stream.has_result();
-        let no = match stream.read(cli::Begin::New, 0) {
+        let no = match stream.read(cli::Begin::New, 0, &self.words) {
             Ok(_) => return (Found::Well, said),
             Err(no) => no,
         };
@@ -229,10 +226,14 @@ impl Check {
                 process::ended(&self.words, &self.command, output.status, &tail)
             }
         };
-        let failure = failure::of(&why, &no.said, no.spent.as_ref());
+        let report = match (output.status.success(), had_result) {
+            (true, _) | (false, true) => no.report,
+            (false, false) => String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        };
+        let failure = failure::of(&report, &no.said, no.spent.as_ref());
         let now = self.clock.now().map_or(0, |now| now.0);
         let resets = (failure == decide::run::Failure::UsageLimit)
-            .then(|| failure::resets(&why, &no.said, now, &failure::zone_offset))
+            .then(|| failure::resets(&report, &no.said, now, &failure::zone_offset))
             .flatten()
             .map(Time);
         (Found::Down { failure, why, resets }, said)

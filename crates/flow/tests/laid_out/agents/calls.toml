@@ -1,0 +1,14 @@
+# The result a call has where the engine ends it itself, kept as the call's result in the work's records. A call is
+# what a run rests at until it has its result: what an agent asked for, or a limit the run reached. No round is given
+# either result: a run abandoned has no round after it, and the engine's wait is no call a round is told of.
+
+# A call withdrawn as its run was abandoned, before it had its result: a person's question, a run at its limit, the
+# engine's wait or a tool's call.
+withdrawn = "Withdrawn: its run was abandoned before it had its result."
+
+# The engine's wait before a round that failed in passing is tried again, once its time has come.
+waited = "The wait is over: the round is tried again."
+
+# What a call of a tool the engine does not have is answered, the engine answering it itself: `{name}` the name asked
+# for, `{tools}` the tools there are, joined by commas.
+no_such_tool = "No such tool: {name}. The tools are: {tools}."

@@ -20,7 +20,7 @@ use std::sync::Arc;
 use decide::CallId;
 use flow::agents::{ResultGiven, Tool, fill};
 use serde::Deserialize;
-use service::{CallReply, ToolCall, Tools as ToolsTrait, WITHDRAWN};
+use service::{CallReply, ToolCall, Tools as ToolsTrait};
 use store::WorkNumber;
 
 use crate::git;
@@ -44,8 +44,8 @@ struct Inner<H> {
     data: PathBuf,
     /// The installation's part of the names of the works' worktrees.
     tag: String,
-    /// What the agent is told of a request it cannot be read, from `agents/tools/run_tests.toml`.
-    unread: Option<String>,
+    /// What the tools say in the words beside the flows.
+    said: Said,
     held: Held<(WorkNumber, CallId), CallReply>,
     /// The tool `query`, closed until the settings open it.
     query: Querying,
@@ -57,18 +57,52 @@ enum Answer {
     Withdrawn,
 }
 
+/// What the tools say in the words beside the flows, beside what each tool's own file says.
+#[derive(Clone, Debug, Default)]
+pub struct Said {
+    /// What an agent is told of a request of `run_tests` that cannot be read, from `agents/tools/run_tests.toml`:
+    /// `{error}` what the reading said.
+    pub unread: Option<String>,
+    /// What it is told where the check could not be run: `{why}` what stopped it.
+    pub could_not: String,
+    /// The result of a call withdrawn, from `agents/calls.toml`.
+    pub withdrawn: String,
+    /// What it is told of a tool the engine does not have, from `agents/calls.toml`: `{name}` the name, `{tools}` the
+    /// tools there are.
+    pub no_such_tool: String,
+}
+
+impl Said {
+    /// What the tools say in the words these files beside the flows hold: of the tool `run_tests` what its own file
+    /// says, and of the calls the engine ends itself what `agents/calls.toml` says; or why the tool's file lacks what
+    /// the engine says where its check could not be run.
+    pub fn of(beside: &flow::agents::Agents) -> Result<Self, String> {
+        let tool = beside.tools.get(RUN_TESTS);
+        let could_not = (tool.and_then(|tool| tool.could_not_check.clone())).filter(|text| !text.trim().is_empty());
+        let could_not = could_not.ok_or_else(|| {
+            let file = beside.root.join("agents/tools").join(format!("{RUN_TESTS}.toml"));
+            format!("{}: could_not_check must not be missing or empty", file.display())
+        })?;
+        Ok(Said {
+            unread: tool.and_then(|tool| tool.unread.clone()),
+            could_not,
+            withdrawn: beside.calls.withdrawn.clone(),
+            no_such_tool: beside.calls.no_such_tool.clone(),
+        })
+    }
+}
+
 impl<H: Host> Tools<H> {
     /// The tools on this host in this project, with this data directory, which is an absolute path, the
-    /// installation's tag, and what an agent is told of a request of `run_tests` that cannot be read, `{error}` what
-    /// the reading said.
-    pub fn new(host: H, project: Project, data: PathBuf, tag: String, unread: Option<String>) -> Self {
+    /// installation's tag, and what they say in the words beside the flows.
+    pub fn new(host: H, project: Project, data: PathBuf, tag: String, said: Said) -> Self {
         Tools {
             inner: Arc::new(Inner {
                 host,
                 project,
                 data,
                 tag,
-                unread,
+                said,
                 held: Held::new(),
                 query: Querying::closed(),
             }),
@@ -124,7 +158,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
                 };
                 let tools = flow::form::tools(&call.flow);
                 let told = Told {
-                    unread: inner.unread.as_deref(),
+                    said: &inner.said,
                     tools: &tools,
                 };
                 let asked = Call {
@@ -136,7 +170,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
             };
             let result = match answered {
                 Answer::Result(result) => result,
-                Answer::Withdrawn => WITHDRAWN.to_string(),
+                Answer::Withdrawn => inner.said.withdrawn.clone(),
             };
             if let Some(reply) = inner.held.take(key) {
                 reply.done(result);
@@ -147,7 +181,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
     fn withdraw(&self, call: ToolCall, reply: CallReply) {
         self.prune(&call);
         if let Some(reply) = self.inner.held.stop((call.work, call.call), reply) {
-            reply.done(WITHDRAWN.to_string());
+            reply.done(self.inner.said.withdrawn.clone());
         }
     }
 }
@@ -276,10 +310,9 @@ fn cut(result: &str, given: Option<&ResultGiven>, file: &str) -> String {
     format!("{}\n\n{words}", &result[..at])
 }
 
-/// What a result of `answer` says that is the flow's: the words an unreadable request is told in, and the tools the
-/// flow gives its agents.
+/// What a result of `answer` says that is the flow's: the words the tools say, and the tools the flow gives its agents.
 struct Told<'a> {
-    unread: Option<&'a str>,
+    said: &'a Said,
     tools: &'a [&'a str],
 }
 
@@ -302,13 +335,20 @@ async fn answer(
     let name = call.name;
     if name != RUN_TESTS {
         let tools = told.tools.join(", ");
-        return Answer::Result(format!("No such tool: {name}. The tools are: {tools}."));
+        let places = [("name", name), ("tools", tools.as_str())];
+        return Answer::Result(fill(&told.said.no_such_tool, &places));
     }
     let checked = match asked(call.input) {
         Err(why) => Ok(Some(
-            told.unread.map_or(why.clone(), |words| fill(words, &[("error", &why)])),
+            told.said
+                .unread
+                .as_deref()
+                .map_or(why.clone(), |words| fill(words, &[("error", &why)])),
         )),
-        Ok(named) => run_tests(host, project, branch, &named, Asking::Call(call.id), stop).await,
+        Ok(named) => {
+            let could_not = &told.said.could_not;
+            run_tests(host, project, branch, &named, Asking::Call(call.id), stop, could_not).await
+        }
     };
     match checked {
         Ok(Some(said)) | Err(said) => Answer::Result(said),
@@ -325,8 +365,9 @@ async fn run_tests(
     named: &Named,
     asking: Asking,
     stop: &mut Stop,
+    could_not: &str,
 ) -> Result<Option<String>, String> {
-    let could_not = |why: String| format!("The check could not be run: {why}");
+    let could_not = |why: String| fill(could_not, &[("why", &why)]);
     let found = conflict::found(project, branch.place, &host.kept_main()).await;
     if let Some(said) = found.map_err(could_not)? {
         return Ok(Some(said));
@@ -415,7 +456,12 @@ mod tests {
             name,
             input,
         };
-        match answer(host, &repo.project, &branch, &TOLD, &call, &mut Stop::never()).await {
+        let said = said();
+        let told = Told {
+            said: &said,
+            tools: &["query", "run_tests"],
+        };
+        match answer(host, &repo.project, &branch, &told, &call, &mut Stop::never()).await {
             Answer::Result(result) => result,
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
@@ -538,11 +584,45 @@ mod tests {
         assert!(!old.exists() && !young.exists());
     }
 
-    /// The words an unreadable request is told in, as a file of the flow gives them.
-    const TOLD: Told<'static> = Told {
-        unread: Some("The request cannot be read: {error}"),
-        tools: &["query", "run_tests"],
-    };
+    /// What the tools say, in words of the shape the files beside the flows give them.
+    pub(super) fn said() -> Said {
+        Said {
+            unread: Some("The request cannot be read: {error}".to_string()),
+            could_not: "The check could not be run: {why}".to_string(),
+            withdrawn: "Withdrawn: its run was abandoned before it had its result.".to_string(),
+            no_such_tool: "No such tool: {name}. The tools are: {tools}.".to_string(),
+        }
+    }
+
+    // The engine starts only where the tool's file says what it tells of a check that could not be run: where the file
+    // has none, or an empty one, it is refused naming the file and the key.
+    #[test]
+    fn a_tool_file_without_the_words_for_a_check_that_could_not_be_run_is_refused_naming_its_file() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+        for (what, words) in [("missing", None), ("empty", Some(" ".to_string()))] {
+            let mut beside = beside.clone();
+            beside.tools.get_mut(RUN_TESTS).unwrap().could_not_check = words;
+            let refused = Said::of(&beside).expect_err(what);
+            assert!(refused.contains("run_tests.toml"), "{what}: {refused}");
+            assert!(refused.contains("could_not_check"), "{what}: {refused}");
+        }
+    }
+
+    // What the tools say comes from the files of this repository's flows.
+    #[test]
+    fn the_files_beside_the_flows_give_the_tools_every_sentence() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+        let said = Said::of(&beside).expect("the tool's file says it");
+        let (unread, could_not) = (said.unread.unwrap(), said.could_not);
+        assert!(
+            unread.contains("{error}") && could_not.contains("{why}"),
+            "{unread} {could_not}"
+        );
+        assert!(said.no_such_tool.contains("{name}") && said.no_such_tool.contains("{tools}"));
+        assert!(said.withdrawn.starts_with("Withdrawn: "), "{}", said.withdrawn);
+    }
 
     #[tokio::test]
     async fn the_tests_say_whether_they_passed_with_what_they_said() {
@@ -631,7 +711,12 @@ mod tests {
             name: RUN_TESTS,
             input: "",
         };
-        let asked = answer(&host, &repo.project, &branch, &TOLD, &call, &mut stop);
+        let said = said();
+        let told = Told {
+            said: &said,
+            tools: &["query", "run_tests"],
+        };
+        let asked = answer(&host, &repo.project, &branch, &told, &call, &mut stop);
         let (answer, ()) = tokio::join!(asked, withdrawing);
         assert!(matches!(answer, Answer::Withdrawn));
         assert!(began.elapsed() < Duration::from_secs(20), "the command was stopped");
@@ -645,7 +730,7 @@ mod tests {
         let repo = Repo::new("true");
         git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
         let host = Fake::new("unused").runs("The tests passed.");
-        let tools = Tools::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string(), None);
+        let tools = Tools::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string(), said());
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow");
         let has = flow::Has {
             sources: ["tree", "main"].map(str::to_string).into(),
@@ -673,7 +758,7 @@ mod tests {
         let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
         tools.call(call, CallReply::new(WORK, CallId(2), to));
         said.recv().await.expect("the call is answered");
-        assert_eq!(tools.inner.host.titles(), ["Work 1"]);
+        assert_eq!(tools.inner.host.titles(), ["Work W1"]);
         assert_eq!(tools.inner.host.askings(), [Asking::Call(CallId(2))]);
     }
 

@@ -979,7 +979,7 @@ pub(crate) fn fill_empty(db: &Connection) -> Result<(), Fault> {
         let value: Option<String> = row.get(5)?;
         let content: String = row.get::<_, Option<String>>(7)?.ok_or_else(|| {
             Fault::Database(format!(
-                "migration 18: the content of the version of {block} written at {at} of work {work} is missing"
+                "migration 18: the content of the version of {block} written at {at} of W{work} is missing"
             ))
         })?;
         db.execute(
@@ -1010,12 +1010,12 @@ pub(crate) fn fill_empty(db: &Connection) -> Result<(), Fault> {
         let value: Option<String> = row.get(5)?;
         let at: i64 = row.get::<_, Option<i64>>(6)?.ok_or_else(|| {
             Fault::Database(format!(
-                "migration 18: the write of {block} by run {run} of work {work} has no finished run to take its place from"
+                "migration 18: the write of {block} by run {run} of W{work} has no finished run to take its place from"
             ))
         })?;
         let content: String = row.get::<_, Option<String>>(7)?.ok_or_else(|| {
             Fault::Database(format!(
-                "migration 18: the content of the version of {block} written by run {run} at {at} of work {work} is missing"
+                "migration 18: the content of the version of {block} written by run {run} at {at} of W{work} is missing"
             ))
         })?;
         db.execute(

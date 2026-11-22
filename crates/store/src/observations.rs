@@ -140,7 +140,7 @@ impl Observations {
             let text = (row.n.checked_sub(1).and_then(|i| texts.get(i)).cloned()).ok_or_else(|| Fault::Value {
                 table: "observations",
                 message: format!(
-                    "O{} is the text {} of the observations of what came back of work {}, run {}, round {}, which \
+                    "O{} is the text {} of the observations of what came back of W{}, run {}, round {}, which \
                      has fewer",
                     row.number, row.n, row.work, row.run, row.round
                 ),
@@ -148,7 +148,7 @@ impl Observations {
             let kept = row.kept.ok_or_else(|| Fault::Value {
                 table: "observations",
                 message: format!(
-                    "O{}: work {} has no time for its run {}'s finish",
+                    "O{}: W{} has no time for its run {}'s finish",
                     row.number, row.work, row.run
                 ),
             })?;

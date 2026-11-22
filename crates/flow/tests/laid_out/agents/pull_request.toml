@@ -1,0 +1,38 @@
+# What the engine writes on a work's pull request where the project's host is GitHub: its body, the title of the commit
+# its merge makes, and the comment it is closed with. None of it is an agent's: what the work wrote of itself is put in
+# `{about}`, published so that GitHub acts on nothing in it.
+
+# The body, written over at each check and before the merge: `about` where the work wrote of itself, then `body`.
+# Filled in a run: `{about}` what the work wrote of itself, in a block of plain text; `{work}` the work's number.
+about = '''
+What the work's agents wrote of the change:
+
+{about}
+
+---
+
+'''
+body = '''
+This pull request carries work {work} of wf-agents.
+
+The engine pushes here each commit of the work's branch that it checks, and reads the CI of that commit. It merges the pull request once the check passed on the commit it merges and the work's flow lets it go. What was decided in the work, and why, is on the engine's page for the work. The text above is written over at each check.
+'''
+
+# What follows what the work wrote of itself, on a line of its own, where it is cut to what a reader of the pull
+# request needs.
+cut = "(cut: the whole is on the engine's page)"
+
+# The title of the commit the merge makes, whatever the merge method, as GitHub titles a squash by default: `{name}` the
+# name of the work's merge, `{number}` the pull request's number, which GitHub gives it.
+merged = "{name} (#{number})"
+
+# The comment the pull request is closed with, where its work ended without merging. It says not why: why is the
+# owner's, in the owner's language, and on the owner's page.
+closed = "Its work ended without merging."
+
+# What stands, in what is published, in place of each path of this machine: the data directory, the project's local
+# repository and the home directory.
+[withheld]
+data = "<the data directory>"
+repository = "<the repository>"
+home = "<the home directory>"

@@ -231,7 +231,7 @@ pub trait Host: Send + Sync + 'static {
     ) -> impl Future<Output = Result<Option<String>, String>> + Send;
 
     /// Lets go of what the host holds for the work, which has ended with nothing of it under way: its pull request
-    /// where it did not merge, closed with a word that its work ended ([`CLOSED`]), and, merged or not, the branches
+    /// where it did not merge, closed with a word that its work ended, as the words beside the flows say it (`agents/pull_request.toml`), and, merged or not, the branches
     /// that calls of [`Host::run_tests`] left (`wf-try/<the work's branch>/…`), deleted after the pull request is
     /// closed, whether or not that went well. What is gone, closed or merged already is left as it is, and the work's
     /// own branch stays.
@@ -272,10 +272,6 @@ pub(crate) fn kept_main(project: &crate::settings::Project) -> String {
         Some(github) => github::kept_main(&github.remote, main),
     }
 }
-
-/// What the host says on the pull request of a work that ended without merging. It says not why: why is the owner's,
-/// in the owner's language, and on the owner's page.
-pub const CLOSED: &str = "Its work ended without merging.";
 
 /// A host shared, as the acts and the tools share it.
 impl<H: Host> Host for Arc<H> {

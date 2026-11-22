@@ -408,3 +408,149 @@ fn the_context_part_orders_what_a_round_is_given_by_naming_each_list_of_a_cell_o
         assert!(refused.contains(named), "{name}: {refused}");
     }
 }
+
+/// The text of `file` under `agents/` in a copy of the files with `key` of `table` taken out, or set to `to`.
+fn with_key(dir: &Path, file: &str, table: &[&str], key: &str, to: Option<&str>) -> (PathBuf, String) {
+    let path = dir.join("agents").join(file);
+    let original = fs::read_to_string(&path).unwrap();
+    let mut whole: toml::Table = original.parse().unwrap();
+    let mut at = &mut whole;
+    for name in table {
+        at = at.get_mut(*name).and_then(toml::Value::as_table_mut).unwrap();
+    }
+    match to {
+        Some(text) => assert!(
+            at.insert(key.to_string(), text.into()).is_some(),
+            "{file}: {key} is there"
+        ),
+        None => assert!(at.remove(key).is_some(), "{file}: {key} is there"),
+    }
+    fs::write(&path, toml::to_string(&whole).unwrap()).unwrap();
+    (path, original)
+}
+
+// A start where the file of the words of the pull request, of the calls the engine ends, or of the program's results
+// lacks a text, or holds an empty one, is refused naming the file and the key: the engine would say nothing, or what
+// it has no words for, where it speaks. Each key is taken out and then emptied, in a copy of the files.
+#[test]
+fn a_file_of_the_engines_words_that_lacks_a_text_or_holds_an_empty_one_is_refused_naming_its_file_and_key() {
+    let dir = copy("every-word");
+    let cases: &[(&str, &[&str], &[&str])] = &[
+        ("pull_request.toml", &[], &["about", "body", "cut", "merged", "closed"]),
+        ("pull_request.toml", &["withheld"], &["data", "repository", "home"]),
+        ("calls.toml", &[], &["withdrawn", "waited", "no_such_tool"]),
+        (
+            "cost.toml",
+            &["program"],
+            &[
+                "no_stream_result",
+                "unreadable_result",
+                "no_return",
+                "error_kind",
+                "error",
+                "last_attempt",
+                "refused",
+                "too_long",
+                "lines_too_long",
+                "not_a_result",
+                "no_reason",
+            ],
+        ),
+        ("cost.toml", &["check"], &["request"]),
+        ("cost.toml", &["work"], &["failed"]),
+    ];
+    assert!(agents::read(&dir).is_ok(), "the copy reads before it is changed");
+    for (file, table, keys) in cases {
+        for key in *keys {
+            for to in [None, Some(" ")] {
+                let (path, original) = with_key(&dir, file, table, key, to);
+                let refused = agents::read(&dir).expect_err(&format!("{file} {key} {to:?}"));
+                fs::write(&path, original).unwrap();
+                assert!(refused.contains(&path.display().to_string()), "{file} {key}: {refused}");
+                assert!(refused.contains(key), "{file} {key} {to:?}: {refused}");
+            }
+        }
+    }
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The places of `text` that write a number's letter, `W` or `#`, by hand before a place the engine fills with a
+/// number already written (`{work}`, `{item}`, `{items}`, `{last}`), whose lines are not comments.
+fn hand_written_numbers(text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for line in text.lines().filter(|line| !line.trim_start().starts_with('#')) {
+        for place in agents::NUMBER_PLACES {
+            let place = format!("{{{place}}}");
+            for (at, _) in line.match_indices(&place) {
+                if line[..at].ends_with(['W', '#']) {
+                    found.push(line.trim().to_string());
+                }
+            }
+        }
+    }
+    found
+}
+
+/// Every `.toml` file under `dir`, with its text.
+fn toml_files(dir: &Path) -> Vec<(PathBuf, String)> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            files.extend(toml_files(&path));
+        } else if path.extension().is_some_and(|e| e == "toml") {
+            let text = fs::read_to_string(&path).unwrap();
+            files.push((path, text));
+        }
+    }
+    files
+}
+
+// The engine fills a number written as its kind writes it (`W43`, `#79`), once: a text that writes the letter before
+// the place as well would say it twice.
+#[test]
+fn no_text_of_the_flows_files_writes_a_numbers_letter_before_the_place_the_engine_fills_with_one() {
+    for text in ["Work W{work}", "the item #{item}", "the items #{items} and #{last}"] {
+        assert!(!hand_written_numbers(text).is_empty(), "the scan misses {text:?}");
+    }
+    assert!(hand_written_numbers("Work {work}, on the item {item}.\n# W{work} in a comment").is_empty());
+    let flow = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let mut read = 0;
+    for dir in ["agents", "data"] {
+        for (path, text) in toml_files(&flow.join(dir)) {
+            read += 1;
+            let found = hand_written_numbers(&text);
+            assert!(found.is_empty(), "{}: {found:?}", path.display());
+        }
+    }
+    assert!(read > 20, "the scan reads the files: {read}");
+}
+
+/// The lines of `text`, not comments, that put `{why}` where nothing before it on the line ends in a colon.
+fn causes_without_a_colon(text: &str) -> Vec<String> {
+    (text.lines())
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .filter(|line| line.split("{why}").count() > 1)
+        .filter(|line| {
+            let before = line.split("{why}").next().unwrap_or_default();
+            !before.trim_end().ends_with(':')
+        })
+        .map(|line| line.trim().to_string())
+        .collect()
+}
+
+// A cause someone else wrote, `{why}`, is set off after a colon, so that whatever it begins with, a lower case word, a
+// path or a quote, the sentence that holds it reads whole. These two files frame the reasons the owner reads on the
+// pause and wait cards.
+#[test]
+fn a_cause_is_set_off_after_a_colon_in_the_words_of_the_pause_and_wait_cards_and_of_the_program() {
+    assert!(!causes_without_a_colon("failed = \"The round failed. {why}\"").is_empty());
+    assert!(causes_without_a_colon("failed = \"The round failed. The cause: {why}\"").is_empty());
+    let flow = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/agents");
+    for file in ["waits.toml", "cost.toml"] {
+        let text = fs::read_to_string(flow.join(file)).unwrap();
+        assert!(text.contains("{why}"), "{file} frames a cause");
+        let found = causes_without_a_colon(&text);
+        assert!(found.is_empty(), "{file}: {found:?}");
+    }
+}

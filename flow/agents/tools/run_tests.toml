@@ -17,6 +17,9 @@ words_local = '''
 # What a request that cannot be read as that shape is told, nothing having been run: `{error}` what the reading said.
 unread = "Nothing was run: the request is not `{\"tests\": [...], \"checks\": [...], \"commit\": \"...\"}`, where each list holds names, the commit is one name, and each may be left out: {error}."
 
+# What it is told where the check could not be run at all, whatever the host: `{why}` what stopped it.
+could_not_check = "The check could not be run: {why}"
+
 [request]
 type = "object"
 properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } }, commit = { type = "string" } }

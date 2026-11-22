@@ -38,7 +38,7 @@ text = "# {title}"
 [[parts]]
 part = "work"
 kind = "latest"
-text = "Work W{work}, on the item #{item} \"{item_title}\"."
+text = "Work {work}, on the item {item} \"{item_title}\"."
 
 # The engine writes it in one line, in these words: `text` where main was merged into the work's branch, `{main}` its head
 # merged in and `{merge}` the commit of the merge; `conflict` where it does not merge, `{files}` the files in conflict;
