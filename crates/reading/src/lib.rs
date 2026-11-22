@@ -633,18 +633,41 @@ impl Reading<'_> {
                 }
                 continue;
             }
-            let owed_open = self.owed(&cell.id, now).iter().any(|c| !self.done(*c, now));
+            // The calls with no result yet: a call for a person, the owner or the architect is waited for; one the
+            // engine makes itself is not, the work moves on as the engine makes it.
+            let calls = |open: Vec<&Called>| {
+                if open.is_empty() {
+                    None
+                } else if open.iter().any(|c| c.on.is_some()) {
+                    Some(waiting())
+                } else {
+                    Some(Rest::Moving { at: cell.id.clone() })
+                }
+            };
+            let owed = self.owed(&cell.id, now);
+            let owed_open = calls(
+                (records.called.iter())
+                    .filter(|c| owed.contains(&c.call) && !self.done(c.call, now))
+                    .collect(),
+            );
             if let Some(run) = at_rest(&cell.id) {
-                let call_open = (records.called.iter()).any(|c| c.run == run.run && !self.done(c.call, now));
-                if call_open {
-                    return waiting();
+                let open = (records.called.iter())
+                    .filter(|c| c.run == run.run && !self.done(c.call, now))
+                    .collect();
+                if let Some(rest) = calls(open) {
+                    return rest;
                 }
                 return self
                     .gate(flow, i, owed_open)
                     .unwrap_or(Rest::Moving { at: cell.id.clone() });
             }
             let reasons = self.entering(flow, cell, now);
-            if reasons.is_empty() && (owed_open || self.held(&cell.id, now)) {
+            if reasons.is_empty()
+                && let Some(rest) = owed_open.clone()
+            {
+                return rest;
+            }
+            if reasons.is_empty() && self.held(&cell.id, now) {
                 return waiting();
             }
             if let Some(rest) = self.gate(flow, i, owed_open) {
