@@ -1688,13 +1688,16 @@ impl Driver {
     }
 
     /// Looks at every work that has not ended, in the order of their numbers, each with the gate as it is then and
-    /// given no slot, so that the free slots go to the works in the engine's order once all have been looked at.
+    /// given no slot, so that the free slots go to the works in the engine's order once all have been looked at. Where
+    /// a wait every work shares lets one round go first, the work whose round met it first is looked at first.
     fn look(&mut self, now: Time) -> Result<Vec<Todo>, Fault> {
         let mut todos = Vec::new();
-        let numbers: Vec<WorkNumber> = (self.works.iter())
+        let first = first_turns(self.outage().as_ref(), self.host_outage().as_ref());
+        let mut numbers: Vec<WorkNumber> = (self.works.iter())
             .filter(|(_, held)| held.standing == Standing::Going)
             .map(|(number, _)| *number)
             .collect();
+        numbers.sort_by_key(|number| (!first.contains(number), *number));
         for number in numbers {
             self.step_one(now, number, Event::Look, false, &mut todos)?;
         }
@@ -2011,18 +2014,27 @@ impl Driver {
     }
 
     /// Gives each free slot to the first work in the engine's order that waits for one, and gives what is to be done:
-    /// the works that have begun a round before those that have not, each in the order of their numbers. A work given
+    /// the works that have begun a round before those that have not, each in the order of their numbers, and before
+    /// them all the work whose round met the agents' wait first, where the wait lets one round go first. A work given
     /// a slot is looked at; each is looked at once, so that one that turns out to begin no round does not take the
     /// turn of the others.
     fn fill(&mut self, now: Time) -> Result<Vec<Todo>, Halt<Fault>> {
         let mut todos = Vec::new();
         let mut looked = BTreeSet::new();
+        let first = first_turns(self.outage().as_ref(), None);
         while self.taken(None) < self.slots {
             let waiting = self.room(None, false);
             let next = (self.works.values())
                 .filter(|held| held.standing == Standing::Going && !looked.contains(&held.head.number))
                 .filter(|held| engine::held(&held.flow, &held.work, waiting) == Some(Holder::Slot))
-                .min_by_key(|held| (!begun(&held.flow.flow, &held.work.records), held.head.number))
+                .min_by_key(|held| {
+                    let number = held.head.number;
+                    (
+                        !first.contains(&number),
+                        !begun(&held.flow.flow, &held.work.records),
+                        number,
+                    )
+                })
                 .map(|held| held.head.number);
             let Some(number) = next else {
                 break;
@@ -2284,14 +2296,25 @@ fn taken_among(taking: &BTreeSet<WorkNumber>, but: Option<WorkNumber>) -> usize 
 /// Which rounds may begin, as the agents' wait and the acts' wait say: each holds its own rounds while it holds.
 fn gate_of_waits(agents: Option<&Outage>, host: Option<&Outage>) -> Gate {
     let agents = match agents {
-        Some(outage) if outage.holds() => Gate::Agents,
+        Some(outage) if outage.holds_now() => Gate::Agents,
         _ => Gate::Open,
     };
     let acts = match host {
-        Some(outage) if outage.holds() => Gate::Acts,
+        Some(outage) if outage.holds_now() => Gate::Acts,
         _ => Gate::Open,
     };
     agents.and(acts)
+}
+
+/// The works given the first turn to go first, each where its wait lets one round go and none has yet: the work whose
+/// round met the failure first in the wait of the acts' host, then in the agents' wait.
+fn first_turns(agents: Option<&Outage>, host: Option<&Outage>) -> Vec<WorkNumber> {
+    [host, agents]
+        .into_iter()
+        .flatten()
+        .filter(|outage| !outage.holds_now())
+        .map(|outage| outage.first)
+        .collect()
 }
 
 /// When the driver is to be told the time for a wait, as its kind says, with whether a look at the acts' host is then

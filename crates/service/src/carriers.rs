@@ -980,6 +980,16 @@ impl Teller {
         });
     }
 
+    /// The program of the try of this number of the round ended by itself and left these many processes running in
+    /// its group, which the carrier stopped: said before the round's end, so that it is in the records with the round.
+    pub fn left_behind(&self, attempt: usize, processes: usize) {
+        self.tell(Event::LeftBehind {
+            run: self.run,
+            attempt,
+            processes,
+        });
+    }
+
     /// The line's session was reopened during the round, for this reason: the agents' program had lost the one the
     /// round was to go on in, or compacted it.
     pub fn session_began(&self, line: String, why: Why) {

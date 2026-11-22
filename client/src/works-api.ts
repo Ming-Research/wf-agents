@@ -101,9 +101,12 @@ export interface Outage {
   /// The latest check of the outside in the wait, where one was taken.
   checked: Checked | null;
   until: Until;
-  /// Whether it holds rounds now: once a check found the outside well it stands only until a round that began after
-  /// the latest that failed so comes back, and holds nothing meanwhile.
+  /// Whether it holds rounds now: once a check found the outside well, or a look reached the acts' host, it stands until
+  /// a round that began after the latest that failed so comes back, and holds every other round while that one, which
+  /// goes first, is under way.
   holds: boolean;
+  /// The work whose round goes first, while it is under way and the wait holds the others for it.
+  first?: number | null;
 }
 
 /// Who can make a precondition hold: the owner, a source outside the work (such as the items it depends on, as they

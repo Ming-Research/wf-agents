@@ -14,7 +14,7 @@ use crate::asked;
 use crate::event::{Effect, Event, Gate, Hold, Refused};
 use crate::handed_in;
 use crate::spoken;
-use work::{Ask, Back, Call, Filled, Given, Measured, Moment, Pinged, Pulled, Ran, Session, Time, Work};
+use work::{Ask, Back, Call, Filled, Given, LeftBehind, Measured, Moment, Pinged, Pulled, Ran, Session, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
 /// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`], [`Gate::Open`]). Where the
@@ -292,6 +292,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
         | Event::Ran { .. }
         | Event::Filled { .. }
         | Event::Measured { .. }
+        | Event::LeftBehind { .. }
         | Event::Pulled { .. }
         | Event::NotReleased { .. }
         | Event::Released) => {
@@ -631,6 +632,24 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 round: number,
                 attempt,
                 measures,
+            });
+        }
+        Event::LeftBehind {
+            run,
+            attempt,
+            processes,
+        } => {
+            let number = began(work, run);
+            if number == ended(work, run) {
+                return Err(Refused::NoRoundUnderWay(run));
+            }
+            let at = work.tick();
+            work.left_behind.push(LeftBehind {
+                at,
+                run,
+                round: number,
+                attempt,
+                processes,
             });
         }
         Event::Pulled { number, url } => {

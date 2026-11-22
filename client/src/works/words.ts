@@ -266,6 +266,10 @@ export function heldWords(service: Outage['service'], failure: Failure): string 
 /// in what was found is marked so (`Coded` draws it).
 export function outageWords(outage: Outage): string | null {
   if (!outage.holds) return null;
+  if (outage.first != null) {
+    const what = outage.service === 'host' ? 'act' : 'round';
+    return `${capital(failureWords(outage.failure))} since ${clock(outage.since)}. It is well again: W${outage.first}'s ${what} goes first, and the rest begin once it comes back.`;
+  }
   const found = outage.checked?.found;
   const down = outageDown(outage);
   // The check's time, without its day where that is the day the wait began.

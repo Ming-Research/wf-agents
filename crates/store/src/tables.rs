@@ -11,8 +11,8 @@ use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use work::{
-    Filled, KeptTime, Measured, Measures, Moment, Observed, OnFlow, Pinged, Pulled, Ran, RanOn, Session, Spent, Time,
-    Work,
+    Filled, KeptTime, LeftBehind, Measured, Measures, Moment, Observed, OnFlow, Pinged, Pulled, Ran, RanOn, Session,
+    Spent, Time, Work,
 };
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
@@ -430,6 +430,20 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
         measured.measures.before = parse("measured", &before)?;
         out.measured.push(measured);
     }
+    out.left_behind = rows(
+        db,
+        "SELECT at, run, round, attempt, processes FROM left_behind WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(LeftBehind {
+                at: Seq(row.get(0)?),
+                run: RunId(row.get(1)?),
+                round: row.get(2)?,
+                attempt: row.get(3)?,
+                processes: row.get(4)?,
+            })
+        },
+    )?;
     out.pinged = rows(
         db,
         "SELECT at, line, session, usd_micros, input_tokens, cached_tokens, output_tokens, context_tokens, \
@@ -573,6 +587,9 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         round: o.round,
     })?;
     let measured = grown("measured", &held.measured, &given.measured, |m| Entry::At(m.at))?;
+    let left_behind = grown("left_behind", &held.left_behind, &given.left_behind, |l| {
+        Entry::At(l.at)
+    })?;
     let pinged = grown("pinged", &held.pinged, &given.pinged, |p| Entry::At(p.at))?;
     let pulls = grown("pulls", &held.pulls, &given.pulls, |p| Entry::At(p.at))?;
     let on_flow = grown("on_flow", &held.flows, &given.flows, |f| Entry::At(f.at))?;
@@ -821,6 +838,12 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 n.crossed,
                 n.priced
             ],
+        )?;
+    }
+    for l in left_behind {
+        db.execute(
+            "INSERT INTO left_behind (work, at, run, round, attempt, processes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![w, l.at.0, l.run.0, l.round, l.attempt, l.processes],
         )?;
     }
     for p in pinged {

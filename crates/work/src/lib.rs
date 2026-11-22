@@ -21,7 +21,7 @@ pub use filled::{Fill, FillFault, Filled};
 pub use flows::{OnFlow, Read, Version, version_of};
 pub use measured::{Measured, Measures, Pinged};
 pub use observations::Observed;
-pub use sessions::{Ran, RanOn, Session, Why};
+pub use sessions::{LeftBehind, Ran, RanOn, Session, Why};
 pub use time::{KeptTime, Stretch, Went};
 
 /// Everything kept of one work.
@@ -56,6 +56,8 @@ pub struct Work {
     pub observed: Vec<Observed>,
     /// What the calls of each try of an agent's round to the model came to, where its carrier said, in order.
     pub measured: Vec<Measured>,
+    /// Each try of an agent's round whose program left processes running as it ended, which were stopped, in order.
+    pub left_behind: Vec<LeftBehind>,
     /// Each keep-warm ping of a line's session, in order.
     pub pinged: Vec<Pinged>,
     /// Each pull request the host of the work's repository found the work checked through, in order, where it is
@@ -100,6 +102,7 @@ impl Work {
             .chain(self.filled.iter().map(|f| f.at))
             .chain(self.ran.iter().map(|r| r.at))
             .chain(self.measured.iter().map(|m| m.at))
+            .chain(self.left_behind.iter().map(|l| l.at))
             .chain(self.pinged.iter().map(|p| p.at))
             .chain(self.pulls.iter().map(|p| p.at))
             .chain(self.flows.iter().map(|f| f.at))

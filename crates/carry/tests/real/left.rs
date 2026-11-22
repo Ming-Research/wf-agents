@@ -123,10 +123,10 @@ async fn a_round_whose_program_took_its_message_in_before_its_engine_ended_fails
     );
 }
 
-// A round whose program took its message in before its engine ended, and which then fails before its program could
-// run, as for a level the settings no longer have, takes what that try took, and its measures are told, so that the
-// session is known to hold its message. Under two seconds alone; no other test holds a left try whose round fails
-// before its program runs.
+// A round whose program took its message in before its engine ended, and printed no return, fails as one whose program
+// ended with none, though a new program could not run now, as for a level the settings no longer have: it takes what
+// that try took, and its measures are told, so that the session is known to hold its message. Under two seconds alone;
+// no other test holds a left try with no return whose item's level is gone.
 #[tokio::test]
 async fn a_left_try_whose_round_now_fails_for_its_item_s_level_is_counted() {
     let fake = Fake {

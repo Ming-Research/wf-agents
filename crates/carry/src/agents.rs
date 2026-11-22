@@ -93,22 +93,25 @@
 //! data directory: `.message.md` and `.stream.jsonl` for its first try, `.message.2.md` and `.stream.2.jsonl` for the
 //! next, and so on, the stream written as it comes, and a message told again, as to a try after one whose program took
 //! nothing in, kept as a second name of the file an earlier try of the round keeps it in, so that it is stored once;
+//! `.entered.json`, `.entered.2.json` and on what each try runs on and fills into its session, kept before its message;
 //! `.compacted` holds a byte for each compaction of the session during the round, and `.again.md`, while the program
 //! runs and never past the round's tries, what the hook gives again; `.words.json` what the owner said that waits for
-//! the hook, and `.given.1.json` and on what the hook gave. The program's process group is stopped as the process
-//! of the engine ends, however it ends ([`process`]), and is written in `.pgid` there while the program runs; a group
-//! left named there all the same by a process of the engine that ended is stopped before the round is run again, or
-//! before the round's stop ends it, so that a session has one program at a time and a stopped round's program does
-//! not run on.
+//! the hook, `.given.1.json` and on what the hook gave, and `.said.json` the versions of the owner's words each says.
+//! The program's process group is stopped as the process of the engine ends, however it ends ([`process`]), and is
+//! written in `.pgid` there while the program runs; a group left named there all the same by a process of the engine
+//! that ended is stopped before the round is run again, or before the round's stop ends it, so that a session has one
+//! program at a time and a stopped round's program does not run on. What a program that ends by itself leaves running
+//! in its group is stopped as it ends, and counted with its try.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use decide::run::{Failure, Unmet};
-use decide::{BlockId, CellId, Pauser, RunId, Seq};
+use decide::{CellId, Pauser, RunId, Seq};
 use driver::Policy;
 use engine::Came;
+use serde::{Deserialize, Serialize};
 use service::{
     Clock, Doings, Fork, Forked, Mark, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Telling, Token,
     Tokens, Told,
@@ -117,7 +120,7 @@ use store::WorkNumber;
 use tokio::process::Command;
 use tokio::sync::oneshot;
 use uuid::Uuid;
-use work::{Back, Measures, RanOn, Spent, Why, Work};
+use work::{Back, Fill, Measures, RanOn, Spent, Why, Work};
 
 use crate::catch_up::{self, CaughtUp};
 use crate::cli::{self, Begin, Calls, Compacted, InSession, Words};
@@ -168,12 +171,10 @@ type Locks = BTreeMap<(WorkNumber, String), Arc<tokio::sync::Mutex<()>>>;
 /// What the owner said to each round, by the round, each behind a lock of its own.
 type Tellings = BTreeMap<(WorkNumber, RunId, usize), Arc<tokio::sync::Mutex<Said>>>;
 
-/// What the owner said to a round, as its hook gave it: the versions of what waits in the round's file of words, and
-/// of what the hook gave; and whether the round's program has ended, which hears nothing more.
+/// Whether the round's program has ended, which hears nothing more: what the owner said to it, and what its hook gave
+/// it, is in the round's files of words ([`Words`]).
 #[derive(Default)]
 struct Said {
-    waiting: Vec<(BlockId, Seq)>,
-    given: Vec<(BlockId, Seq)>,
     ended: bool,
 }
 
@@ -485,35 +486,35 @@ impl Inner {
             Ok(of) => of,
             Err(why) => return failed_before(round, line, left, why),
         };
-        let profile = account::profile(&self.data);
-        let on = match self.settings.ran_on(
-            round.item.level.as_deref(),
-            &round.cell,
-            &profile,
-            round.account.as_deref(),
-        ) {
-            Ok(on) => on,
-            Err(why) => return failed_before(round, line, left, why),
-        };
-        // A round given anew is given the token of the account it was handed out with, which every try of it is given,
-        // taken before anything changes the worktree or the branch: one that cannot be given, as with no account in
-        // use, fails the round as a command line that cannot run, nothing changed and nothing sent, in the words of
-        // what keeps the tokens or beside the flows. A try left by an engine that ended goes on with none.
+        // A round given anew runs on what the settings give its item's level and its cell, and is given the token of
+        // the account it was handed out with, which every try of it is given, taken before anything changes the
+        // worktree or the branch: one that cannot be given, as with no account in use, fails the round as a command line
+        // that cannot run, nothing changed and nothing sent, in the words of what keeps the tokens or beside the flows.
+        // A try left by an engine that ended goes on with neither: it ran on what it recorded, and its return is read
+        // from what it kept, so a level the settings no longer have does not fail its round.
         let begun = match left {
             Some(left) => Begun::Left(Box::new(left)),
-            None => match account::token_of(&self.tokens, round.account.as_deref(), &of.beside.cost.check.no_account)
-                .await
-            {
-                Ok(token) => Begun::Anew(token, round.account.clone().unwrap_or_default()),
-                Err(why) => {
-                    return Ok(Carried::Failed(
-                        why,
-                        Failure::CannotRun,
-                        failure::Said::default(),
-                        Spent::default(),
-                    ));
+            None => {
+                let profile = account::profile(&self.data);
+                let on = self.settings.ran_on(
+                    round.item.level.as_deref(),
+                    &round.cell,
+                    &profile,
+                    round.account.as_deref(),
+                )?;
+                match account::token_of(&self.tokens, round.account.as_deref(), &of.beside.cost.check.no_account).await
+                {
+                    Ok(token) => Begun::Anew(token, round.account.clone().unwrap_or_default(), on),
+                    Err(why) => {
+                        return Ok(Carried::Failed(
+                            why,
+                            Failure::CannotRun,
+                            failure::Said::default(),
+                            Spent::default(),
+                        ));
+                    }
                 }
-            },
+            }
         };
         let dir = match git::worktree(&place) {
             Ok(dir) => dir,
@@ -584,7 +585,7 @@ impl Inner {
                 }
                 (None, left.stream, String::new(), left.compactions)
             }
-            Begun::Anew(token, under) => {
+            Begun::Anew(token, under, on) => {
                 // What the round is sent in the session as it stands, and in one that holds nothing: one begun under
                 // the round, or compacted during it.
                 let about = context::For {
@@ -633,7 +634,13 @@ impl Inner {
                     let _ = tokio::fs::remove_file(&compacted.marks).await;
                     let (n, told_at, stream_at) = attempt(&base).await;
                     // What the try runs on is said before its message is written, which makes the try one that was
-                    // kept, and what its message fills, before the program is given it.
+                    // kept, and what its message fills, before the program is given it. Both are kept beside the try
+                    // first, so that what the loop has not recorded when its process ends is told from there.
+                    let kept_entered = Entered {
+                        on: on.clone(),
+                        fills: entered.fills.clone(),
+                    };
+                    keep_entered(&kept::entered_at(&base, n), &kept_entered).await?;
                     teller.ran_on(n, on.clone());
                     teller.filled(n, entered.fills.clone());
                     let told = &entered.text;
@@ -708,6 +715,12 @@ impl Inner {
                     let priced = halted || (ended && !kept.stream.has_result() && kept.stream.priced().is_some());
                     let measures = kept.measures(given, before, crossed.is_some(), priced);
                     tell_try(teller, line, n, compactions, measures);
+                    // What the program left running in its group, stopped as it ended, is counted with the try.
+                    if let Ok(Ran::Ended { left, .. }) = &ran
+                        && *left > 0
+                    {
+                        teller.left_behind(n, *left);
+                    }
                     let ran = match ran {
                         Ok(ran) => ran,
                         Err(why) => {
@@ -1011,14 +1024,18 @@ impl Inner {
         };
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
         let of = crate::projects::of(&self.projects, &round.item).ok();
-        // What the try ran on, as the records say it began on it, and the account it ran under.
+        // What the try ran on, as the records say it began on it or else as the try kept it, and the account it ran
+        // under; and what its message filled, which the records lack where the process of the engine that began it
+        // ended before it recorded it.
         let ran = (work.ran.iter()).rfind(|r| r.run == round.run && r.round == round.number && r.attempt == n);
-        let account = match ran {
-            Some(ran) => ran.on.account.clone(),
+        let entered = entered_of(&kept::entered_at(&base, n)).await;
+        let ran_on = ran.map(|ran| &ran.on).or(entered.as_ref().map(|e| &e.on));
+        let account = match ran_on {
+            Some(on) => on.account.clone(),
             None => round.account.clone(),
         };
         let profile = account::profile(&self.data);
-        let on = (ran.map(|ran| ran.on.clone())).or_else(|| {
+        let on = ran_on.cloned().or_else(|| {
             (self.settings)
                 .ran_on(round.item.level.as_deref(), &round.cell, &profile, account.as_deref())
                 .ok()
@@ -1089,8 +1106,17 @@ impl Inner {
         let measures = (!measured && starts)
             .then(|| measures(&stream, given, before, crossing.is_some(), priced))
             .flatten();
+        let filled = (work.filled.iter()).any(|f| f.run == round.run && f.round == round.number && f.attempt == n);
         // The service served the round: a wait every work shares need not wait for its end.
         if let Some(teller) = teller {
+            if let Some(entered) = entered {
+                if ran.is_none() {
+                    teller.ran_on(n, entered.on);
+                }
+                if !filled {
+                    teller.filled(n, entered.fills);
+                }
+            }
             tell_try(teller, line, n, more, measures);
             if stream.answered() {
                 teller.answered();
@@ -1157,20 +1183,15 @@ impl Inner {
         if state.ended {
             return;
         }
-        match words(&self.kept(round)).put(&said).await {
-            Ok(took_back) => {
-                if !took_back {
-                    let given = std::mem::take(&mut state.waiting);
-                    state.given.extend(given);
-                }
-                state.waiting.extend(told.versions);
-            }
-            Err(why) => failed(why),
+        if let Err(why) = words(&self.kept(round)).put(&said, &told.versions).await {
+            failed(why);
         }
     }
 
-    /// As the round's program has ended, takes back what waits for its hook, and says what the hook gave the round:
-    /// those versions are put into it. What waited and was never given stays new to the cell.
+    /// As the round's program has ended, takes back what waits for its hook, and says what the hook gave the round, as
+    /// its files of words keep it: those versions are put into it. What waited and was never given stays new to the
+    /// cell. The files are read the same whichever process of the engine put the words, so that words the hook gave a
+    /// try that a process that ended left are the round's too, and are not given again.
     async fn heard(&self, round: &Round, teller: &Teller) {
         let key = (round.work, round.run, round.number);
         let Some(state) = (self.said.lock().expect("the tellings' lock")).remove(&key) else {
@@ -1178,18 +1199,26 @@ impl Inner {
         };
         let mut state = state.lock().await;
         state.ended = true;
-        let mut given = std::mem::take(&mut state.given);
-        let waiting = std::mem::take(&mut state.waiting);
-        if waiting.is_empty() && given.is_empty() {
-            return;
-        }
-        match words(&self.kept(round)).take_back().await {
-            Ok(true) => {}
-            Ok(false) => given.extend(waiting),
-            Err(why) => eprintln!(
-                "work {}: what waits for the round's hook could not be read: {why}",
+        let words = words(&self.kept(round));
+        let unread = |why: String| {
+            eprintln!(
+                "work {}: what the round's hook was given could not be read: {why}",
                 round.work.0
-            ),
+            );
+        };
+        if let Err(why) = words.take_back().await {
+            unread(why);
+        }
+        let (given, unknown) = match words.given().await {
+            Ok(given) => given,
+            Err(why) => return unread(why),
+        };
+        for at in unknown {
+            eprintln!(
+                "work {}: {} keeps no versions of the owner's words it gave, which stay new to the cell",
+                round.work.0,
+                at.display()
+            );
         }
         if !given.is_empty() {
             teller.said_to_round(given);
@@ -2017,6 +2046,45 @@ async fn attempt(base: &Path) -> (usize, PathBuf, PathBuf) {
     (n, kept::at(base, n).0, kept::stream_at(base, n))
 }
 
+/// What a try runs on and what its message fills into its session, as it keeps them beside its message before its
+/// program is begun ([`kept::entered_at`]).
+#[derive(Serialize, Deserialize)]
+struct Entered {
+    on: RanOn,
+    fills: Vec<Fill>,
+}
+
+/// Keeps what the try runs on and fills at `at`, whole or not at all, so that a stop in the middle leaves no file a
+/// try's reading takes for what it entered.
+async fn keep_entered(at: &Path, entered: &Entered) -> Result<(), String> {
+    let kept = serde_json::to_vec(entered).map_err(|e| format!("{}: {e}", at.display()))?;
+    let writing = at.with_extension("json.part");
+    write(&writing, &kept).await?;
+    tokio::fs::rename(&writing, at)
+        .await
+        .map_err(|e| format!("{}: {e}", at.display()))
+}
+
+/// What the try whose file this is kept of what it ran on and filled; none where it kept none, as a try kept before
+/// tries kept it. A file that cannot be read is said on the standard error, and taken as none.
+async fn entered_of(at: &Path) -> Option<Entered> {
+    let bytes = match tokio::fs::read(at).await {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            eprintln!("{} cannot be read: {e}", at.display());
+            return None;
+        }
+    };
+    match serde_json::from_slice(&bytes) {
+        Ok(entered) => Some(entered),
+        Err(e) => {
+            eprintln!("{} is not what a try entered: {e}", at.display());
+            None
+        }
+    }
+}
+
 /// Keeps what the try of this number of the round is told, at `at`: where an earlier try of the round was told the
 /// same, as a second name of the file that try keeps it in, so that a message given again is stored once and found
 /// as every try's is; otherwise, and where the file system cannot give a file a second name, in a file of its own.
@@ -2148,7 +2216,7 @@ fn measures(
 /// token of the account the round was handed out with, by its name.
 enum Begun {
     Left(Box<Left>),
-    Anew(Token, String),
+    Anew(Token, String, RanOn),
 }
 
 impl Begun {

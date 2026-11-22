@@ -37,6 +37,22 @@ pub struct Ran {
     pub on: RanOn,
 }
 
+/// The program of a try of an agent's round ended by itself and left processes running in its process group, which
+/// its carrier stopped before it gave the try's end (decision `what-a-program-leaves-is-stopped`): how many it stopped.
+/// No one read what they would have printed, and what they took is counted nowhere else.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LeftBehind {
+    /// The place of the entry in the order of what happened to the work.
+    pub at: Seq,
+    pub run: RunId,
+    /// The round's number in its run, the first being one.
+    pub round: usize,
+    /// The try's number in its round, the first being one, as [`Ran`] numbers it.
+    pub attempt: usize,
+    /// How many processes were stopped: one or more.
+    pub processes: usize,
+}
+
 /// What a try of an agent's round ran on, as its carrier chose it as the try began: the level, the model of that
 /// level, the reasoning effort, the directory of the program's settings and sessions it ran with, and the account it
 /// made its calls under.

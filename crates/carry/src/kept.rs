@@ -76,6 +76,16 @@ pub(crate) fn at(base: &Path, n: usize) -> (PathBuf, PathBuf) {
     }
 }
 
+/// Where the try of this number of a round, the first being one, keeps what it runs on and what its message fills into
+/// its session, written whole before its message is and its program begun: a process of the engine that ended before
+/// it recorded them has them told from here as the round is given again (decision `a-try-keeps-what-it-was-given`).
+pub(crate) fn entered_at(base: &Path, n: usize) -> PathBuf {
+    match n {
+        1 => base.with_extension("entered.json"),
+        n => base.with_extension(format!("entered.{n}.json")),
+    }
+}
+
 /// Where the try of this number of a round, the first being one, kept what it ran on, before tries were recorded.
 fn ran_at(base: &Path, n: usize) -> PathBuf {
     match n {

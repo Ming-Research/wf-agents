@@ -88,6 +88,10 @@ pub struct System {
     /// against its line, and an agent's round with the other lines it is judged by as it runs.
     #[serde(default)]
     pub under_way: Vec<UnderWay>,
+    /// The tries of the span whose program left processes running in its group as it ended, which were stopped, the
+    /// latest first: what they did no one read, and what they took is counted nowhere.
+    #[serde(default)]
+    pub left_behind: Vec<LeftBehind>,
 }
 
 /// A week: what its rounds took, and how many of each thing that is counted happened in it.
@@ -214,6 +218,20 @@ pub struct FailedRound {
     pub spent: Spent,
 }
 
+/// A try of a round whose program left processes running in its group as it ended, which were stopped then: how many.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeftBehind {
+    pub work: u64,
+    pub item: u64,
+    pub cell: String,
+    pub run: u64,
+    pub round: usize,
+    pub attempt: usize,
+    pub at: u64,
+    pub processes: usize,
+}
+
 /// What ended past the line of its history.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -338,6 +356,7 @@ impl System {
             failed: Vec::new(),
             past: Vec::new(),
             under_way: Vec::new(),
+            left_behind: Vec::new(),
         };
         let judged = driver.judged(None, now);
         let mut counted: BTreeMap<u64, Week> = (weeks.iter())
@@ -388,6 +407,24 @@ impl System {
                     week.pinged = week.pinged.with(one);
                     week.spent = week.spent.with(one.as_no_round());
                 }
+            }
+            for left in &kept.work.left_behind {
+                let Some(at) = kept.work.time_of(left.at).map(|at| at.0).filter(|at| within(*at)) else {
+                    continue;
+                };
+                let Some(run) = runs.iter().find(|run| run.run == left.run.0) else {
+                    continue;
+                };
+                system.left_behind.push(LeftBehind {
+                    work,
+                    item,
+                    cell: run.cell.clone(),
+                    run: run.run,
+                    round: left.round,
+                    attempt: left.attempt,
+                    at,
+                    processes: left.processes,
+                });
             }
             let mut of_work = pinged.as_no_round();
             for run in &runs {
@@ -563,6 +600,7 @@ impl System {
         system.failed.sort_by_key(|x| std::cmp::Reverse(x.ended));
         system.past.sort_by_key(|x| std::cmp::Reverse(x.ended()));
         system.under_way.sort_by_key(UnderWay::began);
+        system.left_behind.sort_by_key(|x| std::cmp::Reverse(x.at));
         Ok(system)
     }
 }

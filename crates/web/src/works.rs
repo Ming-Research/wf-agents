@@ -74,9 +74,13 @@ pub struct Outage {
     pub checked: Option<Checked>,
     /// When the rounds it holds may begin again.
     pub until: Until,
-    /// Whether it holds rounds now: once a check found the outside well, it stands only until a round that began after
-    /// the latest that failed so comes back, and holds nothing meanwhile.
+    /// Whether it holds rounds now: once a check found the outside well, or a look reached the acts' host, it stands
+    /// until a round that began after the latest that failed so comes back, and holds every other round while that one,
+    /// which goes first, is under way.
     pub holds: bool,
+    /// The work whose round goes first, while it is under way and the wait holds the others for it.
+    #[serde(default)]
+    pub first: Option<u64>,
 }
 
 /// The latest check of the outside of the agents' rounds in a wait: when, how many were taken in the wait, and what it
@@ -114,7 +118,7 @@ pub enum Until {
     /// Once a check of the outside of the agents' rounds, which the engine takes at this time, finds it well: at a
     /// usage limit whose reset was said, at the reset.
     Checked { at: u64 },
-    /// Now: the check taken at this time found the outside well, and every work goes on.
+    /// Now: the check taken at this time found the outside well, and one round goes first.
     Well { at: u64 },
     /// Every act, once a look at the host, taken every half minute from this time, reaches it.
     Looked { at: u64 },
@@ -3566,6 +3570,11 @@ impl Outage {
                 UntilOf::Looked { at } => Until::Looked { at: at.0 },
             },
             holds,
+            first: outage
+                .goes_first()
+                .then_some(outage.trying)
+                .flatten()
+                .map(|work| work.0),
         }
     }
 }

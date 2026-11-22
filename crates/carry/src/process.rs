@@ -59,6 +59,8 @@ pub(crate) enum Ran {
         /// What it printed on its standard output, where its lines were not each given as they came.
         stdout: Vec<u8>,
         stderr: Vec<u8>,
+        /// How many processes it left running in its group as it ended, which were stopped before its end was given.
+        left: usize,
     },
     /// It was told to stop, and was stopped.
     Stopped,
@@ -139,10 +141,12 @@ async fn run_with(
 }
 
 /// Waits for the child to end, writing its input and reading its output, each line of it given to `lines` where
-/// they are given, or stops its group once told to. Its overseer is let go of once its output has ended, before the
-/// child is reaped, after which its group's number may be given to another; so a program that closes its standard
-/// output and runs on after it is not overseen from then until it ends. Dropped with this before that, as when the
-/// runtime of a process of the engine that ends by itself drops the round, the overseer stops the group.
+/// they are given, or stops its group once told to. Once its output has ended, the child is waited for without being
+/// reaped, so that its group's number is still its own; what it left running in its group is then stopped, as a stop
+/// does, and counted ([`stop_what_is_left`]): nobody reads what it does once the program has ended. Only then is the
+/// overseer let go of and the child reaped, after which its group's number may be given to another. Dropped with this
+/// before that, as when the runtime of a process of the engine that ends by itself drops the round, the overseer stops
+/// the group.
 #[allow(clippy::too_many_arguments)]
 async fn wait(
     mut child: tokio::process::Child,
@@ -199,21 +203,31 @@ async fn wait(
                 }
             }
         }
+        let left = match group {
+            Some(group) => {
+                ended_unreaped(group).await;
+                stop_what_is_left(group).await
+            }
+            None => 0,
+        };
+        if left > 0 {
+            eprintln!("{program} left {left} processes running in its group as it ended, which were stopped");
+        }
         if let Some(overseer) = overseer {
             overseer.let_go().await;
         }
         let status = (child.wait().await).map_err(|e| format!("{program} could not be waited for: {e}"))?;
-        Ok::<_, String>((status, kept))
+        Ok::<_, String>((status, kept, left))
     };
     tokio::pin!(output);
     tokio::select! {
         output = &mut output => {
-            let (status, stdout) = output?;
+            let (status, stdout, left) = output?;
             let stderr = match stderr {
                 Some(read) => read.await.unwrap_or_default(),
                 None => Vec::new(),
             };
-            Ok(Ran::Ended { status, stdout, stderr })
+            Ok(Ran::Ended { status, stdout, stderr, left })
         }
         () = async { tokio::select! { () = stop.told() => {}, () = halted => {} } } => {
             if let Some(group) = group {
@@ -291,6 +305,39 @@ pub(crate) async fn stop_left(file: &Path, dir: &Path) {
         }
     }
     let _ = tokio::fs::remove_file(file).await;
+}
+
+/// Waits until the first process of the group, a child of this process not yet reaped, has ended: until it is a zombie,
+/// which keeps the group's number its own, or is gone, as where `ps` cannot say. A program ends soon after its output
+/// does, so this is looked at often.
+async fn ended_unreaped(group: u32) {
+    let process = group.to_string();
+    loop {
+        match ps(&["-o", "stat=", "-p", &process]).await {
+            Some(stat) if !stat.starts_with('Z') => tokio::time::sleep(Duration::from_millis(20)).await,
+            _ => return,
+        }
+    }
+}
+
+/// Stops what is left running in the group of a program that has ended, its first process not yet reaped: TERM, then
+/// KILL once [`STOP_WAIT`] has passed with any of it left. Gives how many processes were left.
+async fn stop_what_is_left(group: u32) -> usize {
+    let others = || async { members(group).await.into_iter().filter(|p| *p != group).count() };
+    let left = others().await;
+    if left == 0 {
+        return 0;
+    }
+    signal(group, "TERM").await;
+    let gone = async {
+        while others().await > 0 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    };
+    if tokio::time::timeout(STOP_WAIT, gone).await.is_err() {
+        signal(group, "KILL").await;
+    }
+    left
 }
 
 /// Whether the group is the one a round of ours started: see [`stop_left`].
@@ -777,10 +824,8 @@ mod tests {
     }
 
     // An overseer let go of, as its program ends with the engine there to see it, is gone and has left the group alone:
-    // it signals no group the number is given to after the program is reaped, nor what the program left in its group,
-    // which runs on as it did before overseers. Let go of directly, and as a program run here ends by itself leaving a
-    // process in its group. Under half a second alone; the tests of an engine that ends hold only overseers that are
-    // not let go of.
+    // it signals no group the number is given to after the program is reaped. Under half a second alone; the tests of an
+    // engine that ends hold only overseers that are not let go of.
     #[tokio::test]
     async fn an_overseer_let_go_of_is_gone_and_has_left_its_group_alone() {
         let mut command = std::process::Command::new("sh");
@@ -799,30 +844,12 @@ mod tests {
         let _ = first.wait();
         assert!(left, "an overseer let go of stopped the group");
         assert!(gone, "an overseer let go of still runs");
-
-        let mut command = Command::new("sh");
-        command.args(["-c", "sleep 30 >/dev/null 2>&1 & echo $!"]);
-        let ran = run(command, None, None, &mut Stop::never())
-            .await
-            .expect("the program runs");
-        let Ran::Ended { stdout, .. } = ran else {
-            panic!("the program was stopped");
-        };
-        let left: u32 = (String::from_utf8_lossy(&stdout).trim().parse()).expect("what the program left");
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let running = alive_process(left).await;
-        let _ = std::process::Command::new("kill")
-            .args(["-s", "KILL", &left.to_string()])
-            .status();
-        assert!(
-            running,
-            "the overseer of a program that ended by itself stopped what the program left in its group"
-        );
     }
 
-    // A program run here that ends by itself has what it left running in its group stopped before its end is given:
-    // nobody reads what that does once the program has ended. Under half a second alone, most of it the leftover's
-    // ending on TERM; no other test holds a program that ends leaving something in its group.
+    // A program run here that ends by itself has what it left running in its group stopped before its end is given,
+    // and counted: nobody reads what that does once the program has ended. One that leaves nothing is counted as
+    // leaving nothing. Under half a second alone, most of it the leftover's ending on TERM; no other test holds a
+    // program that ends leaving something in its group.
     #[tokio::test]
     async fn what_a_program_that_ends_by_itself_left_in_its_group_is_stopped() {
         let mut command = Command::new("sh");
@@ -830,7 +857,10 @@ mod tests {
         let ran = run(command, None, None, &mut Stop::never())
             .await
             .expect("the program runs");
-        let Ran::Ended { stdout, .. } = ran else {
+        let Ran::Ended {
+            stdout, left: count, ..
+        } = ran
+        else {
             panic!("the program was stopped");
         };
         let left: u32 = (String::from_utf8_lossy(&stdout).trim().parse()).expect("what the program left");
@@ -842,6 +872,17 @@ mod tests {
             !running,
             "what the program left in its group runs on after its end was given"
         );
+        assert_eq!(count, 1, "what the program left is counted");
+
+        let mut command = Command::new("sh");
+        command.args(["-c", "echo alone"]);
+        let ran = run(command, None, None, &mut Stop::never())
+            .await
+            .expect("the program runs");
+        let Ran::Ended { left, .. } = ran else {
+            panic!("the program was stopped");
+        };
+        assert_eq!(left, 0, "a program that leaves nothing is counted as leaving nothing");
     }
 
     /// Whether the process runs: it is there, and not a zombie waiting to be reaped.

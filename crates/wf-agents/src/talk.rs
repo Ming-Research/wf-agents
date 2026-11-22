@@ -1715,18 +1715,26 @@ fn cause(outage: &Outage) -> &'static str {
 /// check of the outside found, where it found it down; and the round that met it, with what it said.
 fn outage(outage: &Outage) -> String {
     let what = capital(cause(outage));
-    let until = match outage.until {
-        Until::Checked { at } => format!(
-            "The engine checks the outside itself at {}, touching no work's session, and every work goes on once it is \
-             well.",
+    let until = match (outage.until, outage.first) {
+        (Until::Checked { at }, _) => format!(
+            "The engine checks the outside itself at {}, touching no work's session, and one round goes first once it \
+             is well.",
             utc(at)
         ),
-        Until::Well { at } => format!(
-            "The engine's check at {} found it well, and every work goes on.",
+        (Until::Well { at }, Some(first)) => format!(
+            "The engine's check at {} found it well: W{first}'s round goes first, and every work goes on once it comes \
+             back.",
             utc(at)
         ),
-        Until::Looked { at } => format!(
-            "The host is looked at from {} every half minute, and every act goes on once it is reached.",
+        (Until::Well { at }, None) => format!(
+            "The engine's check at {} found it well, and one round goes first.",
+            utc(at)
+        ),
+        (Until::Looked { .. }, Some(first)) => {
+            format!("A look reached the host: W{first}'s act goes first, and every act goes on once it comes back.")
+        }
+        (Until::Looked { at }, None) => format!(
+            "The host is looked at from {} every half minute, and one act goes first once it is reached.",
             utc(at)
         ),
     };
@@ -2056,6 +2064,26 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
     if system.under_way.len() > limit {
         lines.push(more(system.under_way.len() - limit));
     }
+    if !system.left_behind.is_empty() {
+        lines.push("Left running by a program as it ended, and stopped, the latest first:".to_string());
+    }
+    for left in system.left_behind.iter().take(limit) {
+        lines.push(format!(
+            "  W{} of #{}, try {} of round {} of run {} of {}, ended {}: {} {}",
+            left.work,
+            left.item,
+            left.attempt,
+            left.round,
+            left.run,
+            left.cell,
+            utc(left.at),
+            left.processes,
+            if left.processes == 1 { "process" } else { "processes" }
+        ));
+    }
+    if system.left_behind.len() > limit {
+        lines.push(more(system.left_behind.len() - limit));
+    }
     lines.join("\n")
 }
 
@@ -2205,14 +2233,15 @@ mod tests {
             }),
             until: Until::Checked { at: 3 * hour },
             holds: true,
+            first: None,
         });
         let said = list(&waiting, &Listing::default());
         let first = said.lines().next().unwrap_or_default();
         assert_eq!(
             first,
             "No agent's round of any work begins. The agents' command line cannot run since 1970-01-01 01:00 UTC. The \
-             engine checks the outside itself at 1970-01-01 03:00 UTC, touching no work's session, and every work goes \
-             on once it is well. The check at 1970-01-01 02:00 UTC, the 2nd in the wait, found it down. No account is \
+             engine checks the outside itself at 1970-01-01 03:00 UTC, touching no work's session, and one round goes \
+             first once it is well. The check at 1970-01-01 02:00 UTC, the 2nd in the wait, found it down. No account is \
              in use: choose one on the Settings view. Round 1 of run 2 of W1 met it. API Error: 529 Overloaded."
         );
         let outage = waiting.outage.as_mut().unwrap();
@@ -2239,6 +2268,7 @@ mod tests {
             checked: None,
             until: Until::Checked { at: 3 * hour },
             holds: true,
+            first: None,
         };
         let line = Line::Agents {
             since: hour,
@@ -2743,6 +2773,7 @@ mod tests {
             failed: Vec::new(),
             past: (1..=12).map(past).collect(),
             under_way: Vec::new(),
+            left_behind: Vec::new(),
         };
         let said = system_said(&system, 7, 10);
         let lines: Vec<&str> = said.lines().collect();
@@ -2802,6 +2833,7 @@ mod tests {
                 ),
             ],
             under_way: Vec::new(),
+            left_behind: Vec::new(),
         };
         let said = system_said(&system, 7, 10);
         let lines: Vec<&str> = said.lines().collect();

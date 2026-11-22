@@ -94,6 +94,13 @@ pub enum Event {
         attempt: usize,
         measures: Measures,
     },
+    /// The program of the try of this number of the round of the run that is under way ended by itself and left these
+    /// many processes running in its group, one or more, which its carrier stopped before it gave the try's end.
+    LeftBehind {
+        run: RunId,
+        attempt: usize,
+        processes: usize,
+    },
     /// A keep-warm ping of the session of this number of the line ended, having taken this, or failed for this
     /// reason, as [`Effect::Ping`] asked.
     Pinged {
