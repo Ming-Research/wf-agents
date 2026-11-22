@@ -149,7 +149,6 @@ describe('the tree in columns', () => {
     scene.onSelect = told;
     scene.show([card(1), card(2), card(3)]);
     settle(scene);
-    scene.setShown(false); // DEMONSTRATION: the browser gives the scene no frame
     // Item 2 stands in the middle; item 1 a row above it.
     const x = scene.place().left + 100;
     click(x, line);
