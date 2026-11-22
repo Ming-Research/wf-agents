@@ -525,6 +525,8 @@ fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_fa
             std::fs::write(dir.path().join("target/nextest/ci/junit.xml"), junit).unwrap();
         }
         let results = dir.path().join("temp").join(format!("{job}.xml"));
+        // The runner's temporary directory is there when a job begins.
+        std::fs::create_dir_all(results.parent().unwrap()).unwrap();
         let env = [
             ("JOB", job),
             ("RESULTS", results.to_str().unwrap()),
@@ -554,6 +556,7 @@ fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_fa
     };
     let said_by = |dir: &Path, tested: &str, failed: Option<&str>| {
         let results = dir.join("temp").join(format!("{job}.xml"));
+        std::fs::create_dir_all(results.parent().unwrap()).unwrap();
         let env = [
             ("JOB", job),
             ("RESULTS", results.to_str().unwrap()),
