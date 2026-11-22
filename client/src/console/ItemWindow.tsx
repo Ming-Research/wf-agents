@@ -527,12 +527,12 @@ function ItemView({
     onStopChosen?.(cards.indexOf(card));
   };
   // The stop the page asks for is brought to the top of what the window shows, on the tab that draws the body, once it
-  // is drawn, once each time it is asked.
+  // is drawn, once each time it is asked: tried again as the stops the window draws change.
   const shownStop = useRef(0);
   useEffect(() => {
     if (stop === undefined || shownStop.current === stop.seq) return;
     if (tab !== 'item') {
-      if (chosenTab === undefined) setTab('item');
+      if (chosenTab === undefined) setOwnTab('item');
       return;
     }
     const cards = [...(inner.current?.querySelectorAll<HTMLElement>(STOP) ?? [])];
@@ -541,7 +541,7 @@ function ItemView({
     shownStop.current = stop.seq;
     setChosenStop(card.dataset.wait ?? null);
     card.scrollIntoView({ block: 'start' });
-  });
+  }, [stop, tab, chosenTab, setOwnTab, stops]);
   // The card the address names is brought into view once it is drawn, once.
   const shownWait = useRef<string | undefined>(undefined);
   useEffect(() => {
