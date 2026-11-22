@@ -665,6 +665,11 @@
   margin-top: var(--space-8);
 }
 
+/* The button to the next stop, on a question's last row: at the right, just left of Discuss, the row's gap apart. */
+.cw-choice-foot .cw-next {
+  margin-left: auto;
+}
+
 /* The plan's Confirm: the primary button, as wide as the body. */
 .cw-confirm {
   justify-content: center;

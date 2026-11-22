@@ -97,7 +97,8 @@ A field under the boxes finds any item by its number, its path from its root or 
 - replaced: Finding an item only by scrolling the tree was on main; the owner changed it, because once many items were imported he could not find one he looked for.
 
 ### decision the-owner-walks-the-stops-by-keys
-n goes to the next of what the red and orange counts count, N to the one before, in the tree's order and each window's, round from the last; a button under each but an item's last does as n.
+n goes to the next of what the red and orange counts count, N to the one before, in the tree's order and each window's, round from the last; Next, left of Discuss on each but the last, does as n.
+- replaced: A button Next question on a row of its own under Discuss was on main; the owner changed it, because it belongs on the row of Discuss, to its left, as Next.
 - replaced: Finding each thing to handle by looking for a card with a count and scrolling its window was on main; the owner changed it, because he works by those counts, and wanted to go from one thing he handles to the next by keys.
 
 ### decision the-map-draws-each-item-and-the-screen

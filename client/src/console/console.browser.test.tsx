@@ -1126,18 +1126,28 @@ describe('the console page', () => {
     }
   });
 
-  it("puts under each of an item's stops but its last a button to the next, saying its place, and brings the card of a stop gone to onto the screen", async () => {
+  it("puts on each of an item's stops but its last a button to the next, saying its place, left of Discuss on a question, and brings the card of a stop gone to onto the screen", async () => {
     const scene = await drawn();
     const was = window.location.hash;
     const nexts = () =>
       [...container.querySelectorAll('.cw-item button')]
         .map((b) => b.textContent ?? '')
-        .filter((t) => t.startsWith('Next question'));
+        .filter((t) => t.startsWith('Next ('));
+    /// The buttons of the last row of each question that is a stop, by their words.
+    const feet = () =>
+      [...container.querySelectorAll('.cw-item .cw-choice[data-wait]:not(.cw-choice-done)')].map((s) =>
+        [...s.querySelectorAll('.cw-choice-foot button.button')].map((b) => b.textContent),
+      );
     try {
+      // Item 1 asks two questions: the first has Next just left of its Discuss, on its last row; the last, Discuss
+      // alone.
+      scene.select(1);
+      await expect.poll(title).toBe('Run works without anyone watching');
+      await expect.poll(feet).toEqual([['Next (1/2)', 'Discuss'], ['Discuss']]);
       // Item 20 waits for an answer and for a ruling: the first of its two stops has the button, the last none.
       scene.select(20);
       await expect.poll(title).toBe('Keep one stream open for each page');
-      await expect.poll(nexts).toEqual(['Next question (1/2)']);
+      await expect.poll(nexts).toEqual(['Next (1/2)']);
       // With nothing selected, N goes to the last stop of all, item 25's, and its card is brought onto the screen,
       // within what the window beside the tree leaves of it.
       scene.select(null);
