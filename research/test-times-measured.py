@@ -2,7 +2,8 @@
 id, and says how the time of a test spreads from run to run and what a line worked out from the history of its kind
 (`2 x largest - median`, as crates/driver/src/history.rs works it out) judges.
 
-Run as: python3 -I research/test-times-measured.py <directory of the runs>
+Run as: python3 -I research/test-times-measured.py <directory of the full runs> [<directory of fast runs>]
+The fast runs are the runs of fast.yml, each in a directory named by its run id, with the same artifact.
 Kept with research/test-times-measured.md, which says what it was run on and what it found."""
 import pathlib
 import statistics as st
@@ -54,21 +55,54 @@ def main():
           " ".join(f"{a:.1f}" for a in added))
     for j in range(LEAST, len(added)):
         print(f"merge {j + 1}: added {added[j]:.1f} s, line of the earlier additions {line(added[j - LEAST : j]):.1f} s")
-    for i in (-12, -1):
-        times = sorted(runs[i].values(), reverse=True)
+    def half(history):
+        medians = {k: st.median([r[k] for r in history if k in r]) for k in set().union(*history)}
+        times = sorted(medians.values(), reverse=True)
         held = 0.0
         for n, value in enumerate(times, 1):
             held += value
             if held >= sum(times) / 2:
-                print(f"run {i}: the slowest {n} of {len(times)} tests hold half of {sum(times):.0f} s; "
-                      f"the time of the {n}th is {value:.2f} s")
-                break
+                return n, value
+
+    for i in (len(runs) - 1, 13):
+        n, value = half(runs[max(0, i - LEAST) : i])
+        print(f"before run {i}: by each test's median over up to {LEAST} runs, the slowest {n} tests hold half of the "
+              f"suite's time; the time of the {n}th is {value:.2f} s")
+    previous = set()
+    for i in range(LEAST, len(runs)):
+        past = set()
+        for key, value in runs[i].items():
+            before = [r[key] for r in runs[i - LEAST : i] if key in r]
+            if len(before) >= LEAST and value > line(before):
+                past.add(key)
+        print(f"run {i}: {len(past)} tests past their own line, {len(past & previous)} of them past it in the run "
+              f"before too")
+        previous = past
     before, batch = runs[12], runs[13]
     ranked = sorted(((v, k[1][:40]) for k, v in batch.items() if k not in before), reverse=True)[:5]
     below = sorted(before.values())
     for value, name in ranked:
         print(f"added test {value:.2f} s, slower than {100 * sum(1 for x in below if x < value) / len(below):.1f} % "
               f"of the tests before it: {name}")
+    if len(sys.argv) > 2:
+        medians = {}
+        for key in set().union(*runs):
+            values = [r[key] for r in runs if key in r]
+            if len(values) >= 10:
+                medians[key] = st.median(values)
+        ratios = []
+        for d in pathlib.Path(sys.argv[2]).iterdir():
+            for path in d.glob("rust*.xml"):
+                for case in ET.parse(path).iter("testcase"):
+                    if case.find("failure") is not None or case.find("error") is not None or case.find("skipped") is not None:
+                        continue
+                    key = (case.get("classname"), case.get("name"))
+                    if medians.get(key, 0) >= 0.1:
+                        ratios.append(float(case.get("time") or 0) / medians[key])
+        ratios.sort()
+        print(f"{len(ratios)} passed Rust tests of fast runs with a full-run median of 0.1 s or more: time in the fast "
+              f"run over that median is {ratios[len(ratios) // 10]:.2f} at the 10th percentile, "
+              f"{st.median(ratios):.2f} at the median, {ratios[int(0.9 * len(ratios))]:.2f} at the 90th")
     every = [v for r in runs for v in r.values()]
     print(f"the line of every test's times: {line(every):.1f} s (largest {max(every):.1f} s, median {st.median(every):.3f} s)")
 

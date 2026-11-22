@@ -25,9 +25,18 @@ written down beforehand that a result would reject, so they are exploratory.
 - The whole `ci.yml` run on main took a median of 88 to 120 s a day from 2026-11-15 to 2026-11-22, the 22nd's 27 runs
   being the slowest day (median 119 s, most 228 s). On `next` (the old main) the runs of 2026-11-10 took 1 to 3 minutes and those of
   2026-11-11 4 to 8 minutes, as the item says.
-- What a merge adds is mostly small (4 s or less on 21 of 23 merges, counting the tests the run before did not report) and the
-  line of the earlier additions (`2 x largest - median`) stands near 44 s after one merge that added 22 s: a second
-  22 s batch would not be past it. That batch was five console-page tests of 2 to 6 s, each slower than 98.7 to 99.3 %
-  of the tests before it. The slowest 14 of 2500 tests (4.99 s and more) hold half of the suite's test time in the
-  latest run (21 tests, 3.77 s, twelve runs before). So a line on earlier additions says nothing of creep by moderate
-  batches, while where a test stands among the suite's tests does.
+- What a merge adds is mostly small (4 s or less on 21 of 23 merges, counting the tests the run before did not report)
+  and the line of the earlier additions (`2 x largest - median`) stands near 44 s after one merge that added 22 s: a
+  second 22 s batch would not be past it. That batch was five console-page tests of 2 to 6 s, each slower than 98.7 to
+  99.3 % of the tests before it.
+- A standard from where a test stands in the suite does not list that batch either. By each test's median over up to
+  19 runs, the slowest 13 to 15 tests hold half of the suite's time, and the 13th to 15th test takes 6.0 to 7.2 s
+  (before the batch: 7.21 s, above the batch's slowest test, 6.08 s). A cutoff worked out from a single run (4.99 s)
+  looked as if it listed three of the five and does not stand.
+- A test past its own line in one run is past it in the next run too in none of the four pairs of runs measured, though
+  11 to 32 tests a run are past it once: a slowdown that is listed only after two runs in a row lists nothing here.
+- The time of a test in a fast run (only the named tests run) is not systematically lower than in the full runs. For 51
+  passed Rust tests of the fast runs of 2026-11-22 that have a full-run median of 0.1 s or more, the time over that
+  median is 0.22 at the 10th percentile, 0.87 at the median and 1.80 at the 90th; the commits differ between the two,
+  so this shows the size of the difference and not a rule. A fast run reports the page tests it did not select as
+  skipped with a time of 0.
