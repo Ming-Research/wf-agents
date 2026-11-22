@@ -7,6 +7,10 @@ The bar's tabs are Console, Works, Flow, Observations, System and Settings, in t
 - rejected: an agent proposed the tabs Messages, Works, Console, Flow and Settings; the owner rejected it, because the console is the centre of the page, the Messages page is being retired, and the items have become part of the console.
 - replaced: Eight tabs, with Messages first, the architect second and Items among them, was on main; the owner changed it, because the console is the centre of the page, and the observations, the system and the settings each need a view.
 
+### decision the-console-tab-counts-as-the-cards-do
+Beside Console the bar shows, as a card's tags stand, the orange count of the questions the owner may answer ahead and, right of it, the red count of what waits; each only above nought.
+- replaced: The red count alone beside Console was on main; the owner changed it, because an item's card showed an orange count that nothing beside Console said, and the bar and the cards should agree.
+
 ### decision what-stands-at-the-bars-right
 The right end of the bar shows the engine's state, Pause all or Start all with no confirmation, the switch that keeps waiting sessions warm, the slots in use, and the light and dark switch.
 - rejected: an agent proposed leaving the keep-warm switch out of the bar and removing the light and dark switch; the owner rejected it, because he wanted to see the whole page at once, with what is not built yet shown as a mock, and the light and dark switch kept.

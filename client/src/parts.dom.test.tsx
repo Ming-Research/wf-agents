@@ -5,7 +5,8 @@ import { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { Tabs } from './parts';
+import { Bar, Tabs } from './parts';
+import { aheadCount, aheadOf } from './works/waiting';
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -83,5 +84,37 @@ describe("a window's tabs", () => {
     key('Enter');
     expect(shown()).toEqual(['Step']);
     expect(told).toEqual(['work', 'step', 'item', 'step']);
+  });
+});
+
+describe("the bar's counts beside Console", () => {
+  /// The counts the bar draws beside Console, given these, in order, each by its colour and number.
+  function counts(count: number, ahead: number): string[] {
+    const container = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(container);
+    const views = [
+      { name: 'Console', href: '#/console', count, countTitle: 'waits', ahead, aheadTitle: 'ahead' },
+      { name: 'Works', href: '#/works' },
+    ];
+    act(() => root.render(<Bar name="wf-agents" views={views} current="#/console" />));
+    const drawn = [...container.querySelectorAll('.bar-count')].map(
+      (c) => `${c.classList.contains('ahead') ? 'orange' : 'red'} ${c.textContent}`,
+    );
+    act(() => root.unmount());
+    container.remove();
+    return drawn;
+  }
+
+  it('shows the questions to answer ahead in orange, left of what waits in red, as a card does, and neither at nought', () => {
+    expect(counts(1, 2)).toEqual(['orange 2', 'red 1']);
+    expect(counts(1, 0)).toEqual(['red 1']);
+    expect(counts(0, 2)).toEqual(['orange 2']);
+    expect(counts(0, 0)).toEqual([]);
+  });
+
+  it('counts the questions to answer ahead as a card does: those of the works that go on', () => {
+    const going = { kind: 'next', cell: 'plan' } as const;
+    expect(aheadCount([{ now: going, ahead: 2 }, { now: { kind: 'merged' }, ahead: 3 }, { now: going }])).toBe(2);
+    expect(aheadOf({ now: { kind: 'cancelled' }, ahead: 1 })).toBe(0);
   });
 });
