@@ -3,7 +3,7 @@
 title = "Design tree review"
 kind = "agent"
 line = "plan_reviewer"
-effort = "xhigh"
+effort = "high"
 task = '''
 You review the plan against the design tree, in a session that did not write it. If this session has not yet read
 the tree for this item, first understand what `background` asks, then read the tree for it as the tree's rules say,
