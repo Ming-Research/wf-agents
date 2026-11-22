@@ -248,6 +248,7 @@ pub(crate) fn checking(place: &Place) -> PathBuf {
 pub(crate) async fn check_out(project: &Project, place: &Place, commit: &str) -> Result<PathBuf, String> {
     configuration(project, place).await?;
     let dir = checking(place);
+    take_away(project, &dir).await?;
     // `--force`: the repository may name a checkout of this place whose directory a stopped engine's run lost.
     git(
         &project.repo,
