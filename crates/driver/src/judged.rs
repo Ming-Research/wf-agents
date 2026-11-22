@@ -419,7 +419,9 @@ impl<'a> History<'a> {
             Kind::Act(cell, ms) => f(self.acts.entry(cell).or_default(), ms),
             Kind::Tool(tool, ms, size) => {
                 f(self.tools.entry(tool).or_default(), ms);
-                let _ = size;
+                if let Some(size) = size {
+                    f(self.sizes.entry(tool).or_default(), size);
+                }
             }
         }
     }
@@ -483,7 +485,7 @@ impl<'a> History<'a> {
                 let judged = CallAgainst {
                     time: line(self.tools.get(tool)).map(|line| Against { value: time, line }),
                     size: size
-                        .zip(line(self.sizes.get(tool)))
+                        .zip(line(self.tools.get(tool)))
                         .map(|(value, line)| Against { value, line }),
                 };
                 if judged != CallAgainst::default() {
