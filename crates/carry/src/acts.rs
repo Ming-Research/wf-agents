@@ -848,6 +848,11 @@ pub(crate) async fn check(
             );
             return Err(Failed::refused(refused));
         }
+        if !git::uncommitted(&dir).await?.is_empty() {
+            return Err(Failed::refused(
+                "mutation: the worktree holds something not committed".to_string(),
+            ));
+        }
         // A conflict with main and an answer missing from the design tree are both said where both are found: neither
         // look depends on the other, and one commit mends both.
         let mut failed = Vec::new();
