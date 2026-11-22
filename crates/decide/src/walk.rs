@@ -354,13 +354,8 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
             _ => None,
         })
         .filter(|&(block, was)| {
-            let point = (began.versions(block).iter()).any(|v| {
-                Some(v.at) > was
-                    && v.meaning == Some(v.at)
-                    && !v.ruled
-                    && v.held.as_ref().is_none_or(|c| c == &r.started.cell)
-                    && other_side(v, block)
-            });
+            let point = (began.versions(block).iter())
+                .any(|v| Some(v.at) > was && v.meaning == Some(v.at) && !v.ruled && other_side(v, block));
             let paired = (flow.cells().iter())
                 .flat_map(|c| &c.verdicts)
                 .find(|(_, of)| &of.dialogue == block);
@@ -773,10 +768,6 @@ pub(crate) struct Version<'a> {
     /// A judge's point in its dialogue that the owner ruled on: written before a version of the judge's verdict a
     /// person wrote in its place, it is new to no cell from then on (design document `data-and-context`, 39).
     pub(crate) ruled: bool,
-    /// The cell that wrote it while its run asked for calls, which holds it back from every other cell until the chain
-    /// of those calls has ended: it is new to no other cell while this is set (decision
-    /// a-version-written-at-a-call-is-held-from-other-cells).
-    pub(crate) held: Option<CellId>,
 }
 
 /// A write of a block, by a run as it finished or by a person or the outside.
@@ -944,13 +935,7 @@ impl<'a> Walk<'a> {
         let was = self.consumed(cell, block);
         let own = |v: &Version<'a>| (v.by.and_then(|run| self.runs.get(&run))).is_some_and(|r| &r.started.cell == cell);
         let new = (self.versions(block).iter())
-            .filter(|v| {
-                Some(v.at) > was
-                    && v.meaning == Some(v.at)
-                    && !own(v)
-                    && !v.ruled
-                    && v.held.as_ref().is_none_or(|c| c == cell)
-            })
+            .filter(|v| Some(v.at) > was && v.meaning == Some(v.at) && !own(v) && !v.ruled)
             .collect();
         (was, new)
     }
@@ -1242,7 +1227,15 @@ impl<'a> Walk<'a> {
     /// finished; none of a run that has not finished. The one reading of a run's calls that [`Self::owed`] and the
     /// limit of calls share.
     fn asked<'r>(&'r self, r: &'r RunView<'a>) -> impl Iterator<Item = &'a Called> + 'r {
-        calls_asked(self.records, r)
+        let records: &'a Records = self.records;
+        let ended = (records.returned.iter())
+            .filter(|e| e.run == r.started.run)
+            .map(|e| e.at)
+            .max();
+        (records.called.iter()).filter(move |c| {
+            r.finished
+                .is_some_and(|f| c.run == r.started.run && ended.is_none_or(|e| c.at > e) && c.at < f.at)
+        })
     }
 
     /// The cell before the run's that the owner turned to and that is to run, with the block by which the owner turned
@@ -1461,63 +1454,9 @@ pub(crate) fn read_versions<'a>(
             value: w.value,
             empty: w.empty,
             ruled: false,
-            held: None,
         });
     }
-    hold_back(records, runs, &mut versions);
     versions
-}
-
-/// The calls the finished run asked for as its return was taken: those made after its last round ended and before it
-/// finished; none of a run that has not finished. The one reading of a run's calls that the walk's owed calls, its
-/// limit of calls and the hold of a version share.
-pub(crate) fn calls_asked<'a>(records: &'a Records, r: &RunView<'_>) -> impl Iterator<Item = &'a Called> {
-    let ended = (records.returned.iter())
-        .filter(|e| e.run == r.started.run)
-        .map(|e| e.at)
-        .max();
-    let (run, finished) = (r.started.run, r.finished.map(|f| f.at));
-    (records.called.iter())
-        .filter(move |c| finished.is_some_and(|f| c.run == run && ended.is_none_or(|e| c.at > e) && c.at < f))
-}
-
-/// Whether the chain of calls the finished run asked for has ended: the run of its cell that was entered for the
-/// results of those calls has finished and asked for no call, or, having asked for some, so has the last run of the
-/// chain that follows it. A run entered for anything else, as for the owner's words while the results are out, is no
-/// part of the chain.
-fn chain_ended(records: &Records, runs: &BTreeMap<RunId, RunView<'_>>, run: &RunView<'_>) -> bool {
-    let asked: Vec<CallId> = calls_asked(records, run).map(|c| c.call).collect();
-    let next = (runs.values())
-        .filter(|r| r.started.cell == run.started.cell && !r.abandoned)
-        .filter(|r| {
-            (r.started.because.iter())
-                .any(|c| matches!(c, Cause::Results { calls } if calls.iter().any(|x| asked.contains(x))))
-        })
-        .max_by_key(|r| r.started.at);
-    match next {
-        Some(next) if next.finished.is_some() => {
-            calls_asked(records, next).next().is_none() || chain_ended(records, runs, next)
-        }
-        _ => false,
-    }
-}
-
-/// Marks each version a run wrote while it asked for calls as held by the run's cell, until the chain of those calls
-/// has ended ([`chain_ended`]): what a cell that waits for the results of its calls wrote is not yet what its work comes
-/// to, and no other cell is to be run on it.
-pub(crate) fn hold_back(
-    records: &Records,
-    runs: &BTreeMap<RunId, RunView<'_>>,
-    versions: &mut BTreeMap<&BlockId, Vec<Version<'_>>>,
-) {
-    for v in versions.values_mut().flatten() {
-        let Some(run) = v.by.and_then(|run| runs.get(&run)) else {
-            continue;
-        };
-        if calls_asked(records, run).next().is_some() && !chain_ended(records, runs, run) {
-            v.held = Some(run.started.cell.clone());
-        }
-    }
 }
 
 /// Marks each judge's point the owner ruled on: of each verdict a cell hands in as a judge, the versions of its

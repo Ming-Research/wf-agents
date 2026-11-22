@@ -75,9 +75,6 @@ pub struct VersionView {
     /// A judge's point the owner ruled on, as the walk reads it by the flow ([`ruled_versions`]): new to no cell from
     /// the ruling on (design document `data-and-context`, 39). Never so where read without the flow ([`versions`]).
     pub ruled: bool,
-    /// The cell that wrote it while its run asked for calls, where the chain of those calls has not ended: the version
-    /// is new to no other cell until it has (decision a-version-written-at-a-call-is-held-from-other-cells).
-    pub held: Option<CellId>,
 }
 
 /// Who wrote a version of a block.
@@ -165,7 +162,6 @@ fn shown(versions: &BTreeMap<&BlockId, Vec<Version<'_>>>) -> BTreeMap<BlockId, V
                     value: v.value.map(str::to_string),
                     empty: v.empty,
                     ruled: v.ruled,
-                    held: v.held.clone(),
                 })
                 .collect();
             ((*block).clone(), versions)

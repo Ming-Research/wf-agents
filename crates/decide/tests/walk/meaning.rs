@@ -68,6 +68,59 @@ fn a_first_version_the_outside_writes_as_changing_nothing_is_new_to_no_cell_and_
     );
 }
 
+// An empty text says nothing where no content stands before it, so that nothing is woken for it; over content of a block
+// that replaces its versions it clears them, which is a change. Each write is a run that is woken and writes the notes.
+#[test]
+fn an_empty_text_written_where_nothing_stands_says_nothing_and_over_content_it_clears() {
+    let mut w = World::with_gate(vec![cell("ask", &["topic"], &["notes"]), cell("use", &["notes"], &[])]);
+    w.person_writes("topic");
+    w.run("ask", &[("notes", Nothing)]);
+    assert_eq!(w.decide(), resting());
+    w.person_writes("topic");
+    w.run("ask", &[("notes", Nothing)]);
+    assert_eq!(w.decide(), resting());
+    // Content is a change, and runs the reader, which consumed none before.
+    w.person_writes("topic");
+    let written = w.run("ask", &[("notes", Matters)]);
+    assert_eq!(w.decide(), runs("use", first(&["notes"]), &[("notes", Some(written))]));
+    w.run("use", &[]);
+    assert_eq!(w.decide(), resting());
+    // Written empty over that content, it is a clearing.
+    w.person_writes("topic");
+    let cleared = w.run("ask", &[("notes", Nothing)]);
+    assert_eq!(
+        w.decide(),
+        runs(
+            "use",
+            vec![changed("notes", Some(written), false)],
+            &[("notes", Some(cleared))]
+        )
+    );
+}
+
+// A block the owner and a cell add entries to replaces none of them: an empty entry has no meaning, whatever stands
+// before it.
+#[test]
+fn an_empty_entry_of_a_dialogue_says_nothing_whatever_stands_before_it() {
+    let mut w = World::with_gate(vec![
+        cell("ask", &["topic", "spoken"], &["spoken"]),
+        cell("use", &["spoken"], &[]),
+    ]);
+    w.dialogue("spoken");
+    w.person_writes("topic");
+    w.outside_writes("spoken");
+    w.run("ask", &[("spoken", Matters)]);
+    w.run("use", &[]);
+    assert_eq!(w.decide(), resting());
+    w.person_writes("topic");
+    w.run("ask", &[("spoken", Nothing)]);
+    assert_eq!(w.decide(), resting());
+    // An entry with something in it runs the reader.
+    w.person_writes("topic");
+    w.run("ask", &[("spoken", Matters)]);
+    assert_eq!(reasons(&w.decide()).0, "use");
+}
+
 #[test]
 fn a_persons_confirmation_that_leaves_a_choice_as_it_was_runs_nobody_and_a_changed_choice_runs_its_readers() {
     let (mut w, choice) = chosen();

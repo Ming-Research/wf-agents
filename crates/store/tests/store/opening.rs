@@ -307,10 +307,11 @@ fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_run
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
-    // Its observations are kept as a file of this version keeps them as the runs finish: those of the returns taken,
-    // numbered in the order the runs finished, and unread.
+    // Its observations are kept as the file of that version kept them: those of the returns taken, numbered in the
+    // order the runs finished, and unread. A file of this version keeps the sent-back return's too, as its runs
+    // finish; the past is read as it ran, and the migration does not change it.
     let migrated = super::observations::kept(&old.path);
-    assert_eq!(migrated, super::observations::kept(&new.path));
+    assert_eq!(super::observations::kept(&new.path).len(), 4);
     let said: Vec<(u64, &str, &str)> = (migrated.iter())
         .map(|o| (o.number, o.text.as_str(), o.cell.as_str()))
         .collect();

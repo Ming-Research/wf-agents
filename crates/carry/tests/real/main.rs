@@ -99,6 +99,9 @@ pub struct Fake {
     /// Whether the build, once, commits a line to the project's guide, which the project protects, saying why only in
     /// a round told its return was sent back for it.
     pub build_changes_guide: bool,
+    /// Whether the build says why at once, in its first round that changes the guide, and in no other round unless it
+    /// is told its return was sent back for that.
+    pub build_explains_the_guide: bool,
     /// Whether the build, once, commits a file of the design tree to main.
     pub moves_main: bool,
     /// Whether the build commits its file beside the project's tests until a round of it is told its return was sent
@@ -153,6 +156,7 @@ impl Default for Fake {
             plan_edits_guide: false,
             design: false,
             build_changes_guide: false,
+            build_explains_the_guide: false,
             moves_main: false,
             build_beside_tests: false,
             build_then_asks: false,
@@ -610,6 +614,10 @@ case "$first" in
             if [ '{changes_guide}' = yes ] && grep -q 'is a file the project protects' "$log/$n.stdin"; then
                 protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
             fi
+            if [ '{explains}' = yes ] && [ ! -f "$log/explained" ]; then
+                touch "$log/explained"
+                protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
+            fi
             [ '{then_asks}' = yes ] || built
             head=$(git rev-parse HEAD)
             if [ '{loses_branch}' = yes ]; then
@@ -663,6 +671,7 @@ fi
         guide = PROJECT_FILES[0].0,
         design = yes(fake.design),
         changes_guide = yes(fake.build_changes_guide),
+        explains = yes(fake.build_explains_the_guide),
         moves = yes(fake.moves_main),
         beside_tests = yes(fake.build_beside_tests),
         then_asks = yes(fake.build_then_asks),

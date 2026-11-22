@@ -267,67 +267,14 @@ impl<'a> Reading<'a> {
             .max()
     }
 
-    /// The calls the run asked for as its return was taken: those made after its last round ended and before it
-    /// finished; none of a run that has not.
-    pub fn calls_of(&self, run: RunId) -> Vec<CallId> {
-        let Some(f) = self.finished.get(&run) else {
-            return Vec::new();
-        };
-        let ended = (self.records.returned.iter())
-            .filter(|r| r.run == run)
-            .map(|r| r.at)
-            .max();
-        (self.records.called.iter())
-            .filter(|c| c.run == run && c.at < f.at && ended.is_none_or(|e| c.at > e))
-            .map(|c| c.call)
-            .collect()
-    }
-
-    /// Whether, at this place, the chain of the calls the run asked for has not ended: no run of its cell that was
-    /// entered for the results of those calls has finished and asked for none, nor the last of the chain after it has;
-    /// a run entered for anything else is none of the chain (decision
-    /// a-version-written-at-a-call-is-held-from-other-cells).
-    pub fn chain_open(&self, run: RunId, place: Seq) -> bool {
-        let calls = self.calls_of(run);
-        if calls.is_empty() {
-            return false;
-        }
-        let cell = &self.started[&run].cell;
-        let next = (self.started.values())
-            .filter(|s| &s.cell == cell && s.at < place)
-            .filter(|s| !self.records.abandoned.iter().any(|a| a.run == s.run))
-            .filter(|s| {
-                (s.because.iter())
-                    .any(|r| matches!(r, Cause::Results { calls: of } if of.iter().any(|c| calls.contains(c))))
-            })
-            .max_by_key(|s| s.at);
-        match next {
-            Some(next) if self.finished.get(&next.run).is_some_and(|f| f.at < place) => {
-                !self.calls_of(next.run).is_empty() && self.chain_open(next.run, place)
-            }
-            _ => true,
-        }
-    }
-
-    /// The cell that holds this version back at this place, where one does: it wrote the version while its run asked
-    /// for calls, and the chain of those calls has not ended. No cell but it has the version new to it meanwhile.
-    pub fn held(&self, version: &Version, place: Seq) -> Option<&CellId> {
-        match &version.by {
-            Writer::Cell(cell, run) if self.chain_open(*run, place) => Some(cell),
-            _ => None,
-        }
-    }
-
     /// The versions of the block written before this place that are new to the cell: after the one it consumed,
-    /// changing what the block says, not written by a run of the cell itself, no judge's point ruled on, and none held
-    /// back from it.
+    /// changing what the block says, not written by a run of the cell itself, and no judge's point ruled on.
     pub fn new_to(&self, cell: &CellId, block: &BlockId, place: Seq) -> Vec<&Version> {
         let was = self.consumed(cell, block, place);
         (self.of(block).iter())
             .filter(|v| v.at < place && Some(v.at) > was && v.changed_meaning())
             .filter(|v| !matches!(&v.by, Writer::Cell(c, _) if c == cell))
             .filter(|v| !self.ruled(block, v, place))
-            .filter(|v| self.held(v, place).is_none_or(|holder| holder == cell))
             .collect()
     }
 
