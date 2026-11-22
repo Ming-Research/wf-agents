@@ -354,12 +354,13 @@ pub struct Tests {
 }
 
 /// `[ci]` of `project.toml`: the project's two workflows, each with a role the engine relies on. Both report each test
-/// as JUnit XML, named by the one name an agent asks for it by.
+/// as JUnit XML, named by the one name an agent asks for it by. A declaration that has `[ci]` has both: the fast one is
+/// all that `run_tests` runs, and the full ones are all that the check before a merge runs.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ci {
-    pub fast: Option<CiFast>,
-    pub full: Option<CiFull>,
+    pub fast: CiFast,
+    pub full: CiFull,
 }
 
 /// The fast workflow: dispatched by hand on a commit with the tests and checks to run, builds and runs only those.
@@ -925,19 +926,19 @@ pub struct ResultWords {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GithubWords {
-    /// A merge is under way in the worktree: `{changes}`.
+    /// A merge is under way in the worktree, and no commit is named: `{changes}`.
     pub merge_under_way: String,
-    /// The worktree has changes to files git tracks that are not committed: `{changes}`.
+    /// The worktree has changes to files git tracks that are not committed, and no commit is named: `{changes}`.
     pub uncommitted: String,
-    /// The worktree holds files git does not track, which are not in the run: `{files}` one to a line, a directory
-    /// holding only such files as its name with a slash. Said before the result.
+    /// The worktree holds files git does not track, which are not in the run, and no commit is named: `{files}` one to
+    /// a line, a directory holding only such files as its name with a slash. Said before the result.
     pub untracked: String,
-    /// The branch has no commit of its own beyond main: `{main}`.
-    pub no_own_commit: String,
-    /// Tests or checks are named and the project declares no fast workflow.
+    /// Neither a test nor a check is named, so nothing is run.
+    pub none_named: String,
+    /// The commit named is none git finds in the worktree: `{why}`.
+    pub commit_unknown: String,
+    /// Tests or checks are named and the project declares no workflows to run them by.
     pub no_fast: String,
-    /// Nothing is named and the project declares no full workflows.
-    pub no_full: String,
     /// Checks named that the fast workflow does not run by name: `{unknown}`, `{runs}` what it runs.
     pub unknown_checks: String,
     /// The workflow's runner is not one this installation has: `{runner}`, `{have}`.
@@ -957,6 +958,8 @@ pub struct LocalWords {
     pub could_not: String,
     /// Said before what it found where tests or checks are named, which are not run apart.
     pub not_apart: String,
+    /// A commit is named, and the command runs on the worktree as it is: nothing was run.
+    pub no_commit: String,
 }
 
 /// How much of a tool's result a round is given: the result is kept whole, and given cut where it is longer.
@@ -1215,6 +1218,8 @@ pub struct Check {
     pub took_in: String,
     pub notes: String,
     pub note: String,
+    /// The project declares no full workflows for the check to run: nothing was run.
+    pub no_full: String,
     /// What the check before a merge says where its full workflows failed tests alone, which it runs again by the fast
     /// workflow: why they were not run again, `{why}`; what the run on the commit found, `{run}` as a result says it;
     /// what the run on the head of main found of what failed again, `{main}` the main branch's name, `{head}` its head,

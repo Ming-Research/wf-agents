@@ -137,6 +137,10 @@ impl Host for Local {
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
         let words = self.words()?;
+        // The command runs on the worktree as it is, so a commit named is no commit that could be run.
+        if named.commit.is_some() {
+            return Ok(Some(words.no_commit.clone()));
+        }
         let ran = match git::worktree(branch.place) {
             Ok(dir) => self.run(&dir, stop).await,
             Err(why) => Err(why),
