@@ -467,6 +467,8 @@ export type Unmet =
   | { kind: 'notAnswered'; name: string }
   | { kind: 'unexplained'; path: string }
   | { kind: 'notATest'; path: string }
+  | { kind: 'uncommitted'; changes: string }
+  | { kind: 'merging'; changes: string }
   /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
   /// change changes nothing in the design tree.
   | { kind: 'treeUnchanged'; name: string }

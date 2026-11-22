@@ -1303,6 +1303,10 @@ pub enum Unmet {
     Unexplained { path: String },
     /// The run of a line that changes only the project's tests changed this file, which is none of them.
     NotATest { path: String },
+    /// A round that asks for no call ended with changes to tracked files that are not committed.
+    Uncommitted { changes: String },
+    /// A round that asks for no call ended with a merge begun in the worktree and not committed.
+    Merging { changes: String },
     /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
     /// change changes nothing in the design tree.
     TreeUnchanged { name: String },
@@ -3219,6 +3223,12 @@ impl Unmet {
             UnmetOf::NotAnswered { name } => Unmet::NotAnswered { name: name.clone() },
             UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
             UnmetOf::NotATest { path } => Unmet::NotATest { path: path.clone() },
+            UnmetOf::Uncommitted { changes } => Unmet::Uncommitted {
+                changes: changes.clone(),
+            },
+            UnmetOf::Merging { changes } => Unmet::Merging {
+                changes: changes.clone(),
+            },
             UnmetOf::TreeUnchanged { name } => Unmet::TreeUnchanged { name: name.clone() },
             UnmetOf::Unanswered { block } => Unmet::Unanswered {
                 block: block.to_string(),

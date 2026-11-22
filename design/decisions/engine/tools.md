@@ -34,6 +34,10 @@ An agent has its tests run by asking for `run_tests`: on GitHub it runs the proj
 - rejected: an agent proposed leaving the push to the agent and taking only `gh` from it; the owner rejected it, because once GitHub is the engine's, everything done there is the engine's, including the push.
 - rejected: an agent proposed naming the tool `check`; the owner rejected it, because `check` already names the engine's check of a return, the check before the merge and CI's format checks, and does not say what the tool does.
 
+### decision run-tests-names-the-files-git-does-not-track
+Where the worktree holds files git does not track, `run_tests` on GitHub runs the commit and names them before its result as not in the run; a tracked file's uncommitted change still refuses it.
+- replaced: Refusing to run while the worktree held anything not committed, untracked files included, was on main; the owner changed it, because a cache a local command left stopped the tool though the commit was sound, and a forgotten new file is named instead.
+
 ### decision no-cell-runs-the-tests
 No cell of a flow runs the tests a cell asks for: they stay a call within that cell's run.
 - rejected: an agent proposed a cell of the engine that runs the tests each cell asks for, with the request and the result as data; the owner rejected it, because it was there only to show a cell's CI run on the page, and a row for each tool on the chart shows that just as well.

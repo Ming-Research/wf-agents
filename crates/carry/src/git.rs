@@ -198,18 +198,29 @@ pub(crate) fn a_link(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
 }
 
-/// Takes the work's worktree away, uncommitted changes and all, and keeps its branch, whose commits are the work's: a worktree is a place to work in, and the work has ended. One
-/// taken away already is nothing to do; what is at its place and is no worktree of the repository, or is a symbolic
-/// link, which git would follow to whatever it leads to, another work's worktree among them, was not made by the
-/// engine, and is left as it is. Refused, as every act is, while the repository's configuration names a program git
-/// could run ([`configuration`]).
+/// Takes the work's worktree away, uncommitted changes and all, and the checkout the local check ran on if a stopped
+/// engine left one ([`checking`]), and keeps its branch, whose commits are the work's: a worktree is a place to work in,
+/// and the work has ended. One taken away already is nothing to do; what is at its place and is no worktree of the
+/// repository, or is a symbolic link, which git would follow to whatever it leads to, another work's worktree among
+/// them, was not made by the engine, and is left as it is. Refused, as every act is, while the repository's
+/// configuration names a program git could run ([`configuration`]).
 pub async fn remove(project: &Project, place: &Place) -> Result<(), String> {
     configuration(project, place).await?;
+    take_away(project, &place.dir).await?;
+    take_away(project, &checking(place)).await?;
+    // A worktree whose directory was taken away by hand is named by the repository until it is pruned.
+    git(&project.repo, &["worktree", "prune"]).await?;
+    Ok(())
+}
+
+/// Takes away the worktree of the repository that is at this directory, as [`remove`] does, and prunes nothing but
+/// the name of one whose directories a command left unwritable, which it takes away itself.
+async fn take_away(project: &Project, place_dir: &Path) -> Result<(), String> {
     let repo = &project.repo;
-    if place.dir.exists() && !a_link(&place.dir) {
-        let dir = tokio::fs::canonicalize(&place.dir)
+    if place_dir.exists() && !a_link(place_dir) {
+        let dir = tokio::fs::canonicalize(place_dir)
             .await
-            .map_err(|e| format!("{}: {e}", place.dir.display()))?;
+            .map_err(|e| format!("{}: {e}", place_dir.display()))?;
         // Asked of git's list rather than read from what it answers, which is in the language of the machine's locale.
         let listed = git(repo, &["worktree", "list", "--porcelain"]).await?;
         let mut ours = false;
@@ -217,12 +228,91 @@ pub async fn remove(project: &Project, place: &Place) -> Result<(), String> {
             ours |= tokio::fs::canonicalize(listed).await.is_ok_and(|listed| listed == dir);
         }
         if ours {
-            git(repo, &["worktree", "remove", "--force", &text(&place.dir)]).await?;
+            let removed = git(repo, &["worktree", "remove", "--force", &text(place_dir)]).await;
+            if let Err(why) = removed {
+                // A command run in the worktree may leave a directory that does not let its owner take a file out of
+                // it, which git cannot take away, and git has taken away part of the worktree by then, so that it
+                // cannot be asked again. The engine made the worktree and owns it: where that was why git failed, it
+                // opens the directories up, takes the rest away itself and has the repository drop its name. Any other
+                // failure is said as git says it.
+                let opened = dir.clone();
+                let opened_up = tokio::task::spawn_blocking(move || open_up(&opened)).await;
+                if !opened_up.unwrap_or(false) {
+                    return Err(why);
+                }
+                tokio::fs::remove_dir_all(&dir)
+                    .await
+                    .map_err(|e| format!("{}: {e}", dir.display()))?;
+                git(repo, &["worktree", "prune"]).await?;
+            }
         }
     }
-    // A worktree whose directory was taken away by hand is named by the repository until it is pruned.
-    git(repo, &["worktree", "prune"]).await?;
     Ok(())
+}
+
+/// Gives the owner every right over the directory and each directory under it, links not followed, so that what is in
+/// them can be taken away; whether any of them lacked one. What cannot be changed is left: the removal that follows
+/// says what still stands in its way.
+fn open_up(dir: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Ok(meta) = std::fs::symlink_metadata(dir) else {
+            return false;
+        };
+        if !meta.is_dir() {
+            return false;
+        }
+        let mut permissions = meta.permissions();
+        let lacked = permissions.mode() & 0o700 != 0o700;
+        if lacked {
+            permissions.set_mode(permissions.mode() | 0o700);
+            let _ = std::fs::set_permissions(dir, permissions);
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return lacked;
+        };
+        let mut opened = lacked;
+        for entry in entries.flatten() {
+            opened |= open_up(&entry.path());
+        }
+        opened
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+        false
+    }
+}
+
+/// Where the local check runs, beside the work's worktree and named after it: a checkout of the commit checked and of
+/// nothing else, so that what the worktree holds besides the commit is no part of what is judged. One place for each
+/// work, so that a checkout a stopped engine left is found and taken away before the next is made.
+pub(crate) fn checking(place: &Place) -> PathBuf {
+    let mut dir = place.dir.clone().into_os_string();
+    dir.push(".check");
+    PathBuf::from(dir)
+}
+
+/// Makes the checkout of the commit the local check runs on ([`checking`]), detached from every branch, and gives its
+/// directory. Refused, as every act is, while the repository's configuration names a program git could run
+/// ([`configuration`]), since making it runs git's filters.
+pub(crate) async fn check_out(project: &Project, place: &Place, commit: &str) -> Result<PathBuf, String> {
+    configuration(project, place).await?;
+    let dir = checking(place);
+    take_away(project, &dir).await?;
+    // `--force`: the repository may name a checkout of this place whose directory a stopped engine's run lost.
+    git(
+        &project.repo,
+        &["worktree", "add", "--detach", "--force", &text(&dir), commit],
+    )
+    .await?;
+    Ok(dir)
+}
+
+/// Takes away the checkout the local check ran on ([`check_out`]); one taken away already is nothing to do.
+pub(crate) async fn take_away_check(project: &Project, place: &Place) -> Result<(), String> {
+    take_away(project, &checking(place)).await
 }
 
 /// The work's worktree, or why there is none: a round of the work is done in it, and `start` makes it.
@@ -237,9 +327,16 @@ pub fn worktree(place: &Place) -> Result<PathBuf, String> {
     }
 }
 
-/// What a work's worktree holds that is not committed, as `git status --porcelain` lists it; nothing where all is.
+/// What a work's worktree holds that is not committed, as `git status --porcelain` lists it; nothing where all is. A
+/// file git does not track is not a change: it is in no commit, and is left as it is ([`untracked`]).
 pub(crate) async fn uncommitted(dir: &Path) -> Result<String, String> {
-    git(dir, &["status", "--porcelain"]).await
+    git(dir, &["status", "--porcelain", "--untracked-files=no"]).await
+}
+
+/// The files and directories of the worktree that git does not track and does not ignore, one to a line, a directory
+/// that holds only such files as its own name with its trailing slash; nothing where there are none.
+pub(crate) async fn untracked(dir: &Path) -> Result<String, String> {
+    git(dir, &["ls-files", "--others", "--exclude-standard", "--directory"]).await
 }
 
 /// The words the check's merge of main into a work's branch is made with, as the project's `commits` says: a run's
@@ -373,7 +470,7 @@ pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option
             project.main
         )));
     }
-    let changes = git(repo, &["status", "--porcelain", "--untracked-files=no"]).await?;
+    let changes = uncommitted(repo).await?;
     if !changes.is_empty() {
         return Err(NotMerged::refused(format!(
             "the repository's checkout {} has changes that are not committed:\n{changes}",

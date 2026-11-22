@@ -792,9 +792,10 @@ fn unreviewed<'g>(gate: &'g Gate<'_>) -> Option<&'g str> {
         .then_some(head)
 }
 
-/// Checks the work before its merge: that its worktree holds nothing uncommitted; then that its branch merges into the
-/// head of main the host gives with no conflict (worked out without changing anything), and that the work's own change
-/// against that main changes the design tree where a question of the work marked `tree` has the owner's answer
+/// Checks the work before its merge: that no merge begun in its worktree is left uncommitted, which the work waits for
+/// the owner for. What the worktree holds besides the commits is no part of what is judged. Then that its branch merges
+/// into the head of main the host gives with no conflict (worked out without changing anything), and that the work's
+/// own change against that main changes the design tree where a question of the work marked `tree` has the owner's answer
 /// ([`crate::tree::unwritten`]), both said where both fail; then that the work's head, read of the branch for the
 /// round, is the one each judge that takes it dealt with last ([`Gate`]), which fails the round in passing otherwise,
 /// so that the judge runs first on the new head and the check is taken again after it; all found holding the
@@ -836,13 +837,16 @@ pub(crate) async fn check(
             observations: Vec::new(),
             asks: None,
         };
+        // What is judged is the commit, whatever the worktree holds besides it. A merge begun and not committed stands in
+        // the way of the check's own merge of main, and the engine takes back no merge it did not begin: the work waits
+        // for the owner, and nothing is written into the check's blocks, which no cell could answer by a commit.
         if git::merging(&dir).await? {
             let changes = git::uncommitted(&dir).await?;
-            return Ok(Some(found(fill(&words.found.merging, &[("changes", &changes)]))));
-        }
-        let changes = git::uncommitted(&dir).await?;
-        if !changes.is_empty() {
-            return Ok(Some(found(fill(&words.found.uncommitted, &[("changes", &changes)]))));
+            let refused = fill(
+                &words.refused.merging,
+                &[("main", &project.main), ("changes", &changes)],
+            );
+            return Err(Failed::refused(refused));
         }
         // A conflict with main and an answer missing from the design tree are both said where both are found: neither
         // look depends on the other, and one commit mends both.
@@ -932,7 +936,7 @@ pub(crate) async fn check(
         }
     }
     let Some(verdict) = host
-        .verdict(branch, &checked.commit, &checked.main, asking, stop)
+        .verdict(branch, &checked.commit, &checked.main, asking, repository, stop)
         .await?
     else {
         return Ok(None);
@@ -1444,6 +1448,11 @@ mod tests {
 
     /// Checks the work in the repository with the host, its flow holding the work's head to nothing.
     async fn check_with(repo: &Repo, host: &impl Host, stop: &mut Stop) -> Result<Option<Checked>, String> {
+        check_failing(repo, host, stop).await.map_err(String::from)
+    }
+
+    /// As [`check_with`], with the kind of the failure the check fails with.
+    async fn check_failing(repo: &Repo, host: &impl Host, stop: &mut Stop) -> Result<Option<Checked>, Failed> {
         let place = repo.place(WORK);
         let (protecting, work) = (Protecting::default(), Work::default());
         let mut looking = Looking::nothing();
@@ -1464,7 +1473,6 @@ mod tests {
             &mut gate,
         )
         .await
-        .map_err(String::from)
     }
 
     /// Checks the work in the repository with the host, holding its head, whose latest version says `last`, to what the
@@ -2154,8 +2162,11 @@ mod tests {
         assert!(checked.took_in, "what the check writes says so");
     }
 
+    // A merge begun and not committed is whoever's, and only they can finish it, so the check, whose own merge of main it
+    // would stand in the way of, takes nothing back and does not write it into the check's blocks, which no cell could
+    // answer by a commit: the work waits for the owner, with what git says of the merge.
     #[tokio::test]
-    async fn an_unfinished_merge_in_the_worktree_is_reported_and_never_taken_back() {
+    async fn an_unfinished_merge_in_the_worktree_is_refused_and_never_taken_back() {
         let repo = Repo::new("true");
         let local = run(&repo.project.repo, &["rev-parse", "main"]);
         let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
@@ -2169,9 +2180,16 @@ mod tests {
             &["merge", "--no-commit", "--no-ff", "-m", &message, &main],
         );
         let host = Fake::new(&main);
-        let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
-        let failed = checked.failed.expect("the check fails");
-        assert!(failed.contains("A merge is under way in the worktree"), "{failed}");
+        let failed = check_failing(&repo, &host, &mut Stop::never())
+            .await
+            .expect_err("the check is refused");
+        let changes = run(&started.place.dir, &["status", "--porcelain", "--untracked-files=no"]);
+        let words = fill(
+            &words().check.refused.merging,
+            &[("main", "main"), ("changes", &changes)],
+        );
+        assert_eq!(failed, Failed::refused(words));
+        assert!(failed.why.contains("weather.txt"), "{failed}");
         assert_eq!(host.asked(), [Asked::Main]);
         run(&started.place.dir, &["rev-parse", "--verify", "MERGE_HEAD"]);
     }
@@ -2252,17 +2270,132 @@ mod tests {
         assert_eq!(checked.commit, built, "no commit is made");
     }
 
+    /// A host whose head of main is `main` and that passes the `n` commits it is asked a verdict on.
+    fn passing(main: &str, n: usize) -> Fake {
+        (0..n).fold(Fake::new(main), |host, _| host.judges(Ok(Some(passes()))))
+    }
+
+    // What the check judges is the commit: a file git does not track is in no commit, whoever left it, and neither
+    // holds the check back nor is touched by it, where main has not moved and where its merge is made.
     #[tokio::test]
-    async fn uncommitted_changes_are_found_without_asking_for_a_verdict() {
-        let repo = Repo::new("true");
-        let main = run(&repo.project.repo, &["rev-parse", "main"]);
-        let started = start_with(&repo, &Fake::new(&main)).await.unwrap();
-        std::fs::write(started.place.dir.join("draft.txt"), "Not yet.\n").unwrap();
-        let host = Fake::new(&main);
-        let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
-        let failed = checked.failed.expect("the check fails");
-        assert!(failed.contains("not committed"), "{failed}");
-        assert_eq!(host.asked(), [Asked::Main]);
+    async fn a_file_git_does_not_track_stops_nothing_and_is_left_where_it_is() {
+        for moved in [false, true] {
+            let repo = Repo::new("true");
+            let local = run(&repo.project.repo, &["rev-parse", "main"]);
+            let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+            let built = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+            let main = match moved {
+                true => commit(&repo.project.repo, "weather.txt", "Sunny.\n"),
+                false => local,
+            };
+            std::fs::write(started.place.dir.join("draft.txt"), "Not yet.\n").unwrap();
+            let host = passing(&main, 1);
+            let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
+            assert_eq!(checked.failed, None, "main moved: {moved}");
+            assert_eq!(checked.took_in, moved);
+            let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
+            assert_eq!(checked.commit, head);
+            assert_eq!((head == built), !moved, "the merge of main is made where it moved");
+            assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(head)], "main moved: {moved}");
+            let draft = std::fs::read_to_string(started.place.dir.join("draft.txt"));
+            assert_eq!(draft.as_deref().ok(), Some("Not yet.\n"), "main moved: {moved}");
+        }
+    }
+
+    // The same of a change to a file git tracks that is not committed, where main changed no file it touches: it is no
+    // part of the commit judged, and the check's own merge, where main moved, leaves it in the worktree.
+    #[tokio::test]
+    async fn a_change_to_a_tracked_file_that_is_not_committed_is_no_part_of_what_is_judged() {
+        for (moved, staged) in [(false, false), (true, false), (false, true)] {
+            let repo = Repo::new("true");
+            let local = run(&repo.project.repo, &["rev-parse", "main"]);
+            let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+            let dir = &started.place.dir;
+            commit(dir, "farewell.txt", "Bye.\n");
+            let main = match moved {
+                true => commit(&repo.project.repo, "weather.txt", "Sunny.\n"),
+                false => local,
+            };
+            std::fs::write(dir.join("farewell.txt"), "Goodbye.\n").unwrap();
+            if staged {
+                run(dir, &["add", "farewell.txt"]);
+            }
+            let host = passing(&main, 1);
+            let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
+            let case = format!("main moved: {moved}, staged: {staged}");
+            assert_eq!(checked.failed, None, "{case}");
+            let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
+            assert_eq!(checked.commit, head, "{case}");
+            assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(head)], "{case}");
+            let kept = if staged { "M  farewell.txt" } else { " M farewell.txt" };
+            assert_eq!(
+                git::uncommitted(dir).await.unwrap(),
+                kept,
+                "the change is left as it was: {case}"
+            );
+            let said = std::fs::read_to_string(dir.join("farewell.txt"));
+            assert_eq!(said.as_deref().ok(), Some("Goodbye.\n"), "{case}");
+        }
+    }
+
+    // Where main moved, the check's own merge is the git's to refuse: a staged change, a change to a file main changed
+    // and an untracked file at a path main adds would each be lost or mixed into it. The check takes nothing back and
+    // asks the host nothing: it fails with git's own words, which the work waits on, and the worktree is as it was.
+    #[tokio::test]
+    async fn a_merge_of_main_that_git_refuses_for_what_the_worktree_holds_fails_the_check_with_git_s_words() {
+        type Case = (&'static str, &'static str, fn(&std::path::Path, &std::path::Path));
+        let cases: [Case; 3] = [
+            ("a staged change", "would be overwritten by merge", |dir, _| {
+                std::fs::write(dir.join("farewell.txt"), "Goodbye.\n").unwrap();
+                run(dir, &["add", "farewell.txt"]);
+            }),
+            (
+                "a change to a file main changed",
+                "would be overwritten by merge",
+                |dir, repo| {
+                    commit(repo, "greeting.txt", "Good day.\n");
+                    std::fs::write(dir.join("greeting.txt"), "Hello, you.\n").unwrap();
+                },
+            ),
+            (
+                "an untracked file at a path main adds",
+                "untracked working tree files",
+                |dir, repo| {
+                    commit(repo, "weather.txt", "Sunny.\n");
+                    std::fs::write(dir.join("weather.txt"), "Mine.\n").unwrap();
+                },
+            ),
+        ];
+        for (name, git_says, hold) in cases {
+            let repo = Repo::new("true");
+            let local = run(&repo.project.repo, &["rev-parse", "main"]);
+            let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+            let dir = &started.place.dir;
+            let built = commit(dir, "farewell.txt", "Bye.\n");
+            // Main moves on, by a file the case's change does not touch where it adds none of its own.
+            if name == "a staged change" {
+                commit(&repo.project.repo, "weather.txt", "Sunny.\n");
+            }
+            hold(dir, &repo.project.repo);
+            let main = run(&repo.project.repo, &["rev-parse", "main"]);
+            let (before, status) = (run(dir, &["rev-parse", "HEAD"]), run(dir, &["status", "--porcelain"]));
+            let host = Fake::new(&main);
+            let failed = check_failing(&repo, &host, &mut Stop::never()).await.expect_err(name);
+            assert!(failed.why.contains(git_says), "{name}: {failed}");
+            assert_eq!(host.asked(), [Asked::Main], "{name}: the host is asked no verdict");
+            assert!(!git::merging(dir).await.unwrap(), "{name}: no merge is left under way");
+            assert_eq!(
+                run(dir, &["rev-parse", "HEAD"]),
+                before,
+                "{name}: the branch is as it was"
+            );
+            assert_eq!(before, built, "{name}");
+            assert_eq!(
+                run(dir, &["status", "--porcelain"]),
+                status,
+                "{name}: the worktree is as it was"
+            );
+        }
     }
 
     #[tokio::test]
@@ -2282,6 +2415,166 @@ mod tests {
         assert_eq!(checked.by, None);
         assert_eq!(checked.commit, head);
         assert_eq!(checked.main, run(&repo.project.repo, &["rev-parse", "main"]));
+    }
+
+    // The command judges the commit, which is what a merge would land: a file left in the worktree and committed in no
+    // commit is not in the checkout it runs on, and the checkout is taken away as the command ends.
+    #[tokio::test]
+    async fn the_local_check_runs_on_a_checkout_of_the_commit_alone_and_takes_it_away() {
+        let repo = Repo::new("test -f new.txt");
+        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let dir = &started.place.dir;
+        commit(dir, "farewell.txt", "Bye.\n");
+        std::fs::write(dir.join("new.txt"), "Forgotten.\n").unwrap();
+        let failed = checked_locally(&repo)
+            .await
+            .failed
+            .expect("a file in no commit is not there");
+        assert!(failed.contains("test -f new.txt"), "{failed}");
+        assert!(!git::checking(&started.place).exists(), "the checkout is taken away");
+        let worktrees = run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
+        assert_eq!(
+            worktrees.lines().filter(|l| l.starts_with("worktree ")).count(),
+            2,
+            "{worktrees}"
+        );
+        // Committed, the file is in what is judged.
+        run(dir, &["add", "new.txt"]);
+        run(dir, &["commit", "-q", "-m", "Add new.txt"]);
+        assert_eq!(checked_locally(&repo).await.failed, None);
+        assert!(!git::checking(&started.place).exists(), "the checkout is taken away");
+    }
+
+    /// A work with one commit in a repository whose check command writes `started` in its data directory, waits for
+    /// `release` there and writes `ended`, so that a test can act while the command runs; with the host that runs it,
+    /// the commit, and the three files.
+    async fn waiting_check() -> (Repo, Local, Place, String, [PathBuf; 3]) {
+        let mut repo = Repo::new("true");
+        let files = ["started", "release", "ended"].map(|name| repo.data.join(name));
+        let [started, release, ended] = &files;
+        repo.project.check = format!(
+            "touch '{}'; while [ ! -f '{}' ]; do sleep 0.02; done; touch '{}'",
+            started.display(),
+            release.display(),
+            ended.display()
+        );
+        let host = Local::new(repo.project.clone());
+        let work = start_with(&repo, &host).await.unwrap();
+        let commit = commit(&work.place.dir, "farewell.txt", "Bye.\n");
+        (repo, host, work.place, commit, files)
+    }
+
+    /// Waits until the file is there, for ten seconds at the most.
+    async fn appears(file: &std::path::Path) {
+        for _ in 0..200 {
+            if file.exists() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("{} did not appear", file.display());
+    }
+
+    // The checkout registers a worktree in the repository, as the acts' own worktrees are, so it is made holding the
+    // repository (decision the-repository-is-worked-in-one-act-at-a-time): nothing of it begins while another act
+    // holds the lock.
+    #[tokio::test]
+    async fn the_local_check_makes_its_checkout_holding_the_repository() {
+        let (repo, host, place, commit, [started, release, _]) = waiting_check().await;
+        let lock = Mutex::new(());
+        let held = lock.lock().await;
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let (branched, mut stop) = (branch(&place), Stop::never());
+        let verdict = host.verdict(&branched, &commit, &main, ROUND, &lock, &mut stop);
+        let driver = async {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            assert!(
+                !git::checking(&place).exists(),
+                "the checkout was made while the repository was held"
+            );
+            assert!(!started.exists(), "the command ran while the repository was held");
+            drop(held);
+            std::fs::write(release, "").unwrap();
+        };
+        let (verdict, ()) = tokio::join!(verdict, driver);
+        assert_eq!(verdict.unwrap().expect("judged").failed, None);
+    }
+
+    // The command takes as long as the project's check takes: it runs without the repository, which the acts of other
+    // works need meanwhile.
+    #[tokio::test]
+    async fn the_local_check_runs_its_command_without_the_repository() {
+        let (repo, host, place, commit, [started, release, _]) = waiting_check().await;
+        let lock = Mutex::new(());
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let (branched, mut stop) = (branch(&place), Stop::never());
+        let verdict = host.verdict(&branched, &commit, &main, ROUND, &lock, &mut stop);
+        let driver = async {
+            appears(&started).await;
+            assert!(lock.try_lock().is_ok(), "the repository was held while the command ran");
+            std::fs::write(release, "").unwrap();
+        };
+        let (verdict, ()) = tokio::join!(verdict, driver);
+        assert_eq!(verdict.unwrap().expect("judged").failed, None);
+    }
+
+    // The checkout is dropped from the repository's worktrees holding it too: it is not taken away while another act
+    // holds the repository.
+    #[tokio::test]
+    async fn the_local_check_takes_its_checkout_away_holding_the_repository() {
+        let (repo, host, place, commit, [started, release, ended]) = waiting_check().await;
+        let lock = Mutex::new(());
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let (branched, mut stop) = (branch(&place), Stop::never());
+        let verdict = host.verdict(&branched, &commit, &main, ROUND, &lock, &mut stop);
+        let driver = async {
+            appears(&started).await;
+            let held = lock.lock().await;
+            std::fs::write(release, "").unwrap();
+            appears(&ended).await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            assert!(
+                git::checking(&place).exists(),
+                "the checkout was taken away while the repository was held"
+            );
+            drop(held);
+        };
+        let (verdict, ()) = tokio::join!(verdict, driver);
+        assert_eq!(verdict.unwrap().expect("judged").failed, None);
+        assert!(
+            !git::checking(&place).exists(),
+            "the checkout is taken away once the repository is free"
+        );
+    }
+
+    // A run of the check that was stopped with the engine may leave its checkout, which the next run of the work's
+    // check takes away first, and the work's end takes away with its worktree.
+    #[tokio::test]
+    async fn a_checkout_a_stopped_engine_left_is_taken_away_before_the_next_is_made_and_with_the_work() {
+        let repo = Repo::new("test -f farewell.txt");
+        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let left = git::checking(&started.place);
+        run(
+            &repo.project.repo,
+            &["worktree", "add", "--detach", &left.display().to_string(), "main"],
+        );
+        assert!(!left.join("farewell.txt").exists(), "what was left is main's");
+        assert_eq!(checked_locally(&repo).await.failed, None, "the check ran on the commit");
+        assert!(!left.exists(), "the checkout is taken away");
+        // One left again is taken away with the work's own worktree.
+        run(
+            &repo.project.repo,
+            &["worktree", "add", "--detach", &left.display().to_string(), "main"],
+        );
+        git::remove(&repo.project, &started.place).await.unwrap();
+        assert!(!left.exists() && !started.place.dir.exists());
+        let worktrees = run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
+        assert_eq!(
+            worktrees.lines().filter(|l| l.starts_with("worktree ")).count(),
+            1,
+            "{worktrees}"
+        );
     }
 
     #[tokio::test]
@@ -2321,6 +2614,7 @@ mod tests {
         };
         let (checked, ()) = tokio::join!(check_with(&repo, &host, &mut stop), stopping);
         assert_eq!(checked, Ok(None));
+        assert!(!git::checking(&started.place).exists(), "the checkout is taken away");
     }
 
     #[tokio::test]

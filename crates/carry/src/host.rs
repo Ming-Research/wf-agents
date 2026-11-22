@@ -25,6 +25,7 @@ use std::sync::Arc;
 use decide::run::Failure;
 use decide::{CallId, RunId};
 use store::WorkNumber;
+use tokio::sync::Mutex;
 
 use crate::git::Place;
 use crate::held::Stop;
@@ -190,13 +191,15 @@ pub trait Host: Send + Sync + 'static {
     /// those are run on the commit again, a test that passes there no longer failing it and being observed, and what
     /// fails again is run on `main`, a commit whose every such test fails there too being held
     /// ([`Verdict::held`]). Checks that could not be run fail the round, with the kind of the cause where the host
-    /// tells it ([`Failed`]).
+    /// tells it ([`Failed`]). `repository` is the lock the acts hold while they work in the project's repository: a
+    /// host whose verdict works there holds it for that work alone, never while it waits for the verdict.
     fn verdict(
         &self,
         branch: &Branch<'_>,
         commit: &str,
         main: &str,
         asking: Asking,
+        repository: &Mutex<()>,
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<Verdict>, Failed>> + Send;
 
@@ -280,9 +283,10 @@ impl<H: Host> Host for Arc<H> {
         commit: &str,
         main: &str,
         asking: Asking,
+        repository: &Mutex<()>,
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
-        (**self).verdict(branch, commit, main, asking, stop).await
+        (**self).verdict(branch, commit, main, asking, repository, stop).await
     }
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
