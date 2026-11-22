@@ -19,7 +19,7 @@ pub mod time;
 
 pub use filled::{Fill, FillFault, Filled};
 pub use flows::{OnFlow, Read, Version, version_of};
-pub use measured::{Measured, Measures, Pinged};
+pub use measured::{BesideKind, Forked, Measured, Measures, Pinged, SpentBeside};
 pub use observations::Observed;
 pub use sessions::{Ran, RanOn, Session, Why};
 pub use time::{KeptTime, Stretch, Went};
@@ -58,6 +58,8 @@ pub struct Work {
     pub measured: Vec<Measured>,
     /// Each keep-warm ping of a line's session, in order.
     pub pinged: Vec<Pinged>,
+    /// Each fork of a round's session asked a question, in order.
+    pub forked: Vec<Forked>,
     /// Each pull request the host of the work's repository found the work checked through, in order, where it is
     /// another than the one before: the latest is the work's.
     pub pulls: Vec<Pulled>,
@@ -101,6 +103,7 @@ impl Work {
             .chain(self.ran.iter().map(|r| r.at))
             .chain(self.measured.iter().map(|m| m.at))
             .chain(self.pinged.iter().map(|p| p.at))
+            .chain(self.forked.iter().map(|f| f.at))
             .chain(self.pulls.iter().map(|p| p.at))
             .chain(self.flows.iter().map(|f| f.at))
             .chain(self.kept_time.iter().map(|k| k.at));
@@ -111,6 +114,30 @@ impl Work {
     /// last entry gives the time of the last thing that happened, and a place before the first gives none.
     pub fn time_of(&self, place: Seq) -> Option<Time> {
         self.moments.iter().rev().find(|m| m.from <= place).map(|m| m.at)
+    }
+
+    /// What the work's calls beside its rounds took, in the order of what happened to it: each keep-warm ping and each
+    /// fork. What a work spent in all is its rounds' and these.
+    pub fn spent_beside_rounds(&self) -> Vec<SpentBeside> {
+        let pings = self.pinged.iter().map(|p| SpentBeside {
+            at: p.at,
+            kind: BesideKind::Ping,
+            spent: p.spent,
+        });
+        let forks = self.forked.iter().map(|f| SpentBeside {
+            at: f.at,
+            kind: BesideKind::Fork,
+            spent: Spent {
+                usd_micros: f.usd_micros,
+                input_tokens: f.input_tokens,
+                cached_tokens: f.cached_tokens,
+                output_tokens: f.output_tokens,
+                ..Spent::default()
+            },
+        });
+        let mut all: Vec<SpentBeside> = pings.chain(forks).collect();
+        all.sort_by_key(|b| b.at);
+        all
     }
 
     /// A name no run and no call of the work has yet: one after the latest. Whoever starts a run or makes a call asks
@@ -356,4 +383,67 @@ pub enum Ask {
     Tool { name: String, input: String },
     /// A question for a person.
     Person { who: Who, question: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cost(usd_micros: u64) -> Spent {
+        Spent {
+            usd_micros,
+            input_tokens: 1,
+            cached_tokens: 2,
+            output_tokens: 3,
+            context_tokens: Some(9),
+            compactions: 1,
+        }
+    }
+
+    // What a work spent beside its rounds is its keep-warm pings' and its forks', each at its place, in the order of
+    // what happened, whichever table keeps it; a fork's has only what a fork keeps. Microseconds.
+    #[test]
+    fn what_a_work_spent_beside_its_rounds_gives_pings_and_forks_in_the_order_of_their_places() {
+        let mut work = Work::default();
+        let ping = |at, usd| Pinged {
+            at: Seq(at),
+            line: "engineer".to_string(),
+            session: 0,
+            spent: cost(usd),
+            failed: None,
+        };
+        let fork = |at, usd| Forked {
+            at: Seq(at),
+            run: RunId(1),
+            round: 1,
+            usd_micros: usd,
+            input_tokens: 1,
+            cached_tokens: 2,
+            output_tokens: 3,
+        };
+        work.pinged = vec![ping(2, 10), ping(6, 30)];
+        work.forked = vec![fork(4, 20), fork(8, 40)];
+        let beside = work.spent_beside_rounds();
+        let seen: Vec<(u64, BesideKind, u64)> = beside.iter().map(|b| (b.at.0, b.kind, b.spent.usd_micros)).collect();
+        assert_eq!(
+            seen,
+            [
+                (2, BesideKind::Ping, 10),
+                (4, BesideKind::Fork, 20),
+                (6, BesideKind::Ping, 30),
+                (8, BesideKind::Fork, 40)
+            ]
+        );
+        // A ping keeps what its session held and how often it compacted; a fork's spend has none of them.
+        assert_eq!(beside[0].spent, cost(10));
+        assert_eq!(
+            beside[1].spent,
+            Spent {
+                context_tokens: None,
+                compactions: 0,
+                ..cost(20)
+            }
+        );
+        assert_eq!(work.tick(), Seq(9), "a fork's place is one the next entry follows");
+    }
 }

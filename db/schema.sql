@@ -501,6 +501,20 @@ CREATE TABLE pinged (
     PRIMARY KEY (work, at)
 );
 
+-- A fork of a round's session asked a question, whether it answered or not: the run and the round whose session it was
+-- forked from, and what it took.
+CREATE TABLE forked (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    run INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    usd_micros INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    cached_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    PRIMARY KEY (work, at)
+);
+
 -- A pull request the host of the work's repository found the work checked through, opening it where the work had
 -- none: its number on the host and its address, kept where it is another than the one kept before; the latest is the
 -- work's.

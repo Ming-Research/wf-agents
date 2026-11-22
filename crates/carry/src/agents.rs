@@ -110,8 +110,8 @@ use decide::{BlockId, CellId, Pauser, RunId, Seq};
 use driver::Policy;
 use engine::Came;
 use service::{
-    Clock, Doings, Fork, Forked, Mark, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Telling, Token,
-    Tokens, Told,
+    Clock, Doings, Fork, ForkFailed, Forked, Mark, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller,
+    Telling, Token, Tokens, Told,
 };
 use store::WorkNumber;
 use tokio::process::Command;
@@ -398,7 +398,7 @@ impl Rounds for Agents {
     fn fork(
         &self,
         fork: Fork,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Forked, String>> + Send + '_>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Forked, ForkFailed>> + Send + '_>> {
         // Whoever asks stops the fork by giving the request up: its program ends with it.
         Box::pin(async move { self.inner.fork(&fork).await })
     }
@@ -1232,9 +1232,9 @@ impl Inner {
                 ms += to.0.saturating_sub(from.0);
             }
         }
-        usd += (work.pinged.iter())
-            .filter(|p| ended(p.at))
-            .map(|p| p.spent.usd_micros)
+        usd += (work.spent_beside_rounds().iter())
+            .filter(|call| ended(call.at))
+            .map(|call| call.spent.usd_micros)
             .sum::<u64>();
         // The round under way, from its beginning to now.
         let began = work::sessions::began_at(work, round.run, round.number).and_then(|at| work.time_of(at));
@@ -1283,8 +1283,10 @@ impl Inner {
         // No other round of the work ended while this one was under way: a work has one round under way at a time. The
         // pings of its other lines that ended meanwhile are not in what the round was given, and count at the next
         // round's judgment: at most each other session's `warm.most` pings.
-        let pinged = round.kept.pinged.iter().map(|p| p.spent.usd_micros).sum::<u64>();
-        let total = round.kept.spent.values().map(|s| s.usd_micros).sum::<u64>() + spent.usd_micros + pinged;
+        let beside = (round.kept.spent_beside_rounds().iter())
+            .map(|call| call.spent.usd_micros)
+            .sum::<u64>();
+        let total = round.kept.spent.values().map(|s| s.usd_micros).sum::<u64>() + spent.usd_micros + beside;
         let dollars = |micros: u64| format!("{:.2}", micros as f64 / 1_000_000.0);
         let of = crate::projects::of(&self.projects, &round.item).ok()?;
         (total > bar).then(|| {
@@ -1539,7 +1541,7 @@ impl Inner {
     /// that no round or ping of the line runs beside the fork, which refuses every tool but the return and so leaves
     /// what the work's other lines run in the worktree as it is. What the fork was told, its stream and its answer are
     /// kept beside the round's, its hooks' files are its own and taken away after.
-    async fn fork(&self, fork: &Fork) -> Result<Forked, String> {
+    async fn fork(&self, fork: &Fork) -> Result<Forked, ForkFailed> {
         let of = crate::projects::of(&self.projects, &fork.item)?;
         let (outline, work) = (&*fork.outline, &*fork.kept);
         // The work's rounds are placed in their sessions as the version it is on has its cells, whichever is installed.
@@ -1550,7 +1552,8 @@ impl Inner {
             return Err(format!(
                 "A round or a ping of the line {line} of work {} is under way: ask the fork once it has ended.",
                 fork.work.0
-            ));
+            )
+            .into());
         };
         // Held until the fork has ended, and what it stood in is taken away.
         let mut holding = Some(one);
@@ -1608,7 +1611,7 @@ impl Inner {
                             "compacted after run {run} round {round}, and holds only a summary of what came before"
                         ),
                     };
-                    return Err(format!("The session was {how}: no fork can begin at that round's end."));
+                    return Err(format!("The session was {how}: no fork can begin at that round's end.").into());
                 }
                 let base = kept::base(&self.data, fork.work, fork.run, fork.round);
                 Some(last_message_of(&base).await?.ok_or(
@@ -1623,10 +1626,7 @@ impl Inner {
         let token = account::token_of(&self.tokens, account.as_deref(), &of.beside.cost.check.no_account).await?;
         let place = git::place(&self.data, &git::tag(&self.installation), fork.work);
         if !place.dir.exists() && !fork.ended {
-            return Err(format!(
-                "Work {} has not ended, and its worktree is not there.",
-                fork.work.0
-            ));
+            return Err(format!("Work {} has not ended, and its worktree is not there.", fork.work.0).into());
         }
         // What stands in for an ended work's worktree, which is let go, is a checkout
         // with no branch, taken away after: one made now, or one an earlier fork could not take away. The work's own
@@ -1710,7 +1710,7 @@ impl Inner {
         Ok(Forked {
             answer,
             text,
-            usd_micros: spent.usd_micros,
+            spent,
             read,
             held,
             expired,
@@ -1734,7 +1734,7 @@ impl Inner {
         (line, of_session): (&str, u32),
         begins: Option<&str>,
         (dir, token): (&Path, &Token),
-    ) -> Result<Forking, String> {
+    ) -> Result<Forking, ForkFailed> {
         let base = kept::base(&self.data, fork.work, fork.run, fork.round);
         let name = base.file_name().unwrap_or_default().to_string_lossy().to_string();
         let n = (1..)
@@ -1770,6 +1770,7 @@ impl Inner {
             made.session,
             Begin::Resume,
         );
+        let of = crate::projects::of(&self.projects, &fork.item)?;
         let mut command = Command::new(&agents.command);
         let profile = account::profile(&self.data);
         command
@@ -1790,7 +1791,7 @@ impl Inner {
         let mut never = crate::held::Stop::never();
         let ran = process::streamed(
             command,
-            Some(cli::stdin(&fork.question)),
+            Some(cli::fork_stdin(&of.beside.cost.fork.first, &fork.question)),
             None,
             &mut never,
             None,
@@ -1802,8 +1803,28 @@ impl Inner {
         }
         write(&at("stream.jsonl"), &lines).await?;
         let Ran::Ended { status, stderr, .. } = ran? else {
-            return Err("The fork's program was stopped before it ended.".to_string());
+            return Err(ForkFailed {
+                why: "The fork's program was stopped before it ended.".to_string(),
+                spent: stream.priced(),
+            });
         };
+        // The question is the second message: a stream that holds one result holds only the first message's return,
+        // which is no answer to it.
+        if stream.results() < 2 {
+            let mut why = format!(
+                "The fork's question was not answered: its program ended {} of the fork's 2 messages",
+                stream.results()
+            );
+            if !status.success() {
+                let end = process::tail(String::from_utf8_lossy(&stderr).trim().as_bytes());
+                let ended = process::ended(&of.beside.cost.program, &self.settings.agents.command, status, &end);
+                why = format!("{why}; {ended}");
+            }
+            return Err(ForkFailed {
+                why: format!("{why}."),
+                spent: stream.priced(),
+            });
+        }
         let read = stream.own.first.map(|(read, _)| read);
         let text = (String::from_utf8_lossy(&lines).lines())
             .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
@@ -1817,15 +1838,14 @@ impl Inner {
             Err(no) if text.is_empty() => {
                 let mut why = no.why;
                 if !status.success() {
-                    let of = crate::projects::of(&self.projects, &fork.item)?;
                     let end = process::tail(String::from_utf8_lossy(&stderr).trim().as_bytes());
                     let ended = process::ended(&of.beside.cost.program, &self.settings.agents.command, status, &end);
                     why = format!("{why}; {ended}");
                 }
-                let cost = (no.spent.or_else(|| stream.priced()))
-                    .map(|spent| format!(" It cost ${:.4}.", spent.usd_micros as f64 / 1e6))
-                    .unwrap_or_default();
-                return Err(format!("The fork wrote no answer: {why}.{cost}"));
+                return Err(ForkFailed {
+                    why: format!("The fork wrote no answer: {why}."),
+                    spent: no.spent.or_else(|| stream.priced()),
+                });
             }
             Err(no) => (None, no.spent.unwrap_or_else(|| stream.priced().unwrap_or_default())),
         };
@@ -2521,30 +2541,41 @@ mod tests {
         }
     }
 
-    /// The carrier a fork of work 3's first round of run 7 is asked of, its data in this directory, and that fork, of
-    /// the work as [`ran_once`] keeps it: the program a stand-in that keeps its arguments, where it ran and what it
-    /// found there, the token and the directory it was given, and prints a stream: its start, the week's usage, its
-    /// first call's prompt, read mostly from the cache, and its result, with a return, the session's total being $0.50.
-    /// The engineer's line's first session began as kept, the work's worktree is there, its project's repository
-    /// beside, and the time now is ten thousand seconds in; the cache keeps a session an hour after its last call. The
-    /// accounts `work` and `home` are added, and `work` is in use.
-    fn forking(data: &Path) -> (Agents, git::tests::Repo, Fork) {
+    /// What the stand-in program of the fork tests prints for the two messages a fork is given, the first answered with a
+    /// return and the second with the answer: the start, the week's usage, the first message's call, read mostly from
+    /// the cache, and its result, then the question's call and its result, the session's total being $0.50.
+    const FORK_STREAM: [&str; 6] = [
+        r#"{"type":"system","subtype":"init","claude_code_version":"9.9.9"}"#,
+        r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"seven_day":{"utilization":0.67,"resetsAt":1795129200,"status":"allowed"}}}}"#,
+        r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":9000}}},"parent_tool_use_id":null}"#,
+        r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.2,"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":9000,"output_tokens":10},"structured_output":{"outcome":{"observations":["Waiting."]}}}"#,
+        r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9100}}},"parent_tool_use_id":null}"#,
+        r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.5,"usage":{"input_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9100,"output_tokens":20},"structured_output":{"outcome":{"observations":["The task reads two ways."]}}}"#,
+    ];
+
+    /// The stand-in program of the fork tests in this directory: it keeps its arguments, where it ran and what it found
+    /// there, the token and the directory it was given, and what it was sent on its input, and prints `stream`.
+    fn write_program(data: &Path, stream: &[&str]) -> PathBuf {
         let program = data.join("program.sh");
-        let stream = [
-            r#"{"type":"system","subtype":"init","claude_code_version":"9.9.9"}"#,
-            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"seven_day":{"utilization":0.67,"resetsAt":1795129200,"status":"allowed"}}}}"#,
-            r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":9000}}},"parent_tool_use_id":null}"#,
-            r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.5,"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":9000,"output_tokens":20},"structured_output":{"outcome":{"observations":["The task reads two ways."]}}}"#,
-        ];
         let printed: String = stream.iter().map(|line| format!("printf '%s\\n' '{line}'\n")).collect();
         let script = format!(
             "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}/args'\npwd > '{0}/cwd'\nls > '{0}/listed'\n\
              printf '%s' \"${{CLAUDE_CODE_OAUTH_TOKEN:-none}}\" > '{0}/token'\n\
-             printf '%s' \"$CLAUDE_CONFIG_DIR\" > '{0}/directory'\ncat > /dev/null\n{printed}",
+             printf '%s' \"$CLAUDE_CONFIG_DIR\" > '{0}/directory'\ncat > '{0}/input'\n{printed}",
             data.display()
         );
         std::fs::write(&program, script).expect("written");
         std::fs::set_permissions(&program, std::os::unix::fs::PermissionsExt::from_mode(0o755)).expect("made runnable");
+        program
+    }
+
+    /// The carrier a fork of work 3's first round of run 7 is asked of, its data in this directory, and that fork, of
+    /// the work as [`ran_once`] keeps it: the program a stand-in ([`write_program`]) that prints [`FORK_STREAM`].
+    /// The engineer's line's first session began as kept, the work's worktree is there, its project's repository
+    /// beside, and the time now is ten thousand seconds in; the cache keeps a session an hour after its last call. The
+    /// accounts `work` and `home` are added, and `work` is in use.
+    fn forking(data: &Path) -> (Agents, git::tests::Repo, Fork) {
+        let program = write_program(data, &FORK_STREAM);
         let mut settings = Settings::read(include_str!("../install.sample.toml")).expect("the sample reads");
         settings.agents.command = program.display().to_string();
         let repo = git::tests::Repo::new("true");
@@ -2685,7 +2716,8 @@ mod tests {
             ..fork.clone()
         };
         let refused = agents.inner.fork(&none).await.expect_err("no account is in use");
-        assert_eq!(refused, "No account is in use: choose one on the Settings view.");
+        assert_eq!(refused.why, "No account is in use: choose one on the Settings view.");
+        assert_eq!(refused.spent, None, "nothing was run, and nothing cost");
         assert!(!data.join("token").exists(), "nothing was run");
     }
 
@@ -2701,7 +2733,30 @@ mod tests {
             serde_json::from_str(forked.answer.as_deref().expect("a return")).expect("JSON");
         assert_eq!(answer["outcome"]["observations"][0], "The task reads two ways.");
         assert_eq!(forked.read, Some(9000));
-        assert_eq!(forked.usd_micros, 500_000);
+        assert_eq!(forked.spent.usd_micros, 500_000);
+        // It was sent two messages, the first the same for every fork and the second its question, and it took the
+        // tokens of both.
+        let input = std::fs::read_to_string(data.join("input")).expect("what it was sent");
+        let said: Vec<String> = (input.lines())
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("a message"))
+            .map(|line| {
+                line["message"]["content"][0]["text"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string()
+            })
+            .collect();
+        let first = &agents.inner.projects["example"].beside.cost.fork.first;
+        assert!(!first.is_empty(), "the flow's words give the first message");
+        assert_eq!(said, [first.clone(), fork.question.clone()]);
+        assert_eq!(
+            (
+                forked.spent.input_tokens,
+                forked.spent.cached_tokens,
+                forked.spent.output_tokens
+            ),
+            (100 + 20, 9000 + 9100, 10 + 20)
+        );
         // Its round ended at a thousand seconds: the cache let the session go 5,400 seconds ago.
         assert_eq!(forked.expired, Some(90));
         assert!(std::path::Path::new(&forked.kept).is_file(), "{}", forked.kept);
@@ -2763,7 +2818,7 @@ mod tests {
             ..fork.clone()
         };
         let forked = agents.inner.fork(&again).await.expect("asked again");
-        assert_eq!(forked.usd_micros, 350_000);
+        assert_eq!(forked.spent.usd_micros, 350_000);
         assert_eq!(forked.held, Some(10_000));
         assert_eq!(forked.expired, Some(6));
         assert!(forked.later.is_empty());
@@ -2771,7 +2826,7 @@ mod tests {
         // A work that has not ended, its worktree gone, is not forked in a directory made for it.
         std::fs::remove_dir_all(&place.dir).expect("removed");
         let refused = agents.inner.fork(&fork).await.expect_err("refused");
-        assert_eq!(refused, "Work 3 has not ended, and its worktree is not there.");
+        assert_eq!(refused.why, "Work 3 has not ended, and its worktree is not there.");
         assert!(!place.dir.exists());
         // A work that has ended, its worktree gone, is forked in a checkout of its kept branch at the worktree's place,
         // taken away after; the branch stays.
@@ -2802,6 +2857,71 @@ mod tests {
         );
         agents.inner.fork(&ended).await.expect("asked in what was left");
         assert!(!place.dir.exists());
+    }
+
+    /// A call of the model's, as the stand-in program's stream says it of the fork's first message and of its question.
+    const FIRST_CALL: &str = r#"{"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":9000,"output_tokens":10}},"parent_tool_use_id":null}"#;
+    const SECOND_CALL: &str = r#"{"type":"assistant","message":{"id":"m2","model":"claude-sonnet-5-5","usage":{"input_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9100,"output_tokens":20}},"parent_tool_use_id":null}"#;
+
+    // A fork whose program ended with the first message answered and the question not is no answer, which the first
+    // message's return is not taken for, and it says what the call it made cost, for the work to keep. The stand-in
+    // program, one fork: a few tens of milliseconds.
+    #[tokio::test]
+    async fn a_fork_whose_program_ended_one_message_is_not_answered_and_gives_what_it_cost() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let data = std::path::absolute(dir.path()).expect("absolute");
+        let (agents, _repo, fork) = forking(&data);
+        write_program(&data, &[FORK_STREAM[0], FIRST_CALL, FORK_STREAM[3]]);
+        let failed = agents
+            .inner
+            .fork(&fork)
+            .await
+            .expect_err("the question was not answered");
+        assert_eq!(
+            failed.why,
+            "The fork's question was not answered: its program ended 1 of the fork's 2 messages."
+        );
+        let spent = failed.spent.expect("what its call cost");
+        assert_eq!(
+            (spent.input_tokens, spent.cached_tokens, spent.output_tokens),
+            (100, 9000, 10)
+        );
+        assert!(spent.usd_micros > 0);
+        assert!(failed.to_string().contains(" It cost $"), "{failed}");
+    }
+
+    // A fork that ran and made no return says what it cost: the program's total less what the session cost before,
+    // and the tokens of both messages. One fork of a stand-in program: a few tens of milliseconds.
+    #[tokio::test]
+    async fn a_fork_that_ran_and_gave_no_answer_gives_what_it_cost() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let data = std::path::absolute(dir.path()).expect("absolute");
+        let (agents, _repo, fork) = forking(&data);
+        let error = r#"{"type":"result","subtype":"error_during_execution","is_error":true,"total_cost_usd":0.4,"usage":{"input_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9100,"output_tokens":20}}"#;
+        write_program(
+            &data,
+            &[
+                FORK_STREAM[0],
+                FIRST_CALL,
+                FORK_STREAM[3],
+                FORK_STREAM[4],
+                SECOND_CALL,
+                error,
+            ],
+        );
+        let failed = agents.inner.fork(&fork).await.expect_err("no answer");
+        assert!(failed.why.starts_with("The fork wrote no answer: "), "{}", failed.why);
+        assert_eq!(
+            failed.spent,
+            Some(Spent {
+                usd_micros: 400_000,
+                input_tokens: 120,
+                cached_tokens: 18_100,
+                output_tokens: 30,
+                context_tokens: None,
+                compactions: 0,
+            })
+        );
     }
 
     #[tokio::test]
@@ -2904,7 +3024,7 @@ mod tests {
         assert_eq!(forked.held, Some(4_000));
         assert_eq!(forked.round, (RunId(7), 1));
         assert_eq!(forked.later, [(RunId(8), 1)]);
-        assert_eq!(forked.usd_micros, 180_000);
+        assert_eq!(forked.spent.usd_micros, 180_000);
         // The first ping, at two thousand seconds, read what the round left from the cache, and the cache kept it an
         // hour after; the second read the first's.
         assert_eq!(forked.expired, Some(73));
@@ -2932,10 +3052,17 @@ mod tests {
         for why in [Why::Compacted, Why::Lost] {
             let mut reopened_after = work.clone();
             reopened_after.sessions.push(reopened(11, why));
-            refused.push(agents.inner.fork(&asked(&reopened_after)).await.expect_err("refused"));
+            refused.push(
+                agents
+                    .inner
+                    .fork(&asked(&reopened_after))
+                    .await
+                    .expect_err("refused")
+                    .why,
+            );
         }
         std::fs::write(kept::stream_at(&base, 2), "{\"type\":\"result\"}\n").expect("named nothing");
-        refused.push(agents.inner.fork(&asked(&work)).await.expect_err("refused"));
+        refused.push(agents.inner.fork(&asked(&work)).await.expect_err("refused").why);
         assert_eq!(
             refused,
             [
@@ -2949,7 +3076,7 @@ mod tests {
         );
         std::fs::remove_file(kept::stream_at(&base, 2)).expect("removed");
         std::fs::create_dir(kept::stream_at(&base, 2)).expect("made unreadable");
-        let unreadable = agents.inner.fork(&asked(&work)).await.expect_err("refused");
+        let unreadable = agents.inner.fork(&asked(&work)).await.expect_err("refused").why;
         assert!(
             unreadable.starts_with("The round's stream 7-1.stream.2.jsonl cannot be read: "),
             "{unreadable}"
@@ -3098,7 +3225,7 @@ mod tests {
         let _round = own.lock().await;
         let (why, _) = (agents.inner.ping(&ping("engineer"), &mut None).await).expect_err("a ping beside its round");
         assert!(why.contains("under way"), "{why}");
-        let refused = agents.inner.fork(&fork).await.expect_err("a fork beside its round");
+        let refused = agents.inner.fork(&fork).await.expect_err("a fork beside its round").why;
         assert!(refused.contains("line engineer"), "{refused}");
         assert!(refused.contains("under way"), "{refused}");
     }

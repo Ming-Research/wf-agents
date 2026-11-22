@@ -56,7 +56,7 @@ pub struct System {
     pub now: u64,
     /// When the span begins: its first week; none for all time.
     pub from: Option<u64>,
-    /// What every round that ended in the span took, and every keep-warm ping: `rounds` counts the rounds alone.
+    /// What every round that ended in the span took, and every keep-warm ping and fork: `rounds` counts the rounds alone.
     pub spent: Spent,
     /// What the keep-warm pings that ended in the span took, each counted as a round.
     #[serde(default)]
@@ -96,7 +96,7 @@ pub struct System {
 pub struct Week {
     /// When it begins, as the page gave it.
     pub start: u64,
-    /// What its rounds and its keep-warm pings took: `rounds` counts the rounds alone.
+    /// What its rounds, its keep-warm pings and its forks took: `rounds` counts the rounds alone.
     pub spent: Spent,
     /// What the keep-warm pings that ended in it took, each counted as a round.
     #[serde(default)]
@@ -369,27 +369,18 @@ impl System {
                     week.added += 1;
                 }
             }
-            let pinged = crate::works::pinged(kept.work, &within);
-            system.pinged = system.pinged.with(pinged);
-            system.spent = system.spent.with(pinged.as_no_round());
-            for ping in &kept.work.pinged {
-                let Some(at) = kept.work.time_of(ping.at).map(|at| at.0).filter(|at| within(*at)) else {
-                    continue;
-                };
+            let beside = crate::works::spent_beside_rounds(kept.work, &within);
+            system.pinged = system.pinged.with(beside.pinged);
+            system.spent = system.spent.with(beside.all().as_no_round());
+            for (at, kind, one) in crate::works::beside_rounds(kept.work, &within) {
                 if let Some(week) = week_of(&mut counted, at) {
-                    let one = Spent {
-                        usd_micros: ping.spent.usd_micros,
-                        input_tokens: ping.spent.input_tokens,
-                        cached_tokens: ping.spent.cached_tokens,
-                        output_tokens: ping.spent.output_tokens,
-                        working_ms: 0,
-                        rounds: 1,
-                    };
-                    week.pinged = week.pinged.with(one);
+                    if kind == work::BesideKind::Ping {
+                        week.pinged = week.pinged.with(one);
+                    }
                     week.spent = week.spent.with(one.as_no_round());
                 }
             }
-            let mut of_work = pinged.as_no_round();
+            let mut of_work = beside.all().as_no_round();
             for run in &runs {
                 let (number, cell) = (kept.head.number, &run.cell);
                 for call in &run.calls {
@@ -511,7 +502,7 @@ impl System {
                     }
                 }
             }
-            if of_work.rounds > 0 || pinged.rounds > 0 {
+            if of_work.rounds > 0 || beside.all().rounds > 0 {
                 system.by_work.push(WorkSpent {
                     work,
                     item,
@@ -525,8 +516,11 @@ impl System {
                         item,
                         at,
                         from: runs.iter().flat_map(|run| &run.rounds).map(|round| round.began).min(),
-                        spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
-                            .with(crate::works::pinged(kept.work, &|_| true).as_no_round()),
+                        spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent))).with(
+                            crate::works::spent_beside_rounds(kept.work, &|_| true)
+                                .all()
+                                .as_no_round(),
+                        ),
                     });
                     if let Some(week) = week_of(&mut counted, at) {
                         week.merged += 1;

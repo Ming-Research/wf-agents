@@ -193,6 +193,7 @@ pub struct Cost {
     pub program: ProgramWords,
     pub check: CheckWords,
     pub ping: PingWords,
+    pub fork: ForkWords,
     pub guard: GuardWords,
     pub work: WorkWords,
 }
@@ -230,6 +231,14 @@ pub struct PingWords {
     pub no_round: String,
     pub no_system: String,
     pub stopped: String,
+}
+
+/// What a fork of a round's session is sent before its question.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForkWords {
+    /// The whole message it is sent first.
+    pub first: String,
 }
 
 /// Where a line the run guard judges by comes from, by the scope of its history.

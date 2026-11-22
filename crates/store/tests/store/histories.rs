@@ -235,7 +235,18 @@ impl History {
                     wrote("checks", Outsider::Outside, true, value)
                 }
             }
-            42..=47 => {
+            46..=47 => {
+                // A fork of a round's session ended: of a round that began, where one has.
+                let rounds = &self.work.records.rounds;
+                let run = (rounds.get(self.rng.below(rounds.len().max(1)))).map_or(RunId(1), |r| r.run);
+                let began = rounds.iter().filter(|r| r.run == run).count();
+                Event::Forked {
+                    run,
+                    round: 1 + self.rng.below(began.max(1)),
+                    spent: self.spent(run),
+                }
+            }
+            42..=45 => {
                 // A keep-warm ping of a line's session ended, or failed.
                 let failed = self.rng.chance(30).then(|| "the network".to_string());
                 Event::Pinged {
