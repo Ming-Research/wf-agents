@@ -89,7 +89,7 @@ pub fn kept(
         return Vec::new();
     };
     let decision = decide(&flow.flow, &work.records);
-    if matches!(decision, Decision::Ended(_) | Decision::Fault(_)) || over_budget(work, warm) {
+    if matches!(decision, Decision::Fault(_)) || over_budget(work, warm) {
         return Vec::new();
     }
     let back = coming_back(flow, work, &decision);
