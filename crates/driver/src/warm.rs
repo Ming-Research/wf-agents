@@ -91,7 +91,6 @@ pub fn kept(
     };
     let decision = decide(&flow.flow, &work.records);
     if matches!(decision, Decision::Ended(_) | Decision::Fault(_))
-        || work.records.cancelled().is_some()
         || over_budget(work, warm)
     {
         return Vec::new();
