@@ -1,0 +1,6 @@
+# The builds of the page and of the flows into the program (crates/web/build.rs and crates/wf-agents/build.rs) watch
+# this value, which is the path of the checkout they are built in. Cargo judges what it has built by the times files
+# were changed, and checkouts that share a build directory share what it holds: a program built in one checkout would
+# otherwise carry the page and the flows of the one built in before it.
+[env]
+WF_CHECKOUT = { value = ".", relative = true }

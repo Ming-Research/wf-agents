@@ -1,6 +1,8 @@
 //! `wf-agents run` starting: what keeps it from starting, and going on from the store when started again.
 
-use std::net::{Ipv4Addr, TcpListener};
+use std::io::{BufRead, Read, Write};
+use std::net::{Ipv4Addr, TcpListener, TcpStream};
+use std::path::PathBuf;
 
 use crate::{Engine, Place, SCRIPT, plain, plain_line, run, run_on, run_plain_on, trial};
 
@@ -95,6 +97,43 @@ fn a_directory_that_holds_a_store_is_refused_new_and_nothing_is_made_in_it() {
         0,
         "the store's file is left as it was"
     );
+}
+
+#[test]
+fn a_flow_the_program_does_not_carry_keeps_the_engine_from_starting_and_changes_nothing() {
+    let place = Place::new(SCRIPT);
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_wf-agents"))
+        .arg("run")
+        .arg("--data")
+        .arg(place.data())
+        .args(["--program-flow", "nowhere", "--port", "0"])
+        .arg("--script")
+        .arg(place.script())
+        .output()
+        .expect("the command runs");
+    assert!(!out.status.success());
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        said.starts_with("no flow nowhere is carried by this program, which carries "),
+        "{said}"
+    );
+    assert!(out.stdout.is_empty());
+    assert!(
+        !place.data().join("flows").exists() && !place.data().join("flows.new").exists(),
+        "the flows' directory was made"
+    );
+}
+
+#[test]
+fn flows_of_directories_and_the_programs_own_are_not_given_together() {
+    let place = Place::new(SCRIPT);
+    let out = run(&place.data(), &place.script())
+        .args(["--program-flow", "anything"])
+        .output()
+        .expect("the command runs");
+    assert!(!out.status.success());
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains("cannot be used with"), "{said}");
 }
 
 #[test]
@@ -271,4 +310,124 @@ fn let_go_takes_a_cell_or_a_call_and_neither_both_nor_none() {
         let said = String::from_utf8_lossy(&out.stderr);
         assert!(said.contains("Usage:") && said.contains("let-go"), "{args:?}: {said}");
     }
+}
+
+/// The names of the flows the repository defines: each directory of `flow/` that holds a flow's file, in order.
+fn defined_flows() -> Vec<String> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let mut names: Vec<String> = std::fs::read_dir(&root)
+        .expect("flow/ is read")
+        .map(|entry| entry.expect("an entry").path())
+        .filter(|path| path.join("flow.toml").is_file())
+        .map(|path| path.file_name().expect("a name").to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// What `GET path` on the engine's port answers: the JSON of its body.
+fn get_json(port: u16, path: &str) -> serde_json::Value {
+    let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).expect("the engine is reached");
+    write!(stream, "GET {path} HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n\r\n").expect("the request is sent");
+    let mut answer = String::new();
+    stream.read_to_string(&mut answer).expect("the answer is read");
+    let (head, body) = answer.split_once("\r\n\r\n").expect("an answer with a body");
+    assert!(
+        head.starts_with("HTTP/1.1 200") || head.starts_with("HTTP/1.0 200"),
+        "{head}"
+    );
+    serde_json::from_str(body).expect("the body is JSON")
+}
+
+#[test]
+fn the_engine_runs_the_flows_the_program_carries_in_the_order_named_and_says_its_version() {
+    // Reference: the repository's `flow/` read from the disk by the test itself, and `wf-agents --version`, which says
+    // the same version as the engine's start line.
+    let place = Place::new("[took]\nms = 20\n");
+    let mut flows = defined_flows();
+    assert!(flows.len() >= 2, "the repository defines at least two flows: {flows:?}");
+    // The last by name first, so that the flow shown is not the first the directory lists.
+    flows.reverse();
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_wf-agents"));
+    // The place's data directory holds no store yet, which `--new` makes.
+    command.arg("run").arg("--data").arg(place.data()).arg("--new");
+    for name in &flows {
+        command.args(["--program-flow", name]);
+    }
+    command.arg("--script").arg(place.script()).args(["--port", "0"]);
+    let mut engine = Engine::start_with(command);
+    let said_version = {
+        let mut line = String::new();
+        engine._output.read_line(&mut line).expect("the engine's second line");
+        line
+    };
+    let version = std::process::Command::new(env!("CARGO_BIN_EXE_wf-agents"))
+        .arg("--version")
+        .output()
+        .expect("the command runs");
+    assert!(version.status.success());
+    let version = String::from_utf8(version.stdout).unwrap();
+    assert!(
+        version.starts_with(&format!("wf-agents {} (", env!("CARGO_PKG_VERSION"))) && version.trim_end().ends_with(')'),
+        "{version:?}"
+    );
+    assert_eq!(
+        said_version, version,
+        "the start line and `--version` say different things"
+    );
+    // The files the engine runs on are the program's, taken out of the repository's `flow/` of the build.
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    for name in &flows {
+        assert_eq!(
+            std::fs::read(place.data().join("flows").join(name).join("flow.toml"))
+                .expect("the flow's file is taken out"),
+            std::fs::read(root.join(name).join("flow.toml")).unwrap(),
+            "{name}"
+        );
+    }
+    assert_eq!(
+        std::fs::read(place.data().join("flows").join(flow::agents::RULES_FILE))
+            .expect("what is said to every agent is taken out beside the flows"),
+        std::fs::read(root.join(flow::agents::RULES_FILE)).unwrap()
+    );
+    // The flow page shows the first named.
+    let shown = get_json(engine.port, "/api/v1/flow");
+    assert_eq!(shown["state"], "compiled", "{shown}");
+    assert_eq!(shown["flow"]["name"], flows[0].as_str(), "{shown}");
+    // Every flow named runs: an item is added on each.
+    for name in &flows {
+        let said = engine.says(&[
+            "add",
+            "--title",
+            "Try it",
+            "--flow",
+            name,
+            "--project",
+            "script",
+            "--write",
+            "background=What it is to try.",
+        ]);
+        assert!(said.starts_with("Added item"), "{name}: {said}");
+    }
+    drop(engine);
+}
+
+#[test]
+fn the_version_the_program_says_is_its_own_and_there_is_no_version_command() {
+    let said = std::process::Command::new(env!("CARGO_BIN_EXE_wf-agents"))
+        .arg("--version")
+        .output()
+        .expect("the command runs");
+    assert!(said.status.success());
+    let said = String::from_utf8(said.stdout).unwrap();
+    let inner = said
+        .strip_prefix(&format!("wf-agents {} (", env!("CARGO_PKG_VERSION")))
+        .and_then(|rest| rest.strip_suffix(")\n"))
+        .unwrap_or_else(|| panic!("{said:?} is not `wf-agents <version> (<commit>)`"));
+    assert!(!inner.is_empty() && !inner.contains('\n'), "{said:?}");
+    let other = std::process::Command::new(env!("CARGO_BIN_EXE_wf-agents"))
+        .arg("version")
+        .output()
+        .expect("the command runs");
+    assert!(!other.status.success(), "a `version` command exists");
 }

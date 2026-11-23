@@ -11,7 +11,10 @@ wf-agents runs coding agents through a defined flow.
 - `db/`: the engine's database schema (`schema.sql`) and its migrations; a change of the schema adds a migration to
   `migrations/`, named by the minute it was written and what it does.
 - `crates/`: the engine's Rust crates. `crates/wf-agents` is the `wf-agents` command; `wf-agents flow page <dir>` serves
-  the owner's flow page for the definition in a directory, and `wf-agents run` runs the engine with the owner's pages.
+  the owner's flow page for the definition in a directory, and `wf-agents run` runs the engine with the owner's pages,
+  on the flows in the directories `--flow` gives, or, given `--program-flow <name>` for each, on the flows the program
+  carries, built in from the source it was built from. `wf-agents --version` says the commit it was built from, as the
+  build was given it in `WF_BUILD_COMMIT`.
   Its agents run with the `claude` command line and its acts with git, as the installation's settings say
   (`<data>/install.toml`, of which `crates/carry/install.sample.toml` is a sample: what is of one machine, such as the
   repositories, the tokens and the runners); what is a project's own (its files, tests, workflows, heavy and lock
@@ -44,4 +47,5 @@ wf-agents runs coding agents through a defined flow.
   `wf-agents system` says how the system ran over the last days: what went past the lines of its history, and what is
   under way against its own.
 - `client/`: the owner's page, which the `wf-agents` binary carries: build it with `npm ci` and `npm run build` in
-  `client/` before building the Rust.
+  `client/` before building the Rust. `npm run build` leaves `dist/source.sha256`, the files it read and their hashes,
+  and the Rust build refuses a page that is not made from the sources it finds.

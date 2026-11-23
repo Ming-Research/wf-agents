@@ -19,6 +19,8 @@ use flow::{Compiled, Has, Source};
 use service::{Carriers, Levels, Projects, Script, Scripted, Service, SystemClock};
 use store::Store;
 
+use crate::carried;
+
 /// The file in the data directory whose lock says that an engine runs on it.
 const HELD: &str = "engine.lock";
 
@@ -29,6 +31,15 @@ const HELD: &str = "engine.lock";
 /// source that nothing has written yet stays unwritten, and a cell that reads one starts from no version of it.
 fn has(dir: &Path) -> Has {
     crate::has(dir)
+}
+
+/// The flows the engine runs.
+pub enum Flows {
+    /// The flows in these directories, the first being the one the flow page shows.
+    Directories(Vec<PathBuf>),
+    /// These flows of the ones the program carries, by name, the first being the one the flow page shows: the engine
+    /// takes the files they are carried in out into the data directory as it starts.
+    Program(Vec<String>),
 }
 
 /// What carries the works out.
@@ -54,8 +65,26 @@ pub fn works_page(address: SocketAddr) -> String {
 
 /// Runs the engine on the data directory. `new` says that the directory is to get a store of its own: a directory that
 /// holds a store is run in as it is, and one that holds none is run in only with it, so that a directory that is no data
-/// directory is never made into one by being named.
-pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16, new: bool) -> ExitCode {
+/// directory is never made into one by being named. That is asked before anything is made in the directory, the hold
+/// and the program's flows included.
+pub fn run(data: &Path, flows: &Flows, with: With, port: u16, new: bool) -> ExitCode {
+    if let Some(why) = directory_refusal(data, new) {
+        eprintln!("{why}");
+        return ExitCode::FAILURE;
+    }
+    // The program's own flows are taken out only once the data directory is held, so that a second engine that is
+    // refused changes nothing of the files the first runs on.
+    let (mut held, dirs) = match flows {
+        Flows::Directories(dirs) => (None, dirs.clone()),
+        Flows::Program(names) => match take_program_flows(data, carried::FLOWS, names) {
+            Ok((held, dirs)) => (Some(held), dirs),
+            Err(why) => {
+                eprintln!("{why}");
+                return ExitCode::FAILURE;
+            }
+        },
+    };
+    let dirs = &dirs[..];
     // The flow page shows the first flow given.
     let Some(shown) = dirs.first() else {
         eprintln!("no flow is given: the engine runs on at least one");
@@ -68,16 +97,19 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16, new: bool) -> E
     };
     // The one project of a script's items, named before what carries the works out is read.
     let scripted = script_projects(&with);
-    let Some((flows, with)) = read(data, dirs, &with, new) else {
+    let Some((flows, with)) = read(dirs, &with) else {
         return ExitCode::FAILURE;
     };
     // Held until the process ends.
-    let _held = match hold(data) {
-        Ok(held) => held,
-        Err(why) => {
-            eprintln!("{why}");
-            return ExitCode::FAILURE;
-        }
+    let _held = match held.take() {
+        Some(held) => held,
+        None => match hold(data) {
+            Ok(held) => held,
+            Err(why) => {
+                eprintln!("{why}");
+                return ExitCode::FAILURE;
+            }
+        },
     };
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
@@ -223,6 +255,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16, new: bool) -> E
             None => router,
         };
         println!("The owner's pages are at {}", works_page(address));
+        println!("wf-agents {}", crate::VERSION);
         let held = web::works::Engine::of(service.driver()).paused.map(|paused| paused.by);
         if held == Some(web::works::Pauser::Engine) {
             println!(
@@ -404,6 +437,14 @@ fn script_levels() -> Levels {
     Levels::one("1", "The one level of an engine whose agents follow a script")
 }
 
+/// Holds the data directory, and only then takes the program's flows out into it: the files a running engine reads are
+/// never changed by one that is refused. Gives the hold and the directory of each flow named.
+fn take_program_flows(data: &Path, files: &[(&str, &[u8])], names: &[String]) -> Result<(File, Vec<PathBuf>), String> {
+    let held = hold(data)?;
+    let dirs = carried::take(data, files, names)?;
+    Ok((held, dirs))
+}
+
 /// Holds the data directory for as long as the process runs: an exclusive lock of the system's on a file in it, taken
 /// without waiting (`flock` where the system is Unix). The system lets go of it when the file is closed, which it is
 /// when the process ends however it ends, killed or failed as much as stopped; a file made to say an engine runs, and
@@ -423,9 +464,15 @@ pub(crate) fn hold(data: &Path) -> Result<File, String> {
     }
 }
 
-/// Why the directory cannot be run in, where it cannot: it holds a store and `--new` asks for one, or it holds none and
-/// `--new` is not given. Nothing is made in it either way.
-fn store_refusal(data: &Path, new: bool) -> Option<String> {
+/// Why the directory cannot be run in, where it cannot: it is no directory, it holds a store and `--new` asks for one,
+/// or it holds none and `--new` is not given. Nothing is made in it either way.
+fn directory_refusal(data: &Path, new: bool) -> Option<String> {
+    if !data.is_dir() {
+        return Some(format!(
+            "{}: no such directory: the data directory is made before the engine runs in it",
+            data.display()
+        ));
+    }
     let store = data.join(store::FILE);
     match (store.exists(), new) {
         (true, true) => Some(format!(
@@ -444,18 +491,8 @@ fn store_refusal(data: &Path, new: bool) -> Option<String> {
 /// The flows compiled and what carries the works out, checked against them; or none, having said everything wrong
 /// with them. A script is checked only against flows that all compiled, so that it is not told of a flow missing for
 /// that.
-fn read(data: &Path, dirs: &[PathBuf], with: &With, new: bool) -> Option<(Vec<Compiled>, Read)> {
+fn read(dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Read)> {
     let mut wrong = false;
-    if !data.is_dir() {
-        eprintln!(
-            "{}: no such directory: the data directory is made before the engine runs in it",
-            data.display()
-        );
-        wrong = true;
-    } else if let Some(why) = store_refusal(data, new) {
-        eprintln!("{why}");
-        wrong = true;
-    }
     let mut flows = Vec::new();
     let mut compiled_all = true;
     for dir in dirs {
@@ -625,6 +662,32 @@ fn read_script(script: &Path, flows: &[Compiled], compiled_all: bool, wrong: &mu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_second_engine_leaves_the_flows_of_the_first_as_they_are() {
+        let data = tempfile::tempdir().unwrap();
+        let flows = data.path().join("flows");
+        std::fs::create_dir_all(flows.join("alpha")).unwrap();
+        std::fs::write(flows.join("alpha/kept.toml"), "kept").unwrap();
+        let files: [(&str, &[u8]); 1] = [("alpha/flow.toml", b"new")];
+        let names = ["alpha".to_string()];
+        let first = hold(data.path()).unwrap();
+        let said = take_program_flows(data.path(), &files, &names).unwrap_err();
+        assert!(said.contains("an engine already runs on this data directory"), "{said}");
+        assert!(
+            flows.join("alpha/kept.toml").exists(),
+            "a start that was refused took the flows out all the same"
+        );
+        assert_eq!(std::fs::read_to_string(flows.join("alpha/kept.toml")).unwrap(), "kept");
+        assert!(!flows.join("alpha/flow.toml").exists());
+        assert!(!data.path().join("flows.new").exists());
+        // Once the first has gone, the same call takes the files out in place of the old.
+        drop(first);
+        let (_held, dirs) = take_program_flows(data.path(), &files, &names).unwrap();
+        assert_eq!(dirs, [flows.join("alpha")]);
+        assert_eq!(std::fs::read_to_string(flows.join("alpha/flow.toml")).unwrap(), "new");
+        assert!(!flows.join("alpha/kept.toml").exists());
+    }
 
     #[test]
     fn the_server_of_the_pages_runs_while_the_loop_holds_its_thread() {

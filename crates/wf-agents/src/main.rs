@@ -2,12 +2,14 @@
 //!
 //! - `reference`: `wf-agents help`, the whole reference of the command line.
 //! - `running`: `wf-agents run`, the engine as a process.
+//! - `carried`: the flows the program carries, which `wf-agents run` takes out to run.
 //! - `repair`: `wf-agents repair-costs`, the one-off correction of costs recorded before a round's cost was what its
 //!   results say it spent.
 //! - `talk`: the commands that talk to a running engine.
 //! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
 //! - `names`, a test: no source names a cell, a line, a group or a block of a flow.
 
+mod carried;
 #[cfg(test)]
 mod names;
 mod reference;
@@ -29,9 +31,13 @@ use crate::talk::Asked;
 /// The port the engine serves the owner's pages on, on the loopback address, unless another is given.
 const PORT: u16 = 7470;
 
+/// What `wf-agents --version` says: the program's version and the commit it was built from, as the installation gave it
+/// to the build, or `unknown`.
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("WF_COMMIT"), ")");
+
 /// Runs coding agents through a defined flow.
 #[derive(Parser)]
-#[command(version, disable_help_subcommand = true)]
+#[command(version = VERSION, disable_help_subcommand = true)]
 struct Cli {
     // Required: with none, clap fails with the usage and the names of the subcommands.
     #[command(subcommand)]
@@ -58,9 +64,19 @@ enum Command {
         /// The data directory, which holds the store.
         #[arg(long)]
         data: PathBuf,
-        /// The directory of a flow's definition; given once for each flow.
-        #[arg(long = "flow", required = true)]
+        /// The directory of a flow's definition; given once for each flow. The first is the one the flow page shows.
+        /// Where the program's own flows are run, `--program-flow` is given instead.
+        #[arg(
+            long = "flow",
+            required_unless_present = "program_flows",
+            conflicts_with = "program_flows"
+        )]
         flows: Vec<PathBuf>,
+        /// The name of a flow the program carries, which it takes out into the data directory's `flows/` as it starts
+        /// and runs; given once for each flow, the first being the one the flow page shows. The flows are those of the
+        /// source the program was built from.
+        #[arg(long = "program-flow", value_name = "NAME")]
+        program_flows: Vec<String>,
         /// A script the agents, the engine's acts and the tools follow, in place of the real ones.
         #[arg(long, conflicts_with = "settings")]
         script: Option<PathBuf>,
@@ -653,6 +669,7 @@ fn main() -> ExitCode {
         Command::Run {
             data,
             flows,
+            program_flows,
             script,
             settings,
             port,
@@ -661,6 +678,11 @@ fn main() -> ExitCode {
             let carriers = match script {
                 Some(script) => running::With::Script(script),
                 None => running::With::Settings(settings.unwrap_or_else(|| data.join(carry::settings::FILE))),
+            };
+            let flows = if program_flows.is_empty() {
+                running::Flows::Directories(flows)
+            } else {
+                running::Flows::Program(program_flows)
             };
             running::run(&data, &flows, carriers, port, new)
         }
@@ -1247,4 +1269,22 @@ fn page(dir: PathBuf, port: u16) -> ExitCode {
             }
         }
     })
+}
+
+// The build script's own code, which the tests of the program hold to what it should do: it is not part of the program.
+#[cfg(test)]
+#[path = "../build_support/commit.rs"]
+mod commit;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn the_version_says_the_commit_the_build_was_given_or_unknown() {
+        let commit = commit::commit(option_env!("WF_BUILD_COMMIT"));
+        assert_eq!(VERSION, format!("{} ({commit})", env!("CARGO_PKG_VERSION")));
+        assert_eq!(Cli::command().get_version(), Some(VERSION));
+    }
 }
