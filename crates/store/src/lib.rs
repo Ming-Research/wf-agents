@@ -49,7 +49,7 @@ use work::{Time, Work};
 
 pub use backups::{Backups, Failure, Kept, Records};
 pub use flows::{KeptFlow, KeptOutline};
-pub use items::{Change, First, Item, ItemChange, ItemNumber, WorkHead, WorkNumber};
+pub use items::{Change, Continues, First, Item, ItemChange, ItemNumber, WorkHead, WorkNumber};
 pub use observations::{Observation, Observations};
 
 /// The name of the store's file in the data directory.
@@ -60,7 +60,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 27;
+pub const SCHEMA_VERSION: u32 = 28;
 
 /// A step of the store after a migration's SQL.
 type Step = fn(&Connection) -> Result<(), Fault>;
@@ -154,10 +154,13 @@ const MIGRATIONS: &[Migration] = &[
         "../../../db/migrations/202611221600-record-who-took-an-account-and-keep-the-switch-that-moves-on.sql"
     )),
     Migration::sql(include_str!(
-        "../../../db/migrations/202611221726-keep-what-the-programs-run-for-works-left-running.sql"
+        "../../../db/migrations/202611231000-let-an-item-continue-a-branch-or-pull-request.sql"
     )),
     Migration::sql(include_str!(
-        "../../../db/migrations/202611221727-keep-the-engine-s-stops.sql"
+        "../../../db/migrations/202611231230-keep-what-the-programs-run-for-works-left-running.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231231-keep-the-engine-s-stops.sql"
     )),
 ];
 
