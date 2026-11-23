@@ -190,7 +190,7 @@ async fn a_check_that_comes_back_after_another_account_was_taken_is_kept_under_i
     }
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
-    trial.step().await.unwrap();
+    trial.to_the_owners_call(work).await;
     trial.answer(work, "Yes, by name.");
     trial.step().await.unwrap();
     assert!(trial.service.driver().outage().is_some(), "the wait stands");
@@ -221,7 +221,7 @@ async fn a_round_that_meets_the_usage_limit_says_the_accounts_changed() {
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     while trial.owners_call(work).is_none() {
-        assert!(trial.step().await.is_some(), "the plan asks the owner");
+        assert!(trial.step().await.is_some(), "the plan calls the owner");
     }
     trial.answer(work, "Yes, by name.");
     let mut changes = trial.service.handle().changes();

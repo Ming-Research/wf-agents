@@ -70,8 +70,8 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     assert_eq!(kinds, [true; 3], "a kind of call is missing: {calls:?}");
     assert!(r.called.iter().any(|c| c.on.is_none()), "no call the engine makes");
     assert!(
-        r.called.iter().any(|c| c.on == Some(Who::Architect)),
-        "no call on the architect"
+        r.called.iter().any(|c| c.on == Some(Who::Owner)),
+        "no call on the owner"
     );
     assert_eq!(r.done.len(), w.results.len());
     assert!(w.results.values().any(|v| v == "withdrawn"), "no call withdrawn");

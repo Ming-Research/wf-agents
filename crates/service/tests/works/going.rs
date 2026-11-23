@@ -19,8 +19,8 @@ async fn a_work_goes_through_its_cells_round_the_objection_to_the_merge() {
     trial.act(work, Act::Resume).unwrap();
     assert!(matches!(trial.decision(work), Decision::Busy { cell, .. } if cell.as_str() == "plan"));
 
-    // The plan asks the owner, and waits for the answer.
-    trial.step().await.unwrap();
+    // The plan's first three rounds are sent back, and its run waits for the owner at its limit of returns.
+    trial.to_the_owners_call(work).await;
     let Decision::Wait { at, on } = trial.decision(work) else {
         panic!("the plan waits for the owner");
     };
@@ -46,17 +46,16 @@ async fn a_work_goes_through_its_cells_round_the_objection_to_the_merge() {
     let Decision::Wait { on, .. } = trial.decision(work) else {
         unreachable!()
     };
-    // The plan's first run, its call, its second run entered for the answer, the build's first run: the call is the
-    // fifth name.
+    // The plan's run, the owner's call at its limit, the build's first run: the call is the fourth name.
     assert_eq!(
         on,
         [Waited::Call {
-            call: CallId(5),
+            call: CallId(4),
             on: None
         }]
     );
     trial.step().await.unwrap();
-    assert_eq!(trial.work(work).results[&CallId(5)], "Every check passed.");
+    assert_eq!(trial.work(work).results[&CallId(4)], "Every check passed.");
 
     let end = trial.until(work, |d| matches!(d, Decision::Ended(_))).await;
     assert_eq!(end, Decision::Ended(End::Merged));

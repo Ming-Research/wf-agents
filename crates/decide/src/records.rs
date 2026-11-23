@@ -350,11 +350,10 @@ pub enum Outsider {
     Outside,
 }
 
-/// A person who can give what a work waits for.
+/// A person who can give what a work waits for: the owner, at a limit a cell reached.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Who {
     Owner,
-    Architect,
 }
 
 /// The owner let the cell go on after it reached its limit.

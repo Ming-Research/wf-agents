@@ -644,7 +644,8 @@ function long(start: number): Built {
   });
   h.round(deep, { minutes: 2, hands: [{ block: 'solution', content: prose('Solution', ['Dollars to the cent', 'Tokens in thousands']) }] });
   h.finish(deep);
-  // The implementation asks the owner a question and rests at it...
+  // The implementation asks the owner a question, as a work recorded before the engine stopped making them did, and
+  // rests at it...
   const first = h.start('implement');
   h.round(first, {
     minutes: 6,
@@ -741,26 +742,36 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   }
 
   {
-    // Waiting for the owner's answer to a question.
+    // A run at its limit of calls made.
     const h = new History(hours(5));
     h.wrote('request', 'owner', REQUEST_TEXT('List the works of every item, those that wait for the owner first.'));
     const run = h.start('plan');
     h.round(run, {
-      asks: [{ kind: 'question', who: 'owner', question: 'Should the list show the works of cancelled items, or leave them out?' }],
+      asks: [
+        { kind: 'tool', name: 'read', input: '{"block":"request"}', result: 'List the works of every item…' },
+        { kind: 'tool', name: 'read', input: '{"path":"client/src/works/WorkView.tsx"}', result: '// The works page…' },
+      ],
     });
-    const call = run.calls[0].call;
-    const asked: Wait = {
-      key: `call-${call}`,
-      why: 'Should the list show the works of cancelled items, or leave them out?',
-      ends: { kind: 'reply', call },
+    h.round(run, {
+      asks: [
+        { kind: 'tool', name: 'read', input: '{"path":"client/src/works/placing.ts"}', result: '// Where a work stands…' },
+        { kind: 'tool', name: 'read', input: '{"path":"client/src/works/words.ts"}', result: '// The words of the works page…' },
+      ],
+    });
+    const limit = { kind: 'atLimit' as const, limit: { of: 'calls' as const, made: 4 } };
+    const call = h.atLimit(run, limit);
+    const atLimit: Wait = {
+      key: 'limit',
+      why: "The cell's run made 4 calls, which is its limit.",
+      ends: { kind: 'goOn', call },
     };
     keep({
       page: h.page(
         43,
         143,
         'List every work',
-        { kind: 'waits', at: 'plan', on: [{ kind: 'call', call, who: 'owner', what: run.calls[0].what }] },
-        { waits: [asked] },
+        { kind: 'waits', at: 'plan', on: [{ kind: 'call', call, who: 'owner', what: limit }] },
+        { waits: [atLimit] },
       ),
       history: h,
     });
