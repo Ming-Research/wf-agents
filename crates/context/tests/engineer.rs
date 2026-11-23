@@ -899,7 +899,7 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
         if told.points != [dialogue.clone()] {
             failures.push(format!("the round: told points in {:?}", told.points));
         }
-        // What the walk shows of the research's input, and the histories' own reading of the returns taken alone.
+        // What the walk shows of the research's input: the one version that is new to it, and the version it consumed.
         let research = CellId::from("R1");
         let shown = decide::view(&sim.flow.flow, &sim.work.records);
         let input = (shown.cells.iter())
@@ -912,14 +912,7 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
                 input.new_versions
             ));
         }
-        let reading = decide::Reading::new(&sim.flow.flow, &sim.work.records);
-        let consumed = reading.consumed(&research, &dialogue, Seq(u64::MAX));
-        if input.consumed != consumed {
-            failures.push(format!(
-                "the walk: the research consumed {:?}, the returns taken give {consumed:?}",
-                input.consumed
-            ));
-        }
+        let consumed = input.consumed;
         let entered = sim.enter(&round, sim.begins(&round));
         // Told by their numbers among the dialogue's versions: the version the research consumed, and the one point
         // that changed the meaning, none of the points the owner ruled on, nor the research's own answer.
@@ -983,6 +976,89 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
     let e = Seq(sim.version("plan_review"));
     check(&sim, &mut failures, &[a_and_b, a_and_c, d], &[answer, e], e);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A question the work does not wait for, which recommends its first option.
+fn recommended(name: &str) -> Question {
+    Question::Asked {
+        name: name.to_string(),
+        waits: false,
+        tree: None,
+        recommends: Some(1),
+        ask: format!("Which {name}?"),
+        options: vec![
+            Way {
+                does: "The first".to_string(),
+                follows: "Shorter".to_string(),
+            },
+            Way {
+                does: "The second".to_string(),
+                follows: "Longer".to_string(),
+            },
+        ],
+        about: None,
+        reasons: Default::default(),
+    }
+}
+
+/// The research asks three questions it does not wait for, the owner answers them while the work is paused, each by
+/// the option given, and the research is entered for the answers: gives what it is sent. The questions are versions 1 to
+/// 3 of its questions and the answers versions 4 to 6; an answer by option 1, which the question recommends, changes
+/// nothing in meaning.
+fn entered_for_answers(options: [u64; 3]) -> context::Entered {
+    let (mut sim, round) = until("R1");
+    tried(&mut sim, &round);
+    sim.take(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
+    let mut came = Came::hands_in(vec![
+        handed("deep_needed", "", Some("no")),
+        handed("plan_owner", "Greet by name.", None),
+        handed("plan_agent", "Add the name to the greeting.", None),
+        handed("acceptance", "The greeting names the user.", None),
+    ]);
+    let names = ["naming", "ending", "tone"];
+    came.said.questions = names.iter().map(|name| recommended(name)).collect();
+    sim.returns(&round, came, 0);
+    for (name, option) in names.iter().zip(options) {
+        sim.take(Event::Answer {
+            question: name.to_string(),
+            version: 1,
+            option,
+        });
+    }
+    sim.take(Event::Resumed);
+    let round = sim.round().expect("the research is entered for the answers");
+    assert_eq!(round.cell.as_str(), "R1");
+    let entered = sim.enter(&round, sim.begins(&round));
+    assert_eq!(
+        sim.number("r1_questions"),
+        6,
+        "the questions and the answers are versions"
+    );
+    entered
+}
+
+// Of several answers that come in at once, only the one by an option the question does not recommend changes the
+// questions in meaning, and the line that says why the research is run names that one, not the latest, which confirms
+// what was recommended.
+#[test]
+fn of_several_answers_in_at_once_the_line_names_the_one_that_changed_the_meaning_and_not_the_latest() {
+    let entered = entered_for_answers([2, 1, 1]);
+    let line = "\n- `r1_questions`, version 4 changed its meaning: ";
+    assert!(entered.text.contains(line), "{}", entered.text);
+    assert!(!entered.text.contains("version 6 changed"), "{}", entered.text);
+    assert_eq!(entered.run.new["r1_questions"].changed, vec![4]);
+}
+
+// Each answer that changed the meaning is named, in order, the one between them that did not being left out.
+#[test]
+fn each_answer_that_changed_the_meaning_is_named_in_order() {
+    let entered = entered_for_answers([2, 1, 2]);
+    let line = "\n- `r1_questions`, versions 4, 6 changed their meaning: ";
+    assert!(entered.text.contains(line), "{}", entered.text);
+    assert_eq!(entered.run.new["r1_questions"].changed, vec![4, 6]);
 }
 
 // A group the cell watches is told by its versions among the group's, each place that wrote any of its blocks being

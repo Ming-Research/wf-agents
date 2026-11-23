@@ -60,13 +60,14 @@ fn a_block_with_a_version_is_new_to_a_cell_that_consumed_none() {
 #[test]
 fn of_several_versions_in_at_once_only_those_that_changed_the_meaning_are_new_to_the_cell() {
     let mut w = planned();
-    let first = w.person_writes("background");
+    w.written_outside("background", "spec");
+    let first = w.outside_writes("background");
     w.run("research", &[("plan", Matters)]);
-    let second = w.person_writes("background");
-    w.person_writes_not_mattering("background");
-    let fourth = w.person_writes("background");
-    w.person_writes_not_mattering("background");
-    let latest = w.person_writes_not_mattering("background");
+    let second = w.outside_writes("background");
+    w.outside_writes_not_mattering("background");
+    let fourth = w.outside_writes("background");
+    w.outside_writes_not_mattering("background");
+    let latest = w.outside_writes_not_mattering("background");
     let seen = input_of(&w, "research", "background");
     assert_eq!(seen.consumed, Some(first));
     assert_eq!(seen.current, Some(latest));
