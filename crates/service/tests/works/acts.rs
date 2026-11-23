@@ -135,4 +135,9 @@ async fn only_a_run_at_its_limit_is_let_go_on_by_its_call() {
     let ci = CallId(4);
     assert_eq!(trial.act(work, Act::GoOn { call: ci }), Err(Refusal::NotAtItsLimit(ci)));
     assert!(!trial.work(work).results.contains_key(&ci));
+    // A work there is none of is refused as every act on it is.
+    assert_eq!(
+        trial.act(WorkNumber(9), Act::GoOn { call: ci }),
+        Err(Refusal::Failed(Failed::NoSuchWork(WorkNumber(9))))
+    );
 }

@@ -1,7 +1,7 @@
 //! What needs whoever plans the work since a mark (`driver::attention`): a work that ended, one that waits on the owner,
-//! one that is stalled, and one that waits for items none of which is going on, each once from the mark after it came to stand so, since the
-//! time it did; never a work going on; the same answer for the same mark, a restart between or not; at most a number
-//! of lines, the rest coming again.
+//! one that is stalled, one that waits for items none of which is going on, and one the owner paused for items that
+//! have all ended, each once from the mark after it came to stand so, since the time it did; never a work going on; the
+//! same answer for the same mark, a restart between or not; at most a number of lines, the rest coming again.
 
 use driver::Asked;
 use driver::attention::{Attention, Heed, Idle, LINES, Line, Mark, Refused, Stuck};

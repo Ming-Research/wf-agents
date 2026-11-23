@@ -16,7 +16,7 @@ fn defined(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow").join(name)
 }
 
-/// `wf-agents run` on the engineer's flow and the deliver flow, on any free port.
+/// `wf-agents run` on the engineer's flow and the deliver flow, on any free port, making the data directory's store.
 fn run_both(place: &Place) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wf-agents"));
     command
@@ -30,6 +30,9 @@ fn run_both(place: &Place) -> Command {
         .arg("--script")
         .arg(place.script())
         .args(["--port", "0"]);
+    if !place.data().join("store.sqlite").exists() {
+        command.arg("--new");
+    }
     command
 }
 

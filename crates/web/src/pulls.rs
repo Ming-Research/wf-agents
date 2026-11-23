@@ -60,7 +60,7 @@ pub struct Unsaid {
 
 impl Pulls {
     /// What each project's host said, in the order given, with the work each pull request belongs to among these items.
-    pub fn of(items: &Items, said: Vec<(String, Result<Option<Vec<service::OpenPull>>, String>)>) -> Pulls {
+    pub fn of(items: &Items, said: Vec<(String, service::PullsSaid)>) -> Pulls {
         let mut pulls = Pulls {
             pulls: Vec::new(),
             failed: Vec::new(),

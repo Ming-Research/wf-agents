@@ -128,10 +128,7 @@ pub trait Rounds: Send + Sync {
     /// The pull requests open on the host of this project's repository, as the carrier that keeps the repository asks
     /// the host; none, as by default, where the host has no pull requests, as the local repository; or why the host
     /// could not say. It is called off the loop.
-    fn open_pulls(
-        &self,
-        project: &str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
+    fn open_pulls(&self, project: &str) -> Pin<Box<dyn Future<Output = PullsSaid> + Send + '_>> {
         let _ = project;
         Box::pin(async { Ok(None) })
     }
@@ -513,6 +510,10 @@ pub struct OpenPull {
     pub updated: u64,
 }
 
+/// What the host of a project's repository says of its open pull requests: them, none where the host has no pull
+/// requests, as the local repository, or why it could not say.
+pub type PullsSaid = Result<Option<Vec<OpenPull>>, String>;
+
 /// Each file a work changed, as [`Diffstat`] counts them, in the order of their paths; the commit where its branch left
 /// main and its latest head they are between; and whether what its worktree holds was counted, the worktree being
 /// there.
@@ -819,7 +820,7 @@ impl Carriers {
 
     /// The pull requests open on the host of this project's repository, as the carrier of the engine's acts asks the
     /// host.
-    pub async fn open_pulls(&self, project: &str) -> Result<Option<Vec<OpenPull>>, String> {
+    pub async fn open_pulls(&self, project: &str) -> PullsSaid {
         self.acts.open_pulls(project).await
     }
 }

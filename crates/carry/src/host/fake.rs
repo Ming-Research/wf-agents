@@ -24,8 +24,6 @@ pub(crate) struct Fake {
     titles: Mutex<Vec<String>>,
     /// What asked for each verdict and each run of the tests, in order.
     askings: Mutex<Vec<Asking>>,
-    /// What it says of its open pull requests.
-    open: Mutex<Result<Option<Vec<OpenPull>>, String>>,
 }
 
 /// What the host was asked.
@@ -60,14 +58,7 @@ impl Fake {
             tests: Mutex::new(None),
             titles: Mutex::new(Vec::new()),
             askings: Mutex::new(Vec::new()),
-            open: Mutex::new(Ok(None)),
         }
-    }
-
-    /// Says this of its open pull requests.
-    pub(crate) fn opened(self, said: Result<Option<Vec<OpenPull>>, String>) -> Fake {
-        *lock(&self.open) = said;
-        self
     }
 
     /// Fails to let go, with these words, until it is told otherwise.
@@ -172,7 +163,7 @@ impl Host for Fake {
     }
 
     async fn open_pulls(&self) -> Result<Option<Vec<OpenPull>>, String> {
-        lock(&self.open).clone()
+        Ok(None)
     }
 }
 

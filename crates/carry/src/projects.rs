@@ -197,7 +197,7 @@ impl Rounds for ByProject<dyn Rounds> {
         }
     }
 
-    // A project the settings do not name has no host to ask, which is no host with no pull requests.
+    // A project the settings do not name has no host to ask, which is not a host with no pull requests.
     fn open_pulls(
         &self,
         project: &str,

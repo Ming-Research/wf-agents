@@ -596,7 +596,8 @@ fn standing(engine: &Engine) -> String {
 const STARTED_HELD: &str = "The engine started with works going on and holds every work until the owner has looked: \
                             none begins a round but to answer a note, until `wf-agents resume --all`";
 
-/// The most items `list` gives in one answer, and the most entries of a part of a work `show` gives alone.
+/// The most items `list` gives in one answer, the most pull requests `pulls` gives in one, and the most entries of a part
+/// of a work `show` gives alone.
 const LISTED: usize = 100;
 
 /// Which items a list gives: those carrying the tag alone, where one is given; from the item given; and those that

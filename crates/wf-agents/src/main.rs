@@ -222,8 +222,9 @@ enum Command {
     },
     /// The pull requests open on the hosts of the projects' repositories, each with its number, title, whether it is a
     /// draft and when it was last updated, and the work that keeps it, what that work does now and how long ago
-    /// something last happened to it, or that no work keeps it; at most a hundred. A project whose host could not say
-    /// is said by itself with why, and is never taken for one with no pull requests.
+    /// something last happened to it, or that no work keeps it; at most a hundred pull requests, and what is left out
+    /// is said by project, with the command that gives it. A project whose host could not say is said by itself with
+    /// why, and is never taken for one with no pull requests.
     Pulls {
         /// Only the pull requests of this project.
         #[arg(long)]
@@ -414,9 +415,10 @@ enum Command {
     },
     /// Waits for what needs whoever plans the work and says it, a line each, most pressing first: a work that ended,
     /// one that waits on the owner, each thing it waits on them for by why, as the engine's one list of what waits on
-    /// the owner says, one that waits for items none of which is going on. It answers as soon as there is something
-    /// since the mark, and says the mark to give next time; nothing that happens between two calls is lost. With no
-    /// mark, it gives what stands now, the works that ended being taken as read.
+    /// the owner says, one that waits for items none of which is going on, and one the owner paused for items
+    /// (`wf-agents pause --waits-for`) each of which has merged or been cancelled. It answers as soon as there is
+    /// something since the mark, and says the mark to give next time; nothing that happens between two calls is lost.
+    /// With no mark, it gives what stands now, the works that ended being taken as read.
     Wait {
         /// The mark the last call gave.
         #[arg(long)]

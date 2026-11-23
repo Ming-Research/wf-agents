@@ -70,9 +70,9 @@ use work::{Ask, Call, RanOn, Time};
 
 pub use carriers::{
     Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, ForkFailed, Forked, Heard,
-    Hosting, KeptTokens, Mark, Network, OfWork, OpenPull, Outside, Ping, PingReply, Pull, Release, ReleaseReply,
-    Returned, Round, RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try,
-    WITHDRAWN, YEAR_MS,
+    Hosting, KeptTokens, Mark, Network, OfWork, OpenPull, Outside, Ping, PingReply, Pull, PullsSaid, Release,
+    ReleaseReply, Returned, Round, RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall,
+    Tools, Try, WITHDRAWN, YEAR_MS,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use driver::{Along, Instead, Said, Under, Window};
@@ -814,9 +814,10 @@ impl Service {
             },
             Act::LetGo { cell } => Event::LetGo { cell },
             Act::GoOn { call } => {
-                let at_limit = (self.driver.work(work))
-                    .is_some_and(|kept| matches!(kept.work.calls.get(&call), Some(Call::AtLimit(_))));
-                if !at_limit {
+                // A work there is none of is refused as the driver refuses every act on it.
+                let not_at_limit = (self.driver.work(work))
+                    .is_some_and(|kept| !matches!(kept.work.calls.get(&call), Some(Call::AtLimit(_))));
+                if not_at_limit {
                     return Err(Refusal::NotAtItsLimit(call));
                 }
                 Event::Done {
@@ -1569,7 +1570,7 @@ impl Handle {
     /// The pull requests open on the host of each of these projects' repositories, as the carrier of the engine's acts
     /// asks each host off the loop, all at once, each project with what its host said: none where its host has no
     /// pull requests, or why it could not say.
-    pub async fn open_pulls(&self, projects: Vec<String>) -> Vec<(String, Result<Option<Vec<OpenPull>>, String>)> {
+    pub async fn open_pulls(&self, projects: Vec<String>) -> Vec<(String, PullsSaid)> {
         let asked: Vec<_> = (projects.into_iter())
             .map(|project| {
                 let carriers = self.carriers.clone();

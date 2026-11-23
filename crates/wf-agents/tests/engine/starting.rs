@@ -187,7 +187,7 @@ fn a_second_engine_on_a_data_directory_one_drives_does_not_start() {
     );
     // The first goes on as it was.
     assert_eq!(
-        engine.says(&["list"]),
+        plain(&engine.says(&["list"])),
         "Works go on; 0 of 2 slots taken.\n#1 (project script) \"Greet the user\" at level 1, W1 on trial: paused at plan\n"
     );
 }

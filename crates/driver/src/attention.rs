@@ -457,7 +457,7 @@ impl Reader<'_> {
 
     /// Whether the work came to stand as it does since the mark: an idle work, also where an item it waits for
     /// stopped going on since, or one it waited for merged or was cancelled since and left it waiting for items that
-    /// stood still before.
+    /// stood still before; a work whose pause waited for items, once the last of them merged or was cancelled since.
     fn came_since_the_mark(&self, number: WorkNumber) -> bool {
         let unread =
             |number: &WorkNumber| (self.unread[number]).is_some_and(|from| self.began(*number, from).is_some());

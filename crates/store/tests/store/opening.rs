@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 53);
+    assert_eq!(tables.len(), 54);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -153,6 +153,13 @@ fn kept_before() -> Work {
     d.work
 }
 
+/// A work as a file made before version 26 of the schema holds it: its pauses wait for no item, which no table kept.
+pub(crate) fn before_pauses_waited_for_items(work: &mut Work) {
+    for pause in &mut work.records.pauses {
+        pause.waits_for.clear();
+    }
+}
+
 /// The work as a file made with this earlier version of the schema holds it, and a file of this version that holds
 /// it: the rows a store of this version keeps, each copied into the earlier file in the columns its table has there.
 pub(crate) fn kept_in(version: u32, work: &Work) -> (Db, Db) {
@@ -250,6 +257,7 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
     work.records.questions.clear();
     work.records.answers.clear();
     work.pulls.clear();
+    before_pauses_waited_for_items(&mut work);
     // Its tries recorded the directory of the program's settings as their account, which version 21 keeps apart.
     for ran in &mut work.ran {
         ran.on.account = None;
@@ -480,6 +488,7 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
     let mut d = Driver::new();
     history(&mut d);
     let mut work = d.work;
+    before_pauses_waited_for_items(&mut work);
     for ran in &mut work.ran {
         ran.on.account = None;
     }
