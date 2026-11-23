@@ -102,8 +102,21 @@ export type Key = [string, string];
 /// The key the page shows a cost under: the records keep it in millionths of a dollar, and the page says it in dollars.
 export const DOLLARS = 'usd_micros in dollars';
 
-/// The share of what was sent that was read from the cache, as the page works it out from the records' keys.
-export const CACHED_SHARE = 'cached_tokens / (input_tokens + cached_tokens)';
+/// The key the tokens sent and not read from the cache are shown under where the records do not tell those sent fresh
+/// from those written to the cache (the rounds, pings and forks kept before they were told apart).
+export const UNSPLIT = 'input_or_cache_written_tokens';
+
+/// Every token that was sent: sent fresh, written to the cache, not told which of the two, and read from the cache.
+export function sentTokens(spent: Spent): number {
+  return spent.inputTokens + spent.cacheWrittenTokens + spent.unsplitTokens + spent.cachedTokens;
+}
+
+/// The share of what was sent that was read from the cache, as the page works it out from the records' keys: the key
+/// of its working, which names the kinds of token it adds up.
+export function cachedShareKey(spent: Spent): string {
+  const sent = ['input_tokens', 'cache_written_tokens', ...(spent.unsplitTokens > 0 ? [UNSPLIT] : []), 'cached_tokens'];
+  return `cached_tokens / (${sent.join(' + ')})`;
+}
 
 /// What a round, or rounds together, took, by each key the records keep it under, with its value, and the share read
 /// from the cache.
@@ -111,9 +124,11 @@ export function spentKeys(spent: Spent): Key[] {
   return [
     [DOLLARS, dollars(spent.usdMicros)],
     ['input_tokens', count(spent.inputTokens)],
+    ['cache_written_tokens', count(spent.cacheWrittenTokens)],
+    ...(spent.unsplitTokens > 0 ? [[UNSPLIT, count(spent.unsplitTokens)] as Key] : []),
     ['cached_tokens', count(spent.cachedTokens)],
     ['output_tokens', count(spent.outputTokens)],
-    [CACHED_SHARE, share(spent.cachedTokens, spent.inputTokens + spent.cachedTokens)],
+    [cachedShareKey(spent), share(spent.cachedTokens, sentTokens(spent))],
   ];
 }
 
@@ -122,9 +137,10 @@ export function keysLine(keys: Key[]): string {
   return keys.map(([key, value]) => `${key} ${value}`).join(', ');
 }
 
-/// Every token a round took: what it was given, what it read from the cache, and what it gave back.
+/// Every token a round took: what it was given, fresh or written to the cache, what it read from the cache, and what it
+/// gave back.
 export function allTokens(spent: Spent): number {
-  return spent.inputTokens + spent.cachedTokens + spent.outputTokens;
+  return sentTokens(spent) + spent.outputTokens;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -134,9 +150,17 @@ export function spentWords(spent: Spent): string {
   return [dollars(spent.usdMicros), `${tokens(allTokens(spent))} tokens`].join(' · ');
 }
 
-/// The tokens apart, for a panel: `12k in, 8.1k from the cache, 2.1k out`.
+/// The tokens apart, for a panel: `12k in, 3k written to the cache, 8.1k from the cache, 2.1k out`; with, where the
+/// records do not tell some of those sent and not read from the cache fresh from written, `4k in or written to the
+/// cache, not told apart` after the written ones.
 export function tokensWords(spent: Spent): string {
-  return `${tokens(spent.inputTokens)} in, ${tokens(spent.cachedTokens)} from the cache, ${tokens(spent.outputTokens)} out`;
+  return [
+    `${tokens(spent.inputTokens)} in`,
+    `${tokens(spent.cacheWrittenTokens)} written to the cache`,
+    ...(spent.unsplitTokens > 0 ? [`${tokens(spent.unsplitTokens)} in or written to the cache, not told apart`] : []),
+    `${tokens(spent.cachedTokens)} from the cache`,
+    `${tokens(spent.outputTokens)} out`,
+  ].join(', ');
 }
 
 /// Why a line began a new session, as a clause: `a new one, its context having been 612k tokens, past the limit of 500k`.

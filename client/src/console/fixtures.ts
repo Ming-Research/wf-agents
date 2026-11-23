@@ -256,7 +256,9 @@ function cellsAt(at: string | null, state: CellState, deep = true): CellNow[] {
 
 const spentOf = (dollars: number, hours: number, rounds: number): Spent => ({
   usdMicros: Math.round(dollars * 1e6),
-  inputTokens: rounds * 41_000,
+  inputTokens: rounds * 800,
+  cacheWrittenTokens: rounds * 40_200,
+  unsplitTokens: 0,
   cachedTokens: rounds * 30_000,
   outputTokens: rounds * 3_200,
   workingMs: Math.round(hours * HOUR),

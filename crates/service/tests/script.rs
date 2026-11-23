@@ -7,7 +7,7 @@ use decide::{BlockId, Decision, End, Outsider, Seq};
 use engine::{Came, Effect, Event, handle};
 use flow::{CellSpec, Compiled};
 use service::Script;
-use service::script::{Ends, INPUT_TOKENS, OUTPUT_TOKENS, ROUND_MS, TOOL_MS, USD_MICROS};
+use service::script::{CACHE_WRITTEN_TOKENS, Ends, INPUT_TOKENS, OUTPUT_TOKENS, ROUND_MS, TOOL_MS, USD_MICROS};
 use work::{Ask, Handed, Spent, Time, Work};
 
 fn trial() -> Compiled {
@@ -119,6 +119,23 @@ fn a_script_is_told_everything_it_names_that_the_flow_lacks() {
             "flows.trial.rounds[4]: says again what flows.trial.rounds[2] says",
             "flows.trial.rounds[5]: only an act of the engine waits for the turn or runs as a CI run",
         ]
+    );
+}
+
+// An act of the engine takes no token of any kind, the ones written to the cache among them.
+#[test]
+fn an_act_of_the_engine_that_says_tokens_written_to_the_cache_is_told_it_takes_none() {
+    let script = Script::read(
+        r#"
+        [[flows.trial.rounds]]
+        cell = "merge"
+        took = { cache_written_tokens = 5 }
+        "#,
+    )
+    .unwrap();
+    assert_eq!(
+        script.check(&[trial()]),
+        ["flows.trial.rounds[0]: an act of the engine takes no cost and no tokens"]
     );
 }
 
@@ -283,7 +300,8 @@ fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads
         planned.spent,
         Spent {
             usd_micros: USD_MICROS,
-            input_tokens: INPUT_TOKENS,
+            uncached_tokens: INPUT_TOKENS + CACHE_WRITTEN_TOKENS,
+            cache_written_tokens: Some(CACHE_WRITTEN_TOKENS),
             cached_tokens: 0,
             output_tokens: OUTPUT_TOKENS,
             ..Default::default()
@@ -431,6 +449,36 @@ fn a_round_takes_what_its_entry_says_and_else_what_the_script_says() {
     // The engine's own act takes no cost, whatever the script says of rounds.
     let merge = script.round(&flow, cell(&flow, "merge"), 1, 1, &BTreeMap::new());
     assert_eq!((merge.ms, merge.spent), (900, Spent::default()));
+}
+
+// The script's `input_tokens` are the tokens sent fresh, as the program's are; the round's record counts, among the
+// tokens sent and not read from the cache, those it says were written to the cache, and tells them apart.
+#[test]
+fn a_round_the_script_says_wrote_tokens_to_the_cache_keeps_them_apart_from_those_sent_fresh() {
+    let flow = trial();
+    let script = Script::read(
+        r#"
+        [took]
+        input_tokens = 300
+        cache_written_tokens = 2000
+
+        [[flows.trial.rounds]]
+        cell = "build"
+        run = 2
+        took = { cache_written_tokens = 50 }
+        "#,
+    )
+    .unwrap();
+    let by_the_script = script.round(&flow, cell(&flow, "build"), 1, 1, &BTreeMap::new()).spent;
+    assert_eq!(
+        (by_the_script.uncached_tokens, by_the_script.cache_written_tokens),
+        (300 + 2000, Some(2000))
+    );
+    let by_its_entry = script.round(&flow, cell(&flow, "build"), 2, 1, &BTreeMap::new()).spent;
+    assert_eq!(
+        (by_its_entry.uncached_tokens, by_its_entry.cache_written_tokens),
+        (300 + 50, Some(50))
+    );
 }
 
 #[test]

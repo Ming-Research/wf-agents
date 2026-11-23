@@ -138,10 +138,11 @@ describe("a round's part of a run's panel", () => {
     // The records' keys, and what the page works out from them said plainly.
     expect(keys(pair(first, 'Took'))).toEqual([
       'usd_micros in dollars $0.09',
-      'input_tokens 20,200',
+      'input_tokens 404',
+      'cache_written_tokens 19,796',
       'cached_tokens 14,140',
       'output_tokens 1,500',
-      'cached_tokens / (input_tokens + cached_tokens) 41%',
+      'cached_tokens / (input_tokens + cache_written_tokens + cached_tokens) 41%',
     ]);
     expect(keys(pair(first, 'Context'))).toEqual(['context_tokens 34,340', 'compactions 0']);
     expect(pair(first, 'Missed')).toBeUndefined();
@@ -287,9 +288,10 @@ describe('what a work used', () => {
     expect(totals.map((k) => k.textContent)).toEqual([
       'usd_micros in dollars',
       'input_tokens',
+      'cache_written_tokens',
       'cached_tokens',
       'output_tokens',
-      'cached_tokens / (input_tokens + cached_tokens)',
+      'cached_tokens / (input_tokens + cache_written_tokens + cached_tokens)',
       'rounds',
       "rounds of agents' cells",
       'sent_back',
@@ -330,7 +332,16 @@ describe('what a work used', () => {
       const panel = window.querySelector('.drawer-body') as HTMLElement;
       return [...panel.querySelectorAll('.usage-totals .keys > span > span:first-child')].map((k) => k.textContent);
     };
-    const spent = { usdMicros: 300_000, inputTokens: 10, cachedTokens: 20, outputTokens: 3, workingMs: 0, rounds: 2 };
+    const spent = {
+      usdMicros: 300_000,
+      inputTokens: 10,
+      cacheWrittenTokens: 5,
+      unsplitTokens: 0,
+      cachedTokens: 20,
+      outputTokens: 3,
+      workingMs: 0,
+      rounds: 2,
+    };
     const without = await labels(undefined);
     expect(without).not.toContain('forks');
     expect(await labels({ ...spent, rounds: 0 })).toEqual(without);
@@ -340,9 +351,10 @@ describe('what a work used', () => {
       'forks',
       'usd_micros in dollars',
       'input_tokens',
+      'cache_written_tokens',
       'cached_tokens',
       'output_tokens',
-      'cached_tokens / (input_tokens + cached_tokens)',
+      'cached_tokens / (input_tokens + cache_written_tokens + cached_tokens)',
     ]);
   });
 });

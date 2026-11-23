@@ -6,7 +6,7 @@ use super::*;
 fn spent(usd_micros: u64) -> Spent {
     Spent {
         usd_micros,
-        input_tokens: 120,
+        uncached_tokens: 120,
         cached_tokens: 18_100,
         output_tokens: 30,
         ..Spent::default()
