@@ -70,6 +70,21 @@ fn a_row_of_writes_said_not_to_matter_keeps_the_meaning_of_the_first() {
     assert_eq!(meanings, vec![(p1, Some(p1)), (p2, Some(p1)), (p3, Some(p1))]);
 }
 
+// A block whose first version is handed in as changing nothing in meaning has said nothing yet: that version shows no
+// meaning, and the first that matters shows itself as the meaning.
+#[test]
+fn a_first_version_that_changes_nothing_in_meaning_shows_no_meaning_until_one_that_matters_comes() {
+    let mut w = planned();
+    w.person_writes("background");
+    let p1 = w.run("research", &[("plan", DoesNotMatter)]);
+    w.person_writes("background");
+    let p2 = w.run("research", &[("plan", Matters)]);
+    let meanings: Vec<(Seq, Option<Seq>)> = (seen(&w).blocks[&BlockId::from("plan")].iter())
+        .map(|v| (v.at, v.meaning))
+        .collect();
+    assert_eq!(meanings, vec![(p1, None), (p2, Some(p2))]);
+}
+
 #[test]
 fn a_block_no_cell_reads_is_still_listed_with_its_versions() {
     let mut w = planned();
