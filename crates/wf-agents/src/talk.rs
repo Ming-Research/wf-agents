@@ -2644,11 +2644,11 @@ fn tests_said(tests: &web::system::TestTimes, days: u64, limit: usize) -> Vec<St
     }
     for t in tests.slowed.iter().take(limit) {
         lines.push(format!(
-            "    {} in {}: {} at W{}, against a median of {} and a line of {}",
+            "    {} in {}: {} at {}, against a median of {} and a line of {}",
             t.name,
             t.unit,
             millis_said(t.millis),
-            t.work,
+            work_number(t.work),
             millis_said(t.median),
             millis_said(t.line)
         ));
@@ -2659,7 +2659,7 @@ fn tests_said(tests: &web::system::TestTimes, days: u64, limit: usize) -> Vec<St
     for g in &tests.grown {
         lines.push(format!(
             "  The CI grew: {} had a median of {} over the {} merged checks before the latest {} and {} over them ({} of \
-             them above the earlier median, {} needed); it stepped at the merge of W{}.",
+             them above the earlier median, {} needed); it stepped at the merge of {}.",
             if g.of == driver::timed::TESTS { "the sum of the tests' times".to_string() } else { format!("the job {}", g.of) },
             millis_said(g.before),
             g.n,
@@ -2667,7 +2667,7 @@ fn tests_said(tests: &web::system::TestTimes, days: u64, limit: usize) -> Vec<St
             millis_said(g.after),
             g.above,
             g.needed,
-            g.work
+            work_number(g.work)
         ));
     }
     lines.push("  The latest merges, the latest last, with what each check took and the tests it added:".to_string());
@@ -2677,8 +2677,8 @@ fn tests_said(tests: &web::system::TestTimes, days: u64, limit: usize) -> Vec<St
             .map(|j| format!("{} {}", j.name, millis_said(j.millis)))
             .collect();
         lines.push(format!(
-            "    W{}: jobs {}; the tests {}; {} tests added, {}",
-            m.work,
+            "    {}: jobs {}; the tests {}; {} tests added, {}",
+            work_number(m.work),
             if jobs.is_empty() {
                 "none read".to_string()
             } else {

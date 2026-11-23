@@ -2667,7 +2667,22 @@ mod tests {
         assert!(ran.expect("it ran").is_some(), "nothing stopped it");
         assert!(stopped(), "what the check left runs on after its result was given");
         let of = work::Left::Call { call };
-        assert_eq!(heard(), [engine::Event::LeftBehind { of, processes: 1 }]);
+        // The local host reads no JUnit, so it says the run of its command with no job and no test before it ends.
+        let reading = work::Reading {
+            asking: Asking::Call(call).name(),
+            source: work::Source::Command,
+            commit: String::new(),
+            workflow: String::new(),
+            jobs: Vec::new(),
+            tests: Vec::new(),
+        };
+        assert_eq!(
+            heard(),
+            [
+                engine::Event::Timed { reading },
+                engine::Event::LeftBehind { of, processes: 1 }
+            ]
+        );
     }
 
     // The checkout registers a worktree in the repository, as the acts' own worktrees are, so it is made holding the
