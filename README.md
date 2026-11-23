@@ -18,7 +18,10 @@ wf-agents runs coding agents through a defined flow.
   `wf-agents run --data <an empty directory> --flow flow --script script.toml`; then
   `wf-agents add --title "Greet the user" --flow trial --project script --write "request=Greet the user."` and
   `wf-agents resume 1`,
-  and `wf-agents list` or the pages to follow it;
+  and `wf-agents list` or the pages to follow it; a work starts from the head of main, or from the head of a branch or a
+  pull request its item continues (`wf-agents add ... --continue-branch <name>` or `--continue-pull <number>`, changed
+  until the work's branch is made with the kinds `continue-branch=<name>`, `continue-pull=<number>` and
+  `no-longer-continues`);
   `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it. Whoever plans the work waits
   with `wf-agents wait` for what needs them, each answer ending with the mark to give the next, and read the
   observations agents reported with `wf-agents observations`, the newest first. They read the plan

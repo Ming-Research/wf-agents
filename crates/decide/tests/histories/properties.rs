@@ -84,6 +84,7 @@ pub const REACHED: &[&str] = &[
     NOTHING_CONSUMED,
     UNCHANGED_RUNS_NONE,
     CAUSES_CHECKED,
+    WORKED_FROM_OWN,
     RESULTS_ENTERED,
     TURNED_TO_WHILE_WAITING,
     HURRIES,
@@ -124,6 +125,7 @@ const PARTLY_DEALT_WITH: &str = "a return deals with part of what ran its round"
 pub const NOTHING_CONSUMED: &str = "a run is stopped or abandoned and its cell consumed nothing by it";
 const UNCHANGED_RUNS_NONE: &str = "a version handed in as changing nothing in meaning runs no cell";
 const CAUSES_CHECKED: &str = "the reasons of a run as it starts";
+const WORKED_FROM_OWN: &str = "a run starts for a block whose latest version its cell last worked from is its own";
 const RESULTS_ENTERED: &str = "a cell is entered for the results of its calls";
 const TURNED_TO_WHILE_WAITING: &str = "a cell waiting for the results of its calls is entered for the owner's words";
 const HURRIES: &str = "a round under way is told to hand in what it has for the owner turning to a cell before it";
@@ -414,9 +416,10 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
     let given: Vec<Reason> = (s.because.iter())
         .filter_map(|c| match c {
             Cause::NoRecord => None,
-            Cause::Changed { block, was, .. } => Some(Reason::Changed {
+            Cause::Changed { block, was, worked, .. } => Some(Reason::Changed {
                 block: block.clone(),
                 was: *was,
+                worked: *worked,
             }),
             Cause::Results { calls } => Some(Reason::Results { calls: calls.clone() }),
         })
@@ -433,6 +436,22 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
     }
     if given.iter().any(|r| matches!(r, Reason::Results { .. })) {
         v.count(RESULTS_ENTERED);
+    }
+    // The version the cell last worked from is later than the one it consumed where the cell wrote one itself since: that
+    // must be reached, or the agreement of the walk's number with the reading's checks nothing there. No history reaches
+    // one the owner ruled on, which the walk's test of a cause and the context manager's test of the owner's ruling
+    // judge instead.
+    for r in &given {
+        let Reason::Changed { block, was, worked } = r else {
+            continue;
+        };
+        if worked > was
+            && (reading.of(block).iter())
+                .find(|x| Some(x.at) == *worked)
+                .is_some_and(|x| matches!(&x.by, Writer::Cell(c, _) if *c == s.cell))
+        {
+            v.count(WORKED_FROM_OWN);
+        }
     }
     let owed = reading.owed(&s.cell, s.at);
     if owed.iter().any(|c| !reading.done(*c, s.at)) {

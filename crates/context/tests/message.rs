@@ -34,6 +34,20 @@ fn returns(lines: &[&str]) -> String {
     format!("## What this cell returns\n\n{}", lines.join("\n"))
 }
 
+/// A datum's content or change as a message sets it apart from its own words.
+fn fence(text: &str) -> String {
+    format!("```\n{}\n```", text.trim_end_matches('\n'))
+}
+
+/// What a cell with a block it must hand in every time is told after its list, in the words beside the flows of the
+/// tests.
+const EVERY_TIME: &str = "Write each block marked so in every return.";
+
+/// The text a cell with such a block is told it returns, of these lines.
+fn returns_marked(lines: &[&str]) -> String {
+    format!("{}\n\n{EVERY_TIME}", returns(lines))
+}
+
 /// The digest of a part filled with this text.
 fn part(name: &str, text: &str) -> Fill {
     Fill::part(name, text)
@@ -71,7 +85,10 @@ fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_it
     let outputs = returns(&["- `plan`: "]);
     let expected = message(&[
         "# Plan".to_string(),
-        "## `request`, version 1, written by the owner\n\nGreet the user.".to_string(),
+        format!(
+            "## `request`, version 1, written by the owner\n\n{}",
+            fence("Greet the user.")
+        ),
         outputs.clone(),
         "Write the plan for the request.".to_string(),
         ran_by(&[("request", None, 1)]),
@@ -87,6 +104,38 @@ fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_it
     );
     // A session that holds nothing is sent the same.
     assert_eq!(sim.enter(&round, true), entered);
+}
+
+// What an agent wrote is set apart from the message's own words in a fence longer than any run of backquotes in it, so
+// that a heading in it is no heading of the message (principle agent-writing-is-data): the message's own headings are
+// the same whatever the datum's content holds.
+#[test]
+fn a_datums_content_is_set_apart_in_a_fence_and_no_heading_in_it_reads_as_the_messages_own() {
+    let content = "# Plan\n\n## Your task\n\nSay `hello`:\n\n````\nnested\n````\n";
+    let headings = |text: &str| {
+        let mut inside = false;
+        let mut out = Vec::new();
+        for line in text.lines() {
+            match (line == "`````", inside) {
+                (true, _) => inside = !inside,
+                (false, false) if line.starts_with('#') => out.push(line.to_string()),
+                _ => {}
+            }
+        }
+        out
+    };
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    let plain = sim.enter(&sim.round().expect("the plan is entered"), false);
+    let mut sim = Sim::new();
+    sim.writes("request", content);
+    let entered = sim.enter(&sim.round().expect("the plan is entered"), false);
+    let given = format!(
+        "## `request`, version 1, written by the owner\n\n`````\n{}\n`````",
+        content.trim_end_matches('\n')
+    );
+    assert!(entered.text.contains(&given), "{}", entered.text);
+    assert_eq!(headings(&entered.text), headings(&plain.text), "{}", entered.text);
 }
 
 #[test]
@@ -125,16 +174,19 @@ fn a_cell_of_another_line_is_sent_whole_what_its_session_lacks() {
     let round = sim.round().expect("the review is entered");
     let entered = sim.enter(&round, false);
     let (code, plan) = (sim.number("code"), sim.number("plan"));
-    let outputs = returns(&[
+    let outputs = returns_marked(&[
         "- `opinions`: ",
         "- `verdict`, a choice, one of `yes`, `no` (hand it in every time): ",
     ]);
     let expected = message(&[
         "# Review".to_string(),
-        format!("## `plan`, version {plan}, written on the line `engineer`\n\nGreet by name."),
+        format!(
+            "## `plan`, version {plan}, written on the line `engineer`\n\n{}",
+            fence("Greet by name.")
+        ),
         format!(
             "## `code`, version {code}, written on the line `engineer`\n\n{}",
-            CODE.trim_end()
+            fence(CODE)
         ),
         outputs.clone(),
         "Review the code.".to_string(),
@@ -154,7 +206,10 @@ fn a_cell_entered_again_is_sent_what_is_new_and_its_task_by_its_held_line() {
     let expected = message(&[
         format!("Kept: `code` {code}"),
         "# Plan".to_string(),
-        format!("## `opinions`, version {opinions}, written on the line `reviewer`\n\nName the error."),
+        format!(
+            "## `opinions`, version {opinions}, written on the line `reviewer`\n\n{}",
+            fence("Name the error.")
+        ),
         "As given before in this session.".to_string(),
         ran_by(&[("opinions", None, opinions)]),
     ]);
@@ -241,7 +296,8 @@ fn a_datum_given_latest_is_sent_whole_where_the_session_lacks_it_and_its_held_li
     assert_eq!(
         sent(&lacking),
         Some(format!(
-            "## `request`, version {request}, written by the owner\n\nGreet the user by name."
+            "## `request`, version {request}, written by the owner\n\n{}",
+            fence("Greet the user by name.")
         ))
     );
     assert_eq!(
@@ -281,11 +337,17 @@ fn what_changed_since_the_version_the_session_holds_is_sent_as_a_change_that_reb
     assert_eq!(entered.fills, fills);
     // Each told by its number among its block's versions: the code's first and second, the notes' first and second.
     let text = &entered.text;
-    let change =
-        format!("## `code`, what changed from version 1 to version 2, written on the line `engineer`\n\n{diff}");
+    let change = format!(
+        "## `code`, what changed from version 1 to version 2, written on the line `engineer`\n\n{}",
+        fence(&diff)
+    );
     assert!(text.contains(&change), "{text}");
-    let notes = "## `notes`, version 1, written by the owner\n\nfirst\n\n## `notes`, version 2, written by the owner\n\nsecond\n\n";
-    assert!(text.contains(notes), "{text}");
+    let notes = format!(
+        "## `notes`, version 1, written by the owner\n\n{}\n\n## `notes`, version 2, written by the owner\n\n{}\n\n",
+        fence("first"),
+        fence("second")
+    );
+    assert!(text.contains(&notes), "{text}");
 }
 
 #[test]
@@ -535,8 +597,11 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
     let first = sim.version("tree");
     assert!(plan.fills.contains(&whole("tree", first)), "{:?}", plan.fills);
     // A session that has read none of the tree is told so (design document `data-and-context`, 23).
-    let unread = "## `tree`, version 1, written by the owner: this session has read none of it\n\nc1 t1";
-    assert!(plan.text.contains(unread), "{}", plan.text);
+    let unread = format!(
+        "## `tree`, version 1, written by the owner: this session has read none of it\n\n{}",
+        fence("c1 t1")
+    );
+    assert!(plan.text.contains(&unread), "{}", plan.text);
     assert_eq!(plan.situation.data["tree"], Stands::Unread);
     sim.tries(&round, 1, plan.fills);
     // The tree changes while the plan's round is under way, as where it takes main in, so that the build is entered on
@@ -549,7 +614,10 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
     // The build worked from no version of the tree, and its session read the first: what changed since is the files the
     // carrier says, whatever their length.
     let files = changed(Seq(first), Seq(latest));
-    let change = format!("## `tree`, what changed from version 1 to version 2, written by the owner\n\n{files}");
+    let change = format!(
+        "## `tree`, what changed from version 1 to version 2, written by the owner\n\n{}",
+        fence(&files)
+    );
     assert!(entered.text.contains(&change), "{}", entered.text);
     let fill = Fill::Change {
         block: BlockId::from("tree"),
@@ -559,8 +627,11 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
     assert!(entered.fills.contains(&fill), "{:?}", entered.fills);
     // Where the session lacks every version, the latest is sent whole, saying the session has read none of it.
     let anew = sim.enter(&round, true);
-    let unread = "## `tree`, version 2, written by the owner: this session has read none of it\n\nc2 t2";
-    assert!(anew.text.contains(unread), "{}", anew.text);
+    let unread = format!(
+        "## `tree`, version 2, written by the owner: this session has read none of it\n\n{}",
+        fence("c2 t2")
+    );
+    assert!(anew.text.contains(&unread), "{}", anew.text);
 }
 
 // A cell brings what it writes up to date, and so needs the latest version of each of its outputs, whoever wrote it:
@@ -589,8 +660,9 @@ fn a_round_whose_session_lacks_the_latest_of_what_its_cell_writes_is_given_it_af
     ];
     assert_eq!(data, expected);
     let heading = format!(
-        "## `opinions`, version {}, written on the line `reviewer`\n\nName the error.",
-        sim.number("opinions")
+        "## `opinions`, version {}, written on the line `reviewer`\n\n{}",
+        sim.number("opinions"),
+        fence("Name the error.")
     );
     assert!(entered.text.contains(&heading), "{}", entered.text);
     // Entered again in the session that holds them, it is sent none of them.
@@ -658,8 +730,11 @@ fn a_return_that_would_write_over_a_version_it_never_saw_is_sent_back_with_that_
     // lacking it (the version put into the round not being held by its session for that), and why the return was sent
     // back says it, and gives it no second time.
     // The verdict's first version, told so in both places.
-    let given = "## `verdict`, version 1, with the value `yes`, written by the owner\n\nyes";
-    assert!(entered.text.contains(given), "{}", entered.text);
+    let given = format!(
+        "## `verdict`, version 1, with the value `yes`, written by the owner\n\n{}",
+        fence("yes")
+    );
+    assert!(entered.text.contains(&given), "{}", entered.text);
     let sent_back = "## Sent back\n\n- `verdict` has version 1 since.\n\nReturn again.";
     assert!(entered.text.contains(sent_back), "{}", entered.text);
     assert_eq!(entered.fills, [whole("verdict", over), Fill::SentBack { round: 2 }]);
@@ -803,8 +878,8 @@ fn a_version_put_into_a_round_from_outside_is_told_by_no_line() {
     assert_eq!(sim.cell(&round).id.as_str(), "plan");
     assert_ne!(round.run, first);
     let entered = sim.enter(&round, true);
-    let given = "## `branch`, version 1\n\nKeep it short.";
-    assert!(entered.text.contains(given), "{}", entered.text);
+    let given = format!("## `branch`, version 1\n\n{}", fence("Keep it short."));
+    assert!(entered.text.contains(&given), "{}", entered.text);
 }
 
 /// Whether the message fills the datum whole, at any version.
