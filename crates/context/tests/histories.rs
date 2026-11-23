@@ -674,9 +674,9 @@ impl History {
             let Some(value) = &kept.value else {
                 continue;
             };
-            if let Some(only) = self.sim.flow.blocks[&kept.block].with_nothing_but.get(value) {
+            if let Some(only) = self.sim.flow.blocks[&kept.block].with_nothing_but.get(value).cloned() {
                 writes.retain(|w| w.block == kept.block || only.contains(&w.block));
-                for block in only {
+                for block in &only {
                     if !writes.iter().any(|w| w.block == *block) {
                         let content = self.content(block.as_str());
                         writes.push(Handed {
