@@ -27,7 +27,7 @@ What is recorded is given a form for every use from the start, not only for the 
 Why: Records outlive the code that wrote them, and changing their form means rewriting the past.
 
 ### principle agents-get-only-what-the-flow-gives
-The engine starts an agent with a configuration directory of its own, which loads none of the owner's own tools, memory or settings: what an agent sees is decided by the flow and the project's configuration alone.
+The engine starts an agent with a configuration directory of its own, which loads none of the owner's own tools, memory or settings: what an agent sees and may use is decided by the flow and the project's declaration alone.
 Why: Other tools take up context for nothing and can be written to, and what an agent reads by itself the engine cannot carry to a later session.
 
 ### principle refuse-as-little-as-must-be
