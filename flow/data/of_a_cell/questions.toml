@@ -42,7 +42,7 @@ additionalProperties = false
 # `option` says it, with `{option}` its number, `{recommends}` the option it recommends as `recommends` says it, where
 # it recommends one, `{waits}` whether its cell waits for the answer, as `waits` or `goes_on` says it, and `{tree}` as
 # `tree` says it where the question is marked `tree`, else nothing; asked anew, `{was}` the version it replaces. A
-# question withdrawn: `{version}` the version that withdraws it, `{was}` the version withdrawn, `{why}` why, as `why`
+# question withdrawn: `{version}` the version that withdraws it, `{was}` the version withdrawn, `{reason}` why, as `why`
 # says it.
 [writes]
 text = "`{question}`, version {version}, answered:\n- option {option}, {does}: {follows}"
@@ -54,4 +54,4 @@ recommends = "\nRecommended: option {option}."
 waits = "\nThe work waits for the answer."
 goes_on = "\nThe work goes on by the recommendation."
 tree = "\nMarked `tree`: the option taken goes into the design tree."
-withdrawn = "`{question}`, version {was}, withdrawn.{why}"
+withdrawn = "`{question}`, version {was}, withdrawn.{reason}"

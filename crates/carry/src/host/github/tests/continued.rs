@@ -217,11 +217,28 @@ async fn the_open_pull_request_of_the_continued_branch_is_closed_naming_the_work
     checked_continuing(&hub, &head, &branch_named("old")).await;
     let own = hub.github().pull_requests().len() as u64;
     assert_eq!(own, old + 1, "the work's own pull request was opened");
-    let said = format!("{SUPERSEDED} https://github.example/pull/{own}");
+    let url = format!("https://github.example/pull/{own}");
+    let said = fill(&hub.host.config.words.superseded, &[("url", &url)]);
     assert_eq!(hub.github().closed_with(), [(old, said)]);
     // Given again, the old one is closed and nothing is closed twice.
     checked_continuing(&hub, &head, &branch_named("old")).await;
     assert_eq!(hub.github().closed_with().len(), 1);
+}
+
+// What the pull request that was continued is closed with is the words of the file, and nothing else.
+#[tokio::test]
+async fn the_comment_the_continued_pull_request_is_closed_with_is_the_words_of_its_file_and_nothing_else() {
+    let mut hub = Hub::new();
+    hub.host.config.words.superseded = "SUPERSEDED BY {url}.".to_string();
+    github_branch(&hub, "old", "old.txt");
+    let old = hub.github().pull_of("old", "main", State::Open, false);
+    let head = hub.committed().await;
+    checked_continuing(&hub, &head, &branch_named("old")).await;
+    let own = hub.github().pull_requests().len() as u64;
+    assert_eq!(
+        hub.github().closed_with(),
+        [(old, format!("SUPERSEDED BY https://github.example/pull/{own}."))]
+    );
 }
 
 #[tokio::test]

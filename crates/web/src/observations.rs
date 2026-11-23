@@ -297,17 +297,13 @@ fn refusal_words(why: &Refusal) -> String {
     match why {
         Refusal::NoSuchObservation => "there is no such observation".to_string(),
         Refusal::Deleted => "it is deleted, and takes no change".to_string(),
-        Refusal::NoSuchItem(item) => format!("there is no item #{}", item.0),
+        Refusal::NoSuchItem(item) => format!("there is no item {item}"),
         Refusal::ItemCancelled(item) => {
-            format!(
-                "#{} is cancelled, and an observation it took in would be lost with it",
-                item.0
-            )
+            format!("{item} is cancelled, and an observation it took in would be lost with it")
         }
         Refusal::ItemOfAnotherProject(item) => format!(
-            "#{} is of another project than the observation, and only an item of the project an observation is of \
-             takes it in",
-            item.0
+            "{item} is of another project than the observation, and only an item of the project an observation is of \
+             takes it in"
         ),
         Refusal::BadTag(tag) => format!(
             "{tag:?} is no tag: a tag is a name of 1 to {} characters with no space and no comma",

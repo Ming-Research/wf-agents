@@ -856,3 +856,44 @@ fn an_observation_taken_in_is_handled_only_while_its_work_is_cancelled_no_oftene
     // Cancelled once, reopened once, cancelled twice, reopened twice.
     assert_eq!(says, [false, true, false, true]);
 }
+
+// A row of the observations that no longer matches what came back, or whose run has no time, is a fault that names the
+// work as a work's number is written everywhere (`W1`), not bare. The rows are made to disagree by hand, since the
+// engine never writes them so. Reference: the one writer of a work's number, `WorkNumber`'s `Display`.
+#[test]
+fn an_observation_that_disagrees_with_its_records_is_a_fault_naming_its_work_as_a_works_number_is_written() {
+    let mut d = Driver::saved();
+    d.wrote("request", Outsider::Person, None);
+    d.end(handing_in(&[("text", None)], &["The only one."]));
+    let s = d.saving.as_ref().expect("saved after each event");
+    let (work, path) = (s.work, s.db.path.clone());
+    let named = work.to_string();
+    assert!(named.starts_with('W') && named.len() > 1, "{named}");
+    let fault = |path: &Path| match Observations::open(path).expect("the observations open").all() {
+        Err(store::Fault::Value { table, message }) => (table, message),
+        other => panic!("not a fault of a value: {other:?}"),
+    };
+    let tamper = |sql: &str| {
+        let file = Connection::open(path.as_path()).expect("the database opens");
+        file.execute_batch(sql).expect("the rows are changed by hand");
+    };
+    // The observation is the 7th text of what came back, which has one.
+    tamper("UPDATE observations SET n = 7");
+    let (table, message) = fault(&path);
+    assert_eq!(table, "observations");
+    assert!(
+        message.starts_with(&format!(
+            "O1 is the text 7 of the observations of what came back of {named}, run "
+        )),
+        "{message}"
+    );
+    tamper("UPDATE observations SET n = 1");
+    assert_eq!(kept(&path).len(), 1, "the row is whole again");
+    // The run's finish has no time in the work's moments.
+    tamper("DELETE FROM moments");
+    let (_, message) = fault(&path);
+    assert!(
+        message.starts_with(&format!("O1: {named} has no time for its run ")),
+        "{message}"
+    );
+}

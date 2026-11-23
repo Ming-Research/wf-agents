@@ -28,16 +28,22 @@ export function TookKeys({ spent, estimated }: { spent: Spent; estimated: boolea
   return <Keys keys={keys} />;
 }
 
+/// What comes before the session's messages and differs from the call before, by name; `unknown` where the records do
+/// not say why the round missed, and `none` where nothing differs, a fault of wf-agents.
+function differsOf(missed: Missed): string {
+  if (missed.differs.length > 0) return missed.differs.join(', ');
+  return missed.unknown ? 'unknown' : 'none';
+}
+
 /// How the round missed its session's prompt cache: what its first call read from the cache, what the session held,
-/// and what comes before the session's messages and differs from the call before, which is none where the miss is a
-/// fault of wf-agents.
+/// and why: what comes before the session's messages and differs from the call before.
 export function MissedKeys({ missed }: { missed: Missed }) {
   return (
     <Keys
       keys={[
         ['first_read', count(missed.read)],
         ['held', count(missed.held)],
-        ['differs', missed.differs.length === 0 ? 'none' : missed.differs.join(', ')],
+        ['differs', differsOf(missed)],
       ]}
     />
   );

@@ -19,7 +19,7 @@ import {
 } from '../observations-api';
 import { Attr, Button } from '../parts';
 import { useChanges, useReading } from '../works/source';
-import { clock, fullTime } from '../works/words';
+import { clock, fullTime, itemName, workName } from '../works/words';
 
 /// Where the view reads the observations from, and sends the owner's reading of one.
 export interface ObservationsSource {
@@ -145,11 +145,11 @@ function Row({ o, sending, onMarkRead }: { o: Observation; sending: boolean; onM
                 href={`#/works/${o.round.work}/runs/${o.round.run}`}
                 title="Open the work with this run chosen"
               >
-                W{o.round.work}
+                {workName(o.round.work)}
               </a>
               <Attr name="cell" value={o.round.cell} />
               <span className="observation-item" title={o.round.itemTitle}>
-                <span className="mono">#{o.round.item}</span> {o.round.itemTitle}
+                <span className="mono">{itemName(o.round.item)}</span> {o.round.itemTitle}
               </span>
             </>
           ) : (

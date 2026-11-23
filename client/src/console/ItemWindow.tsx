@@ -85,10 +85,12 @@ import {
   type Tone as WorkTone,
   WRITE_WORDS,
   count,
+  itemName,
   stateOf,
   stateParts,
   stoppedAt,
   waitedWords,
+  workName,
 } from '../works/words';
 import { Diff } from './diff';
 import { type ItemStanding, age, dollars, linesOf, standingOf } from './items';
@@ -703,7 +705,7 @@ function ItemView({
     <StopsContext.Provider value={walk}>
       <div className="cw-item" ref={inner} onClick={chooseStop}>
         <header className="drawer-head">
-          <span className="drawer-id">{item.number}</span>
+          <span className="drawer-id">{itemName(item.number)}</span>
           <h2 className="drawer-title">
             {titleHref !== undefined ? (
               <a className="cw-title-link" href={titleHref} title="Open it in the console">
@@ -940,8 +942,8 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
           {waitedWords(x)}
         </span>
       ))}
-      <a href={`#/works/${w.number}`} className="link mono" title={`Open work ${w.number}`}>
-        W{w.number}
+      <a href={`#/works/${w.number}`} className="link mono" title={`Open ${workName(w.number)}`}>
+        {workName(w.number)}
       </a>
       {w.pull != null && (
         <a

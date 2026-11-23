@@ -24,6 +24,7 @@ import type {
   WorkPage,
 } from '../works-api';
 import { outlineOf } from '../testing';
+import { workName } from '../works/words';
 import type { Source } from './source';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
@@ -703,7 +704,7 @@ export function fixtureSource(start = Date.now()): Source {
   const find = (work: number) => {
     const item = data.items.find((i) => i.work.number === work);
     if (item !== undefined) return { item, summary: item.work };
-    throw new Error(`There is no work ${work}`);
+    throw new Error(`There is no work ${workName(work)}`);
   };
   const told = (work: number) => {
     const c: Changed = { works: [work], items: true, copies: false, accounts: false, observations: false };

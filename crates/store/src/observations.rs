@@ -297,17 +297,17 @@ impl Observations {
             if standing.deleted {
                 continue;
             }
-            let kept = row.kept.ok_or_else(|| Fault::Value {
-                table: "observations",
-                message: format!("O{}: it has no time for when it was kept", row.number),
-            })?;
-            let (text, round, project, reported_by) = match row.work {
+            let (text, round, project, reported_by, kept) = match row.work {
                 None => {
                     let text = row.text.clone().ok_or_else(|| Fault::Value {
                         table: "observations",
                         message: format!("O{}: it is no run's and has no text", row.number),
                     })?;
-                    (text, None, row.project.clone(), row.reported_by.clone())
+                    let kept = row.kept.ok_or_else(|| Fault::Value {
+                        table: "observations",
+                        message: format!("O{}: it is no run's and has no time it was added", row.number),
+                    })?;
+                    (text, None, row.project.clone(), row.reported_by.clone(), kept)
                 }
                 Some(work) => {
                     let (Some(item), Some(cell), Some(run), Some(round), Some(n), Some(back)) =
@@ -315,7 +315,11 @@ impl Observations {
                     else {
                         return Err(Fault::Value {
                             table: "observations",
-                            message: format!("O{}: work {work} holds no item, run or return it is of", row.number),
+                            message: format!(
+                                "O{}: {} holds no item, run or return it is of",
+                                row.number,
+                                WorkNumber(work)
+                            ),
                         });
                     };
                     let texts = match backs.entry((work, run, round)) {
@@ -325,9 +329,18 @@ impl Observations {
                     let text = (n.checked_sub(1).and_then(|i| texts.get(i)).cloned()).ok_or_else(|| Fault::Value {
                         table: "observations",
                         message: format!(
-                            "O{} is the text {n} of the observations of what came back of work {work}, run {run}, \
-                             round {round}, which has fewer",
-                            row.number
+                            "O{} is the text {n} of the observations of what came back of {}, run {run}, round \
+                             {round}, which has fewer",
+                            row.number,
+                            WorkNumber(work)
+                        ),
+                    })?;
+                    let kept = row.kept.ok_or_else(|| Fault::Value {
+                        table: "observations",
+                        message: format!(
+                            "O{}: {} has no time for its run {run}'s finish",
+                            row.number,
+                            WorkNumber(work)
                         ),
                     })?;
                     let item = ItemNumber(item);
@@ -340,7 +353,7 @@ impl Observations {
                         run: RunId(run),
                         round,
                     };
-                    (text, Some(from), project.clone(), project)
+                    (text, Some(from), project.clone(), project, kept)
                 }
             };
             let handled = standing.taken_in_by.is_some_and(|item| !cancelled.contains(&item.0));

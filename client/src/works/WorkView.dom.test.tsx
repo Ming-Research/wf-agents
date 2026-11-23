@@ -329,7 +329,7 @@ describe("a work's line", () => {
     expect(line.querySelector('a.link')?.getAttribute('href')).toBe('#/works');
     expect(texts(line, '.view-title > *')).toEqual([
       '← Back',
-      '#141',
+      'W41 #141',
       'Show the cost of each round on the works page',
     ]);
     expect(texts(line, '.legend li').slice(0, 2)).toEqual(['wakes', 'way back']);
@@ -346,7 +346,7 @@ describe('a work as it is read', () => {
   it('says it is reading, then shows the work, and reads it again when it changed', async () => {
     const source = fixtureSource();
     const page = draw(<WorkView work={41} />, source);
-    expect(page.textContent).toContain('Reading work 41');
+    expect(page.textContent).toContain('Reading W41');
     await settle();
     expect(page.querySelector('.view-name')?.textContent).toBe('Show the cost of each round on the works page');
     act(() => source.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
