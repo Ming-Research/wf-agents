@@ -14,74 +14,13 @@ const TREE_RS: &str = include_str!("../build_support/tree.rs");
 /// The configuration that gives each checkout's build the path of the checkout, which the script watches.
 const CARGO_CONFIG: &str = include_str!("../../../.cargo/config.toml");
 
-/// The build script this crate had before the page's stamp, which fixed the checkout's path when it was compiled and
-/// handed cargo an absolute path to watch.
-const BEFORE: &str = r####"//! Builds the page into the binary: every file of the page's build (`client/dist`, which `npm run build` writes in
-//! `client/`) becomes a file the server serves, so that one command serves the page with nothing beside it. The page
-//! is part of the program, so a build without it fails and says how to make it. Brought over from the engine on
-//! `old-main`, whose interface serves its page the same way.
-
-use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
-
-fn files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            files(&path, out);
-        } else {
-            out.push(path);
-        }
-    }
-}
-
-fn main() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../client/dist");
-    println!("cargo::rerun-if-changed={}", root.display());
-    if !root.join("index.html").is_file() {
-        panic!(
-            "{} has no index.html: build the page first, with `npm ci` and `npm run build` in client/",
-            root.display()
-        );
-    }
-    let mut found = Vec::new();
-    files(&root, &mut found);
-    found.sort();
-    let mut code = String::from(
-        "/// The page's files, by their path under the page's root.\npub static FILES: &[(&str, &[u8])] = &[\n",
-    );
-    for path in &found {
-        let relative = path.strip_prefix(&root).unwrap_or(path);
-        let name: Vec<String> = relative
-            .components()
-            .map(|c| c.as_os_str().to_string_lossy().into_owned())
-            .collect();
-        let absolute = path.canonicalize().unwrap_or_else(|_| path.clone());
-        let _ = writeln!(
-            code,
-            "    ({:?}, include_bytes!({:?})),",
-            name.join("/"),
-            absolute.display().to_string()
-        );
-    }
-    code.push_str("];\n");
-    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap_or_default()).join("page.rs");
-    if let Err(e) = std::fs::write(&out, code) {
-        panic!("{}: {e}", out.display());
-    }
-}
-"####;
-
 /// The SHA-256 of `abc`, the one source file of every checkout, so that the stamp is the same in each.
 const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 
-/// One checkout of the layout: a workspace with the package `tiny` that holds the build script, and `client/` with a
-/// source, the page built from it and the stamp, and, where `configured`, the repository's cargo configuration. Written
-/// whole, so that every file of every checkout is older than the first build.
-fn checkout(base: &Path, name: &str, page: &str, build: &str, stamped: bool, configured: bool) -> PathBuf {
+/// One checkout of the layout: a workspace with the package `tiny` that holds the build script and the repository's
+/// cargo configuration, and `client/` with a source, the page built from it and the stamp. Written whole, so that every
+/// file of every checkout is older than the first build.
+fn checkout(base: &Path, name: &str, page: &str) -> PathBuf {
     let root = base.join(name);
     let package = root.join("crates/tiny");
     for dir in [
@@ -94,9 +33,7 @@ fn checkout(base: &Path, name: &str, page: &str, build: &str, stamped: bool, con
         std::fs::create_dir_all(dir).unwrap();
     }
     let put = |path: PathBuf, text: &str| std::fs::write(path, text).unwrap();
-    if configured {
-        put(root.join(".cargo/config.toml"), CARGO_CONFIG);
-    }
+    put(root.join(".cargo/config.toml"), CARGO_CONFIG);
     put(
         root.join("Cargo.toml"),
         "[workspace]\nmembers = [\"crates/*\"]\nresolver = \"3\"\n",
@@ -105,7 +42,7 @@ fn checkout(base: &Path, name: &str, page: &str, build: &str, stamped: bool, con
         package.join("Cargo.toml"),
         "[package]\nname = \"tiny\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n",
     );
-    put(package.join("build.rs"), build);
+    put(package.join("build.rs"), BUILD);
     put(package.join("build_support/stamp.rs"), STAMP_RS);
     put(package.join("build_support/tree.rs"), TREE_RS);
     put(
@@ -116,9 +53,7 @@ fn checkout(base: &Path, name: &str, page: &str, build: &str, stamped: bool, con
     );
     put(root.join("client/src/page.ts"), "abc");
     put(root.join("client/dist/index.html"), page);
-    if stamped {
-        put(root.join("client/dist/source.sha256"), &format!("{ABC}  src/page.ts\n"));
-    }
+    put(root.join("client/dist/source.sha256"), &format!("{ABC}  src/page.ts\n"));
     root
 }
 
@@ -156,12 +91,27 @@ fn page_built(checkout: &Path, target: &Path) -> String {
     built(checkout, target).0
 }
 
+/// The checkout's build script with `line` as the first line of its `main`, so that a test can make the script wrong in
+/// one way and see what the test of the right one would say.
+fn with_line(checkout: &Path, line: &str) {
+    let main = "fn main() {\n";
+    let at = BUILD.find(main).expect("the script has a main") + main.len();
+    let changed = format!("{}    {line}\n{}", &BUILD[..at], &BUILD[at..]);
+    std::fs::write(checkout.join("crates/tiny/build.rs"), changed).unwrap();
+}
+
+/// The checkout's build script with `from` replaced by `to`.
+fn with_replaced(checkout: &Path, from: &str, to: &str) {
+    assert!(BUILD.contains(from), "the script has no {from}");
+    std::fs::write(checkout.join("crates/tiny/build.rs"), BUILD.replacen(from, to, 1)).unwrap();
+}
+
 #[test]
 fn two_checkouts_that_share_a_build_directory_each_embed_their_own_page() {
     let base = tempfile::tempdir().unwrap();
     let target = base.path().join("target");
-    let a = checkout(base.path(), "a", "the page of a", BUILD, true, true);
-    let b = checkout(base.path(), "b", "the page of b", BUILD, true, true);
+    let a = checkout(base.path(), "a", "the page of a");
+    let b = checkout(base.path(), "b", "the page of b");
     let (page, said) = built(&a, &target);
     assert_eq!(page, "the page of a", "{said}");
     let (page, said) = built(&b, &target);
@@ -171,30 +121,10 @@ fn two_checkouts_that_share_a_build_directory_each_embed_their_own_page() {
 }
 
 #[test]
-fn the_script_before_the_stamp_embeds_the_page_of_another_checkout() {
-    let base = tempfile::tempdir().unwrap();
-    let target = base.path().join("target");
-    let a = checkout(base.path(), "a", "the page of a", BEFORE, false, false);
-    let b = checkout(base.path(), "b", "the page of b", BEFORE, false, false);
-    assert_eq!(page_built(&a, &target), "the page of a");
-    assert_eq!(page_built(&b, &target), "the page of a");
-}
-
-#[test]
-fn the_script_without_the_checkouts_path_embeds_the_page_of_another_checkout() {
-    let base = tempfile::tempdir().unwrap();
-    let target = base.path().join("target");
-    let a = checkout(base.path(), "a", "the page of a", BUILD, true, false);
-    let b = checkout(base.path(), "b", "the page of b", BUILD, true, false);
-    assert_eq!(page_built(&a, &target), "the page of a");
-    assert_eq!(page_built(&b, &target), "the page of a");
-}
-
-#[test]
 fn a_build_with_nothing_changed_compiles_nothing_again() {
     let base = tempfile::tempdir().unwrap();
     let target = base.path().join("target");
-    let a = checkout(base.path(), "a", "the page of a", BUILD, true, true);
+    let a = checkout(base.path(), "a", "the page of a");
     assert_eq!(page_built(&a, &target), "the page of a");
     let again = cargo_build(&a, &target);
     let said = String::from_utf8_lossy(&again.stderr);
@@ -203,10 +133,24 @@ fn a_build_with_nothing_changed_compiles_nothing_again() {
 }
 
 #[test]
+fn the_check_that_nothing_compiled_again_sees_a_build_that_does() {
+    // A script that watches a file that is not there is run again by every build, and so is the program it builds.
+    let base = tempfile::tempdir().unwrap();
+    let target = base.path().join("target");
+    let a = checkout(base.path(), "a", "the page of a");
+    with_line(&a, "println!(\"cargo::rerun-if-changed=../../no-such-file\");");
+    assert_eq!(page_built(&a, &target), "the page of a");
+    let again = cargo_build(&a, &target);
+    let said = String::from_utf8_lossy(&again.stderr);
+    assert!(again.status.success(), "{said}");
+    assert!(said.contains("Compiling"), "the second build did not compile: {said}");
+}
+
+#[test]
 fn a_page_built_again_is_the_page_the_next_build_embeds() {
     let base = tempfile::tempdir().unwrap();
     let target = base.path().join("target");
-    let a = checkout(base.path(), "a", "the first page", BUILD, true, true);
+    let a = checkout(base.path(), "a", "the first page");
     assert_eq!(page_built(&a, &target), "the first page");
     std::fs::write(a.join("client/dist/index.html"), "the second page").unwrap();
     assert_eq!(page_built(&a, &target), "the second page");
@@ -216,7 +160,7 @@ fn a_page_built_again_is_the_page_the_next_build_embeds() {
 fn a_page_not_built_from_the_sources_at_hand_is_not_built_in() {
     let base = tempfile::tempdir().unwrap();
     let target = base.path().join("target");
-    let a = checkout(base.path(), "a", "the page of a", BUILD, true, true);
+    let a = checkout(base.path(), "a", "the page of a");
     assert_eq!(page_built(&a, &target), "the page of a");
     std::fs::write(a.join("client/src/page.ts"), "changed after the page was built").unwrap();
     let out = cargo_build(&a, &target);
@@ -227,4 +171,29 @@ fn a_page_not_built_from_the_sources_at_hand_is_not_built_in() {
         "{said}"
     );
     assert!(said.contains("npm run build"), "{said}");
+}
+
+#[test]
+fn temporary_a_script_that_does_not_watch_the_page_keeps_the_page_it_embedded() {
+    let base = tempfile::tempdir().unwrap();
+    let target = base.path().join("target");
+    let a = checkout(base.path(), "a", "the first page");
+    with_replaced(&a, "println!(\"cargo::rerun-if-changed=../../client/dist\");", "");
+    assert_eq!(page_built(&a, &target), "the first page");
+    std::fs::write(a.join("client/dist/index.html"), "the second page").unwrap();
+    assert_eq!(page_built(&a, &target), "the first page");
+}
+
+#[test]
+fn temporary_a_script_that_does_not_check_the_sources_builds_a_page_that_is_not_theirs() {
+    let base = tempfile::tempdir().unwrap();
+    let target = base.path().join("target");
+    let a = checkout(base.path(), "a", "the page of a");
+    with_replaced(
+        &a,
+        "stamp::check(&client, &stamped)",
+        "Ok::<Vec<String>, String>(Vec::new())",
+    );
+    std::fs::write(a.join("client/src/page.ts"), "changed after the page was built").unwrap();
+    assert_eq!(page_built(&a, &target), "the page of a");
 }
