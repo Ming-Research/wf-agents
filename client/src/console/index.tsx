@@ -360,7 +360,10 @@ export function ConsolePage({
               latestData.current !== undefined &&
               scene.current?.show(shownTree(latestData.current, showsNow.current, foldsNow.current))
             }
-            onTitle={() => scene.current?.reveal(item.number, room(open))}
+            onTitle={() => {
+              scene.current?.reveal(item.number, room(open));
+              scene.current?.flash(item.number);
+            }}
             stop={stopAsked !== null && stopAsked.item === item.number ? stopAsked : undefined}
             onStopChosen={(at) => {
               walk.current = { item: item.number, at };

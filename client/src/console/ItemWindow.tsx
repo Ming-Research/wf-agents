@@ -335,7 +335,7 @@ export type ItemPanelProps = {
   open?: boolean;
   /// Tells that the owner marked the item read.
   onRead?: () => void;
-  /// Brings the item into view in the tree, where the window stands beside it.
+  /// Brings the item into view in the tree, where the window stands beside it, and flashes its card.
   onTitle?: () => void;
   /// Where the title leads instead, where the window stands on another page than the tree's.
   titleHref?: string;
