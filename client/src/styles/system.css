@@ -128,6 +128,14 @@
   white-space: normal;
 }
 
+/* The switch that lets the engine move to another account at a usage limit, above the accounts. */
+.account-moving {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: var(--space-8) 0;
+}
+
 .account-add {
   display: flex;
   flex-wrap: wrap;
