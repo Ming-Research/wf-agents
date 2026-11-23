@@ -390,6 +390,153 @@ fn a_round_after_its_return_was_sent_back_is_sent_why() {
     assert!(anew.text.contains("## Sent back"), "{}", anew.text);
 }
 
+// Each thing a return is sent back for has the key its words have in `[faults]` of `agents/return/sent_back.toml`, which
+// the owner's page shows beside the values recorded of it; the pairs are written here by hand, so that a key given to
+// the wrong variant, a variant with none and a key of the file no variant has each fail (decision
+// a-sent-back-reason-is-shown-by-its-key).
+#[test]
+fn each_reason_for_sending_a_return_back_has_its_key_in_the_file_and_its_words_there() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let agents = flow::agents::read(&root).expect("what is written beside the flows is read");
+    let table: Vec<(Unmet, &str)> = vec![
+        (Unmet::AsksNothing, "asks_nothing"),
+        (
+            Unmet::NotAnOutput {
+                block: BlockId::from("b"),
+            },
+            "not_an_output",
+        ),
+        (
+            Unmet::WrittenTwice {
+                block: BlockId::from("b"),
+            },
+            "written_twice",
+        ),
+        (
+            Unmet::NoValue {
+                block: BlockId::from("b"),
+            },
+            "no_value",
+        ),
+        (
+            Unmet::NotAValue {
+                block: BlockId::from("b"),
+                value: "v".into(),
+            },
+            "not_a_value",
+        ),
+        (
+            Unmet::NotAChoice {
+                block: BlockId::from("b"),
+            },
+            "not_a_choice",
+        ),
+        (
+            Unmet::NotHandedIn {
+                block: BlockId::from("b"),
+            },
+            "not_handed_in",
+        ),
+        (
+            Unmet::NothingBut {
+                block: BlockId::from("b"),
+                value: "v".into(),
+                besides: vec![],
+            },
+            "nothing_but",
+        ),
+        (Unmet::Unreadable { why: "x".into() }, "unreadable"),
+        (
+            Unmet::NotRunBy {
+                block: BlockId::from("b"),
+            },
+            "not_run_by",
+        ),
+        (
+            Unmet::DealtWithTwice {
+                block: BlockId::from("b"),
+            },
+            "dealt_with_twice",
+        ),
+        (Unmet::DealtWithNothing, "dealt_with_nothing"),
+        (
+            Unmet::WrittenOver {
+                block: BlockId::from("b"),
+                version: Seq(1),
+            },
+            "written_over",
+        ),
+        (
+            Unmet::ChoiceChanged {
+                block: BlockId::from("b"),
+            },
+            "choice_changed",
+        ),
+        (Unmet::AsksAndWorks, "asks_and_works"),
+        (Unmet::NotWatched { name: "x".into() }, "not_watched"),
+        (Unmet::NotATool { name: "x".into() }, "not_a_tool"),
+        (
+            Unmet::UnchangedNotWritten {
+                block: BlockId::from("b"),
+            },
+            "unchanged_not_written",
+        ),
+        (Unmet::QuestionTaken { name: "x".into() }, "question_taken"),
+        (Unmet::NoSuchQuestion { name: "x".into() }, "no_such_question"),
+        (Unmet::QuestionTwice { name: "x".into() }, "question_twice"),
+        (Unmet::NotAnOption { name: "x".into() }, "not_an_option"),
+        (Unmet::NotAnswerable { name: "x".into() }, "not_answerable"),
+        (Unmet::NotAnswered { name: "x".into() }, "not_answered"),
+        (Unmet::Unexplained { path: "x".into() }, "unexplained"),
+        (Unmet::NotATest { path: "x".into() }, "not_a_test"),
+        (Unmet::Uncommitted { changes: "x".into() }, "uncommitted"),
+        (Unmet::Merging { changes: "x".into() }, "merging"),
+        (Unmet::TreeUnchanged { name: "x".into() }, "tree_unchanged"),
+        (Unmet::NotAnEntry { line: "x".into() }, "not_an_entry"),
+        (
+            Unmet::Unanswered {
+                block: BlockId::from("b"),
+            },
+            "unanswered",
+        ),
+        (
+            Unmet::WordOwed {
+                name: BlockId::from("b"),
+                watched: vec![],
+            },
+            "word_owed",
+        ),
+        (
+            Unmet::NoPoint {
+                block: BlockId::from("b"),
+                value: "v".into(),
+                name: BlockId::from("b"),
+            },
+            "no_point",
+        ),
+    ];
+    for (unmet, key) in &table {
+        assert_eq!(unmet.key(), *key);
+        assert!(
+            agents.sent_back.faults.text(key).is_some_and(|words| !words.is_empty()),
+            "`{key}` has no words in `[faults]`"
+        );
+    }
+    let written = std::fs::read_to_string(root.join("agents/return/sent_back.toml")).expect("the file is read");
+    let in_faults = written.lines().skip_while(|line| *line != "[faults]").skip(1);
+    let keys: Vec<&str> = (in_faults.take_while(|line| !line.starts_with('[')))
+        .filter_map(|line| line.split_once(" = ").map(|(key, _)| key))
+        .collect();
+    let mut pairs: Vec<&str> = table.iter().map(|(_, key)| *key).collect();
+    pairs.sort_unstable();
+    let mut file = keys.clone();
+    file.sort_unstable();
+    assert_eq!(
+        pairs, file,
+        "the keys of `[faults]` are those of the reasons, each once"
+    );
+}
+
 // A return the engine found leaving files the project protects changed with nothing to say why is sent back naming
 // each, in the words of the files beside the flows.
 #[test]

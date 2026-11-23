@@ -640,7 +640,7 @@ function long(start: number): Built {
       { block: 'solution', content: prose('Solution', ['Dollars to the cent', 'Tokens in thousands']) },
       { block: 'code', content: 'a sketch of the column' },
     ],
-    sentBack: [{ kind: 'notAnOutput', block: 'code' }],
+    sentBack: [{ key: 'not_an_output', values: [{ name: 'block', value: 'code' }] }],
   });
   h.round(deep, { minutes: 2, hands: [{ block: 'solution', content: prose('Solution', ['Dollars to the cent', 'Tokens in thousands']) }] });
   h.finish(deep);
@@ -777,11 +777,11 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     const run = h.start('implement');
     h.round(run, {
       hands: [{ block: 'code', content: 'commit 1a2b3c4' }, { block: 'code', content: 'commit 1a2b3c5' }],
-      sentBack: [{ kind: 'writtenTwice', block: 'code' }],
+      sentBack: [{ key: 'written_twice', values: [{ name: 'block', value: 'code' }] }],
     });
     h.round(run, {
       hands: [{ block: 'code', content: 'commit 1a2b3c6' }, { block: 'answer_review', content: 'x', value: 'done' }],
-      sentBack: [{ kind: 'notAChoice', block: 'answer_review' }],
+      sentBack: [{ key: 'not_a_choice', values: [{ name: 'block', value: 'answer_review' }] }],
     });
     h.round(run, { hands: [{ block: 'solution', content: 'a solution' }] });
     const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };

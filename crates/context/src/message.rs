@@ -826,17 +826,16 @@ impl Build<'_> {
             named.map_or_else(|| block.to_string(), |w| w.name.clone())
         };
         let block = |block: &BlockId| ("block", block.to_string());
-        let (text, places): (&str, Vec<(&str, String)>) = match unmet {
-            Unmet::AsksNothing => (&f.asks_nothing, vec![]),
-            Unmet::NotAnOutput { block: b } => (&f.not_an_output, vec![block(b)]),
-            Unmet::WrittenTwice { block: b } => (&f.written_twice, vec![block(b)]),
-            Unmet::NoValue { block: b } => (&f.no_value, vec![block(b), ("values", values(b))]),
-            Unmet::NotAValue { block: b, value } => (
-                &f.not_a_value,
-                vec![block(b), ("values", values(b)), ("value", value.clone())],
-            ),
-            Unmet::NotAChoice { block: b } => (&f.not_a_choice, vec![block(b)]),
-            Unmet::NotHandedIn { block: b } => (&f.not_handed_in, vec![block(b)]),
+        let places: Vec<(&str, String)> = match unmet {
+            Unmet::AsksNothing => vec![],
+            Unmet::NotAnOutput { block: b } => vec![block(b)],
+            Unmet::WrittenTwice { block: b } => vec![block(b)],
+            Unmet::NoValue { block: b } => vec![block(b), ("values", values(b))],
+            Unmet::NotAValue { block: b, value } => {
+                vec![block(b), ("values", values(b)), ("value", value.clone())]
+            }
+            Unmet::NotAChoice { block: b } => vec![block(b)],
+            Unmet::NotHandedIn { block: b } => vec![block(b)],
             Unmet::NothingBut {
                 block: b,
                 value,
@@ -844,51 +843,48 @@ impl Build<'_> {
             } => {
                 let ticked: Vec<String> = besides.iter().map(|b| format!("`{b}`")).collect();
                 let besides = ticked.join(&words.between);
-                (
-                    &f.nothing_but,
-                    vec![block(b), ("value", value.clone()), ("besides", besides)],
-                )
+                vec![block(b), ("value", value.clone()), ("besides", besides)]
             }
-            Unmet::Unreadable { why } => (&f.unreadable, vec![("why", why.clone())]),
-            Unmet::NotRunBy { block: b } => (&f.not_run_by, vec![("name", watched(b))]),
-            Unmet::DealtWithTwice { block: b } => (&f.dealt_with_twice, vec![("name", watched(b))]),
-            Unmet::DealtWithNothing => (&f.dealt_with_nothing, vec![]),
+            Unmet::Unreadable { why } => vec![("why", why.clone())],
+            Unmet::NotRunBy { block: b } => vec![("name", watched(b))],
+            Unmet::DealtWithTwice { block: b } => vec![("name", watched(b))],
+            Unmet::DealtWithNothing => vec![],
             Unmet::WrittenOver { block: b, version } => {
                 let numbers = self.run().map(|run| &run.numbers);
                 let number = numbers.and_then(|n| n.get(&(b.clone(), *version)));
-                (
-                    &f.written_over,
-                    vec![block(b), ("version", number.map_or_else(String::new, u64::to_string))],
-                )
+                vec![block(b), ("version", number.map_or_else(String::new, u64::to_string))]
             }
-            Unmet::ChoiceChanged { block: b } => (&f.choice_changed, vec![block(b)]),
-            Unmet::AsksAndWorks => (&f.asks_and_works, vec![]),
-            Unmet::NotWatched { name } => (&f.not_watched, vec![("name", name.clone())]),
-            Unmet::NotATool { name } => (&f.not_a_tool, vec![("name", name.clone())]),
-            Unmet::UnchangedNotWritten { block: b } => (&f.unchanged_not_written, vec![block(b)]),
-            Unmet::QuestionTaken { name } => (&f.question_taken, vec![("name", name.clone())]),
-            Unmet::NoSuchQuestion { name } => (&f.no_such_question, vec![("name", name.clone())]),
-            Unmet::QuestionTwice { name } => (&f.question_twice, vec![("name", name.clone())]),
-            Unmet::NotAnOption { name } => (&f.not_an_option, vec![("name", name.clone())]),
-            Unmet::NotAnswerable { name } => (&f.not_answerable, vec![("name", name.clone())]),
-            Unmet::NotAnswered { name } => (&f.not_answered, vec![("name", name.clone())]),
-            Unmet::Unexplained { path } => (&f.unexplained, vec![("path", path.clone())]),
-            Unmet::NotATest { path } => (&f.not_a_test, vec![("path", path.clone())]),
-            Unmet::Uncommitted { changes } => (&f.uncommitted, vec![("changes", changes.clone())]),
-            Unmet::Merging { changes } => (&f.merging, vec![("changes", changes.clone())]),
-            Unmet::TreeUnchanged { name } => (&f.tree_unchanged, vec![("name", name.clone())]),
-            Unmet::NotAnEntry { line } => (&f.not_an_entry, vec![("line", line.clone())]),
-            Unmet::Unanswered { block } => (&f.unanswered, vec![("block", block.to_string())]),
+            Unmet::ChoiceChanged { block: b } => vec![block(b)],
+            Unmet::AsksAndWorks => vec![],
+            Unmet::NotWatched { name } => vec![("name", name.clone())],
+            Unmet::NotATool { name } => vec![("name", name.clone())],
+            Unmet::UnchangedNotWritten { block: b } => vec![block(b)],
+            Unmet::QuestionTaken { name } => vec![("name", name.clone())],
+            Unmet::NoSuchQuestion { name } => vec![("name", name.clone())],
+            Unmet::QuestionTwice { name } => vec![("name", name.clone())],
+            Unmet::NotAnOption { name } => vec![("name", name.clone())],
+            Unmet::NotAnswerable { name } => vec![("name", name.clone())],
+            Unmet::NotAnswered { name } => vec![("name", name.clone())],
+            Unmet::Unexplained { path } => vec![("path", path.clone())],
+            Unmet::NotATest { path } => vec![("path", path.clone())],
+            Unmet::Uncommitted { changes } => vec![("changes", changes.clone())],
+            Unmet::Merging { changes } => vec![("changes", changes.clone())],
+            Unmet::TreeUnchanged { name } => vec![("name", name.clone())],
+            Unmet::NotAnEntry { line } => vec![("line", line.clone())],
+            Unmet::Unanswered { block } => vec![("block", block.to_string())],
             Unmet::WordOwed { name, watched } => {
                 let ticked: Vec<String> = watched.iter().map(|b| format!("`{b}`")).collect();
                 let watched = ticked.join(&words.between);
-                (&f.word_owed, vec![("name", name.to_string()), ("watched", watched)])
+                vec![("name", name.to_string()), ("watched", watched)]
             }
-            Unmet::NoPoint { block: b, value, name } => (
-                &f.no_point,
-                vec![block(b), ("value", value.clone()), ("name", name.to_string())],
-            ),
+            Unmet::NoPoint { block: b, value, name } => {
+                vec![block(b), ("value", value.clone()), ("name", name.to_string())]
+            }
         };
+        // The sentence is the file's for the key the page shows (`Unmet::key`); every key has one (a test holds it).
+        let text = f
+            .text(unmet.key())
+            .expect("every key of a reason a return is sent back for has its sentence");
         let places: Vec<(&str, &str)> = places.iter().map(|(name, value)| (*name, value.as_str())).collect();
         text::as_written(&fill(text.trim_end(), &places))
     }

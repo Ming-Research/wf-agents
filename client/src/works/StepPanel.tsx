@@ -12,7 +12,7 @@
 import { Fragment, type ReactNode, useCallback } from 'react';
 
 import { StateMark, markName } from '../marks';
-import { Fold, ListRow, Sign, StatusLine } from '../parts';
+import { Attr, Fold, ListRow, Sign, StatusLine } from '../parts';
 import type { CallRow, Following, Handed, Round, Run, Step, Unmet, WorkPage } from '../works-api';
 import { CallsTook, Opener, Parts } from './marks';
 import { type HistoryRow, type SessionStep, runState } from './placing';
@@ -37,7 +37,6 @@ import {
   sentence,
   sessionWords,
   spentWords,
-  unmetWords,
   writerWords,
 } from './words';
 
@@ -191,7 +190,12 @@ function RoundPart({ run, round, calls, first, timed, sentBack, failedBefore, re
             <dd>
               <ul className="reasons">
                 {sentBack.map((u, i) => (
-                  <ListRow key={i}>{unmetWords(u)}</ListRow>
+                  <ListRow key={i}>
+                    <span className="mono">{u.key}</span>
+                    {u.values.map((v, j) => (
+                      <Attr key={j} name={v.name} value={v.value} />
+                    ))}
+                  </ListRow>
                 ))}
               </ul>
             </dd>
