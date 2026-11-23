@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 55);
+    assert_eq!(tables.len(), 57);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -341,14 +341,14 @@ fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_run
 }
 
 #[test]
-fn a_file_of_version_26_keeps_its_observations_and_their_readings_as_it_is_migrated() {
+fn a_file_of_version_28_keeps_its_observations_and_their_readings_as_it_is_migrated() {
     let mut d = Driver::new();
     d.wrote("request", Outsider::Person, None);
     d.end(Came {
         said: super::observations::observing(&["The first.", "The second."]),
         ..hands_in(&[("text", None)])
     });
-    let (old, new) = kept_in(26, &d.work);
+    let (old, new) = kept_in(28, &d.work);
     // The owner read the first, in the file made before.
     (Connection::open(&old.path).expect("the database opens"))
         .execute("INSERT INTO observations_read (observation, at) VALUES (1, 5000)", [])
@@ -394,7 +394,7 @@ fn a_migrated_file_has_sound_foreign_keys_and_takes_the_reading_and_the_changes_
         said: super::observations::observing(&["Kept before."]),
         ..hands_in(&[("text", None)])
     });
-    let (old, _new) = kept_in(26, &d.work);
+    let (old, _new) = kept_in(28, &d.work);
     old.open();
     let file = Connection::open(&old.path).expect("the database opens");
     let broken: Vec<String> = {

@@ -96,6 +96,7 @@ async fn engine_act(State(handle): State<Handle>, body: Bytes) -> Response {
         EngineAct::Pause {} => handle.pause_everything(true).await,
         EngineAct::Resume {} => handle.pause_everything(false).await,
         EngineAct::KeepWarm { on } => handle.keep_warm(on).await,
+        EngineAct::Stop { now } => handle.stop(now).await,
     };
     match done {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),

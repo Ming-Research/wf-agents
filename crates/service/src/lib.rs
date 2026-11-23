@@ -128,6 +128,11 @@ pub enum Message {
         paused: bool,
         reply: oneshot::Sender<Result<(), Refusal>>,
     },
+    /// The engine is asked to stop: once what is under way has ended, or, where `at_once`, at once.
+    Stop {
+        at_once: bool,
+        reply: oneshot::Sender<Result<(), Refusal>>,
+    },
     /// The owner has the sessions of works that wait kept warm, or has them kept no longer.
     KeepWarm {
         warm: bool,
@@ -385,11 +390,14 @@ impl Service {
         &self.driver
     }
 
-    /// Takes what comes, in order, until something stops the loop.
-    pub async fn run(mut self, mut inbox: Inbox) -> Fault {
+    /// Takes what comes, in order, until something stops the loop, or the stop the engine was asked for lets it end:
+    /// at once where it was asked to stop at once, else once nothing is under way and the end of what was is kept
+    /// ([`Driver::may_end`]).
+    pub async fn run(mut self, mut inbox: Inbox) -> Result<(), Fault> {
         while let Some(message) = inbox.recv().await {
-            if let Err(fault) = self.take(message) {
-                return fault;
+            self.take(message)?;
+            if self.driver.may_end() {
+                return Ok(());
             }
         }
         unreachable!("the loop holds a way into its own channel, which therefore never closes")
@@ -561,6 +569,32 @@ impl Service {
                         // What every work does now may have changed, though no record of one grew.
                         let works: Vec<WorkNumber> = self.driver.works().map(|kept| kept.head.number).collect();
                         self.tell_paused(works.clone());
+                        let _ = self.changed.send(Changed {
+                            works,
+                            items: false,
+                            copies: false,
+                            accounts: false,
+                            observations: false,
+                        });
+                        return Ok(());
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
+            }
+            Message::Stop { at_once, reply } => {
+                let now = self.now()?;
+                match self.driver.ask_to_stop(now, at_once) {
+                    Ok(()) => {
+                        let _ = reply.send(Ok(()));
+                        // What every work does now may have changed, though no record of one grew.
+                        let works: Vec<WorkNumber> = self.driver.works().map(|kept| kept.head.number).collect();
                         let _ = self.changed.send(Changed {
                             works,
                             items: false,
@@ -1188,6 +1222,16 @@ impl Handle {
         answer.await.map_err(|_| Refusal::Gone)?
     }
 
+    /// Asks the engine to stop: once what is under way has ended, or, where `at_once`, at once. From then no round of
+    /// any work begins; the loop ends as the stop lets it ([`Service::run`]).
+    pub async fn stop(&self, at_once: bool) -> Result<(), Refusal> {
+        let (reply, answer) = oneshot::channel();
+        (self.to)
+            .send(Message::Stop { at_once, reply })
+            .map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
     /// Has the sessions of works that wait kept warm, or has them kept no longer: the engine's own state, which holds
     /// when it starts again.
     pub async fn keep_warm(&self, warm: bool) -> Result<(), Refusal> {
@@ -1478,9 +1522,9 @@ impl Handle {
                 said,
             });
         }
-        // A fork that ran took what it cost, whether or not it answered, and the work keeps that; one refused before
-        // its program ran took nothing.
-        if let Some(event) = fork_event(run, round, &forked) {
+        // A fork that ran took what it cost, whether or not it answered, and may have left processes running, which
+        // were stopped; the work keeps both. One refused before its program ran took nothing and left nothing.
+        for event in fork_events(run, round, &forked) {
             let _ = (self.to).send(Message::Happened { work, event });
         }
         Ok(Some(forked.map_err(|failed| failed.to_string())))
@@ -1632,14 +1676,20 @@ fn kind_of(kept: &driver::Kept<'_>, cell: &CellId) -> Option<Kind> {
         .map(|c| if c.agent { Kind::Agent } else { Kind::Engine })
 }
 
-/// What the work keeps of a fork of the round of this number of the run that ended: what it took, whether it answered
-/// or failed having run; none for one refused before its program ran, which took nothing.
-fn fork_event(run: RunId, round: usize, asked: &Result<Forked, ForkFailed>) -> Option<Event> {
-    let spent = match asked {
-        Ok(forked) => Some(forked.spent),
-        Err(failed) => failed.spent,
-    }?;
-    Some(Event::Forked { run, round, spent })
+/// What the work keeps of a fork of the round of this number of the run that ended, whether it answered or failed
+/// having run: the processes its program left running, which were stopped before its end was given, where it left
+/// any, then what it took; nothing for one refused before its program ran, which took nothing and left nothing.
+fn fork_events(run: RunId, round: usize, asked: &Result<Forked, ForkFailed>) -> Vec<Event> {
+    let (spent, left) = match asked {
+        Ok(forked) => (Some(forked.spent), forked.left),
+        Err(failed) => (failed.spent, failed.left),
+    };
+    let left = (left > 0).then_some(Event::LeftBehind {
+        of: work::Left::Fork { run, round },
+        processes: left,
+    });
+    let spent = spent.map(|spent| Event::Forked { run, round, spent });
+    left.into_iter().chain(spent).collect()
 }
 
 /// What a fork of a round of the work reads which session the round ran in by: the outline of the version the work is
@@ -1687,8 +1737,8 @@ mod tests {
 
     use super::*;
 
-    // What the work keeps of a fork is what it took where its program ran, whether it answered or not, and nothing of
-    // one refused before it ran.
+    // What the work keeps of a fork is what it took where its program ran, whether it answered or not, with what its
+    // program left running before it where it left any, and nothing of one refused before it ran.
     #[test]
     fn a_fork_that_ran_is_kept_whether_it_answered_or_failed_and_one_refused_before_it_ran_is_not() {
         let spent = work::Spent {
@@ -1696,7 +1746,7 @@ mod tests {
             input_tokens: 120,
             ..Default::default()
         };
-        let forked = Forked {
+        let forked = |left| Forked {
             answer: None,
             text: "It said this.".to_string(),
             spent,
@@ -1709,22 +1759,31 @@ mod tests {
             account: "work".to_string(),
             instead: None,
             usage: None,
+            left,
         };
-        let event = |spent| {
-            Some(Event::Forked {
+        let took = Event::Forked {
+            run: RunId(7),
+            round: 1,
+            spent,
+        };
+        let left = |processes| Event::LeftBehind {
+            of: work::Left::Fork {
                 run: RunId(7),
                 round: 1,
-                spent,
-            })
+            },
+            processes,
         };
-        assert_eq!(fork_event(RunId(7), 1, &Ok(forked)), event(spent));
-        let failed = ForkFailed {
+        assert_eq!(fork_events(RunId(7), 1, &Ok(forked(0))), std::slice::from_ref(&took));
+        assert_eq!(fork_events(RunId(7), 1, &Ok(forked(2))), [left(2), took.clone()]);
+        let failed = |left| ForkFailed {
             why: "The fork wrote no answer.".to_string(),
             spent: Some(spent),
+            left,
         };
-        assert_eq!(fork_event(RunId(7), 1, &Err(failed)), event(spent));
+        assert_eq!(fork_events(RunId(7), 1, &Err(failed(0))), std::slice::from_ref(&took));
+        assert_eq!(fork_events(RunId(7), 1, &Err(failed(1))), [left(1), took]);
         let refused = ForkFailed::from("No account is in use.");
-        assert_eq!(fork_event(RunId(7), 1, &Err(refused)), None);
+        assert!(fork_events(RunId(7), 1, &Err(refused)).is_empty());
     }
 
     /// The flow of a deliverable item as the repository defines it (`flow/deliver`), whose one cell, `V1`, is the

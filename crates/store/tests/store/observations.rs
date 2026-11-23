@@ -116,13 +116,15 @@ fn a_return_sent_back_keeps_no_observation_where_the_return_taken_was_made_in_it
     assert_eq!(taken, [(1, "Said again in the return taken.".to_string(), run, 2)]);
 }
 
-/// The writer's line begins a new session, for this reason, and the try of the round under way begins in it.
-fn anew(d: &mut Driver, why: engine::Why) {
+/// The writer's line begins a new session, for this reason, as the next thing that happens to the work is taken, as the
+/// driver records one: the round that thing begins runs in it.
+fn anew_with_the_next_event(d: &mut Driver, why: engine::Why) {
+    d.anew_before_the_next_round("main", why);
+}
+
+/// The try of the round under way begins.
+fn tries(d: &mut Driver) {
     let run = running(d);
-    d.on(Event::Anew {
-        line: "main".to_string(),
-        why,
-    });
     let on = engine::RanOn {
         level: "2".to_string(),
         model: "a model".to_string(),
@@ -149,11 +151,12 @@ fn a_return_sent_back_keeps_its_observations_where_the_return_taken_was_made_in_
     // The first round is sent back, and a session was begun anew for its context, as records kept before the program
     // compacted a session instead still hold: the second runs in a session that never saw what the first returned, and
     // its return taken says nothing of the first's observation.
+    anew_with_the_next_event(&mut d, engine::Why::Limit { context: 9, limit: 5 });
     d.end(Came {
         said: observing(&["Said in the first session."]),
         ..wanting()
     });
-    anew(&mut d, engine::Why::Limit { context: 9, limit: 5 });
+    tries(&mut d);
     d.end(handing_in(&[("text", None)], &["Said in the second session."]));
     let path = d.saving.as_ref().expect("saved").db.path.clone();
     assert_eq!(
@@ -175,11 +178,12 @@ fn of_the_returns_sent_back_in_one_session_only_the_last_is_kept_once_a_later_se
         said: observing(&["The first said, and taken back."]),
         ..wanting()
     });
+    anew_with_the_next_event(&mut d, engine::Why::Owner);
     d.end(Came {
         said: observing(&["The second said."]),
         ..wanting()
     });
-    anew(&mut d, engine::Why::Owner);
+    tries(&mut d);
     d.end(handing_in(&[("text", None)], &["The third said."]));
     let path = d.saving.as_ref().expect("saved").db.path.clone();
     assert_eq!(
@@ -196,11 +200,12 @@ fn of_the_returns_sent_back_in_one_session_only_the_last_is_kept_once_a_later_se
 fn a_return_sent_back_keeps_its_observations_where_its_session_was_compacted_before_the_return_taken() {
     let mut d = Driver::saved();
     d.wrote("request", Outsider::Person, None);
+    anew_with_the_next_event(&mut d, engine::Why::Compacted);
     d.end(Came {
         said: observing(&["Said before the compaction."]),
         ..wanting()
     });
-    anew(&mut d, engine::Why::Compacted);
+    tries(&mut d);
     d.end(handing_in(&[("text", None)], &["Said after it."]));
     let path = d.saving.as_ref().expect("saved").db.path.clone();
     assert_eq!(

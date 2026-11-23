@@ -74,9 +74,13 @@ pub struct Outage {
     pub checked: Option<Checked>,
     /// When the rounds it holds may begin again.
     pub until: Until,
-    /// Whether it holds rounds now: once a check found the outside well, it stands only until a round that began after
-    /// the latest that failed so comes back, and holds nothing meanwhile.
+    /// Whether it holds rounds now: once a check found the outside well, or a look reached the acts' host, it stands
+    /// until a round that began after the latest that failed so comes back, and holds every other round while that one,
+    /// which goes first, is under way.
     pub holds: bool,
+    /// The work whose round goes first, while it is under way and the wait holds the others for it.
+    #[serde(default)]
+    pub first: Option<u64>,
     /// Whether the owner has let the engine move to another account at a usage limit and some other account may yet be
     /// moved to in this wait: then the wait ends when the engine moves as well as when the limit resets.
     #[serde(default)]
@@ -118,7 +122,7 @@ pub enum Until {
     /// Once a check of the outside of the agents' rounds, which the engine takes at this time, finds it well: at a
     /// usage limit whose reset was said, at the reset.
     Checked { at: u64 },
-    /// Now: the check taken at this time found the outside well, and every work goes on.
+    /// Now: the check taken at this time found the outside well, and one round goes first.
     Well { at: u64 },
     /// Every act, once a look at the host, taken every half minute from this time, reaches it.
     Looked { at: u64 },
@@ -581,6 +585,8 @@ pub enum Waited {
     Slot {},
     /// The wait every work shares: the cell's agent's round does not begin until it is over.
     Agents { outage: Outage },
+    /// The engine was asked to stop at this time, and no round of any work begins until it has started again.
+    Stopping { since: u64 },
     /// The owner's answer to the latest version of this question, which the cell asked and waits for.
     Answer { question: String },
     /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
@@ -1864,6 +1870,9 @@ pub struct ForkPage {
     /// Why that is the account in use and not the one the session ran under, whose cache holds the session, where it
     /// is.
     pub instead: Option<ForkInstead>,
+    /// How many processes its program left running in its group as it ended, which were stopped.
+    #[serde(default)]
+    pub left: usize,
 }
 
 /// Why a fork ran under the account in use and not the one its session last ran under: that one was removed, or the
@@ -1892,6 +1901,7 @@ impl ForkPage {
                 service::Instead::Removed(account) => ForkInstead::Removed { account },
                 service::Instead::NoAccount => ForkInstead::NoAccount,
             }),
+            left: forked.left,
         }
     }
 }
@@ -1927,7 +1937,7 @@ pub struct NewItem {
     pub writes: Vec<NewWrite>,
 }
 
-/// The engine as a whole: its slots, and the pause of everything.
+/// The engine as a whole: its slots, the pause of everything, and the stop it was asked for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Engine {
@@ -1940,6 +1950,18 @@ pub struct Engine {
     /// Whether the sessions of works that wait are kept warm: the engine's own state, which the owner switches, on
     /// until they switch it off.
     pub keep_warm: bool,
+    /// The stop the engine was asked for, while it stands: no round of any work begins, and the engine ends once what
+    /// is under way has, or at once.
+    #[serde(default)]
+    pub stopping: Option<Stopping>,
+}
+
+/// A stop of the engine that stands: since when it was asked for, and whether at once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stopping {
+    pub since: u64,
+    pub at_once: bool,
 }
 
 /// The pause of everything: when it began, and who set it, the owner, or the engine as it started with works going on,
@@ -1951,7 +1973,9 @@ pub struct EverythingPaused {
     pub by: Pauser,
 }
 
-/// What the owner does to the engine as a whole on the pages, each kind a struct as an [`Act`] is.
+/// What is done to the engine as a whole through its interface, each kind a struct as an [`Act`] is: the pause of
+/// everything and the switch that keeps sessions warm are the owner's on the pages, and the stop is asked for on the
+/// command line alone, by whoever installs a new build.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -1967,6 +1991,9 @@ pub enum EngineAct {
     /// Keeps the sessions of works that wait warm, or keeps them so no longer, as `on` says: one act for a switch the
     /// owner sets either way, so that it says where the switch now stands and not which way it was moved.
     KeepWarm { on: bool },
+    /// Stops the engine: no round of any work begins from then, and it ends once what is under way has ended, or, where
+    /// `now`, at once, cutting that off.
+    Stop { now: bool },
 }
 
 /// A block written as an item is added.
@@ -2276,11 +2303,13 @@ fn levels_of(
 }
 
 /// What holds every work at once, as the bar reads it at a moment: each stretch the pause of everything held, from the
-/// store's record of every pause set and lifted; and the agents' wait where their command line cannot run, from when,
+/// store's record of every pause set and lifted; each stretch a stop of the engine stood, from its record of each stop
+/// and each start after one; and the agents' wait where their command line cannot run, from when,
 /// with what it said. Whether that wait held at a moment before is not kept: the engine's checks of the outside, which
 /// end it, are no records, so only the one that stands now is read, from when it began.
 struct HeldAll {
     everything: Vec<driver::Span>,
+    stops: Vec<driver::StopSpan>,
     cannot_run: Option<(Time, String)>,
 }
 
@@ -2288,6 +2317,7 @@ impl HeldAll {
     fn of(driver: &Driver, at_once: &driver::AtOnce) -> HeldAll {
         HeldAll {
             everything: driver.everything_spans().to_vec(),
+            stops: driver.stop_spans(),
             cannot_run: at_once.cannot_run().map(|(since, why)| (since, why.to_string())),
         }
     }
@@ -2313,7 +2343,13 @@ impl<'a> TimeOf<'a> {
         }
         if kept.on.installed() {
             let cannot_run = all.cannot_run.as_ref().map(|(since, why)| (*since, why.as_str()));
-            return TimeOf::Decided(driver::time::Waits::new(kept, &all.everything, cannot_run, now));
+            return TimeOf::Decided(driver::time::Waits::new(
+                kept,
+                &all.everything,
+                &all.stops,
+                cannot_run,
+                now,
+            ));
         }
         let tried = |run: RunId| work.ran.iter().any(|ran| ran.run == run);
         let end = work.moments.last().map_or(now, |moment| moment.at);
@@ -2349,7 +2385,8 @@ fn mark(went: Went) -> char {
         Went::Model => 'm',
         Went::Tools => 't',
         Went::Owner => 'o',
-        Went::Paused => 'p',
+        // A stop of the engine is drawn as a pause, with no mark of its own: what it is the records keep apart.
+        Went::Paused | Went::Stopping => 'p',
         Went::Items => 'w',
         Went::Other => '.',
     }
@@ -2426,7 +2463,7 @@ impl Now {
     }
 
     /// What the work does now. Of what holds it back, its own pause is said first, then the owner's pause of
-    /// everything, then the wait every work shares, then a slot. A round under way whose act waits for the project's
+    /// everything, then the stop of the engine, then the wait every work shares, then a slot. A round under way whose act waits for the project's
     /// turn, as the act says, waits for it.
     pub(crate) fn of(
         kept: Kept<'_>,
@@ -2449,6 +2486,13 @@ impl Now {
             outage.as_ref().filter(|o| o.holds)
         };
         let shared = |cell: &CellId| holding(cell).is_some();
+        // Held by the stop of the engine, which holds every round while it stands.
+        let stopped = |cell: &CellId| {
+            (outages.stopping).map(|since| Now::Waits {
+                at: cell.to_string(),
+                on: vec![Waited::Stopping { since }],
+            })
+        };
         let waits_shared = |cell: &CellId| Now::Waits {
             at: cell.to_string(),
             on: holding(cell)
@@ -2497,8 +2541,15 @@ impl Now {
             // so only then, as when the run's last round failed and the work was paused.
             Decision::GoOn { cell, .. } if held == Some(Holder::Pause) => Now::paused(work, cell)?,
             Decision::GoOn { cell, .. } if held == Some(Holder::Everything) => everything(cell)?,
-            // A cell that would run or go on, and does not, is held by the wait every work shares, where it holds now
-            // and holds the cell's rounds: the engine leaves a work so only then. It is said before a slot.
+            // A cell that would run or go on, and does not, is held by the stop of the engine where one stands, else by
+            // the wait every work shares, where it holds now and holds the cell's rounds: the engine leaves a work so
+            // only then. Each is said before a slot.
+            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if outages.stopping.is_some() => {
+                stopped(cell).ok_or_else(|| Broken("no stop stands".to_string()))?
+            }
+            Decision::Wait { at, on } if on == &[WaitedOf::Slot] && outages.stopping.is_some() => {
+                stopped(at).ok_or_else(|| Broken("no stop stands".to_string()))?
+            }
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if shared(cell) => waits_shared(cell),
             Decision::Wait { at, on } if on == &[WaitedOf::Slot] && shared(at) => waits_shared(at),
             Decision::GoOn { cell, .. } if held == Some(Holder::Slot) => Now::Waits {
@@ -3132,6 +3183,10 @@ impl Engine {
                 by: Pauser::of(paused.by),
             }),
             keep_warm: driver.keeping_warm(),
+            stopping: driver.stopping().map(|stop| Stopping {
+                since: stop.since.0,
+                at_once: stop.at_once,
+            }),
         }
     }
 }
@@ -3531,6 +3586,8 @@ pub struct Outages {
     pub host: Option<Outage>,
     /// Who set the pause of everything, where it holds; none where it does not.
     pub everything: Option<Pauser>,
+    /// When the engine was asked to stop, where a stop stands; none where none does.
+    pub stopping: Option<u64>,
 }
 
 impl Outages {
@@ -3542,6 +3599,7 @@ impl Outages {
             agents: at_once.agents.as_ref().map(|outage| Outage::of(outage, agents)),
             host: at_once.host.as_ref().map(|outage| Outage::of(outage, host)),
             everything: at_once.everything.map(|paused| Pauser::of(paused.by)),
+            stopping: at_once.stopping.map(|stop| stop.since.0),
         }
     }
 }
@@ -3595,6 +3653,11 @@ impl Outage {
                 UntilOf::Looked { at } => Until::Looked { at: at.0 },
             },
             holds,
+            first: outage
+                .goes_first()
+                .then_some(outage.trying)
+                .flatten()
+                .map(|work| work.0),
             may_move: outage.may_move,
         }
     }
@@ -4246,6 +4309,7 @@ pub(crate) mod tests {
         let kept = stored.kept(&flow, &on, &work);
         let all = HeldAll {
             everything: Vec::new(),
+            stops: Vec::new(),
             cannot_run: None,
         };
         let third = (BAR_CELLS / 3) as usize;
@@ -4500,12 +4564,14 @@ pub(crate) mod tests {
         let now = Time(t + 500);
         let all = HeldAll {
             everything,
+            stops: Vec::new(),
             cannot_run: None,
         };
         let stored = Stored::new(&flow.name);
         let on = driver::On::installed_flow(&flow);
         let live = bar(stored.kept(&flow, &on, &work), &all, now);
-        let stretches = driver::time::stretches(&stored.kept(&flow, &on, &work), &all.everything, None, now);
+        let stretches =
+            driver::time::stretches(&stored.kept(&flow, &on, &work), &all.everything, &all.stops, None, now);
         let mut ended = work.clone();
         ended.kept_time.push(work::KeptTime {
             at: work.tick(),
