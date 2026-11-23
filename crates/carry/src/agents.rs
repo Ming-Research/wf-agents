@@ -2455,6 +2455,29 @@ mod tests {
         assert_eq!(chars_of(&failed), 0);
     }
 
+    // What a round under way is told is in the words of the message's file: the owner's own words to its cell ask for
+    // its answer, and the owner turning to a cell before its own asks it to hand in what it has.
+    #[test]
+    fn a_round_is_told_in_the_words_of_its_telling_which_ask_for_an_answer_or_for_what_it_has() {
+        let (_, beside) = engineer();
+        let telling = |hurry: bool| Telling {
+            entry: "The owner: Shorter, please.".to_string(),
+            block: "d1_words".into(),
+            number: 2,
+            does: None,
+            versions: vec![("d1_words".into(), Seq(5))],
+            hurry,
+        };
+        let heading = "## `d1_words`, version 2, said while this round is running\n\nThe owner: Shorter, please.";
+        let own = said(&beside, &telling(false));
+        assert!(own.starts_with(heading), "{own}");
+        assert!(own.contains("hand in your answer now"), "{own}");
+        let hurried = said(&beside, &telling(true));
+        assert!(hurried.starts_with(heading), "{hurried}");
+        assert!(hurried.contains("hand in what you have now"), "{hurried}");
+        assert!(!hurried.contains("your answer"), "{hurried}");
+    }
+
     /// The engineer's flow as the repository defines it, and what is written beside it.
     fn engineer() -> (flow::Compiled, Beside) {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
