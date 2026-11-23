@@ -113,12 +113,6 @@ fn with_line(checkout: &Path, line: &str) {
     std::fs::write(checkout.join("crates/tiny/build.rs"), changed).unwrap();
 }
 
-/// The checkout's build script with `from` replaced by `to`.
-fn with_replaced(checkout: &Path, from: &str, to: &str) {
-    assert!(BUILD.contains(from), "the script has no {from}");
-    std::fs::write(checkout.join("crates/tiny/build.rs"), BUILD.replacen(from, to, 1)).unwrap();
-}
-
 #[test]
 fn two_checkouts_that_share_a_build_directory_each_embed_their_own_page() {
     let base = tempfile::tempdir().unwrap();
@@ -192,34 +186,4 @@ fn a_page_not_built_from_the_sources_at_hand_is_not_built_in() {
         "{said}"
     );
     assert!(said.contains("npm run build"), "{said}");
-}
-
-#[test]
-fn temporary_a_script_that_does_not_watch_the_page_fails_on_the_page_built_again() {
-    let base = tempfile::tempdir().unwrap();
-    let target = base.path().join("target");
-    let a = checkout(base.path(), "a", "the first page");
-    with_replaced(&a, "println!(\"cargo::rerun-if-changed=../../client/dist\");", "");
-    std::fs::create_dir_all(a.join("client/dist/assets")).unwrap();
-    std::fs::write(a.join("client/dist/assets/app-1.js"), "one").unwrap();
-    assert_eq!(page_built(&a, &target), "the first page");
-    std::fs::remove_file(a.join("client/dist/assets/app-1.js")).unwrap();
-    std::fs::write(a.join("client/dist/assets/app-2.js"), "two").unwrap();
-    let out = cargo_build(&a, &target);
-    assert!(!out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    eprintln!("{}", String::from_utf8_lossy(&out.stderr));
-}
-
-#[test]
-fn temporary_a_script_that_does_not_check_the_sources_builds_a_page_that_is_not_theirs() {
-    let base = tempfile::tempdir().unwrap();
-    let target = base.path().join("target");
-    let a = checkout(base.path(), "a", "the page of a");
-    with_replaced(
-        &a,
-        "stamp::check(&client, &stamped)",
-        "Ok::<Vec<String>, String>(Vec::new())",
-    );
-    std::fs::write(a.join("client/src/page.ts"), "changed after the page was built").unwrap();
-    assert_eq!(page_built(&a, &target), "the page of a");
 }
