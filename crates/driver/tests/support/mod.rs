@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited, Who};
+use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited};
 use driver::{Asked, DEPENDENCIES, Driver, Failed, Fault, FirstWrite, Found, MERGED, NewItem, Todo, WAITING};
 use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Moment, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
@@ -1539,6 +1539,23 @@ impl H {
         spent(self.ended)
     }
 
+    /// The round of the work under way, and the two after it, return nothing and ask for nothing, so that each is sent
+    /// back until the run reaches its limit of returns: the owner's call, which the third return makes.
+    pub fn at_limit(&mut self, work: WorkNumber) -> CallId {
+        for _ in 0..2 {
+            self.returns(work, Came::asks(vec![]));
+        }
+        let todos = self.returns(work, Came::asks(vec![]));
+        let calls: Vec<CallId> = (todos.iter())
+            .filter_map(|todo| match &todo.effect {
+                Effect::Call { call, .. } => Some(*call),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls.len(), 1, "the limit of returns was not reached: {todos:?}");
+        calls[0]
+    }
+
     /// The call has its result.
     pub fn answer(&mut self, work: WorkNumber, call: CallId) -> Vec<Todo> {
         let result = format!("the result of {}", call.0);
@@ -1998,13 +2015,6 @@ pub fn tool(name: &str) -> Ask {
     Ask::Tool {
         name: name.to_string(),
         input: format!("what {name} is run on"),
-    }
-}
-
-pub fn question(who: Who) -> Ask {
-    Ask::Person {
-        who,
-        question: "which way?".to_string(),
     }
 }
 
