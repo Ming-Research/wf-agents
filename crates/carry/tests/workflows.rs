@@ -1,5 +1,5 @@
 //! The repository's CI workflows as the engine relies on them. The engine runs the workflows the project declares
-//! (`ci` in flow/project.toml) by hand on the commit it gives, finds its own run by the value it gives (`call`) in the
+//! (`ci` in wf-agents.toml) by hand on the commit it gives, finds its own run by the value it gives (`call`) in the
 //! run's name, and judges a run by the conclusions of its jobs and by the JUnit of its tests, or of its timings, in the
 //! artifact `test-results`; so a job renamed, or added to the wrong workflow, or a trigger changed, or JUnit left out,
 //! changes what a green run means. GitHub is the reference for the workflow syntax; the comments at the head of each
@@ -754,9 +754,12 @@ fn every_script_of_the_workflows_parses() {
 
 /// The measure workflow the repository's declaration names, as the engine reads that declaration.
 fn declared_measure() -> flow::agents::CiMeasure {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow");
-    let agents = flow::agents::read(&root).expect("the declaration is read");
-    (agents.project.ci.expect("the project declares its workflows"))
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let agents = flow::agents::read(&root.join("flow")).expect("what is written beside the flows is read");
+    let text = std::fs::read_to_string(root.join(flow::agents::DECLARATION)).expect("the declaration is read");
+    let declaration = flow::agents::Declaration::read(&text, flow::agents::DECLARATION, &agents)
+        .expect("the repository's declaration is one");
+    (declaration.ci.expect("the project declares its workflows"))
         .measure
         .expect("the project declares a measure workflow")
 }

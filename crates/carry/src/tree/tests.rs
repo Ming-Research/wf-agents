@@ -567,7 +567,7 @@ fn files_under(root: &Path, dir: &Path, into: &mut Vec<(String, String)>) {
     }
 }
 
-// This repository's own declaration (`[tree_format]` of `flow/project.toml`, with its words in
+// This repository's own declaration (`[tree_format]` of `wf-agents.toml`, with its words in
 // `flow/agents/message/given.toml`) finds every entry of this repository's own design tree as the tree's rules
 // (`design/README.md`) write one, and gives each whole. By those rules the principles are in `principles/` and the
 // decisions in `decisions/`, an entry begins `### principle <name>` or `### decision <name>`, "each line of an entry"
@@ -585,8 +585,11 @@ fn files_under(root: &Path, dir: &Path, into: &mut Vec<(String, String)>) {
 async fn this_repository_s_declaration_finds_and_gives_whole_every_entry_of_its_own_design_tree() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let agents = flow::agents::read(&root.join("flow")).expect("the files beside the flows are read");
-    let format = (agents.project.tree_format.clone()).expect("the declaration gives the format of the tree");
-    let tree = agents.project.tree.clone();
+    let text = std::fs::read_to_string(root.join(flow::agents::DECLARATION)).expect("the declaration is read");
+    let declaration = flow::agents::Declaration::read(&text, flow::agents::DECLARATION, &agents)
+        .expect("the repository's declaration is one");
+    let format = (declaration.tree_format.clone()).expect("the declaration gives the format of the tree");
+    let tree = declaration.tree.clone();
     let words = agents.given.entries.clone();
     let design = tree.trim_end_matches('/');
     let readme = std::fs::read_to_string(root.join(design).join("README.md")).expect("the tree's rules are read");
