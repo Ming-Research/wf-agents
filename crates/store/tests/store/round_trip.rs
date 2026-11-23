@@ -209,6 +209,7 @@ fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_
         .collect();
     assert_eq!(mattering, ["Integer(1)", "Integer(0)"]);
     assert_eq!(rows["put_in"].len(), 1);
+    assert_eq!(rows["hurried"].len(), 1);
     // Each try that was filled, the round tried twice among them.
     assert_eq!(rows["filled"].len(), 5);
     assert!(new.filled.iter().any(|f| f.attempt == 2));

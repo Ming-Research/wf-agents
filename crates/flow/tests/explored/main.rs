@@ -290,11 +290,4 @@ const NEVER: &[(&str, &str)] = &[
          dispute to, having dealt with the points as it asked, hands in nothing: a judge's fail, the question, the \
          answer and a return of nothing, which the exploration does not reach within its bound.",
     ),
-    (
-        "the work waited at M1 on asked = answered",
-        "Every question the exploration asks waits, and a question that waits holds the work at its cell, before M1, \
-         whether or not the cell applies, so asked is waiting only while nothing after that cell runs. That the merge \
-         never begins while a question that does not wait stands unanswered is the histories of questions' \
-         (crates/engine/tests/questions.rs).",
-    ),
 ];

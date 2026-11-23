@@ -26,7 +26,8 @@ Each of these has a limit at which the work waits for the owner: a cell's runs i
 - rejected: an agent proposed counting a cell's ways round separately for each cell that sends it back, so that one pair pushing back and forth stops it; the owner rejected it, because a send-back is itself a fault, and three abnormal send-backs are never let go unsolved.
 
 ### decision a-question-that-waits-holds-its-cell
-A question its cell waits for holds the work at that cell, whether or not the cell applies, until its latest version is answered: no later cell runs, and the answer runs the cell again.
+A question its cell waits for holds the work at that cell while the cell applies, until its latest version is answered: no later cell runs, and the answer runs the cell again.
+- replaced: A question its cell waits for holding the work whether or not the cell applied was on main; the owner changed it, because a skipped cell does not run to take the answer, so the work stopped at a cell it would not run.
 - replaced: A cell that asked a question it waits for leaving whatever waited for the answer out of what it dealt with, so that it stayed new, was on main; the owner changed it, because the question itself brings the cell back, which is what its stop flag was set for.
 
 ### decision a-work-no-cell-can-move-is-stalled
