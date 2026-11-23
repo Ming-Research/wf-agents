@@ -14,10 +14,11 @@
 //! act `check`, the flow `deliver` and the act `deliver`, the blocks `title`, `code`, `tests` and `checked`, each a
 //! place, and the group `change` and the block `merged`, kinds of what the interface sends) is left out, as nothing
 //! tells the two apart in a text; the name of an event the page listens for is the browser's word, and is no name of a
-//! flow; and a name that is a plain word, such as `plan` or `found`, is found inside a longer text only where it is
-//! written as a name, between backticks, and never as a key, since prose and the code's own words use it for its
-//! meaning. A name with a digit or an `_` is no word, and is found wherever it stands, but in the path of a drawing,
-//! and a regular expression is no text at all.
+//! flow; a plain word given as the index of a value, as in `reply["conclusion"]`, is a field of a reply from outside,
+//! read by its sender's word, and is no name of a flow either; and a name that is a plain word, such as `plan` or
+//! `found`, is found inside a longer text only where it is written as a name, between backticks, and never as a key,
+//! since prose and the code's own words use it for its meaning. A name with a digit or an `_` is no word, and is found
+//! wherever it stands, but in the path of a drawing, and a regular expression is no text at all.
 //!
 //! It reads every source of the repository once and compiles the two flows, 0.9 s on CI. It is worth that: a name
 //! written in the code holds for one flow alone, and nothing else finds it until a flow renames the thing and the code
@@ -543,6 +544,27 @@ fn listened(lines: &[&str], literal: &Literal) -> bool {
     })
 }
 
+/// Whether a literal is a plain word given as the index of a value on its line, `reply["conclusion"]`: a field of a
+/// reply from outside, which the code reads by its sender's word. A name with a digit or an `_` is never one, and a
+/// list of words, `["a", "b"]`, or an array after `!` or `=`, is no index.
+fn indexed(lines: &[&str], literal: &Literal) -> bool {
+    if no_word(&literal.text) {
+        return false;
+    }
+    let line = literal.line.checked_sub(1).and_then(|i| lines.get(i));
+    line.is_some_and(|l| {
+        ['\'', '"'].iter().any(|q| {
+            let index = format!("[{q}{}{q}]", literal.text);
+            l.match_indices(&index).any(|(at, _)| {
+                l[..at]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| ident(c) || c == ']' || c == ')')
+            })
+        })
+    })
+}
+
 /// The names the flows give that are not the engine's own: each cell, line, group and block of every flow the
 /// repository defines, without what the engine declares.
 fn flow_names() -> BTreeSet<String> {
@@ -728,7 +750,11 @@ fn no_source_names_a_cell_line_group_or_block_of_a_flow() {
         let at = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
         let text = fs::read_to_string(&path).unwrap_or_default();
         let lines: Vec<&str> = text.lines().collect();
-        for literal in scanned.literals.iter().filter(|l| !listened(&lines, l)) {
+        for literal in scanned
+            .literals
+            .iter()
+            .filter(|l| !listened(&lines, l) && !indexed(&lines, l))
+        {
             for name in named(&literal.text, &names) {
                 found.push(format!("{at}:{}: {name} in \"{}\"", literal.line, literal.text));
             }
@@ -828,6 +854,37 @@ fn a_flow_gives_its_own_name_beside_those_of_its_cells_lines_groups_and_blocks()
             .into_iter()
             .collect()
     );
+}
+
+#[test]
+fn a_plain_word_given_as_the_index_of_a_value_is_a_field_of_a_reply_and_nothing_else_is() {
+    let lines = [
+        r#"let a = run["conclusion"].as_str();"#,
+        r#"let b = rows[0]["conclusion"];"#,
+        r#"let c = ["conclusion", "other"];"#,
+        r#"let d = vec!["conclusion"];"#,
+        r#"let e = names(["conclusion"]);"#,
+        r#"let f = run["plan_owner"];"#,
+        r#"let g = run["conclusion_of"]["plan_owner"];"#,
+        "const h = run['conclusion'];",
+    ];
+    let at = |line: usize, text: &str| {
+        indexed(
+            &lines,
+            &Literal {
+                text: text.to_string(),
+                line,
+            },
+        )
+    };
+    assert!(at(1, "conclusion"));
+    assert!(at(2, "conclusion"));
+    assert!(!at(3, "conclusion"));
+    assert!(!at(4, "conclusion"));
+    assert!(!at(5, "conclusion"));
+    assert!(!at(6, "plan_owner"));
+    assert!(!at(7, "plan_owner"));
+    assert!(at(8, "conclusion"));
 }
 
 #[test]
