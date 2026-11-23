@@ -63,10 +63,12 @@ A decision records a choice the owner made. These choices are the owner's:
 1. an approach that goes against what a decision says;
 2. two or more approaches that would each work, where each gives up something the owner cares about, such as cost,
    time, or what the owner sees or does, each looked into far enough to say why the others lost;
-3. a change that no decision covers to what the owner sees or does.
+3. a change that no decision covers to what the owner sees or does, where more than one approach would work and the page
+   has no look already for the same meaning.
 
 The agent decides the rest itself and says why in its plan: what the item already asks, what a principle or a decision
-settles, or how to make the code correct.
+settles, the only approach that would work, the look the page already has for the same meaning, or how to make the
+code correct.
 
 The approach taken becomes the first line, of the decision that covers it or of a new one. Every approach not taken
 becomes a line under it: `replaced` if it was on main, `rejected` if it was not. This holds whichever approach the

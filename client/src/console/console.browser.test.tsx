@@ -199,6 +199,40 @@ describe('the tree in columns', () => {
     expect(told).toHaveBeenLastCalledWith(null);
   });
 
+  it("writes the number of each card, a shadow's and a deliverable's too, as #n, and starts every title past the widest number the whole tree holds, folded items included", () => {
+    const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
+    // 445, the only number of three digits, stands under item 5, which the tree can fold away.
+    const tree = (folded: boolean) => [
+      { ...card(5, [card(445)]), fold: { folded, under } },
+      card(57),
+      { ...card(7), deliver: true },
+      card(9, [shadow(57)]),
+    ];
+    const texts = () => scene.drawnNumbers().map((n) => `${n.text}${n.shadow ? ' (shadow)' : ''}`);
+    const titles = () => new Set(scene.drawnNumbers().map((n) => n.titleAt));
+    scene.show(tree(false));
+    settle(scene);
+    expect(texts()).toEqual(['#5', '#445', '#57', '#7', '#9', '#57 (shadow)']);
+    expect(titles().size).toBe(1);
+    const [column] = titles();
+    // Folded away, the only card of three digits is not drawn, and no title moves for it.
+    scene.show(tree(true));
+    for (let k = 0; k <= FOLD_MS / 16; k += 1) scene.step();
+    expect(texts()).toEqual(['#5', '#57', '#7', '#9', '#57 (shadow)']);
+    expect([...titles()]).toEqual([column]);
+    // Shown again, the cards that stayed are kept, and the shadow's number is still said.
+    scene.show(tree(false));
+    settle(scene);
+    expect(texts()).toEqual(['#5', '#445', '#57', '#7', '#9', '#57 (shadow)']);
+    expect([...titles()]).toEqual([column]);
+    // A tree of numbers of two digits at most has a narrower column.
+    scene.show([card(5), card(57), shadow(57)]);
+    settle(scene);
+    expect(texts()).toEqual(['#5', '#57', '#57 (shadow)']);
+    expect(titles().size).toBe(1);
+    expect([...titles()][0]).toBeLessThan(column);
+  });
+
   it('folds the items under a card at a click on its funnel and shows them at a click on the dot they fold into, selecting nothing, each fold turning over its time', async () => {
     const told = vi.fn<(item: Shown | null) => void>();
     const turned = vi.fn<(id: number, folded: boolean) => void>();

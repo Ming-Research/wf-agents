@@ -63,7 +63,7 @@ import { accentNow, onAccent, turning } from '../accent';
 import { LINES_LOOKS, levelLook, levelWords } from '../marks';
 import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
-import { NO_LEVEL, STATE, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
+import { NO_LEVEL, STATE, itemName, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
 import { type Fold, STANDINGS, type Shown, type ShownWork, age } from './items';
 import { indexTree, type Tree } from './tree';
 
@@ -582,8 +582,8 @@ const undrawn = (key: string, value: unknown) =>
   key === 'usdMicros' || key === 'last' || key === 'bar' ? undefined : value;
 
 /// A card as it was made, kept for the next tree that draws one the same ([`show`]): what it draws, its view, the room
-/// of its strip, and what its making set: its age, the pulse of its running cells, its strip and its look, the last two
-/// for the tests.
+/// of its strip, and what its making set: its age, the pulse of its running cells, its strip, its look and the number
+/// it wrote, the last three for the tests.
 type CardMade = {
   sig: string;
   view: Container;
@@ -592,7 +592,11 @@ type CardMade = {
   pulse: Graphics | undefined;
   drawnStrip: DrawnStrip | undefined;
   look: { rows: number; fill: string | number; edge: string | number } | undefined;
+  number: DrawnNumber | undefined;
 };
+
+/// The number a card wrote and where its title begins from the card's left, for the tests ([`drawnNumbers`]).
+type DrawnNumber = { text: string; titleAt: number };
 
 /// The mean, the 95th part and the longest of `times`, in milliseconds to a hundredth; nought for none.
 function timesOf(times: number[]): { meanMs: number; p95Ms: number; maxMs: number } {
@@ -1033,6 +1037,9 @@ const EDGE_RUNNING = 0.9;
 const NOT_BEGUN = 0.7;
 /// How far a card's number and strip stand in from its left edge.
 const CARD_INSET = 10;
+/// The least room a card's number has before its title, and the gap between them.
+const TITLE_AT = 26;
+const TITLE_GAP = 8;
 /// A card's corners: the page's corner (`--corner`), as its buttons and tags have.
 const CARD_CORNER = 3;
 /// The height of the line under a deliverable, which has no card.
@@ -1199,6 +1206,12 @@ export class SnapScene {
   private strips: { k: number; start: number; end: number; count: number; draw: (scale: number) => void }[] = [];
   /// How each card was drawn, by its item's number: its rows, its fill and its edge's colour ([`cardLook`]).
   private cardsDrawn = new Map<number, { rows: number; fill: string | number; edge: string | number }>();
+  /// The number each card wrote, by its place in the tree, and where its title begins ([`drawnNumbers`]); and how far
+  /// from the card's left every title begins: past the widest number the whole tree holds, folded items included, so
+  /// that no fold moves a title ([`show`]).
+  private numbersDrawn = new Map<number, DrawnNumber>();
+  private titleOffset = TITLE_AT;
+  private numberWidths = new Map<number, number>();
   /// What the tree drawn was made from ([`show`]): the roots as the cards draw them, the folds turning and the theme,
   /// which changes each time the theme does; the cards made for it, by what each draws; and the size of the strips'
   /// marks.
@@ -1489,6 +1502,7 @@ export class SnapScene {
     const warmth = this.columns.map((c) => c.warm);
     // One set of text styles for every tree, each made as it is first asked for.
     this.styles ??= makeStyles();
+    this.titleOffset = this.titleOffsetFor(roots);
     // The items under an item folded are not drawn, but while its fold turns; what is under it counts at it, where the
     // tree marks what is under an item.
     const { tree, items } = indexTree(roots, (i) =>
@@ -1576,13 +1590,14 @@ export class SnapScene {
     this.ages = new Map();
     this.strips = [];
     this.cardsDrawn = new Map();
+    this.numbersDrawn = new Map();
     // Each card is made only where no card drawn before draws the same: else the one drawn is kept, with what its
     // making set. What a card draws is its item as the cards draw it, the rows it stands in, whether a work goes on on
     // it or under it, whether one has begun there, and the theme. A card made new comes in as dim as the tree is.
     const reuse = this.cardCache;
     const sigs = items.map((item, k) => {
       const drawn = JSON.stringify({ ...item, children: undefined }, undrawn);
-      return `${this.themed}|${this.base[k]}|${this.lit[k]}|${this.begun[k]}|${drawn}`;
+      return `${this.themed}|${this.titleOffset}|${this.base[k]}|${this.lit[k]}|${this.begun[k]}|${drawn}`;
     });
     const kept: (CardMade | undefined)[] = sigs.map((sig) => reuse.get(sig)?.pop());
     const make = (k: number) => {
@@ -1626,6 +1641,7 @@ export class SnapScene {
       if (c.pulse !== undefined) this.pulses.set(k, c.pulse);
       if (c.drawnStrip !== undefined) this.drawnStrips.set(items[k].id, c.drawnStrip);
       if (c.look !== undefined) this.cardsDrawn.set(items[k].id, c.look);
+      if (c.number !== undefined) this.numbersDrawn.set(k, c.number);
     });
     // The cards no longer drawn are let go; those drawn are kept for the next tree.
     for (const left of reuse.values())
@@ -1643,6 +1659,7 @@ export class SnapScene {
         pulse: this.pulses.get(k),
         drawnStrip: item.shadow ? undefined : this.drawnStrips.get(item.id),
         look: item.shadow ? undefined : this.cardsDrawn.get(item.id),
+        number: this.numbersDrawn.get(k),
       };
       this.cardCache.set(sigs[k], [...(this.cardCache.get(sigs[k]) ?? []), card]);
     });
@@ -1820,6 +1837,30 @@ export class SnapScene {
     return true;
   }
 
+  /// How far from a card's number's left its title begins: past the widest number the whole tree holds, folded items
+  /// and shadows included, so that a fold, which leaves out the items under it, moves no title. The numbers are in
+  /// monospace, so the width follows from the digits alone; it is measured once for each count of them.
+  private titleOffsetFor(roots: Shown[]): number {
+    let widest = 0;
+    const walk = (items: Shown[]) => {
+      for (const i of items) {
+        widest = Math.max(widest, i.id);
+        walk(i.children);
+      }
+    };
+    walk(roots);
+    const digits = String(widest).length;
+    let wide = this.numberWidths.get(digits);
+    if (wide === undefined) {
+      const style = (this.styles as Styles).mono(PALETTE.pale);
+      const probe = new BitmapText({ text: itemName(10 ** digits - 1), style });
+      wide = probe.width;
+      probe.destroy();
+      this.numberWidths.set(digits, wide);
+    }
+    return Math.max(TITLE_AT, wide + TITLE_GAP);
+  }
+
   /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does
   /// with an edge of a deeper shade of it; its edge the accent's tint above a work. On its first row its number in its
   /// state's colour, its title, and at the right how many things its work waits for from the owner, white on red; on
@@ -1834,7 +1875,7 @@ export class SnapScene {
     const h = high(this.base[k]);
     const top = -h / 2;
     const row1 = top + NODE_H / 2;
-    if (item.shadow) return this.shadow(item, view, top, h, row1);
+    if (item.shadow) return this.shadow(item, k, view, top, h, row1);
     const mood = item.work !== null ? moodOf(item.work) : null;
     const card = new Graphics().roundRect(0, top, NODE_W, h, CARD_CORNER);
     // A card whose work is running, or that needs the owner (it waits for the owner, or the engine stopped it), is
@@ -1859,7 +1900,7 @@ export class SnapScene {
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
     const number = new BitmapText({
-      text: String(item.id),
+      text: itemName(item.id),
       style: s.mono(NUMBER()[item.standing]),
     });
     number.position.set(x, row1 - number.height / 2);
@@ -1871,7 +1912,8 @@ export class SnapScene {
           ? PALETTE.ink
           : between(PALETTE.ink, PALETTE.muted, NOT_BEGUN);
     const title = new BitmapText({ text: item.title, style: s.title(ink) });
-    title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
+    title.position.set(x + this.titleOffset, row1 - title.height / 2);
+    this.numbersDrawn.set(k, { text: number.text, titleAt: title.x });
     view.addChild(number, title);
     // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
     // mark a card has, as what the owner looks for first; beside it, how many questions the owner may answer ahead,
@@ -2055,6 +2097,15 @@ export class SnapScene {
     return this.cardsDrawn.get(id) ?? null;
   }
 
+  /// The number each card of the tree wrote, shadows and deliverables too, in the tree's order, and where its title
+  /// begins from the card's left, for the tests.
+  drawnNumbers(): { id: number; shadow: boolean; text: string; titleAt: number }[] {
+    return this.shownItems.flatMap((item, k) => {
+      const drawn = this.numbersDrawn.get(k);
+      return drawn === undefined ? [] : [{ id: item.id, shadow: item.shadow, ...drawn }];
+    });
+  }
+
   /// What the card of item `id` drew for its work's cells, for the tests: each mark, where it stands from the card's
   /// left and its middle, its measures and colours, and whether it pulses; how many cells were left out, none; where
   /// the room for the strip ends; and the level under the number. None for an item whose card has no work.
@@ -2099,7 +2150,7 @@ export class SnapScene {
 
   /// The shadow of an item under another item that depends on it besides its main one: a white card, its edge dashed,
   /// its number and title grey, and at the right an arrow pointing away, to where the item stands.
-  private shadow(item: Shown, view: Container, top: number, h: number, row1: number): Container {
+  private shadow(item: Shown, k: number, view: Container, top: number, h: number, row1: number): Container {
     const s = this.styles as Styles;
     const ground = new Graphics().roundRect(0, top, NODE_W, h, CARD_CORNER).fill(PALETTE.card);
     const edge = new Graphics();
@@ -2118,10 +2169,11 @@ export class SnapScene {
     along(0, top + r, 0, top + h - r);
     along(NODE_W, top + r, NODE_W, top + h - r);
     edge.stroke({ color: PALETTE.pale, width: 1 });
-    const number = new BitmapText({ text: String(item.id), style: s.mono(PALETTE.pale) });
+    const number = new BitmapText({ text: itemName(item.id), style: s.mono(PALETTE.pale) });
     number.position.set(CARD_INSET, row1 - number.height / 2);
     const title = new BitmapText({ text: item.title, style: s.title(PALETTE.faint) });
-    title.position.set(CARD_INSET + Math.max(26, number.width + 8), row1 - title.height / 2);
+    title.position.set(CARD_INSET + this.titleOffset, row1 - title.height / 2);
+    this.numbersDrawn.set(k, { text: number.text, titleAt: title.x });
     fit(title, NODE_W - 24 - title.x);
     // The arrow, drawn: the font may have no such sign.
     const ax = NODE_W - 16;

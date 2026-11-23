@@ -3,7 +3,7 @@
 The tree of items in columns, their cards and folds, and how the page lights what runs and what the owner points at.
 
 ### decision the-console-is-the-old-engines-console
-The console's tree is the old engine's console brought over, with its layout, its motion and its constants unchanged; the page's new look is used only around it.
+The console's tree is the old engine's console brought over, its layout and its motion as the decisions on its columns, cards and folds say; the page's new look is used only around it.
 - rejected: an agent proposed restyling the console in the page's new look; the owner rejected it, because its graph shows the dependencies, the progress and the activity at a glance, and even its sliding had been tuned.
 
 ### decision the-tree-is-drawn-on-a-canvas
