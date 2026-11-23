@@ -88,11 +88,7 @@ pub fn misses_by(line_of: &dyn Fn(&CellId) -> Option<String>, work: &Work, life_
         let Some((last, before)) = last_call(line_of, work, line, round.run, number) else {
             continue;
         };
-        // The cache is asked about when the round's first call was made, which is when its first try began, and not when
-        // the round began, which is where its session is decided.
-        let begun = (work.ran.iter())
-            .find(|t| t.run == round.run && t.round == number)
-            .map_or_else(|| work::sessions::start(work, round.run, number), |t| t.at);
+        let begun = work::sessions::first_try_at(work, round.run, number);
         let (Some(last), Some(began)) = (work.time_of(last), work.time_of(begun)) else {
             continue;
         };

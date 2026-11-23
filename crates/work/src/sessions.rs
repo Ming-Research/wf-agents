@@ -120,6 +120,15 @@ pub fn start(work: &Work, run: RunId, number: usize) -> Seq {
     began_at(work, run, number).unwrap_or_else(|| work.tick())
 }
 
+/// Where the first try of the round of this number of the run began, which is when its first call to the model was
+/// made: what the prompt cache is asked about, and not [`start`], where the round's session is decided, which comes
+/// before it by as long as the carrier takes to take main in. Where the round has no try recorded, it is [`start`].
+pub fn first_try_at(work: &Work, run: RunId, number: usize) -> Seq {
+    (work.ran.iter())
+        .find(|t| t.run == run && t.round == number)
+        .map_or_else(|| start(work, run, number), |t| t.at)
+}
+
 /// The line's sessions, in the order they were recorded.
 pub fn of_line<'a>(work: &'a Work, line: &'a str) -> impl Iterator<Item = &'a Session> {
     work.sessions.iter().filter(move |s| s.line == line)
