@@ -168,6 +168,15 @@ impl Host for Local {
         if named.commit.is_some() {
             return Ok(Some(words.no_commit.clone()));
         }
+        // The command reads no JUnit: this host gives no time of any test, which the work's records say.
+        stop.timed(work::Reading {
+            asking: asking.name(),
+            source: work::Source::Command,
+            commit: String::new(),
+            workflow: String::new(),
+            jobs: Vec::new(),
+            tests: Vec::new(),
+        });
         let ran = match git::worktree(branch.place) {
             Ok(dir) => self.run(&dir, asking, stop).await,
             Err(why) => Err(why),

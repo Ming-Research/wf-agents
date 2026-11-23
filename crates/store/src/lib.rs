@@ -64,7 +64,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 29;
+pub const SCHEMA_VERSION: u32 = 30;
 
 /// A step of the store after a migration's SQL.
 type Step = fn(&Connection) -> Result<(), Fault>;
@@ -168,6 +168,9 @@ const MIGRATIONS: &[Migration] = &[
     )),
     Migration::sql(include_str!(
         "../../../db/migrations/202611231400-keep-the-observations-an-architect-adds-and-what-is-done-to-each.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231500-keep-how-long-the-tests-and-jobs-of-each-run-took.sql"
     )),
 ];
 

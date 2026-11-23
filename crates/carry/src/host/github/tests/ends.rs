@@ -78,6 +78,22 @@ pub(super) fn heard(heard: &mut tokio::sync::mpsc::UnboundedReceiver<service::Me
     events
 }
 
+/// The pull requests among what was said through the channel, as they were said.
+pub(super) fn pulls(said: &mut tokio::sync::mpsc::UnboundedReceiver<service::Message>) -> Vec<engine::Event> {
+    let pulled = |event: &engine::Event| matches!(event, engine::Event::Pulled { .. });
+    heard(said).into_iter().filter(pulled).collect()
+}
+
+/// The readings of how long a run took among what was said through the channel, as they were said.
+pub(super) fn timed(said: &mut tokio::sync::mpsc::UnboundedReceiver<service::Message>) -> Vec<work::Reading> {
+    (heard(said).into_iter())
+        .filter_map(|event| match event {
+            engine::Event::Timed { reading } => Some(reading),
+            _ => None,
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn each_check_says_the_pull_request_it_checks_the_work_through_for_the_work_to_keep() {
     let hub = Hub::new();
@@ -101,7 +117,84 @@ async fn each_check_says_the_pull_request_it_checks_the_work_through_for_the_wor
         number: pull.number,
         url: pull.url,
     };
-    assert_eq!(heard(&mut said), [pulled.clone(), pulled]);
+    assert_eq!(pulls(&mut said), [pulled.clone(), pulled]);
+}
+
+// The check says how long the jobs and the tests of its run took, as a run of the full workflows asked for by the round
+// that checks: each job by its wall time and each test by its own, in the order of their names.
+#[tokio::test]
+async fn the_check_says_how_long_the_jobs_and_tests_of_its_run_took_as_the_full_workflows() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.green(&head);
+    let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+    let reply = service::RoundReply::new(WORK, RunId(1), to);
+    let mut stop = Stop::never().hosting(reply.hosting());
+    let place = hub.place();
+    let main = hub.main_on_github();
+    (hub.host
+        .verdict(&branch(&place), &head, &main, hub.round(), &Mutex::new(()), &mut stop)
+        .await)
+        .expect("checked")
+        .expect("nothing stopped it");
+    let job = |name: &str| work::timed::Job {
+        name: name.to_string(),
+        millis: 60_000,
+    };
+    assert_eq!(
+        timed(&mut said),
+        [work::Reading {
+            asking: "run/1/round/1".to_string(),
+            source: work::Source::Full,
+            commit: head,
+            workflow: "ci.yml".to_string(),
+            jobs: vec![job("lint"), job("test")],
+            tests: vec![work::timed::Test {
+                unit: "carry".to_string(),
+                name: "tools::tests::a".to_string(),
+                passed: true,
+                millis: 120,
+            }],
+        }]
+    );
+}
+
+// A project that declares two full workflows has the check run both, under one asking and on one commit: each run is
+// said as a reading of its own, told apart by its workflow, so that what the check took is what both took.
+#[tokio::test]
+async fn the_check_says_each_full_workflow_s_run_apart_where_the_project_has_two() {
+    let hub = Hub::new().with(|config| {
+        if let Some(ci) = config.ci.as_mut() {
+            ci.full.workflows.push("slow.yml".to_string());
+        }
+    });
+    let head = hub.committed().await;
+    hub.green(&head);
+    let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+    let reply = service::RoundReply::new(WORK, RunId(1), to);
+    let mut stop = Stop::never().hosting(reply.hosting());
+    let place = hub.place();
+    let main = hub.main_on_github();
+    (hub.host
+        .verdict(&branch(&place), &head, &main, hub.round(), &Mutex::new(()), &mut stop)
+        .await)
+        .expect("checked")
+        .expect("nothing stopped it");
+    let readings = timed(&mut said);
+    let of: Vec<(&str, &str, work::Source)> = (readings.iter())
+        .map(|r| (r.workflow.as_str(), r.asking.as_str(), r.source))
+        .collect();
+    assert_eq!(
+        of,
+        [
+            ("ci.yml", "run/1/round/1", work::Source::Full),
+            ("slow.yml", "run/1/round/1", work::Source::Full)
+        ]
+    );
+    assert!(
+        !readings[0].same_run(&readings[1]),
+        "two workflows of one check are two runs, none of them dropped as read again"
+    );
 }
 
 /// The work's branch, its merge named so.

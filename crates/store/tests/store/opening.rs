@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 57);
+    assert_eq!(tables.len(), 61);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -249,6 +249,8 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
     work.records.questions.clear();
     work.records.answers.clear();
     work.pulls.clear();
+    // Nor how long the tests and jobs of a run of the CI took, which version 30 keeps.
+    work.timed.clear();
     // Its tries recorded the directory of the program's settings as their account, which version 21 keeps apart.
     for ran in &mut work.ran {
         ran.on.account = None;
@@ -597,6 +599,8 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
     let mut d = Driver::new();
     history(&mut d);
     let mut work = d.work;
+    // A file of version 20 kept no times of the runs of the CI, which version 30 keeps.
+    work.timed.clear();
     for ran in &mut work.ran {
         ran.on.account = None;
     }

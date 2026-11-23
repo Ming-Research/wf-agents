@@ -2700,6 +2700,7 @@ mod tests {
                 "main",
                 "start",
                 "head",
+                "test_times",
                 "tree",
                 "words",
             ]),

@@ -15,7 +15,11 @@ repository's rules. Do not review the code or the design tree.
 2. Was each new or extended test red on the code before the change, where its kind needs that, as a run shows?
 3. For each test the change removes, skips, narrows or weakens: is what it checked still checked, or is a technical
    reason given?
-4. Is each new test worth its time: what does it catch that no other test does, and why can it not be smaller?
+4. Is the time of the change's tests worth a question? Judge it from `test_times`: it says what the CI measured of the
+   tests the work's runs reported and where they stand among the project's tests. Where it shows time worth asking
+   about, list the tests in one point, each with what it must show it catches that no other test catches and why it
+   cannot be smaller, faster or folded into another. A test in the diff that `test_times` does not list was not
+   measured: say what must be shown. Where `test_times` says the host gives no test's time, ask nothing about time.
 5. Where the cost per operation or request can change, is what could get slower measured?
 6. Does the change touch a kind that `needs_testing` names?
 
@@ -27,7 +31,7 @@ return. Once you have said yes to `needs_testing`, keep it while the part of the
 there.
 '''
 watches = ["change", "test_review"]
-reads = ["plan", "background", "tree", "tree_entries"]
+reads = ["plan", "background", "tree", "tree_entries", "test_times"]
 outputs = ["test_review", "test_ok", "needs_testing"]
 must_write = ["test_ok", "needs_testing"]
 
@@ -56,3 +60,4 @@ acceptance = "last_and_latest"
 tests = "last_and_latest"
 head = "last_and_latest"
 background = "latest"
+test_times = "latest"

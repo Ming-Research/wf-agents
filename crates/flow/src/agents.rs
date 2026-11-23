@@ -700,6 +700,10 @@ pub struct CiFast {
     /// The input that takes the checks to run beside the tests, a JSON array of their jobs' names.
     #[serde(default = "checks_input")]
     pub checks_input: String,
+    /// The input that takes how long one test may run before it is stopped, in whole seconds; empty where the
+    /// workflow takes none.
+    #[serde(default = "test_stop_input")]
+    pub test_stop_input: String,
     /// The checks it runs when named, each the name of a job of the workflow, such as the lint.
     #[serde(default)]
     pub checks: Vec<String>,
@@ -728,6 +732,10 @@ pub struct CiFull {
     /// The input that takes a value only one request knows, which the run's name must hold.
     #[serde(default = "call_input")]
     pub call_input: String,
+    /// The input that takes how long one test may run before it is stopped, in whole seconds; empty where the
+    /// workflows take none.
+    #[serde(default = "test_stop_input")]
+    pub test_stop_input: String,
     /// The artifact a run uploads its JUnit files in.
     #[serde(default = "results")]
     pub results: String,
@@ -755,6 +763,10 @@ fn tests_input() -> String {
 
 fn checks_input() -> String {
     "checks".to_string()
+}
+
+fn test_stop_input() -> String {
+    "test_stop".to_string()
 }
 
 fn results() -> String {
