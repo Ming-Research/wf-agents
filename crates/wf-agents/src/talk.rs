@@ -2732,6 +2732,7 @@ mod tests {
                     at: n,
                     why: None,
                 }),
+                skipped: None,
             })
             .collect();
         WorkPage {

@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use decide::{Answered, Called, Finished, LetGo, Outsider, Pause, Questioned, Records, Started};
+use decide::{Answered, Called, Finished, Hurried, LetGo, Outsider, Pause, Questioned, Records, Started};
 
 use super::*;
 
@@ -11,7 +11,7 @@ use super::*;
 /// that made a call, had its result, and in its next round was told of the owner's words, written while it was under
 /// way, then finished naming what it dealt with; the outside's write; one run abandoned; a cell let go; a pause and a
 /// letting on; a cancel; a question the finished run asked and the owner's answer to it; the release of what the work
-/// held; and a reopen.
+/// held; a round told to hand in what it has; and a reopen.
 fn every_kind() -> Records {
     let (a, b) = (RunId(1), RunId(2));
     Records {
@@ -127,12 +127,18 @@ fn every_kind() -> Records {
             at: Seq(20),
         }],
         releases: vec![Seq(21)],
+        hurried: vec![Hurried {
+            run: a,
+            block: "words".into(),
+            version: Seq(8),
+            at: Seq(22),
+        }],
         reopens: vec![Seq(LAST)],
     }
 }
 
 /// The place of the last entry of [`every_kind`].
-const LAST: u64 = 22;
+const LAST: u64 = 23;
 
 /// The place of every entry of the records, with the list that holds it.
 fn places(r: &Records) -> BTreeSet<(&'static str, Seq)> {
@@ -147,6 +153,7 @@ fn places(r: &Records) -> BTreeSet<(&'static str, Seq)> {
         .chain(of("finished", &r.finished, |e| e.at))
         .chain(of("abandoned", &r.abandoned, |e| e.at))
         .chain(of("put_in", &r.put_in, |e| e.at))
+        .chain(of("hurried", &r.hurried, |e| e.at))
         .chain(of("written", &r.written, |e| e.at))
         .chain(of("questions", &r.questions, |e| e.at))
         .chain(of("answers", &r.answers, |e| e.at))

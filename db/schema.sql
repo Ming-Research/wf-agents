@@ -222,6 +222,19 @@ CREATE TABLE put_in (
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 
+-- The round of a run that was under way began to be told to hand in what it has now, for this version of a block the
+-- owner wrote (`version`, the place of the entry that wrote it): the owner turned to a cell before the run's. Whether
+-- the round was given the telling is a row of `put_in`.
+CREATE TABLE hurried (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    run INTEGER NOT NULL,
+    block TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    PRIMARY KEY (work, at),
+    FOREIGN KEY (work, run) REFERENCES started (work, run)
+);
+
 -- A person or the outside (`writer`) wrote a block: whether the change matters, its value where it is a choice, the
 -- cell it is said to where it is said to one, as the owner's entry of the record of what is said is, and whether the
 -- version holds nothing, with no value and the content kept of it empty or only whitespace.

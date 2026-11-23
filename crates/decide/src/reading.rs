@@ -69,6 +69,9 @@ impl Reading {
         for p in records.put_in.iter_mut().filter(|e| e.at < at) {
             block(&mut p.block);
         }
+        for h in records.hurried.iter_mut().filter(|e| e.at < at) {
+            block(&mut h.block);
+        }
         for w in records.written.iter_mut().filter(|e| e.at < at) {
             block(&mut w.block);
             if let Some(c) = &mut w.said_to {

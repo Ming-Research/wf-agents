@@ -18,10 +18,15 @@ A flow is refused as it loads if a cell in it writes questions of its own but wa
 The owner's words go to a cell, or to a line and so to the cell the line has reached, as the engine chooses and the page shows; if that cell cannot take them, they are refused with the reason.
 - replaced: The page choosing the cell itself, and sending words to the initial research when the cell that asked could not take them, was on main; the owner changed it, because words go to the cell the line has reached, and words on a question go to the cell that asked it.
 - rejected: an agent proposed leaving out of this decision that the page shows the engine's choice of cell before and after the words are sent; the owner rejected it, because the page choosing for itself was what had gone wrong.
+- rejected: an agent proposed that a skipped cell whose question stands take the owner's words and run a round that only answers; the owner rejected it, because it adds an exception to a skipped cell not running and costs one more round.
 
 ### decision words-are-put-into-a-round-under-way
 Words to a cell whose round is under way are put into its session by a hook, right after its next use of one of its program's tools; words that did not reach the round run the cell again.
 - rejected: an agent proposed that the words wait for the round to end, and the cell then run again for them; the owner rejected it, because when the owner speaks, he usually wants the work under way to change course now.
+
+### decision a-round-of-a-later-cell-is-told-to-hand-in
+A round of an agent's cell under way after the cell the owner turned to, by words or an answer, is told once to hand in what it has; one that cannot, an act's or the last cell's, is stopped.
+- replaced: Stopping the round of every cell after the cell the owner turned to, which consumed nothing and dropped what the round had done, was on main; the owner changed it, because the round's work was paid for and is to be handed in.
 
 ### decision a-cell-spoken-to-answers-at-once
 A cell spoken to hands in its answer before doing any more of its work: its words say so, and words put into a round under way end by telling it to stop where it is and hand in its answer now.
