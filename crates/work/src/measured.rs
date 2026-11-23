@@ -53,9 +53,12 @@ pub struct Measures {
     /// The characters of the message it was given.
     pub given: u64,
     /// What came before the session's messages in its prompt, which the cache reads only where it is what the call
-    /// before had: each part by its name, with its value, or the digest of a long one (`model`, `effort`, `account`,
-    /// `program`, `system`, `schema`, `tools`). A part the try did not say is missing, as the account where it ran
-    /// under none.
+    /// before had: each part by its name, with its value, or the digest of a long one (`model`, `account`, `system`,
+    /// `schema`, and what the program's first line said it gave the model: `program`, its version, `program_tools`
+    /// and `program_agents`, in the order it gave them). A part the try did not say is missing, as the account where
+    /// it ran under none. Rows kept earlier also hold `effort`, which caused no miss in the measured changes of it,
+    /// and `tools`, a digest of the arguments the engine gave the program, which is not what the program gave the
+    /// model; they are no longer written, and the readers of a miss do not compare them.
     pub before: BTreeMap<String, String>,
     /// Whether its program said, as its stream began, that it had taken the message in: it is then in the session,
     /// whatever came of the try.

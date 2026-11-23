@@ -6,6 +6,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex};
 
+use driver::cache::{Cause, Miss};
 use driver::{Budget, Policy};
 use driver::{FirstWrite, Found, NewItem};
 use engine::RanOn;
@@ -254,6 +255,8 @@ struct S {
     account: Option<String>,
     /// What each round of the work that ends spends, in millionths of a dollar.
     usd: u64,
+    /// How often the program compacted the session during each round of the work that ends.
+    compactions: u32,
 }
 
 impl S {
@@ -373,6 +376,7 @@ impl S {
             model: "opus".to_string(),
             account: account.map(str::to_string),
             usd: 0,
+            compactions: 0,
         }
     }
 
@@ -437,6 +441,7 @@ impl S {
             uncached_tokens: 10,
             context_tokens: Some(context),
             usd_micros: self.usd,
+            compactions: self.compactions,
             ..Default::default()
         };
         self.on(Event::Returned { run, came, spent });
@@ -1338,14 +1343,21 @@ fn a_line_whose_session_began_otherwise_than_a_new_one_would_now_is_not_kept_war
     assert!(kept_warm_on(&s, &changed).is_empty());
 }
 
-/// The round under way says what its calls came to: its first call read this from the cache, on this model.
-fn measured(s: &mut S, read: u64, model: &str) {
+/// What the program's own report of what it gave the model holds in the rounds of these tests unless a test changes it:
+/// the digests of its tools and of its agents.
+const REPORT: [(&str, &str); 2] = [("program_tools", "t1"), ("program_agents", "a1")];
+
+/// The round under way says what its calls came to: its first call read this from the cache of a first prompt of this
+/// many tokens, with these parts before the session's messages.
+fn measured_as(s: &mut S, read: u64, context: u64, before: &[(&str, &str)]) {
     let (run, _) = s.round();
     let measures = Measures {
         calls: 1,
         first_read: Some(read),
-        first_context: Some(read + 10),
-        before: [("model".to_string(), model.to_string())].into(),
+        first_context: Some(context),
+        before: (before.iter())
+            .map(|(part, value)| (part.to_string(), value.to_string()))
+            .collect(),
         ..Measures::default()
     };
     s.on(Event::Measured {
@@ -1353,6 +1365,13 @@ fn measured(s: &mut S, read: u64, model: &str) {
         attempt: 1,
         measures,
     });
+}
+
+/// The round under way says what its calls came to: its first call read this from the cache, on this model, the
+/// program's report as in every round, and a first prompt of 2,000 tokens, which is more than the 1,000 the sessions of
+/// these tests hold: a session gone on in is never shorter.
+fn measured(s: &mut S, read: u64, model: &str) {
+    measured_as(s, read, 2_000, &[("model", model), REPORT[0], REPORT[1]]);
 }
 
 #[test]
@@ -1369,7 +1388,8 @@ fn a_round_that_went_on_in_its_session_within_the_caches_life_and_read_less_than
     let miss = &misses[0];
     assert_eq!((miss.run, miss.round, miss.read, miss.held), (build, 1, 100, 1_000));
     assert_eq!(miss.written(), 900);
-    assert!(!miss.expected(), "nothing before the messages differed: a fault");
+    assert!(!miss.expected(), "nothing before the messages differed");
+    assert!(miss.fault(), "both rounds hold the program's report: a fault");
     // After the cache's life, its next round writes the session again by design: no miss.
     s.clock += 2 * 3_600_000;
     let call = s.kept().records.called.last().expect("the build's call").call;
@@ -1405,7 +1425,7 @@ fn a_miss_after_what_comes_before_the_messages_changed_is_expected_and_a_hit_is_
     s.hands_in(1_000, true);
     let misses = s.driver.misses(s.work);
     assert_eq!(misses.len(), 1);
-    assert_eq!(misses[0].differs, ["model"]);
+    assert_eq!(misses[0].cause, Cause::Differs(vec!["model".to_string()]));
     assert!(misses[0].expected());
 }
 
@@ -1424,7 +1444,7 @@ fn a_miss_after_another_account_was_taken_names_the_account_as_what_differs() {
     s.asks(1_000);
     let misses = s.driver.misses(s.work);
     assert_eq!(misses.len(), 1, "{misses:?}");
-    assert_eq!(misses[0].differs, ["account"]);
+    assert_eq!(misses[0].cause, Cause::Differs(vec!["account".to_string()]));
     assert!(misses[0].expected());
     assert!(s.sessions().is_empty(), "no session begins anew for it");
 }
@@ -1432,23 +1452,97 @@ fn a_miss_after_another_account_was_taken_names_the_account_as_what_differs() {
 /// The round under way said what its first call read from the cache, on the model `a`, under the account where one was
 /// in use, which is left out where none was.
 fn measured_under(s: &mut S, read: u64, account: Option<&str>) {
-    let (run, _) = s.round();
-    let mut before: std::collections::BTreeMap<String, String> = [("model".to_string(), "a".to_string())].into();
+    let mut before = vec![("model", "a"), REPORT[0], REPORT[1]];
     if let Some(account) = account {
-        before.insert("account".to_string(), account.to_string());
+        before.push(("account", account));
     }
-    let measures = Measures {
-        calls: 1,
-        first_read: Some(read),
-        first_context: Some(read + 10),
-        before,
-        ..Measures::default()
-    };
-    s.on(Event::Measured {
-        run,
-        attempt: 1,
-        measures,
-    });
+    measured_as(s, read, 2_000, &before);
+}
+
+/// The session's first round hands in with 1,000 tokens in its context and its second goes on in it at once, saying
+/// this of its first call and this of what the round spent, so that what the second round's miss is told by is the
+/// first call's alone.
+fn goes_on(first: &[(&str, &str)], then: &[(&str, &str)], read: u64, context: u64, compactions: u32) -> Vec<Miss> {
+    let mut s = S::with(warm("opus"), None);
+    measured_as(&mut s, 0, 2_000, first);
+    s.hands_in(1_000, true);
+    measured_as(&mut s, read, context, then);
+    s.compactions = compactions;
+    s.asks(1_000);
+    s.driver.misses(s.work)
+}
+
+// The shape of work 35 run 36: the program compacted the session before the round's first call, which went on in the
+// summary, with a first prompt far under what the session held, and read what no compaction changes. No miss, and no
+// fault of wf-agents. Red before the change: the round was listed with nothing differing, a fault.
+#[test]
+fn a_round_that_compacted_the_session_before_its_first_call_is_no_miss() {
+    let model = [("model", "a"), REPORT[0], REPORT[1]];
+    assert!(goes_on(&model, &model, 100, 500, 1).is_empty());
+}
+
+// The same round with no compaction recorded is a miss whose cause the records do not say, not a fault of wf-agents and
+// not left out.
+#[test]
+fn a_round_whose_first_prompt_is_shorter_than_what_was_held_with_no_compaction_recorded_is_a_miss_of_unknown_cause() {
+    let model = [("model", "a"), REPORT[0], REPORT[1]];
+    let misses = goes_on(&model, &model, 100, 500, 0);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].cause, Cause::Unknown);
+    assert!(!misses[0].expected() && !misses[0].fault());
+}
+
+// A compaction later in the round leaves the first prompt as long as what was held, and the first call missed all the
+// same: a miss, judged as before.
+#[test]
+fn a_round_that_compacted_but_whose_first_prompt_was_not_shorter_is_still_a_miss() {
+    let model = [("model", "a"), REPORT[0], REPORT[1]];
+    let misses = goes_on(&model, &model, 100, 1_000, 1);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].cause, Cause::Fault);
+    assert_eq!(goes_on(&model, &model, 100, 2_000, 1).len(), 1);
+}
+
+// The shape of work 23 run 15: the engine's arguments the same, the effort changed, and the program's list of tools
+// shorter by one tool. The cause is the tools, which the program said; not the effort.
+#[test]
+fn a_miss_after_the_programs_tool_list_changed_names_the_list_and_not_the_effort() {
+    let first = [("model", "a"), ("effort", "high"), REPORT[0], REPORT[1]];
+    let then = [("model", "a"), ("effort", "xhigh"), ("program_tools", "t2"), REPORT[1]];
+    let misses = goes_on(&first, &then, 0, 2_000, 0);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].cause, Cause::Differs(vec!["program_tools".to_string()]));
+}
+
+// A change of effort alone, with both rounds holding the program's report, caused no miss in the records, and names
+// none: where the cache did not read the session all the same, nothing before the messages differed.
+#[test]
+fn a_miss_after_a_change_of_effort_alone_names_no_effort() {
+    let first = [("model", "a"), ("effort", "high"), REPORT[0], REPORT[1]];
+    let then = [("model", "a"), ("effort", "xhigh"), REPORT[0], REPORT[1]];
+    let misses = goes_on(&first, &then, 0, 2_000, 0);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].cause, Cause::Fault);
+}
+
+// A round kept before the program's report was kept says nothing of what the program gave the model, and a round with
+// no measures at all says nothing of what came before its messages: a miss after either is of unknown cause, and the
+// report is not named as what differs.
+#[test]
+fn a_miss_where_the_call_before_holds_no_report_of_the_program_is_of_unknown_cause() {
+    let model = [("model", "a"), REPORT[0], REPORT[1]];
+    let kept_earlier = [("model", "a"), ("effort", "high"), ("tools", "x")];
+    let misses = goes_on(&kept_earlier, &model, 0, 2_000, 0);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].cause, Cause::Unknown);
+    // No measures for the call before.
+    let mut s = S::with(warm("opus"), None);
+    s.hands_in(1_000, true);
+    measured_as(&mut s, 0, 2_000, &model);
+    s.asks(1_000);
+    let misses = s.driver.misses(s.work);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].cause, Cause::Unknown);
 }
 
 #[test]
