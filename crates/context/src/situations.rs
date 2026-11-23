@@ -32,7 +32,8 @@
 //! group, one datum of the group at least is new. Any other datum the cell is given, the cell's own writes aside,
 //! stands any way the entry allows, since a version of it may be written while the run is under way: unwritten where
 //! it is not certainly written, lacking, held from a cell of the line, or, on a later entry, held as last worked from,
-//! latest, or with nothing new. A datum only the cell writes is never new to it: unwritten on a first entry, held on a
+//! latest, or with nothing new; but a datum only people write that an earlier cell of the line watches is never held as
+//! last worked from where it did not run the cell, since its new version runs that cell, whose round fills it first. A datum only the cell writes is never new to it: unwritten on a first entry, held on a
 //! later one, held or, where its return handed in none, lacking on one compacted, lacking on one reopened, and lacking
 //! or, held from another cell of the line, held on one reopened after another cell read, and unwritten on any where it
 //! is not certainly written. A block the cell writes that nothing else gives it is given only where the session lacks
@@ -507,6 +508,15 @@ impl<'a> Reach<'a> {
             .any(|t| !t.is_group() && t.name == block.as_str());
         if self.starts.contains(block) && watches && *class == Class::Rest && entry != Entry::First {
             states.retain(|s| *s != Stands::HoldsNew);
+        }
+        // A new version of a datum only people write, as it is of what an earlier cell of the line watches, runs that
+        // cell first, whose round fills it into the session: where it did not run this cell, the session never lacks
+        // its latest while it holds the version this cell last worked from.
+        let filled_early = (self.before.iter()).any(|c| c.watches.iter().any(|t| t.blocks.contains(block)))
+            && (self.flow.blocks.get(block))
+                .is_some_and(|d| d.writers.people && d.writers.cells.is_empty() && d.writers.outside.is_none());
+        if filled_early && *class == Class::Rest && matches!(entry, Entry::Later | Entry::ReopenedAfterRead) {
+            states.retain(|s| *s != Stands::HoldsLast);
         }
         // The last cell worked from nothing, so that the session holds what it was sent in an earlier round of its run,
         // never as the version it last worked from.
