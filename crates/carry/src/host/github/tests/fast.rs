@@ -654,7 +654,7 @@ fn a_time_is_read_in_seconds_minutes_hours_or_days() {
 }
 
 /// The measure workflow, as the tests' project declares it where it measures: `measure.yml`, reporting in `test-results`.
-fn measuring(config: &mut Config) {
+pub(super) fn measuring(config: &mut Config) {
     config.ci.as_mut().expect("a declaration").measure = Some(flow::agents::CiMeasure {
         workflow: "measure.yml".to_string(),
         runner: "github".to_string(),
@@ -668,7 +668,7 @@ fn measuring(config: &mut Config) {
 }
 
 /// A request that names these measurements.
-fn measured(names: &[&str]) -> Named {
+pub(super) fn measured(names: &[&str]) -> Named {
     Named {
         measure: names.iter().map(|n| n.to_string()).collect(),
         ..Named::default()
@@ -678,7 +678,7 @@ fn measured(names: &[&str]) -> Named {
 /// What the measure workflow uploads for the measurement `design-lint`: two timings of what the work began from, of its
 /// twin and of the work's commit, each in a suite named for what was timed, and the workflow's own median of each side in
 /// a suite of its own, in the file of the job `measure`.
-fn timings() -> Vec<(String, Vec<u8>)> {
+pub(super) fn timings() -> Vec<(String, Vec<u8>)> {
     let xml = r#"<testsuites>
   <testsuite name="base"><testcase name="design-lint" time="0.50"/><testcase name="design-lint" time="0.52"/></testsuite>
   <testsuite name="twin"><testcase name="design-lint" time="0.51"/><testcase name="design-lint" time="0.49"/></testsuite>
