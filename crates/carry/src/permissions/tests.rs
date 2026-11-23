@@ -120,7 +120,7 @@ fn the_flows_words_are_turned_into_the_programs_tools_rules_and_directories() {
         "Read",
         "Edit",
         "Write",
-        "Task",
+        "Agent",
         "Grep",
         "Glob",
         "WebSearch",
@@ -171,7 +171,7 @@ fn each_word_gives_its_own_tools_and_rules() {
     let shell = only(Ability::Shell);
     assert_eq!((shell.tools, shell.allowed), (strings(&["Bash"]), strings(&["Bash"])));
     let subagents = only(Ability::Subagents);
-    assert_eq!(subagents.tools, ["Task"]);
+    assert_eq!(subagents.tools, ["Agent"]);
     assert!(subagents.allowed.is_empty() && subagents.directories.is_empty());
     let none = Permissions::of(false, &[], Path::new(TEMP), &[]);
     assert_eq!(none.arguments(), ["--tools", ""], "no tool, no rule, no directory");
@@ -413,11 +413,7 @@ fn every_set_of_words_gives_tools_rules_and_directories_the_program_can_read_and
             );
             assert_eq!(has(Ability::Web), p.tools.contains(&"WebFetch".to_string()), "{at}");
             assert_eq!(has(Ability::Web), p.tools.contains(&"WebSearch".to_string()), "{at}");
-            assert_eq!(
-                has(Ability::Subagents),
-                p.tools.iter().any(|t| t == "Task" || t == "Agent"),
-                "{at}"
-            );
+            assert_eq!(has(Ability::Subagents), p.tools.iter().any(|t| t == "Agent"), "{at}");
             assert_eq!(has(Ability::TempFiles), p.directories == ["/x/T"], "{at}");
             assert_eq!(
                 has(Ability::TempFiles),

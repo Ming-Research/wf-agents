@@ -151,7 +151,7 @@ impl Permissions {
                     add(&mut tools, &["WebSearch", "WebFetch"]);
                     add(&mut allowed, &["WebSearch", "WebFetch"]);
                 }
-                Ability::Subagents => add(&mut tools, &["Task"]),
+                Ability::Subagents => add(&mut tools, &["Agent"]),
             }
         }
         let mut refused: Vec<String> = commands.iter().map(|c| format!("Bash({c} *)")).collect();

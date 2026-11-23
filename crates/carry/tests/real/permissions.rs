@@ -47,7 +47,7 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
     for call in &calls {
         assert_eq!(
             after(call, "--tools"),
-            ["Bash,Read,Grep,Glob,Edit,Write,WebSearch,WebFetch,Task"],
+            ["Bash,Read,Grep,Glob,Edit,Write,WebSearch,WebFetch,Agent"],
             "{:?}",
             call.args
         );
