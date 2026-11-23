@@ -9,7 +9,7 @@ use store::SCHEMA_VERSION;
 use super::opening::{SCHEMA_1, columns};
 use super::*;
 
-/// A try of a round as `measured` of version 25 holds it: the tokens sent fresh and those written to the cache, the
+/// A try of a round as `measured` of version 26 holds it: the tokens sent fresh and those written to the cache, the
 /// others being nothing.
 fn tried(file: &Connection, at: u64, run: u64, round: u64, attempt: u64, fresh: u64, written: u64) {
     file.execute(
@@ -21,7 +21,7 @@ fn tried(file: &Connection, at: u64, run: u64, round: u64, attempt: u64, fresh: 
     .expect("a try is kept");
 }
 
-/// A round of a file of version 25: the run, the round and the tokens it sent and did not read from the cache.
+/// A round of a file of version 26: the run, the round and the tokens it sent and did not read from the cache.
 fn took(file: &Connection, run: u64, round: u64, uncached: u64) {
     file.execute(
         "INSERT INTO spent (work, run, round, usd_micros, input_tokens, cached_tokens, output_tokens, context_tokens, \
@@ -73,7 +73,7 @@ fn a_file_made_before_the_tokens_written_to_the_cache_were_kept_apart_is_brought
         file.execute_batch(SCHEMA_1).expect("the first schema is made");
         file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
             .expect("its version is written");
-        store::migrate(&file, 1, 25).expect("the migrations run");
+        store::migrate(&file, 1, 26).expect("the migrations run");
         // The work and its two runs, which every round, ping and fork below belongs to.
         file.execute("INSERT INTO items (number, title, added) VALUES (1, 'kept', 1)", [])
             .expect("an item is kept");

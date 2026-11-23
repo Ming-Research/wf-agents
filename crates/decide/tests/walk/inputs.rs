@@ -74,7 +74,11 @@ fn a_later_cells_write_of_a_block_that_runs_an_earlier_cell_runs_the_earlier_cel
     // The design consumed the person's plan; its own write is not new to it, and the revision is behind it.
     assert_eq!(
         w.decide(),
-        runs("design", vec![changed("plan", Some(p0), true)], &[("plan", Some(p2))])
+        runs(
+            "design",
+            vec![changed_worked("plan", Some(p0), Some(p1), true)],
+            &[("plan", Some(p2))]
+        )
     );
 }
 
@@ -95,7 +99,11 @@ fn what_a_cell_consumed_is_the_version_its_round_was_told_of_and_its_own_writes_
     // The design consumed the research's plan, and wrote its own, which is not new to it.
     assert_eq!(
         w.decide(),
-        runs("design", vec![changed("plan", Some(p1), false)], &[("plan", Some(p3))])
+        runs(
+            "design",
+            vec![changed_worked("plan", Some(p1), Some(p2), false)],
+            &[("plan", Some(p3))]
+        )
     );
     let p4 = w.run("design", &[("plan", Matters)]);
     // The implementation consumed the design's plan.

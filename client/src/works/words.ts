@@ -637,7 +637,8 @@ export const nowTone = (s: Pick<Summary, 'now' | 'cells' | 'waits'>): Tone => st
 export function causeRest(cause: Cause, wayRound = false): string {
   if (cause.kind === 'noRecord') return 'it had not run before';
   if (cause.kind === 'results') return `the results of the ${plural(cause.calls.length, 'call')} it asked for came back`;
-  const how = cause.was === null ? 'new to it' : `changed since the v${cause.was} it last saw`;
+  const how =
+    cause.workedFrom === null ? 'new to it' : `changed since the v${cause.workedFrom} it last worked from`;
   const behind = cause.behind ? `, written by a cell after it${wayRound ? ': a way round' : ''}` : '';
   return `${how}${behind}`;
 }

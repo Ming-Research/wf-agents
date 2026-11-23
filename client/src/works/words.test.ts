@@ -293,21 +293,21 @@ describe("a run in the last column of a work's history", () => {
 describe('why a run ran, in words', () => {
   it('says each kind of cause, and a run is a way round when every reason was written by a cell after it', () => {
     expect(causeWords({ kind: 'noRecord' })).toBe('it had not run before');
-    expect(causeWords({ kind: 'changed', block: 'plan', was: null, behind: false })).toBe('plan new to it');
+    expect(causeWords({ kind: 'changed', block: 'plan', workedFrom: null, behind: false })).toBe('plan new to it');
     expect(causeWords({ kind: 'results', calls: [4, 5, 6] })).toBe('the results of the 3 calls it asked for came back');
-    const behind = { kind: 'changed', block: 'opinions', was: 12, behind: true } as const;
-    expect(causeWords(behind, true)).toBe('opinions changed since the v12 it last saw, written by a cell after it: a way round');
+    const behind = { kind: 'changed', block: 'opinions', workedFrom: 12, behind: true } as const;
+    expect(causeWords(behind, true)).toBe('opinions changed since the v12 it last worked from, written by a cell after it: a way round');
     expect(isWayRound({ because: [behind] })).toBe(true);
     expect(isWayRound({ because: [] })).toBe(false);
   });
 
   it('calls a run with one cause from a cell after it among others from before no way round', () => {
-    const behind = { kind: 'changed', block: 'opinions', was: 12, behind: true } as const;
-    const because = [behind, { kind: 'changed', block: 'plan', was: 3, behind: false } as const];
+    const behind = { kind: 'changed', block: 'opinions', workedFrom: 12, behind: true } as const;
+    const because = [behind, { kind: 'changed', block: 'plan', workedFrom: 3, behind: false } as const];
     expect(isWayRound({ because })).toBe(false);
     expect(because.map((c) => causeWords(c, isWayRound({ because })))).toEqual([
-      'opinions changed since the v12 it last saw, written by a cell after it',
-      'plan changed since the v3 it last saw',
+      'opinions changed since the v12 it last worked from, written by a cell after it',
+      'plan changed since the v3 it last worked from',
     ]);
   });
 

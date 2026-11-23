@@ -764,26 +764,26 @@ impl Stream {
     /// round took where the result could be read. A round that began its session cost the session's total; one that
     /// went on in it, that total less what the line's earlier rounds cost, or the whole total where that is less
     /// (measured: the total is the whole session's, even where two lines take turns in one worktree).
-    pub fn read(self, begin: Begin, before: u64) -> std::result::Result<Read, NoResult> {
+    pub fn read(self, begin: Begin, before: u64) -> std::result::Result<Read, Box<NoResult>> {
         let fields = self.said;
         let priced = self.priced();
         let Some(result) = self.result else {
             let why = "the command line's stream holds no result".to_string();
-            return Err(NoResult {
+            return Err(Box::new(NoResult {
                 why,
                 spent: priced,
                 said: fields,
-            });
+            }));
         };
         let result: Result = match serde_json::from_value(result) {
             Ok(result) => result,
             Err(e) => {
                 let why = format!("the command line's result cannot be read: {e}");
-                return Err(NoResult {
+                return Err(Box::new(NoResult {
                     why,
                     spent: priced,
                     said: fields,
-                });
+                }));
             }
         };
         let mut spent = spent(&result, begin, before);
@@ -809,11 +809,11 @@ impl Stream {
             };
             return match structured {
                 Ok(structured) => Ok(Read { structured, spent }),
-                Err(why) => Err(NoResult {
+                Err(why) => Err(Box::new(NoResult {
                     why,
                     spent: Some(spent),
                     said: fields,
-                }),
+                })),
             };
         }
         // What it says goes back to the agent where the return is sent back: its quote of the attempt is left out.
@@ -834,11 +834,11 @@ impl Stream {
         } else {
             why
         };
-        Err(NoResult {
+        Err(Box::new(NoResult {
             why,
             spent: Some(spent),
             said: fields,
-        })
+        }))
     }
 }
 
@@ -862,7 +862,7 @@ fn last_attempt(attempts: Attempts, refusals: &[(String, String)], why: String) 
 }
 
 /// Reads a whole stream, line by line, as [`Stream::read`] does.
-pub fn read(stream: &[u8], begin: Begin, before: u64) -> std::result::Result<Read, NoResult> {
+pub fn read(stream: &[u8], begin: Begin, before: u64) -> std::result::Result<Read, Box<NoResult>> {
     let mut read = Stream::default();
     for line in stream.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
         read.line(line);
