@@ -146,3 +146,89 @@ async fn what_a_trys_program_leaves_running_is_stopped_and_counted_with_the_try_
         .status();
     assert!(!running, "what the plan's program left runs on after its round ended");
 }
+
+/// Runs the plan's first round with its program leaving a process of this kind in its group, and gives how long the
+/// round took to end once the program was called, what was counted of the try, and whether the process was still
+/// running, not a zombie, once the round had ended. The process is killed before anything is asserted.
+async fn leaves(leftover: crate::Leftover) -> (std::time::Duration, Vec<(work::Left, usize)>, bool, decide::RunId) {
+    let fake = Fake {
+        plan_leaves_running: true,
+        plan_leftover: leftover,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.wait(|real| real.calls().len() == 1).await;
+    let called = std::time::Instant::now();
+    let plan = real.run_of(work, "plan");
+    real.until(|real| real.ended_rounds(work, plan)).await;
+    let took = called.elapsed();
+    let counted = (real.work(work).left_behind.iter())
+        .map(|l| (l.of.clone(), l.processes))
+        .collect();
+    let left = std::fs::read_to_string(real.calls_dir().join("left_running")).expect("what the plan left");
+    let left = left.trim().to_string();
+    let mut running = true;
+    // A process killed is a zombie until the system reaps it, its parent having ended: that is no process running.
+    for _ in 0..20 {
+        let stat = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &left])
+            .output()
+            .expect("ps runs");
+        let stat = String::from_utf8_lossy(&stat.stdout).trim().to_string();
+        running = !stat.is_empty() && !stat.starts_with('Z');
+        if !running {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let _ = std::process::Command::new("kill").args(["-s", "KILL", &left]).status();
+    (took, counted, running, plan)
+}
+
+// A process the program leaves in its group that ignores TERM is killed once the stop's wait of three seconds has
+// passed, and counted, before the round ends: the reference is the owner's answer to `leftovers-are-stopped` (TERM, then
+// KILL after 3 s) and acceptance condition 9. Fails where only TERM is sent, or where the round ends before the KILL.
+// About four seconds alone, three of them the wait before the KILL, which no shorter test can show; the engineer's test
+// holds only a process that ends on TERM.
+#[tokio::test]
+async fn what_a_trys_program_leaves_running_that_ignores_term_is_killed_and_counted_before_its_round_ends() {
+    let (took, counted, running, plan) = leaves(crate::Leftover::IgnoresTerm).await;
+    let of = work::Left::Try {
+        run: plan,
+        round: 1,
+        attempt: 1,
+    };
+    assert!(
+        !running,
+        "what the plan's program left, ignoring TERM, runs on after its round ended"
+    );
+    assert_eq!(counted, [(of, 1)], "counted with the try");
+    assert!(
+        took >= std::time::Duration::from_secs(3),
+        "ended in {took:?}, before the KILL was due"
+    );
+}
+
+// A process the program leaves in its group that holds the program's standard output open, as `cmd &` in a script
+// does, is stopped once the program has ended, and counted, and the round ends then: the reference is the owner's
+// answer to `leftovers-are-stopped` ("程序一结束，就停掉组里留下的东西（TERM，3 秒后 KILL），再记这一轮结束"; the option
+// of waiting for what is left was rejected) and acceptance condition 9. Fails where the carrier waits for the output to
+// end before it looks at the program's end, which here waits for the leftover's twenty seconds. A few seconds alone
+// where it holds; the engineer's test sends the leftover's output elsewhere, so no other test holds this.
+#[tokio::test]
+async fn what_a_trys_program_leaves_running_holding_its_output_is_stopped_once_the_program_ends() {
+    let (took, counted, running, plan) = leaves(crate::Leftover::KeepsOutput).await;
+    let of = work::Left::Try {
+        run: plan,
+        round: 1,
+        attempt: 1,
+    };
+    assert!(
+        took < std::time::Duration::from_secs(12),
+        "the round ended {took:?} after its program was called, waiting for what the program left to end by itself"
+    );
+    assert!(!running, "what the plan's program left runs on after its round ended");
+    assert_eq!(counted, [(of, 1)], "counted with the try");
+}

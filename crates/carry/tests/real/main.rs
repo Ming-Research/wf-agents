@@ -90,6 +90,8 @@ pub struct Fake {
     /// Whether the plan's first call starts a process that runs on in its group, its output sent elsewhere, before it
     /// answers and ends, writing the process's number in `left_running` beside the calls.
     pub plan_leaves_running: bool,
+    /// How the process the plan's first call leaves running behaves, where it leaves one.
+    pub plan_leftover: Leftover,
     /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
     /// says no call.
     pub context: Option<u64>,
@@ -141,6 +143,17 @@ pub struct Fake {
 /// How much of the account's week every call that says its usage says is used.
 pub const USED: f64 = 0.04;
 
+/// How a process the fake leaves running in its group behaves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Leftover {
+    /// Its output sent elsewhere, it ends on TERM.
+    Quiet,
+    /// It holds the program's standard output open, and ends on TERM.
+    KeepsOutput,
+    /// Its output sent elsewhere, it ignores TERM.
+    IgnoresTerm,
+}
+
 impl Default for Fake {
     fn default() -> Self {
         Fake {
@@ -159,6 +172,7 @@ impl Default for Fake {
             build_sleeps_once_committed: 0,
             build_hears_once_begun: 0,
             plan_leaves_running: false,
+            plan_leftover: Leftover::Quiet,
             context: None,
             compacts: false,
             plan_again_unchanged: false,
@@ -529,7 +543,14 @@ leaves() {{
 case "$first" in
     Plan)
         if [ '{leaves_running}' = yes ] && [ ! -f "$log/left_running" ]; then
-            sleep 30 >/dev/null 2>&1 &
+            case '{leftover}' in
+                # It writes where the program's standard output goes, as a command a script starts with `&` does,
+                # for twenty seconds.
+                keeps) sleep 20 2>/dev/null & ;;
+                # It ignores TERM, which `exec` keeps for the sleep it becomes.
+                deaf) (trap '' TERM; exec sleep 30) >/dev/null 2>&1 & ;;
+                *) sleep 30 >/dev/null 2>&1 & ;;
+            esac
             echo $! > "$log/left_running"
         fi
         if [ '{sleeps}' != 0 ] && [ ! -f "$log/slept" ]; then
@@ -691,6 +712,11 @@ fi
         committed_sleeps = fake.build_sleeps_once_committed,
         hears_sleeps = fake.build_hears_once_begun,
         leaves_running = yes(fake.plan_leaves_running),
+        leftover = match fake.plan_leftover {
+            Leftover::Quiet => "quiet",
+            Leftover::KeepsOutput => "keeps",
+            Leftover::IgnoresTerm => "deaf",
+        },
         cost = fake.cost,
         compacts = yes(fake.compacts),
         unchanged = yes(fake.plan_again_unchanged),

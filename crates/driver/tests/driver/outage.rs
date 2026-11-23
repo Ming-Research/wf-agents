@@ -369,6 +369,27 @@ fn two_under_accounts() -> (H, WorkNumber, WorkNumber) {
 // A usage limit is its account's own (decision a-shared-cause-is-one-wait): met under one account, it holds the rounds
 // while that account is in use; taking another ends the wait at once; a round coming back under the other ends nothing
 // of the first's limit; and taking the first back before its reset holds the rounds again, checked at its reset.
+// The round that goes first after a check finds the outside well, failing for a cause of its own work, lets the next
+// go first: the wait holds no round for a cause the round's own work has, and that work is paused for it. The
+// reference is the account of the wait in crates/driver/src/outage.rs ("one that fails for a cause of its own work
+// lets the next go first") and decision `one-goes-first-after-a-wait`. Fails where every round goes at once after the
+// check, or where the other round stays held once the first has failed so. Milliseconds; the engineer's tests end the
+// first round by its coming back, its answer or the outside again, never by a cause of its own work.
+#[test]
+fn a_round_that_goes_first_and_fails_for_a_cause_of_its_own_lets_the_next_go() {
+    for failure in OUTSIDE {
+        let (mut h, a, b) = two();
+        fails(&mut h, b, failure, None);
+        fails(&mut h, a, failure, None);
+        let well = next_check(&h);
+        let todos = h.tick(well, Some(Found::Well));
+        assert_eq!(agents_rounds(&todos), vec![(b, "write".to_string(), 2)], "{failure:?}");
+        let todos = fails(&mut h, b, Failure::Other, None);
+        assert!(decide::paused(&h.d().work(b).unwrap().work.records), "{failure:?}");
+        assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)], "{failure:?}");
+    }
+}
+
 #[test]
 fn a_usage_limit_holds_the_rounds_only_while_its_account_is_in_use() {
     let (mut h, a, b) = two_under_accounts();
