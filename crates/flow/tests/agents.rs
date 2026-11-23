@@ -408,3 +408,17 @@ fn the_context_part_orders_what_a_round_is_given_by_naming_each_list_of_a_cell_o
         assert!(refused.contains(named), "{name}: {refused}");
     }
 }
+
+// The first message every fork of a round is sent is sent as it stands: nothing in it is filled in, and a blank one
+// would be no message. The repository's own words are read as the engine reads them. A few files read: milliseconds.
+#[test]
+fn the_first_message_of_a_fork_in_the_repositorys_flow_is_a_whole_message_with_nothing_to_fill_in() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let read = agents::read(&root).expect("the files beside the repository's flows are read");
+    let first = &read.cost.fork.first;
+    assert!(!first.trim().is_empty(), "a blank message is sent first");
+    assert!(
+        !first.contains('{') && !first.contains('}'),
+        "nothing fills in a placeholder of it: {first}"
+    );
+}
