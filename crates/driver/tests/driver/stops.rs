@@ -55,7 +55,7 @@ fn act(h: &H, s: usize) -> Option<Act> {
         11 => Act::On(w(6), Event::Resumed),
         12 => {
             let (run, ..) = h.round(w(6));
-            let came = Came::asks(vec![question(Who::Owner)]);
+            let came = Came::asks(vec![tool("search")]);
             Act::On(
                 w(6),
                 Event::Returned {
@@ -67,13 +67,13 @@ fn act(h: &H, s: usize) -> Option<Act> {
         }
         13 => Act::On(w(6), wrote("request", Outsider::Person, None)),
         14 => Act::On(w(1), wrote("opinions", Outsider::Person, None)),
-        // The owner answers the sixth's question: its writer is entered again, for the answer and the new request.
+        // The sixth's tool gives its result: its writer is entered again, for the result and the new request.
         15 => {
             let kept = h.d().work(w(6)).expect("the work is there");
             let r = &kept.work.records;
             let call = (r.called.iter())
                 .find(|c| !r.done.iter().any(|d| d.call == c.call))
-                .expect("the question waits")
+                .expect("the call waits")
                 .call;
             Act::On(
                 w(6),
@@ -83,12 +83,12 @@ fn act(h: &H, s: usize) -> Option<Act> {
                 },
             )
         }
-        // The seventh asks the owner a question and is cancelled while it waits: the question is withdrawn.
+        // The seventh asks for a tool and is cancelled while it waits: the call is withdrawn.
         16 => Act::Add(new_item("g", &[], "short")),
         17 => Act::On(w(7), Event::Resumed),
         18 => {
             let (run, ..) = h.round(w(7));
-            let came = Came::asks(vec![question(Who::Owner)]);
+            let came = Came::asks(vec![tool("search")]);
             Act::On(
                 w(7),
                 Event::Returned {

@@ -9,7 +9,7 @@ use crate::{START, get_json, greeted, pass, post, refused, running_scripted, tri
 
 const DAY: u64 = 24 * 60 * 60 * 1000;
 
-/// The trial item, its plan asking nothing, added and let on: within a minute it has merged.
+/// The trial item, its plan's first round handing in the plan, added and let on: within a minute it has merged.
 async fn merged() -> crate::Running {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
@@ -127,7 +127,7 @@ async fn a_round_that_failed_is_given_with_its_cause() {
     let mut script = trial_script();
     let plan = script.flows.get_mut("trial").unwrap();
     let mut failing = plan.rounds[0].clone();
-    failing.run = 2;
+    failing.round = 4;
     failing.asks = None;
     failing.fails = Some(WHY.to_string());
     plan.rounds.push(failing);

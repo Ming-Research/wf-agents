@@ -37,10 +37,15 @@
 //! ]
 //! observations = ["The greeting has no test."]
 //!
-//! # The first round of the first run of plan asks the owner a question, and a tool to run.
+//! # The first round of the first run of plan asks for a tool to run.
 //! [[flows.trial.rounds]]
 //! cell = "plan"
-//! asks = [{ question = "Which name?", who = "owner" }, { tool = "ci", input = "the branch" }]
+//! asks = [{ tool = "ci", input = "the branch" }]
+//!
+//! # The first round of the first run of review asks for nothing and hands nothing in, so that it is sent back.
+//! [[flows.trial.rounds]]
+//! cell = "review"
+//! asks = []
 //!
 //! # The first round of the merge's check waits for the project's turn, which work 3 holds, for the first half of its
 //! # time, and then runs as the CI run at this link.
@@ -105,7 +110,7 @@ use serde::Deserialize;
 use work::{Ask, Handed, Spent, Time};
 
 use decide::run::Failure;
-use decide::{BlockId, Condition, Seq, Who};
+use decide::{BlockId, Condition, Seq};
 use engine::Came;
 
 /// How long a round takes where the script says nothing, in milliseconds.
@@ -195,8 +200,8 @@ pub struct RoundScript {
     pub took: Took,
     /// The blocks it hands in.
     pub hands_in: Option<Vec<HandIn>>,
-    /// The calls it asks for.
-    pub asks: Option<Vec<AskScript>>,
+    /// The tools it asks for; none, where it asks for nothing and so is sent back.
+    pub asks: Option<Vec<ToolAsk>>,
     /// What it came across beyond its work, each a text, where it does the cell's work.
     pub observations: Option<Vec<String>>,
     /// What it committed, where it does the cell's work: each block of the work's branch it moved, as its carrier reads
@@ -246,14 +251,6 @@ pub struct Commit {
     pub content: String,
 }
 
-/// A call a round asks for.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(untagged)]
-pub enum AskScript {
-    Tool(ToolAsk),
-    Question(QuestionAsk),
-}
-
 /// A tool to run.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -262,24 +259,6 @@ pub struct ToolAsk {
     /// What it is run on.
     #[serde(default)]
     pub input: String,
-}
-
-/// A question for a person.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct QuestionAsk {
-    pub question: String,
-    #[serde(default)]
-    pub who: Person,
-}
-
-/// Who a question is for.
-#[derive(Clone, Copy, Debug, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Person {
-    #[default]
-    Owner,
-    Architect,
 }
 
 /// What a round returns, and what it takes.
@@ -472,7 +451,7 @@ impl Script {
                     at: None,
                 };
             }
-            Some(RoundScript { asks: Some(asks), .. }) => Came::asks(asks.iter().map(AskScript::ask).collect()),
+            Some(RoundScript { asks: Some(asks), .. }) => Came::asks(asks.iter().map(ToolAsk::ask).collect()),
             Some(RoundScript {
                 hands_in: Some(handed), ..
             }) => Came::hands_in(
@@ -587,20 +566,11 @@ impl Script {
     }
 }
 
-impl AskScript {
+impl ToolAsk {
     fn ask(&self) -> Ask {
-        match self {
-            AskScript::Tool(tool) => Ask::Tool {
-                name: tool.tool.clone(),
-                input: tool.input.clone(),
-            },
-            AskScript::Question(question) => Ask::Person {
-                who: match question.who {
-                    Person::Owner => Who::Owner,
-                    Person::Architect => Who::Architect,
-                },
-                question: question.question.clone(),
-            },
+        Ask::Tool {
+            name: self.tool.clone(),
+            input: self.input.clone(),
         }
     }
 }

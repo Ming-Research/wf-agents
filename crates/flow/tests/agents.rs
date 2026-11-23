@@ -8,7 +8,7 @@ use flow::agents::{self, OfTheLine, OfTheReturn, Only, Part, SessionPart, ToldAs
 
 /// The directory of the tests' flows, beside which the files are.
 fn beside() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/laid_out")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/project")
 }
 
 /// A copy of the files beside the flows, in a directory of the test's own, which the test may change.
