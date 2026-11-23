@@ -13,10 +13,10 @@ design tree, as its rules say. If main's tree has changed since, an entry may fo
 change its meaning. After you change the tree, run `project.tree_check` and fix what it
 finds before you run your tests.
 
-Start from a test that shows what the change is for, red on the code before the change: use the research's test where
-it left one. Run each test you add or extend both on the change and on the code before it. A test that you remove, skip
-or weaken needs a technical reason. Where the cost per operation or request can change, measure what could get slower
-as well as what the change is for.
+Where a test can show what the change is for, start from one that is red on the code before the change: use the
+research's test where it left one. Run each test you add or extend both on the change and on the code before it. A test
+that you remove, skip or weaken needs a technical reason. Where the cost per operation or request can change, measure
+what could get slower as well as what the change is for.
 
 If the plan does not hold (its direction is wrong, or it needs a decision of the tree changed, or a choice the owner
 has not made, such as accepting a slowdown), do not work around it. Say where and why in `plan_doubts`. The answer
@@ -43,7 +43,7 @@ watches = [
   "i1_questions",
   "i1_words",
 ]
-reads = ["background", "tree", "tree_entries"]
+reads = ["background", "tree", "tree_entries", "test_times"]
 outputs = [
   "code",
   "title",
@@ -78,6 +78,7 @@ tree = "last_and_latest"
 # The entries of the design tree the plan was worked from, whole.
 tree_entries = "latest"
 background = "latest"
+test_times = "latest"
 plan_owner = "last_and_latest"
 plan_doubts = "all"
 plan_agent = "last_and_latest"

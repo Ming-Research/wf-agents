@@ -4,10 +4,8 @@
 // head. Each arrow's route also says where it crosses an arrow that runs the other way, so that it is drawn with a
 // small arch there; and its label is moved near where it leaves its node, clear of the nodes and the other labels.
 //
-// Brought over from the chart of `old-main` (`client/src/graph/flowLayout.ts`) as it was, but for what this flow has
-// none of: the stage boxes round a stage's cells, and the parts of the chart laid out apart, this flow's chart being
-// one part with no boxes; and elkjs runs in a worker where the page runs, since it takes seconds to lay the engineer
-// flow out as thoroughly as `old-main` did, which on the page's own thread held the whole page still.
+// The chart is one part with no boxes round a stage's cells; elkjs runs in a worker, away from the page's own thread,
+// since it takes seconds to lay the engineer flow out as thoroughly.
 
 import ELK, { type ELK as Elk, type ElkExtendedEdge, type ElkNode } from 'elkjs/lib/elk-api.js';
 import workerUrl from 'elkjs/lib/elk-worker.min.js?url';

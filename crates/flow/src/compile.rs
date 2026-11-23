@@ -292,6 +292,9 @@ pub struct Block {
     /// What a cell that writes the block is told of writing it, after the list of what it returns; none where its
     /// file says nothing.
     pub words: Option<String>,
+    /// What a cell that writes the block is told after `words`, where it also has a block it must hand in every
+    /// time; none where its file says nothing.
+    pub words_if_marked: Option<String>,
     /// The shape a return holds the block to, where its file gives one: neither a text nor a choice.
     pub shape: Option<Shape>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, as the
@@ -1045,6 +1048,7 @@ fn own_block(file: &LaidOutBlockFile, placeholder: &str, small: &str) -> BlockFi
     let mut block = file.clone();
     block.what = block.what.as_ref().map(fill);
     block.words = block.words.as_ref().map(fill);
+    block.words_if_marked = block.words_if_marked.as_ref().map(fill);
     block.writes = Texts(
         (block.writes.0.iter())
             .map(|(name, text)| (name.clone(), fill(text)))
@@ -2529,7 +2533,7 @@ impl<'a> Definition<'a> {
     /// Why the block, which the condition or a precondition of the cell of this file at this place reads, is not
     /// decided before the cell; `None` where it is. A block the cell itself writes is not, but where it is the cell's
     /// `condition` and the cell is the block's only writer: the cell that decides which of two cells is in charge has
-    /// that answer as a condition of its own next round (design document `data-and-context`, 46), unwritten as it is
+    /// that answer as a condition of its own next round (design document `data-and-context`, 27), unwritten as it is
     /// before its first. Nor is a block that neither a cell before it, people nor the outside write. What people or the
     /// outside write can be written before any cell runs. A block a cell after it writes as well is, where
     /// `later_writes_allowed`: that cell's write decides again whether this one runs, a way back. A test of what stands
@@ -2613,6 +2617,7 @@ impl<'a> Definition<'a> {
                     default: declared.default.clone(),
                     what: declared.what.clone(),
                     words: declared.words.clone(),
+                    words_if_marked: declared.words_if_marked.clone(),
                     shape: declared.shape.clone().map(|shape| Shape(toml::Value::Table(shape))),
                     writes: declared.writes.clone(),
                     with_nothing_but: (declared.with_nothing_but.iter())

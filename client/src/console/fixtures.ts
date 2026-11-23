@@ -24,6 +24,7 @@ import type {
   WorkPage,
 } from '../works-api';
 import { outlineOf } from '../testing';
+import { workName } from '../works/words';
 import type { Source } from './source';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
@@ -246,7 +247,7 @@ function cellsAt(at: string | null, state: CellState, deep = true): CellNow[] {
     if (skipped) return { cell, state: 'skipped', finished: 0, record: null, open: null };
     if (i < here) return { cell, state: 'done', finished: 1, record: 10 + i, open: null };
     if (i === here) {
-      const open = state === 'running' || state === 'resting' || state === 'failed' ? 40 + i : null;
+      const open = state === 'running' || state === 'resting' || state === 'calling' || state === 'failed' ? 40 + i : null;
       return { cell, state, finished: state === 'again' ? 1 : 0, record: state === 'again' ? 10 + i : null, open };
     }
     return { cell, state: 'notYet', finished: 0, record: null, open: null };
@@ -433,15 +434,10 @@ export function fixtureItems(start = Date.now()): Items {
             kind: 'waits',
             at: 'research',
             on: [
-              {
-                kind: 'call',
-                call: 3,
-                who: 'architect',
-                what: { kind: 'question', who: 'architect', question: 'Which table keeps the tokens of a round?' },
-              },
+              { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } },
             ],
           },
-          cellsAt('research', 'resting'),
+          cellsAt('research', 'calling'),
           { hours: 0.3, dollars: 0.21, rounds: 2 },
         ),
     },
@@ -509,12 +505,7 @@ export function fixtureItems(start = Date.now()): Items {
             kind: 'waits',
             at: 'implement',
             on: [
-              {
-                kind: 'call',
-                call: 12,
-                who: 'owner',
-                what: { kind: 'question', who: 'owner', question: 'May a page keep its stream open while hidden?' },
-              },
+              { kind: 'call', call: 12, who: 'owner', what: { kind: 'atLimit', limit: { of: 'returns', sentBack: 2 } } },
               owners(PLAN_CONFIRMED),
             ],
           },
@@ -525,7 +516,7 @@ export function fixtureItems(start = Date.now()): Items {
             rounds: 19,
             quiet: 12,
             waits: [
-              wait('call-12', 'May a page keep its stream open while hidden?', { kind: 'reply', call: 12 }),
+              wait('limit', "The cell's run had 2 returns sent back, which is its limit.", { kind: 'goOn', call: 12 }),
               ruling(PLAN_CONFIRMED, 'plan_confirmed'),
             ],
           },
@@ -713,10 +704,10 @@ export function fixtureSource(start = Date.now()): Source {
   const find = (work: number) => {
     const item = data.items.find((i) => i.work.number === work);
     if (item !== undefined) return { item, summary: item.work };
-    throw new Error(`There is no work ${work}`);
+    throw new Error(`There is no work ${workName(work)}`);
   };
   const told = (work: number) => {
-    const c: Changed = { works: [work], items: true, copies: false, accounts: false };
+    const c: Changed = { works: [work], items: true, copies: false, accounts: false, observations: false };
     window.setTimeout(() => listeners.forEach((on) => on(c)), 0);
   };
   const change = (s: Summary, what: Act) => {
@@ -765,11 +756,17 @@ export function fixtureSource(start = Date.now()): Source {
     }
   };
   return {
-    // Each work with the questions the owner may answer ahead counted as the engine counts them, from the questions as
-    // they stand now.
-    loadItems: () => {
-      for (const i of data.items) i.work.ahead = aheadOf(questions[i.number] ?? [], i.work.waits ?? []);
-      return Promise.resolve(structuredClone(data));
+    items: {
+      // Each work with the questions the owner may answer ahead counted as the engine counts them, from the questions
+      // as they stand now.
+      loadItems: () => {
+        for (const i of data.items) i.work.ahead = aheadOf(questions[i.number] ?? [], i.work.waits ?? []);
+        return Promise.resolve(structuredClone(data));
+      },
+      changes: (onChanged) => {
+        listeners.add(onChanged);
+        return () => listeners.delete(onChanged);
+      },
     },
     loadWork: (work) => {
       try {

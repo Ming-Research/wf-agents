@@ -1,13 +1,13 @@
-# What a line's session begins with: its system prompt, these parts in this order (design statement 24). The program
+# What a line's session begins with: its system prompt, these parts in this order. The program
 # takes it once, as the session begins, and keeps it: a change of a part reaches a session only when it is reopened.
 #
-# A part is one of: `project`, a file of the project that `../project.toml` names, read from the work's worktree as the
+# A part is one of: `project`, a file of the project that its declaration names, read from the work's worktree as the
 # session begins (decision the-projects-files-as-the-work-has-them); `line = "rules"`, the sets of rules the line
 # takes (`rules/`), in the order its file names them; `words`, a text of the engine's in this directory, its place
 # `{your_line}` filled from `your_line.toml`; `returns = "how_you_return"`, how a cell returns, made from `return/`
 # (`[how_you_return]` in `return.toml`) for the tools the flow names, the place `{store}` in the words of `query` filled
 # with what the engine's records hold. The engine gives each setting these texts name, but for a file of the project,
-# its value beside its name: the project's in its `project.toml`, and the installation's that `installation.toml`
+# its value beside its name: the project's in its declaration, and the installation's that `installation.toml`
 # names.
 parts = [
   { project = "guide" },

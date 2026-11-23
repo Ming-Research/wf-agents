@@ -13,15 +13,25 @@ wf-agents runs coding agents through a defined flow.
 - `crates/`: the engine's Rust crates. `crates/wf-agents` is the `wf-agents` command; `wf-agents flow page <dir>` serves
   the owner's flow page for the definition in a directory, and `wf-agents run` runs the engine with the owner's pages.
   Its agents run with the `claude` command line and its acts with git, as the installation's settings say
-  (`<data>/install.toml`, of which `crates/carry/install.sample.toml` is a sample); given `--script`, they follow the
-  script instead. To try it on the trial flow with a script, in `crates/service/tests/trial`:
+  (`<data>/install.toml`, of which `crates/carry/install.sample.toml` is a sample: what is of one machine, such as the
+  repositories, the tokens and the runners); what is a project's own (its files, tests, workflows, heavy and lock
+  commands, the command that checks it where its repository is the host, and how its pull requests are merged) is its
+  declaration, `wf-agents.toml` at the root of its repository, of which this repository's own is the example; a project
+  whose declaration cannot be read is held, and the others go on. Given `--script`, they follow the script instead.
+  To try it on the trial flow with a script, in `crates/service/tests/trial`:
   `wf-agents run --data <an empty directory> --flow flow --script script.toml`; then
   `wf-agents add --title "Greet the user" --flow trial --project script --write "request=Greet the user."` and
   `wf-agents resume 1`,
-  and `wf-agents list` or the pages to follow it;
+  and `wf-agents list` or the pages to follow it; a work starts from the head of main, or from the head of a branch or a
+  pull request its item continues (`wf-agents add ... --continue-branch <name>` or `--continue-pull <number>`, changed
+  until the work's branch is made with the kinds `continue-branch=<name>`, `continue-pull=<number>` and
+  `no-longer-continues`);
   `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it. Whoever plans the work waits
   with `wf-agents wait` for what needs them, each answer ending with the mark to give the next, and read the
-  observations agents reported with `wf-agents observations`, the newest first. They read the plan
+  observations with `wf-agents observations`, the newest first, which leaves out those an item took in unless given
+  `--all` and takes `--tag` and `--project`; they add one with `add-observation`, naming the project it is of and the
+  project that reported it, and give each a title and tags, delete it or have an item take it in with
+  `change-observations --why <sentence> <observation>:<kind>[=<value>]...`, all or none. They read the plan
   with `wf-agents changes --since <mark>`, `candidates`, `search <text>`, `graph <item>` (up to what it depends on and
   down to what depends on it; `--up` or `--down` for one), `tags` and `text <item> [<block>]`, and `list`, which leaves
   out what merged or was cancelled unless given `--all`; they change items with

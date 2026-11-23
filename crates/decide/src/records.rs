@@ -350,11 +350,10 @@ pub enum Outsider {
     Outside,
 }
 
-/// A person who can give what a work waits for.
+/// A person who can give what a work waits for: the owner, at a limit a cell reached.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Who {
     Owner,
-    Architect,
 }
 
 /// The owner let the cell go on after it reached its limit.
@@ -398,9 +397,15 @@ pub enum Cause {
     /// consumed, that the cell did not write itself (design document `data-and-context`, 6). `was` is the version the
     /// cell consumed, `None` where it consumed none; the run starts from the latest, as its `basis` says. `behind` says
     /// every such new version was written by a cell after this one: a judging cell's opinion on what it wrote, for one.
+    /// `worked` is the version the cell last worked from as the run began: the latest of the one it consumed, one a run
+    /// of it wrote and one the owner ruled on, which a message and the page name alike (design document
+    /// `data-and-context`, 10). `was` stays the consumed version, the one the walk reads back. A cause recorded before
+    /// `worked` was recorded has none, and is read as the version it names in `was`.
     Changed {
         block: BlockId,
         was: Option<Seq>,
+        #[serde(default)]
+        worked: Option<Seq>,
         behind: bool,
     },
     /// The calls the cell's earlier runs asked for, as their returns were taken, all have their results, which no

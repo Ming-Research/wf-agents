@@ -1,5 +1,5 @@
-// A diagram written in a passage as a fence of its kind (the design of the owner's page, 9 to 13): ```mermaid for any
-// diagram mermaid draws, ```dot for Graphviz's. Each library is loaded only when a fence of its kind first comes near
+// A diagram written in a passage as a fence of its kind (decisions the-page-draws-diagrams and
+// a-wide-diagram-opens-in-a-dialog): ```mermaid for any diagram mermaid draws, ```dot for Graphviz's. Each library is loaded only when a fence of its kind first comes near
 // the screen, so that a page that shows none does not pay for it. A diagram is drawn in the page's colours, light or
 // dark and in the accent as the page is, once, at its own size, and shown at that size or, when wider than its place,
 // as narrow as the place, never cut at the right and never scrolling sideways; then it, or a button in its corner,

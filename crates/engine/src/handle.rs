@@ -14,7 +14,10 @@ use crate::asked;
 use crate::event::{Effect, Event, Gate, Hold, Refused};
 use crate::handed_in;
 use crate::spoken;
-use work::{Ask, Back, Call, Filled, Forked, Given, Measured, Moment, Pinged, Pulled, Ran, Session, Time, Work};
+use work::{
+    Ask, Back, Call, Filled, Forked, Given, Left, LeftBehind, Measured, Moment, Pinged, Pulled, Ran, Session, Time,
+    Timed, Work,
+};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
 /// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`], [`Gate::Open`]). Where the
@@ -292,8 +295,10 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
         | Event::Ran { .. }
         | Event::Filled { .. }
         | Event::Measured { .. }
+        | Event::LeftBehind { .. }
         | Event::Forked { .. }
         | Event::Pulled { .. }
+        | Event::Timed { .. }
         | Event::NotReleased { .. }
         | Event::Released) => {
             take_kept(&|work| end_of(flow, work), &flow.waits.paused.let_go, work, event)?;
@@ -402,6 +407,23 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 by: Pauser::Owner,
                 why: None,
             });
+        }
+        // A call for a person to answer is one no agent can make: the engine has no one to give it to. The carrier that
+        // returned it cannot go on, and only a person mends that, so the round fails as any other of its kind does.
+        Event::Returned { run, came, spent } if came.asks.iter().any(|ask| matches!(ask, Ask::Person { .. })) => {
+            let why = "the carrier returned a call for a person to answer, which the engine does not make".to_string();
+            return take(
+                flow,
+                work,
+                Event::Failed {
+                    run,
+                    why,
+                    failure: Failure::Other,
+                    resets: None,
+                    spent,
+                },
+                effects,
+            );
         }
         Event::Returned { run, came, spent } => {
             if began(work, run) == ended(work, run) {
@@ -634,6 +656,36 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 measures,
             });
         }
+        Event::LeftBehind { of, processes } => {
+            match &of {
+                Left::Try { run, round, .. } | Left::Act { run, round } => {
+                    let number = began(work, *run);
+                    if number == ended(work, *run) || number != *round {
+                        return Err(Refused::NoRoundUnderWay(*run));
+                    }
+                }
+                Left::Call { call } => {
+                    if !work.records.called.iter().any(|c| c.call == *call) {
+                        return Err(Refused::NoSuchCall(*call));
+                    }
+                    if done(work, *call).is_some() {
+                        return Err(Refused::AlreadyDone(*call));
+                    }
+                }
+                Left::Ping { .. } => {}
+                // A round that began, as a fork's cost is kept: a fork is asked of a round that ran, under way or not.
+                Left::Fork { run, round } => {
+                    if *round == 0 || *round > began(work, *run) {
+                        return Err(Refused::NoSuchRound {
+                            run: *run,
+                            round: *round,
+                        });
+                    }
+                }
+            }
+            let at = work.tick();
+            work.left_behind.push(LeftBehind { at, of, processes });
+        }
         Event::Forked { run, round, spent } => {
             // A round that began, at the place its run's entry says; a work that has ended has its fork's cost too.
             if round == 0 || round > began(work, run) {
@@ -657,6 +709,17 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
             }
             let at = work.tick();
             work.pulls.push(Pulled { at, number, url });
+        }
+        Event::Timed { reading } => {
+            // Read again after the engine started again, the same run is kept once.
+            if work.timed.iter().any(|t| t.reading.same_run(&reading)) {
+                return Ok(());
+            }
+            let at = work.tick();
+            work.timed.push(Timed {
+                at,
+                reading: reading.normalised(),
+            });
         }
         Event::NotReleased { why } => {
             // The engine's pause of the ended work, with why: the owner sees it where the engine's other reasons are,
@@ -882,10 +945,10 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At<'_>, effects: &mut 
 /// Takes the run's return, which met everything the flow requires: the calls it asks for are made, and the run
 /// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish, of the
 /// cell's words its answer in them ([`spoken::entry`]), and then the questions it asks, asks anew or withdraws, each a
-/// version of its own and of its cell's questions. A return of the form
-/// before a return that asks ended its run made all its calls at once as it was taken, and its run rested at them,
-/// unless the owner's word at the limit of calls was asked for first: such a run finishes making none again, or all it
-/// asked for where it made none, and its cell is owed those it made. The run keeps, as it finishes, the observations
+/// version of its own and of its cell's questions. A run kept from before a return that asks ended its run made all
+/// its calls at once as it was taken, and rested at them, unless the owner's word at the limit of calls was asked for
+/// first: such a run finishes making none again, or all it asked for where it made none, and its cell is owed those it
+/// made. The run keeps, as it finishes, the observations
 /// its returns said that it keeps (crate `work`, module `observations`). A run that dealt with something writes that
 /// its cell has handed its work in, where the cell has a datum of that ([`handed_in`]).
 fn finish(
@@ -926,12 +989,10 @@ fn finish(
         }
         Some(Back::Failed { .. }) | None => (Vec::new(), Vec::new()),
     };
+    // `take` refuses a return that asks for a person, so each call asked for here is of a tool, which the engine makes
+    // itself.
     for ask in asks {
-        let on = match &ask {
-            Ask::Person { who, .. } => Some(who.clone()),
-            Ask::Tool { .. } => None,
-        };
-        call(work, run, on, Call::Asked(ask), effects);
+        call(work, run, None, Call::Asked(ask), effects);
     }
     let at = work.tick();
     for h in handed {
@@ -1250,7 +1311,7 @@ fn pausing_words(words: &flow::agents::PausedWords, pausing: &Pausing, why: &str
     };
     match pausing {
         Pausing::Failed(Failure::PromptTooLong) => fill(&words.too_long, None),
-        Pausing::Failed(_) => why.to_string(),
+        Pausing::Failed(_) => fill(&words.failed, None),
         Pausing::Passing { failed } => fill(&words.passing, Some(*failed)),
         Pausing::Outside { failed } => fill(&words.outside, Some(*failed)),
         Pausing::FlaggedAgain => fill(&words.flagged_again, None),

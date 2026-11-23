@@ -10,8 +10,8 @@
 //!
 //! What carries a todo out is reached through interfaces (principle `outside-behind-interfaces`): [`Rounds`] for the
 //! rounds of the cells an agent carries out and for those that are the engine's own acts, and [`Tools`] for the calls
-//! a tool answers. A call for a person, and a run at a limit, are carried out by nobody: they wait for the owner's
-//! answer, which comes as an act. A withdrawn call of a person is answered by the loop itself. What a work that ended
+//! a tool answers. A run at a limit is carried out by nobody: it waits for the owner's answer, which comes as an act.
+//! A withdrawn call that waits for the owner is answered by the loop itself. What a work that ended
 //! holds outside the engine is let go by the carrier of the engine's acts, which made it ([`Rounds::release`]).
 //!
 //! A carrier that cannot carry a round out says the round failed, with the kind of its cause where it tells one apart,
@@ -71,7 +71,7 @@ use work::{Ask, Call, RanOn, Time};
 pub use carriers::{
     Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, ForkFailed, Forked, Heard,
     Hosting, KeptTokens, Mark, Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round,
-    RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, WITHDRAWN, YEAR_MS,
+    RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, YEAR_MS,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use driver::{Along, Instead, Said, Under, Window};
@@ -81,9 +81,6 @@ pub use script::Script;
 pub use scripted::Scripted;
 pub use titles::{title_fits, title_words};
 pub use words::{no_one_words, record_fault_words, refused_words, store_fault_words};
-
-/// The result of a wait the engine made before a round that failed in passing is tried again, once its time has come.
-pub const WAITED: &str = "The wait is over: the round is tried again.";
 
 /// How many changes are kept for a listener that has not read them yet. One that falls further behind is told that
 /// everything may have changed.
@@ -131,9 +128,19 @@ pub enum Message {
         paused: bool,
         reply: oneshot::Sender<Result<(), Refusal>>,
     },
+    /// The engine is asked to stop: once what is under way has ended, or, where `at_once`, at once.
+    Stop {
+        at_once: bool,
+        reply: oneshot::Sender<Result<(), Refusal>>,
+    },
     /// The owner has the sessions of works that wait kept warm, or has them kept no longer.
     KeepWarm {
         warm: bool,
+        reply: oneshot::Sender<Result<(), Refusal>>,
+    },
+    /// The owner lets the engine move to another account at a usage limit, or does not.
+    SetMovingOn {
+        moving: bool,
         reply: oneshot::Sender<Result<(), Refusal>>,
     },
     /// The owner sets how many rounds of agents may go on at once.
@@ -252,6 +259,8 @@ pub struct Changed {
     pub items: bool,
     pub copies: bool,
     pub accounts: bool,
+    /// The observations changed: one was added or changed.
+    pub observations: bool,
 }
 
 /// What stops the loop. Started again, the process goes on from the store.
@@ -381,11 +390,14 @@ impl Service {
         &self.driver
     }
 
-    /// Takes what comes, in order, until something stops the loop.
-    pub async fn run(mut self, mut inbox: Inbox) -> Fault {
+    /// Takes what comes, in order, until something stops the loop, or the stop the engine was asked for lets it end:
+    /// at once where it was asked to stop at once, else once nothing is under way and the end of what was is kept
+    /// ([`Driver::may_end`]).
+    pub async fn run(mut self, mut inbox: Inbox) -> Result<(), Fault> {
         while let Some(message) = inbox.recv().await {
-            if let Err(fault) = self.take(message) {
-                return fault;
+            self.take(message)?;
+            if self.driver.may_end() {
+                return Ok(());
             }
         }
         unreachable!("the loop holds a way into its own channel, which therefore never closes")
@@ -446,7 +458,7 @@ impl Service {
                     let now = self.now()?;
                     let event = Event::Done {
                         call,
-                        result: WAITED.to_string(),
+                        result: self.carriers.calls.waited.clone(),
                     };
                     let todos = (self.driver.happened(now, work, event)).map_err(|failed| answer(work, failed))?;
                     self.hand(now, todos)?;
@@ -465,8 +477,21 @@ impl Service {
                 if let (Some(account), Some(said)) = (&under, heard.as_ref().and_then(|heard| heard.usage.clone())) {
                     accounts = self.driver.heard_usage(now, account, said);
                 }
-                let found = heard.map(|heard| (under, heard.found));
-                let todos = (self.driver.tick(now, found, host_reached)).map_err(Fault::Driver)?;
+                // A check to move to an account is kept as it was taken, and takes the account where it found it well;
+                // it is no time the driver was told.
+                let in_use = self.driver.accounts().in_use().map(str::to_string);
+                let todos = match (&wake.candidate, heard) {
+                    (Some(account), Some(heard)) => self.driver.tick_candidate(now, account, heard.found),
+                    (_, heard) => {
+                        let found = heard.map(|heard| (under, heard.found));
+                        self.driver.tick(now, found, host_reached)
+                    }
+                }
+                .map_err(Fault::Driver)?;
+                // An account the engine took is the pages' to be told.
+                accounts |= self.driver.accounts().in_use() != in_use.as_deref();
+                // What a check to move to an account found is the engine's own state, which no work's record holds.
+                engine |= wake.candidate.is_some();
                 self.hand(now, todos)?;
             }
             Message::Answered { work, run } => {
@@ -514,6 +539,7 @@ impl Service {
                         items: false,
                         copies: false,
                         accounts: false,
+                        observations: false,
                     });
                 }
                 return Ok(());
@@ -548,6 +574,33 @@ impl Service {
                             items: false,
                             copies: false,
                             accounts: false,
+                            observations: false,
+                        });
+                        return Ok(());
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
+            }
+            Message::Stop { at_once, reply } => {
+                let now = self.now()?;
+                match self.driver.ask_to_stop(now, at_once) {
+                    Ok(()) => {
+                        let _ = reply.send(Ok(()));
+                        // What every work does now may have changed, though no record of one grew.
+                        let works: Vec<WorkNumber> = self.driver.works().map(|kept| kept.head.number).collect();
+                        let _ = self.changed.send(Changed {
+                            works,
+                            items: false,
+                            copies: false,
+                            accounts: false,
+                            observations: false,
                         });
                         return Ok(());
                     }
@@ -573,8 +626,36 @@ impl Service {
                             items: false,
                             copies: false,
                             accounts: false,
+                            observations: false,
                         });
                         return Ok(());
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
+            }
+            Message::SetMovingOn { moving, reply } => {
+                let now = self.now()?;
+                match self.driver.set_moving_on(now, moving) {
+                    Ok(todos) => {
+                        let _ = reply.send(Ok(()));
+                        self.hand(now, todos)?;
+                        // What every work does now may have changed, though no record of one grew; and what the
+                        // accounts say did.
+                        let works: Vec<WorkNumber> = self.driver.works().map(|kept| kept.head.number).collect();
+                        let _ = self.changed.send(Changed {
+                            works,
+                            items: false,
+                            copies: false,
+                            accounts: true,
+                            observations: false,
+                        });
                     }
                     Err(failed) => {
                         let refusal = Refusal::Failed(failed);
@@ -623,6 +704,7 @@ impl Service {
                             items: false,
                             copies: false,
                             accounts: true,
+                            observations: false,
                         });
                     }
                     Err(failed) => {
@@ -683,7 +765,7 @@ impl Service {
     /// of the outside or a look at the network, it is taken off the loop as the time comes.
     fn set_wake(&mut self) {
         let wake = self.driver.wake();
-        if self.wake.as_ref().map(|(w, _)| *w) == wake {
+        if self.wake.as_ref().map(|(w, _)| w) == wake.as_ref() {
             return;
         }
         let now = self.clock.now().ok();
@@ -701,8 +783,10 @@ impl Service {
             self.carriers.outside.clone(),
             self.carriers.host.clone(),
         );
-        // The outside is checked under the account in use as the time is set: taking another sets it anew.
-        let under = self.driver.accounts().in_use().map(str::to_string);
+        // The outside is checked under the account the wake names, to move to it, else the one in use as the time is
+        // set: taking another sets it anew.
+        let under = (wake.candidate.clone()).or_else(|| self.driver.accounts().in_use().map(str::to_string));
+        let set = wake.clone();
         let timer = tokio::spawn(async move {
             tokio::time::sleep(after).await;
             let heard = match wake.check {
@@ -722,7 +806,7 @@ impl Service {
                 host_reached,
             });
         });
-        self.wake = Some((wake, timer.abort_handle()));
+        self.wake = Some((set, timer.abort_handle()));
     }
 
     /// How long from now until this time; nothing where it has come, or the clock cannot be read, when the time is
@@ -926,6 +1010,9 @@ impl Service {
                     input: input.clone(),
                     item: kept.item.clone(),
                     kept: Arc::new(kept.work.clone()),
+                    test_time: (name == driver::timed::RUN_TESTS)
+                        .then(|| self.driver.test_time(work))
+                        .flatten(),
                 };
                 self.carriers
                     .tools
@@ -943,7 +1030,7 @@ impl Service {
                     let _ = to.send(Message::Due { work, call });
                 });
             }
-            // A person's call, and a run at its limit, wait for the owner's answer.
+            // A run at its limit waits for the owner's answer.
             Effect::Call { .. } => {}
             Effect::Withdraw { call } => match kept.work.calls.get(call) {
                 Some(Call::Asked(Ask::Tool { name, input })) => {
@@ -958,6 +1045,7 @@ impl Service {
                         input: input.clone(),
                         item: kept.item.clone(),
                         kept: Arc::new(kept.work.clone()),
+                        test_time: None,
                     };
                     self.carriers
                         .tools
@@ -966,7 +1054,7 @@ impl Service {
                 Some(Call::Asked(Ask::Person { .. }) | Call::AtLimit(_) | Call::Wait { .. }) => {
                     return Ok(Some(Event::Done {
                         call: *call,
-                        result: WITHDRAWN.to_string(),
+                        result: self.carriers.calls.withdrawn.clone(),
                     }));
                 }
                 None => return Err(stray(Missing::Call(*call))),
@@ -1045,6 +1133,7 @@ impl Service {
                 items,
                 copies: false,
                 accounts,
+                observations: false,
             });
         }
     }
@@ -1057,6 +1146,7 @@ impl Service {
             items: false,
             copies: false,
             accounts: true,
+            observations: false,
         });
     }
 }
@@ -1099,6 +1189,20 @@ impl Handle {
             items: false,
             copies: true,
             accounts: false,
+            observations: false,
+        });
+    }
+
+    /// Tells whoever listens that the observations changed: one was added, or changed. The notice holds no record;
+    /// whoever listens reads them again. They are written beside the loop, so it is not the loop that says so.
+    pub fn observations_changed(&self) {
+        // Nobody may be listening.
+        let _ = self.changed.send(Changed {
+            works: Vec::new(),
+            items: false,
+            copies: false,
+            accounts: false,
+            observations: true,
         });
     }
 
@@ -1122,12 +1226,32 @@ impl Handle {
         answer.await.map_err(|_| Refusal::Gone)?
     }
 
+    /// Asks the engine to stop: once what is under way has ended, or, where `at_once`, at once. From then no round of
+    /// any work begins; the loop ends as the stop lets it ([`Service::run`]).
+    pub async fn stop(&self, at_once: bool) -> Result<(), Refusal> {
+        let (reply, answer) = oneshot::channel();
+        (self.to)
+            .send(Message::Stop { at_once, reply })
+            .map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
     /// Has the sessions of works that wait kept warm, or has them kept no longer: the engine's own state, which holds
     /// when it starts again.
     pub async fn keep_warm(&self, warm: bool) -> Result<(), Refusal> {
         let (reply, answer) = oneshot::channel();
         (self.to)
             .send(Message::KeepWarm { warm, reply })
+            .map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
+    /// Lets the engine move to another account at the usage limit of the one in use, or does not: the engine's own
+    /// state, which holds when it starts again.
+    pub async fn set_moving_on(&self, moving: bool) -> Result<(), Refusal> {
+        let (reply, answer) = oneshot::channel();
+        (self.to)
+            .send(Message::SetMovingOn { moving, reply })
             .map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
     }
@@ -1364,13 +1488,10 @@ impl Handle {
                 let kept = driver.work(work)?;
                 let ran = (kept.work.ran.iter()).filter(|r| r.run == run).map(|r| r.round).max();
                 let Some(round) = round.or(ran) else {
-                    return Some(Err(format!("Work {} has no round of run {} that ran.", work.0, run.0)));
+                    return Some(Err(format!("{work} has no round of run {} that ran.", run.0)));
                 };
                 if !kept.work.ran.iter().any(|r| r.run == run && r.round == round) {
-                    return Some(Err(format!(
-                        "Work {} has no round {round} of run {} that ran.",
-                        work.0, run.0
-                    )));
+                    return Some(Err(format!("{work} has no round {round} of run {} that ran.", run.0)));
                 }
                 let ended = matches!(kept.decision(), decide::Decision::Ended(_));
                 let outline = match fork_outline(&kept) {
@@ -1405,9 +1526,9 @@ impl Handle {
                 said,
             });
         }
-        // A fork that ran took what it cost, whether or not it answered, and the work keeps that; one refused before
-        // its program ran took nothing.
-        if let Some(event) = fork_event(run, round, &forked) {
+        // A fork that ran took what it cost, whether or not it answered, and may have left processes running, which
+        // were stopped; the work keeps both. One refused before its program ran took nothing and left nothing.
+        for event in fork_events(run, round, &forked) {
             let _ = (self.to).send(Message::Happened { work, event });
         }
         Ok(Some(forked.map_err(|failed| failed.to_string())))
@@ -1559,14 +1680,20 @@ fn kind_of(kept: &driver::Kept<'_>, cell: &CellId) -> Option<Kind> {
         .map(|c| if c.agent { Kind::Agent } else { Kind::Engine })
 }
 
-/// What the work keeps of a fork of the round of this number of the run that ended: what it took, whether it answered
-/// or failed having run; none for one refused before its program ran, which took nothing.
-fn fork_event(run: RunId, round: usize, asked: &Result<Forked, ForkFailed>) -> Option<Event> {
-    let spent = match asked {
-        Ok(forked) => Some(forked.spent),
-        Err(failed) => failed.spent,
-    }?;
-    Some(Event::Forked { run, round, spent })
+/// What the work keeps of a fork of the round of this number of the run that ended, whether it answered or failed
+/// having run: the processes its program left running, which were stopped before its end was given, where it left
+/// any, then what it took; nothing for one refused before its program ran, which took nothing and left nothing.
+fn fork_events(run: RunId, round: usize, asked: &Result<Forked, ForkFailed>) -> Vec<Event> {
+    let (spent, left) = match asked {
+        Ok(forked) => (Some(forked.spent), forked.left),
+        Err(failed) => (failed.spent, failed.left),
+    };
+    let left = (left > 0).then_some(Event::LeftBehind {
+        of: work::Left::Fork { run, round },
+        processes: left,
+    });
+    let spent = spent.map(|spent| Event::Forked { run, round, spent });
+    left.into_iter().chain(spent).collect()
 }
 
 /// What a fork of a round of the work reads which session the round ran in by: the outline of the version the work is
@@ -1574,8 +1701,8 @@ fn fork_event(run: RunId, round: usize, asked: &Result<Forked, ForkFailed>) -> O
 fn fork_outline(kept: &driver::Kept<'_>) -> Result<Arc<flow::Outline>, String> {
     let outline = kept.on.outline().ok_or_else(|| {
         format!(
-            "The version of the flow work {} ran on was not kept: which session its round ran in is not known.",
-            kept.head.number.0
+            "The version of the flow {} ran on was not kept: which session its round ran in is not known.",
+            kept.head.number
         )
     })?;
     Ok(Arc::new(outline.clone()))
@@ -1614,8 +1741,8 @@ mod tests {
 
     use super::*;
 
-    // What the work keeps of a fork is what it took where its program ran, whether it answered or not, and nothing of
-    // one refused before it ran.
+    // What the work keeps of a fork is what it took where its program ran, whether it answered or not, with what its
+    // program left running before it where it left any, and nothing of one refused before it ran.
     #[test]
     fn a_fork_that_ran_is_kept_whether_it_answered_or_failed_and_one_refused_before_it_ran_is_not() {
         let spent = work::Spent {
@@ -1623,7 +1750,7 @@ mod tests {
             input_tokens: 120,
             ..Default::default()
         };
-        let forked = Forked {
+        let forked = |left| Forked {
             answer: None,
             text: "It said this.".to_string(),
             spent,
@@ -1636,22 +1763,31 @@ mod tests {
             account: "work".to_string(),
             instead: None,
             usage: None,
+            left,
         };
-        let event = |spent| {
-            Some(Event::Forked {
+        let took = Event::Forked {
+            run: RunId(7),
+            round: 1,
+            spent,
+        };
+        let left = |processes| Event::LeftBehind {
+            of: work::Left::Fork {
                 run: RunId(7),
                 round: 1,
-                spent,
-            })
+            },
+            processes,
         };
-        assert_eq!(fork_event(RunId(7), 1, &Ok(forked)), event(spent));
-        let failed = ForkFailed {
+        assert_eq!(fork_events(RunId(7), 1, &Ok(forked(0))), std::slice::from_ref(&took));
+        assert_eq!(fork_events(RunId(7), 1, &Ok(forked(2))), [left(2), took.clone()]);
+        let failed = |left| ForkFailed {
             why: "The fork wrote no answer.".to_string(),
             spent: Some(spent),
+            left,
         };
-        assert_eq!(fork_event(RunId(7), 1, &Err(failed)), event(spent));
+        assert_eq!(fork_events(RunId(7), 1, &Err(failed(0))), std::slice::from_ref(&took));
+        assert_eq!(fork_events(RunId(7), 1, &Err(failed(1))), [left(1), took]);
         let refused = ForkFailed::from("No account is in use.");
-        assert_eq!(fork_event(RunId(7), 1, &Err(refused)), None);
+        assert!(fork_events(RunId(7), 1, &Err(refused)).is_empty());
     }
 
     /// The flow of a deliverable item as the repository defines it (`flow/deliver`), whose one cell, `V1`, is the
@@ -1695,6 +1831,7 @@ mod tests {
                 project: None,
                 depends_on: Vec::new(),
                 tags: Vec::new(),
+                continues: None,
             };
             Stored {
                 head: WorkHead {
@@ -1761,7 +1898,7 @@ mod tests {
         assert_eq!(
             fork_outline(&stored.kept(&none)),
             Err(
-                "The version of the flow work 1 ran on was not kept: which session its round ran in is not known."
+                "The version of the flow W1 ran on was not kept: which session its round ran in is not known."
                     .to_string()
             )
         );

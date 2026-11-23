@@ -6,6 +6,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex};
 
+use driver::cache::{Cause, Miss};
 use driver::{Budget, Policy};
 use driver::{FirstWrite, Found, NewItem};
 use engine::RanOn;
@@ -74,6 +75,7 @@ fn flow() -> Compiled {
         .into_iter()
         .map(|(id, text)| (id.to_string(), text))
         .collect(),
+        files: beside(),
         ..Default::default()
     };
     let has = Has {
@@ -133,6 +135,7 @@ fn two_lines() -> Compiled {
         .into_iter()
         .map(|(id, text)| (id.to_string(), text))
         .collect(),
+        files: beside(),
         ..Default::default()
     };
     let has = Has {
@@ -194,6 +197,7 @@ fn remarks() -> Compiled {
         .into_iter()
         .map(|(id, text)| (id.to_string(), text))
         .collect(),
+        files: beside(),
         ..Default::default()
     };
     let has = Has {
@@ -254,6 +258,8 @@ struct S {
     account: Option<String>,
     /// What each round of the work that ends spends, in millionths of a dollar.
     usd: u64,
+    /// How often the program compacted the session during each round of the work that ends.
+    compactions: u32,
 }
 
 impl S {
@@ -302,6 +308,7 @@ impl S {
             level: "1".to_string(),
             project: PROJECT.to_string(),
             tags: Vec::new(),
+            continues: None,
             depends_on: Vec::new(),
             flow: "sessions".to_string(),
             writes: vec![FirstWrite {
@@ -353,6 +360,7 @@ impl S {
             project: PROJECT.to_string(),
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
             flow: "sessions".to_string(),
             writes: vec![FirstWrite {
                 block: "request".into(),
@@ -371,6 +379,7 @@ impl S {
             model: "opus".to_string(),
             account: account.map(str::to_string),
             usd: 0,
+            compactions: 0,
         }
     }
 
@@ -386,6 +395,7 @@ impl S {
             project: PROJECT.to_string(),
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
             flow: "sessions".to_string(),
             writes: vec![FirstWrite {
                 block: "request".into(),
@@ -434,6 +444,7 @@ impl S {
             input_tokens: 10,
             context_tokens: Some(context),
             usd_micros: self.usd,
+            compactions: self.compactions,
             ..Default::default()
         };
         self.on(Event::Returned { run, came, spent });
@@ -485,18 +496,23 @@ impl S {
     }
 
     fn engineer(&self, run: RunId, number: usize) -> (u32, bool) {
-        let work = self.kept();
-        let on_line = |r: RunId| {
-            let cell = work
-                .records
-                .started
-                .iter()
-                .find(|s| s.run == r)
-                .map(|s| s.cell.as_str());
-            matches!(cell, Some("load" | "build"))
-        };
-        of_round(work, "engineer", on_line, run, number)
+        engineer_in(self.kept(), run, number)
     }
+}
+
+/// Which session of the engineer's line the round of this number of the run runs in, and whether it begins it, as the
+/// work's records say.
+fn engineer_in(work: &engine::Work, run: RunId, number: usize) -> (u32, bool) {
+    let on_line = |r: RunId| {
+        let cell = work
+            .records
+            .started
+            .iter()
+            .find(|s| s.run == r)
+            .map(|s| s.cell.as_str());
+        matches!(cell, Some("load" | "build"))
+    };
+    of_round(work, "engineer", on_line, run, number)
 }
 
 #[test]
@@ -661,7 +677,7 @@ fn a_flagged_round_of_a_store_kept_before_sessions_were_recorded_has_its_line_be
 }
 
 #[test]
-fn a_round_under_way_as_a_store_kept_before_sessions_were_recorded_opens_runs_in_the_session_its_flag_begins() {
+fn a_round_under_way_as_a_store_kept_before_sessions_were_recorded_opens_goes_on_in_the_session_it_began_in() {
     let mut s = S::new();
     s.hands_in(100, true);
     s.hands_in(100, true);
@@ -701,9 +717,10 @@ fn a_round_under_way_as_a_store_kept_before_sessions_were_recorded_opens_runs_in
         .any(|todo| matches!(&todo.effect, Effect::Round { run, number: 1, .. } if *run == again));
     assert!(given, "the round under way is given again: {todos:?}");
     assert_eq!(s.sessions(), [("review".to_string(), Why::Flagged)]);
-    // Given again, it does not go on in the session the review's round was flagged in: it begins the new one.
+    // Given again, it goes on in the session it began in, as every round does: the session its line began as the engine
+    // opened is the next round's.
     let line = |r: RunId| r == review || r == again;
-    assert_eq!(of_round(s.kept(), "review", line, again, 1), (1, true));
+    assert_eq!(of_round(s.kept(), "review", line, again, 1), (0, false));
 }
 
 #[test]
@@ -773,6 +790,102 @@ fn a_line_whose_session_began_otherwise_than_a_new_one_would_now_begins_one_reco
     assert_eq!(s.round().1, "review", "no cell runs for the new session");
     assert_eq!(s.sessions().len(), 1, "the new session begins no other");
     assert_eq!((runs(&s, "load"), runs(&s, "build")), (1, 1));
+}
+
+// The carrier takes main in after the round has begun, which changes what a new session of the line would begin with, and
+// the driver records the new session before the round's first try is recorded. The round goes on in the session it began
+// in, as its carrier decided from the work as kept then, and the records say the same; the line's next round begins the
+// new session. Runs in memory in milliseconds; the one test of a new session recorded between a round's beginning and its
+// first try, which no other test records in that order.
+#[test]
+fn a_session_begun_while_a_round_takes_main_in_is_the_next_rounds() {
+    let changed = Arc::new(AtomicBool::new(false));
+    let since = changed.clone();
+    let policy = kept_against(move |line, session| line == "engineer" && session == 0 && since.load(SeqCst));
+    let mut s = S::with(policy, None);
+    s.hands_in(1234, true);
+    let (build, cell) = s.round();
+    assert_eq!(cell, "build");
+    // What the carrier is given as the round is handed out.
+    let handed = s.kept().clone();
+    changed.store(true, SeqCst);
+    s.on(Event::WroteForRound {
+        run: build,
+        block: "tree".into(),
+        content: "c1 t1".to_string(),
+    });
+    assert!(
+        matches!(s.sessions().as_slice(), [(line, Why::Changed { .. })] if line == "engineer"),
+        "{:?}",
+        s.sessions()
+    );
+    // The round's first try is recorded after the new session, and the round asks for a tool.
+    s.asks(100);
+    assert_eq!(
+        s.engineer(build, 1),
+        (0, false),
+        "the round went on in the session it began in"
+    );
+    assert_eq!(
+        engineer_in(&handed, build, 1),
+        s.engineer(build, 1),
+        "the records say what the carrier decided as the round began"
+    );
+    // The build, entered again for the tool's result, begins the new session.
+    let call = s.kept().records.called.last().expect("the build's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the request".to_string(),
+    });
+    let (again, cell) = s.round();
+    assert_eq!(cell, "build");
+    assert_eq!(s.engineer(again, 1), (1, true));
+    assert_eq!(s.sessions().len(), 1, "the new session begins no other");
+}
+
+// A round flagged after its line began a new session while the round took main in ran in the session it began in, which
+// that new session ended already, so the flag begins no other: the round is tried again in the one session recorded, which
+// holds nothing of it. Runs in memory in milliseconds; the one test of a round that fails after a session was recorded
+// between its beginning and its first try, where the flag's session would otherwise be counted from the first try.
+#[test]
+fn a_flagged_round_whose_line_began_a_new_session_as_it_took_main_in_is_tried_again_in_that_session() {
+    let changed = Arc::new(AtomicBool::new(false));
+    let since = changed.clone();
+    let policy = kept_against(move |line, session| line == "engineer" && session == 0 && since.load(SeqCst));
+    let mut s = S::with(policy, None);
+    s.hands_in(1234, true);
+    let (build, cell) = s.round();
+    assert_eq!(cell, "build");
+    changed.store(true, SeqCst);
+    s.on(Event::WroteForRound {
+        run: build,
+        block: "tree".into(),
+        content: "c1 t1".to_string(),
+    });
+    s.began();
+    let spent = Spent {
+        input_tokens: 10,
+        context_tokens: Some(100),
+        ..Default::default()
+    };
+    s.on(Event::Failed {
+        run: build,
+        why: "the safeguards flagged this message".to_string(),
+        failure: decide::run::Failure::Flagged,
+        resets: None,
+        spent,
+    });
+    assert!(
+        matches!(s.sessions().as_slice(), [(line, Why::Changed { .. })] if line == "engineer"),
+        "the flag begins no session beside the one recorded as main was taken in: {:?}",
+        s.sessions()
+    );
+    // The round is given again, as its run's next, and begins that session.
+    assert_eq!(s.round().0, build);
+    let next = s.kept().records.rounds.iter().filter(|r| r.run == build).count();
+    assert_eq!(next, 2);
+    assert_eq!(s.engineer(build, 1), (0, false));
+    assert_eq!(s.engineer(build, 2), (1, true));
 }
 
 // A line whose session began with what a new one would begin with now goes on in it: the carriers are asked of each
@@ -1060,6 +1173,7 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
             project: PROJECT.to_string(),
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
             flow: "sessions".to_string(),
             writes: vec![FirstWrite {
                 block: "request".into(),
@@ -1086,9 +1200,13 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
     let records = &s.driver.work(same).expect("the work").work.records;
     let why = records.pauses.last().and_then(|p| p.why.clone()).unwrap_or_default();
     assert!(
-        why.contains("opus") && why.contains(&format!("work {}", s.work.0)),
+        why.contains("opus") && why.contains(&format!("work {}", s.work)),
         "{why}"
     );
+    // A whole sentence from the files, with the service's own words after a colon, and the work's number written as
+    // the engine writes one.
+    assert!(why.starts_with("The service has no model "), "{why}");
+    assert!(why.ends_with(": There's an issue with the selected model."), "{why}");
 }
 
 #[test]
@@ -1334,14 +1452,21 @@ fn a_line_whose_session_began_otherwise_than_a_new_one_would_now_is_not_kept_war
     assert!(kept_warm_on(&s, &changed).is_empty());
 }
 
-/// The round under way says what its calls came to: its first call read this from the cache, on this model.
-fn measured(s: &mut S, read: u64, model: &str) {
+/// What the program's own report of what it gave the model holds in the rounds of these tests unless a test changes it:
+/// the digests of its tools and of its agents.
+const REPORT: [(&str, &str); 2] = [("program_tools", "t1"), ("program_agents", "a1")];
+
+/// The round under way says what its calls came to: its first call read this from the cache of a first prompt of this
+/// many tokens, with these parts before the session's messages.
+fn measured_as(s: &mut S, read: u64, context: u64, before: &[(&str, &str)]) {
     let (run, _) = s.round();
     let measures = Measures {
         calls: 1,
         first_read: Some(read),
-        first_context: Some(read + 10),
-        before: [("model".to_string(), model.to_string())].into(),
+        first_context: Some(context),
+        before: (before.iter())
+            .map(|(part, value)| (part.to_string(), value.to_string()))
+            .collect(),
         ..Measures::default()
     };
     s.on(Event::Measured {
@@ -1349,6 +1474,13 @@ fn measured(s: &mut S, read: u64, model: &str) {
         attempt: 1,
         measures,
     });
+}
+
+/// The round under way says what its calls came to: its first call read this from the cache, on this model, the
+/// program's report as in every round, and a first prompt of 2,000 tokens, which is more than the 1,000 the sessions of
+/// these tests hold: a session gone on in is never shorter.
+fn measured(s: &mut S, read: u64, model: &str) {
+    measured_as(s, read, 2_000, &[("model", model), REPORT[0], REPORT[1]]);
 }
 
 #[test]
@@ -1365,7 +1497,8 @@ fn a_round_that_went_on_in_its_session_within_the_caches_life_and_read_less_than
     let miss = &misses[0];
     assert_eq!((miss.run, miss.round, miss.read, miss.held), (build, 1, 100, 1_000));
     assert_eq!(miss.written(), 900);
-    assert!(!miss.expected(), "nothing before the messages differed: a fault");
+    assert!(!miss.expected(), "nothing before the messages differed");
+    assert!(miss.fault(), "both rounds hold the program's report: a fault");
     // After the cache's life, its next round writes the session again by design: no miss.
     s.clock += 2 * 3_600_000;
     let call = s.kept().records.called.last().expect("the build's call").call;
@@ -1380,6 +1513,23 @@ fn a_round_that_went_on_in_its_session_within_the_caches_life_and_read_less_than
         1,
         "a round after the cache's life is no miss"
     );
+}
+
+// The cache is asked about when the round's first call was made, and not about when the round began, which is where its
+// session is decided: a round that began within the cache's life and whose first try came after it, as when the carrier
+// took main in for long before the program ran, wrote the session again by design. Runs in memory in milliseconds; the
+// one test that sets the two times apart, which every other test of a miss leaves a second apart.
+#[test]
+fn a_round_whose_first_try_came_after_the_caches_life_is_no_miss_though_it_began_within_it() {
+    let mut s = S::with(warm("opus"), None);
+    measured(&mut s, 0, "a");
+    s.hands_in(1_000, true);
+    // The build begins as the load ends, in the session the load began, and reads a tenth of it.
+    measured(&mut s, 100, "a");
+    s.clock += 2 * 3_600_000;
+    s.asks(1_000);
+    let misses = s.driver.misses(s.work);
+    assert!(misses.is_empty(), "{misses:?}");
 }
 
 #[test]
@@ -1401,7 +1551,7 @@ fn a_miss_after_what_comes_before_the_messages_changed_is_expected_and_a_hit_is_
     s.hands_in(1_000, true);
     let misses = s.driver.misses(s.work);
     assert_eq!(misses.len(), 1);
-    assert_eq!(misses[0].differs, ["model"]);
+    assert_eq!(misses[0].cause, Cause::Differs(vec!["model".to_string()]));
     assert!(misses[0].expected());
 }
 
@@ -1420,7 +1570,7 @@ fn a_miss_after_another_account_was_taken_names_the_account_as_what_differs() {
     s.asks(1_000);
     let misses = s.driver.misses(s.work);
     assert_eq!(misses.len(), 1, "{misses:?}");
-    assert_eq!(misses[0].differs, ["account"]);
+    assert_eq!(misses[0].cause, Cause::Differs(vec!["account".to_string()]));
     assert!(misses[0].expected());
     assert!(s.sessions().is_empty(), "no session begins anew for it");
 }
@@ -1428,23 +1578,97 @@ fn a_miss_after_another_account_was_taken_names_the_account_as_what_differs() {
 /// The round under way said what its first call read from the cache, on the model `a`, under the account where one was
 /// in use, which is left out where none was.
 fn measured_under(s: &mut S, read: u64, account: Option<&str>) {
-    let (run, _) = s.round();
-    let mut before: std::collections::BTreeMap<String, String> = [("model".to_string(), "a".to_string())].into();
+    let mut before = vec![("model", "a"), REPORT[0], REPORT[1]];
     if let Some(account) = account {
-        before.insert("account".to_string(), account.to_string());
+        before.push(("account", account));
     }
-    let measures = Measures {
-        calls: 1,
-        first_read: Some(read),
-        first_context: Some(read + 10),
-        before,
-        ..Measures::default()
-    };
-    s.on(Event::Measured {
-        run,
-        attempt: 1,
-        measures,
-    });
+    measured_as(s, read, 2_000, &before);
+}
+
+/// The session's first round hands in with 1,000 tokens in its context and its second goes on in it at once, saying
+/// this of its first call and this of what the round spent, so that what the second round's miss is told by is the
+/// first call's alone.
+fn goes_on(first: &[(&str, &str)], then: &[(&str, &str)], read: u64, context: u64, compactions: u32) -> Vec<Miss> {
+    let mut s = S::with(warm("opus"), None);
+    measured_as(&mut s, 0, 2_000, first);
+    s.hands_in(1_000, true);
+    measured_as(&mut s, read, context, then);
+    s.compactions = compactions;
+    s.asks(1_000);
+    s.driver.misses(s.work)
+}
+
+// The shape of work 35 run 36: the program compacted the session before the round's first call, which went on in the
+// summary, with a first prompt far under what the session held, and read what no compaction changes. No miss, and no
+// fault of wf-agents. Red before the change: the round was listed with nothing differing, a fault.
+#[test]
+fn a_round_that_compacted_the_session_before_its_first_call_is_no_miss() {
+    let model = [("model", "a"), REPORT[0], REPORT[1]];
+    assert!(goes_on(&model, &model, 100, 500, 1).is_empty());
+}
+
+// The same round with no compaction recorded is a miss whose cause the records do not say, not a fault of wf-agents and
+// not left out.
+#[test]
+fn a_round_whose_first_prompt_is_shorter_than_what_was_held_with_no_compaction_recorded_is_a_miss_of_unknown_cause() {
+    let model = [("model", "a"), REPORT[0], REPORT[1]];
+    let misses = goes_on(&model, &model, 100, 500, 0);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].cause, Cause::Unknown);
+    assert!(!misses[0].expected() && !misses[0].fault());
+}
+
+// A compaction later in the round leaves the first prompt as long as what was held, and the first call missed all the
+// same: a miss, judged as before.
+#[test]
+fn a_round_that_compacted_but_whose_first_prompt_was_not_shorter_is_still_a_miss() {
+    let model = [("model", "a"), REPORT[0], REPORT[1]];
+    let misses = goes_on(&model, &model, 100, 1_000, 1);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].cause, Cause::Fault);
+    assert_eq!(goes_on(&model, &model, 100, 2_000, 1).len(), 1);
+}
+
+// The shape of work 23 run 15: the engine's arguments the same, the effort changed, and the program's list of tools
+// shorter by one tool. The cause is the tools, which the program said; not the effort.
+#[test]
+fn a_miss_after_the_programs_tool_list_changed_names_the_list_and_not_the_effort() {
+    let first = [("model", "a"), ("effort", "high"), REPORT[0], REPORT[1]];
+    let then = [("model", "a"), ("effort", "xhigh"), ("program_tools", "t2"), REPORT[1]];
+    let misses = goes_on(&first, &then, 0, 2_000, 0);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].cause, Cause::Differs(vec!["program_tools".to_string()]));
+}
+
+// A change of effort alone, with both rounds holding the program's report, caused no miss in the records, and names
+// none: where the cache did not read the session all the same, nothing before the messages differed.
+#[test]
+fn a_miss_after_a_change_of_effort_alone_names_no_effort() {
+    let first = [("model", "a"), ("effort", "high"), REPORT[0], REPORT[1]];
+    let then = [("model", "a"), ("effort", "xhigh"), REPORT[0], REPORT[1]];
+    let misses = goes_on(&first, &then, 0, 2_000, 0);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].cause, Cause::Fault);
+}
+
+// A round kept before the program's report was kept says nothing of what the program gave the model, and a round with
+// no measures at all says nothing of what came before its messages: a miss after either is of unknown cause, and the
+// report is not named as what differs.
+#[test]
+fn a_miss_where_the_call_before_holds_no_report_of_the_program_is_of_unknown_cause() {
+    let model = [("model", "a"), REPORT[0], REPORT[1]];
+    let kept_earlier = [("model", "a"), ("effort", "high"), ("tools", "x")];
+    let misses = goes_on(&kept_earlier, &model, 0, 2_000, 0);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].cause, Cause::Unknown);
+    // No measures for the call before.
+    let mut s = S::with(warm("opus"), None);
+    s.hands_in(1_000, true);
+    measured_as(&mut s, 0, 2_000, &model);
+    s.asks(1_000);
+    let misses = s.driver.misses(s.work);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].cause, Cause::Unknown);
 }
 
 #[test]
@@ -1999,4 +2223,34 @@ fn no_session_of_a_cancelled_work_is_pinged_though_another_lines_round_was_under
     assert!(lines_kept(&s).is_empty(), "a session of a cancelled work is kept warm");
     let todos = s.driver.tick(Time(at), None, None).unwrap();
     assert!(pings(&s, &todos).is_empty(), "a ping of a cancelled work");
+}
+
+// A stop of the engine holds no call and no keep-warm ping: the round under way as the stop is asked for, which asks
+// for a tool, has its call given, and the session that waits for its result is pinged when its ping is due, as with no
+// stop, so that the cache the engine's next start goes on from is kept; the engine may not end while the ping is under
+// way. Fails where a stop holds either, or lets the engine end with a ping under way. Milliseconds; no other test gives
+// a call or a ping under a stop.
+#[test]
+fn a_stop_holds_neither_a_call_nor_a_ping() {
+    let mut s = S::warmed(warm("opus"));
+    s.hands_in(100, true);
+    s.driver.ask_to_stop(Time(s.clock), false).expect("the stop is kept");
+    s.asks(100);
+    let calls = (s.driver.pending().iter())
+        .filter(|t| t.work == s.work && matches!(t.effect, Effect::Call { .. }))
+        .count();
+    assert_eq!(calls, 1, "the round's call is given under the stop");
+    let at = woken(&s);
+    let todos = s.driver.tick(Time(at), None, None).expect("the driver takes the time");
+    assert_eq!(
+        pings(&s, &todos),
+        [("engineer".to_string(), 0)],
+        "the waiting session is pinged under the stop"
+    );
+    assert!(!s.driver.may_end(), "a ping is under way");
+    s.clock = at + 5_000;
+    s.driver
+        .happened(Time(s.clock), s.work, pinged(Spent::default(), None))
+        .unwrap();
+    assert!(s.driver.may_end(), "nothing is under way once the ping has ended");
 }

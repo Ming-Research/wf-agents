@@ -35,7 +35,7 @@ async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follo
     assert_eq!(pulls[0].title, "Greet the user");
     let body = &pulls[0].body;
     assert!(body.contains("\n```text\nGreets the user by name.\n```\n"), "{body}");
-    assert!(body.contains("\n---\n\nThis pull request carries work 1"), "{body}");
+    assert!(body.contains("\n---\n\nThis pull request carries work W1"), "{body}");
     let edits = |hub: &Hub| {
         (hub.github().asked().into_iter())
             .filter(|a| matches!(a, Asked::Edit { .. }))
@@ -78,6 +78,22 @@ pub(super) fn heard(heard: &mut tokio::sync::mpsc::UnboundedReceiver<service::Me
     events
 }
 
+/// The pull requests among what was said through the channel, as they were said.
+pub(super) fn pulls(said: &mut tokio::sync::mpsc::UnboundedReceiver<service::Message>) -> Vec<engine::Event> {
+    let pulled = |event: &engine::Event| matches!(event, engine::Event::Pulled { .. });
+    heard(said).into_iter().filter(pulled).collect()
+}
+
+/// The readings of how long a run took among what was said through the channel, as they were said.
+pub(super) fn timed(said: &mut tokio::sync::mpsc::UnboundedReceiver<service::Message>) -> Vec<work::Reading> {
+    (heard(said).into_iter())
+        .filter_map(|event| match event {
+            engine::Event::Timed { reading } => Some(reading),
+            _ => None,
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn each_check_says_the_pull_request_it_checks_the_work_through_for_the_work_to_keep() {
     let hub = Hub::new();
@@ -101,7 +117,84 @@ async fn each_check_says_the_pull_request_it_checks_the_work_through_for_the_wor
         number: pull.number,
         url: pull.url,
     };
-    assert_eq!(heard(&mut said), [pulled.clone(), pulled]);
+    assert_eq!(pulls(&mut said), [pulled.clone(), pulled]);
+}
+
+// The check says how long the jobs and the tests of its run took, as a run of the full workflows asked for by the round
+// that checks: each job by its wall time and each test by its own, in the order of their names.
+#[tokio::test]
+async fn the_check_says_how_long_the_jobs_and_tests_of_its_run_took_as_the_full_workflows() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.green(&head);
+    let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+    let reply = service::RoundReply::new(WORK, RunId(1), to);
+    let mut stop = Stop::never().hosting(reply.hosting());
+    let place = hub.place();
+    let main = hub.main_on_github();
+    (hub.host
+        .verdict(&branch(&place), &head, &main, hub.round(), &Mutex::new(()), &mut stop)
+        .await)
+        .expect("checked")
+        .expect("nothing stopped it");
+    let job = |name: &str| work::timed::Job {
+        name: name.to_string(),
+        millis: 60_000,
+    };
+    assert_eq!(
+        timed(&mut said),
+        [work::Reading {
+            asking: "run/1/round/1".to_string(),
+            source: work::Source::Full,
+            commit: head,
+            workflow: "ci.yml".to_string(),
+            jobs: vec![job("lint"), job("test")],
+            tests: vec![work::timed::Test {
+                unit: "carry".to_string(),
+                name: "tools::tests::a".to_string(),
+                passed: true,
+                millis: 120,
+            }],
+        }]
+    );
+}
+
+// A project that declares two full workflows has the check run both, under one asking and on one commit: each run is
+// said as a reading of its own, told apart by its workflow, so that what the check took is what both took.
+#[tokio::test]
+async fn the_check_says_each_full_workflow_s_run_apart_where_the_project_has_two() {
+    let hub = Hub::new().with(|config| {
+        if let Some(ci) = config.ci.as_mut() {
+            ci.full.workflows.push("slow.yml".to_string());
+        }
+    });
+    let head = hub.committed().await;
+    hub.green(&head);
+    let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+    let reply = service::RoundReply::new(WORK, RunId(1), to);
+    let mut stop = Stop::never().hosting(reply.hosting());
+    let place = hub.place();
+    let main = hub.main_on_github();
+    (hub.host
+        .verdict(&branch(&place), &head, &main, hub.round(), &Mutex::new(()), &mut stop)
+        .await)
+        .expect("checked")
+        .expect("nothing stopped it");
+    let readings = timed(&mut said);
+    let of: Vec<(&str, &str, work::Source)> = (readings.iter())
+        .map(|r| (r.workflow.as_str(), r.asking.as_str(), r.source))
+        .collect();
+    assert_eq!(
+        of,
+        [
+            ("ci.yml", "run/1/round/1", work::Source::Full),
+            ("slow.yml", "run/1/round/1", work::Source::Full)
+        ]
+    );
+    assert!(
+        !readings[0].same_run(&readings[1]),
+        "two workflows of one check are two runs, none of them dropped as read again"
+    );
 }
 
 /// The work's branch, its merge named so.
@@ -115,7 +208,7 @@ async fn the_pull_request_is_named_as_the_works_merge_is_and_follows_it_to_the_c
     let checked = hub.committed().await;
     hub.green(&checked);
     // Checked before the work wrote the name of its merge, then after.
-    for name in ["Work 1", "Greet the user by name"] {
+    for name in ["Work W1", "Greet the user by name"] {
         assert_eq!(titled(&hub, &checked, name).await, name);
     }
     // Named anew after its check, it merges by the name it has now.
@@ -137,7 +230,7 @@ async fn the_pull_request_is_named_as_the_works_merge_is_and_follows_it_to_the_c
     assert_eq!(
         titles,
         [
-            "Work 1".to_string(),
+            "Work W1".to_string(),
             "Greet the user by name".to_string(),
             name.to_string(),
             format!("{name} (#1)"),
@@ -421,4 +514,136 @@ async fn a_pull_request_merged_or_none_at_all_is_not_closed() {
     hub.host.end(&branch(&place), false).await.expect("nothing to close");
     assert!(!hub.github().asked().iter().any(|a| matches!(a, Asked::Close { .. })));
     assert_eq!(hub.github().pull_requests()[0].state, State::Merged);
+}
+
+/// A host whose words for what it writes on a pull request are not those of the repository's files: every part of them
+/// is marked, so that what the host writes is told from what it has no words for.
+fn hub_with_other_words() -> Hub {
+    let mut hub = Hub::new();
+    hub.host.config.words = flow::agents::PullRequest {
+        about: "ABOUT\n{about}\nEND\n".to_string(),
+        body: "BODY {work}.".to_string(),
+        cut: "CUT".to_string(),
+        merged: "MERGED {name} no.{number}".to_string(),
+        closed: "CLOSED".to_string(),
+        superseded: "SUPERSEDED BY {url}".to_string(),
+        withheld: flow::agents::Withheld {
+            data: "<D>".to_string(),
+            repository: "<R>".to_string(),
+            home: "<H>".to_string(),
+        },
+    };
+    let words = hub.host.config.words.withheld.clone();
+    hub.host.config.withheld = withheld(&hub.repo.data, &hub.repo.project.repo, None, &words);
+    hub
+}
+
+// What the engine writes on the pull request is the words of its file, and nothing else: with other words, the body,
+// the mark of a cut, what stands for a path of this machine, the title the merge makes and the comment a closed one
+// has are those, with the work's number written as a work's is.
+#[tokio::test]
+async fn what_the_engine_writes_on_the_pull_request_is_the_words_of_its_file_and_nothing_else() {
+    let hub = hub_with_other_words();
+    let head = hub.committed().await;
+    hub.green(&head);
+    let data = hub.repo.data.display().to_string();
+    let place = hub.place();
+    let long = format!("See {data}/x. {}", "word ".repeat(10_000));
+    hub.host
+        .verdict(
+            &about(&place, &long),
+            &head,
+            &hub.main_on_github(),
+            hub.round(),
+            &Mutex::new(()),
+            &mut Stop::never(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let body = &hub.github().pull_requests()[0].body;
+    assert!(body.starts_with("ABOUT\n```text\nSee <D>/x. word"), "{body}");
+    assert!(body.ends_with("\nCUT\n```\nEND\nBODY W1."), "{body}");
+    assert!(!body.contains(&data), "{body}");
+    (hub.host.merge(&named(&place, "Greet"), Some(&head)).await).expect("it merges");
+    assert_eq!(
+        run(&hub.github().bare, &["log", "-1", "--format=%s", "main"]),
+        "MERGED Greet no.1"
+    );
+
+    let hub = hub_with_other_words();
+    let head = hub.committed().await;
+    hub.green(&head);
+    hub.verdict(&head).await.unwrap().unwrap();
+    hub.host.end(&branch(&hub.place()), false).await.expect("it closes");
+    let closed: Vec<Asked> = (hub.github().asked().into_iter())
+        .filter(|a| matches!(a, Asked::Close { .. }))
+        .collect();
+    assert_eq!(
+        closed,
+        [Asked::Close {
+            number: 1,
+            comment: "CLOSED".to_string()
+        }]
+    );
+}
+
+// Each path of this machine is said by its own words, the data directory, the project's repository and the home
+// directory, whichever of them lies inside another: the longest is said first, so that a path inside another is said as
+// the one it is. Reference: the file `flow/agents/pull_request.toml`, whose `[withheld]` names the three.
+#[test]
+fn each_path_of_this_machine_is_said_by_its_own_words_and_the_longest_first() {
+    use crate::host::github::{neutral, withheld};
+    let said = flow::agents::Withheld {
+        data: "<D>".to_string(),
+        repository: "<R>".to_string(),
+        home: "<H>".to_string(),
+    };
+    let (data, repo, home) = ("/h/me/wf/data", "/h/me/code/project", "/h/me");
+    let paths = withheld(
+        std::path::Path::new(data),
+        std::path::Path::new(repo),
+        Some(home.to_string()),
+        &said,
+    );
+    let text = format!("a {data}/w b {repo}/src c {home}/.config d {home}");
+    assert_eq!(
+        neutral(&text, &paths, "CUT"),
+        "a <D>/w b <R>/src c <H>/.config d <H>",
+        "each path by its words"
+    );
+    // A home directory that is the root says nothing of the machine, and is not withheld.
+    let paths = withheld(
+        std::path::Path::new(data),
+        std::path::Path::new(repo),
+        Some("/".to_string()),
+        &said,
+    );
+    assert_eq!(neutral("/h/me/wf/data/x /etc", &paths, "CUT"), "<D>/x /etc");
+}
+
+// A work that wrote nothing of itself has a body of what the pull request is alone: the words that frame what a work
+// wrote are not written round nothing. Reference: the file `flow/agents/pull_request.toml`, where `about` is said
+// "where the work wrote of itself, then `body`".
+#[tokio::test]
+async fn a_work_that_wrote_nothing_of_itself_has_a_pull_request_body_of_its_own_words_alone() {
+    let hub = hub_with_other_words();
+    let head = hub.committed().await;
+    hub.green(&head);
+    let place = hub.place();
+    for wrote in ["", "  \n\t "] {
+        hub.host
+            .verdict(
+                &about(&place, wrote),
+                &head,
+                &hub.main_on_github(),
+                hub.round(),
+                &Mutex::new(()),
+                &mut Stop::never(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(hub.github().pull_requests()[0].body, "BODY W1.", "{wrote:?}");
+    }
 }

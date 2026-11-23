@@ -34,7 +34,17 @@ const orderOfKey = (k: OrderKey): Order => {
 };
 import { useChanges, useItems, useReading, useSource } from './source';
 import { waitingCount, waitsOnOwner } from './waiting';
-import { NO_LEVEL, ORDER_WORDS, clock, dollars, duration, fullTime, stoppedAt, waitCount } from './words';
+import {
+  NO_LEVEL,
+  ORDER_WORDS,
+  clock,
+  dollars,
+  duration,
+  fullTime,
+  itemName,
+  stoppedAt,
+  waitCount,
+} from './words';
 
 /// No change the stream tells of is a change of the projects.
 const noChange = () => undefined;
@@ -246,7 +256,7 @@ export const WorkRow = memo(function WorkRow({ item }: { item: Item }) {
       data-work={work.number}
       onClick={() => open(work.number)}
     >
-      <td className="mono muted col-item">#{item.number}</td>
+      <td className="mono muted col-item">{itemName(item.number)}</td>
       <td className="work-title col-title">
         <a href={`#/works/${work.number}`} title={item.title} onClick={(e) => e.stopPropagation()}>
           {item.title}

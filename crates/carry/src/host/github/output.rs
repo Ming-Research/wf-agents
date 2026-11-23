@@ -10,12 +10,9 @@ pub(crate) fn plain(text: &str, budget: usize) -> String {
     within(lines, budget).join("\n")
 }
 
-/// The text in a fenced block, so that it reads as what the CI printed and not as words to its reader: its fences
-/// longer than any run of backquotes it holds.
+/// The text in a fenced block, so that it reads as what the CI printed and not as words to its reader.
 pub(crate) fn fenced(text: &str) -> String {
-    let longest = (text.split(|c| c != '`')).map(str::len).max().unwrap_or(0);
-    let fence = "`".repeat(longest.max(2) + 1);
-    format!("{fence}\n{text}\n{fence}")
+    flow::system::fenced(text)
 }
 
 /// What stands where lines are left out.

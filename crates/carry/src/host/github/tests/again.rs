@@ -6,7 +6,7 @@
 use std::future::Future;
 
 use super::super::fast::Request;
-use super::fast::{junit_green, named};
+use super::fast::{junit_green, measured, measuring, named, timings};
 use super::*;
 use crate::host::Named;
 
@@ -114,6 +114,40 @@ async fn a_call_given_again_while_its_fast_run_goes_on_waits_for_that_run_and_on
     assert!(hub.trials().is_empty());
 }
 
+// The engine stopped while the measure workflow ran for a call of `run_tests`: the call, given again, waits for that run
+// and asks for no other, with the same value, and the run ended meanwhile is read once more without another. About a
+// tenth of a second alone, which is the wait the test gives the call to ask for a run it must not ask for: the one test
+// that a measure run is found again as the fast one is.
+#[tokio::test]
+async fn a_call_given_again_while_its_measure_run_goes_on_waits_for_that_run_and_one_ended_is_read() {
+    let hub = Hub::new().with(measuring);
+    let head = hub.committed().await;
+    hub.github().of_workflow(
+        "measure.yml",
+        &head,
+        vec![passed("measure")],
+        Some(("test-results", timings())),
+    );
+    hub.github().runs_go_on();
+    let asked = measured(&["design-lint"]);
+    let call = hub.call();
+    cut_off(&hub, hub.tests_asked(&asked, call)).await;
+    assert_eq!(hub.trials().len(), 1, "the branch is kept while the run is not read");
+    let (said, ()) = tokio::join!(hub.tests_asked(&asked, call), hub.finished_after_a_while(1));
+    let said = said.unwrap().expect("nothing stopped it");
+    let ran = format!(
+        "The measure workflow ran on the commit {head} (https://github.example/actions/runs/1000): 1 of the 1 \
+         measurements ran."
+    );
+    assert!(said.starts_with(&ran), "{said}");
+    assert!(said.contains("- design-lint [candidate]: passed in 0.40 s"), "{said}");
+    assert!(hub.trials().is_empty(), "the branch is deleted once the result is read");
+    let again = hub.tests_asked(&asked, call).await.unwrap().expect("read");
+    assert_eq!(again, said);
+    assert_eq!(hub.dispatched().len(), 1);
+    assert_eq!(hub.calls().len(), 1);
+}
+
 // The engine stopped while the full workflows ran for the check before the merge, and the run ended before it started
 // again: the check, given again, reads that run's result.
 #[tokio::test]
@@ -217,6 +251,11 @@ fn the_value_of_a_run_is_its_requests_own_and_the_same_whenever_it_is_worked_out
     ] {
         assert_ne!(value, other);
     }
+    // A request of tests and measurements asks for two runs, each with a value of its own.
+    assert_ne!(
+        hub.host.call(request(1, call, "c0ffee"), "fast.yml"),
+        hub.host.call(request(1, call, "c0ffee"), "measure.yml")
+    );
     let elsewhere = Hub::new().with(|config| config.installation = Uuid::from_u128(7));
     assert_ne!(value, elsewhere.host.call(request(1, call, "c0ffee"), "ci.yml"));
 }

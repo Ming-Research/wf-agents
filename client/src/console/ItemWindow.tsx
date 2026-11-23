@@ -9,30 +9,28 @@
 // it, `{{name}}`, in a passage of the body or in a message an agent wrote, a later pointer to it being a link to it,
 // and after the last section where no text points to it; drawn as they are: what it asks, as it was written, its
 // options with what each does and what follows, and the one it recommends; one the engine's one list of what waits on
-// the owner names on the red tint, framed in red, the look of every stop, an answered one settled, its options words
-// with the one taken marked and nothing to press. Each is picked by a press on an option and let go by another, and at
-// the end of the last section a button as wide as the body confirms them, which counts the picks, waits until each
-// choice has one and sends each question's answer to the engine; once confirmed, the picks stand, settled; and last,
-// each block the owner may write that keeps the work from going on, drawn as such a question is, its values the
-// options, with a button that writes the one picked), each passage changed since the owner read it marked at its left,
-// and under the body the messages: the owner's and the replies, what the owner said from the window standing under them
-// until a read of the work brings it, and a box to write one to a line of the work's flow, picked above it among those
-// on which the engine has a cell to give the words to, which a passage selected in the body can be quoted into and
-// which names that cell. Under the work's state line, each other stop of the work, in the same
-// look: one sentence of why and the buttons that end it, from the engine's list, and a fault or a stall, which no one
-// waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, and what the work
-// changed, file by file, each opening its diff; the third, Step, everything about the
-// row of the work's history the page chose, else the run the work stands at; the fourth, Usage, what the work used.
-// Each page keeps its own choice of tab. While the window is out, R marks the item read, as its link does, unless a box
-// has the keys. What the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is
-// said under the item it was for, and only there.
+// the owner names on the red tint, framed in red, the look of every stop, an answered one settled, its options words,
+// the number of an item in them a link, with the one taken marked and nothing to press. Each is picked by a press on an
+// option and let go by another, and at the end of the last section a button as wide as the body confirms them, which
+// counts the picks, waits until each choice has one and sends each question's answer to the engine; once confirmed, the
+// picks stand, settled; and last, each block the owner may write that keeps the work from going on, drawn as such a
+// question is, its values the options, with a button that writes the one picked), each passage changed since the owner
+// read it marked at its left, and under the body the messages: the owner's and the replies, what the owner said from
+// the window standing under them until a read of the work brings it, and a box to write one to a line of the work's
+// flow, picked above it among those on which the engine has a cell to give the words to, which a passage selected in
+// the body can be quoted into and which names that cell. Under the work's state line, each other stop of the work, in
+// the same look: one sentence of why and the buttons that end it, from the engine's list, and a fault or a stall, which
+// no one waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, and what
+// the work changed, file by file, each opening its diff; the third, Step, everything about the row of the work's
+// history the page chose, else the run the work stands at; the fourth, Usage, what the work used. Each page keeps its
+// own choice of tab. While the window is out, R marks the item read, as its link does, unless a box has the keys. What
+// the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is said under the
+// item it was for, and only there.
 //
-// Brought over from the console of the engine on `old-main` (`client/src/console/ItemWindow.tsx`), its layout as it
-// was, its parts the page's own (parts.tsx) where it used Primer's. What the engine does not give yet comes from the
-// console's made-up data (`mock.ts`), which says what of it is made up, when the page shows the mocks; otherwise the
-// body and the messages are read from the work's blocks, and the rest is not drawn (`real.ts`). What the new console
-// added is kept in that layout: the work line's facts, the row of what the owner does to the work under the lines, the
-// block a message is written in over its box, and the flow's name among the work's facts.
+// What the engine does not give yet comes from the console's made-up data (`mock.ts`), which says what of it is made
+// up, when the page shows the mocks; otherwise the body and the messages are read from the work's blocks, and the rest
+// is not drawn (`real.ts`). The window holds the work line's facts, the row of what the owner does to the work under the
+// lines, the block a message is written in over its box, and the flow's name among the work's facts.
 //
 // A work's page shows the same window for the work's item, with the row of the work's history chosen and the title
 // leading to the item in the console, which the page gives (`row`, `titleHref`), and its own choice of tab (`tab`).
@@ -54,6 +52,7 @@ import {
   useState,
 } from 'react';
 
+import { linkItemNumbers, useItemTitles } from '../itemNumbers';
 import { CHOICE_KEYS, useKept } from '../kept';
 import { LevelMark, LinesChanged } from '../marks';
 import { mocksShown } from '../mock-data';
@@ -69,7 +68,6 @@ import {
   type Said,
   type SpokenTo,
   type Summary,
-  type Waited,
   type WorkPage,
 } from '../works-api';
 import { CallsTook, type Got, Loaded, Parts, Strip, useWanted } from '../works/marks';
@@ -88,17 +86,18 @@ import {
   type Tone as WorkTone,
   WRITE_WORDS,
   count,
+  itemName,
   stateOf,
   stateParts,
   stoppedAt,
   waitedWords,
+  workName,
 } from '../works/words';
 import { Diff } from './diff';
 import { type ItemStanding, age, dollars, linesOf, standingOf } from './items';
 import { Markdown, type Pointers } from './markdown';
 import { markRead } from './mock';
 import {
-  askedChoice,
   firstBody,
   itemOf,
   type LoadVersion,
@@ -154,31 +153,13 @@ function Unread({ page }: { page: PageState }) {
 const titleOf = (page: WorkPage | null, cell: string) =>
   page?.outline.cells.find((c) => c.id === cell)?.title ?? cell;
 
-/// Whether what a work waits for is a question a cell asked the owner as a call, which is drawn in the plan as a choice
-/// rather than said on the status line.
-const asked = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { what: { kind: 'question' } } =>
-  w.kind === 'call' && w.what.kind === 'question';
-
 /// What a question's card says of the engine's wait for its answer, where the engine's list names one: that it holds
 /// the work.
 function holding(s: Summary, key: string): Pick<Choice, 'holds'> {
   return { holds: waitsOf(s).some((w) => w.key === key) };
 }
 
-/// The questions a cell asked the owner as a call the work waits at, as choices at the plan's end, each holding the work
-/// where the engine's list names it.
-function askedOf(s: Summary): Choice[] {
-  const now = s.now;
-  if (now.kind !== 'waits') return [];
-  return now.on.flatMap((w) =>
-    asked(w) && w.who === 'owner'
-      ? [{ ...askedChoice(w.what.question, w.call, now.at), ...holding(s, callKey(w.call)) }]
-      : [],
-  );
-}
-
-/// The key the engine's list gives the wait for a question put as a call, and for one of the work's own by its name.
-const callKey = (call: number) => `call-${call}`;
+/// The key the engine's list gives the wait for a question of the work's own, by its name.
 const answerKey = (question: string) => `answer-${question}`;
 
 /// The questions put to the owner that stand, as the work's page gives them, each as a choice: what it asks, its
@@ -212,13 +193,11 @@ function questionsStanding(questions: Question[] | undefined, s: Summary): Choic
 const partKey = (section: string, at: number) => `part ${at} of ${section}`;
 const messageKey = (at: number) => `message ${at}`;
 
-/// What the owner's pick of a question is kept by: the call that waits for it, or the version of the question.
-const pickKey = (c: Choice): string =>
-  c.asks === undefined ? '' : 'call' in c.asks ? `call ${c.asks.call}` : `${c.asks.question}@${c.asks.version}`;
+/// What the owner's pick of a question is kept by: the version of the question.
+const pickKey = (c: Choice): string => (c.asks === undefined ? '' : `${c.asks.question}@${c.asks.version}`);
 
 /// The key of the wait in the engine's list that a question's choice answers, which its card carries.
-const waitKeyOf = (c: Choice): string | undefined =>
-  c.asks === undefined ? undefined : 'call' in c.asks ? callKey(c.asks.call) : answerKey(c.asks.question);
+const waitKeyOf = (c: Choice): string | undefined => (c.asks === undefined ? undefined : answerKey(c.asks.question));
 
 /// A cell as the page shows one: its id in the monospace, muted, and its title semibold, which the version of the flow
 /// the work runs on gives.
@@ -591,27 +570,22 @@ function ItemView({
   const sections = bodyRead ? body.sections : (read?.outline.card ?? []).map((title) => ({ title, parts: [] }));
   // What a section with nothing in it says.
   const nothingYet = bodyRead ? 'Nothing is written yet' : 'Reading';
-  // The questions put to the owner: those of the work's own that stand, once the texts that may point to them are
-  // read, or could not be, and those a cell asked as a call the work waits at; each not yet answered with the option
-  // picked, or the words written to one with no options, by what its answer is sent to.
+  // The questions put to the owner that stand, once the texts that may point to them are read, or could not be; each
+  // not yet answered with the option picked, by the version it answers.
   const [answers, setAnswers] = useState<Record<string, number | null>>({});
-  const [written, setWritten] = useState<Record<string, string>>({});
-  const placed = (c: Choice) =>
-    mocksShown() || (c.asks !== undefined && 'question' in c.asks && readWith.has(c.asks.question));
-  const questions = [...questionsStanding(read?.questions, work).filter(placed), ...askedOf(work)].map((c) =>
-    c.confirmed === true ? c : { ...c, chosen: answers[pickKey(c)] ?? null, answer: written[pickKey(c)] ?? '' },
-  );
+  const placed = (c: Choice) => mocksShown() || (c.asks !== undefined && readWith.has(c.asks.question));
+  const questions = questionsStanding(read?.questions, work)
+    .filter(placed)
+    .map((c) => (c.confirmed === true ? c : { ...c, chosen: answers[pickKey(c)] ?? null }));
   // Those still to answer, which Confirm sends.
   const toAnswer = questions.filter((q) => q.confirmed !== true);
-  // Whether a question has its answer: an option picked, or for one with no options, words written.
-  const answered = (q: Choice) => (q.options.length === 0 ? (q.answer ?? '').trim() !== '' : q.chosen !== null);
+  // Whether a question has its answer: an option picked.
+  const answered = (q: Choice) => q.chosen !== null;
   // The questions of the work's own by their names, which a pointer names; and where each a text points to is drawn:
   // at the first pointer to it in the passages of the card's sections and then in the messages an agent wrote, in the
   // order the window draws them.
   const named = new Map(
-    questions.flatMap((q): [string, Choice][] =>
-      q.asks !== undefined && 'question' in q.asks ? [[q.asks.question, q]] : [],
-    ),
+    questions.flatMap((q): [string, Choice][] => (q.asks !== undefined ? [[q.asks.question, q]] : [])),
   );
   const held = heldAt(
     [
@@ -622,13 +596,11 @@ function ItemView({
     ],
     new Set(named.keys()),
   );
-  // A press on an option of a question picks it, and a press on the one picked lets it go; words written to one with no
-  // options are kept as they are typed.
+  // A press on an option of a question picks it, and a press on the one picked lets it go.
   const pickQuestion = (q: Choice, option: number) => {
     const key = pickKey(q);
     setAnswers((was) => ({ ...was, [key]: was[key] === option ? null : option }));
   };
-  const writeQuestion = (q: Choice, text: string) => setWritten((was) => ({ ...was, [pickKey(q)]: text }));
   // The cell a question belongs to, and the line that cell runs on, as the version of the flow the work runs on names
   // it; none of a choice of the plan, which belongs to no cell.
   const askedBy = (q: Choice) => {
@@ -643,7 +615,6 @@ function ItemView({
       p={q}
       by={askedBy(q)}
       pick={q.confirmed === true ? undefined : (o) => pickQuestion(q, o)}
-      write={q.confirmed === true ? undefined : (t) => writeQuestion(q, t)}
       discuss={() => discuss(q)}
       messages={about(q)}
       jump={jump}
@@ -668,9 +639,7 @@ function ItemView({
   // questions no text holds; with no section, those questions alone.
   const last = sections.at(-1);
   const own = last?.parts ?? [];
-  const after = questions.filter(
-    (q) => !(q.asks !== undefined && 'question' in q.asks && held.has(q.asks.question)),
-  );
+  const after = questions.filter((q) => !(q.asks !== undefined && held.has(q.asks.question)));
   const asked: Part[] = [
     ...(body.choicesWait ? own : own.map((p) => (p.kind === 'choice' ? { ...p, confirmed: true } : p))),
     ...after,
@@ -690,14 +659,9 @@ function ItemView({
       sections: was.sections.map((s, n) => (n === was.sections.length - 1 ? { ...s, parts: s.parts.map(pick) } : s)),
     }));
   };
-  // Words written to a question after the last section's own parts, with no options.
-  const write = (at: number, text: string) => {
-    const q = after[at - own.length];
-    if (q !== undefined) writeQuestion(q, text);
-  };
   // One Confirm for the last section's choices and the questions: each question's answer is sent, one after another,
-  // to what it answers: the option picked, counted from one, to the version of the work's question; the label of its
-  // option or the words written to it, to the call that waits for it. Once all are taken, the section's picks stand.
+  // as the option picked, counted from one, to the version of the work's question. Once all are taken, the section's
+  // picks stand.
   const answering = useSending(send);
   const ownPicks = body.choicesWait ? picks(body) : { picked: 0, all: 0 };
   const count = {
@@ -707,20 +671,12 @@ function ItemView({
   const confirm = async () => {
     for (const q of toAnswer) {
       if (q.asks === undefined || !answered(q)) continue;
-      const taken = await answering.send(
-        'call' in q.asks
-          ? {
-              kind: 'result',
-              call: q.asks.call,
-              result: q.chosen === null ? (q.answer ?? '').trim() : q.options[q.chosen].label,
-            }
-          : {
-              kind: 'answer',
-              question: q.asks.question,
-              version: q.asks.version,
-              option: (q.chosen ?? 0) + 1,
-            },
-      );
+      const taken = await answering.send({
+        kind: 'answer',
+        question: q.asks.question,
+        version: q.asks.version,
+        option: (q.chosen ?? 0) + 1,
+      });
       if (!taken) return;
     }
     if (body.choicesWait) {
@@ -750,7 +706,7 @@ function ItemView({
     <StopsContext.Provider value={walk}>
       <div className="cw-item" ref={inner} onClick={chooseStop}>
         <header className="drawer-head">
-          <span className="drawer-id">{item.number}</span>
+          <span className="drawer-id">{itemName(item.number)}</span>
           <h2 className="drawer-title">
             {titleHref !== undefined ? (
               <a className="cw-title-link" href={titleHref} title="Open it in the console">
@@ -829,7 +785,6 @@ function ItemView({
                   keep={rulings.length > 0 || toAnswer.length > 0}
                   empty={last === undefined ? undefined : nothingYet}
                   choose={body.choicesWait || toAnswer.length > 0 ? choose : undefined}
-                  write={toAnswer.length > 0 ? write : undefined}
                   discuss={discuss}
                   about={about}
                   jump={jump}
@@ -988,8 +943,8 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
           {waitedWords(x)}
         </span>
       ))}
-      <a href={`#/works/${w.number}`} className="link mono" title={`Open work ${w.number}`}>
-        W{w.number}
+      <a href={`#/works/${w.number}`} className="link mono" title={`Open ${workName(w.number)}`}>
+        {workName(w.number)}
       </a>
       {w.pull != null && (
         <a
@@ -1166,7 +1121,6 @@ function Section({
   parts,
   keep = false,
   choose,
-  write,
   discuss,
   about,
   jump,
@@ -1183,8 +1137,6 @@ function Section({
   keep?: boolean;
   /// Picks an option of a choice, while its choices wait to be confirmed.
   choose?: (at: number, option: number) => void;
-  /// Writes the answer to a question with no options.
-  write?: (at: number, text: string) => void;
   /// Takes a choice to the discussion.
   discuss?: (c: Choice) => void;
   /// The messages about a choice, by where they stand.
@@ -1216,7 +1168,6 @@ function Section({
               by={askedBy?.(p)}
               links={links}
               pick={choose === undefined || p.confirmed === true ? undefined : (o) => choose(i, o)}
-              write={write === undefined || p.confirmed === true ? undefined : (t) => write(i, t)}
               discuss={discuss === undefined ? undefined : () => discuss(p)}
               messages={about?.(p) ?? []}
               jump={jump}
@@ -1232,7 +1183,8 @@ function Section({
 
 /// The options of a card that offers them, drawn as choices and told apart by shape from what stands above them: under
 /// a hairline, each a grey frame with a radio mark at its left, the one picked framed in the accent with its mark
-/// filled; the one recommended tagged.
+/// filled; the one recommended tagged. Each option is one button, in which no link can stand, so the number of an item
+/// in its words is plain here and a link once the question is settled (`Settled`).
 function Options({ options, chosen, recommended = null, pick, code = false }: {
   options: { label: string; detail: string }[];
   chosen: number | null;
@@ -1270,12 +1222,14 @@ function Options({ options, chosen, recommended = null, pick, code = false }: {
 
 /// The options of a question answered, which is settled: under the same hairline, each its words alone, with nothing
 /// that can be pressed; the one taken in the text's colour, marked at its left by a drawn tick that says on pointing at
-/// it that it was taken, the others muted; the one recommended tagged.
+/// it that it was taken, the others muted; the one recommended tagged. Nothing here is a button, so the number of an
+/// item in an option's words is a link, as in the other texts of the window.
 function Settled({ options, chosen, recommended }: {
   options: { label: string; detail: string }[];
   chosen: number | null;
   recommended: number | null;
 }) {
+  const titles = useItemTitles();
   return (
     <ul className="cw-options">
       {options.map((o, i) => (
@@ -1283,10 +1237,10 @@ function Settled({ options, chosen, recommended }: {
           {chosen === i ? <TickSign /> : <span className="cw-tick" aria-hidden="true" />}
           <span className="cw-option-text">
             <span className="cw-option-label">
-              {o.label}
+              {linkItemNumbers(o.label, titles)}
               {recommended === i ? <span className="tag cw-tag">Recommended</span> : null}
             </span>
-            {o.detail !== '' && <span className="cw-option-detail">{o.detail}</span>}
+            {o.detail !== '' && <span className="cw-option-detail">{linkItemNumbers(o.detail, titles)}</span>}
           </span>
         </li>
       ))}
@@ -1349,15 +1303,13 @@ function millisecondsOf(value: string): number {
 /// A choice of the plan: a press on an option picks it, on another changes the pick, and on the one picked lets it go,
 /// until it is confirmed; once confirmed, it is settled, and its options are words with the one taken marked.
 /// Discuss takes it to the discussion, confirmed or not; under its options, how many messages are about it, which
-/// brings the first into view. A question with no options is answered in words, in a box in their place. A question
-/// the engine's list names holds the work, at its cell or at the merge: on the red tint, framed in red, the look of
-/// every stop.
-function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
+/// brings the first into view. A question the engine's list names holds the work, at its cell or at the merge: on the
+/// red tint, framed in red, the look of every stop.
+function ChoiceBox({ p, by, pick, discuss, messages, jump, links }: {
   p: Choice;
   /// The cell it belongs to and the line that cell is on; none of a choice of the plan, which belongs to no cell.
   by?: { cell: string; line: string | null };
   pick?: (option: number) => void;
-  write?: (text: string) => void;
   discuss?: () => void;
   messages: number[];
   jump?: (at: number) => void;
@@ -1416,16 +1368,6 @@ function ChoiceBox({ p, by, pick, write, discuss, messages, jump, links }: {
         <button type="button" className="cw-choice-turn" onClick={turn}>
           Show it all
         </button>
-      ) : null}
-      {open && p.options.length === 0 && p.asks !== undefined && p.confirmed !== true ? (
-        <textarea
-          rows={3}
-          value={p.answer ?? ''}
-          aria-label="Your answer"
-          placeholder="Write your answer"
-          disabled={write === undefined}
-          onChange={(e) => write?.(e.target.value)}
-        />
       ) : null}
       {open &&
         p.options.length > 0 &&
