@@ -1610,6 +1610,9 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
 /// of a run begun from nothing only carry the work's rounds (up to), and how many states of the work at the entry of a
 /// round of a cell it keeps, each of a situation the round stood in that no other kept did.
 const RUNS: usize = 300;
+
+/// How many runs without a line reached end the search.
+const PLATEAU: usize = 60;
 const RUN_STEPS: usize = 30;
 const QUIET_STEPS: usize = 150;
 const ARCHIVE: usize = 50;
@@ -1740,9 +1743,18 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         }
     };
     let mut tried: BTreeMap<&String, usize> = BTreeMap::new();
+    // The fewest lines open so far, and the run at which that was first so.
+    let mut best = (usize::MAX, 0);
     for n in 0..RUNS {
         let open: Vec<&String> = wanted.iter().filter(|line| !reached.real.contains(*line)).collect();
         if open.is_empty() {
+            break;
+        }
+        if open.len() < best.0 {
+            best = (open.len(), n);
+        }
+        // No line was reached in the last runs: what is open is not found by more of them.
+        if n - best.1 >= PLATEAU {
             break;
         }
         // A line the fewest runs were steered at is the next one's, so that none is left to chance.

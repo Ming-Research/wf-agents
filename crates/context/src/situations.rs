@@ -552,6 +552,12 @@ impl<'a> Reach<'a> {
                 states.push(Stands::Unwritten);
             }
         }
+        // A datum that ran the cell and that an earlier cell of its line watches, a cell that runs whenever it has
+        // something new, was filled into the session by that cell's round first: the session never lacks its latest
+        // while it holds the version this cell last worked from.
+        if *class == Class::Fired && self.filled_first(block) {
+            states.retain(|s| *s != Stands::HoldsLast);
+        }
         // The last cell worked from nothing, so that the session holds what it was sent in an earlier round of its run,
         // never as the version it last worked from.
         if self.last && entry == Entry::Later {
@@ -561,6 +567,21 @@ impl<'a> Reach<'a> {
             }
         }
         states
+    }
+
+    /// Whether a cell of this cell's line before it watches the datum by itself and applies whatever the work holds.
+    fn filled_first(&self, block: &BlockId) -> bool {
+        let flow = self.flow;
+        self.before.iter().any(|earlier| {
+            let at = flow.flow.place(&earlier.id).unwrap_or(0);
+            let cell = &flow.flow.cells()[at];
+            cell.applies.is_empty()
+                && cell.requires.is_empty()
+                && earlier
+                    .watches
+                    .iter()
+                    .any(|t| !t.is_group() && t.blocks.contains(block))
+        })
     }
 
     /// Whether the cell watches the datum and does not write it, and runs only until a run of it that dealt with
@@ -871,7 +892,10 @@ impl<'a> Reach<'a> {
             Entry::First => {
                 let (alike, writes) = self.after_the_line();
                 add(alike.clone(), writes, None);
-                add(alike.clone(), false, Some("after_nothing_handed_in".to_string()));
+                // A cell that must write a block hands in one before the line goes on to the next cell.
+                if self.before.last().is_none_or(|b| b.must_write.is_empty()) {
+                    add(alike.clone(), false, Some("after_nothing_handed_in".to_string()));
+                }
                 add(Vec::new(), false, Some("fresh".to_string()));
                 // The cell before it took main in too, and was sent what came of it.
                 if self.before.last().is_some_and(|b| b.takes_main) && self.cell.takes_main {
@@ -900,12 +924,16 @@ impl<'a> Reach<'a> {
                     let (holds, after_hand_in) = self.after(other);
                     let id = other.id.as_str().to_lowercase();
                     add(holds.clone(), after_hand_in, Some(format!("after_{id}")));
-                    add(holds.clone(), false, Some(format!("after_{id}_nothing_handed_in")));
+                    if other.must_write.is_empty() {
+                        add(holds.clone(), false, Some(format!("after_{id}_nothing_handed_in")));
+                    }
                     // That cell took main in too, and was sent what came of it.
                     if other.takes_main && self.cell.takes_main {
                         let held = self.with_main(&holds);
                         add(held.clone(), after_hand_in, Some(format!("after_{id}_main")));
-                        add(held, false, Some(format!("after_{id}_main_nothing_handed_in")));
+                        if other.must_write.is_empty() {
+                            add(held, false, Some(format!("after_{id}_main_nothing_handed_in")));
+                        }
                     }
                 }
             }
