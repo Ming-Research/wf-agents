@@ -847,9 +847,11 @@ fn last_attempt(
             .as_ref()
             .map_or_else(String::new, |said| fill(&words.refused, &[("said", said)]));
         let error = e.to_string();
+        // The reason before it is a whole sentence, whatever the command line ended what it said with.
+        let reason = flow::agents::sentence(&why);
         let why = fill(
             &words.last_attempt,
-            &[("reason", &why), ("error", &error), ("refused", &told)],
+            &[("reason", &reason), ("error", &error), ("refused", &told)],
         );
         let report = [report]
             .into_iter()
