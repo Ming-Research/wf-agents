@@ -15,6 +15,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { page as browserPage } from 'vitest/browser';
 
+import { CHOICE_KEYS } from '../kept';
 import {
   fixtureCall,
   fixtureCopies,
@@ -64,6 +65,8 @@ afterEach(async () => {
 describe("a work's page opened on a round's address", () => {
   it("scrolls the item's window to the round, in view, and leaves the page where it was", async () => {
     await browserPage.viewport(1280, 360);
+    // The owner had put the window away: the address brings it out, or the round could not be seen.
+    localStorage.setItem(CHOICE_KEYS.workWindow, 'in');
     const page = fixtureWork(41);
     const run = page.steps.find((s) => s.kind === 'run');
     if (run?.kind !== 'run' || run.rounds.length < 2) throw new Error('the first run did not run twice');
