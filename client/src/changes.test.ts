@@ -90,6 +90,17 @@ describe('the stream of changes', () => {
     expect(open).toEqual([true, false, true, false, true]);
   });
 
+  it('reads as changed what an event does not say of, and no work where it names none', () => {
+    const { streams, heard } = opened();
+    streams[0].open();
+    streams[0].send(JSON.stringify({ works: [3] }));
+    streams[0].send(JSON.stringify({}));
+    expect(heard).toEqual([
+      { works: [3], items: true, copies: true, accounts: true },
+      { works: [], items: true, copies: true, accounts: true },
+    ]);
+  });
+
   it('reads everything on an event it cannot read', () => {
     const { streams, heard } = opened();
     streams[0].open();

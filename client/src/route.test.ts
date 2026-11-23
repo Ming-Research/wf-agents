@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { CHOICE_KEYS } from './kept';
 import { hashOf, periodOf, routeOf, tabOf } from './route';
 
 describe('the route', () => {
@@ -39,5 +40,26 @@ describe('the route', () => {
     expect(tabOf({ view: 'system', period: 'all' })).toBe('#/system');
     expect(periodOf({ view: 'system' })).toBe('week');
     expect(periodOf({ view: 'system', period: 'all' })).toBe('all');
+  });
+
+  it('counts the system over the span the owner last picked where the address names none, and over the week where none was', () => {
+    const kept = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => kept.get(key) ?? null,
+      setItem: (key: string, value: string) => void kept.set(key, value),
+      removeItem: (key: string) => void kept.delete(key),
+    });
+    try {
+      expect(periodOf({ view: 'system' })).toBe('week');
+      kept.set(CHOICE_KEYS.systemPeriod, '4w');
+      expect(periodOf({ view: 'system' })).toBe('4w');
+      // The address names its own span, which the one kept does not override.
+      expect(periodOf({ view: 'system', period: 'all' })).toBe('all');
+      // What is kept that is no span the page has is no choice.
+      kept.set(CHOICE_KEYS.systemPeriod, 'a fortnight');
+      expect(periodOf({ view: 'system' })).toBe('week');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
