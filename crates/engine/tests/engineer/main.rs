@@ -135,8 +135,11 @@ use flow::{Compiled, Has, Kind, Source, compile, read};
 use reading::{Reading, Writer};
 use support::{Driver, Part, Rng, lacking_a_must_write};
 
-/// How many histories are run.
-const SEEDS: u64 = 500;
+/// How many histories are run. The rarest situation the histories must reach, a judge's refusal standing while the check's
+/// record passes, came up in 3 of 500 histories before a return sent back was completed by the next, and in none of 500
+/// after it (measured on 2026-11-22): what the random steps happen to do moves with every rule that changes a history,
+/// so the number is set where each situation comes up in several histories.
+const SEEDS: u64 = 1500;
 
 /// How many random steps, at most, a history takes before the content continuation.
 const RANDOM: usize = 200;
