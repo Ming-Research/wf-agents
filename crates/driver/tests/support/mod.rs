@@ -479,6 +479,14 @@ impl Storage for Failing {
         self.store.keep_warm(warm, at)
     }
 
+    fn moving_on(&self) -> Result<bool, store::Fault> {
+        self.store.moving_on()
+    }
+
+    fn set_moving_on(&mut self, moving: bool, at: Time) -> Result<(), store::Fault> {
+        self.store.set_moving_on(moving, at)
+    }
+
     fn accounts(&self) -> Result<Vec<store::AccountRecord>, store::Fault> {
         self.store.accounts()
     }
@@ -1575,6 +1583,9 @@ impl H {
     /// outside well and each look reaching what it looks at; gives what is to be done.
     pub fn wake_up(&mut self) -> Option<Vec<Todo>> {
         let wake = self.d().wake()?;
+        if let Some(account) = &wake.candidate {
+            return Some(self.tick_candidate(wake.at, account, Found::Well));
+        }
         let under = self.d().accounts().in_use().map(str::to_string);
         Some(self.ticked(
             wake.at,
@@ -1594,6 +1605,30 @@ impl H {
     /// agents' rounds taken under this account found; gives what is to be done.
     pub fn tick_under(&mut self, at: Time, under: Option<&str>, found: Found) -> Vec<Todo> {
         self.ticked(at, Some((under.map(str::to_string), found)), None)
+    }
+
+    /// The driver is told what a check under this account, asked for to move to it, found, at this time, which the
+    /// harness's clock takes on to; gives what is to be done.
+    pub fn tick_candidate(&mut self, at: Time, account: &str, found: Found) -> Vec<Todo> {
+        self.clock = self.clock.max(at.0);
+        let todos = (self.dm().tick_candidate(at, account, found)).expect("the driver takes the check");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
+    /// The owner lets the engine move to another account at a usage limit, or does not, which the driver must take;
+    /// gives what is to be done.
+    pub fn set_moving_on(&mut self, moving: bool) -> Vec<Todo> {
+        let now = self.now();
+        let todos = (self.dm().set_moving_on(now, moving)).expect("the switch is set");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
     }
 
     /// The driver is told the time it asked for, a look at the acts' host having found it reached or not.

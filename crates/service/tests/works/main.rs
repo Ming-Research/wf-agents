@@ -15,6 +15,7 @@ mod dependencies;
 mod failing;
 mod forking;
 mod going;
+mod moving_on;
 mod pausing;
 mod pinging;
 mod shared_wait;
@@ -171,18 +172,44 @@ impl Trial {
     /// in a wait. The owner has taken an account, which a session is kept warm only under.
     pub fn warm() -> Trial {
         let mut trial = Trial::opened(trial_script(), Some(Pings::default()), None);
-        for what in [store::AccountAct::Added, store::AccountAct::Taken] {
-            let (reply, mut answer) = oneshot::channel();
-            trial.take(Message::Account {
-                name: ACCOUNT.to_string(),
-                what,
-                reply,
-            });
-            (answer.try_recv())
-                .expect("the loop answers at once")
-                .expect("the account is taken");
-        }
+        trial.take_account(ACCOUNT);
         trial
+    }
+
+    /// The loop as [`Trial::warm`] has it, with this script, the outside of the agents' rounds checked by this.
+    pub fn warm_with(script: Script, outside: Arc<dyn service::Outside>) -> Trial {
+        let mut trial = Trial::opened(script, Some(Pings::default()), Some(outside));
+        trial.take_account(ACCOUNT);
+        trial
+    }
+
+    /// The owner adds an account of this name, and takes it as the one the agents run under.
+    fn take_account(&mut self, name: &str) {
+        for what in [store::AccountAct::Added, store::AccountAct::Taken] {
+            self.account(name, what);
+        }
+    }
+
+    /// The owner adds, removes or takes the account of this name.
+    pub fn account(&mut self, name: &str, what: store::AccountAct) {
+        let (reply, mut answer) = oneshot::channel();
+        self.take(Message::Account {
+            name: name.to_string(),
+            what,
+            reply,
+        });
+        (answer.try_recv())
+            .expect("the loop answers at once")
+            .expect("the account is done");
+    }
+
+    /// The owner lets the engine move to another account at a usage limit, or does not.
+    pub fn set_moving_on(&mut self, moving: bool) {
+        let (reply, mut answer) = oneshot::channel();
+        self.take(Message::SetMovingOn { moving, reply });
+        (answer.try_recv())
+            .expect("the loop answers at once")
+            .expect("the switch is set");
     }
 
     /// The loop with this script, on an empty store, its sessions kept warm where `pings` holds the pings in hand, and

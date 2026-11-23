@@ -1710,8 +1710,9 @@ fn cause(outage: &Outage) -> &'static str {
     }
 }
 
-/// A wait every work shares, in sentences: what is down and since when; what the engine does next; what the latest
-/// check of the outside found, where it found it down; and the round that met it, with what it said.
+/// A wait every work shares, in sentences: what is down and since when; what the engine does next, moving to another
+/// account included where the owner lets it; what the latest check of the outside found, where it found it down; and the
+/// round that met it, with what it said.
 fn outage(outage: &Outage) -> String {
     let what = capital(cause(outage));
     let until = match outage.until {
@@ -1729,6 +1730,13 @@ fn outage(outage: &Outage) -> String {
             utc(at)
         ),
     };
+    // Where the owner lets the engine move at a usage limit and another account may yet be moved to, the wait ends
+    // by that as well as by the limit's reset.
+    let moves = if outage.may_move && outage.holds {
+        " The engine also checks the other accounts and moves every work to the first one it finds well."
+    } else {
+        ""
+    };
     let checked = match &outage.checked {
         Some(
             checked @ Checked {
@@ -1744,7 +1752,7 @@ fn outage(outage: &Outage) -> String {
         _ => String::new(),
     };
     format!(
-        "{what} since {}. {until}{checked} Round {} of run {} of W{} met it. {}",
+        "{what} since {}. {until}{moves}{checked} Round {} of run {} of W{} met it. {}",
         utc(outage.since),
         outage.round,
         outage.run,
@@ -2204,6 +2212,7 @@ mod tests {
             }),
             until: Until::Checked { at: 3 * hour },
             holds: true,
+            may_move: false,
         });
         let said = list(&waiting, &Listing::default());
         let first = said.lines().next().unwrap_or_default();
@@ -2218,6 +2227,35 @@ mod tests {
         outage.until = Until::Well { at: 2 * hour };
         outage.holds = false;
         assert!(list(&waiting, &Listing::default()).starts_with("#1 "));
+    }
+
+    // Where the owner lets the engine move at a usage limit and another account may yet be moved to, the planner is told
+    // the wait ends by the engine's move as well; where it may not, or the wait holds nothing, the sentence is not there.
+    #[test]
+    fn a_wait_at_a_usage_limit_says_the_engine_may_move_to_another_account_only_where_it_may() {
+        let hour = 3_600_000;
+        let mut waiting = items(vec![item(1, false, &[], &[])]);
+        waiting.outage = Some(Outage {
+            service: web::works::Service::Agents,
+            failure: Failure::UsageLimit,
+            why: "You've hit your limit".to_string(),
+            work: 1,
+            run: 2,
+            round: 1,
+            since: hour,
+            checked: None,
+            until: Until::Checked { at: 3 * hour },
+            holds: true,
+            may_move: true,
+        });
+        let moves = "The engine also checks the other accounts and moves every work to the first one it finds well.";
+        let said = list(&waiting, &Listing::default());
+        let first = said.lines().next().unwrap_or_default();
+        assert_eq!(first.matches(moves).count(), 1, "{first}");
+        assert!(first.contains("once it is well. The engine also checks"), "{first}");
+        waiting.outage.as_mut().unwrap().may_move = false;
+        let said = list(&waiting, &Listing::default());
+        assert!(!said.contains(moves), "{said}");
     }
 
     // `wait` says what the owner does about the agents' command line once, on the line of the wait every work shares,
@@ -2238,6 +2276,7 @@ mod tests {
             checked: None,
             until: Until::Checked { at: 3 * hour },
             holds: true,
+            may_move: false,
         };
         let line = Line::Agents {
             since: hour,

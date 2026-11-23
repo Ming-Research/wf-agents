@@ -201,6 +201,8 @@ export function fixtureAccounts(): AccountsPage {
       account('old', 350),
     ],
     inUse: 'work',
+    movingOn: false,
+    moves: [],
     command: 'claude setup-token',
     closed: null,
   };
