@@ -848,8 +848,10 @@ impl QuestionPage {
                     Some(work::Question::Withdrawn { why, .. }) => (None, Vec::new(), None, Some(why.clone()), false),
                     None => (None, Vec::new(), None, None, false),
                 };
+                // Why its cell does not run says why a question that stands holds nothing: one answered or withdrawn
+                // holds nothing and has nothing to be answered, so it says none.
                 let skipped = decide::skipped_on(&kept.flow.flow, &work.records, &q.latest.cell);
-                let skipped = match skipped.is_empty() {
+                let skipped = match skipped.is_empty() || !q.unanswered() {
                     true => None,
                     false => {
                         let on: Vec<CellKey> = (skipped.iter())
@@ -4024,8 +4026,18 @@ pub(crate) mod tests {
             Some("`design` does not run, because it is skipped, `deep = yes` not holding.")
         );
         assert_eq!(skipped["which"], None);
+        // Answered, its question says nothing of why its cell does not run.
+        let mut answered = work.clone();
+        answered.records.answers.push(decide::Answered {
+            question: "how".to_string(),
+            version: Seq(5),
+            option: 1,
+            why: None,
+            at: Seq(7),
+        });
+        assert_eq!(said(&answered)["how"], None);
         // The owner turns the design on: its cell applies, and its question says nothing of why it does not run.
-        work.records.written.push(wrote("deep", Some("yes"), 7));
+        work.records.written.push(wrote("deep", Some("yes"), 8));
         assert_eq!(said(&work)["how"], None);
     }
 

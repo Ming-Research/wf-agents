@@ -177,10 +177,11 @@ pub(crate) fn hurry(work: &mut Work, run: RunId, block: BlockId, version: Seq, e
         version,
         at,
     });
+    // The version is one the walk read among the writes of the block, so its content and its number are kept.
     let entry = (work.contents.get(&(block.clone(), version)))
         .cloned()
-        .unwrap_or_default();
-    let number = work.records.number([&block], version).unwrap_or_default();
+        .expect("the content of a version written is kept");
+    let number = (work.records.number([&block], version)).expect("a version written has a number among its block's");
     let telling = Telling {
         entry,
         block: block.clone(),
