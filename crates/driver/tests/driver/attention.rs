@@ -623,6 +623,103 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
     );
 }
 
+/// A flow whose check, a cell that reads main, writes `checked`, which the merge waits to be yes.
+fn checked() -> flow::Compiled {
+    let flow = r#"
+        name = "checked"
+        order = ["write", "check", "merge"]
+        [limits]
+        runs = 3
+        returns = 2
+        calls = 3
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.text]
+        [blocks.checked]
+        values = ["yes", "no"]
+        [blocks.main]
+        outside = "main"
+        [blocks.merged]
+        shown = true
+        [blocks.start]
+        outside = "start"
+        writes = { text = "The owner started the work." }
+        [tests.passed]
+        says = "The check passed"
+        kind = "all"
+        reads = ["checked"]
+        is = "yes"
+    "#;
+    let write = r#"
+        title = "Write"
+        kind = "agent"
+        line = "main"
+        task = "Write the text the request asks for."
+        effort = "high"
+        watches = ["start", "request"]
+        outputs = ["text"]
+
+        [kinds]
+        start = "last_and_latest"
+        request = "last_and_latest"
+    "#;
+    let check = r#"
+        title = "Check"
+        kind = "agent"
+        line = "main"
+        task = "Check the text against main."
+        effort = "high"
+        watches = ["text", "main"]
+        outputs = ["checked"]
+
+        [kinds]
+        text = "last_and_latest"
+        main = "latest"
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        requires = { test = "passed" }
+        watches = ["text", "checked"]
+        outputs = ["merged"]
+    "#;
+    compiled(flow, &[("write", write), ("check", check), ("merge", merge)])
+}
+
+// A work whose check says that what it wrote waits for main waits for main, no one's to answer, and is no line for
+// whoever plans the work; the same check not saying so leaves the work stalled, which is. Well under a second alone, a
+// store on disk; no other test holds what a wait for main is to the one who plans.
+#[test]
+fn a_work_waiting_for_main_to_move_is_no_line_and_one_stalled_is() {
+    for waits in [true, false] {
+        let mut h = H::with(vec![checked()]);
+        let (_, w) = h.add(new_item("a", &[], "checked"));
+        let mark = since(&h, None).mark;
+        h.let_on(w);
+        h.hands_in(w, &[("text", None)]);
+        let held = hands_in(&[("checked", Some("no"))]);
+        let came = Came {
+            waits_for: waits.then(|| "main".into()),
+            ..held
+        };
+        h.returns(w, came);
+        let answer = since(&h, Some(&mark));
+        if waits {
+            assert!(
+                matches!(&h.decision(w), Decision::Wait { on, .. } if matches!(on[..], [Waited::Outside { .. }])),
+                "{:?}",
+                h.decision(w)
+            );
+            assert_eq!(heeds(&answer), Vec::<Heed>::new(), "waiting on no one");
+        } else {
+            assert!(matches!(h.decision(w), Decision::Stalled { .. }), "{:?}", h.decision(w));
+            assert_eq!(heeds(&answer), [Heed::Stalled { work: w }]);
+        }
+    }
+}
+
 #[test]
 fn the_wait_every_work_shares_is_one_line_about_no_work_and_the_works_it_holds_go_on() {
     let mut h = H::new();

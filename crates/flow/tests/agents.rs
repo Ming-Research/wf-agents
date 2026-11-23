@@ -470,6 +470,29 @@ fn the_context_part_orders_what_a_round_is_given_by_naming_each_list_of_a_cell_o
     }
 }
 
+// A part of the message other than the context that names an `order` is refused, saying which part and that only the
+// context has one: it would order what nothing of it lists. A few files read: milliseconds.
+#[test]
+fn a_part_of_the_message_other_than_the_context_that_names_an_order_is_refused() {
+    let dir = copy("order-on-task");
+    let message = dir.join("agents/message/message.toml");
+    let text = fs::read_to_string(&message).unwrap();
+    let ordered = text.replace(
+        "part = \"task\"\n",
+        "part = \"task\"\norder = [\"every_agent\", \"reads\", \"watches\", \"outputs\"]\n",
+    );
+    assert_ne!(ordered, text, "the words have a task part");
+    fs::write(&message, ordered).unwrap();
+    let read = agents::read(&dir);
+    fs::remove_dir_all(&dir).unwrap();
+    let refused = read.map(|_| ()).unwrap_err();
+    assert!(refused.contains(&message.display().to_string()), "{refused}");
+    assert!(
+        refused.contains("the part task has an `order`, which only context has"),
+        "{refused}"
+    );
+}
+
 // The first message every fork of a round is sent is not blank, in the repository's own words as the engine reads them:
 // a blank message is no message, and the fork would then be sent its question alone. A few files read: milliseconds.
 #[test]
