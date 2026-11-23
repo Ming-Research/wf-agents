@@ -535,7 +535,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 failed,
             });
             // A ping that compacted its session reopened it, as a round's compaction does: the line's next round is
-            // filled from the top, and the cell that loads the session runs again.
+            // filled from the top, and no cell runs for it.
             for _ in 0..compactions {
                 let at = work.tick();
                 work.sessions.push(Session {
