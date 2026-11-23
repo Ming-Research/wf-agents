@@ -341,14 +341,14 @@ fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_run
 }
 
 #[test]
-fn a_file_of_version_25_keeps_its_observations_and_their_readings_as_it_is_migrated() {
+fn a_file_of_version_26_keeps_its_observations_and_their_readings_as_it_is_migrated() {
     let mut d = Driver::new();
     d.wrote("request", Outsider::Person, None);
     d.end(Came {
         said: super::observations::observing(&["The first.", "The second."]),
         ..hands_in(&[("text", None)])
     });
-    let (old, new) = kept_in(25, &d.work);
+    let (old, new) = kept_in(26, &d.work);
     // The owner read the first, in the file made before.
     (Connection::open(&old.path).expect("the database opens"))
         .execute("INSERT INTO observations_read (observation, at) VALUES (1, 5000)", [])
@@ -394,7 +394,7 @@ fn a_migrated_file_has_sound_foreign_keys_and_takes_the_reading_and_the_changes_
         said: super::observations::observing(&["Kept before."]),
         ..hands_in(&[("text", None)])
     });
-    let (old, _new) = kept_in(25, &d.work);
+    let (old, _new) = kept_in(26, &d.work);
     old.open();
     let file = Connection::open(&old.path).expect("the database opens");
     let broken: Vec<String> = {
@@ -614,11 +614,22 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     let after = dump(&old.path);
     for (table, rows) in &before {
-        if table == "schema_version" || table == "ran" {
+        if table == "schema_version" || table == "ran" || table == "items" {
             continue;
         }
         assert_eq!(after.get(table), Some(rows), "the rows of {table}");
     }
+    // Each item's row is carried whole, and continues nothing: the column a later version added to it holds none.
+    assert!(!before["items"].is_empty(), "the work has an item");
+    let mut continuing_nothing: Vec<Vec<String>> = (before["items"].iter())
+        .map(|row| {
+            let mut row = row.clone();
+            row.push("Null".to_string());
+            row
+        })
+        .collect();
+    continuing_nothing.sort();
+    assert_eq!(after["items"], continuing_nothing);
     // Each try's row is carried whole, what it held as its account its directory, and its account none.
     let mut moved: Vec<Vec<String>> = (before["ran"].iter())
         .map(|row| {
@@ -776,6 +787,43 @@ fn an_item_kept_before_items_had_projects_is_opened_with_none() {
     assert_eq!(items[1].project.as_deref(), Some("two"));
     assert_eq!(items[1].first.project.as_deref(), Some("two"));
     assert_eq!(items[1].depends_on, [ItemNumber(1)]);
+}
+
+// An item kept before items could continue a branch or a pull request continues nothing: it is opened with none, and
+// an item added beside it keeps what it continues.
+#[test]
+fn an_item_kept_before_items_could_continue_anything_is_opened_continuing_nothing() {
+    let db = Db::new();
+    {
+        let file = Connection::open(&db.path).expect("the database opens");
+        file.execute_batch(SCHEMA_1).expect("the first schema is made");
+        file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+            .expect("its version is written");
+        store::migrate(&file, 1, 22).expect("the migrations run");
+        assert_eq!(versions(&db.path), [22]);
+        file.execute(
+            "INSERT INTO items (title, added, level, project) VALUES ('kept before', 5, '2', 'one')",
+            [],
+        )
+        .expect("an item is kept");
+    }
+    let mut store = db.open();
+    assert_eq!(versions(&db.path), [SCHEMA_VERSION]);
+    store
+        .add(
+            &store::First {
+                continues: Some(store::Continues::Pull(226)),
+                ..first("added now", "1", &[ItemNumber(1)])
+            },
+            "judged",
+            Time(START),
+            &Work::default(),
+        )
+        .expect("the item is added");
+    let items = store.items().expect("the items are read");
+    assert_eq!(items[0].continues, None);
+    assert_eq!(items[0].first.continues, None);
+    assert_eq!(items[1].continues, Some(store::Continues::Pull(226)));
 }
 
 #[test]

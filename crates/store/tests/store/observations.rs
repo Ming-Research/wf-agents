@@ -554,6 +554,7 @@ fn an_item_of(project: Option<&str>) -> store::First {
         project: project.map(str::to_string),
         depends_on: Vec::new(),
         tags: Vec::new(),
+        continues: None,
     }
 }
 

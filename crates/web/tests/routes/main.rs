@@ -211,14 +211,72 @@ pub fn trial_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial")
 }
 
-/// What the trial flow is compiled against: the driver's source outside a work, the engine's as the owner answers,
-/// and the act `merge`.
+/// What the trial flow is compiled against: the driver's sources outside a work, the engine's as the owner answers,
+/// and the acts `merge` and `start`.
 pub(crate) fn trial_has(_: &Source) -> flow::Has {
     flow::Has {
-        sources: BTreeSet::from([driver::DEPENDENCIES.to_string(), flow::ANSWER.to_string()]),
-        acts: BTreeSet::from(["merge".to_string()]),
+        sources: BTreeSet::from([
+            driver::DEPENDENCIES.to_string(),
+            driver::START.to_string(),
+            flow::ANSWER.to_string(),
+        ]),
+        acts: BTreeSet::from(["merge".to_string(), "start".to_string()]),
         ..Default::default()
     }
+}
+
+/// A flow whose first cell is the act that starts a work, and whose second merges it: the files of the flow `placing`.
+pub fn placing_flow() -> Source {
+    let flow = r#"
+        name = "placing"
+        order = ["place", "merge"]
+        [limits]
+        runs = 2
+        returns = 2
+        calls = 3
+        [lines.main]
+        [blocks.place]
+        shown = true
+        [blocks.merged]
+        shown = true
+        [blocks.start]
+        outside = "start"
+        writes = { text = "The owner started the work." }
+    "#;
+    let place = r#"
+        title = "Place"
+        kind = "engine"
+        act = "start"
+        watches = ["start"]
+        outputs = ["place"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        watches = ["place"]
+        outputs = ["merged"]
+    "#;
+    let mut source = Source {
+        flow: flow.to_string(),
+        ..Source::default()
+    };
+    for (id, text) in [("place", place), ("merge", merge)] {
+        source.cells.insert(id.to_string(), text.to_string());
+    }
+    source
+}
+
+/// The interface over the engine's loop on the flow `placing`, with a store in a directory of its own.
+pub fn running_placing() -> Running {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    running_flow(
+        Box::new(store),
+        dir,
+        Scripted::new(trial_script()).carriers(),
+        &placing_flow(),
+    )
 }
 
 /// The interface over the engine's loop on the trial flow, with a store in a directory of its own.

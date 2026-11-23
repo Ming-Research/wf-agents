@@ -50,7 +50,7 @@ use work::{Time, Work};
 
 pub use backups::{Backups, Failure, Kept, Records};
 pub use flows::{KeptFlow, KeptOutline};
-pub use items::{Change, First, Item, ItemChange, ItemNumber, TAG_CHARS, WorkHead, WorkNumber, tag_is_bad};
+pub use items::{Change, Continues, First, Item, ItemChange, ItemNumber, TAG_CHARS, WorkHead, WorkNumber, tag_is_bad};
 pub use observations::{
     FromRound, NewObservation, NotMade, Observation, ObservationChange, Observations, Refusal, TagCount,
 };
@@ -63,7 +63,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 26;
+pub const SCHEMA_VERSION: u32 = 27;
 
 /// A step of the store after a migration's SQL.
 type Step = fn(&Connection) -> Result<(), Fault>;
@@ -155,6 +155,9 @@ const MIGRATIONS: &[Migration] = &[
     )),
     Migration::sql(include_str!(
         "../../../db/migrations/202611221600-record-who-took-an-account-and-keep-the-switch-that-moves-on.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231000-let-an-item-continue-a-branch-or-pull-request.sql"
     )),
     Migration::sql(include_str!(
         "../../../db/migrations/202611231200-keep-the-observations-an-architect-adds-and-what-is-done-to-each.sql"
