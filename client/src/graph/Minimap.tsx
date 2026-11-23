@@ -5,9 +5,6 @@
 // drawing the chart again. It hides while the whole chart is in view, and while what can be seen is too small for it
 // to keep clear of the middle. Under it, or in its place while it hides, the chart's zoom as a percentage, which
 // follows the view as the frame does.
-//
-// Brought over from the chart of `old-main` (`client/src/graph/Minimap.tsx`), but for the stage boxes and the stores,
-// which this flow has none of.
 
 import { memo, type RefObject, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 

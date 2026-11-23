@@ -12,10 +12,21 @@ output_tokens = 450
 answer = "Every check passed."
 ms = 2500
 
-# The plan asks the owner first, and then hands in the plan.
+# The plan returns nothing in each of its first three rounds, so that each is sent back and its run reaches its limit of
+# returns: the work waits for the owner, who lets the run go on, and the plan then hands in the plan.
 [[flows.trial.rounds]]
 cell = "plan"
-asks = [{ question = "Should the greeting name the user?", who = "owner" }]
+asks = []
+
+[[flows.trial.rounds]]
+cell = "plan"
+round = 2
+asks = []
+
+[[flows.trial.rounds]]
+cell = "plan"
+round = 3
+asks = []
 
 # The build runs the CI before it hands in the code.
 [[flows.trial.rounds]]
@@ -40,8 +51,9 @@ hands_in = [{ block = "verdict", value = "yes" }]
 cell = "merge"
 took = { ms = 500 }
 
-# To see a round fail and its work paused with the reason, give a round `fails`, as here the plan's second run:
+# To see a round fail and its work paused with the reason, give a round `fails`, as here the plan's round after the owner
+# let its run go on:
 # [[flows.trial.rounds]]
 # cell = "plan"
-# run = 2
+# round = 4
 # fails = "The agent's program could not start."
