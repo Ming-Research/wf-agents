@@ -794,8 +794,8 @@ mod tests {
     // What a project's host needs of its declaration is its declaration's to hold, and the declaration protects itself:
     // a local repository needs the command that checks it, GitHub how its pull requests are merged, and where the
     // declaration is not among the paths it protects, a work may change what names the commands the engine runs
-    // without the owner's yes. A GitHub project that declares no workflows is not held, since none are needed until a
-    // test or the check runs.
+    // without the owner's yes; and a fast workflow given less time than the CI is given to start. A GitHub project that
+    // declares no workflows is not held, since none are needed until a test or the check runs.
     #[test]
     fn a_declaration_lacking_what_the_projects_host_needs_or_not_protecting_itself_holds_its_project() {
         let dir = tempfile::tempdir().expect("a directory");
@@ -822,6 +822,14 @@ mod tests {
         let no_ci = without(&good, &["[ci.fast]", "[ci.full]"]);
         assert!(!no_ci.contains("[ci."), "{no_ci}");
         with_project(&mut settings, dir.path(), "noci", Some(&no_ci), true);
+        // A fast workflow given less time than the CI is given to start (the settings' `github.start_minutes`, 10 for a
+        // project that names none) is held; one given exactly that time is carried. The first `too_long` of the
+        // declaration is the fast workflow's.
+        let first = good.find("too_long = \"2h\"").expect("the declaration gives a time");
+        assert!(good.find("[ci.fast]").unwrap() < first && first < good.find("[ci.full]").unwrap());
+        let fast_limit = |limit: &str| good.replacen("too_long = \"2h\"", &format!("too_long = \"{limit}\""), 1);
+        with_project(&mut settings, dir.path(), "short", Some(&fast_limit("5m")), true);
+        with_project(&mut settings, dir.path(), "exact", Some(&fast_limit("10m")), true);
         let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
         let started = start(&settings, &beside, &[engineer()]);
         assert_eq!(started.faults, Vec::<String>::new());
@@ -832,14 +840,27 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["projects.nolocal", "projects.nopull", "projects.unprotected"],
+            [
+                "projects.nolocal",
+                "projects.nopull",
+                "projects.short",
+                "projects.unprotected"
+            ],
             "{:?}",
             started.held
         );
         assert!(started.held[0].contains("has no [local]"), "{:?}", started.held);
         assert!(started.held[1].contains("has no [pull_request]"), "{:?}", started.held);
         assert!(
-            started.held[2].contains("[protected] paths must hold wf-agents.toml itself"),
+            started.held[2].contains(
+                "[ci.fast] too_long is less than the 10 minutes the settings give the CI to start \
+                 (github.start_minutes)"
+            ),
+            "{:?}",
+            started.held
+        );
+        assert!(
+            started.held[3].contains("[protected] paths must hold wf-agents.toml itself"),
             "{:?}",
             started.held
         );
