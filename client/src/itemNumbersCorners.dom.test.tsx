@@ -78,11 +78,12 @@ describe('the number of an item in a text, at the edges of the Markdown round it
   // address of a link is only the web or a view of the page (principle agent-writing-is-data). Each text is drawn with
   // the item links it must have, which says what became of the number in it: in the words of a link and in an address
   // it is no link; the words of a link whose target the page refuses are plain words, and the number in them is a link
-  // to the item.
+  // to the item. The `#46` of the bare address stands after a `/`, which joins it to the address alone; that of the
+  // address in angle brackets stands after a `?`, which joins nothing, so that only the words of the link keep it plain.
   it('draws no link inside a link and none to an address an agent wrote: a bare address, an address in angle brackets, a refused target', () => {
     const texts: [string, string[]][] = [
       ['see https://example.com/#46 and #47', ['#47']],
-      ['see <https://example.com/#46> and #47', ['#47']],
+      ['see <https://example.com?#46> and #47', ['#47']],
       ['[#46](javascript:alert) and #47', ['#46', '#47']],
       ['[the item 46](https://example.com/x) and #47', ['#47']],
     ];
