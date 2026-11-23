@@ -2986,6 +2986,7 @@ mod tests {
                 level: Some("1".to_string()),
                 cell_level: None,
                 raise: None,
+                held: None,
                 pull: None,
                 changed: None,
             },

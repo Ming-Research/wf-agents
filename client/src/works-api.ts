@@ -278,13 +278,16 @@ export interface Summary {
   /// made-up data, as none.
   level?: string | null;
   /// The level the rounds of the cell it stands at run at, by the same rule: its level raised as far as the cell's line
-  /// says, never above the highest an item may be at; none where it stands at no cell, as a work that ended, at an
+  /// says, never above the highest one round may run at; none where it stands at no cell, as a work that ended, at an
   /// engine cell, whose acts run on no level, or where the rule refuses its level. Absent from made-up data, as none.
   cellLevel?: string | null;
-  /// How many levels the line of the cell it stands at raises that cell above its level, as the line's `levels_above`
-  /// says, whatever the highest level an item may be at holds `cellLevel` to; none where it stands at no agent's cell.
-  /// Absent from made-up data, as none.
+  /// How many levels above its level the cell it stands at really runs: its line's `levels_above`, less what the highest
+  /// level one round may run at took off it; none where it stands at no agent's cell. Absent from made-up data, as none.
   raise?: number | null;
+  /// What held the cell it stands at below what its line asks, where the highest level one round may run at did: how
+  /// many levels above its level the line asks, and the key of the setting. None where nothing did. Absent from made-up
+  /// data, as none.
+  held?: Held | null;
   /// The pull request the host of its repository checks it through: the latest the host found, as the work keeps it; of
   /// a work that merged before works kept theirs, the one the title of the commit its merge made names. None where it
   /// has none, as on a host with no pull requests. Absent from made-up data, as none.
@@ -294,6 +297,13 @@ export interface Summary {
   /// nothing of it is there to tell, as before its branch is made, and where git could not say. Absent from made-up
   /// data, as none.
   changed?: Diffstat | null;
+}
+
+/// What held a cell below the level its line asks it to run at: how many levels above its item's the line asks, and the
+/// key of the setting that holds a round to its highest level, none where the engine names none.
+export interface Held {
+  asks: number;
+  by: string | null;
 }
 
 /// A pull request on the host of a work's repository: its number, and its address.
