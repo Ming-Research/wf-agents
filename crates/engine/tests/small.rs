@@ -117,6 +117,7 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
     let because = Cause::Changed {
         block: "request".into(),
         was: None,
+        worked: None,
         behind: false,
     };
     assert_eq!(work.records.started[0].because, [because]);

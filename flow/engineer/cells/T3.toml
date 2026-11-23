@@ -20,9 +20,9 @@ only for these questions.
 4. Does the change leave an entry of the tree untrue, or a comment that goes against the tree?
 
 In the why of `design_ok`, answer each question by its number: what you checked and what you found. A question you did
-not check is a point: say what must be shown. Write every point in `design_review` at once: this is your one chance,
-and nothing that could be raised now is raised later. Leave out preferences: the engineer fixes nearly everything a
-review raises, so a wrong point makes good code worse. If `design_ok` is yes, leave `design_review` out of your return.
+not check is a point: say what must be shown. Write every point in `design_review` at once. Leave out preferences: the
+engineer fixes nearly everything a review raises, so a wrong point makes good code worse. If `design_ok` is yes, leave
+`design_review` out of your return.
 '''
 watches = ["change", "design_review"]
 reads = ["plan", "background", "tree", "tree_entries"]
