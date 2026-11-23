@@ -30,9 +30,9 @@ Why: Every token is paid for in every round, and the longer a prompt, the more a
 What a program can do or know exactly, such as checking a return's form or reading test results, is a step of a tool or of the engine that the flow shows, never asked of an agent.
 Why: An agent doing exact work sometimes gets it wrong, and each mistake costs a round: agents misreading test results caused extra runs. Every engine step must be predictable from the flow. (Article 7)
 
-### principle harness-only
-A project's configuration and data are in the owner's data directory, the settings projects share kept together and the installation's own rules beside them; a project's constitution, design tree and AGENTS.md are in its repository.
-Why: Kept in this repository, a project's configuration would put the project into the harness (Article 1); kept in each project's repository, shared settings would be copied many times.
+### principle each-setting-where-it-is-true
+A setting is kept once, where it is true: what holds for every project and machine in wf-agents (the program, the flows, the words and rules agents get); what is the owner's on one machine in the installation; what is one project's alone (its declaration, tree, guide, CI) in its repository.
+Why: In wf-agents, one project's setting would put the project into the harness (Article 1); in the installation, it would be copied into each that runs the project and drift from its code; in a project, a merge would change the owner's machine and money.
 
 ### principle judged-by-own-history
 A health check, which reports or stops a round, a wait, a context or a cost as out of the ordinary, takes what is ordinary from the system's own history, never a fixed threshold. Neither a bound the owner sets nor a stop on repeats of one failure is a health check.
@@ -72,7 +72,7 @@ Why: The machine that runs the engine is always on.
 
 ### principle protected-files-are-the-owners
 The paths a project protects, such as the agents' guide, constitution, flow and how checks run, are the owner's. The engine holds an agent's change to one at the merge: the agent takes it back or says why, and the engine asks the owner, again for each new change; after a yes it governs that work.
-Why: What an agent writes must not change what governs it unless the owner says yes. A rule in the project's guide, left to the engineer and the review to keep, was missed by both and the change merged (Article 7). The project's configuration names the paths, not the flow (Article 1).
+Why: What an agent writes must not change what governs it unless the owner says yes. A rule in the project's guide, left to the engineer and the review to keep, was missed by both and the change merged (Article 7). The project's declaration names the paths, not the flow (Article 1).
 
 ### principle test-problems-are-fixed-in-the-tests
 Code that is not a test may help a test read what it does, but never does anything differently so that a test or CI passes. A test that fails because CI is slow or unlike the owner's machine is fixed in the test or in CI, never in the code it tests.
