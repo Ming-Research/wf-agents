@@ -337,6 +337,7 @@ impl<H: Host> Inner<H> {
             title: &name,
             about: &about,
             place: &place,
+            continues: round.item.continues.as_ref(),
         };
         // What an act reads of the work's branch is no round's commit: it is written from outside.
         let read_with = branch::Reading {
@@ -348,15 +349,22 @@ impl<H: Host> Inner<H> {
             "start" => {
                 let started = start(project, &self.host, &branch, &self.repository).await?;
                 looking().tell(&started.place, teller, false).await;
-                let content = fill(
-                    &words.start.text,
-                    &[
-                        ("branch", &started.place.reference()),
-                        ("worktree", &started.place.dir.display().to_string()),
-                        ("from", &started.from),
-                        ("main", &project.main),
-                    ],
-                );
+                let (reference, worktree) = (started.place.reference(), started.place.dir.display().to_string());
+                let mut parts = vec![
+                    ("branch", reference.as_str()),
+                    ("worktree", worktree.as_str()),
+                    ("from", started.from.as_str()),
+                    ("main", project.main.as_str()),
+                ];
+                let continues = branch.continues.map(store::Continues::said);
+                let text = match &continues {
+                    Some(continues) => {
+                        parts.push(("continues", continues.as_str()));
+                        &words.start.continued
+                    }
+                    None => &words.start.text,
+                };
+                let content = fill(text, &parts);
                 Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
             }
             "check" => {
@@ -520,6 +528,7 @@ impl<H: Host> Inner<H> {
             title: &name,
             about: "",
             place: &place,
+            continues: None,
         };
         self.end_turn(release.work);
         let _held = self.repository.lock().await;
@@ -739,21 +748,28 @@ pub(crate) async fn merge(
     host.merge(branch, checked).await
 }
 
-/// Makes the work's branch from the head of main the host gives, and its worktree, holding the repository. Where the
-/// branch was there already, as a work's that was cancelled and reopened, what the host held for it that the cancel let
-/// go is taken up again ([`Host::reopen`]), on every start, worktree or not: a start that failed after the branch was
-/// made, or a cancel whose letting go failed after the pull request was closed, leaves it to the next.
+/// Makes the work's branch, and its worktree, holding the repository: from the head of main the host gives, or, where
+/// the work's item continues a branch or a pull request and the branch is not made yet, from the head of that
+/// ([`Host::continued`]), which is asked of the host only then, so that a start given again finds the branch it made
+/// whatever became of what it continued. Where the branch was there already, as a work's that was cancelled and
+/// reopened, what the host held for it that the cancel let go is taken up again ([`Host::reopen`]), on every start,
+/// worktree or not: a start that failed after the branch was made, or a cancel whose letting go failed after the pull
+/// request was closed, leaves it to the next.
 pub(crate) async fn start(
     project: &Project,
     host: &impl Host,
     branch: &Branch<'_>,
     repository: &Mutex<()>,
-) -> Result<Started, String> {
+) -> Result<Started, Failed> {
     let _held = repository.lock().await;
     let place = branch.place;
     git::configuration(project, place).await?;
     let main = host.main().await?;
-    let started = git::start(project, place, &main).await?;
+    let at = match branch.continues {
+        Some(continues) if !git::branch_made(project, place).await? => host.continued(continues).await?,
+        _ => main.clone(),
+    };
+    let started = git::start(project, place, &at, &main).await?;
     if started.kept {
         host.reopen(branch).await?;
     }
@@ -1440,6 +1456,7 @@ mod tests {
             title: "Greet the user",
             about: "",
             place,
+            continues: None,
         }
     }
 
@@ -1924,7 +1941,7 @@ mod tests {
     }
 
     /// Starts the work in the repository with the host.
-    async fn start_with(repo: &Repo, host: &impl Host) -> Result<git::Started, String> {
+    async fn start_with(repo: &Repo, host: &impl Host) -> Result<git::Started, Failed> {
         let place = repo.place(WORK);
         start(&repo.project, host, &branch(&place), &Mutex::new(())).await
     }
@@ -1968,6 +1985,114 @@ mod tests {
             .filter(|a| matches!(a, Asked::Reopen(_)))
             .collect();
         assert_eq!(reopened, [Asked::Reopen(name.clone()), Asked::Reopen(name)]);
+    }
+
+    /// Starts the work in the repository with the host, its item continuing what is given.
+    async fn start_continuing(
+        repo: &Repo,
+        host: &impl Host,
+        continues: &store::Continues,
+    ) -> Result<git::Started, Failed> {
+        let place = repo.place(WORK);
+        let branch = Branch {
+            continues: Some(continues),
+            ..branch(&place)
+        };
+        start(&repo.project, host, &branch, &Mutex::new(())).await
+    }
+
+    #[tokio::test]
+    async fn a_work_whose_item_continues_a_branch_starts_from_its_head_and_leaves_that_branch_as_it_was() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let old = aside(&repo, "old.txt", "Old.\n");
+        let continues = store::Continues::Branch("aside".to_string());
+        let host = Fake::new(&main).continued_at(Ok(old.clone()));
+        let started = start_continuing(&repo, &host, &continues)
+            .await
+            .expect("the work starts");
+        assert_eq!(run(&repo.project.repo, &["rev-parse", &started.place.reference()]), old);
+        assert_eq!(started.from, main);
+        assert!(started.place.dir.join("old.txt").is_file());
+        assert_eq!(run(&repo.project.repo, &["rev-parse", "refs/heads/aside"]), old);
+        assert_eq!(host.asked(), [Asked::Main, Asked::Continued(continues)]);
+    }
+
+    #[tokio::test]
+    async fn a_start_given_again_asks_the_host_for_what_the_item_continues_no_more() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let old = aside(&repo, "old.txt", "Old.\n");
+        let continues = store::Continues::Pull(226);
+        let host = Fake::new(&main).continued_at(Ok(old.clone()));
+        let started = start_continuing(&repo, &host, &continues)
+            .await
+            .expect("the work starts");
+        // Whatever became of what it continued, the branch is the one made.
+        let host = Fake::new(&main);
+        let again = start_continuing(&repo, &host, &continues)
+            .await
+            .expect("it starts again");
+        assert!(again.kept);
+        assert_eq!(run(&repo.project.repo, &["rev-parse", &again.place.reference()]), old);
+        assert_eq!(host.asked(), [Asked::Main, Asked::Reopen(started.place.branch)]);
+    }
+
+    #[tokio::test]
+    async fn a_start_whose_continued_branch_is_refused_fails_with_the_refusal_and_makes_no_branch_nor_starts_from_main()
+    {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let continues = store::Continues::Branch("gone".to_string());
+        let host = Fake::new(&main).continued_at(Err(Failed::refused("neither side has the branch gone")));
+        let refused = start_continuing(&repo, &host, &continues)
+            .await
+            .expect_err("it is refused");
+        assert_eq!(
+            (refused.why.as_str(), refused.kind),
+            ("neither side has the branch gone", Some(decide::run::Failure::Other))
+        );
+        let place = repo.place(WORK);
+        assert!(
+            !git::branch_made(&repo.project, &place).await.unwrap(),
+            "no branch is made"
+        );
+        assert!(!place.dir.exists(), "no worktree is made");
+        // Corrected, the item continues what is there, and the same work starts from it.
+        let old = aside(&repo, "old.txt", "Old.\n");
+        let host = Fake::new(&main).continued_at(Ok(old.clone()));
+        let started = start_continuing(&repo, &host, &store::Continues::Branch("aside".to_string()))
+            .await
+            .expect("it starts");
+        assert_eq!(run(&repo.project.repo, &["rev-parse", &started.place.reference()]), old);
+    }
+
+    #[tokio::test]
+    async fn a_failure_to_reach_the_host_for_what_the_item_continues_keeps_the_kind_it_was_given() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let continues = store::Continues::Branch("aside".to_string());
+        let host = Fake::new(&main).continued_at(Err(Failed::passing("GitHub did not answer")));
+        let failed = start_continuing(&repo, &host, &continues).await.expect_err("it fails");
+        assert_eq!(failed.kind, Some(decide::run::Failure::Passing));
+        assert!(!git::branch_made(&repo.project, &repo.place(WORK)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn the_local_host_continues_a_branch_of_the_repository_and_no_pull_request() {
+        let repo = Repo::new("true");
+        let old = aside(&repo, "old.txt", "Old.\n");
+        let host = Local::new(repo.project.clone());
+        assert_eq!(
+            host.continued(&store::Continues::Branch("aside".to_string())).await,
+            Ok(old)
+        );
+        let missing = (host.continued(&store::Continues::Branch("gone".to_string())).await).expect_err("refused");
+        assert_eq!(missing.kind, Some(decide::run::Failure::Other));
+        assert!(missing.why.contains("no branch gone"), "{}", missing.why);
+        let pull = host.continued(&store::Continues::Pull(3)).await.expect_err("refused");
+        assert_eq!(pull.kind, Some(decide::run::Failure::Other));
+        assert!(pull.why.contains("no pull requests"), "{}", pull.why);
     }
 
     #[tokio::test]

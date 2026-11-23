@@ -1033,7 +1033,12 @@ impl Explorer<'_> {
                         String::new(),
                     );
                 }
-                Cause::Changed { block, was, behind } => {
+                Cause::Changed {
+                    block,
+                    was,
+                    worked,
+                    behind,
+                } => {
                     let trigger = m.watched[i].get(block).cloned();
                     match &trigger {
                         Some(t) => {
@@ -1065,11 +1070,15 @@ impl Explorer<'_> {
                             format!("consumed {:?}", r.consumed(cell, block, NOW)),
                         );
                     }
-                    if *was != r.consumed(cell, block, NOW) || *behind != r.behind(flow, i, block, NOW) {
+                    if *was != r.consumed(cell, block, NOW)
+                        || *worked != r.worked(cell, block, NOW)
+                        || *behind != r.behind(flow, i, block, NOW)
+                    {
                         let name = format!("the walk read what {cell} consumed of {block} otherwise");
                         let what = format!(
-                            "walk: was {was:?}, behind {behind}; reading: was {:?}, behind {}",
+                            "walk: was {was:?}, worked {worked:?}, behind {behind}; reading: was {:?}, worked {:?}, behind {}",
                             r.consumed(cell, block, NOW),
+                            r.worked(cell, block, NOW),
                             r.behind(flow, i, block, NOW)
                         );
                         self.breach(Property::NewToIt, name, trace, what);

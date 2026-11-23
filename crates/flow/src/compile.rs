@@ -301,6 +301,9 @@ pub struct Block {
     /// What a cell that writes the block is told of writing it, after the list of what it returns; none where its
     /// file says nothing.
     pub words: Option<String>,
+    /// What a cell that writes the block is told after `words`, where it also has a block it must hand in every
+    /// time; none where its file says nothing.
+    pub words_if_marked: Option<String>,
     /// The shape a return holds the block to, where its file gives one: neither a text nor a choice.
     pub shape: Option<Shape>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, as the
@@ -1054,6 +1057,7 @@ fn own_block(file: &LaidOutBlockFile, placeholder: &str, small: &str) -> BlockFi
     let mut block = file.clone();
     block.what = block.what.as_ref().map(fill);
     block.words = block.words.as_ref().map(fill);
+    block.words_if_marked = block.words_if_marked.as_ref().map(fill);
     block.writes = Texts(
         (block.writes.0.iter())
             .map(|(name, text)| (name.clone(), fill(text)))
@@ -2622,6 +2626,7 @@ impl<'a> Definition<'a> {
                     default: declared.default.clone(),
                     what: declared.what.clone(),
                     words: declared.words.clone(),
+                    words_if_marked: declared.words_if_marked.clone(),
                     shape: declared.shape.clone().map(|shape| Shape(toml::Value::Table(shape))),
                     writes: declared.writes.clone(),
                     with_nothing_but: (declared.with_nothing_but.iter())

@@ -45,11 +45,17 @@ impl Version {
 }
 
 /// Why a run of a cell would start, as the entries say: a block that runs it is new to it, `was` being the version it
-/// consumed; or the results of the calls it is owed are all in.
+/// consumed and `worked` the version it last worked from; or the results of the calls it is owed are all in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reason {
-    Changed { block: BlockId, was: Option<Seq> },
-    Results { calls: Vec<CallId> },
+    Changed {
+        block: BlockId,
+        was: Option<Seq>,
+        worked: Option<Seq>,
+    },
+    Results {
+        calls: Vec<CallId>,
+    },
 }
 
 pub struct Reading<'a> {
@@ -278,6 +284,18 @@ impl<'a> Reading<'a> {
             .collect()
     }
 
+    /// The version of the block the cell last worked from before this place: the latest of the one it consumed, one a
+    /// run of it wrote, and one the owner ruled on. What the cell wrote is no change to it, and a point the owner ruled
+    /// on is new to no cell (design document `data-and-context`, 10, 39), so each counts as seen.
+    pub fn worked(&self, cell: &CellId, block: &BlockId, place: Seq) -> Option<Seq> {
+        let own_or_ruled = (self.of(block).iter())
+            .filter(|v| v.at < place)
+            .filter(|v| matches!(&v.by, Writer::Cell(c, _) if c == cell) || self.ruled(block, v, place))
+            .map(|v| v.at)
+            .max();
+        self.consumed(cell, block, place).max(own_or_ruled)
+    }
+
     /// Whether, at this place, a point is new to the cell in a dialogue it holds as the maker while the dialogue is
     /// open (design document `data-and-context`, 36, 41): a version new to it that a run of the other side wrote, a cell
     /// of the flow for which the dialogue is none it makes. A judge's dialogue is open while the verdict the flow pairs
@@ -307,6 +325,7 @@ impl<'a> Reading<'a> {
             .map(|block| Reason::Changed {
                 block: block.clone(),
                 was: self.consumed(&cell.id, block, place),
+                worked: self.worked(&cell.id, block, place),
             })
             .collect()
     }

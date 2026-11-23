@@ -124,6 +124,7 @@ mod tests {
             because: vec![Cause::Changed {
                 block: block.into(),
                 was: None,
+                worked: None,
                 behind: false,
             }],
             basis: [(BlockId::from(block), None)].into_iter().collect(),
@@ -262,7 +263,7 @@ mod tests {
         // reading after it, which does not touch T2.
         assert_eq!(once("T5"), 4, "{read:#?}");
         assert_eq!(once("t5_words"), 5, "{read:#?}");
-        assert!(read.contains(&"started T2 [BlockId(\"t2_words\")] [Changed { block: BlockId(\"t2_words\"), was: None, behind: false }]".to_string()), "{read:#?}");
+        assert!(read.contains(&"started T2 [BlockId(\"t2_words\")] [Changed { block: BlockId(\"t2_words\"), was: None, worked: None, behind: false }]".to_string()), "{read:#?}");
         assert!(
             !read.iter().any(|n| n.contains("T4") || n.contains("t4_words")),
             "{read:#?}"
