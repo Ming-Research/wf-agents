@@ -159,8 +159,8 @@ export function ConsolePage({
   const latestData = useRef<Items | undefined>(undefined);
   // The item the address names, until the tree shows it and it is selected.
   const toSelect = useRef<number | undefined>(named);
-  // Selects the item the address names once the tree shows it; where its kind is not ticked, the box is ticked first and
-  // the item is selected as the tree is drawn again, as for an item picked from the search.
+  // Selects the item the address names once the tree shows it; where its kind is not ticked, the box is ticked first
+  // and the item is selected as the tree is drawn again, as for an item picked from the search.
   const selectNamed = () => {
     const id = toSelect.current;
     if (id === undefined || scene.current === null) return;

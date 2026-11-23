@@ -1,7 +1,7 @@
-// The numbers of items in the text an agent or the owner wrote, drawn as links to the item: `#46`, and the numbers after
-// the word `item`, `items` or `条目`. The titles come from the items the bar reads, once for the whole page
-// (`ItemTitlesProvider`, in the `Shell`); a number that names no item the page read stays as it was written, and so does
-// a number a letter, a digit or a path joins to what is round it, and one after PR, pull request or issue.
+// The numbers of items in the text an agent or the owner wrote, drawn as links to the item: `#46`, and the numbers
+// after the word `item`, `items` or `条目`. The titles come from the items the bar reads, once for the whole page
+// (`ItemTitlesProvider`, in the `Shell`); a number that names no item the page read stays as it was written, and so
+// does a number a letter, a digit or a path joins to what is round it, and one after PR, pull request or issue.
 
 import { type ReactNode, createContext, useContext, useMemo } from 'react';
 
