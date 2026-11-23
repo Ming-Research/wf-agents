@@ -130,6 +130,10 @@ enum Class {
 /// on after, in the same run, and so is given to no round of another.
 const UNREACHED: [&str; 2] = ["unknown", "at_limit"];
 
+/// The name of the engine's own source that writes yes into the datum a cell names in its condition once a run of the
+/// cell that dealt with something has finished (`../data/of_a_cell/handed_in.toml`), and never writes it again.
+const HANDED_IN: &str = "handed_in";
+
 /// A set of what the cell watches that ran it, with the name that says it.
 struct Ran<'a> {
     name: String,
@@ -540,6 +544,14 @@ impl<'a> Reach<'a> {
         if filled_early && *class == Class::Rest && matches!(entry, Entry::Later | Entry::ReopenedAfterRead) {
             states.retain(|s| *s != Stands::HoldsLast);
         }
+        // A cell that runs only until a run of it dealt with something has finished never worked from what it watches
+        // and does not write: dealing with a datum is what consumes it, and ends the cell.
+        if self.never_worked(block) {
+            states.retain(|s| !matches!(s, Stands::HoldsLast | Stands::HoldsLatest | Stands::Holds));
+            if states.is_empty() {
+                states.push(Stands::Unwritten);
+            }
+        }
         // The last cell worked from nothing, so that the session holds what it was sent in an earlier round of its run,
         // never as the version it last worked from.
         if self.last && entry == Entry::Later {
@@ -549,6 +561,22 @@ impl<'a> Reach<'a> {
             }
         }
         states
+    }
+
+    /// Whether the cell watches the datum and does not write it, and runs only until a run of it that dealt with
+    /// something has finished, as its condition names a datum the engine's source writes yes once such a run has
+    /// finished: the datum is consumed only by dealing with it, which ends the cell, so the cell has none of it to have
+    /// worked from.
+    fn never_worked(&self, block: &BlockId) -> bool {
+        let flow = self.flow;
+        let place = flow.flow.place(&self.cell.id).unwrap_or(0);
+        let cell = &flow.flow.cells()[place];
+        let ends = cell.applies.iter().any(|key| match key {
+            Condition::Is { block, .. } => (flow.blocks.get(block))
+                .is_some_and(|d| d.writers.outside.as_deref() == Some(HANDED_IN) && !d.writers.people),
+            Condition::Test(_) => false,
+        });
+        ends && !cell.outputs.contains(block) && self.cell.watches.iter().any(|t| t.blocks.contains(block))
     }
 
     /// Whether the datum is written only by cells that run after every run of this cell: each cell that writes it
@@ -945,6 +973,11 @@ impl<'a> Reach<'a> {
                 let stands = match self.written_only_later(&block) {
                     true => Stands::Unwritten,
                     false => stands,
+                };
+                // What a cell that has dealt with nothing yet never worked from is held as new to it.
+                let stands = match (self.never_worked(&block), stands) {
+                    (true, Stands::HoldsLast | Stands::HoldsLatest | Stands::Holds) => Stands::HoldsNew,
+                    (_, stands) => stands,
                 };
                 (block.to_string(), stands)
             })

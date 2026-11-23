@@ -294,6 +294,8 @@ struct History {
     /// How often, in a hundred, a block a return hands in that was written before is handed in as changing nothing in
     /// meaning.
     unmatters: u64,
+    /// How often, in a hundred, a return that hands in names only some of what ran its round as dealt with.
+    partial: u64,
     prefer: BTreeMap<String, u64>,
     /// The value a return that writes a choice gives it, of some choices.
     force: BTreeMap<String, String>,
@@ -337,6 +339,7 @@ impl History {
             writes: 70,
             asks: 8,
             unmatters: 0,
+            partial: 0,
             prefer: BTreeMap::new(),
             force: BTreeMap::new(),
             target: None,
@@ -929,6 +932,12 @@ impl History {
             });
         }
         let mut came = Came::hands_in(writes);
+        if self.partial > 0 && cell.line.is_some() && self.rng.chance(self.partial) {
+            let ran_by = (decide::told(&self.sim.flow.flow, &self.sim.work.records, round.run))
+                .map(|told| told.ran_by)
+                .unwrap_or_default();
+            came.dealt_with = Some(ran_by.into_iter().filter(|_| self.rng.chance(50)).collect());
+        }
         came.said.questions = self.questions(&cell);
         came
     }
@@ -1628,6 +1637,15 @@ impl Target {
             None => rest.split(' ').next(),
         };
         let mut blocks: Vec<String> = datum.into_iter().map(str::to_string).collect();
+        // What the owner says to a cell that writes the datum runs that cell, which writes it again.
+        let writers: Vec<CellId> = (datum.and_then(|d| sim.flow.blocks.get(&BlockId::from(d))))
+            .map(|declared| declared.writers.cells.clone())
+            .unwrap_or_default();
+        for writer in &writers {
+            if let Some(words) = spoken::words_of(&sim.flow, writer) {
+                blocks.push(words.as_str().to_string());
+            }
+        }
         // The owner rules on a dialogue by writing the verdict the flow pairs with it, which makes the judge's points
         // before it new to no cell.
         for judge in sim.flow.flow.cells() {
@@ -1800,6 +1818,7 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         history.writes = [25, 70, 100][rng.below(3)];
         history.asks = [8, 40, 90][rng.below(3)];
         history.unmatters = [0, 20, 50][rng.below(3)];
+        history.partial = [0, 25, 60][rng.below(3)];
         history.scene.passes = Some([60, 85, 100][rng.below(3)]);
         history.scene.puts = [4, 8, 16][rng.below(3)];
         history.scene.reopens = [2, 4, 10][rng.below(3)];
