@@ -406,11 +406,11 @@ export interface Items {
   outage?: Outage | null;
 }
 
-/// Why a cell runs: it has no record, or a block has another meaning than the one its record knows (`was`), which a
-/// cell after it gave the block where `behind`.
+/// Why a cell runs: it has no record, or a block has another meaning than the one its record knows (`workedFrom`, the
+/// version the cell last worked from, as a message to it names it), which a cell after it gave the block where `behind`.
 export type Cause =
   | { kind: 'noRecord' }
-  | { kind: 'changed'; block: string; was: number | null; behind: boolean }
+  | { kind: 'changed'; block: string; workedFrom: number | null; behind: boolean }
   | { kind: 'results'; calls: number[] };
 
 /// A block a cell reads, as the cell's record knows it and as it is now.
