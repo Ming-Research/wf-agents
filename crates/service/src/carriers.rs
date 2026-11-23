@@ -33,10 +33,6 @@ use work::{Fill, Given, Measures, RanOn, Spent, Time, Why, Work};
 
 use crate::Message;
 
-/// The result a withdrawn call has: given by the loop to a person's call, and by what runs a tool to a tool's call it
-/// stopped.
-pub const WITHDRAWN: &str = "Withdrawn: its run was abandoned before it had its result.";
-
 pub use engine::spoken::Telling;
 
 /// What carries out the rounds of cells of one kind: an agent's rounds, or the engine's own acts.
@@ -528,10 +524,10 @@ pub trait Tools: Send + Sync {
     /// Runs the tool. The call has its result when the reply gives it.
     fn call(&self, call: ToolCall, reply: CallReply);
 
-    /// Withdraws the call, whose run was abandoned: the tool is stopped where it runs, and the call has
-    /// [`WITHDRAWN`] for its result, or the result that came before it could be stopped. A call has one result:
-    /// where the reply it was made with is still held, that one is used and this one dropped, and where the call's
-    /// result was sent already this one is dropped and nothing more is sent.
+    /// Withdraws the call, whose run was abandoned: the tool is stopped where it runs, and the call has the result of
+    /// a withdrawn call ([`Carriers::calls`]) for its result, or the result that came before it could be stopped. A
+    /// call has one result: where the reply it was made with is still held, that one is used and this one dropped,
+    /// and where the call's result was sent already this one is dropped and nothing more is sent.
     fn withdraw(&self, call: ToolCall, reply: CallReply);
 }
 
@@ -719,6 +715,9 @@ pub struct Carriers {
     pub host: Option<Arc<dyn Network>>,
     /// What keeps the tokens of the accounts the agents' program may run under.
     pub tokens: Arc<dyn Tokens>,
+    /// The result a call has where the engine ends it itself, in the words beside the flows: the loop gives it to a
+    /// run at its limit and to the engine's wait, and the tools give it to a tool's call they stop.
+    pub calls: flow::agents::Calls,
 }
 
 impl Carriers {
@@ -1180,6 +1179,7 @@ mod tests {
             outside: Arc::new(Well),
             host: None,
             tokens: Arc::new(KeptTokens::new()),
+            calls: crate::Scripted::calls(),
         }
     }
 

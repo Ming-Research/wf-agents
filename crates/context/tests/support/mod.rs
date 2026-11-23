@@ -188,8 +188,8 @@ pub fn branched() -> Compiled {
 
 /// Which work and item the tests' rounds are of.
 pub const FOR: For<'static> = For {
-    work: 1,
-    item: 1,
+    work: "W1",
+    item: "#1",
     title: "Greet",
 };
 
