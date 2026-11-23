@@ -136,6 +136,7 @@ fn the_works_own_pause_is_said_before_the_pause_of_everything_and_both_before_a_
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     w.on(wrote("request", Outsider::Person, true, None));
     let neither = Room {

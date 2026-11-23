@@ -585,6 +585,10 @@ pub struct NewItem {
     pub flow: String,
     /// What people write for it as it is added, in order.
     pub writes: Vec<FirstWrite>,
+    /// Why its work is paused as it is added, where whoever adds it says: it is added paused either way.
+    pub why: Option<String>,
+    /// The items its work's pause waits for, to merge or be cancelled, where whoever adds it says.
+    pub waits_for: Vec<ItemNumber>,
 }
 
 /// A block people write as an item is added.
@@ -636,6 +640,8 @@ pub enum Failed {
     NoSuchItem(ItemNumber),
     /// An item was to be added with a title of no words. Nothing was changed.
     BlankTitle,
+    /// A pause was to wait for the item of its own work, which it would never end. Nothing was changed.
+    WaitsForItself(ItemNumber),
     /// An item was to be added carrying a tag that is no name an item may carry. Nothing was changed.
     BadTag(String),
     /// An item was to be added continuing what is no branch name or pull request number an item may name. Nothing was
@@ -917,6 +923,7 @@ impl Driver {
             return Err(Failed::NoSuchFlow(new.flow));
         };
         let flow = installed.flow.clone();
+        let waits_for = self.pause_waits(None, new.waits_for)?;
         if let Some(continues) = &new.continues {
             if changes::continues_fault(continues).is_some() {
                 return Err(Failed::BadContinues(continues.clone()));
@@ -936,7 +943,8 @@ impl Driver {
         work.added_on(installed.version.clone());
         let mut first = vec![Event::Paused {
             by: Pauser::Owner,
-            why: None,
+            why: new.why,
+            waits_for,
         }];
         first.extend(self.block(&flow, &depends_on, &work));
         first.extend(new.writes.into_iter().map(|write| Event::Wrote {
@@ -1336,6 +1344,7 @@ impl Driver {
                 let paused = Event::Paused {
                     by: Pauser::Engine,
                     why: Some(why.clone()),
+                    waits_for: Vec::new(),
                 };
                 if let Err(fault) = self.step_one(now, number, paused, false, &mut todos) {
                     return Err(self.stop(fault, true));
@@ -2367,6 +2376,39 @@ impl Driver {
             .turn_of(held.item.project.as_deref())
             .filter(|whose| *whose != work)?;
         Some((whose, held.turned.wants?))
+    }
+
+    /// The items a pause waits for, as the pause keeps them, in the order of their numbers, each once: where it is made
+    /// for the work of `own`, none of them is that item, which would never end, and each of them is an item the driver
+    /// has.
+    pub fn pause_waits(&self, own: Option<ItemNumber>, items: Vec<ItemNumber>) -> Result<Vec<u64>, Failed> {
+        let mut waits: Vec<u64> = Vec::with_capacity(items.len());
+        for item in items {
+            if Some(item) == own {
+                return Err(Failed::WaitsForItself(item));
+            }
+            if !self.of_item.contains_key(&item) {
+                return Err(Failed::NoSuchItem(item));
+            }
+            waits.push(item.0);
+        }
+        waits.sort_unstable();
+        waits.dedup();
+        Ok(waits)
+    }
+
+    /// The items the work's pause waits for that have neither merged nor been cancelled, in the order of their
+    /// numbers: none where the work is not paused, or its pause waits for no item, or each has ended. The owner's wait
+    /// for them is over then, and the work is let on by the owner alone.
+    pub fn items_paused_for(&self, number: WorkNumber) -> Vec<ItemNumber> {
+        let Some(held) = self.works.get(&number) else {
+            return Vec::new();
+        };
+        let Some(pause) = decide::pause(&held.work.records) else {
+            return Vec::new();
+        };
+        let named: Vec<ItemNumber> = pause.waits_for.iter().map(|item| ItemNumber(*item)).collect();
+        self.waited_for(&named)
     }
 
     /// The items the work's item depends on that its work waits for, those whose works have neither merged nor been

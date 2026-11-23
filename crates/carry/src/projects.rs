@@ -24,7 +24,7 @@ use std::sync::Arc;
 use flow::Compiled;
 use flow::agents::{Declaration, NoProject, fill};
 use service::{
-    CallReply, Changes, Diff, OfWork, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, ToolCall, Tools,
+    CallReply, Changes, Diff, OfWork, OpenPull, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, ToolCall, Tools,
 };
 use store::Item;
 use work::Spent;
@@ -290,6 +290,25 @@ impl Rounds for ByProject<dyn Rounds> {
                 Some(why) => Box::pin(async move { Err::<Option<Diff>, String>(why) }),
                 None => Box::pin(async { Ok(None) }),
             },
+        }
+    }
+
+    // A project the settings do not name, or one held for its declaration, has no host to ask, which is not a host with
+    // no pull requests.
+    fn open_pulls(
+        &self,
+        project: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
+        match self.of.get(project) {
+            Some(Ok(rounds)) => rounds.open_pulls(project),
+            Some(Err(why)) => {
+                let why = format!("the project {project} is held: {why}");
+                Box::pin(async move { Err(why) })
+            }
+            None => {
+                let why = format!("the installation's settings do not name the project {project}");
+                Box::pin(async move { Err(why) })
+            }
         }
     }
 }

@@ -273,6 +273,7 @@ fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
         "body": null,
         "draft": true,
         "node_id": "PR_kwDO",
+        "updated_at": "2026-11-10T11:00:00Z",
     });
     let open = pull(&value).unwrap();
     assert_eq!(
@@ -288,6 +289,7 @@ fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
             body: String::new(),
             draft: true,
             node: "PR_kwDO".to_string(),
+            updated: 1_794_308_400_000,
             branch: "work-1-0a1b2c3d".to_string(),
             from_fork: false,
         }
@@ -473,4 +475,74 @@ async fn a_jobs_log_is_asked_for_with_its_escapes_allowed_and_given_as_github_ga
     );
     let refused = gh.log(6).await.expect_err("no log");
     assert_eq!(refused.why, "HTTP 404: Not Found");
+}
+
+/// An open pull request of this number, as GitHub lists it: a draft where the number is even.
+fn open_pull(number: u64) -> Value {
+    json!({
+        "number": number, "html_url": format!("https://github.com/o/r/pull/{number}"), "state": "open",
+        "head": { "sha": "c0ffee", "ref": format!("work-{number}") }, "base": { "ref": "main" },
+        "title": format!("Pull {number}"), "body": null,
+        "draft": number.is_multiple_of(2), "node_id": format!("PR_{number}"), "updated_at": "2026-11-10T11:00:00Z",
+    })
+}
+
+/// A `gh` in this directory that gives the open pull requests numbered from one, a hundred to a page, as many as
+/// `count`; a page past them is empty.
+fn gh_with_open_pulls(dir: &std::path::Path, count: u64) -> Gh {
+    let pages = count.div_ceil(100);
+    let mut cases = String::new();
+    for page in 1..=pages {
+        let listed: Vec<Value> = ((page - 1) * 100 + 1..=(page * 100).min(count))
+            .map(open_pull)
+            .collect();
+        std::fs::write(dir.join(format!("page{page}")), Value::Array(listed).to_string()).unwrap();
+        cases += &format!("*pulls?state=open*page={page}) cat '{}/page{page}' ;;\n", dir.display());
+    }
+    let script = dir.join("gh");
+    let text =
+        format!("#!/bin/sh\nprintf 'HTTP/2.0 200 OK\\r\\n\\r\\n'\ncase \"$*\" in\n{cases}*) printf '[]' ;;\nesac\n");
+    std::fs::write(&script, text).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+}
+
+// A repository's open pull requests come in pages of a hundred, and every page is read: a list cut at the first would
+// hide the rest as if there were none. A script stands in for `gh` and gives the pages it is asked for; it runs in
+// milliseconds, and no other test holds the request of a page.
+#[tokio::test]
+async fn every_page_of_the_open_pull_requests_is_read_and_each_is_read_with_its_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_open_pulls(dir.path(), 102);
+    let pulls = gh.open_pulls().await.expect("the open pull requests");
+    assert_eq!(
+        pulls.iter().map(|p| p.number).collect::<Vec<_>>(),
+        (1..=102).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        pulls.iter().filter(|p| p.draft).count(),
+        51,
+        "each is read with whether it is a draft"
+    );
+    assert!(pulls.iter().all(|p| p.updated == 1_794_308_400_000));
+}
+
+// A repository that holds as many open pull requests as the most that are read has them all read, and one that holds
+// more is an `Err` and not a list cut short: the line of the most is where a list would begin to hide some. Each runs
+// in milliseconds, with a script for `gh` as above.
+#[tokio::test]
+async fn as_many_open_pull_requests_as_the_most_are_all_read_and_one_more_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_open_pulls(dir.path(), OPEN_PULLS as u64);
+    let all = gh.open_pulls().await.expect("the most are read");
+    assert_eq!(all.len(), OPEN_PULLS);
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_open_pulls(dir.path(), OPEN_PULLS as u64 + 1);
+    let refused = gh.open_pulls().await.expect_err("one more than the most");
+    assert!(
+        refused.why.contains("more than 1000 open pull requests"),
+        "{}",
+        refused.why
+    );
 }

@@ -204,6 +204,10 @@ impl Host for Local {
         Ok(())
     }
 
+    async fn open_pulls(&self) -> Result<Option<Vec<service::OpenPull>>, String> {
+        Ok(None)
+    }
+
     /// The local repository has no pull requests: a work merges in its checkout.
     fn pull_at(&self, _: u64) -> Option<String> {
         None

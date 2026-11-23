@@ -120,6 +120,7 @@ fn the_owner_letting_a_cell_go_on_pausing_resuming_and_cancelling_are_each_recor
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     w.on(Event::Resumed);
     w.on(Event::Cancelled { why: None });
@@ -138,7 +139,8 @@ fn a_paused_work_is_given_nothing_and_when_let_on_is_given_its_next_round() {
     assert_eq!(
         w.on(Event::Paused {
             by: Pauser::Owner,
-            why: None
+            why: None,
+            waits_for: Vec::new(),
         }),
         vec![]
     );

@@ -265,3 +265,33 @@ async fn what_changed_since_a_mark_is_each_item_added_and_each_change_once() {
         StatusCode::UNPROCESSABLE_ENTITY
     );
 }
+
+// Whoever plans across projects tells items apart by their project: every read that lists items names it.
+#[tokio::test(start_paused = true)]
+async fn each_read_that_lists_items_says_the_project_of_each() {
+    let running = running();
+    let router = &running.router;
+    post(
+        router,
+        "/api/v1/items",
+        &item("Parse the header", json!([]), json!([]), "Please."),
+    )
+    .await;
+    post(
+        router,
+        "/api/v1/items",
+        &item("Other", json!([1]), json!([]), "Please."),
+    )
+    .await;
+    let candidates = get_json(router, "/api/v1/plan/candidates").await;
+    assert_eq!(candidates["rows"][0]["row"]["project"], "trial");
+    let graph = get_json(router, "/api/v1/plan/graph/1").await;
+    assert_eq!(graph["item"]["project"], "trial");
+    assert_eq!(graph["down"][0]["row"]["project"], "trial");
+    let hits = get_json(router, "/api/v1/plan/search?text=header").await;
+    assert_eq!(hits["hits"][0]["project"], "trial");
+    let changes = get_json(router, "/api/v1/plan/changes").await;
+    for line in changes["lines"].as_array().unwrap() {
+        assert_eq!(line["project"], "trial");
+    }
+}

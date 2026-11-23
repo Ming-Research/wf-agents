@@ -86,9 +86,15 @@ enum Command {
         /// The port of the pages; 0 for any free one.
         #[arg(long, default_value_t = PORT)]
         port: u16,
+        /// Makes the data directory's store in it: given where it holds none, and refused where it holds one. Without
+        /// it a directory that holds no store is refused, so that a directory that is no data directory is never made
+        /// into one by being named; the directory itself, and git in it, are the owner's to make.
+        #[arg(long)]
+        new: bool,
     },
     /// Adds an item with its work, which is added paused: it begins nothing until it is let on with `wf-agents
-    /// resume`.
+    /// resume`. Given --why and --waits-for, the pause says why it is kept, and the items it waits for to merge or be
+    /// cancelled, as `wf-agents pause` does.
     Add {
         #[arg(long)]
         title: String,
@@ -122,6 +128,12 @@ enum Command {
         /// A block that is a choice, written for it with this value.
         #[arg(long = "choose", value_name = "BLOCK=VALUE")]
         choices: Vec<String>,
+        /// Why it is paused as it is added, in a sentence, such as what it waits for.
+        #[arg(long)]
+        why: Option<String>,
+        /// An item its pause waits for to merge or be cancelled, by number; given once for each.
+        #[arg(long = "waits-for", value_name = "ITEM")]
+        waits_for: Vec<u64>,
         #[command(flatten)]
         at: At,
     },
@@ -234,8 +246,24 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// The items that could be let on now: paused, every item they depend on merged or cancelled. Those more open items
-    /// wait for come first; the choice is yours.
+    /// The pull requests open on the hosts of the projects' repositories, each with its number, title, whether it is a
+    /// draft and when it was last updated, and the work that keeps it, what that work does now and how long ago
+    /// something last happened to it, or that no work keeps it; at most a hundred pull requests, and what is left out
+    /// is said by project, with the command that gives it. A project whose host could not say is said by itself with
+    /// why, and is never taken for one with no pull requests.
+    Pulls {
+        /// Only the pull requests of this project.
+        #[arg(long)]
+        project: Option<String>,
+        /// Only the pull requests numbered this or more.
+        #[arg(long, value_name = "NUMBER")]
+        from: Option<u64>,
+        #[command(flatten)]
+        at: At,
+    },
+    /// The items that could be let on now: paused, every item they depend on merged or cancelled, and every item their
+    /// pause waits for (`wf-agents pause --waits-for`) merged or cancelled. Those more open items wait for come first;
+    /// the choice is yours. How many more paused items wait for items that have not ended is said.
     Candidates {
         #[command(flatten)]
         at: At,
@@ -369,13 +397,21 @@ enum Command {
         at: At,
     },
     /// Pauses a work: no round of it begins but those of a run that answers a note, a person's words to its cell, and
-    /// the one under way ends. With --all, pauses everything instead, until `wf-agents resume --all`; it holds across a
-    /// stop of the engine, and a work's own pause holds after it is lifted.
+    /// the one under way ends. The pause may say why it is kept, and the items it waits for to merge or be cancelled:
+    /// `wf-agents list`, `show` and `candidates` say them, `wf-agents wait` says once that each has ended, and only
+    /// `wf-agents resume` lets the work on. With --all, pauses everything instead, until `wf-agents resume --all`; it
+    /// holds across a stop of the engine, and a work's own pause holds after it is lifted.
     Pause {
         #[arg(required_unless_present = "all")]
         work: Option<u64>,
         #[arg(long, conflicts_with = "work")]
         all: bool,
+        /// Why the work is paused, in a sentence, such as what it waits for.
+        #[arg(long, conflicts_with = "all")]
+        why: Option<String>,
+        /// An item the pause waits for to merge or be cancelled, by number; given once for each.
+        #[arg(long = "waits-for", value_name = "ITEM", conflicts_with = "all")]
+        waits_for: Vec<u64>,
         #[command(flatten)]
         at: At,
     },
@@ -417,7 +453,9 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
+    /// Gives a call that waits for a person its result: a person's answer to a question put to them. A run at its
+    /// limit is let go on with `wf-agents let-go --call`, and words to a cell are said with `wf-agents say`, which the
+    /// conversation keeps.
     Result {
         work: u64,
         call: u64,
@@ -468,9 +506,10 @@ enum Command {
     },
     /// Waits for what needs whoever plans the work and says it, a line each, most pressing first: a work that ended,
     /// one that waits on the owner, each thing it waits on them for by why, as the engine's one list of what waits on
-    /// the owner says, one that waits for items none of which is going on. It answers as soon as there is something
-    /// since the mark, and says the mark to give next time; nothing that happens between two calls is lost. With no
-    /// mark, it gives what stands now, the works that ended being taken as read.
+    /// the owner says, one that waits for items none of which is going on, and one the owner paused for items
+    /// (`wf-agents pause --waits-for`) each of which has merged or been cancelled. It answers as soon as there is
+    /// something since the mark, and says the mark to give next time; nothing that happens between two calls is lost.
+    /// With no mark, it gives what stands now, the works that ended being taken as read.
     Wait {
         /// The mark the last call gave.
         #[arg(long)]
@@ -482,10 +521,17 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Lets a cell that reached its limit go on.
+    /// Lets what reached its limit go on: with a cell, the cell, which runs again past its limit; with --call, the
+    /// run whose call at its limit waits for the owner, which the engine gives its own result, so that the run's next
+    /// round begins. `wf-agents show` of the work says which call waits.
     LetGo {
         work: u64,
-        cell: String,
+        /// The cell that reached its limit, by its id.
+        #[arg(conflicts_with = "call", required_unless_present = "call")]
+        cell: Option<String>,
+        /// The call at its limit that waits for the owner, by its number.
+        #[arg(long)]
+        call: Option<u64>,
         #[command(flatten)]
         at: At,
     },
@@ -627,6 +673,7 @@ fn main() -> ExitCode {
             script,
             settings,
             port,
+            new,
         } => {
             let carriers = match script {
                 Some(script) => running::With::Script(script),
@@ -637,7 +684,7 @@ fn main() -> ExitCode {
             } else {
                 running::Flows::Program(program_flows)
             };
-            running::run(&data, &flows, carriers, port)
+            running::run(&data, &flows, carriers, port, new)
         }
         Command::Add {
             title,
@@ -651,12 +698,15 @@ fn main() -> ExitCode {
             texts,
             files,
             choices,
+            why,
+            waits_for,
             at,
         } => {
             let written = talk::Written {
                 texts: &texts,
                 files: &files,
                 choices: &choices,
+                paused: talk::Paused { why, waits_for },
             };
             match talk::new_item(title, level, project, flow, depends_on, tags, written) {
                 Ok(item) => talk::ask(
@@ -688,6 +738,7 @@ fn main() -> ExitCode {
         Command::Reopen { item, why, at } => one(at, why, ChangeAsked::Reopen { item }),
         Command::List { tag, from, all, at } => talk::ask(at.port, Asked::List(talk::Listing { tag, from, all })),
         Command::Changes { since, at } => talk::ask(at.port, Asked::Changes { since }),
+        Command::Pulls { project, from, at } => talk::ask(at.port, Asked::Pulls { project, from }),
         Command::Candidates { at } => talk::ask(at.port, Asked::Candidates),
         Command::Search { text, limit, at } => talk::ask(at.port, Asked::Search { text, limit }),
         Command::Observations {
@@ -744,8 +795,14 @@ fn main() -> ExitCode {
             (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Resume {})),
             _ => talk::ask(at.port, Asked::Everything(EngineAct::Resume {})),
         },
-        Command::Pause { work, all, at } => match (work, all) {
-            (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Pause {})),
+        Command::Pause {
+            work,
+            all,
+            why,
+            waits_for,
+            at,
+        } => match (work, all) {
+            (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Pause { why, waits_for })),
             _ => talk::ask(at.port, Asked::Everything(EngineAct::Pause {})),
         },
         Command::Stop { now, yes, at } => talk::ask(at.port, Asked::Stop { now, yes }),
@@ -828,7 +885,14 @@ fn main() -> ExitCode {
             talk::ask(at.port, Asked::Act(work, Act::Say { to, words }))
         }
         Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
-        Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
+        Command::LetGo { work, cell, call, at } => {
+            let act = match (cell, call) {
+                (_, Some(call)) => Act::GoOn { call },
+                (Some(cell), None) => Act::LetGo { cell },
+                (None, None) => unreachable!("the command line asks for a cell or a call"),
+            };
+            talk::ask(at.port, Asked::Act(work, act))
+        }
         Command::System { days, limit, at } => talk::ask(at.port, Asked::System { days, limit }),
         Command::RepairCosts { data, limit } => repair::run(&data, limit),
     }

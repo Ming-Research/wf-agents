@@ -372,10 +372,15 @@ pub struct Pause {
     /// pauses, and read so.
     #[serde(default)]
     pub by: Pauser,
-    /// Why the work was paused, where whoever paused it said: the engine always says, the owner does not. None for a
-    /// letting on.
+    /// Why the work was paused, where whoever paused it said: the engine always says, the owner where they will. None
+    /// for a letting on.
     #[serde(default)]
     pub why: Option<String>,
+    /// The items, by their numbers, that the pause waits for: the owner's pause says them where it is made for the
+    /// items' merging or cancelling, and the work waits no more once each has ended. None for the engine's pause and
+    /// for a letting on.
+    #[serde(default)]
+    pub waits_for: Vec<u64>,
 }
 
 /// Who pauses a work: the owner, or the engine itself, as when a round failed or the work spent more than it may.

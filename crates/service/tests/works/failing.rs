@@ -38,7 +38,7 @@ async fn answered() -> (Trial, store::WorkNumber) {
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     (trial, work)
 }
 
@@ -144,7 +144,7 @@ async fn history_of(script: Script, stops: &[usize]) -> (Work, usize) {
         if decide::pause(&kept.records).is_some_and(|p| p.by == Pauser::Engine) {
             trial.act(work, Act::Resume).unwrap();
         } else if trial.owners_call(work).is_some() {
-            trial.answer(work, "Yes, by name.");
+            trial.let_go_on(work);
         } else {
             assert!(trial.step().await.is_some(), "the work comes to its end");
         }
@@ -185,7 +185,7 @@ async fn a_round_that_fails_in_passing_is_given_again_once_its_wait_is_over_and_
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     let event = trial.step().await.unwrap();
     assert!(matches!(&event, Event::Failed { .. }), "{event:?}");
     let kept = trial.work(work);
@@ -226,7 +226,7 @@ async fn the_wait_before_a_failed_round_is_tried_again_ends_with_the_result_the_
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     let event = trial.step().await.unwrap();
     assert!(matches!(&event, Event::Failed { .. }), "{event:?}");
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
@@ -257,7 +257,7 @@ async fn at_the_usage_limit_no_round_begins_until_it_resets_and_then_the_work_go
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     trial.step().await.unwrap();
     let outage = trial.service.driver().outage().expect("the wait stands");
     assert_eq!(outage.resets, Some(Time(START.0 + hour)));

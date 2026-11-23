@@ -637,6 +637,8 @@ pub fn new_item(title: &str, depends_on: &[ItemNumber], flow: &str) -> NewItem {
         continues: None,
         flow: flow.to_string(),
         writes: Vec::new(),
+        why: None,
+        waits_for: Vec::new(),
     }
 }
 

@@ -154,12 +154,14 @@ fn an_item_whose_work_cannot_be_kept_is_not_added() {
             at: Seq(1),
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         },
         Pause {
             paused: false,
             at: Seq(1),
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         },
     ];
     assert!(matches!(

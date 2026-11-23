@@ -26,7 +26,7 @@ use std::time::Duration;
 use decide::{BlockId, End, Finished, RunId};
 use engine::Came;
 use flow::Compiled;
-use service::{Changes, Diff, OfWork, Pull, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, Teller};
+use service::{Changes, Diff, OfWork, OpenPull, Pull, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, Teller};
 use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
 use work::{Handed, Question, Said, Spent, Work};
@@ -275,6 +275,11 @@ impl<H: Host> Rounds for Acts<H> {
 
     fn seen(&self, of: OfWork) -> Pin<Box<dyn Future<Output = Result<Seen, String>> + Send + '_>> {
         Box::pin(self.inner.seen(of))
+    }
+
+    // The acts keep one project's repository, whatever name the loop asks by.
+    fn open_pulls(&self, _: &str) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
+        Box::pin(self.inner.host.open_pulls())
     }
 
     fn changes(&self, of: OfWork) -> Pin<Box<dyn Future<Output = Result<Option<Changes>, String>> + Send + '_>> {

@@ -54,6 +54,7 @@ fn paused_itself(w: &World) -> decide::Records {
         at: Seq(last.0 + 1),
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     records
 }

@@ -45,7 +45,7 @@ async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run() {
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(post(router, ACTS, &answer).await.0, StatusCode::NO_CONTENT);
 
     // The build's call of the CI runs as the run it says, since it was made; the build is a cell with a call under way.
@@ -99,7 +99,7 @@ async fn a_stretch_of_the_bar_nothing_ran_in_says_what_the_work_waited_for() {
     // The plan's run waits at its limit for the owner half a minute; let go on, its next round begins, and the work is
     // paused under it, which holds the build half a minute more.
     pass(30_000).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(post(router, ACTS, &answer).await.0, StatusCode::NO_CONTENT);
     assert_eq!(
         post(router, ACTS, &json!({ "kind": "pause" })).await.0,

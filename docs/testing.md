@@ -121,9 +121,10 @@ of each part.
     the real installation, served on a port of its own by the program of the change being judged, where every round
     follows a script.
 
-17. Only the program writes the store. A build starts the engine on an empty data directory with a script, adds the
-    items, and brings each work to its state with the engine's own commands and its interface, each act at the state it
-    waits for. A state written into the store by hand may be one no engine reaches, and the page would be judged on it.
+17. Only the program writes the store. A build starts the engine on an empty data directory (`--new`) with a script,
+    adds the items, and brings each work to its state with the engine's own commands and its interface, each act at the
+    state it waits for. A state written into the store by hand may be one no engine reaches, and the page would be
+    judged on it.
 
 18. The states are taken from the flow's definition and the engine's own kinds, never from what was seen: under way at
     each cell; waiting, at each cell that can, for each thing it can wait for (an answer, a call's result, the engine's

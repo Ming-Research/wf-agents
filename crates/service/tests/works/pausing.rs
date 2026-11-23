@@ -11,7 +11,7 @@ async fn a_pause_lets_the_round_under_way_end_and_its_calls_be_made_and_holds_th
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     trial
         .until(
             work,
@@ -19,7 +19,15 @@ async fn a_pause_lets_the_round_under_way_end_and_its_calls_be_made_and_holds_th
         )
         .await;
 
-    trial.act(work, Act::Pause).unwrap();
+    trial
+        .act(
+            work,
+            Act::Pause {
+                why: None,
+                waits_for: Vec::new(),
+            },
+        )
+        .unwrap();
     // The build's round ends while the work is paused, and the CI it asks for is run.
     trial.step().await.unwrap();
     assert!(matches!(trial.decision(work), Decision::Wait { at, .. } if at.as_str() == "build"));
@@ -40,8 +48,16 @@ async fn a_paused_work_begins_no_run() {
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
-    trial.answer(work, "Yes, by name.");
-    trial.act(work, Act::Pause).unwrap();
+    trial.let_go_on(work);
+    trial
+        .act(
+            work,
+            Act::Pause {
+                why: None,
+                waits_for: Vec::new(),
+            },
+        )
+        .unwrap();
     // The plan's run, let go on, has its round end and finishes; the build does not begin.
     trial.step().await.unwrap();
     assert_eq!(trial.finished(work), ["plan"]);
