@@ -458,4 +458,19 @@ mod tests {
         assert_eq!(said.len(), 1 + 3 + 1 + 2, "{said:?}");
         assert!(said.contains(&"47 more changed are left out.".to_string()), "{said:?}");
     }
+
+    // The repair asks for the copy of the database before it reads or writes a cost, and where the copy cannot be taken
+    // (the place for the copies is a file) it says so and goes no further. A few milliseconds, on a file in a temporary
+    // directory; no other test runs the whole repair, and it fails if the copy were not asked for first.
+    #[test]
+    fn a_repair_whose_copy_cannot_be_taken_says_so() {
+        let data = tempfile::tempdir().unwrap();
+        let mut store = Store::open(data.path().join(store::FILE)).unwrap();
+        std::fs::write(data.path().join("backups"), "not a directory").unwrap();
+        let why = repair(data.path(), &mut store, 10).unwrap_err();
+        assert!(
+            why.starts_with("the copy of the database before the repair could not be taken"),
+            "{why}"
+        );
+    }
 }

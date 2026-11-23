@@ -38,3 +38,22 @@ pub fn run(data: &Path, limit: usize) -> ExitCode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A data directory an engine holds is refused before the store is opened: no store file is made in it. A few
+    // milliseconds, in a temporary directory; no other test runs the command, and without the lock taken first the
+    // command would open the store, copy it and correct it under the engine.
+    #[test]
+    fn a_data_directory_an_engine_holds_is_refused() {
+        let data = tempfile::tempdir().unwrap();
+        let _engine = crate::running::hold(data.path()).unwrap();
+        assert_eq!(
+            format!("{:?}", run(data.path(), 10)),
+            format!("{:?}", ExitCode::FAILURE)
+        );
+        assert!(!data.path().join(store::FILE).exists(), "the store was not opened");
+    }
+}
