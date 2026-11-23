@@ -12,6 +12,8 @@ of each part.
    request that is not a work's, and fails on a fault of its kind from then on. What no test of the suite judges is
    judged otherwise: a cell's words on real works (10), the page by the owner (16 to 21), what rounds cost in trials
    (22 to 32). A look guards nothing until what it found is a test.
+   How long each test and job of a merged check took is kept with its work, and a test's time and the CI's growth are
+   judged by that history, not by a number set by hand (decision the-ci-grows-by-medians-of-its-merged-checks).
 
 2. A fault, wherever it is found (by a review, in a trial, by the owner on the page), is first written as a test that
    fails on it, at the layer below that catches its kind, and only then fixed. Where that layer checks properties, it

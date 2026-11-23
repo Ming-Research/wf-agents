@@ -8,8 +8,10 @@
 //! format, a line of JSON ([`stdin`]); `--output-format stream-json --verbose` prints a line of JSON for each thing
 //! that happens, and near the end the result, which only the command line's own `system` lines (a `task_summary`)
 //! follow, with the structured return in `structured_output`, the tokens of this call in `usage`, and in
-//! `total_cost_usd` the cost of the whole session so far, every earlier call of it included: a round's own cost is
-//! that less what the session's earlier rounds cost. Each message of the model comes whole in an `assistant` line;
+//! `model_usage_since_last_result` what the program spent, subagents and compactions included, since the result before
+//! it, or since the program began where there is none: a round's own cost is the sum of those over its results, and
+//! `total_cost_usd`, the whole session's cost, is read only by the one-off repair of recorded costs ([`Stream::told`]).
+//! Each message of the model comes whole in an `assistant` line;
 //! with `--include-partial-messages` it also comes in pieces as the model writes it (`stream_event` lines), the input
 //! of each tool among them. The result gives no text of an attempt at a return the command line refused: an attempt
 //! that is JSON is whole in its `assistant` line, and one cut off, which is no JSON, only in its pieces. A failed call
@@ -502,19 +504,16 @@ pub fn environment_faults(declared: &BTreeMap<String, String>, named: &[String])
     faults
 }
 
-/// The session a round runs in, as the records say: which of its line's sessions, whether the round begins it, and
-/// what the session cost before the round, in millionths of a dollar.
+/// The session a round runs in, as the records say: which of its line's sessions, and whether the round begins it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InSession {
     pub number: u32,
     pub begin: Begin,
-    pub before: u64,
 }
 
 /// The session the round of this number of the run of a cell on the line runs in: it goes on in it where an earlier
 /// round of the line in the same session put its message into it, having reached the model or its program having said
-/// it took the message in (`work::sessions::wrote_into`); and the session cost before it what those earlier rounds
-/// cost, and the keep-warm pings it was sent before it.
+/// it took the message in (`work::sessions::wrote_into`).
 pub fn in_session(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize) -> InSession {
     let on_line = |run: RunId| {
         let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
@@ -522,23 +521,9 @@ pub fn in_session(flow: &Compiled, work: &Work, line: &str, run: RunId, number: 
         spec.and_then(|spec| spec.line.as_deref()) == Some(line)
     };
     let (session, begins) = sessions::of_round(work, line, on_line, run, number);
-    let at = sessions::start(work, run, number);
-    let before = (work.spent.iter())
-        .filter(|((r, _), _)| on_line(*r))
-        .filter(|((r, n), _)| {
-            let b = sessions::start(work, *r, *n);
-            b < at && sessions::number_at(work, line, b) == session
-        })
-        .map(|(_, spent)| spent.usd_micros)
-        .sum::<u64>()
-        + (work.pinged.iter())
-            .filter(|p| p.line == line && p.session == session && p.at < at)
-            .map(|p| p.spent.usd_micros)
-            .sum::<u64>();
     InSession {
         number: session,
         begin: if begins { Begin::New } else { Begin::Resume },
-        before,
     }
 }
 
@@ -556,8 +541,6 @@ struct Result {
     /// has no text of it.
     #[serde(default)]
     errors: Vec<String>,
-    #[serde(default)]
-    total_cost_usd: f64,
     #[serde(default)]
     usage: Usage,
     structured_output: Option<Value>,
@@ -647,9 +630,9 @@ pub struct Stream {
     refusals: Vec<(String, String)>,
     /// What it said of the service's errors, in its own fields.
     said: failure::Said,
-    /// Each call to the model, by its message's id, in the order they came, with its model and its tokens as its
-    /// latest message gave them: the pieces of one call each give the usage so far.
-    calls: Vec<(String, String, cost::Tokens)>,
+    /// Each call to the model, by its message's id, in the order they came: the pieces of one call each give the usage
+    /// so far, and the call's own `message_delta` gives the tokens it wrote in the end.
+    calls: Vec<Call>,
     /// Whether the service has answered a call of the main loop with a message that is no error.
     answered: bool,
     /// The calls of the session's own agent.
@@ -668,6 +651,40 @@ pub struct Stream {
     usage: Option<Said>,
     /// How many rate limit events said anything of the usage.
     usages: usize,
+    /// The session the program says it runs in, from the first line that names it.
+    session: Option<String>,
+}
+
+/// What a result the program printed says of cost, as the repair of recorded costs reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Told {
+    /// What the program spent since the result before it, in millionths of a dollar; none where it says none.
+    pub since: Option<u64>,
+    /// What the whole session had cost by this result, in millionths of a dollar; none where it says none.
+    pub total: Option<u64>,
+}
+
+/// A call to the model, as the stream's lines tell it.
+#[derive(Debug)]
+struct Call {
+    id: String,
+    model: String,
+    tokens: cost::Tokens,
+    /// How many results the stream held when the call began: the call is spent in the span the result of this number
+    /// ends, counting from none, and a call after the last result belongs to none.
+    span: usize,
+    /// Whether the call's `message_delta` gave its tokens in the end, which a line before or after it does not change.
+    ended: bool,
+}
+
+/// What the program says it spent since the result before this one, in millionths of a dollar: what each model's usage
+/// cost, summed; none where the result gives none of it.
+fn since_last(result: &Value) -> Option<u64> {
+    let models = result.get("model_usage_since_last_result")?.as_object()?;
+    let usd = (models.values())
+        .map(|usage| usage["costUSD"].as_f64())
+        .sum::<Option<f64>>()?;
+    Some((usd.max(0.0) * 1_000_000.0).round() as u64)
 }
 
 /// The calls of the session's own agent to the model, as their first partial messages tell their prompts: a call made
@@ -726,10 +743,11 @@ impl Stream {
         };
         // The first partial message of each call tells its prompt, whether or not it rebuilds an attempt at a return.
         let starts = text.starts_with(PARTIAL) && text.contains(r#""message_start""#);
+        let ends = text.starts_with(PARTIAL) && text.contains(r#""message_delta""#);
         if starts && self.result.is_some() {
             self.next_message();
         }
-        if text.starts_with(PARTIAL) && !starts && !self.attempts.wants(text) {
+        if text.starts_with(PARTIAL) && !starts && !ends && !self.attempts.wants(text) {
             return false;
         }
         let Ok(v) = serde_json::from_str::<Value>(text) else {
@@ -738,6 +756,9 @@ impl Stream {
         let own_message = matches!(v["type"].as_str(), Some("assistant" | "user")) && v["parent_tool_use_id"].is_null();
         if own_message && self.result.is_some() {
             self.next_message();
+        }
+        if self.session.is_none() {
+            self.session = v["session_id"].as_str().map(str::to_string);
         }
         self.said.line(&v);
         self.called(&v);
@@ -754,7 +775,14 @@ impl Stream {
                     let (fresh, read) = (tokens("input_tokens"), tokens("cache_read_input_tokens"));
                     self.own.take(fresh, read, tokens("cache_creation_input_tokens"));
                 }
-                return self.attempts.event(&v) || own;
+                match v["event"]["type"].as_str() {
+                    Some("message_start") => self.started(&v["event"]["message"]),
+                    Some("message_delta") => self.ended(&v),
+                    _ => {}
+                }
+                // What a call cost is read from its start and its end, whoever made the call, so that a try the engine
+                // did not see end is priced again from what it kept as it was.
+                return self.attempts.event(&v) || starts || ends;
             }
             Some("result") => self.result = Some(v),
             Some("user") if v["parent_tool_use_id"].is_null() => self.refusals.extend(refusals(&v)),
@@ -866,26 +894,129 @@ impl Stream {
         };
         let model = message["model"].as_str().unwrap_or_default().to_string();
         let tokens = cost::Tokens::of(usage);
-        match self.calls.iter_mut().find(|(call, ..)| call == id) {
-            Some(call) => *call = (id.to_string(), model, tokens),
-            None => self.calls.push((id.to_string(), model, tokens)),
+        match self.calls.iter_mut().find(|call| call.id == id) {
+            // The end of a call has its final tokens, which nothing after it changes; the model it does not say.
+            Some(call) if call.ended => call.model = Self::model_of(&call.model, model),
+            Some(call) => (call.model, call.tokens) = (model, tokens),
+            None => self.call(id, model, tokens, false),
         }
     }
 
-    /// What the stream's calls cost at their models' prices, and their tokens; none where it made none.
-    pub fn priced(&self) -> Option<Spent> {
+    /// Takes a call whose message begins: its prompt, which its own end does not repeat apart from its tokens.
+    fn started(&mut self, message: &Value) {
+        let Some(id) = message["id"].as_str() else {
+            return;
+        };
+        let model = message["model"].as_str().unwrap_or_default().to_string();
+        if let Some(call) = self.calls.iter_mut().find(|call| call.id == id) {
+            call.model = Self::model_of(&call.model, model);
+            return;
+        }
+        self.call(id, model, cost::Tokens::of(&message["usage"]), false);
+    }
+
+    /// The model of a call: the one it has, or, where its end came before any line that names it, the one a later line
+    /// names.
+    fn model_of(has: &str, named: String) -> String {
+        if has.is_empty() { named } else { has.to_string() }
+    }
+
+    /// Takes the end of a call, which names it as `api_message_id`: the tokens it wrote, which its message's start and
+    /// its whole message give as the few it began with. A call whose start was not seen is taken as the end gives it,
+    /// with no model until a line of its own names it, and priced as the dearest while it has none.
+    fn ended(&mut self, line: &Value) {
+        let (Some(id), usage) = (line["api_message_id"].as_str(), &line["event"]["usage"]) else {
+            return;
+        };
+        let Some(output) = usage["output_tokens"].as_u64() else {
+            return;
+        };
+        match self.calls.iter_mut().find(|call| call.id == id) {
+            Some(call) => (call.tokens.output, call.ended) = (output, true),
+            None => self.call(id, String::new(), cost::Tokens::of(usage), true),
+        }
+    }
+
+    fn call(&mut self, id: &str, model: String, tokens: cost::Tokens, ended: bool) {
+        let span = self.earlier.len() + usize::from(self.result.is_some());
+        self.calls.push(Call {
+            id: id.to_string(),
+            model,
+            tokens,
+            span,
+            ended,
+        });
+    }
+
+    /// What the stream's calls came to: their tokens, the context of the last, and what they cost as [`Stream::cost`]
+    /// says; none where it made none.
+    pub fn took(&self) -> Option<Spent> {
         let last = self.calls.last()?;
         let mut spent = Spent {
-            context_tokens: Some(last.2.prompt()),
+            usd_micros: self.cost().0,
+            context_tokens: Some(last.tokens.prompt()),
             ..Spent::default()
         };
-        for (_, model, tokens) in &self.calls {
-            spent.usd_micros += cost::of_call(model, tokens);
-            spent.input_tokens += tokens.input;
-            spent.cached_tokens += tokens.read;
-            spent.output_tokens += tokens.output;
+        for call in &self.calls {
+            spent.input_tokens += call.tokens.input;
+            spent.cached_tokens += call.tokens.read;
+            spent.output_tokens += call.tokens.output;
         }
         Some(spent)
+    }
+
+    /// What the stream cost, in millionths of a dollar, and whether any of it is priced from its calls and not told by
+    /// the program: each result the program printed gives what it spent since the one before it, and where a result
+    /// gives none, or the calls after the last result have none yet, those calls cost what their tokens do at their
+    /// models' prices. The one place a stream's cost is worked out.
+    pub fn cost(&self) -> (u64, bool) {
+        // What the calls of the spans that `wanted` names cost at their models' prices, and whether there are any: a
+        // result that says nothing of cost and had no call has nothing priced, and is no estimate.
+        let priced = |wanted: &dyn Fn(usize) -> bool| {
+            let calls = self.calls.iter().filter(|call| wanted(call.span));
+            (
+                calls
+                    .clone()
+                    .map(|call| cost::of_call(&call.model, &call.tokens))
+                    .sum::<u64>(),
+                calls.count() > 0,
+            )
+        };
+        let (mut usd, mut estimated) = (0, false);
+        let mut results = 0;
+        for (span, result) in self.earlier.iter().chain(&self.result).enumerate() {
+            results = span + 1;
+            match since_last(result) {
+                Some(told) => usd += told,
+                None => {
+                    let (spent, any) = priced(&|of| of == span);
+                    (usd, estimated) = (usd + spent, estimated || any);
+                }
+            }
+        }
+        let (spent, any) = priced(&|of| of >= results);
+        (usd + spent, estimated || any)
+    }
+
+    /// What each result the stream holds says of cost, in the order the program printed them.
+    pub fn told(&self) -> Vec<Told> {
+        let micros = |usd: f64| (usd.max(0.0) * 1_000_000.0).round() as u64;
+        (self.earlier.iter().chain(&self.result))
+            .map(|result| Told {
+                since: since_last(result),
+                total: result["total_cost_usd"].as_f64().map(micros),
+            })
+            .collect()
+    }
+
+    /// The session the program says it runs in, where a line of the stream names it.
+    pub fn session(&self) -> Option<&str> {
+        self.session.as_deref()
+    }
+
+    /// Whether any of what the stream cost is priced from its calls ([`Stream::cost`]).
+    pub fn estimated(&self) -> bool {
+        self.cost().1
     }
 
     /// What the try's prompts came to as the program's result says: the tokens sent fresh, read from the cache and
@@ -903,32 +1034,31 @@ impl Stream {
         ))
     }
 
-    /// What the round took, as the stream says: what its result says where it printed one that can be read, else its
-    /// calls at their models' prices; none where it made none. For where the words of why there is no return are of no
-    /// use.
-    pub fn took(&self, begin: Begin, before: u64) -> Option<Spent> {
+    /// What the round took, as the stream says: what its last result says where it printed one that can be read, else
+    /// what its calls came to ([`Stream::took`]); none where it made none. For where the words of why there is no
+    /// return are of no use.
+    pub fn what_it_took(&self) -> Option<Spent> {
         let result = (self.result.clone()).and_then(|result| serde_json::from_value::<Result>(result).ok());
         match result {
-            Some(result) => Some(spent(&result, begin, before)),
-            None => self.priced(),
+            Some(result) => Some(spent_of_result(&result, &self.earlier, self.cost().0)),
+            None => self.took(),
         }
     }
 
-    /// Reads the stream, for a round that began its session or went on in it with the session having cost `before`:
-    /// the return the command line took, or, where it gave up on the return or the agent stopped trying and the
-    /// result holds none, its last attempt at it, rebuilt; or says why there is no return to take, with what the
-    /// round took where the result could be read. A round that began its session cost the session's total; one that
-    /// went on in it, that total less what the line's earlier rounds cost, or the whole total where that is less
-    /// (measured: the total is the whole session's, even where two lines take turns in one worktree). What it says
-    /// of why there is none is in these words.
-    pub fn read(self, begin: Begin, before: u64, words: &ProgramWords) -> std::result::Result<Read, Box<NoResult>> {
+    /// Reads the stream: the return the command line took, or, where it gave up on the return or the agent stopped
+    /// trying and the result holds none, its last attempt at it, rebuilt; or says why there is no return to take, with
+    /// what the round took where the result could be read. What it cost is what [`Stream::cost`] says, whatever the
+    /// session cost before: the program counts a result from the result before it. What it says of why there is none
+    /// is in these words.
+    pub fn read(self, words: &ProgramWords) -> std::result::Result<Read, Box<NoResult>> {
+        let (usd_micros, _) = self.cost();
+        let took = self.took();
         let fields = self.said;
-        let priced = self.priced();
         let Some(result) = self.result else {
             return Err(Box::new(NoResult {
                 why: words.no_stream_result.clone(),
                 report: String::new(),
-                spent: priced,
+                spent: took,
                 said: fields,
             }));
         };
@@ -939,21 +1069,12 @@ impl Stream {
                 return Err(Box::new(NoResult {
                     why: fill(&words.unreadable_result, &[("why", &report)]),
                     report,
-                    spent: priced,
+                    spent: took,
                     said: fields,
                 }));
             }
         };
-        let mut spent = spent(&result, begin, before);
-        // The tokens of the messages answered before the last, which its own result leaves out: the cost is the call's
-        // total, which counts them.
-        for earlier in &self.earlier {
-            let usage = &earlier["usage"];
-            let tokens = |key: &str| usage[key].as_u64().unwrap_or(0);
-            spent.input_tokens += tokens("input_tokens") + tokens("cache_creation_input_tokens");
-            spent.cached_tokens += tokens("cache_read_input_tokens");
-            spent.output_tokens += tokens("output_tokens");
-        }
+        let spent = spent_of_result(&result, &self.earlier, usd_micros);
         if !result.is_error {
             // The agent may stop trying after the command line refused its attempts, and end its turn: its last
             // attempt is read as one the command line gave up on is.
@@ -1041,27 +1162,22 @@ fn last_attempt(
     })
 }
 
-/// What a whole stream says the round took, as [`Stream::took`] does.
-pub fn took(stream: &[u8], begin: Begin, before: u64) -> Option<Spent> {
+/// What a whole stream says the round took, as [`Stream::what_it_took`] does.
+pub fn took(stream: &[u8]) -> Option<Spent> {
     let mut read = Stream::default();
     for line in stream.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
         read.line(line);
     }
-    read.took(begin, before)
+    read.what_it_took()
 }
 
 /// Reads a whole stream, line by line, as [`Stream::read`] does.
-pub fn read(
-    stream: &[u8],
-    begin: Begin,
-    before: u64,
-    words: &ProgramWords,
-) -> std::result::Result<Read, Box<NoResult>> {
+pub fn read(stream: &[u8], words: &ProgramWords) -> std::result::Result<Read, Box<NoResult>> {
     let mut read = Stream::default();
     for line in stream.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
         read.line(line);
     }
-    read.read(begin, before, words)
+    read.read(words)
 }
 
 /// The inputs the model gave the command line's tool for the return, each an attempt at a return, rebuilt whole from
@@ -1187,15 +1303,22 @@ pub fn fork_stdin(first: &str, question: &str) -> Vec<u8> {
     bytes
 }
 
-/// What the call whose result this is took.
-fn spent(result: &Result, begin: Begin, before: u64) -> Spent {
-    let total = (result.total_cost_usd.max(0.0) * 1_000_000.0).round() as u64;
-    // The cost errs high: where the session's total is less than its earlier rounds cost, it cannot be the same
-    // session's, and is taken whole.
-    let usd_micros = match begin {
-        Begin::Resume if total >= before => total - before,
-        _ => total,
-    };
+/// What the call whose result this is took, at the cost the stream worked out.
+/// What a round took as its last result says, with the tokens of the messages answered before it, which its own result
+/// leaves out: the cost counts them, each result giving what it spent since the one before.
+fn spent_of_result(result: &Result, earlier: &[Value], usd_micros: u64) -> Spent {
+    let mut spent = spent(result, usd_micros);
+    for earlier in earlier {
+        let usage = &earlier["usage"];
+        let tokens = |key: &str| usage[key].as_u64().unwrap_or(0);
+        spent.input_tokens += tokens("input_tokens") + tokens("cache_creation_input_tokens");
+        spent.cached_tokens += tokens("cache_read_input_tokens");
+        spent.output_tokens += tokens("output_tokens");
+    }
+    spent
+}
+
+fn spent(result: &Result, usd_micros: u64) -> Spent {
     let usage = &result.usage;
     Spent {
         usd_micros,
@@ -1289,7 +1412,8 @@ mod tests {
         let gave_up = "Failed to provide valid structured output after 3 attempts";
         let said = format!("{gave_up} — last StructuredOutput error: {last}");
         json!({ "type": "result", "subtype": "error_max_structured_output_retries", "is_error": true, "result": null,
-            "errors": [said], "total_cost_usd": 0.4, "usage": { "input_tokens": 10, "output_tokens": 300 } })
+            "errors": [said], "total_cost_usd": 0.4, "model_usage_since_last_result": { "m": { "costUSD": 0.4 } },
+            "usage": { "input_tokens": 10, "output_tokens": 300 } })
         .to_string()
     }
 
@@ -1299,7 +1423,7 @@ mod tests {
 
     #[test]
     fn the_stream_reads_to_its_return_and_what_it_took() {
-        let read = read(STREAM.as_bytes(), Begin::New, 0, &program()).expect("the fixture reads");
+        let read = read(STREAM.as_bytes(), &program()).expect("the fixture reads");
         assert_eq!(
             read.spent,
             Spent {
@@ -1359,10 +1483,10 @@ mod tests {
         let mut stream = Stream::default();
         let kept: Vec<&str> = (STREAM.lines()).filter(|line| stream.line(line.as_bytes())).collect();
         let partial = kept.iter().filter(|line| line.starts_with(PARTIAL)).count();
-        // The pieces of the thinking and of the other tool's input, and the messages' ends, are passed over; the
-        // messages' starts, which say each call's prompt, the return's start, its eleven pieces and its stop are kept,
-        // and every other line.
-        assert_eq!(partial, 15, "{kept:#?}");
+        // The pieces of the thinking and of the other tool's input are passed over; the messages' starts, which say each
+        // call's prompt, their ends, which say what each call wrote, the return's start, its eleven pieces and its stop
+        // are kept, and every other line.
+        assert_eq!(partial, 17, "{kept:#?}");
         assert_eq!(kept.len() - partial, 14);
         // What is kept rebuilds the same attempts, and only the attempts, and the same calls of the session's own
         // agent: a try its engine did not see end is read from it.
@@ -1371,7 +1495,8 @@ mod tests {
             assert!(again.line(line.as_bytes()), "{line}");
         }
         assert_eq!(again.own, stream.own);
-        assert_eq!(again.priced(), stream.priced());
+        assert_eq!(again.took(), stream.took());
+        assert_eq!(again.cost(), stream.cost());
         assert_eq!((again.began(), again.has_result()), (true, true));
         assert_eq!(again.attempts.done.len(), 1);
         let raw = again.attempts.last().map(|(_, raw)| raw).expect("an attempt");
@@ -1383,7 +1508,7 @@ mod tests {
 
     #[test]
     fn the_last_attempt_of_a_return_the_command_line_gave_up_on_is_read() {
-        let read = read(GAVE_UP.as_bytes(), Begin::New, 0, &program()).expect("the last attempt is taken");
+        let read = read(GAVE_UP.as_bytes(), &program()).expect("the last attempt is taken");
         assert_eq!(read.structured, json!({ "hands_in": [], "asks": "\"[]\"" }));
         assert_eq!(read.spent.usd_micros, 2108, "what the call cost");
         // An attempt that is JSON is whole in its message too, as the pieces rebuild it.
@@ -1413,7 +1538,7 @@ mod tests {
         lines.extend(attempt("so-1", &pieces, Some(first_refused)));
         lines.extend(attempt("so-2", &[&last[..20], &last[20..]], Some(last_refused)));
         lines.push(gave_up(last_refused));
-        let read = read(lines.join("\n").as_bytes(), Begin::New, 0, &program()).expect("the last attempt is taken");
+        let read = read(lines.join("\n").as_bytes(), &program()).expect("the last attempt is taken");
         assert_eq!(read.structured, serde_json::from_str::<Value>(last).unwrap());
         assert_eq!(read.spent.usd_micros, 400_000, "what the call cost");
         assert_eq!(read.spent.output_tokens, 300);
@@ -1422,7 +1547,7 @@ mod tests {
         let mut only = vec![init];
         only.extend(attempt("so-1", &pieces, Some(first_refused)));
         only.push(gave_up(first_refused));
-        let read = super::read(only.join("\n").as_bytes(), Begin::New, 0, &program()).expect("it is taken");
+        let read = super::read(only.join("\n").as_bytes(), &program()).expect("it is taken");
         assert_eq!(read.structured, serde_json::from_str::<Value>(&first).unwrap());
     }
 
@@ -1433,25 +1558,26 @@ mod tests {
         let refused = "Output does not match required schema: /outcome: must be object";
         let init = json!({ "type": "system", "subtype": "init", "session_id": "s" }).to_string();
         let ended = json!({ "type": "result", "subtype": "success", "is_error": false, "result": "My review.",
-            "total_cost_usd": 0.4, "usage": { "input_tokens": 10, "output_tokens": 300 } })
+            "total_cost_usd": 0.4, "model_usage_since_last_result": { "m": { "costUSD": 0.4 } },
+            "usage": { "input_tokens": 10, "output_tokens": 300 } })
         .to_string();
         let mut lines = vec![init];
         for id in ["so-1", "so-2", "so-3"] {
             lines.extend(attempt(id, &[&attempted], Some(refused)));
         }
         lines.push(ended.clone());
-        let read = read(lines.join("\n").as_bytes(), Begin::New, 0, &program()).expect("the last attempt is taken");
+        let read = read(lines.join("\n").as_bytes(), &program()).expect("the last attempt is taken");
         assert_eq!(read.structured, serde_json::from_str::<Value>(&attempted).unwrap());
         assert_eq!(read.spent.usd_micros, 400_000, "what the call cost");
 
         // No attempt in the stream: no return, as before; an attempt that is no JSON is none either, said as where the
         // command line gave up, and is no kind of failure the words tell, so the work still pauses.
         let none = program().no_return;
-        let no = super::read(ended.as_bytes(), Begin::New, 0, &program()).expect_err("no return");
+        let no = super::read(ended.as_bytes(), &program()).expect_err("no return");
         assert_eq!(no.why, none);
         let mut cut = attempt("so-1", &[r#"{"outcome": "#], Some(refused));
         cut.push(ended);
-        let no = super::read(cut.join("\n").as_bytes(), Begin::New, 0, &program()).expect_err("no return");
+        let no = super::read(cut.join("\n").as_bytes(), &program()).expect_err("no return");
         assert!(
             no.why
                 .starts_with(&format!("{none} Its last attempt at the return is no JSON (")),
@@ -1480,7 +1606,7 @@ mod tests {
             Some(&format!("<tool_use_error>{said}</tool_use_error>")),
         );
         lines.push(gave_up(&said));
-        let no = read(lines.join("\n").as_bytes(), Begin::New, 0, &program()).expect_err("no JSON is no return");
+        let no = read(lines.join("\n").as_bytes(), &program()).expect_err("no JSON is no return");
         assert!(
             no.why.contains("Its last attempt at the return is no JSON"),
             "{}",
@@ -1504,7 +1630,7 @@ mod tests {
         );
         assert_eq!(no.spent.map(|s| s.usd_micros), Some(400_000));
         // Given up on with no attempt in the stream, the result's own words say why, without the quote.
-        let no = read(gave_up(&said).as_bytes(), Begin::New, 0, &program()).expect_err("nothing to take");
+        let no = read(gave_up(&said).as_bytes(), &program()).expect_err("nothing to take");
         assert!(
             no.why.contains("Failed to provide valid structured output"),
             "{}",
@@ -1518,7 +1644,7 @@ mod tests {
             "errors": ["Failed to provide valid structured output after 3 attempts"] })
             .to_string(),
         );
-        let no = read(lines.join("\n").as_bytes(), Begin::New, 0, &program()).expect_err("no JSON is no return");
+        let no = read(lines.join("\n").as_bytes(), &program()).expect_err("no JSON is no return");
         assert!(
             no.why.ends_with(
                 "The command line said: InputValidationError: StructuredOutput was called with \
@@ -1555,7 +1681,7 @@ mod tests {
         ];
         for (stream, kind) in streams {
             for words in [&ordinary, &changed] {
-                let no = super::read(stream.as_bytes(), Begin::New, 0, words).expect_err("no return");
+                let no = super::read(stream.as_bytes(), words).expect_err("no return");
                 assert_eq!(
                     failure::of(&no.report, &no.said, no.spent.as_ref()),
                     kind,
@@ -1565,7 +1691,7 @@ mod tests {
             }
         }
         // The sentence is the words', and is the only place they come in.
-        let no = super::read(ended.as_bytes(), Begin::New, 0, &changed).expect_err("no return");
+        let no = super::read(ended.as_bytes(), &changed).expect_err("no return");
         assert!(no.why.starts_with("You have hit your usage limit"), "{}", no.why);
         assert_eq!(no.report, "");
     }
@@ -1576,7 +1702,7 @@ mod tests {
         let error = r#"{"type":"result","subtype":"success","is_error":true,"result":"API Error: 529 Overloaded"}"#;
         lines.push(error.to_string());
         assert!(
-            read(lines.join("\n").as_bytes(), Begin::New, 0, &program()).is_err(),
+            read(lines.join("\n").as_bytes(), &program()).is_err(),
             "a failure of another kind"
         );
         let mut stream = Stream::default();
@@ -1607,7 +1733,7 @@ mod tests {
             stream.line(line.as_bytes());
         }
         assert!(stream.answered());
-        let no = stream.read(Begin::New, 0, &program()).expect_err("no result");
+        let no = stream.read(&program()).expect_err("no result");
         let spent = no.spent.expect("its calls are priced");
         assert_eq!(
             (spent.input_tokens, spent.cached_tokens, spent.output_tokens),
@@ -1637,7 +1763,7 @@ mod tests {
             "api_error": "usage_limit_reached", "terminal_reason": "api_error", "total_cost_usd": 9.62,
             "result": "You've hit your weekly limit · resets 11pm (America/Los_Angeles)" });
         let stream = [refused.to_string(), result.to_string()].join("\n");
-        let no = read(stream.as_bytes(), Begin::Resume, 9_620_000, &program()).expect_err("a refusal is not taken");
+        let no = read(stream.as_bytes(), &program()).expect_err("a refusal is not taken");
         assert_eq!(no.said.kind(), Some(Failure::UsageLimit));
         assert_eq!(no.said.resets, Some(1_794_380_400_000));
         assert_eq!(
@@ -1645,57 +1771,46 @@ mod tests {
             Failure::UsageLimit
         );
         // A stream cut off before its result says what it said all the same.
-        let cut = read(refused.to_string().as_bytes(), Begin::New, 0, &program()).expect_err("no result");
+        let cut = read(refused.to_string().as_bytes(), &program()).expect_err("no result");
         assert_eq!((cut.spent, cut.said.kind()), (None, Some(Failure::UsageLimit)));
     }
 
     #[test]
     fn a_round_ended_with_the_context_of_its_last_call() {
         let two = r#"{"type":"result","is_error":false,"total_cost_usd":0.1,"structured_output":{},"usage":{"input_tokens":3,"output_tokens":9,"iterations":[{"input_tokens":1,"cache_read_input_tokens":100,"cache_creation_input_tokens":20},{"input_tokens":2,"cache_read_input_tokens":120,"cache_creation_input_tokens":30}]}}"#;
-        let read = super::read(two.as_bytes(), Begin::New, 0, &program()).expect("it reads");
+        let read = super::read(two.as_bytes(), &program()).expect("it reads");
         assert_eq!(read.spent.context_tokens, Some(152), "the last call's prompt");
         let none = r#"{"type":"result","is_error":false,"total_cost_usd":0.1,"structured_output":{}}"#;
         assert_eq!(
-            super::read(none.as_bytes(), Begin::New, 0, &program())
-                .unwrap()
-                .spent
-                .context_tokens,
+            super::read(none.as_bytes(), &program()).unwrap().spent.context_tokens,
             None
         );
     }
 
     #[test]
-    fn a_resumed_round_costs_what_the_session_cost_more() {
-        let read = read(STREAM.as_bytes(), Begin::Resume, 1000, &program()).expect("the fixture reads");
-        assert_eq!(read.spent.usd_micros, 1614);
-    }
-
-    #[test]
-    fn a_resumed_round_whose_session_cost_less_than_before_costs_the_whole_total() {
-        let read = read(STREAM.as_bytes(), Begin::Resume, 5000, &program()).expect("the fixture reads");
-        assert_eq!(read.spent.usd_micros, 2614);
-    }
-
-    #[test]
     fn an_error_and_what_is_no_result_are_not_taken() {
         let error = r#"{"type":"result","is_error":true,"result":"There's an issue with the selected model."}"#;
-        let refused = read(error.as_bytes(), Begin::New, 0, &program()).expect_err("an error is not taken");
+        let refused = read(error.as_bytes(), &program()).expect_err("an error is not taken");
         assert!(refused.why.contains("issue with the selected model"), "{}", refused.why);
-        let nothing = read(b"Error: something", Begin::New, 0, &program()).expect_err("what is no JSON is not taken");
+        let nothing = read(b"Error: something", &program()).expect_err("what is no JSON is not taken");
         assert_eq!(nothing.spent, None, "what the round took is not known");
-        let cut = STREAM.lines().take(5).collect::<Vec<_>>().join("\n");
-        let cut = read(cut.as_bytes(), Begin::New, 0, &program()).expect_err("a stream with no result is not taken");
+        // Before its first call the round took nothing known; once a call began it took that call's prompt and what it had
+        // written, priced (Haiku 5.5: 2 fresh, 27,199 read and 8,950 written for an hour, with 17 tokens out).
+        let calls = |lines: usize| STREAM.lines().take(lines).collect::<Vec<_>>().join("\n");
+        let cut = read(calls(2).as_bytes(), &program()).expect_err("a stream with no result is not taken");
         assert_eq!(cut.spent, None);
+        let begun = read(calls(5).as_bytes(), &program()).expect_err("a stream with no result is not taken");
+        assert_eq!(begun.spent.map(|s| s.usd_micros), Some(2071));
         let bare = r#"{"type":"result","is_error":false,"result":"hello","total_cost_usd":0.1}"#;
         assert!(
-            read(bare.as_bytes(), Begin::New, 0, &program()).is_err(),
+            read(bare.as_bytes(), &program()).is_err(),
             "a result with no structured return"
         );
     }
 
     #[test]
     fn a_result_that_is_no_return_still_says_what_its_call_took() {
-        let error = r#"{"type":"result","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"usage":{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}}"#;
+        let error = r#"{"type":"result","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"model_usage_since_last_result":{"m":{"costUSD":0.3}},"usage":{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}}"#;
         let spent = Spent {
             usd_micros: 300_000,
             input_tokens: 15,
@@ -1703,10 +1818,10 @@ mod tests {
             output_tokens: 20,
             ..Default::default()
         };
-        let refused = read(error.as_bytes(), Begin::Resume, 500_000, &program()).expect_err("an error is not taken");
+        let refused = read(error.as_bytes(), &program()).expect_err("an error is not taken");
         assert_eq!(refused.spent, Some(spent));
-        let bare = r#"{"type":"result","is_error":false,"total_cost_usd":0.8}"#;
-        let refused = read(bare.as_bytes(), Begin::New, 0, &program()).expect_err("no structured return is not taken");
+        let bare = r#"{"type":"result","is_error":false,"total_cost_usd":0.8,"model_usage_since_last_result":{"m":{"costUSD":0.8}}}"#;
+        let refused = read(bare.as_bytes(), &program()).expect_err("no structured return is not taken");
         assert_eq!(refused.spent.map(|s| s.usd_micros), Some(800_000));
     }
 
@@ -1746,10 +1861,11 @@ mod tests {
     /// makes none, or an attempt.
     fn two_messages(second: Option<&str>) -> Vec<String> {
         let first = json!({ "type": "result", "subtype": "success", "is_error": false, "structured_output": { "ok": true },
-            "total_cost_usd": 0.01,
+            "total_cost_usd": 0.01, "model_usage_since_last_result": { "m": { "costUSD": 0.01 } },
             "usage": { "input_tokens": 2, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 50, "output_tokens": 5 } })
         .to_string();
         let mut asked = json!({ "type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.03,
+            "model_usage_since_last_result": { "m": { "costUSD": 0.02 } },
             "usage": { "input_tokens": 4, "cache_creation_input_tokens": 10, "cache_read_input_tokens": 200, "output_tokens": 8 } });
         let mut lines = vec![json!({ "type": "system", "subtype": "init", "session_id": "s" }).to_string()];
         lines.extend(attempt("so-1", &[r#"{"ok": true}"#], None));
@@ -1768,21 +1884,19 @@ mod tests {
     }
 
     #[test]
-    fn the_spend_of_a_call_with_two_results_is_the_sum_of_their_tokens_and_the_last_total() {
+    fn the_spend_of_a_call_with_two_results_is_the_sum_of_their_tokens_and_their_costs() {
         let lines = two_messages(Some(r#"{"answer": "yes"}"#));
         let mut stream = Stream::default();
         for line in &lines {
             stream.line(line.as_bytes());
         }
         assert_eq!(stream.results(), 2);
-        let read = stream
-            .read(Begin::Resume, 5_000, &program())
-            .expect("the question's return is read");
+        let read = stream.read(&program()).expect("the question's return is read");
         assert_eq!(read.structured, json!({ "answer": "yes" }));
         assert_eq!(
             read.spent,
             Spent {
-                usd_micros: 25_000,
+                usd_micros: 30_000,
                 input_tokens: (2 + 100) + (4 + 10),
                 cached_tokens: 50 + 200,
                 output_tokens: 5 + 8,
@@ -1818,8 +1932,7 @@ mod tests {
     #[test]
     fn a_fork_whose_question_made_no_attempt_is_not_read_as_the_opening_messages_return() {
         let lines = two_messages(None);
-        let no =
-            read(lines.join("\n").as_bytes(), Begin::Resume, 0, &program()).expect_err("no return to the question");
+        let no = read(lines.join("\n").as_bytes(), &program()).expect_err("no return to the question");
         assert_eq!(no.why, program().no_return);
         // The tokens of both messages are what it took.
         assert_eq!(no.spent.map(|s| s.output_tokens), Some(5 + 8));
@@ -1853,27 +1966,24 @@ mod tests {
             .expect("the fixture holds a result")
     }
 
-    // Two messages of the real stream read as two results, and the return and the cost are the last message's, the
-    // tokens of both counted. The one-message stream is the oracle: a stream of two messages is that stream twice, as the
+    // Two messages of the real stream read as two results, and the return is the last message's, the tokens and the cost
+    // of both counted. The one-message stream is the oracle: a stream of two messages is that stream twice, as the
     // command line prints one result for each message it is given (research/fork-cache-shared-history.md). A few
     // milliseconds, in memory; a stream of the test's own making could not show that the real lines are read so.
     #[test]
     fn two_messages_of_the_real_stream_read_as_two_results_and_the_return_of_the_second() {
-        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0, &program()).expect("one message reads");
+        let single = read(real_message().join("\n").as_bytes(), &program()).expect("one message reads");
         let mut lines = real_message();
         lines.extend(second_message());
         let stream = feed(&lines);
         assert_eq!(stream.results(), 2);
-        let got = stream
-            .read(Begin::Resume, 0, &program())
-            .expect("the question's return is read");
+        let got = stream.read(&program()).expect("the question's return is read");
         assert_eq!(got.structured, single.structured, "the return of the last message");
-        // The tokens of both messages, and the total of the last result as the cost: the command line's total is its
-        // whole call's.
+        // The tokens and the cost of both messages: each result says what the program spent since the one before.
         assert_eq!(got.spent.input_tokens, 2 * single.spent.input_tokens);
         assert_eq!(got.spent.cached_tokens, 2 * single.spent.cached_tokens);
         assert_eq!(got.spent.output_tokens, 2 * single.spent.output_tokens);
-        assert_eq!(got.spent.usd_micros, single.spent.usd_micros);
+        assert_eq!(got.spent.usd_micros, 2 * single.spent.usd_micros);
         assert_eq!(got.spent.context_tokens, single.spent.context_tokens);
     }
 
@@ -1889,13 +1999,11 @@ mod tests {
         result.as_object_mut().expect("an object").remove("structured_output");
         first[at] = result.to_string();
         first.truncate(at + 1);
-        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0, &program()).expect("one message reads");
+        let single = read(real_message().join("\n").as_bytes(), &program()).expect("one message reads");
         first.extend(second_message());
         let stream = feed(&first);
         assert_eq!(stream.results(), 2);
-        let got = stream
-            .read(Begin::Resume, 0, &program())
-            .expect("the question's return is read");
+        let got = stream.read(&program()).expect("the question's return is read");
         assert_eq!(got.structured, single.structured);
         assert_eq!(got.spent.output_tokens, 2 * single.spent.output_tokens);
     }
@@ -1906,7 +2014,7 @@ mod tests {
     // is still the second result, and the one read. A few milliseconds.
     #[test]
     fn a_first_message_the_program_answered_itself_does_not_stop_the_question_being_read() {
-        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0, &program()).expect("one message reads");
+        let single = read(real_message().join("\n").as_bytes(), &program()).expect("one message reads");
         let own = [
             r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Nothing to show."}]},"parent_tool_use_id":null}"#,
             r#"{"type":"result","subtype":"success","is_error":false,"result":"Nothing to show.","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}"#,
@@ -1916,9 +2024,7 @@ mod tests {
         lines.extend(second_message());
         let stream = feed(&lines);
         assert_eq!(stream.results(), 2);
-        let got = stream
-            .read(Begin::Resume, 0, &program())
-            .expect("the question's return is read");
+        let got = stream.read(&program()).expect("the question's return is read");
         assert_eq!(got.structured, single.structured);
         assert_eq!(
             (got.spent.input_tokens, got.spent.cached_tokens, got.spent.output_tokens),
@@ -1940,9 +2046,7 @@ mod tests {
         lines.extend(second_message().into_iter().take(2));
         let stream = feed(&lines);
         assert_eq!(stream.results(), 1, "only the first message ended");
-        let no = stream
-            .read(Begin::Resume, 0, &program())
-            .expect_err("the question has no result");
+        let no = stream.read(&program()).expect_err("the question has no result");
         assert_eq!(no.why, program().no_stream_result);
         assert!(no.spent.is_some(), "the first message's calls were paid for");
     }
@@ -1966,9 +2070,7 @@ mod tests {
         lines.push(result.to_string());
         let stream = feed(&lines);
         assert_eq!(stream.results(), 2);
-        let no = stream
-            .read(Begin::Resume, 0, &program())
-            .expect_err("no return to the question");
+        let no = stream.read(&program()).expect_err("no return to the question");
         assert_eq!(no.why, program().no_return);
     }
 
@@ -1981,8 +2083,132 @@ mod tests {
         assert!(stream.has_result());
         assert!(stream.answered());
         assert_eq!(stream.results(), 1);
-        let read = stream.read(Begin::New, 0, &program()).expect("the fixture reads");
+        let read = stream.read(&program()).expect("the fixture reads");
         assert_eq!(read.structured["hands_in"][0]["content"], "BANANA");
+    }
+
+    /// The real stream's lines with what its result says it spent, and its session's total so far, as given: a
+    /// session the program went on in, whose total is what it cost over all its rounds.
+    fn with_cost(total: f64, since: f64) -> Vec<String> {
+        let mut lines = real_message();
+        let at = result_at(&lines);
+        let mut result: Value = serde_json::from_str(&lines[at]).expect("JSON");
+        result["total_cost_usd"] = json!(total);
+        result["model_usage_since_last_result"]["claude-haiku-5-5"]["costUSD"] = json!(since);
+        lines[at] = result.to_string();
+        lines
+    }
+
+    /// The real stream's lines without the field of its result that says what it spent.
+    fn without_cost() -> Vec<String> {
+        let mut lines = real_message();
+        let at = result_at(&lines);
+        let mut result: Value = serde_json::from_str(&lines[at]).expect("JSON");
+        result
+            .as_object_mut()
+            .expect("an object")
+            .remove("model_usage_since_last_result");
+        lines[at] = result.to_string();
+        lines
+    }
+
+    // Work 46's run 10: the round before was cut off by a restart and printed no result, so the program's total, $72.8774,
+    // holds it, and this round's own result says it spent $0.1832. The cost is the $0.1832, whatever the session cost
+    // before. A few milliseconds, in memory.
+    #[test]
+    fn a_round_after_an_interrupted_one_costs_only_itself() {
+        let got = read(with_cost(72.8774, 0.1832).join("\n").as_bytes(), &program()).expect("it reads");
+        assert_eq!(got.spent.usd_micros, 183_200);
+        let stream = feed(&with_cost(72.8774, 0.1832));
+        assert_eq!(stream.cost(), (183_200, false), "told by the program, none priced");
+    }
+
+    // A result that does not say what it spent is priced from its calls and says so, with the cost of the calls at their
+    // models' prices as the oracle: the real stream's two calls come to $0.002614 by the program's own count too.
+    #[test]
+    fn a_result_without_the_field_is_priced_from_its_calls_and_says_so() {
+        let stream = feed(&without_cost());
+        assert_eq!(stream.cost(), (2614, true));
+        assert!(stream.estimated());
+        assert_eq!(stream.took().map(|s| s.usd_micros), Some(2614));
+        let told = feed(&real_message());
+        assert_eq!(told.cost(), (2614, false));
+        assert!(!told.estimated());
+    }
+
+    // A stream cut off before its result prices each call by the tokens its `message_delta` says it wrote: the messages the
+    // program prints as a call goes hold the few it began with (17 and 5 here, against 74 and 251).
+    #[test]
+    fn a_stream_cut_off_prices_each_call_by_its_message_delta() {
+        let cut: Vec<String> = real_message().into_iter().take(result_at(&real_message())).collect();
+        let stream = feed(&cut);
+        assert_eq!(stream.cost(), (2614, true));
+        let without: Vec<String> = cut
+            .iter()
+            .filter(|l| !l.contains(r#""message_delta""#))
+            .cloned()
+            .collect();
+        // Haiku 5.5: 2 fresh, 27,199 read and 8,950 written for an hour, then 2, 36,149 and 140, with 17 and 5 tokens out.
+        assert_eq!(feed(&without).cost(), (2071 + 392, true));
+    }
+
+    // The end of a call is final whichever comes first, its message or its `message_delta`: the program prints the message
+    // first today, and the end is moved before it.
+    #[test]
+    fn a_message_delta_is_final_whatever_comes_after() {
+        let mut moved: Vec<String> = real_message().into_iter().take(result_at(&real_message())).collect();
+        for id in ["msg_011Cgzr4nakbPgB7hCYJ8N5x", "msg_011Cgzr4rZNvF7n4GhWLpvRV"] {
+            let at = |moved: &[String], kind: &str| {
+                (moved.iter())
+                    .position(|l| l.contains(kind) && l.contains(id))
+                    .expect("a line of the call")
+            };
+            let end = moved.remove(at(&moved, r#""message_delta""#));
+            let message = at(&moved, r#"{"type":"assistant""#);
+            moved.insert(message, end);
+            assert!(at(&moved, r#""message_delta""#) < at(&moved, r#"{"type":"assistant""#));
+        }
+        assert_eq!(feed(&moved).cost(), (2614, true));
+    }
+
+    // The lines of a call a subagent made are kept like the agent's own, so that a try the engine did not see end is
+    // priced from them again, and the call is priced with the rest. Opus 5.5: 100 fresh, 1,000 read, 50 out.
+    #[test]
+    fn the_start_and_the_end_of_every_call_are_kept_and_priced_again_as_they_were() {
+        // As the program prints them, the type first.
+        let start = r#"{"type":"stream_event","parent_tool_use_id":"toolu_1","event":{"type":"message_start","message":{"id":"msg_sub","model":"claude-opus-5-5","usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":1}}}}"#;
+        let end = r#"{"type":"stream_event","parent_tool_use_id":"toolu_1","api_message_id":"msg_sub","event":{"type":"message_delta","usage":{"input_tokens":100,"output_tokens":50}}}"#;
+        let piece = r#"{"type":"stream_event","parent_tool_use_id":"toolu_1","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"x"}}}"#;
+        let mut stream = Stream::default();
+        assert!(stream.line(start.as_bytes()), "a subagent's start is kept");
+        assert!(!stream.line(piece.as_bytes()), "a piece of its text is not");
+        assert!(stream.line(end.as_bytes()), "its end is kept");
+        // 100 × 4 + 1,000 × 0.2 + 50 × 20 millionths.
+        assert_eq!(stream.cost(), (1600, true));
+        let mut again = Stream::default();
+        for line in [start, end] {
+            again.line(line.as_bytes());
+        }
+        assert_eq!(again.cost(), stream.cost());
+    }
+
+    // A fork whose program ended after its first message's result: that message costs what its result says, here $0.50
+    // where its calls would be priced at $0.002614, and only the calls after it are priced. The second message's first
+    // call, as the real stream's, comes to $0.002099.
+    #[test]
+    fn a_fork_cut_off_after_its_first_message_uses_the_exact_first_part_and_prices_the_rest() {
+        let mut lines = with_cost(0.5, 0.5);
+        let second = second_message();
+        let end = second
+            .iter()
+            .position(|l| l.contains(r#""message_delta""#))
+            .expect("a call's end");
+        lines.extend(second.into_iter().take(end + 1));
+        let stream = feed(&lines);
+        assert_eq!(stream.results(), 1);
+        assert_eq!(stream.cost(), (500_000 + 2099, true));
+        let no = stream.read(&program()).expect_err("no result for the question");
+        assert_eq!(no.spent.map(|s| s.usd_micros), Some(500_000 + 2099));
     }
 
     #[test]

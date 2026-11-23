@@ -49,7 +49,8 @@ use work::Work;
 
 /// How the fake command line answers.
 pub struct Fake {
-    /// The session's cost so far that every call reports, in dollars, as JSON.
+    /// What every call says it spent since the one before it, in dollars, as JSON; the session's total it also says is
+    /// the sum of what its calls spent.
     pub cost: &'static str,
     /// Whether its first call fails, saying the prompt is too long, which pauses the work.
     pub fail_first: bool,
@@ -62,6 +63,9 @@ pub struct Fake {
     /// Whether its first call crashes after one call to Opus 5.5, of 100 tokens sent, 1,000 read from the cache and 10
     /// back, printing no result, and exits with 1.
     pub crashes_first: bool,
+    /// Whether every call makes one call to Opus 5.5, of 100 tokens sent, 1,000 read from the cache and 10 back, and
+    /// prints a result that leaves out what the program spent since the result before it.
+    pub omits_cost: bool,
     /// Whether the build asks for the query of the check in its first run, and its run entered for the result, going
     /// on in the session, is told the first time that the session is not found.
     pub lose_session: bool,
@@ -173,6 +177,7 @@ impl Default for Fake {
             flag_first: false,
             error_first: false,
             crashes_first: false,
+            omits_cost: false,
             lose_session: false,
             lose_in_result: false,
             question_first: false,
@@ -252,6 +257,7 @@ fn refused_stream() -> String {
     lines.extend(attempt("so-2", &json!({ "outcome": plan }).to_string()));
     let gave_up = json!({ "type": "result", "subtype": "error_max_structured_output_retries", "is_error": true,
         "result": null, "errors": [GAVE_UP], "total_cost_usd": 0.4,
+        "model_usage_since_last_result": { "m": { "costUSD": 0.4 } },
         "usage": { "input_tokens": 1000, "output_tokens": 300 } });
     lines.push(gave_up.to_string());
     lines.push(json!({ "type": "system", "subtype": "task_summary", "detail": null }).to_string());
@@ -514,7 +520,8 @@ if [ '{refuses}' = yes ] && [ "$n" = 1 ]; then
     exit 1
 fi
 if [ '{error}' = yes ] && [ "$n" = 1 ]; then
-    printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":null,"errors":["{gave_up}"],"total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
+    printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":null,"errors":["{gave_up}"],"total_cost_usd":0.8,"model_usage_since_last_result":{{"m":{{"costUSD":0.8}}}},"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
+    printf '0.8' > "$log/total"
     exit 1
 fi
 if [ '{crash}' = yes ] && [ "$n" = 1 ]; then
@@ -522,7 +529,8 @@ if [ '{crash}' = yes ] && [ "$n" = 1 ]; then
     exit 1
 fi
 if [ '{flag}' = yes ] && [ "$n" = 1 ]; then
-    printf '%s\n' '{{"type":"result","subtype":"success","is_error":true,"result":"API Error: the safeguards flagged this message.","total_cost_usd":0.3,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":30}}}}'
+    printf '%s\n' '{{"type":"result","subtype":"success","is_error":true,"result":"API Error: the safeguards flagged this message.","total_cost_usd":0.3,"model_usage_since_last_result":{{"m":{{"costUSD":0.3}}}},"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":30}}}}'
+    printf '0.3' > "$log/total"
     exit 1
 fi
 if [ '{fail}' = yes ] && [ "$n" = 1 ]; then
@@ -727,7 +735,14 @@ iterations='{iterations}'
 if [ '{says_usage}' = yes ]; then
     printf '%s\n' '{{"type":"rate_limit_event","rate_limit_info":{{"status":"allowed","unifiedWindows":{{"seven_day":{{"utilization":{used},"resetsAt":1795399200,"status":"allowed"}}}}}}}}'
 fi
-printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$iterations" "$structured"
+total=$(awk -v seen="$(cat "$log/total" 2>/dev/null || echo 0)" 'BEGIN {{ printf "%.6f", seen + {cost} }}')
+printf '%s' "$total" > "$log/total"
+since='"model_usage_since_last_result":{{"m":{{"costUSD":{cost}}}}},'
+if [ '{omits_cost}' = yes ]; then
+    printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
+    since=''
+fi
+printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":%s,%s"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$total" "$since" "$iterations" "$structured"
 if [ '{returned_sleeps}' != 0 ] && [ "$first" = Plan ] && [ ! -f "$log/returned" ]; then
     touch "$log/returned"
     sleep '{returned_sleeps}'
@@ -738,6 +753,7 @@ fi
         flag = yes(fake.flag_first),
         error = yes(fake.error_first),
         crash = yes(fake.crashes_first),
+        omits_cost = yes(fake.omits_cost),
         lose = yes(fake.lose_session),
         lose_in_result = yes(fake.lose_in_result),
         question = yes(fake.question_first),

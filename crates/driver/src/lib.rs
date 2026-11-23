@@ -104,6 +104,8 @@ pub mod owner;
 pub mod sessions;
 
 pub mod time;
+/// What the times of the project's tests and jobs say, by the history of their own kind.
+pub mod timed;
 
 pub mod usage;
 
@@ -130,7 +132,7 @@ use store::{
 };
 use versions::Installed;
 pub use versions::{Misread, On};
-use work::{KeptTime, Moment, Time, Work};
+use work::{Ask, Call, KeptTime, Moment, Time, Work};
 
 pub use budget::Budget;
 pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
@@ -152,7 +154,7 @@ pub const MERGED: &str = "merged";
 pub const START: &str = "start";
 
 /// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
-/// the block: a block of [`DEPENDENCIES`], of [`START`], of [`engine::asked::ASKED`] or of
+/// the block: a block of [`DEPENDENCIES`], of [`START`], of [`timed::TEST_TIMES`], of [`engine::asked::ASKED`] or of
 /// [`engine::handed_in::HANDED_IN`], and each cell's own words and questions, which the sources of the owner's words
 /// and of the answers write and the cell writes too, gives in its `writes` each text the engine fills, so that none is
 /// written empty; and the words beside the flows ([`flow::waits_file`]) give every reason the engine says to the owner.
@@ -160,11 +162,12 @@ pub const START: &str = "start";
 pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
     use engine::handed_in::HANDED_IN;
-    let needs: [(&str, &[&str]); 4] = [
+    let needs: [(&str, &[&str]); 5] = [
         (DEPENDENCIES, &[MERGED, WAITING, "between"]),
         (START, &["text"]),
         (ASKED, &[ANSWERED, UNANSWERED, "between"]),
         (HANDED_IN, &["text"]),
+        (timed::TEST_TIMES, &timed::WORDS),
     ];
     // The dialogues the sources of the owner's turning write versions of, each a cell's own: its words, the owner's
     // versions and the cell's answers; its questions, each kind of version.
@@ -1107,6 +1110,78 @@ impl Driver {
         self.filled_after(now, todos).map(|todos| (changed, todos))
     }
 
+    /// Whether the call of the work is a call of the tool that runs the project's tests.
+    fn runs_tests(&self, work: WorkNumber, call: decide::CallId) -> bool {
+        self.works.get(&work).is_some_and(|held| {
+            matches!(
+                held.work.calls.get(&call),
+                Some(Call::Asked(Ask::Tool { name, .. })) if name == timed::RUN_TESTS
+            )
+        })
+    }
+
+    /// The merged checks of the works of the project that merged, in the order they were read.
+    fn merged_checks(&self, project: Option<&str>) -> Vec<timed::Merge> {
+        timed::history(
+            (self.works.iter())
+                .filter(|(_, held)| {
+                    held.standing == Standing::Ended(End::Merged) && held.item.project.as_deref() == project
+                })
+                .map(|(number, held)| (*number, &held.work)),
+        )
+    }
+
+    /// How many values a history is judged from at least, as the installation says; none where it says nothing.
+    fn samples(&self) -> usize {
+        self.policy.as_ref().map_or(0, |policy| policy.samples)
+    }
+
+    /// What the merged checks of each project say of the tests' and jobs' times, judged by the history of their own
+    /// kind where the installation says how many values it takes, for whoever shows how the system ran.
+    pub fn tested(&self) -> Vec<timed::Tested> {
+        let samples = self.samples();
+        let projects: BTreeSet<Option<String>> = (self.works.values())
+            .filter(|held| held.standing == Standing::Ended(End::Merged))
+            .map(|held| held.item.project.clone())
+            .collect();
+        (projects.into_iter())
+            .map(|project| {
+                let history = self.merged_checks(project.as_deref());
+                timed::tested(project, &history, samples)
+            })
+            .filter(|tested| tested.checks > 0)
+            .collect()
+    }
+
+    /// Writes the work's datum of [`timed::TEST_TIMES`] as the facts of its runs and of the project's history now put it,
+    /// where the flow has one and that is not what it says already.
+    fn write_test_times(&mut self, now: Time, number: WorkNumber, todos: &mut Vec<Todo>) -> Result<(), Fault> {
+        let Some(held) = self.works.get(&number).filter(|held| held.standing == Standing::Going) else {
+            return Ok(());
+        };
+        let ours = (held.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(timed::TEST_TIMES));
+        let Some((block, declared)) = ours else {
+            return Ok(());
+        };
+        let history = self.merged_checks(held.item.project.as_deref());
+        let facts = timed::facts(&held.work, &history, self.samples());
+        let content = timed::render(&facts, &declared.writes);
+        let block = block.clone();
+        let versions = decide::versions(&held.work.records);
+        let current = versions.get(&block).and_then(|versions| versions.last());
+        if current.and_then(|version| held.work.contents.get(&(block.clone(), version.at))) == Some(&content) {
+            return Ok(());
+        }
+        let event = Event::Wrote {
+            block,
+            by: Outsider::Outside,
+            content,
+            matters: true,
+            value: None,
+        };
+        self.step_one(now, number, event, false, todos)
+    }
+
     /// Keeps what the time of each work that ended on the installed version went to, where it has kept none since it
     /// last ended, at the time the caller's clock gives (decision `a-work-keeps-what-its-time-went-to`): as the work
     /// ends, while that version, which alone can read what it waited for, is installed.
@@ -1181,6 +1256,9 @@ impl Driver {
         if let Event::Pinged { line, .. } = &event {
             self.pinging.remove(&(work, line.clone()));
         }
+        // A call of the tool that runs the project's tests ended: what the work's runs said of the tests' times is
+        // told to the cells that read it, once the call's own record is kept.
+        let tested = matches!(&event, Event::Done { call, .. } if self.runs_tests(work, *call));
         let gate = match begins_a_wait {
             Some(held) => self.gate_of(work).and(held),
             None => self.gate_of(work),
@@ -1209,6 +1287,9 @@ impl Driver {
             if let Err(fault) = self.step_one(now, work, Event::Look, true, &mut todos) {
                 return Err(self.stop(fault, true));
             }
+        }
+        if tested && let Err(fault) = self.write_test_times(now, work, &mut todos) {
+            return Err(self.stop(fault, true));
         }
         // The round's own work is paused by its failure; every other that runs a round on the model is paused with it.
         if let Some((on, why)) = no_model {
@@ -1602,7 +1683,19 @@ impl Driver {
         let time: Vec<f64> = others.iter().map(|(_, ms)| *ms).collect();
         lines.work_spent = history::works_line(&spent, policy.samples);
         lines.work_time = history::works_line(&time, policy.samples);
+        // The engine's own rounds run the project's tests, which a test past its own history's line is stopped in.
+        if cell.kind == flow::Kind::Engine {
+            lines.test_time = self.test_time(work);
+        }
         lines
+    }
+
+    /// How long one test of the work's project may run in the project's CI before it is stopped, in milliseconds, as
+    /// the history of the project's merged checks says it ([`timed::test_time`]); none where the installation says no
+    /// number of values to judge by or the history is too short.
+    pub fn test_time(&self, work: WorkNumber) -> Option<f64> {
+        let held = self.works.get(&work)?;
+        timed::test_time(&self.merged_checks(held.item.project.as_deref()), self.samples())
     }
 
     /// The wait every work shares for the agents' service, if one stands: worked out from the records of every work

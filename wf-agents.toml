@@ -85,7 +85,7 @@ too_long = "30m"
 # branch on GitHub is deleted once it is merged.
 [pull_request]
 merge_method = "squash"
-delete_branch = false
+delete_branch = true
 
 # The paths that govern the project's agents, which the owner changes: where a work's change against main touches one,
 # the work says why each such change is needed (`flow/agents/return/fields/protected_changes.toml`) or takes it back,

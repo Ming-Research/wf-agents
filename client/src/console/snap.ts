@@ -34,7 +34,10 @@
 // stronger, and eases back to rest.
 // What stands is drawn once and kept until something in it changes: a tree read again that draws the same makes
 // nothing again, and one that changed makes again only the cards that changed; a frame in which only the lights, the
-// pulses and the ages move draws only those, the cards standing in a group of their own that is drawn as it was.
+// pulses and the ages move draws only those, the cards standing in a group of their own that is drawn as it was. The
+// glow of the lit ways is drawn and blurred on texels coarser than the canvas, a part of its blur's strength wide
+// ([`BLUR_TEXEL`]), and each layer of glow is blurred over the room its lights take in a frame, and not at all in a
+// frame where it has none. Nothing is drawn while the page or the console's view is hidden.
 //
 // A card's second row draws the level the work's cell runs at, the works page's strip of the work's cells, and the
 // lines the work changed; an ended item's one row, the lines its work changed. What the interface has nothing for yet
@@ -285,6 +288,15 @@ export const FLASH_MS = 800;
 /// The room a soft light's blur is drawn in past its fill, in strengths of the blur: wide enough that the blur fades
 /// out before its edge. It is also as far as the light reaches past its fill.
 const BLUR_ROOM = 4;
+/// The glow of a lit way is drawn and blurred on a texture coarser than the canvas: one texel to this part of its
+/// blur's strength, in pixels of the page, and never finer than the canvas. A blur `s` strong spreads a line about
+/// 1.3 `s` either way, and a texel a quarter of `s` wide spreads it under 2% further, which does not show; and as the
+/// texel is a part of the blur and not of the canvas, a glow is drawn on the same texels at a pixel ratio of 1 and of
+/// 2, and looks the same at both. The near glow, 4 strong, is blurred on texels a pixel wide; the far glow, 14
+/// strong, on texels 3.5 pixels wide, so on a twelfth of the texels. The soft lights round the items keep texels a
+/// pixel wide: the flash of the item selected grows its light by a few pixels a frame, which coarser texels would show
+/// in steps.
+const BLUR_TEXEL = 0.25;
 /// The step in pixels by which a texture a kept glow is laid on is made larger than the glow ([`SnapScene.bake`]).
 const TEXTURE_STEP = 128;
 
@@ -303,6 +315,12 @@ function softBlur(strength: number): BlurFilter {
   const blur = new BlurFilter({ strength });
   blur.padding = BLUR_ROOM * strength;
   return blur;
+}
+
+/// Whether `g` draws anything. A layer that is blurred is hidden while it draws nothing: shown, it would be blurred
+/// all the same, over the room of its blur at the corner of the canvas.
+function drawsAny(g: Graphics): boolean {
+  return g.context.instructions.length > 0;
 }
 
 /// A layer of light: its lines, drawn sharp, and the glow round them close in and further out, the same lines drawn
@@ -374,11 +392,21 @@ function waysLayer(): Ways {
   };
 }
 
-/// Blurs `blur` `strength` strong, with its room, where it is not already.
-function blurTo(blur: BlurFilter, strength: number) {
-  if (blur.strength === strength) return;
-  blur.strength = strength;
-  blur.padding = BLUR_ROOM * strength;
+/// How many texels to a pixel of the page the glow of a lit way blurred `strength` strong is drawn on, on a canvas of
+/// `canvas` pixels of the screen to one of the page ([`BLUR_TEXEL`]).
+function glowResolution(strength: number, canvas: number): number {
+  return Math.min(canvas, 1 / (BLUR_TEXEL * strength));
+}
+
+/// Blurs `blur` `strength` strong, with its room, on the texels a glow that strong is drawn on, on a canvas of `canvas`
+/// pixels of the screen to one of the page, where it is not already.
+function blurTo(blur: BlurFilter, strength: number, canvas: number) {
+  if (blur.strength !== strength) {
+    blur.strength = strength;
+    blur.padding = BLUR_ROOM * strength;
+  }
+  const resolution = glowResolution(strength, canvas);
+  if (blur.resolution !== resolution) blur.resolution = resolution;
 }
 
 /// The mark of a cell running pulses: lit most of each beat, it fades out and back in during the last part of it, the
@@ -760,6 +788,13 @@ export type Stats = {
   /// How many frames have built again what stands of the lit ways: their lines, glow and strands, and the lights at
   /// rest where they meet the cards and at the dots of folds ([`draw`]).
   wayBuilds: number;
+  /// How many frames the scene's ticker has drawn, as the browser gives them or a bench draws them: none come while
+  /// the page or the view is hidden ([`setShown`]).
+  frames: number;
+  /// How many layers the last frame blurred: the glow of the lit ways close in and further out, the same over the
+  /// cards, and the soft lights round the item selected and the item under the pointer, each only while it draws
+  /// something.
+  blurs: number;
 };
 
 /// The colour a part `k` of the way from `a` to `b`, both `#rrggbb`.
@@ -1065,7 +1100,19 @@ type Column = {
 };
 
 export class SnapScene {
-  stats: Stats = { items: 0, drawn: 0, fps: 0, meanMs: 0, p95Ms: 0, made: 0, redraws: 0, redrawn: {}, wayBuilds: 0 };
+  stats: Stats = {
+    items: 0,
+    drawn: 0,
+    fps: 0,
+    meanMs: 0,
+    p95Ms: 0,
+    made: 0,
+    redraws: 0,
+    redrawn: {},
+    wayBuilds: 0,
+    frames: 0,
+    blurs: 0,
+  };
   private app = new Application();
   private world = new Container();
   /// The funnels from each item to the items under it; and the ribbons of the items lit.
@@ -1258,6 +1305,10 @@ export class SnapScene {
   private shadows: Uint8Array = new Uint8Array(0);
   private ready = false;
   private gone = false;
+  /// Whether the view the scene is in is shown ([`setShown`]): it draws while that and the page are.
+  private viewShown = true;
+  /// What a pixel read back from the canvas is put in, which a bench reads to wait for the GPU ([`waitForGpu`]).
+  private pixel = new Uint8Array(4);
   /// The items as last given to `show`, drawn again in the new colours when the theme changes.
   private roots: Shown[] | null = null;
   /// What follows the size of what holds the canvas, the theme and the accent; let go when the scene is.
@@ -1312,6 +1363,8 @@ export class SnapScene {
       this.marks,
     );
     this.app.stage.addChild(this.world, this.edges, this.map);
+    // Nothing is blurred until a frame draws something to blur ([`draw`]).
+    for (const layer of this.blurred) layer.renderable = false;
     // The cards stand in a group of their own, which is drawn as it was while none of them changes, whatever the lights
     // over and under them do.
     this.layer.enableRenderGroup();
@@ -1331,23 +1384,36 @@ export class SnapScene {
     });
     window.addEventListener('pointermove', this.drag);
     window.addEventListener('pointerup', this.up);
+    document.addEventListener('visibilitychange', this.run);
     this.app.ticker.add(this.tick);
     this.ready = true;
+    this.run();
   }
 
-  /// Draws while the view is shown, and stops while another view hides it; shown again, it draws at the size of what
-  /// holds it, which its observer follows.
+  /// Draws while the view is shown, and stops while another view hides it ([`run`]).
   setShown(shown: boolean): void {
-    if (!this.ready) return;
-    if (shown) {
+    this.viewShown = shown;
+    this.run();
+  }
+
+  /// Draws while the view and the page are both shown, and stops while either is hidden, so that a page the browser
+  /// does not show draws nothing. Shown again, it draws at the size of what holds it, which its observer follows, and
+  /// the time it stood stopped is not counted as a frame in `stats`.
+  private run = () => {
+    if (!this.ready || this.gone) return;
+    const draws = this.viewShown && document.visibilityState !== 'hidden';
+    if (draws === this.app.ticker.started) return;
+    if (draws) {
       this.mark('shown');
       this.app.queueResize();
+      this.last = 0;
       this.app.ticker.start();
     } else this.app.ticker.stop();
-  }
+  };
 
   destroy(): void {
     this.gone = true;
+    document.removeEventListener('visibilitychange', this.run);
     window.removeEventListener('pointermove', this.drag);
     window.removeEventListener('pointerup', this.up);
     this.sized?.disconnect();
@@ -2512,6 +2578,13 @@ export class SnapScene {
     return step;
   }
 
+  /// Waits until the GPU has drawn all it was asked to: a pixel read back from the canvas comes only once it has. The
+  /// benches read one rather than call `finish`, which Chromium takes as a flush and does not wait on.
+  private waitForGpu() {
+    const gl = (this.app.renderer as unknown as { gl?: WebGLRenderingContext }).gl;
+    gl?.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.pixel);
+  }
+
   /// Draws `frames` frames, every sixth with a scroll of most of a row over a column, waiting for the GPU each; gives
   /// the time of each frame in milliseconds.
   bench(frames: number): {
@@ -2520,17 +2593,48 @@ export class SnapScene {
     maxMs: number;
     drawn: number;
   } {
-    const gl = (this.app.renderer as unknown as { gl?: WebGLRenderingContext }).gl;
     const times: number[] = [];
     for (let k = 0; k < frames; k += 1) {
       const t0 = performance.now();
       if (k % 6 === 0) this.scroll(1 + (k % 4), ROW * 0.7);
       this.tick();
       this.app.renderer.render(this.app.stage);
-      gl?.finish();
+      this.waitForGpu();
       times.push(performance.now() - t0);
     }
     return { ...timesOf(times), drawn: this.stats.drawn };
+  }
+
+  /// Draws `frames` frames of the tree as it stands on a canvas `width` by `height` pixels of the page, the size of a
+  /// window on a large screen, at the screen's own pixel ratio: after one that draws it at that size, frames in which
+  /// nothing but the lights moves, each 16 milliseconds after the one before, as at 60 frames a second, and waited for
+  /// on the GPU. As many frames as the light takes for a run and the dark after it, unless told. Gives the time of
+  /// each frame in milliseconds, how many layers a frame blurred on the mean, and the canvas's size in pixels of the
+  /// screen; then gives the canvas back the size of what holds it.
+  benchLarge(
+    frames = Math.ceil((RUN.beat + RUN.dark) / 16),
+    width = 2560,
+    height = 1440,
+  ): { meanMs: number; p95Ms: number; maxMs: number; blurs: number; canvas: [number, number] } {
+    this.app.renderer.resize(width, height);
+    this.step(16);
+    this.app.renderer.render(this.app.stage);
+    this.waitForGpu();
+    const times: number[] = [];
+    let blurs = 0;
+    for (let k = 0; k < frames; k += 1) {
+      const t0 = performance.now();
+      this.step(16);
+      this.app.renderer.render(this.app.stage);
+      this.waitForGpu();
+      times.push(performance.now() - t0);
+      blurs += this.stats.blurs;
+    }
+    const canvas: [number, number] = [this.app.canvas.width, this.app.canvas.height];
+    this.app.resize();
+    // The time the bench took is no frame of the page's.
+    this.last = 0;
+    return { ...timesOf(times), blurs: Math.round((blurs / Math.max(1, frames)) * 100) / 100, canvas };
   }
 
   /// Draws `frames` frames in which nothing but the lights moves, waiting for the GPU each, after one that draws the
@@ -2543,7 +2647,6 @@ export class SnapScene {
     redrawn: number;
     why: Record<string, number>;
   } {
-    const gl = (this.app.renderer as unknown as { gl?: WebGLRenderingContext }).gl;
     this.tick();
     const before = this.stats.redraws;
     const whyBefore = { ...this.stats.redrawn };
@@ -2552,7 +2655,7 @@ export class SnapScene {
       const t0 = performance.now();
       this.tick();
       this.app.renderer.render(this.app.stage);
-      gl?.finish();
+      this.waitForGpu();
       times.push(performance.now() - t0);
     }
     const why = Object.fromEntries(
@@ -2568,7 +2671,6 @@ export class SnapScene {
   /// after one that draws what stands; gives the time of each frame in milliseconds, and how many of them built what
   /// stands of the lit ways again, which is none while nothing else moves.
   benchLights(frames: number): { meanMs: number; p95Ms: number; maxMs: number; rebuilt: number } {
-    const gl = (this.app.renderer as unknown as { gl?: WebGLRenderingContext }).gl;
     this.tick();
     const still = [this.layer, this.links, this.foldLight, this.dots, this.hoverGlow, this.chosenGlow, this.glowGround];
     const hidden = [...still, this.marks, this.edges, this.map];
@@ -2580,7 +2682,7 @@ export class SnapScene {
       const t0 = performance.now();
       this.tick();
       this.app.renderer.render(this.app.stage);
-      gl?.finish();
+      this.waitForGpu();
       times.push(performance.now() - t0);
     }
     hidden.forEach((c, k) => {
@@ -2884,6 +2986,7 @@ export class SnapScene {
     const mean = sorted.reduce((a, b) => a + b, 0) / Math.max(1, sorted.length);
     this.stats = {
       ...this.stats,
+      frames: this.stats.frames + 1,
       fps: Math.round(this.app.ticker.FPS),
       meanMs: Math.round(mean * 10) / 10,
       p95Ms: Math.round((sorted[Math.floor(sorted.length * 0.95)] ?? 0) * 10) / 10,
@@ -3150,9 +3253,10 @@ export class SnapScene {
       part.lit = false;
     }
     for (const g of stroked(this.runEdges)) g.clear();
+    const canvas = this.app.renderer.resolution;
     for (const lit of [this.ways, this.waysAtRest, this.runEdges, this.endsAtRest]) {
-      blurTo(lit.nearBlur, RUN.nearBlur);
-      blurTo(lit.farBlur, RUN.farBlur);
+      blurTo(lit.nearBlur, RUN.nearBlur, canvas);
+      blurTo(lit.farBlur, RUN.farBlur, canvas);
     }
     const runColour = mix(PALETTE.card, WORK().running, EDGE_RUNNING);
     const glintColour = mix(between(PALETTE.card, WORK().running, EDGE_RUNNING), PALETTE.glowTo, RUN.core);
@@ -3383,13 +3487,18 @@ export class SnapScene {
     // The ways that begin at the same place across the page are lit together, as the light comes to that place: while
     // it is on any of them, the glow of each is drawn and blurred at each frame with the light's on it, and the glow
     // kept of them is hidden; while it is on none, only that kept is drawn. A layer drawn empty is hidden too, as the
-    // blur would else reach out to take it in.
+    // blur would else reach out to take it in; and while the light is on no way, the glow of the ways is hidden whole,
+    // so that nothing is blurred for it.
     const drawnLights = wayOrder.map((i) => this.wayLights(i));
     const litPlaces = new Set(drawnLights.flatMap((w) => (w.lit ? [w.place] : [])));
     for (const w of drawnLights) {
       w.rest.far.visible = w.rest.near.visible = litPlaces.has(w.place);
       for (const g of stroked(w.light)) g.visible = w.lit;
     }
+    this.ways.far.renderable = this.ways.near.renderable = litPlaces.size > 0;
+    // The glow over the cards is blurred only in a frame that lights an edge or burns where a way meets a card.
+    this.runEdges.far.renderable = drawsAny(this.runEdges.far);
+    this.runEdges.near.renderable = drawsAny(this.runEdges.near);
     const placesDrawn = new Set(drawnLights.map((w) => w.place));
     for (const [key, part] of this.waysAtRest.parts) {
       if (restAgain && !placesDrawn.has(key)) this.dropPart(this.waysAtRest, key);
@@ -3483,6 +3592,9 @@ export class SnapScene {
       }
       for (const [i, a] of this.softLit)
         if (isWhole(i)) softLight(this.hoverGlow, i, SOFT_SPREAD, SOFT_BLUR, this.own[i], a);
+      // A soft light is blurred only while it lights an item.
+      this.chosenGlow.renderable = drawsAny(this.chosenGlow);
+      this.hoverGlow.renderable = drawsAny(this.hoverGlow);
       this.glowGround.clear();
       if (lights.length > 0) {
         for (const j of drawn) {
@@ -3539,6 +3651,13 @@ export class SnapScene {
     this.dirty.clear();
     this.drawnLeft = this.left;
     this.drawnCols = this.columns.map((c) => c.at);
+    this.stats.blurs = this.blurred.filter((layer) => layer.visible && layer.renderable).length;
+  }
+
+  /// The layers blurred at each frame they draw something in: the glow of the lit ways further out and close in, the
+  /// same over the cards, and the soft lights round the item under the pointer and the item selected.
+  private get blurred(): Container[] {
+    return [this.ways.far, this.ways.near, this.runEdges.far, this.runEdges.near, this.hoverGlow, this.chosenGlow];
   }
 
   /// The lights of the way into item `i`, made empty where there are none yet ([`WayLights`]).
@@ -3603,9 +3722,10 @@ export class SnapScene {
     part.glow.renderable = shows;
     if (!shows) return;
     // A texture is kept while the glow fits in it with less than two steps to spare each way, so that a glow moving
-    // across the edge of the screen, its size changing at every frame, does not make one at every frame.
+    // across the edge of the screen, its size changing at every frame, does not make one at every frame. It is as
+    // fine as the finer of the glow's two blurs, as nothing finer is on it ([`BLUR_TEXEL`]).
     const [w, h] = [x1 - x0, y1 - y0];
-    const resolution = this.app.renderer.resolution;
+    const resolution = glowResolution(Math.min(RUN.nearBlur, RUN.farBlur), this.app.renderer.resolution);
     const fits = (has: number, needs: number) => has >= needs && has - needs < 2 * TEXTURE_STEP;
     let texture = part.texture;
     if (

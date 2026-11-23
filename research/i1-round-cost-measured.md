@@ -37,7 +37,9 @@ compaction number, the size of the item), not a fault of the round.
   ($15.26) have no record of the model (Q3), so the 262 are not 77 and 154. All 77 Opus rounds are of W20 and W21, which
   are items at level 3; so the $146.52 of W21's I1 rounds in section 1 was spent on Opus (Q6).
 - **Round cost is the session's total cost less its total at the round before** (read: the differences of the result
-  events' `total_cost_usd` in W21's session `d9f9eacd` equal the recorded costs). A compaction's own call is not in the
+  events' `total_cost_usd` in W21's session `d9f9eacd` equal the recorded costs). This holds where no round or ping
+  of the session was cut off or began a session again; the engine now records what each result says it spent since
+  the result before it (`model_usage_since_last_result`), which does not depend on that. A compaction's own call is not in the
   stream's usage. For run 40, with two compactions, the recorded cost exceeds the cost of its tokens by about $1.2, so a
   compaction costs at most about $0.6 on Opus (inferred). For run 57, with one, it exceeds it by $10.4, which is not
   explained (section 5).

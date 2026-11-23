@@ -75,6 +75,7 @@ pub(crate) fn the_engine_s(_: &flow::Source) -> flow::Has {
             "main",
             "start",
             "head",
+            "test_times",
             "tree",
             "words",
         ]),

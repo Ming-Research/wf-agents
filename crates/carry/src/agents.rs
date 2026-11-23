@@ -575,7 +575,7 @@ impl Inner {
         // The project of the work's item, whose repository and declaration the round is run with.
         let of = match crate::projects::of(&self.projects, &round.item) {
             Ok(of) => of,
-            Err(why) => return failed_before(round, line, left, why),
+            Err(why) => return failed_before(left, why),
         };
         // A round given anew runs on what the settings give its item's level and its cell, and is given the token of
         // the account it was handed out with, which every try of it is given, taken before anything changes the
@@ -609,7 +609,7 @@ impl Inner {
         };
         let dir = match git::worktree(&place) {
             Ok(dir) => dir,
-            Err(why) => return failed_before(round, line, begun.left(), why),
+            Err(why) => return failed_before(begun.left(), why),
         };
         let main = if round.cell.takes_main && matches!(begun, Begun::Anew(..)) {
             self.caught_up(round, &place, of).await?
@@ -636,11 +636,7 @@ impl Inner {
         // session holds and cost is worked out with the ping in.
         let lock = self.lock(round.work, line);
         let _one = lock.lock().await;
-        let InSession {
-            number,
-            mut begin,
-            before,
-        } = cli::in_session(flow, work, line, round.run, round.number);
+        let InSession { number, mut begin } = cli::in_session(flow, work, line, round.run, round.number);
         let session = session::session(self.installation, round.work, line, number);
         // What the round is judged by while it runs: the prompt its session last had, and whether the owner let it run
         // past the guard.
@@ -671,9 +667,6 @@ impl Inner {
             // which no process of the engine saw ([`Inner::left`]). Nothing is given the session again.
             Begun::Left(left) => {
                 let left = *left;
-                if left.anew {
-                    begin = Begin::New;
-                }
                 (None, left.stream, String::new(), left.compactions)
             }
             Begun::Anew(token, under, on) => {
@@ -809,7 +802,7 @@ impl Inner {
                     let compactions = marked(&compacted.marks).await;
                     let halted = crossed.is_some() && guard.stops();
                     let ended = matches!(&ran, Ok(Ran::Ended { .. }));
-                    let priced = halted || (ended && !kept.stream.has_result() && kept.stream.priced().is_some());
+                    let priced = halted || (ended && kept.stream.estimated());
                     let measures = kept.measures(given, before, crossed.is_some(), priced);
                     tell_try(teller, line, n, compactions, measures);
                     // What the program left running in its group, stopped as it ended, is counted with the try, before
@@ -874,7 +867,7 @@ impl Inner {
             Vec::new()
         });
         let had_result = stream.has_result();
-        let read = stream.read(begin, before, &of.beside.cost.program).map(|mut read| {
+        let read = stream.read(&of.beside.cost.program).map(|mut read| {
             read.spent.compactions = compactions;
             read
         });
@@ -1218,7 +1211,7 @@ impl Inner {
         let measured = (work.measured.iter()).any(|m| m.run == round.run && m.round == round.number && m.attempt == n);
         // A stream kept before the start of each call was kept with it tells the calls' cost and not their prompts:
         // its measures are not known, and none are said, which no record would tell from a try that made no call.
-        let starts = stream.own.count > 0 || stream.priced().is_none();
+        let starts = stream.own.count > 0 || stream.took().is_none();
         if !starts {
             eprintln!(
                 "{}: the try {n} of the round {} of run {} kept no start of its calls: what they came to is not \
@@ -1226,7 +1219,7 @@ impl Inner {
                 round.work, round.number, round.run.0
             );
         }
-        let priced = !stream.has_result() && stream.priced().is_some();
+        let priced = stream.estimated();
         let measures = (!measured && starts)
             .then(|| measures(&stream, given, before, crossing.is_some(), priced))
             .flatten();
@@ -1257,7 +1250,6 @@ impl Inner {
             stream,
             compactions,
             guarded,
-            anew: lost_in(work, line, round),
         }))
     }
 
@@ -1267,7 +1259,7 @@ impl Inner {
     /// ended. What cannot be read is said on the standard error, and taken as nothing.
     async fn left_spent(&self, round: &Round, teller: Option<&Teller>) -> Spent {
         match self.left(round, teller).await {
-            Ok(Some(left)) => spent_of(round, round.cell.line.as_deref().unwrap_or_default(), left),
+            Ok(Some(left)) => spent_of(left),
             Ok(None) => Spent::default(),
             Err(why) => {
                 eprintln!("{}: what the stopped round's try took was not read: {why}", round.work);
@@ -1569,8 +1561,6 @@ impl Inner {
             &token,
             true,
         );
-        // What the session cost before the ping: its rounds' and its earlier pings'.
-        let before = cli::in_session(flow, work, line, run, number + 1).before;
         let message = cli::stdin(&said.message);
         // The ping is given what is left of the cache's life after it was due.
         let left = (self.settings.cache_ms())
@@ -1597,7 +1587,7 @@ impl Inner {
         let _ = tokio::fs::remove_file(&compacted.again).await;
         let priced = || Spent {
             compactions: marks,
-            ..stream.priced().unwrap_or_default()
+            ..stream.took().unwrap_or_default()
         };
         let Ran::Ended {
             status,
@@ -1610,7 +1600,7 @@ impl Inner {
             return Err((fill(&said.stopped, &[("minutes", &minutes)]), priced()));
         };
         *left_running = stopped;
-        let spent = cli::took(&lines, Begin::Resume, before).unwrap_or_else(priced);
+        let spent = cli::took(&lines).unwrap_or_else(priced);
         let spent = Spent {
             compactions: marks,
             ..spent
@@ -1807,15 +1797,7 @@ impl Inner {
             .await;
             added.map_err(|why| format!("The work's worktree is gone, and its branch could not stand in: {why}"))?;
         }
-        let asked = self
-            .forked(
-                fork,
-                &made,
-                (&line, of_session),
-                begins.as_deref(),
-                (&place.dir, &token),
-            )
-            .await;
+        let asked = self.forked(fork, &made, begins.as_deref(), (&place.dir, &token)).await;
         if let Some(stand_in) = stand_in.as_mut() {
             stand_in.take_away().await;
         }
@@ -1884,7 +1866,6 @@ impl Inner {
         &self,
         fork: &Fork,
         made: &SessionLine,
-        (line, of_session): (&str, u32),
         begins: Option<&str>,
         (dir, token): (&Path, &Token),
     ) -> Result<Forking, ForkFailed> {
@@ -1937,9 +1918,6 @@ impl Inner {
                 token,
             ))
             .current_dir(dir);
-        // The program counts a session it goes on with from all it cost, whatever message the fork begins at.
-        let line_of = |cell: &CellId| fork.outline.cell(cell).and_then(|c| c.line.clone());
-        let before = session_cost(&line_of, &fork.kept, line, of_session);
         let mut stream = cli::Stream::default();
         let mut lines = Vec::new();
         let mut each = |line: &[u8]| {
@@ -1967,7 +1945,7 @@ impl Inner {
         else {
             return Err(ForkFailed {
                 why: "The fork's program was stopped before it ended.".to_string(),
-                spent: stream.priced(),
+                spent: stream.took(),
                 left: 0,
             });
         };
@@ -1985,7 +1963,7 @@ impl Inner {
             }
             return Err(ForkFailed {
                 why: format!("{why}."),
-                spent: stream.priced(),
+                spent: stream.took(),
                 left,
             });
         }
@@ -1997,7 +1975,7 @@ impl Inner {
             .and_then(|v| v["result"].as_str().map(str::to_string))
             .unwrap_or_default();
         let of = crate::projects::of(&self.projects, &fork.item)?;
-        let (answer, spent) = match cli::read(&lines, Begin::Resume, before, &of.beside.cost.program) {
+        let (answer, spent) = match cli::read(&lines, &of.beside.cost.program) {
             Ok(read) => (Some(read.structured.to_string()), read.spent),
             // Neither a return nor words: why is what the stream and the program's end say.
             Err(no) if text.is_empty() => {
@@ -2011,11 +1989,11 @@ impl Inner {
                 }
                 return Err(ForkFailed {
                     why: flow::agents::sentence(&format!("The fork wrote no answer: {why}")),
-                    spent: no.spent.or_else(|| stream.priced()),
+                    spent: no.spent.or_else(|| stream.took()),
                     left,
                 });
             }
-            Err(no) => (None, no.spent.unwrap_or_else(|| stream.priced().unwrap_or_default())),
+            Err(no) => (None, no.spent.unwrap_or_else(|| stream.took().unwrap_or_default())),
         };
         let kept = answer.clone().unwrap_or_else(|| text.clone());
         write(&at("answer"), kept.as_bytes()).await?;
@@ -2092,24 +2070,6 @@ async fn removed(project: &Project, place: &git::Place, work: WorkNumber) {
     if let Err(why) = git::remove(project, place).await {
         eprintln!("The checkout {work} was forked in could not be taken away: {why}");
     }
-}
-
-/// What the line's session of this number cost before now, in millionths of a dollar: its rounds and its keep-warm
-/// pings, which the program's result counts in the session's total.
-fn session_cost(line_of: &dyn Fn(&CellId) -> Option<String>, work: &Work, line: &str, of_session: u32) -> u64 {
-    let on_line = |run: RunId| {
-        let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
-        cell.and_then(line_of).as_deref() == Some(line)
-    };
-    let in_it =
-        |run: RunId, k: usize| work::sessions::number_at(work, line, work::sessions::start(work, run, k)) == of_session;
-    let rounds = (work.spent.iter())
-        .filter(|((run, k), _)| on_line(*run) && in_it(*run, *k))
-        .map(|(_, spent)| spent.usd_micros);
-    let pings = (work.pinged.iter())
-        .filter(|p| p.line == line && p.session == of_session)
-        .map(|p| p.spent.usd_micros);
-    rounds.chain(pings).sum()
 }
 
 /// Where the work's spend and time are counted from, as its history judges them: the place where it was last let on
@@ -2423,8 +2383,6 @@ struct Left {
     compactions: u32,
     /// Where it went past a signal the run guard stops a round on and printed no result, the round's failure for it.
     guarded: Option<Carried>,
-    /// Whether it ran after a try of the round found the session lost, and so began it again under its id.
-    anew: bool,
 }
 
 /// Says to the loop what came of the try of this number: each of these compactions of the session during it as the
@@ -2451,17 +2409,15 @@ fn guarded(
     let why = crossing.words(words, &stream.tools, again);
     let spent = Spent {
         compactions,
-        ..stream.priced().unwrap_or_default()
+        ..stream.took().unwrap_or_default()
     };
     Carried::Failed(why, Failure::Guarded, failure::Said::default(), spent)
 }
 
 /// What a try the process of the engine that gave it left took, as what it kept of its stream says: what its result
 /// says, where it printed one, or else its calls at their models' prices; with its compactions.
-fn spent_of(round: &Round, line: &str, left: Left) -> Spent {
-    let InSession { begin, before, .. } = cli::in_session(&round.flow, &round.kept, line, round.run, round.number);
-    let begin = if left.anew { Begin::New } else { begin };
-    let spent = left.stream.took(begin, before).unwrap_or_default();
+fn spent_of(left: Left) -> Spent {
+    let spent = left.stream.what_it_took().unwrap_or_default();
     Spent {
         compactions: left.compactions,
         ..spent
@@ -2471,14 +2427,14 @@ fn spent_of(round: &Round, line: &str, left: Left) -> Spent {
 /// A round that fails, for this reason, before its program could be run: as any such round, where it has no try a
 /// process of the engine that ended left; else as a failure of the kind any such round's is, having taken what that
 /// try took, which is the round's.
-fn failed_before(round: &Round, line: &str, left: Option<Left>, why: String) -> Result<Carried, String> {
+fn failed_before(left: Option<Left>, why: String) -> Result<Carried, String> {
     match left {
         None => Err(why),
         Some(left) => Ok(Carried::Failed(
             why,
             Failure::Other,
             failure::Said::default(),
-            spent_of(round, line, left),
+            spent_of(left),
         )),
     }
 }
@@ -2503,7 +2459,7 @@ async fn left_try(base: &Path) -> Option<(usize, cli::Stream)> {
     for line in printed.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
         stream.line(line);
     }
-    let said = stream.began() || stream.priced().is_some() || stream.has_result();
+    let said = stream.began() || stream.took().is_some() || stream.has_result();
     (said && stream.refusal().is_none()).then_some((last, stream))
 }
 
@@ -2744,6 +2700,7 @@ mod tests {
                 "main",
                 "start",
                 "head",
+                "test_times",
                 "tree",
                 "words",
             ]),
@@ -2807,14 +2764,14 @@ mod tests {
 
     /// What the stand-in program of the fork tests prints for the two messages a fork is given, the first answered with a
     /// return and the second with the answer: the start, the week's usage, the first message's call, read mostly from
-    /// the cache, and its result, then the question's call and its result, the session's total being $0.50.
+    /// the cache, and its result, then the question's call and its result; the first message spent $0.20 and the question $0.30, which the session's total, $0.50, is the sum of.
     const FORK_STREAM: [&str; 6] = [
         r#"{"type":"system","subtype":"init","claude_code_version":"9.9.9"}"#,
         r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"seven_day":{"utilization":0.67,"resetsAt":1795129200,"status":"allowed"}}}}"#,
         r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":9000}}},"parent_tool_use_id":null}"#,
-        r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.2,"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":9000,"output_tokens":10},"structured_output":{"outcome":{"observations":["Waiting."]}}}"#,
+        r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.2,"model_usage_since_last_result":{"m":{"costUSD":0.2}},"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":9000,"output_tokens":10},"structured_output":{"outcome":{"observations":["Waiting."]}}}"#,
         r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9100}}},"parent_tool_use_id":null}"#,
-        r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.5,"usage":{"input_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9100,"output_tokens":20},"structured_output":{"outcome":{"observations":["The task reads two ways."]}}}"#,
+        r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.5,"model_usage_since_last_result":{"m":{"costUSD":0.3}},"usage":{"input_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9100,"output_tokens":20},"structured_output":{"outcome":{"observations":["The task reads two ways."]}}}"#,
     ];
 
     /// The stand-in program of the fork tests in this directory: it keeps its arguments, where it ran and what it found
@@ -3063,9 +3020,9 @@ mod tests {
         for gone in ["compacted", "again.md", "words.json"] {
             assert!(!kept(1, gone).exists(), "{gone}");
         }
-        // The program's result says the session's total: the fork cost what it adds to what the session cost before,
-        // its rounds and its pings, and not a later session's of the line; it held what its last round's prompt held.
-        // The ping, at six thousand seconds, was the session's last call.
+        // What the session cost before, its rounds and its pings, does not change what the fork cost: the program's
+        // results say what each message spent; it held what its last round's prompt held. The ping, at six thousand
+        // seconds, was the session's last call.
         let mut paid = (*fork.kept).clone();
         paid.sessions.push(work::Session {
             at: Seq(6),
@@ -3090,7 +3047,7 @@ mod tests {
             ..fork.clone()
         };
         let forked = agents.inner.fork(&again).await.expect("asked again");
-        assert_eq!(forked.spent.usd_micros, 350_000);
+        assert_eq!(forked.spent.usd_micros, 500_000);
         assert_eq!(forked.held, Some(10_000));
         assert_eq!(forked.expired, Some(6));
         assert!(forked.later.is_empty());
@@ -3165,15 +3122,15 @@ mod tests {
         assert_eq!(failed.left, 1, "what the fork's program left is counted");
     }
 
-    // A fork that ran and made no return says what it cost: the program's total less what the session cost before,
-    // and the tokens of both messages; and how many processes its program left running, which were stopped. One fork
-    // of a stand-in program: a few tens of milliseconds, the leftover's ending on TERM a few more.
+    // A fork that ran and made no return says what it cost: what its two results say they spent, and the tokens of both
+    // messages; and how many processes its program left running, which were stopped. One fork of a stand-in program: a
+    // few tens of milliseconds, the leftover's ending on TERM a few more.
     #[tokio::test]
     async fn a_fork_that_ran_and_gave_no_answer_gives_what_it_cost() {
         let dir = tempfile::tempdir().expect("a directory");
         let data = std::path::absolute(dir.path()).expect("absolute");
         let (agents, _repo, fork) = forking(&data);
-        let error = r#"{"type":"result","subtype":"error_during_execution","is_error":true,"total_cost_usd":0.4,"usage":{"input_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9100,"output_tokens":20}}"#;
+        let error = r#"{"type":"result","subtype":"error_during_execution","is_error":true,"total_cost_usd":0.4,"model_usage_since_last_result":{"m":{"costUSD":0.2}},"usage":{"input_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9100,"output_tokens":20}}"#;
         write_program(
             &data,
             &[
@@ -3324,11 +3281,11 @@ mod tests {
         let args: Vec<&str> = args.lines().collect();
         assert_eq!(args[args.len() - 3..], ["--fork-session", "--resume-session-at", "u-1"]);
         // It held what the round asked of ended with, and is told the round and the later rounds it left out; it cost
-        // what the program's total adds to all the session cost before, the later round's and the pings' among it.
+        // what its two messages' results say, whatever the later round and the pings cost.
         assert_eq!(forked.held, Some(4_000));
         assert_eq!(forked.round, (RunId(7), 1));
         assert_eq!(forked.later, [(RunId(8), 1)]);
-        assert_eq!(forked.spent.usd_micros, 180_000);
+        assert_eq!(forked.spent.usd_micros, 500_000);
         // The first ping, at two thousand seconds, read what the round left from the cache, and the cache kept it an
         // hour after; the second read the first's.
         assert_eq!(forked.expired, Some(73));
@@ -3728,16 +3685,16 @@ mod tests {
         )
     }
 
-    /// A line of a stream: the program's result, the session having cost this much in all, in dollars.
-    fn result(total: &str) -> String {
+    /// A line of a stream: the program's result, which spent this much, in dollars, the session having cost $9.99 in all.
+    fn result(spent: &str) -> String {
         format!(
-            r#"{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{total},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}},"structured_output":{{"outcome":{{}}}}}}"#
+            r#"{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":9.99,"model_usage_since_last_result":{{"m":{{"costUSD":{spent}}}}},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}},"structured_output":{{"outcome":{{}}}}}}"#
         )
     }
 
     /// A work whose run 7, of R2, began its first round at 5 and ran its first try at 6, after an earlier run of R2, 6,
-    /// had ended a round that cost a cent; with `lost`, that try found the session lost at 7.
-    fn left_work(lost: bool) -> Work {
+    /// had ended a round that cost a cent.
+    fn left_work() -> Work {
         let mut work = Work::default();
         let started = |run: u64, at: u64| decide::Started {
             run: RunId(run),
@@ -3780,14 +3737,6 @@ mod tests {
                 account: None,
             },
         });
-        if lost {
-            let line = "engineer".to_string();
-            work.sessions.push(work::Session {
-                at: Seq(7),
-                line,
-                why: Why::Lost,
-            });
-        }
         work
     }
 
@@ -3849,7 +3798,7 @@ mod tests {
     async fn a_left_try_is_told_once_what_the_records_do_not_hold_of_it() {
         let stream = [INIT.to_string(), start(1_000), called(1)];
         let dir = tempfile::tempdir().unwrap();
-        let mut kept = left_work(false);
+        let mut kept = left_work();
         kept.sessions.push(work::Session {
             at: Seq(8),
             line: "engineer".to_string(),
@@ -3868,7 +3817,7 @@ mod tests {
         assert_eq!(told(&mut heard), (Vec::new(), 1, true));
 
         let dir = tempfile::tempdir().unwrap();
-        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        let (agents, round) = given_round_of(dir.path(), left_work(), Default::default());
         left_by_an_engine(&agents, &round, &stream, 2);
         let (carried, mut heard) = carried(&agents, &round).await;
         assert_eq!(told(&mut heard), (vec![1], 2, true));
@@ -3898,7 +3847,7 @@ mod tests {
             ..Default::default()
         };
         let dir = tempfile::tempdir().unwrap();
-        let (agents, round) = given_round_of(dir.path(), left_work(false), lines);
+        let (agents, round) = given_round_of(dir.path(), left_work(), lines);
         let stream = [INIT.to_string(), start(1_000), called(1), start(5_000), called(2)];
         left_by_an_engine(&agents, &round, &stream, 0);
         let (carried, _) = carried(&agents, &round).await;
@@ -3906,23 +3855,6 @@ mod tests {
             panic!("the round did not fail");
         };
         assert_eq!(failure, Failure::Guarded, "{why}");
-    }
-
-    // A left try after one that found the session lost began it again under its id: its result costs the whole of the
-    // session's total, as of a session begun, not that less what the line's earlier rounds cost. Well under a second
-    // alone; no other test holds how a left try begun anew is read.
-    #[tokio::test]
-    async fn a_left_try_after_its_session_was_found_lost_is_read_as_beginning_it() {
-        let stream = [INIT.to_string(), start(1_000), called(1), result("0.03")];
-        let dir = tempfile::tempdir().unwrap();
-        let (agents, round) = given_round_of(dir.path(), left_work(true), Default::default());
-        left_by_an_engine(&agents, &round, &stream, 0);
-        let (carried, _) = carried(&agents, &round).await;
-        let spent = match carried {
-            Carried::Came(_, spent) | Carried::Failed(_, _, _, spent) => spent,
-            Carried::Stopped => panic!("the round was stopped"),
-        };
-        assert_eq!(spent.usd_micros, 30_000);
     }
 
     // A left try whose stream is only a result saying that its session is not found, as version 2.1.327 prints it, was
@@ -3937,12 +3869,12 @@ mod tests {
         };
         let lost = failed("No conversation found with session ID: 00000000-0000-5000-8000-000000000001");
         let dir = tempfile::tempdir().unwrap();
-        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        let (agents, round) = given_round_of(dir.path(), left_work(), Default::default());
         left_by_an_engine(&agents, &round, &[lost], 0);
         assert!(agents.inner.left(&round, None).await.expect("it is read").is_none());
 
         let dir = tempfile::tempdir().unwrap();
-        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        let (agents, round) = given_round_of(dir.path(), left_work(), Default::default());
         left_by_an_engine(&agents, &round, &[failed("Prompt is too long")], 0);
         assert!(agents.inner.left(&round, None).await.expect("it is read").is_some());
     }
@@ -3953,7 +3885,7 @@ mod tests {
     #[tokio::test]
     async fn a_left_stream_that_kept_no_start_of_its_calls_says_no_measures() {
         let dir = tempfile::tempdir().unwrap();
-        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        let (agents, round) = given_round_of(dir.path(), left_work(), Default::default());
         left_by_an_engine(&agents, &round, &[INIT.to_string(), called(1)], 0);
         let (carried, mut heard) = carried(&agents, &round).await;
         assert_eq!(told(&mut heard).0, Vec::<usize>::new());
@@ -3969,7 +3901,7 @@ mod tests {
     #[tokio::test]
     async fn a_round_stopped_after_its_engine_ended_takes_what_its_left_try_took() {
         let dir = tempfile::tempdir().unwrap();
-        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        let (agents, round) = given_round_of(dir.path(), left_work(), Default::default());
         left_by_an_engine(&agents, &round, &[INIT.to_string(), start(1_000), called(1)], 0);
         let (to, mut heard) = tokio::sync::mpsc::unbounded_channel();
         let reply = RoundReply::new(round.work, round.run, to);
@@ -4002,7 +3934,7 @@ mod tests {
     #[tokio::test]
     async fn a_round_given_here_and_stopped_as_its_carrying_ends_tells_nothing_of_its_try_again() {
         let dir = tempfile::tempdir().unwrap();
-        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        let (agents, round) = given_round_of(dir.path(), left_work(), Default::default());
         left_by_an_engine(&agents, &round, &[INIT.to_string(), start(1_000), called(1)], 1);
         let (to, mut heard) = tokio::sync::mpsc::unbounded_channel();
         let key = (round.work, round.run, round.number);
@@ -4055,7 +3987,7 @@ mod tests {
     #[tokio::test]
     async fn a_round_stopped_after_its_engine_ended_takes_what_its_left_try_s_result_says() {
         let dir = tempfile::tempdir().unwrap();
-        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        let (agents, round) = given_round_of(dir.path(), left_work(), Default::default());
         let stream = [INIT.to_string(), start(1_000), called(1), result("0.03")];
         left_by_an_engine(&agents, &round, &stream, 0);
         let (to, mut heard) = tokio::sync::mpsc::unbounded_channel();
@@ -4068,8 +4000,8 @@ mod tests {
             _ => None,
         })
         .await;
-        // The session's $0.03 in all, less the cent its line's earlier round cost; its call at its price is 800.
-        assert_eq!(spent.usd_micros, 20_000);
+        // What the result says it spent, $0.03, whatever the session cost in all; its call at its price is 800.
+        assert_eq!(spent.usd_micros, 30_000);
     }
 
     // The kind of a failed round and when its usage limit resets are told by what the program reported, and no word of
@@ -4122,7 +4054,7 @@ mod tests {
             "api_error_status": 429, "api_error": "usage_limit_reached", "terminal_reason": "api_error",
             "total_cost_usd": 0.0, "result": "You've hit your weekly limit · resets 11pm" });
         let dir = tempfile::tempdir().unwrap();
-        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        let (agents, round) = given_round_of(dir.path(), left_work(), Default::default());
         left_by_an_engine(
             &agents,
             &round,
