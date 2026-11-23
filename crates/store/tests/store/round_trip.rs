@@ -237,3 +237,30 @@ fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_
     assert_eq!(rows["filled"].len(), 5);
     assert!(new.filled.iter().any(|f| f.attempt == 2));
 }
+
+// A cause recorded before the version the cell last worked from was recorded in it has none and reads back as it was
+// kept; one recorded with it reads back as written (records are only added to, so those of before are read all the
+// same).
+#[test]
+fn a_cause_kept_without_the_version_worked_from_reads_back_with_none_and_one_kept_with_it_as_written() {
+    use decide::{Cause, Seq};
+    let kept = r#"{"Changed":{"block":"plan","was":3,"behind":false}}"#;
+    let old: Cause = serde_json::from_str(kept).expect("a cause kept before reads");
+    assert_eq!(
+        old,
+        Cause::Changed {
+            block: "plan".into(),
+            was: Some(Seq(3)),
+            worked: None,
+            behind: false,
+        }
+    );
+    let new = Cause::Changed {
+        block: "plan".into(),
+        was: Some(Seq(3)),
+        worked: Some(Seq(5)),
+        behind: true,
+    };
+    let text = serde_json::to_string(&new).expect("it is JSON");
+    assert_eq!(serde_json::from_str::<Cause>(&text).expect("it reads back"), new);
+}

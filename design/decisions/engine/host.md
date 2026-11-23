@@ -54,6 +54,10 @@ The local host runs the project's check command on a clean checkout of the commi
 A work's pull request is a draft until just before its merge, and its body is what the work wrote in the blocks the check names, with nothing in it left that GitHub would act on.
 - replaced: One fixed paragraph as the body of every pull request was on main; the owner changed it, because GitHub then showed nothing of what changed.
 
+### decision a-continued-open-pull-request-is-closed
+Once a continuing work's own pull request is open, the engine closes the open pull request into main of what the item continued, with a comment naming the new one; a work's own is never closed.
+- rejected: an agent proposed leaving the old pull request open for the owner, the replacement written only in the work's text; the owner rejected it, because two pull requests would stay open for one change, and GitHub would not show which replaced which.
+
 ### decision a-merge-is-named-by-its-works-line
 A work's merge, its pull request and the commit it makes, is named by the first line of the block the flow's merge names, which the cell that writes the code writes in English.
 - replaced: The item's title naming the pull request and the merge's commit was on main; the owner changed it, because the repository is written only in English, and items are in the owner's language.

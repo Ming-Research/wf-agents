@@ -164,6 +164,7 @@ fn first(title: &str, level: &str, depends_on: &[store::ItemNumber]) -> store::F
         project: Some("one".to_string()),
         depends_on: depends_on.to_vec(),
         tags: Vec::new(),
+        continues: None,
     }
 }
 

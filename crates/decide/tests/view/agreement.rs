@@ -43,6 +43,7 @@ fn what_a_cell_needs_is_the_reasons_the_walk_gives_when_it_runs_that_cell() {
         vec![Cause::Changed {
             block: "background".into(),
             was: Some(background),
+            worked: Some(background),
             behind: false,
         }]
     );
