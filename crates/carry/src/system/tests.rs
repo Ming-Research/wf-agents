@@ -17,6 +17,18 @@ fn beside() -> Agents {
     flow::agents::read(&root()).expect("the files beside the flows are read")
 }
 
+/// The repository's own declaration, `wf-agents.toml` at its root, read as the engine reads a project's.
+fn declaration() -> Declaration {
+    let text = std::fs::read_to_string(root().join("../wf-agents.toml")).expect("the declaration is read");
+    Declaration::read(&text, flow::agents::DECLARATION, &beside()).expect("the repository's declaration is one")
+}
+
+/// Every fault the texts have, the flow's and the project's together.
+fn said(settings: &Settings, beside: &Agents, declaration: &Declaration, flow: &Compiled) -> Vec<String> {
+    let found = faults(settings, beside, declaration, flow);
+    [found.of_flow, found.of_project].concat()
+}
+
 /// The engineer's flow, compiled against what the engine has for it.
 fn engineer() -> Compiled {
     let source = flow::read(&root().join("engineer")).expect("the engineer's flow is read");
@@ -30,6 +42,7 @@ fn engineer() -> Compiled {
             "main",
             "start",
             "head",
+            "test_times",
             "tree",
             "words",
         ]),
@@ -48,7 +61,7 @@ fn settings() -> Settings {
     settings
 }
 
-/// The project's files, by their paths in `project.toml`.
+/// The project's files, by their paths in its declaration.
 fn project(path: &str) -> std::io::Result<String> {
     match path {
         "AGENTS.md" => Ok("# Working here\n\nThe guide.\n".to_string()),
@@ -77,18 +90,19 @@ fn cell<'a>(flow: &'a Compiled, line: &str) -> &'a CellSpec {
 }
 
 fn of(line: &str) -> String {
-    let (settings, beside, flow) = (settings(), beside(), engineer());
+    let (settings, beside, declaration, flow) = (settings(), beside(), declaration(), engineer());
     let cell = cell(&flow, line);
-    let protected = &beside.project.protected.paths;
-    let tests = cell.tests_only.then(|| crate::tests_only::paths(&beside.project));
+    let protected = &declaration.protected.paths;
+    let tests = cell.tests_only.then(|| crate::tests_only::paths(&declaration));
     let permissions = Permissions::of(cell.reads_only, &[], &[], &Default::default());
     let your_line = permissions.told(&beside.your_line, protected, tests);
-    of_line(&beside, &filling(&settings, &beside), &flow, cell, &your_line, project).expect("it is made")
+    let filling = filling(&settings, &beside, &declaration);
+    of_line(&beside, &declaration, &filling, &flow, cell, &your_line, project).expect("it is made")
 }
 
 // The system prompt holds, in the order `session.toml` names them, the project's files each headed by its path, the
 // line's own sets of rules, the engine's words with what the line may do filled in, and how a cell returns; each
-// setting they name, but in the project's files, with its value from the settings or from `project.toml`.
+// setting they name, but in the project's files, with its value from the settings or from its declaration.
 #[test]
 fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_name() {
     let engineer = of("engineer");
@@ -112,7 +126,13 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
         ),
         "{engineer}"
     );
-    assert!(engineer.contains("`.github/workflows/`: change what is there only where the work needs it. Never"));
+    assert!(
+        engineer.contains(
+            "`.github/workflows/` and `wf-agents.toml`: change what is there only where the work needs it. \
+             Never"
+        ),
+        "{engineer}"
+    );
     assert!(
         engineer.contains("\n- `protected_changes`: for each file the project protects"),
         "{engineer}"
@@ -139,7 +159,7 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
 // words write it, whatever the lines break.
 #[test]
 fn the_words_of_run_tests_name_the_projects_naming_of_tests_with_one_short_phrase_beside_it() {
-    let value = beside().project.project["test_names"].clone();
+    let value = declaration().project["test_names"].clone();
     assert!(
         value.len() <= 250 && !value.contains('\n') && !value.contains(". "),
         "{value}"
@@ -173,7 +193,7 @@ fn no_system_prompt_tells_what_a_marked_block_is_and_every_one_tells_what_a_poin
 }
 
 // The tester's line changes only the project's tests, as its file says: its system prompt tells it so, with the paths
-// `project.toml` names for them, and the paths the project protects after them.
+// its declaration names for them, and the paths the project protects after them.
 #[test]
 fn the_testers_system_prompt_says_it_changes_only_the_projects_tests() {
     let tester = of("tester");
@@ -191,26 +211,27 @@ fn the_testers_system_prompt_says_it_changes_only_the_projects_tests() {
 }
 
 // A line that changes only the project's tests is held to the paths its project's declaration names for them: a
-// declaration that names none keeps the engine from starting, said of the line.
+// declaration that names none holds that project, said of the line, and is no fault of the flow's.
 #[test]
-fn a_line_that_changes_only_the_tests_of_a_project_that_names_none_is_refused_as_the_engine_starts() {
+fn a_line_that_changes_only_the_tests_of_a_project_that_names_none_is_the_projects_fault() {
     let (beside, flow) = (beside(), engineer());
-    let fault = "flow engineer: the line tester changes only the project's tests, and project.toml names none in \
+    let fault = "flow engineer: the line tester changes only the project's tests, and wf-agents.toml names none in \
                  [tests] paths";
     for declared in [None, Some(Vec::new())] {
-        let mut beside = beside.clone();
+        let mut declaration = declaration();
         match declared {
-            None => beside.project.tests = None,
+            None => declaration.tests = None,
             Some(paths) => {
-                beside
-                    .project
+                declaration
                     .tests
                     .as_mut()
                     .expect("the project declares its tests")
                     .paths = paths
             }
         }
-        assert_eq!(faults(&settings(), &beside, &flow), [fault]);
+        let found = faults(&settings(), &beside, &declaration, &flow);
+        assert_eq!(found.of_project, [fault]);
+        assert_eq!(found.of_flow, Vec::<String>::new());
     }
 }
 
@@ -219,12 +240,18 @@ fn a_line_that_changes_only_the_tests_of_a_project_that_names_none_is_refused_as
 #[test]
 fn a_line_that_changes_only_the_tests_of_a_flow_with_no_head_is_refused_as_the_engine_starts() {
     let mut flow = engineer();
-    assert!(faults(&settings(), &beside(), &flow).is_empty());
+    assert_eq!(faults(&settings(), &beside(), &declaration(), &flow), Faults::default());
     flow.blocks
         .retain(|_, block| block.writers.outside.as_deref() != Some(crate::head::HEAD));
     let fault = "flow engineer: the line tester changes only the project's tests, and the flow has no block of the \
                  work's head (`head`), from which what its run changed is read";
-    assert_eq!(faults(&settings(), &beside(), &flow), [fault]);
+    let found = faults(&settings(), &beside(), &declaration(), &flow);
+    assert_eq!(
+        found.of_flow,
+        [fault],
+        "a flow without a head is the flow's fault, whatever the project"
+    );
+    assert_eq!(found.of_project, Vec::<String>::new());
 }
 
 // The guide is a file of the project like the constitution and the tree's rules (design document `data-and-context`,
@@ -232,8 +259,8 @@ fn a_line_that_changes_only_the_tests_of_a_flow_with_no_head_is_refused_as_the_e
 // as the session begins, a change the work made to it before then included.
 #[test]
 fn a_session_begins_with_the_guide_the_worktree_has_as_it_begins() {
-    let (settings, beside, flow) = (settings(), beside(), engineer());
-    let filling = filling(&settings, &beside);
+    let (settings, beside, declaration, flow) = (settings(), beside(), declaration(), engineer());
+    let filling = filling(&settings, &beside, &declaration);
     let dir = tempfile::tempdir().expect("a directory");
     std::fs::create_dir_all(dir.path().join("design")).unwrap();
     for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
@@ -241,7 +268,16 @@ fn a_session_begins_with_the_guide_the_worktree_has_as_it_begins() {
     }
     std::fs::write(dir.path().join("AGENTS.md"), "# Working here\n\nChanged by the work.\n").unwrap();
     let read = |path: &str| read_within(dir.path(), path);
-    let began = of_line(&beside, &filling, &flow, cell(&flow, "engineer"), "", read).expect("it is made");
+    let began = of_line(
+        &beside,
+        &declaration,
+        &filling,
+        &flow,
+        cell(&flow, "engineer"),
+        "",
+        read,
+    )
+    .expect("it is made");
     assert!(
         began.starts_with("# `AGENTS.md`\n\n# Working here\n\nChanged by the work."),
         "{began}"
@@ -280,8 +316,8 @@ fn a_session_keeps_the_system_prompt_and_the_form_it_began_with() {
 // program lost is begun anew under it: either way it keeps the prompt it was first given, though the files changed.
 #[test]
 fn a_session_cut_off_and_begun_again_keeps_its_prompt() {
-    let (settings, beside, flow) = (settings(), beside(), engineer());
-    let filling = filling(&settings, &beside);
+    let (settings, beside, declaration, flow) = (settings(), beside(), declaration(), engineer());
+    let filling = filling(&settings, &beside, &declaration);
     let cell = cell(&flow, "engineer");
     let dir = tempfile::tempdir().expect("a directory");
     let worktree = dir.path().join("worktree");
@@ -291,7 +327,7 @@ fn a_session_cut_off_and_begun_again_keeps_its_prompt() {
     }
     let make = || {
         let read = |path: &str| read_within(&worktree, path);
-        of_line(&beside, &filling, &flow, cell, "", read)
+        of_line(&beside, &declaration, &filling, &flow, cell, "", read)
     };
     let at = kept_at(&dir.path().join("data"), Uuid::nil(), Begun::System);
     // The first try begins the session, and is cut off before the program runs.
@@ -319,7 +355,13 @@ impl Line {
         }
         let settings = settings();
         let project = settings.projects["example"].clone();
-        let of = crate::Of::new(&settings, project, beside(), "refs/heads/main".to_string());
+        let of = crate::Of::new(
+            &settings,
+            project,
+            beside(),
+            declaration(),
+            "refs/heads/main".to_string(),
+        );
         Line {
             dir,
             of,
@@ -426,14 +468,14 @@ fn a_session_whose_new_prompt_cannot_be_made_is_given_otherwise_and_one_whose_ke
 // A project's file that is not in the worktree makes no system prompt: it is said, with its path.
 #[test]
 fn a_projects_file_the_worktree_lacks_is_said() {
-    let (beside, flow) = (beside(), engineer());
+    let (beside, declaration, flow) = (beside(), declaration(), engineer());
     let lacking = |path: &str| match path {
         "design/README.md" => Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
         _ => project(path),
     };
     let cell = cell(&flow, "engineer");
-    let filling = filling(&settings(), &beside);
-    let why = of_line(&beside, &filling, &flow, cell, "", lacking).expect_err("no tree rules");
+    let filling = filling(&settings(), &beside, &declaration);
+    let why = of_line(&beside, &declaration, &filling, &flow, cell, "", lacking).expect_err("no tree rules");
     assert!(
         why.starts_with("design/README.md cannot be read in the work's worktree"),
         "{why}"
@@ -465,13 +507,14 @@ fn a_projects_file_is_never_read_through_a_link() {
 }
 
 // Every fault of every text the flow's agents are sent is said as the engine starts, all at once, each against the
-// file or the thing of the flow that holds the text; none where every setting has a value.
+// file or the thing of the flow that holds the text; none where every setting has a value. A setting of the project's
+// that its declaration gives no value is the project's fault, and holds that project alone.
 #[test]
-fn every_text_sent_naming_a_setting_with_no_value_is_refused_as_the_engine_starts() {
-    let (mut beside, flow) = (beside(), engineer());
-    assert_eq!(faults(&settings(), &beside, &flow), Vec::<String>::new());
+fn every_text_sent_naming_a_setting_with_no_value_is_said_as_the_engine_starts() {
+    let (mut beside, mut declaration, flow) = (beside(), declaration(), engineer());
+    assert_eq!(faults(&settings(), &beside, &declaration, &flow), Faults::default());
     // A setting the rules and two tasks name has no value.
-    beside.project.project.remove("research");
+    declaration.project.remove("research");
     beside.installation.names.push("project.research".to_string());
     let lines = lines(&flow);
     assert_eq!(
@@ -496,7 +539,9 @@ fn every_text_sent_naming_a_setting_with_no_value_is_refused_as_the_engine_start
             "flow engineer: cell {cell}, its task: names the setting `project.research`, which has no value"
         ));
     }
-    assert_eq!(faults(&settings(), &beside, &flow), expected);
+    let found = faults(&settings(), &beside, &declaration, &flow);
+    assert_eq!(found.of_project, expected);
+    assert_eq!(found.of_flow, Vec::<String>::new(), "no fault of the flow's");
 }
 
 // The checks an agent may name to `run_tests` are said as the project declares its fast workflow: the checks it runs by
@@ -504,52 +549,83 @@ fn every_text_sent_naming_a_setting_with_no_value_is_refused_as_the_engine_start
 // engine from starting.
 #[test]
 fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workflow() {
-    let (beside, flow) = (beside(), engineer());
+    let (beside, flow, whole) = (beside(), engineer(), declaration());
     let ways = &beside.tools["run_tests"].places["named_checks"];
-    let told = |beside: &Agents| {
-        assert_eq!(faults(&settings(), beside, &flow), Vec::<String>::new());
+    let told = |declaration: &Declaration| {
+        assert_eq!(faults(&settings(), &beside, declaration, &flow), Faults::default());
         let cell = cell(&flow, "engineer");
-        of_line(beside, &filling(&settings(), beside), &flow, cell, "", project).expect("it is made")
+        let filling = filling(&settings(), &beside, declaration);
+        of_line(&beside, declaration, &filling, &flow, cell, "", project).expect("it is made")
     };
     let declared = |checks: &[&str]| {
-        let mut declared = beside.clone();
-        let ci = declared
-            .project
-            .ci
-            .as_mut()
-            .expect("the project declares its workflows");
+        let mut declared = whole.clone();
+        let ci = declared.ci.as_mut().expect("the project declares its workflows");
         ci.fast.checks = checks.iter().map(|c| c.to_string()).collect();
         declared
     };
-    let fast = told(&beside);
+    let fast = told(&whole);
     assert!(fast.contains("Name checks among `lint`;"), "{fast}");
     assert!(told(&declared(&["lint", "page"])).contains("Name checks among `lint`, `page`;"));
     assert!(told(&declared(&[])).contains(&format!("Name checks among {};", ways["none_named"])));
     // A project that declares no workflows, on GitHub or on the local repository alike.
-    let mut no_fast = beside.clone();
-    no_fast.project.ci = None;
-    let whole = told(&no_fast);
+    let mut no_fast = whole.clone();
+    no_fast.ci = None;
+    let nothing = told(&no_fast);
     assert!(
-        whole.contains(&format!("Name checks among {};", ways["whole"])),
-        "{whole}"
+        nothing.contains(&format!("Name checks among {};", ways["whole"])),
+        "{nothing}"
     );
-    assert!(!whole.contains("{named_checks}"), "{whole}");
+    assert!(!nothing.contains("{named_checks}"), "{nothing}");
     let mut local = settings();
     local.projects.get_mut("example").unwrap().github = None;
-    assert_eq!(faults(&local, &beside, &flow), Vec::<String>::new());
+    assert_eq!(faults(&local, &beside, &whole, &flow), Faults::default());
+}
+
+// What `run_tests` says of measurements is said only where the project declares a workflow that times them, with the
+// project's own setting for how one is named beside it; a project that declares one and gives no such setting is refused as
+// the engine starts, since its agents would be sent the setting's bare name. Milliseconds alone, as the test above it.
+#[test]
+fn run_tests_is_told_of_measurements_only_where_the_project_declares_a_workflow_that_times_them() {
+    let (beside, flow, whole) = (beside(), engineer(), declaration());
+    let told = |declaration: &Declaration| {
+        let cell = cell(&flow, "engineer");
+        let filling = filling(&settings(), &beside, declaration);
+        of_line(&beside, declaration, &filling, &flow, cell, "", project).expect("it is made")
+    };
+    assert_eq!(faults(&settings(), &beside, &whole, &flow), Faults::default());
+    let measuring = told(&whole);
+    assert!(
+        measuring.contains("Add `\"measure\": [...]` to time measurements: name them as `project.measure_names` (A measurement is named by its file in `measure/`"),
+        "{measuring}"
+    );
+    assert!(!measuring.contains("{measure}"), "{measuring}");
+    let mut none = whole.clone();
+    none.ci.as_mut().expect("the project declares its workflows").measure = None;
+    let silent = told(&none);
+    assert!(!silent.contains("to time measurements"), "{silent}");
+    assert!(!silent.contains("{measure}"), "{silent}");
+    // A project that measures says how a measurement is named.
+    let mut lacking = whole.clone();
+    lacking.project.remove("measure_names");
+    assert_eq!(
+        said(&settings(), &beside, &lacking, &flow),
+        [
+            "flow engineer: wf-agents.toml: declares [ci.measure] and gives no `measure_names` in [project], which the words of run_tests name"
+        ]
+    );
 }
 
 // A place the engine does not fill, in the heading a file of the project stands under or in the engine's words, and a
 // set of rules or a tool nothing beside the flows defines, are said as the engine starts, every one of them.
 #[test]
 fn every_place_rule_set_and_tool_that_cannot_be_made_is_said_at_once() {
-    let (mut beside, flow) = (beside(), engineer());
+    let (mut beside, declaration, flow) = (beside(), declaration(), engineer());
     beside.session.heading = "# `{path}` {where}\n\n{text}".to_string();
     beside.rules.remove("engineering");
     beside.tools.remove("run_tests");
     let words = beside.words.values_mut().next().expect("the engine's words");
     words.push_str("\n{unknown}\n");
-    let faults = faults(&settings(), &beside, &flow);
+    let faults = said(&settings(), &beside, &declaration, &flow);
     let engineer: Vec<&String> = (faults.iter())
         .filter(|f| f.starts_with("flow engineer: the system prompt of the line engineer: "))
         .collect();
@@ -569,42 +645,42 @@ fn every_place_rule_set_and_tool_that_cannot_be_made_is_said_at_once() {
     assert!(faults.iter().any(|f| f.contains("of the line tester: ")), "{faults:?}");
 }
 
-// The engine does not start where main, as the host last gave it, lacks a file every system prompt holds, holds it
-// through a symbolic link, or where a file is not named within the repository; each said with its name in
-// `project.toml`.
+// A project is held where main, as the host last gave it, lacks a file every system prompt holds, holds it through a
+// symbolic link, or where a file is not named within the repository; each said with its name in the declaration,
+// `wf-agents.toml`.
 #[test]
 fn a_project_file_main_lacks_or_links_is_said() {
     let repo = crate::git::tests::Repo::new("true");
     let project = repo.project.clone();
-    let mut beside = beside();
-    let missing = project_files(&project, &beside);
+    let (beside, mut declaration) = (beside(), declaration());
+    let missing = project_files(&project, &beside, &declaration);
     assert_eq!(missing.len(), 3, "{missing:?}");
     assert_eq!(
         missing[0],
-        "project.toml: the file guide, AGENTS.md, is not on main, refs/heads/main, where works branch from"
+        "wf-agents.toml: the file guide, AGENTS.md, is not on main, refs/heads/main, where works branch from"
     );
     let dir = &project.repo;
     std::fs::create_dir_all(dir.join("design")).unwrap();
     crate::git::tests::commit(dir, "AGENTS.md", "The guide.\n");
     crate::git::tests::commit(dir, "design/constitution.md", "The constitution.\n");
     assert_eq!(
-        project_files(&project, &beside),
+        project_files(&project, &beside, &declaration),
         [
-            "project.toml: the file tree_rules, design/README.md, is not on main, refs/heads/main, where works branch from"
+            "wf-agents.toml: the file tree_rules, design/README.md, is not on main, refs/heads/main, where works branch from"
         ]
     );
     // A file in the checkout that main does not hold is missing all the same.
     std::fs::write(dir.join("design/README.md"), "Not committed.\n").unwrap();
-    assert_eq!(project_files(&project, &beside).len(), 1);
+    assert_eq!(project_files(&project, &beside, &declaration).len(), 1);
     // A link on main, the file itself or a directory above it, is refused.
     std::fs::remove_file(dir.join("design/README.md")).unwrap();
     std::os::unix::fs::symlink("constitution.md", dir.join("design/README.md")).unwrap();
     crate::git::tests::run(dir, &["add", "design/README.md"]);
     crate::git::tests::run(dir, &["commit", "-q", "-m", "Link the tree's rules"]);
     assert_eq!(
-        project_files(&project, &beside),
+        project_files(&project, &beside, &declaration),
         [
-            "project.toml: the file tree_rules, design/README.md: design/README.md is a symbolic link on main, \
+            "wf-agents.toml: the file tree_rules, design/README.md: design/README.md is a symbolic link on main, \
              refs/heads/main, which no file of the project is read through"
         ]
     );
@@ -613,19 +689,19 @@ fn a_project_file_main_lacks_or_links_is_said() {
     std::os::unix::fs::symlink("real", dir.join("linked")).unwrap();
     crate::git::tests::run(dir, &["add", "linked"]);
     crate::git::tests::run(dir, &["commit", "-q", "-m", "Link a directory"]);
-    beside.project.files.get_mut("tree_rules").unwrap().path = "linked/rules.md".to_string();
+    declaration.files.get_mut("tree_rules").unwrap().path = "linked/rules.md".to_string();
     assert_eq!(
-        project_files(&project, &beside),
+        project_files(&project, &beside, &declaration),
         [
-            "project.toml: the file tree_rules, linked/rules.md: linked is a symbolic link on main, refs/heads/main, \
+            "wf-agents.toml: the file tree_rules, linked/rules.md: linked is a symbolic link on main, refs/heads/main, \
              which no file of the project is read through"
         ]
     );
     // A file not named within the repository is refused before main is looked at.
-    beside.project.files.get_mut("tree_rules").unwrap().path = "../outside.md".to_string();
+    declaration.files.get_mut("tree_rules").unwrap().path = "../outside.md".to_string();
     assert_eq!(
-        project_files(&project, &beside),
-        ["project.toml: the file tree_rules is named by its path within the repository, not \"../outside.md\""]
+        project_files(&project, &beside, &declaration),
+        ["wf-agents.toml: the file tree_rules is named by its path within the repository, not \"../outside.md\""]
     );
 }
 
@@ -635,6 +711,7 @@ fn a_project_file_main_lacks_or_links_is_said() {
 fn the_project_files_are_looked_for_where_works_branch_from() {
     let repo = crate::git::tests::Repo::new("true");
     let mut project = repo.project.clone();
+    let (beside, declaration) = (beside(), declaration());
     project.github = settings().projects["example"].github.clone();
     let dir = &project.repo;
     std::fs::create_dir_all(dir.join("design")).unwrap();
@@ -644,18 +721,18 @@ fn the_project_files_are_looked_for_where_works_branch_from() {
     let remote = project.github.as_ref().unwrap().remote.clone();
     let fetched = format!("refs/remotes/{remote}/main");
     assert_eq!(
-        project_files(&project, &beside()),
+        project_files(&project, &beside, &declaration),
         [format!(
             "{fetched}, main's head where works branch from, is not in the project's repository: the files \
-             project.toml names are not looked for there"
+             wf-agents.toml names are not looked for there"
         )]
     );
     // Main as GitHub last gave it, before the files were committed on the local branch.
     let first = crate::git::tests::run(dir, &["rev-list", "--max-parents=0", "HEAD"]);
     crate::git::tests::run(dir, &["update-ref", &fetched, &first]);
-    assert_eq!(project_files(&project, &beside()).len(), 3);
+    assert_eq!(project_files(&project, &beside, &declaration).len(), 3);
     crate::git::tests::run(dir, &["update-ref", &fetched, "HEAD"]);
-    assert_eq!(project_files(&project, &beside()), Vec::<String>::new());
+    assert_eq!(project_files(&project, &beside, &declaration), Vec::<String>::new());
 }
 
 // The place `{store}` in the words of `query` is filled by `crate::store`: the file's words that the store is not open
@@ -663,21 +740,22 @@ fn the_project_files_are_looked_for_where_works_branch_from() {
 // where it is.
 #[test]
 fn the_store_the_words_of_query_name_is_what_the_settings_say_of_it() {
-    let (beside, flow) = (beside(), engineer());
+    let (beside, declaration, flow) = (beside(), declaration(), engineer());
     let closed = &beside.tools["query"].texts["closed"];
     let cell = cell(&flow, "engineer");
-    let prompt = |filling: &Filling| of_line(&beside, filling, &flow, cell, "", project).expect("it is made");
+    let prompt =
+        |filling: &Filling| of_line(&beside, &declaration, filling, &flow, cell, "", project).expect("it is made");
     let settings = settings();
     assert!(
         !settings.query.open,
         "the store is closed to agents unless the owner opens it"
     );
     assert_eq!(&crate::store(&settings, &beside).unwrap(), closed);
-    let shut = prompt(&filling(&settings, &beside));
+    let shut = prompt(&filling(&settings, &beside, &declaration));
     assert!(shut.contains(&format!("{{\"sql\": \"...\"}}`. {closed}")), "{shut}");
     assert!(!shut.contains("{store}"), "{shut}");
     // What describes the store, as `crate::store` gives it where it is open, reaches the prompt in the same place.
-    let mut open = filling(&settings, &beside);
+    let mut open = filling(&settings, &beside, &declaration);
     open.store = "### `things`\n- `id` INTEGER".to_string();
     let told = prompt(&open);
     assert!(told.contains("### `things`\n- `id` INTEGER"), "{told}");
@@ -697,12 +775,13 @@ const HIDDEN_COLUMNS: [(&str, &str); 5] = [
 // schema keeps and none of the columns it hides.
 #[test]
 fn the_real_store_opened_to_agents_is_described_in_the_system_prompt_without_the_columns_the_schema_hides() {
-    let (beside, flow) = (beside(), engineer());
+    let (beside, declaration, flow) = (beside(), declaration(), engineer());
     let mut open = settings();
     open.query.open = true;
-    assert_eq!(faults(&open, &beside, &flow), Vec::<String>::new());
+    assert_eq!(faults(&open, &beside, &declaration, &flow), Faults::default());
     let cell = cell(&flow, "engineer");
-    let told = of_line(&beside, &filling(&open, &beside), &flow, cell, "", project).expect("it is made");
+    let filling = filling(&open, &beside, &declaration);
+    let told = of_line(&beside, &declaration, &filling, &flow, cell, "", project).expect("it is made");
     let described = crate::store(&open, &beside).expect("the schema hides what agents may not read");
     assert!(told.contains(&described), "{told}");
     assert!(
@@ -729,13 +808,13 @@ fn the_real_store_opened_to_agents_is_described_in_the_system_prompt_without_the
 // value is refused as the engine starts, as in any other text sent.
 #[test]
 fn the_words_of_what_a_cell_returns_naming_a_setting_with_no_value_are_refused_as_the_engine_starts() {
-    let (mut beside, flow) = (beside(), engineer());
+    let (mut beside, mut declaration, flow) = (beside(), declaration(), engineer());
     beside.returns.outputs.none = "This cell writes no block; it reads `project.research`.".to_string();
-    assert_eq!(faults(&settings(), &beside, &flow), Vec::<String>::new());
-    beside.project.project.remove("research");
+    assert_eq!(faults(&settings(), &beside, &declaration, &flow), Faults::default());
+    declaration.project.remove("research");
     beside.installation.names.push("project.research".to_string());
-    let said = "flow engineer: flow/agents/return/return.toml, [outputs]: names the setting `project.research`, which \
-                has no value";
-    let faults = faults(&settings(), &beside, &flow);
-    assert!(faults.iter().any(|f| f == said), "{faults:#?}");
+    let lacks = "flow engineer: flow/agents/return/return.toml, [outputs]: names the setting `project.research`, which \
+                 has no value";
+    let found = faults(&settings(), &beside, &declaration, &flow);
+    assert!(found.of_project.iter().any(|f| f == lacks), "{found:#?}");
 }

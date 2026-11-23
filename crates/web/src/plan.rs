@@ -599,7 +599,8 @@ impl PlanChanges {
         let named = std::iter::once(since.highest).chain(since.read.keys().copied());
         if let Some(missing) = named.filter(|n| *n > 0).find(|n| !held.contains(n)) {
             return Err(Unreadable(format!(
-                "the mark names #{missing}, and the plan has no such item: it is no mark of this plan"
+                "the mark names {}, and the plan has no such item: it is no mark of this plan",
+                store::ItemNumber(missing)
             )));
         }
         let mut queues: Vec<Queue> = Vec::new();
@@ -609,7 +610,8 @@ impl PlanChanges {
             let read = since.read.get(&number).copied().unwrap_or((0, 0));
             if read.0 > kept.item.changes.len() || read.1 > r.cancels.len() + r.reopens.len() {
                 return Err(Unreadable(format!(
-                    "the mark says more was read of #{number} than it has: it is no mark of this plan"
+                    "the mark says more was read of {} than it has: it is no mark of this plan",
+                    store::ItemNumber(number)
                 )));
             }
             let line = |time: u64, why: Option<String>, what: PlanChange| PlanLine {

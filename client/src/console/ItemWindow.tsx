@@ -9,23 +9,23 @@
 // it, `{{name}}`, in a passage of the body or in a message an agent wrote, a later pointer to it being a link to it,
 // and after the last section where no text points to it; drawn as they are: what it asks, as it was written, its
 // options with what each does and what follows, and the one it recommends; one the engine's one list of what waits on
-// the owner names on the red tint, framed in red, the look of every stop, an answered one settled, its options words
-// with the one taken marked and nothing to press. Each is picked by a press on an option and let go by another, and at
-// the end of the last section a button as wide as the body confirms them, which counts the picks, waits until each
-// choice has one and sends each question's answer to the engine; once confirmed, the picks stand, settled; and last,
-// each block the owner may write that keeps the work from going on, drawn as such a question is, its values the
-// options, with a button that writes the one picked), each passage changed since the owner read it marked at its left,
-// and under the body the messages: the owner's and the replies, what the owner said from the window standing under them
-// until a read of the work brings it, and a box to write one to a line of the work's flow, picked above it among those
-// on which the engine has a cell to give the words to, which a passage selected in the body can be quoted into and
-// which names that cell. Under the work's state line, each other stop of the work, in the same
-// look: one sentence of why and the buttons that end it, from the engine's list, and a fault or a stall, which no one
-// waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, and what the work
-// changed, file by file, each opening its diff; the third, Step, everything about the
-// row of the work's history the page chose, else the run the work stands at; the fourth, Usage, what the work used.
-// Each page keeps its own choice of tab. While the window is out, R marks the item read, as its link does, unless a box
-// has the keys. What the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is
-// said under the item it was for, and only there.
+// the owner names on the red tint, framed in red, the look of every stop, an answered one settled, its options words,
+// the number of an item in them a link, with the one taken marked and nothing to press. Each is picked by a press on an
+// option and let go by another, and at the end of the last section a button as wide as the body confirms them, which
+// counts the picks, waits until each choice has one and sends each question's answer to the engine; once confirmed, the
+// picks stand, settled; and last, each block the owner may write that keeps the work from going on, drawn as such a
+// question is, its values the options, with a button that writes the one picked), each passage changed since the owner
+// read it marked at its left, and under the body the messages: the owner's and the replies, what the owner said from
+// the window standing under them until a read of the work brings it, and a box to write one to a line of the work's
+// flow, picked above it among those on which the engine has a cell to give the words to, which a passage selected in
+// the body can be quoted into and which names that cell. Under the work's state line, each other stop of the work, in
+// the same look: one sentence of why and the buttons that end it, from the engine's list, and a fault or a stall, which
+// no one waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, and what
+// the work changed, file by file, each opening its diff; the third, Step, everything about the row of the work's
+// history the page chose, else the run the work stands at; the fourth, Usage, what the work used. Each page keeps its
+// own choice of tab. While the window is out, R marks the item read, as its link does, unless a box has the keys. What
+// the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is said under the
+// item it was for, and only there.
 //
 // What the engine does not give yet comes from the console's made-up data (`mock.ts`), which says what of it is made
 // up, when the page shows the mocks; otherwise the body and the messages are read from the work's blocks, and the rest
@@ -52,6 +52,7 @@ import {
   useState,
 } from 'react';
 
+import { linkItemNumbers, useItemTitles } from '../itemNumbers';
 import { CHOICE_KEYS, useKept } from '../kept';
 import { LevelMark, LinesChanged } from '../marks';
 import { mocksShown } from '../mock-data';
@@ -85,10 +86,12 @@ import {
   type Tone as WorkTone,
   WRITE_WORDS,
   count,
+  itemName,
   stateOf,
   stateParts,
   stoppedAt,
   waitedWords,
+  workName,
 } from '../works/words';
 import { Diff } from './diff';
 import { type ItemStanding, age, dollars, linesOf, standingOf } from './items';
@@ -703,7 +706,7 @@ function ItemView({
     <StopsContext.Provider value={walk}>
       <div className="cw-item" ref={inner} onClick={chooseStop}>
         <header className="drawer-head">
-          <span className="drawer-id">{item.number}</span>
+          <span className="drawer-id">{itemName(item.number)}</span>
           <h2 className="drawer-title">
             {titleHref !== undefined ? (
               <a className="cw-title-link" href={titleHref} title="Open it in the console">
@@ -940,8 +943,8 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
           {waitedWords(x)}
         </span>
       ))}
-      <a href={`#/works/${w.number}`} className="link mono" title={`Open work ${w.number}`}>
-        W{w.number}
+      <a href={`#/works/${w.number}`} className="link mono" title={`Open ${workName(w.number)}`}>
+        {workName(w.number)}
       </a>
       {w.pull != null && (
         <a
@@ -1180,7 +1183,8 @@ function Section({
 
 /// The options of a card that offers them, drawn as choices and told apart by shape from what stands above them: under
 /// a hairline, each a grey frame with a radio mark at its left, the one picked framed in the accent with its mark
-/// filled; the one recommended tagged.
+/// filled; the one recommended tagged. Each option is one button, in which no link can stand, so the number of an item
+/// in its words is plain here and a link once the question is settled (`Settled`).
 function Options({ options, chosen, recommended = null, pick, code = false }: {
   options: { label: string; detail: string }[];
   chosen: number | null;
@@ -1218,12 +1222,14 @@ function Options({ options, chosen, recommended = null, pick, code = false }: {
 
 /// The options of a question answered, which is settled: under the same hairline, each its words alone, with nothing
 /// that can be pressed; the one taken in the text's colour, marked at its left by a drawn tick that says on pointing at
-/// it that it was taken, the others muted; the one recommended tagged.
+/// it that it was taken, the others muted; the one recommended tagged. Nothing here is a button, so the number of an
+/// item in an option's words is a link, as in the other texts of the window.
 function Settled({ options, chosen, recommended }: {
   options: { label: string; detail: string }[];
   chosen: number | null;
   recommended: number | null;
 }) {
+  const titles = useItemTitles();
   return (
     <ul className="cw-options">
       {options.map((o, i) => (
@@ -1231,10 +1237,10 @@ function Settled({ options, chosen, recommended }: {
           {chosen === i ? <TickSign /> : <span className="cw-tick" aria-hidden="true" />}
           <span className="cw-option-text">
             <span className="cw-option-label">
-              {o.label}
+              {linkItemNumbers(o.label, titles)}
               {recommended === i ? <span className="tag cw-tag">Recommended</span> : null}
             </span>
-            {o.detail !== '' && <span className="cw-option-detail">{o.detail}</span>}
+            {o.detail !== '' && <span className="cw-option-detail">{linkItemNumbers(o.detail, titles)}</span>}
           </span>
         </li>
       ))}

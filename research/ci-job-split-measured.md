@@ -54,7 +54,33 @@ The slowest test of five of those runs (the first, and 45205075023, 45202751163,
 each run's artifact `test-results` (`gh run download <id> -n test-results`, the `time` of each `testcase`), took 57,
 68, 60, 68 and 62 s: always `every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell`. The next
 one took 36 to 50 s. A split of the Rust jobs by the tests' time is then limited by `test 2 of 3` at 97 to 137 s, of which
-the longest test is 57 to 68 s; no test took 101 s in any of them.
+the longest test is 57 to 68 s.
+
+## What a full run of main's `ci.yml` took on 2026-11-22 (measured on 2026-11-22 and read again on 2026-11-23)
+
+Eight runs of `ci.yml`, six started by hand and two by a pull request, read with
+`gh api repos/<repository>/actions/runs/<id>/jobs` (job `started_at` to `completed_at`, in seconds):
+
+| Run | page | test 1 | test 2 | test 3 | lint | check |
+|---|---:|---:|---:|---:|---:|---:|
+| 45079169047 | 140 | 87 | 132 | 56 | 24 | 14 |
+| 45078899020 | 149 | 115 | 136 | 77 | 27 | 9 |
+| 45023725440 | 121 | 84 | 100 | 32 | 17 | 7 |
+| 45022581594 | 110 | 71 | 92 | 38 | 20 | 7 |
+| 45021408999 | 112 | 70 | 81 | 36 | 18 | 12 |
+| 45021041042 | 126 | 79 | 113 | 29 | 27 | 17 |
+| 45021043591 | 111 | 93 | 111 | 41 | 23 | 17 |
+| 45023727656 | 103 | 70 | 94 | 37 | 10 | 8 |
+
+The page job is the longest of the run in 6 of the 8, and within 15 s of the longest in the other two. Its steps, in two
+of the runs: type-check 16 and 6 s, lint 7 and 10 s, the tests 81 and 75 s, the build 21 and 22 s. Taken with the eight
+runs above, the page is the longest job in 9 of the 16 runs.
+
+The tests of the three Rust jobs of run 45079169047 (2500 tests in the artifact, read on 2026-11-23 with `gh run download
+45079169047 -n test-results`): the longest, `every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell`,
+took 101.028 s, in the job `test 2 of 3` that took 132 s; the next took 49 s. A job that holds it cannot take less than
+that test, however the others are divided. The same test took 57 to 68 s on 2026-11-23, when the machine was less busy,
+so its time follows the load of the machine.
 
 ## What is not measured
 
@@ -66,7 +92,8 @@ branch's workflow is taken here. These are therefore inferred, not measured:
 - how long a run of only the design tree takes (it runs `scope`, `tree` and `check`, none of which builds anything);
 - whether `scope` says the right thing for the commit the engine gives, a merge of main into the work's branch.
 
-Where they first show: the work's own pull request into main runs the branch's file (`on: pull_request`), so the jobs of
-that run, which changes code, show what `scope` adds and each job's wait for a runner; a run of only the design tree, and
-`scope` on the engine's own request, show on main after the merge (`gh api repos/<repository>/actions/runs/<id>/jobs`, the
-jobs' times). The owner reads them there.
+Where they first show: the pull request of a work's branch is skipped as a whole (`ci.yml`), so the branch's file runs
+before the merge only where the owner dispatches it by hand on the branch. They show in the runs of main's file after the
+merge: the first run the engine asks for on a change of code shows what `scope` adds and each job's wait for a runner,
+and the first on a change of only the design tree shows its wall and the jobs that ran (`gh api
+repos/<repository>/actions/runs/<id>/jobs`, the jobs' times). The owner reads them there.

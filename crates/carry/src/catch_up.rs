@@ -261,7 +261,7 @@ mod tests {
         let Outcome::TookIn { merge, .. } = caught.outcome else {
             panic!("{caught:?}");
         };
-        let host = crate::host::Local::new(repo.project.clone());
+        let host = crate::host::Local::new(repo.project.clone(), repo.check.clone());
         let branch = crate::host::Branch {
             work: WORK,
             title: "Greet the user",

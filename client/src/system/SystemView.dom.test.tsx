@@ -152,6 +152,52 @@ describe('the System view', () => {
     expect(texts(under, 'tbody td:first-child')).toEqual(running.map((i) => `W${i.work.number}`));
   });
 
+  it('says, while a stop of the engine stands, when the engine is expected to end and how long each round has to go', async () => {
+    const s = sources({ slots: 3, taken: 1, paused: null, keepWarm: true, stopping: { since: Date.now(), atOnce: false } });
+    const running = fixtureItems().items.filter((i) => i.work.now.kind === 'round');
+    expect(running.length).toBeGreaterThan(0);
+    s.system.loadSystem = async (weeks) => ({
+      ...fixtureSystem(weeks),
+      underWay: running.map((i, n) => {
+        const now = i.work.now;
+        if (now.kind !== 'round') throw new Error('a round');
+        return {
+          kind: 'round' as const,
+          work: i.work.number,
+          item: i.number,
+          cell: now.cell,
+          run: now.run,
+          round: now.round,
+          began: now.since,
+          time: null,
+          bounds: null,
+          rest: n === 0 ? { kind: 'expected' as const, ms: 12 * 60_000 } : { kind: 'longer' as const },
+        };
+      }),
+      stopping: { since: Date.now(), atOnce: false, rest: { kind: 'expected', ms: 12 * 60_000 } },
+    });
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const now = part(container, 'Now');
+    expect(texts(now, 'dd')[0]).toMatch(
+      /^Stopping since [^:]+:\d\d: no round begins, and the engine ends once the rounds under way have ended, expected in about 12m 0s$/,
+    );
+    const under = now.querySelectorAll('table')[0];
+    expect(texts(under, 'thead th')).toEqual(['Work', 'Item', 'Cell', 'Since', 'To go']);
+    const rests = texts(under, 'tbody td:last-child');
+    expect(rests[0]).toBe('about 12m 0s');
+    expect(rests.slice(1)).toEqual(running.slice(1).map(() => 'longer than any before'));
+  });
+
+  it('says no rest of a round, and nothing of a stop, while no stop stands', async () => {
+    const s = sources();
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const now = part(container, 'Now');
+    expect(texts(now, 'dd')[0]).toBe('Every work goes on');
+    expect(texts(now.querySelectorAll('table')[0], 'thead th')).toEqual(['Work', 'Item', 'Cell', 'Since']);
+  });
+
   it('counts what waits for the owner by the one count, the things that wait, as the bar says it', async () => {
     const s = sources();
     const items = fixtureItems();
@@ -264,10 +310,10 @@ describe('the System view', () => {
     expect(s.asked.at(-1)?.[0]).toBeLessThanOrEqual(earliest);
     expect(s.asked.at(-1)?.[0]).toBeGreaterThan(earliest - 7 * 24 * 60 * 60 * 1000);
     const before = s.asked.length;
-    act(() => s.changed({ works: [41], items: false, copies: false, accounts: false }));
+    act(() => s.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect(s.asked.length).toBe(before + 1);
-    act(() => s.changed({ works: [], items: false, copies: true, accounts: false }));
+    act(() => s.changed({ works: [], items: false, copies: true, accounts: false, observations: false }));
     await settle();
     expect(s.asked.length).toBe(before + 1);
   });

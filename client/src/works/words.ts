@@ -1,6 +1,6 @@
 // The works page's words for what the interface gives as data: what a work does now, what it waits for, why a run
-// ran, why a return was sent back, what a call is, who wrote a version, and what was taken; and the pieces a line of
-// words is made of. Each is worded here once, and every part of the page that shows one takes its words from here; the
+// ran, what a call is, who wrote a version, and what was taken; and the pieces a line of words is made of. Each is
+// worded here once, and every part of the page that shows one takes its words from here; the
 // names of the marks are the table's (`marks.tsx`).
 
 import type {
@@ -17,7 +17,6 @@ import type {
   SessionWhy,
   Spent,
   Summary,
-  Unmet,
   Waited,
   Writer,
 } from '../works-api';
@@ -269,6 +268,10 @@ export function heldWords(service: Outage['service'], failure: Failure, mayMove 
 /// in what was found is marked so (`Coded` draws it).
 export function outageWords(outage: Outage): string | null {
   if (!outage.holds) return null;
+  if (outage.first != null) {
+    const what = outage.service === 'host' ? 'act' : 'round';
+    return `${capital(failureWords(outage.failure))} since ${clock(outage.since)}. It is well again: ${workName(outage.first)}'s ${what} goes first, and the rest begin once it comes back.`;
+  }
   const found = outage.checked?.found;
   const down = outageDown(outage);
   // The check's time, without its day where that is the day the wait began.
@@ -301,22 +304,36 @@ export function waitedWords(waited: Waited): string {
       }`;
     case 'slot':
       return 'a free slot, which the engine gives in its order';
-    case 'agents':
-      return `the agents' rounds to begin again, as ${failureWords(outageDown(waited.outage).failure)}`;
+    case 'agents': {
+      const outage = waited.outage;
+      if (outage.first != null) {
+        const what = outage.service === 'host' ? 'act' : 'round';
+        return `${workName(outage.first)}'s ${what} to come back: it is well again, and that ${what} goes first`;
+      }
+      return `the agents' rounds to begin again, as ${failureWords(outageDown(outage).failure)}`;
+    }
+    case 'stopping':
+      return `the engine to start again, as it was asked to stop at ${clock(waited.since)}`;
     case 'answer':
       return `the owner's answer to the question ${waited.question}`;
     case 'outside':
       return `${waited.source} to move, before ${waited.cell} runs again: ${waited.why}`;
     case 'turn':
-      return `the project's turn to check and merge, which W${waited.holder} holds`;
+      return `the project's turn to check and merge, which ${workName(waited.holder)} holds`;
     case 'items':
       return itemsWords(waited.items);
   }
 }
 
+/// A work's number as the engine writes it in words, everywhere: `W5`.
+export const workName = (number: number): string => `W${number}`;
+
+/// An item's number as the engine writes it in words, everywhere: `#5`.
+export const itemName = (number: number): string => `#${number}`;
+
 /// Items by their numbers, as a line names them: `#5`, `#5 and #7`, `#5, #6 and #7`.
 export function itemsWords(items: number[]): string {
-  const named = items.map((n) => `#${n}`);
+  const named = items.map(itemName);
   return named.length < 2 ? named.join('') : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
 }
 
@@ -398,13 +415,14 @@ function whoGives(w: Waited): string | null {
     }
     case 'slot':
     case 'agents':
+    case 'stopping':
       return 'the engine';
     case 'items':
       return 'the items it depends on';
     case 'outside':
       return w.source;
     case 'turn':
-      return `W${w.holder}`;
+      return workName(w.holder);
     case 'limit':
     case 'calls':
     case 'answer':
@@ -627,78 +645,6 @@ export function causeWords(cause: Cause, wayRound = false): string {
 /// A run is a way round when each of its reasons is a block whose meaning a cell after it last changed.
 export function isWayRound(run: Pick<Run, 'because'>): boolean {
   return run.because.length > 0 && run.because.every((c) => c.kind === 'changed' && c.behind);
-}
-
-/// Why what a round handed in was sent back.
-export function unmetWords(unmet: Unmet): string {
-  switch (unmet.kind) {
-    case 'asksNothing':
-      return 'it asked for calls and named none';
-    case 'notAnOutput':
-      return `it handed in ${unmet.block}, which the cell may not write`;
-    case 'writtenTwice':
-      return `it handed in ${unmet.block} twice`;
-    case 'noValue':
-      return `it handed in ${unmet.block}, a choice, with no value`;
-    case 'notAValue':
-      return `it handed in ${unmet.block} as ${unmet.value}, which is not one of its values`;
-    case 'notAChoice':
-      return `it handed in ${unmet.block} with a value, but it is not a choice`;
-    case 'notHandedIn':
-      return `it did not hand in ${unmet.block}, which the cell must hand in every time`;
-    case 'nothingBut':
-      return `it handed in ${unmet.block} as ${unmet.value}, and ${unmet.besides.join(', ')} besides, which no return of that value holds`;
-    case 'unreadable':
-      return `what it returned could not be read: ${unmet.why}`;
-    case 'notRunBy':
-      return `it said it dealt with ${unmet.block}, which did not run the round`;
-    case 'dealtWithTwice':
-      return `it said twice it dealt with ${unmet.block}`;
-    case 'dealtWithNothing':
-      return 'it dealt with nothing that ran the round and asked for no call';
-    case 'writtenOver':
-      return `it wrote ${unmet.block}, which another wrote at v${unmet.version} since the round was told of it`;
-    case 'choiceChanged':
-      return `it handed in ${unmet.block}, a choice, as changing nothing in meaning with another value`;
-    case 'asksAndWorks':
-      return 'it asked for calls and also did the cell\'s work';
-    case 'notWatched':
-      return `it said it dealt with ${unmet.name}, which does not run the cell`;
-    case 'notATool':
-      return `it asked for ${unmet.name}, which is not a tool the cell may ask for`;
-    case 'unchangedNotWritten':
-      return `it named ${unmet.block} as unchanged in meaning, and did not write it`;
-    case 'questionTaken':
-      return `it wrote the question ${unmet.name}, which is not its cell's own`;
-    case 'noSuchQuestion':
-      return `it withdrew the question ${unmet.name}, of which none of its cell's stands`;
-    case 'questionTwice':
-      return `it wrote the question ${unmet.name} twice`;
-    case 'notAnOption':
-      return `its question ${unmet.name} recommends none of its options`;
-    case 'notAnswerable':
-      return `it asked the question ${unmet.name}, and no answer runs its cell`;
-    case 'notAnswered':
-      return `it dealt with the owner's words by ${unmet.name}, and gave no reply`;
-    case 'unexplained':
-      return `it left ${unmet.path}, a file the project protects, changed, and said not why`;
-    case 'notATest':
-      return `it changed ${unmet.path}, which is none of the project's tests`;
-    case 'uncommitted':
-      return 'it ended its round with changes to tracked files that are not committed';
-    case 'merging':
-      return 'it ended its round with a merge under way that is not committed';
-    case 'treeUnchanged':
-      return `it handed in the change, which changes nothing in the design tree, while ${unmet.name}, marked tree, has the owner's answer`;
-    case 'notAnEntry':
-      return `it named ${unmet.line}, which is no entry of the design tree on the work's branch`;
-    case 'unanswered':
-      return `it dealt with ${unmet.block}, and committed nothing and asked nothing`;
-    case 'wordOwed':
-      return `it dealt with ${unmet.name}, woken by a point in it, and answered none of its points, changed none of ${unmet.watched.join(', ')}, and asked no question the work waits for`;
-    case 'noPoint':
-      return `it handed in ${unmet.block} as ${unmet.value}, which does not pass, and gave no ${unmet.name}`;
-  }
 }
 
 /// Who wrote a version.

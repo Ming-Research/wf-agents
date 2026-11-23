@@ -27,11 +27,10 @@ fn copied() -> TempDir {
     dir
 }
 
-/// The engineer's flow under this directory, compiled against what the engine has for it.
-fn engineer(root: &Path) -> Compiled {
-    let source = flow::read(&root.join("engineer")).expect("the engineer's flow is read");
+/// What the engine has for the engineer's flow.
+fn has() -> Has {
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
-    let has = Has {
+    Has {
         sources: names(&[
             "answer",
             "asked",
@@ -41,13 +40,19 @@ fn engineer(root: &Path) -> Compiled {
             "main",
             "start",
             "head",
+            "test_times",
             "tree",
         ]),
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
         ..Default::default()
-    };
-    flow::compile(&source, &has).expect("the engineer's flow compiles")
+    }
+}
+
+/// The engineer's flow under this directory, compiled against what the engine has for it.
+fn engineer(root: &Path) -> Compiled {
+    let source = flow::read(&root.join("engineer")).expect("the engineer's flow is read");
+    flow::compile(&source, &has()).expect("the engineer's flow compiles")
 }
 
 /// The file beside the flows, with the line that begins so taken out.
@@ -68,6 +73,19 @@ fn the_repository_s_flows_give_every_text_the_driver_fills() {
     let dir = copied();
     assert_eq!(driver::faults(&engineer(dir.path())), Vec::<String>::new());
     assert_eq!(driver::faults(&super::deliver()), Vec::<String>::new());
+}
+
+// The datum of the tests' times gives the words the engine writes it with: where its file gives none, it is a fault on
+// that file.
+#[test]
+fn a_test_time_report_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() {
+    let dir = copied();
+    without(dir.path(), "data/test_times.toml", "covers = ");
+    let faults = driver::faults(&engineer(dir.path()));
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(faults[0].contains("data/test_times.toml"), "{}", faults[0]);
+    assert!(faults[0].contains("the block test_times "), "{}", faults[0]);
+    assert!(faults[0].ends_with("its writes must give covers"), "{}", faults[0]);
 }
 
 #[test]
@@ -122,6 +140,59 @@ fn a_flow_with_no_words_beside_it_for_the_owner_is_not_run() {
     assert!(faults[0].contains("../agents/waits.toml"), "{}", faults[0]);
     assert!(faults[0].contains("owner.paused"), "{}", faults[0]);
     assert!(faults[0].contains("paused.let_go"), "{}", faults[0]);
+}
+
+/// The file beside the flows, with the text of the line that begins `key = ` made empty.
+fn emptied(root: &Path, file: &str, key: &str) {
+    let path = root.join(file);
+    let text = fs::read_to_string(&path).unwrap();
+    let begins = format!("{key} = ");
+    assert_eq!(
+        text.lines().filter(|l| l.starts_with(&begins)).count(),
+        1,
+        "{file} has one line {begins}"
+    );
+    let lines: Vec<String> = (text.lines())
+        .map(|l| {
+            if l.starts_with(&begins) {
+                format!("{key} = \"\"")
+            } else {
+                l.to_string()
+            }
+        })
+        .collect();
+    fs::write(path, lines.join("\n")).unwrap();
+}
+
+// The reasons the engine pauses a work with that came with the words moved out of the code (a round that failed for
+// a cause no other says, and a model the service does not have) are each a fault where their text is empty, and each
+// one is named alone: a pause with an empty reason would be shown as no reason.
+#[test]
+fn a_pause_reason_the_words_beside_the_flows_leave_empty_is_a_fault_naming_it_alone() {
+    for key in ["failed", "no_model"] {
+        let dir = copied();
+        emptied(dir.path(), "agents/waits.toml", key);
+        let faults = driver::faults(&engineer(dir.path()));
+        assert_eq!(faults.len(), 1, "{key}: {faults:?}");
+        assert!(faults[0].contains("../agents/waits.toml"), "{}", faults[0]);
+        assert!(faults[0].ends_with(&format!("must give paused.{key}")), "{}", faults[0]);
+    }
+}
+
+// A key the file lacks is refused as the flow is read, before the driver has anything to check.
+#[test]
+fn a_pause_reason_the_words_beside_the_flows_lack_is_refused_as_the_flow_is_read() {
+    for key in ["failed", "no_model"] {
+        let dir = copied();
+        without(dir.path(), "agents/waits.toml", &format!("{key} = "));
+        let source = flow::read(&dir.path().join("engineer")).expect("the engineer's flow is read");
+        let Err(refused) = flow::compile(&source, &has()) else {
+            panic!("a flow whose waits file lacks `{key}` compiles");
+        };
+        let refused = format!("{refused:?}");
+        assert!(refused.contains(&format!("missing field `{key}`")), "{refused}");
+        assert!(refused.contains("waits.toml"), "{refused}");
+    }
 }
 
 #[test]

@@ -16,6 +16,10 @@ The engine's tools are `query` and `run_tests`; an agent does everything else wi
 - replaced: The tool `decision_history`, which ran `git log --follow` on the decisions, was on main; the owner changed it, because no round used it, its words took 3.9K characters, and an agent's own git does the same.
 - rejected: an agent proposed a tool `read` that gives a version of a datum or the change between two versions; the owner rejected it, because one query gives any version and the agent diffs two itself, and the store was meant to give each version that way.
 
+### decision a-measurement-is-a-request-of-run-tests
+A request of `run_tests` may name measurements: the project's measure workflow times them in one run, on the commit the work began from and on the work's commit, and the result gives each timing.
+- rejected: an agent proposed no new capability, with performance measured by the project's own tests, which `run_tests` runs once on main's commit and once on the work's; the owner rejected it, because before and after would be two separate runs, not compared fairly on one machine in one run.
+
 ### decision the-flow-names-its-tools
 The tools a cell may ask for are those its flow names in `flow.toml`, the same for every cell of the flow.
 - replaced: Giving tools cell by cell, in each cell's file, was on main; the owner changed it, because then the part of what a session is sent that every cell shares no longer varies with the cell.
@@ -49,12 +53,13 @@ No cell of a flow runs the tests a cell asks for: they stay a call within that c
 - rejected: an agent proposed a cell of the engine that runs the tests each cell asks for, with the request and the result as data; the owner rejected it, because it was there only to show a cell's CI run on the page, and a row for each tool on the chart shows that just as well.
 
 ### decision every-project-meets-one-contract-for-its-tests
-Every project meets one contract for its tests: results as JUnit XML, one name by which a test is asked for and filtered, and, if its declaration has `[ci]`, a fast and a full workflow it names.
+Every project meets one contract for its tests: JUnit results, one name for a test, and, with `[ci]`, a fast and a full workflow (taking a commit, a call and a test's stop), and a measure one if any.
 - rejected: an agent proposed that each project describe its own CI (its workflows, and how they are dispatched, read and name their tests) and the engine run it as described; the owner rejected it, because the projects are all his, and any of them can be changed to one general, reasonable design.
 - replaced: Matching a named test to a log's tests by its whole name, a `::` ending or its binary's name was on main; the owner changed it, because the name the results give a test is the name an agent asks for it by and the name the fast workflow filters by.
 - replaced: The fast workflow running lint besides the named tests was on main; the owner changed it, because a fast run should only build and run the tests needed, and everything else goes to the full workflows, run once at the end.
 - replaced: The fast workflow declared in the installation's settings was on main; the owner changed it, because the installation keeps only what belongs to the machine: its tokens and the runners it has.
 - rejected: an agent proposed having no fast workflow, with every check running the whole suite, which took two or three minutes; the owner rejected it, because much work had gone into the fast CI, with a machine of his kept to run what an agent needs within half a minute.
+- replaced: A contract of workflows that take only a commit, a call, tests and checks was on main; the owner changed it, because how long a test may run comes from the history of the tests' times, which only the engine holds.
 - replaced: A declaration that may leave out the fast or the full workflow was on main; the owner changed it, because `run_tests` runs only the fast workflow and the check before the merge only the full ones, so a project without one cannot have its tests run or its work checked.
 
 ### decision each-workflow-runs-where-the-project-says
