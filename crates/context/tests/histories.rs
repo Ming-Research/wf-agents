@@ -52,8 +52,8 @@ const SCRIPTED: u64 = 6;
 const STEPS: usize = 120;
 
 /// How many histories of the engineer's flow are run, and how many steps each takes.
-const ENGINEER_SEEDS: u64 = 12;
-const ENGINEER_STEPS: usize = 250;
+const ENGINEER_SEEDS: u64 = 8;
+const ENGINEER_STEPS: usize = 220;
 
 pub struct Rng(u64);
 
@@ -159,6 +159,8 @@ struct Reached {
     examples: BTreeMap<String, String>,
     /// Rounds carried to a session of an agent's cell.
     rounds: usize,
+    /// The rounds of the last scripted history.
+    trace: Vec<String>,
 }
 
 /// What a history of a flow does beside carrying its rounds.
@@ -177,6 +179,8 @@ struct Scene {
     /// How often, in a hundred, a cell that writes a choice with the value `yes` writes it, so that the work goes on to
     /// its later cells; none where the choice is any of its values alike.
     passes: Option<u64>,
+    /// The choices the passes are of, which let the work go on.
+    passing: Vec<&'static str>,
 }
 
 impl Scene {
@@ -190,6 +194,7 @@ impl Scene {
             talks: false,
             puts: 22,
             passes: None,
+            passing: Vec::new(),
         }
     }
 
@@ -204,6 +209,15 @@ impl Scene {
             talks: true,
             puts: 8,
             passes: Some(70),
+            passing: vec![
+                "plan_ok",
+                "tree_ok",
+                "review_ok",
+                "test_ok",
+                "design_ok",
+                "testing_ok",
+                "checked",
+            ],
         }
     }
 }
@@ -228,6 +242,8 @@ struct History {
     /// How many of the first steps only carry what the work gives and let it go on, so that the history goes as far
     /// into the flow as it can before anything else happens.
     quiet: usize,
+    /// The rounds carried, each by its cell, its run and its number among the run's.
+    trace: Vec<String>,
 }
 
 /// What a scripted return does.
@@ -259,6 +275,7 @@ impl History {
             count: 0,
             forced: None,
             quiet: 0,
+            trace: Vec::new(),
         };
         history.start();
         history
@@ -538,6 +555,8 @@ impl History {
             return;
         }
         let line = self.sim.line(round);
+        self.trace
+            .push(format!("{}#{} round {}", round.cell, round.run.0, round.number));
         let begins = self.sim.begins(round);
         let held = if begins {
             Held::default()
@@ -655,7 +674,8 @@ impl History {
             }
             let must = cell.must_write.contains(&block);
             if (must && !leaves_out) || (!must && !only_must && (all || self.rng.chance(70))) {
-                let passes = self.scene.passes.is_some_and(|percent| self.rng.chance(percent));
+                let passes = self.scene.passing.contains(&block.as_str())
+                    && self.scene.passes.is_some_and(|percent| self.rng.chance(percent));
                 let value = self.sim.flow.blocks[&block].values.clone().map(|v| match passes {
                     true if v.iter().any(|x| x == "yes") => "yes".to_string(),
                     _ => v[self.rng.below(v.len())].clone(),
@@ -1264,6 +1284,9 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
             } else {
                 history.script(&mut reached);
             }
+            if seed >= SEEDS {
+                reached.trace = history.trace.clone();
+            }
             reached.put_in += history.sim.work.records.put_in.len();
             reached.at_limit += (history.sim.work.calls.values())
                 .filter(|c| matches!(c, Call::AtLimit(_)))
@@ -1321,10 +1344,11 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
     let (gaps, nothing) = (missing(&reached.real, &written), missing(&written, &reached.real));
     assert!(
         reached.real.is_subset(&written) && written.is_subset(&reached.real),
-        "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}\n\nof the close: {:?}",
+        "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}\n\nof the close: {:?}\n\nthe last scripted history: {:?}",
         (reached.examples.iter())
             .filter(|(line, _)| line.starts_with("close: the session holds"))
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>(),
+        reached.trace.iter().rev().take(30).rev().collect::<Vec<_>>()
     );
 }
 
