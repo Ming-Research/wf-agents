@@ -1,7 +1,8 @@
 //! What a work changed, as its page shows it, worked out with git in the project's repository: each file between where
 //! the work's branch left main and the work's latest head, together with what its worktree holds that is not committed
-//! while the worktree is there; and the unified diff of one of them. Nothing here writes, and git is told to take no
-//! lock it can do without, so that an agent's own git in the worktree is never held up by a look.
+//! while the worktree is there; and the unified diff of one of them. Nothing here writes: git is told to take no lock
+//! it can do without, and a diff against the worktree is told not to write down the stat information it finds
+//! out of date ([`WRITES_NOTHING`]), so that an agent's own git in the worktree is never held up by a look.
 //!
 //! The work's latest head is its branch while its worktree is there, which holds what it committed since its last round
 //! ended; once the worktree is gone, the reference the engine keeps each head under ([`crate::head::kept`]), or, for a
@@ -24,6 +25,12 @@ use crate::git::{self, Place};
 /// What every diff here is given: no rename found, so that each path is a file of its own, and no program the
 /// repository's configuration names for a diff run.
 const PLAIN: [&str; 3] = ["--no-renames", "--no-ext-diff", "--no-textconv"];
+
+/// What a diff against the worktree is given so that it writes nothing. `--no-optional-locks` does not stop it: with
+/// `diff.autoRefreshIndex`, which is on unless it is turned off, `git diff` rewrites the index with the stat
+/// information of each file whose time or size changed and whose content did not. A diff is still taken of the
+/// content of such a file, which is the same, and so it lists none.
+const WRITES_NOTHING: [&str; 4] = ["--no-optional-locks", "-c", "diff.autoRefreshIndex=false", "diff"];
 
 /// The most of one file's diff that is given, in bytes: a file made by a program, such as a lock file, can change by
 /// megabytes, which no reader of the page reads whole.
@@ -145,11 +152,8 @@ impl Known {
                 _ => return Err(format!("git diff --no-index of {path} failed: {}", said.err)),
             }
         } else if changes.worktree {
-            let (lead, tail) = (
-                ["--no-optional-locks", "--literal-pathspecs", "diff"],
-                [changes.base.as_str(), "--", path],
-            );
-            let args = [&lead[..], &PLAIN[..], &tail[..]].concat();
+            let (lead, tail) = (["--literal-pathspecs"], [changes.base.as_str(), "--", path]);
+            let args = [&lead[..], &WRITES_NOTHING[..], &PLAIN[..], &tail[..]].concat();
             git::git(&place.dir, &args).await?
         } else {
             let lead = ["--literal-pathspecs", "diff"];
@@ -280,8 +284,7 @@ fn numstat(out: &str) -> BTreeMap<String, Lines> {
 /// latest head included, and each file git does not track and does not ignore, all of whose lines are added; with the
 /// paths of the latter.
 async fn in_worktree(dir: &Path, base: &str) -> Result<(BTreeMap<String, Lines>, BTreeSet<String>), String> {
-    let lead = ["--no-optional-locks", "diff", "--numstat", "-z"];
-    let args = [&lead[..], &PLAIN[..], &[base][..]].concat();
+    let args = [&WRITES_NOTHING[..], &["--numstat", "-z"][..], &PLAIN[..], &[base][..]].concat();
     let mut files = numstat(&git::git(dir, &args).await?);
     let others = [
         "--no-optional-locks",
