@@ -22,6 +22,7 @@
 //! output. Version 2.1.327 says the second in the `errors` of a result with `is_error` set instead, which is the one
 //! line it prints, and exits with 1.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use decide::RunId;
@@ -341,25 +342,30 @@ pub const PERMISSION_ADVICE: &str =
 /// subagent left in the background has the command line ask for the return before it is back; the service checks each
 /// tool's input as JSON before it streams it, since inputs it did not check came cut off; the
 /// command line asks the model again three times, not five, for a return that does not fit its form, each try writing
-/// the whole return again; rustup installs no Rust toolchain that a command an agent may run asks for and the
-/// machine lacks: the command fails instead of downloading it, which would write beyond the worktree; and no command an
-/// agent runs is given the token of the account the round runs under ([`SCRUB`]).
-pub const ENVIRONMENT: [(&str, &str); 5] = [
+/// the whole return again; and no command an agent runs is given the token of the account the round runs under
+/// ([`SCRUB`]). What a project's toolchain reads is the project's, which its declaration names (`[environment]`).
+pub const ENVIRONMENT: [(&str, &str); 4] = [
     ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
     ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
     ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
-    ("RUSTUP_AUTO_INSTALL", "0"),
     (SCRUB, "1"),
 ];
 
+/// The prefixes of the variables the agents' program reads itself, such as the account's token and the program's
+/// directory of settings, its endpoint and its model: a project's declaration names none of them, since each would
+/// change a round while the records name what the engine chose. Prefixes, not names, since the program's variables are
+/// never all listed.
+pub const PROGRAM: [&str; 2] = ["CLAUDE_", "ANTHROPIC_"];
+
 /// The environment a command of the program's is given, in place of the engine's own: of the engine's variables,
-/// those [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`]; the program's
-/// directory of settings and sessions, the engine's `profile`; and the token of the account the command runs under,
-/// which is given nowhere else.
+/// those [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`]; the variables the
+/// project's declaration names, `declared`; the program's directory of settings and sessions, the engine's `profile`;
+/// and the token of the account the command runs under, which is given nowhere else.
 pub fn environment(
     agents: &Agents,
     profile: &Path,
     engine: impl IntoIterator<Item = (String, String)>,
+    declared: &BTreeMap<String, String>,
     token: &Token,
 ) -> Vec<(String, String)> {
     let kept =
@@ -367,12 +373,51 @@ pub fn environment(
     let mut env: Vec<(String, String)> = engine.into_iter().filter(|(name, _)| kept(name)).collect();
     env.sort();
     env.extend(ENVIRONMENT.map(|(name, value)| (name.to_string(), value.to_string())));
+    env.extend(declared.iter().map(|(name, value)| (name.clone(), value.clone())));
     env.push((
         crate::account::VARIABLE.to_string(),
         profile.to_string_lossy().into_owned(),
     ));
     env.push((crate::account::TOKEN.to_string(), token.secret().to_string()));
     env
+}
+
+/// What is wrong with the variables a project's declaration names for every round's command line, each said with where
+/// it is written: a name that is no name of a variable; one the engine owns, which it keeps of its environment, sets
+/// itself or gives the program; one the installation's settings name to keep (`agents.env`: `named`), which a declared
+/// value would silently override; one the agents' program reads itself ([`PROGRAM`]); and a value that holds a NUL, which
+/// ends a string of a process's environment, so that no program can be started with it. Any other value is none.
+pub fn environment_faults(declared: &BTreeMap<String, String>, named: &[String]) -> Vec<String> {
+    let at = format!("{} [environment]", flow::agents::DECLARATION);
+    let mut faults = Vec::new();
+    for (name, value) in declared {
+        if value.contains('\0') {
+            faults.push(format!(
+                "{at}: {name} holds a NUL in its value, with which no program can be started"
+            ));
+        }
+        let shell = name.starts_with(|c: char| c == '_' || c.is_ascii_alphabetic())
+            && name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric());
+        if !shell {
+            faults.push(format!("{at}: {name:?} is no name of a variable"));
+        } else if KEPT.contains(&name.as_str())
+            || name.starts_with("LC_")
+            || ENVIRONMENT.iter().any(|(own, _)| own == name)
+        {
+            faults.push(format!(
+                "{at}: {name} is the engine's own, which it gives every round itself"
+            ));
+        } else if named.contains(name) {
+            faults.push(format!(
+                "{at}: {name} is one the installation's agents.env keeps of the engine's environment, which a declared value would override"
+            ));
+        } else if PROGRAM.iter().any(|prefix| name.starts_with(prefix)) {
+            faults.push(format!(
+                "{at}: {name} is read by the agents' program itself, which it would change in a round beside what the records name"
+            ));
+        }
+    }
+    faults
 }
 
 /// The session a round runs in, as the records say: which of its line's sessions, and whether the round begins it.
@@ -2481,8 +2526,9 @@ mod tests {
         .map(|(n, v)| (n.to_string(), v.to_string()));
         let token = Token::new("sk-ant-oat01-secret".to_string());
         let profile = Path::new("/data/profile");
+        let none = BTreeMap::new();
         assert_eq!(
-            environment(&agents(), profile, engine, &token),
+            environment(&agents(), profile, engine, &none, &token),
             [
                 ("HOME", "/home/someone"),
                 ("LC_ALL", "C"),
@@ -2490,7 +2536,6 @@ mod tests {
                 ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
                 ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
                 ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
-                ("RUSTUP_AUTO_INSTALL", "0"),
                 ("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "1"),
                 ("CLAUDE_CONFIG_DIR", "/data/profile"),
                 ("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-secret"),
@@ -2501,7 +2546,7 @@ mod tests {
         let mut configured = agents();
         configured.env = vec!["LANGUAGE".to_string()];
         let engine = [("LANGUAGE", "en"), ("OTHER", "x")].map(|(n, v)| (n.to_string(), v.to_string()));
-        let given = environment(&configured, profile, engine, &token);
+        let given = environment(&configured, profile, engine, &none, &token);
         assert!(given.contains(&("LANGUAGE".to_string(), "en".to_string())), "named");
         assert!(!given.iter().any(|(n, _)| n == "OTHER"));
         assert_eq!(
@@ -2509,5 +2554,76 @@ mod tests {
             1,
             "the token given once"
         );
+    }
+
+    // What the project's declaration names comes after the carrier's own, and before the program's directory and the
+    // token, which stay last and are given once. Well under a millisecond alone; no other test holds the order of the
+    // environment a declaration adds to.
+    #[test]
+    fn the_variables_a_declaration_names_come_after_the_carriers_own_and_before_the_token() {
+        let token = Token::new("sk-ant-oat01-secret".to_string());
+        let declared = BTreeMap::from([("RUSTUP_AUTO_INSTALL".to_string(), "0".to_string())]);
+        let given = environment(&agents(), Path::new("/data/profile"), [], &declared, &token);
+        let names: Vec<&str> = given.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS",
+                "CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING",
+                "MAX_STRUCTURED_OUTPUT_RETRIES",
+                "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+                "RUSTUP_AUTO_INSTALL",
+                "CLAUDE_CONFIG_DIR",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+            ]
+        );
+        assert!(given.contains(&("RUSTUP_AUTO_INSTALL".to_string(), "0".to_string())));
+    }
+
+    // A declaration may name no variable the engine owns, none the installation keeps by name, none the agents' program
+    // reads itself, and none that is no name of a variable. Well under a millisecond alone; no other test holds what a
+    // declaration may name for the command line, one case for each rule.
+    #[test]
+    fn a_declaration_names_no_variable_of_the_engines_own() {
+        let faults = |name: &str, named: &[&str]| {
+            let declared = BTreeMap::from([(name.to_string(), "1".to_string())]);
+            let named: Vec<String> = named.iter().map(|n| n.to_string()).collect();
+            environment_faults(&declared, &named)
+        };
+        assert_eq!(faults("RUSTUP_AUTO_INSTALL", &[]), Vec::<String>::new());
+        assert_eq!(faults("RUSTUP_AUTO_INSTALL", &["LANGUAGE"]), Vec::<String>::new());
+        for own in [
+            "PATH",
+            "LC_ALL",
+            "MAX_STRUCTURED_OUTPUT_RETRIES",
+            "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+        ] {
+            assert_eq!(
+                faults(own, &[]),
+                [format!(
+                    "flow/project.toml [environment]: {own} is the engine's own, which it gives every round itself"
+                )],
+                "{own}"
+            );
+        }
+        let kept = faults("LANGUAGE", &["LANGUAGE"]);
+        assert_eq!(kept.len(), 1);
+        assert!(
+            kept[0].contains("LANGUAGE") && kept[0].contains("agents.env"),
+            "{kept:?}"
+        );
+        for program in ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"] {
+            let said = faults(program, &[]);
+            assert_eq!(said.len(), 1, "{program}");
+            assert!(
+                said[0].contains(program) && said[0].contains("agents' program"),
+                "{said:?}"
+            );
+        }
+        for wrong in ["1BAD", "A-B", ""] {
+            let said = faults(wrong, &[]);
+            assert_eq!(said.len(), 1, "{wrong:?}");
+            assert!(said[0].contains("no name of a variable"), "{said:?}");
+        }
     }
 }

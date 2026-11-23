@@ -477,6 +477,7 @@ printf '%s\n' "$@" > "$log/$n.args"
 printf '%s' "${{CLAUDE_CODE_OAUTH_TOKEN:-}}" > "$log/$n.token"
 printf '%s' "${{CLAUDE_CONFIG_DIR:-}}" > "$log/$n.profile"
 printf '%s' "${{CLAUDE_CODE_SUBPROCESS_ENV_SCRUB:-}}" > "$log/$n.scrub"
+printf '%s' "${{RUSTUP_AUTO_INSTALL-unset}}" > "$log/$n.rustup"
 prev=''
 for arg in "$@"; do
     [ "$prev" = --json-schema ] && printf '%s' "$arg" > "$log/$n.schema"
@@ -806,13 +807,24 @@ pub fn made_repository(repo: &Path) {
         .join("../../")
         .join(flow::agents::DECLARATION);
     std::fs::create_dir_all(repo.join("flow")).unwrap();
-    std::fs::copy(declaration, repo.join(flow::agents::DECLARATION)).expect("the declaration is copied");
+    // The variable the repository's declaration gives every round's command line is given another value here, so that
+    // a round that is given the value the declaration names is told from one given a value the engine wrote itself.
+    let text = std::fs::read_to_string(declaration).expect("the declaration is read");
+    let declared = text.replace(
+        "RUSTUP_AUTO_INSTALL = \"0\"",
+        &format!("RUSTUP_AUTO_INSTALL = \"{DECLARED_VARIABLE}\""),
+    );
+    assert_ne!(declared, text, "the declaration names RUSTUP_AUTO_INSTALL");
+    std::fs::write(repo.join(flow::agents::DECLARATION), declared).expect("the declaration is written");
     git_in(repo, &["add", "."]);
     git_in(repo, &["commit", "-q", "-m", "Greet"]);
     std::fs::write(repo.join("design/readme.md"), "The tree.\n").unwrap();
     git_in(repo, &["add", "design/readme.md"]);
     git_in(repo, &["commit", "-q", "-m", "Design"]);
 }
+
+/// The value the test repository's declaration gives `RUSTUP_AUTO_INSTALL`, which is no value the engine gives it.
+pub const DECLARED_VARIABLE: &str = "declared-in-the-test-repository";
 
 /// The project's guide, constitution and tree rules, by their paths in the test repository, which `project.toml`
 /// beside the repository's flows names, with their texts.

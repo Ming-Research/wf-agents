@@ -32,5 +32,5 @@ A return that could not be read is sent back to the agent in its session, like a
 - replaced: Closing the brackets of a return that is not JSON and having the cheapest model fix its syntax was on main; the owner changed it, because the agent in its session knows what it meant to write, while a repair only guesses.
 
 ### decision a-flagged-round-begins-a-new-session
-A round that the service's safety check flagged is given again at once in a new session of its line; if it is flagged again in the same run, with only failures in between, its work is paused.
+A flagged round is retried in a new session of its line, but not one under way as an older store opens (decision a-round-takes-the-session-its-line-was-in-as-it-began); a second flag pauses its work.
 - replaced: Treating a flagged round as a passing failure and trying it again after a wait was on main; the owner changed it, because a round flagged again and again would then be tried again forever.
