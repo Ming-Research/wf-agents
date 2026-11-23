@@ -49,6 +49,13 @@
 //! under way than there are slots. A work is added paused, and goes on once the owner lets it on, so that whoever
 //! plans orders what runs.
 //!
+//! The works of a project take turns to check and merge, one at a time ([`turn`]). Whose turn it is in a project is
+//! worked out from the records of its works: the work that holds the turn, which it does from its first round of a cell
+//! that takes it while its walk stays at such cells; else the work that has wanted it longest, the lower number first
+//! where two began to want it at one time. A work whose turn it is not waits for it in its walk, as for a slot; the work
+//! whose turn it is, where it wants it and does not hold it, is looked at each time something was kept, as the free
+//! slots are given, so that it begins its round the moment the work before it lets go.
+//!
 //! What happens to one work also reaches every other where a round of an agent failed for a cause outside every work,
 //! such as the account's usage limit: no agent's round of any work begins while that wait stands ([`outage`]). It is
 //! worked out from the records of every work, and given to the engine's loop for each work as a [`Gate`] in its
@@ -107,6 +114,8 @@ pub mod time;
 /// What the times of the project's tests and jobs say, by the history of their own kind.
 pub mod timed;
 
+mod turn;
+
 pub mod usage;
 
 pub mod versions;
@@ -125,14 +134,15 @@ use decide::{BlockId, CellId, Decision, End, Holder, Outsider, Pauser, Room, Vie
 use engine::{Effect, Event, Gate, Hold, Refused, handle_held, handle_then, held};
 use flow::Compiled;
 use flow::agents::fill;
-pub use outage::{Candidate, Checked, Found, Limit, Move, Outage, Service, Until};
+pub use outage::{Candidate, CannotRun, Checked, Found, Limit, Move, Outage, Service, Until};
 use store::{
     AccountAct, AccountRecord, AccountTaker, Change, Continues, EverythingPaused, First, Item, ItemChange, ItemNumber,
     StopAct, StopRecord, Storage, WorkHead, WorkNumber,
 };
+use turn::Turned;
 use versions::Installed;
 pub use versions::{Misread, On};
-use work::{Ask, Call, KeptTime, Moment, Time, Work};
+use work::{Ask, Call, KeptTime, Moment, Time, TurnSpan, Work};
 
 pub use budget::Budget;
 pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
@@ -417,9 +427,17 @@ pub struct AtOnce {
     pub host: Option<Outage>,
     /// The works whose round under way takes a slot.
     taking: BTreeSet<WorkNumber>,
+    /// Whose turn it is to check and merge in each project that has a work that holds or wants it, by the project's name:
+    /// none where the items of no project, as items kept before projects.
+    turn: BTreeMap<Option<String>, WorkNumber>,
 }
 
 impl AtOnce {
+    /// Whose turn it is to check and merge in the project, where a work of it holds or wants the turn.
+    pub fn turn_of(&self, project: Option<&str>) -> Option<WorkNumber> {
+        self.turn.get(&project.map(str::to_string)).copied()
+    }
+
     /// The agents' wait where it holds the rounds now and their command line cannot run: since when, and what it said.
     pub fn cannot_run(&self) -> Option<(Time, &str)> {
         let outage = self.agents.as_ref().filter(|outage| outage.holds())?;
@@ -461,6 +479,8 @@ struct Held {
     /// The work's rounds that are history, which later rounds of every work on its flow are judged by. Worked out
     /// again each time the work grows.
     samples: Vec<history::Sample>,
+    /// How the work stands as to the turn of its project to check and merge. Worked out again each time the work grows.
+    turned: Turned,
 }
 
 /// How a work stands, for the driver: whether it is still to be written to and looked at.
@@ -867,7 +887,7 @@ impl Driver {
                 }
             }
         }
-        match driver.fill(now) {
+        match driver.give_away(now) {
             Ok(given) => todos.extend(given),
             Err(Halt::Store(fault)) => return Err(Fault::Store(fault)),
             Err(Halt::Refused(refused)) => return Err(refused),
@@ -933,6 +953,7 @@ impl Driver {
         let taking = Room {
             paused: true,
             slot: false,
+            turn: true,
         };
         let gate = self.holding();
         for event in first {
@@ -1182,9 +1203,10 @@ impl Driver {
         self.step_one(now, number, event, false, todos)
     }
 
-    /// Keeps what the time of each work that ended on the installed version went to, where it has kept none since it
-    /// last ended, at the time the caller's clock gives (decision `a-work-keeps-what-its-time-went-to`): as the work
-    /// ends, while that version, which alone can read what it waited for, is installed.
+    /// Keeps what the time of each work that ended on the installed version went to, and each stretch it held the turn
+    /// of its project, where it has kept none since it last ended, at the time the caller's clock gives (decision
+    /// `a-work-keeps-what-its-time-went-to`): as the work ends, while that version, which alone can read what it waited
+    /// for, is installed.
     fn keep_times(&mut self, now: Time) -> Result<(), Fault> {
         let numbers: Vec<WorkNumber> = (self.works.iter())
             .filter(|(_, held)| held.keeps_time())
@@ -1193,19 +1215,24 @@ impl Driver {
         if numbers.is_empty() {
             return Ok(());
         }
-        let at_once = self.at_once();
-        let cannot_run = at_once.cannot_run();
+        let cannot_run = self.cannot_runs(&self.at_once());
         let stops = self.stop_spans();
         for number in numbers {
             let Some(held) = self.works.get(&number) else {
                 continue;
             };
-            let stretches = time::stretches(&held.kept(), &self.spans, &stops, cannot_run, now);
+            let turns = self.turns_of_others(number);
+            let stretches = time::stretches(&held.kept(), &self.spans, &stops, &cannot_run, turns, now);
+            let turn = held.turned.spans.clone();
             let Some(held) = self.works.get_mut(&number) else {
                 continue;
             };
             let at = held.work.tick();
-            held.work.kept_time.push(KeptTime { at, stretches });
+            held.work.kept_time.push(KeptTime {
+                at,
+                stretches,
+                turn: Some(turn),
+            });
             held.work.moments.push(Moment { from: at, at: now });
             self.store.save(number, &held.work).map_err(Fault::Store)?;
         }
@@ -2127,9 +2154,15 @@ impl Driver {
         }
         let mut todos = Vec::new();
         let (mut failed, mut written) = (None, false);
-        let room = self.room(None, false);
         let gates: BTreeMap<WorkNumber, Hold> = (self.works.keys()).map(|n| (*n, self.gate_of(*n))).collect();
-        for (number, held) in &mut self.works {
+        let numbers: Vec<WorkNumber> = self.works.keys().copied().collect();
+        for number in &numbers {
+            // The turn is the work's as the works written before it left it, so that where several are due to check at
+            // once, one begins and the others wait.
+            let room = self.room(Some(*number), false);
+            let Some(held) = self.works.get_mut(number) else {
+                continue;
+            };
             let gate = gates.get(number).cloned().unwrap_or_default();
             if held.standing != Standing::Going || held.item.project.as_deref() != Some(project) {
                 continue;
@@ -2271,6 +2304,7 @@ impl Driver {
             agents: self.outage(),
             host: self.host_outage(),
             taking: self.taking(),
+            turn: self.turns(),
         }
     }
 
@@ -2290,6 +2324,49 @@ impl Driver {
     /// Every stretch the pause of everything held, in order, the one that holds now last.
     pub fn everything_spans(&self) -> &[Span] {
         &self.spans
+    }
+
+    /// Each wait in which the agents' command line could not run, in order, as a bar reads them: those that are over,
+    /// worked out from the records of every work, and the one that stands now, where one does, from what every work
+    /// reads alike ([`AtOnce::cannot_run`]).
+    pub fn cannot_runs(&self, at_once: &AtOnce) -> Vec<CannotRun> {
+        let mut waits = outage::cannot_run_spans(self.outlined());
+        waits.extend(at_once.cannot_run().map(|(since, why)| CannotRun {
+            from: since,
+            until: None,
+            why: why.to_string(),
+        }));
+        waits
+    }
+
+    /// Each stretch another work of the work's project held the turn to check and merge, which what the work waited for
+    /// is read by: each as the work kept it as it ended, or as it is worked out.
+    fn turns_of_others(&self, work: WorkNumber) -> Vec<TurnSpan> {
+        let Some(project) = self.works.get(&work).map(|held| held.item.project.as_deref()) else {
+            return Vec::new();
+        };
+        (self.works.values())
+            .filter(|held| held.head.number != work && held.item.project.as_deref() == project)
+            .flat_map(Held::turn_spans)
+            .collect()
+    }
+
+    /// The stretches each work held the turn of its project, with the project's name, for a reader of many works, which
+    /// reads the others' stretches of each ([`Driver::turns_of_others`]) from them.
+    pub fn turn_spans(&self) -> Vec<(Option<String>, WorkNumber, Vec<TurnSpan>)> {
+        (self.works.values())
+            .map(|held| (held.item.project.clone(), held.head.number, held.turn_spans()))
+            .collect()
+    }
+
+    /// Whose turn it is to check and merge, where the work waits for it, and since when the work has wanted it: none
+    /// where it waits for no turn, or it is the work's own.
+    pub fn turn_waited_at(&self, work: WorkNumber, at_once: &AtOnce) -> Option<(WorkNumber, Time)> {
+        let held = self.works.get(&work)?;
+        let whose = at_once
+            .turn_of(held.item.project.as_deref())
+            .filter(|whose| *whose != work)?;
+        Some((whose, held.turned.wants?))
     }
 
     /// The items the work's item depends on that its work waits for, those whose works have neither merged nor been
@@ -2356,26 +2433,55 @@ impl Driver {
 
     /// The room the engine leaves a work: the pause of everything, as it stands; and, where `slot` says a slot
     /// may be given at all, whether fewer are taken by the other works than there are.
+    /// And whether it is the work's turn to check and merge, which no work given is not asking for.
     fn room(&self, work: Option<WorkNumber>, slot: bool) -> Room {
+        let project = work
+            .and_then(|work| self.works.get(&work))
+            .map(|held| held.item.project.as_deref());
         Room {
             paused: self.paused.is_some(),
             slot: slot && self.taken(work) < self.slots,
+            turn: match (work, project) {
+                (Some(work), Some(project)) => self.turn_in(project).is_none_or(|turn| turn == work),
+                _ => true,
+            },
         }
+    }
+
+    /// Whose turn it is to check and merge in the project: the work that holds it, else the one that has wanted it
+    /// longest, among the works of the project ([`turn::whose`]); none where no work holds or wants it.
+    fn turn_in(&self, project: Option<&str>) -> Option<WorkNumber> {
+        turn::whose(
+            (self.works.values())
+                .filter(|held| held.item.project.as_deref() == project)
+                .map(|held| (held.head.number, &held.turned)),
+        )
+    }
+
+    /// Each project that has a work, with whose turn it is to check and merge in it where a work of it holds or wants
+    /// the turn.
+    fn turns(&self) -> BTreeMap<Option<String>, WorkNumber> {
+        let projects: BTreeSet<Option<String>> = self.works.values().map(|held| held.item.project.clone()).collect();
+        (projects.into_iter())
+            .filter_map(|project| self.turn_in(project.as_deref()).map(|work| (project, work)))
+            .collect()
     }
 
     /// The room the engine leaves a work ([`Driver::room`], a slot given where one is free), as what holds every work
     /// at once says.
     fn room_at(&self, work: WorkNumber, at_once: &AtOnce) -> Room {
+        let project = self.works.get(&work).and_then(|held| held.item.project.as_deref());
         Room {
             paused: at_once.everything.is_some(),
             slot: taken_among(&at_once.taking, Some(work)) < self.slots,
+            turn: at_once.turn_of(project).is_none_or(|turn| turn == work),
         }
     }
 
-    /// Gives the free slots away ([`Driver::fill`]) after something that was kept, adding what is to be done to these
-    /// todos; where that fails, the driver stops, what was asked having been kept, and the fault is given.
+    /// Gives the turn and the free slots away ([`Driver::give_away`]) after something that was kept, adding what is to be
+    /// done to these todos; where that fails, the driver stops, what was asked having been kept, and the fault is given.
     fn filled(&mut self, now: Time, mut todos: Vec<Todo>) -> Result<Vec<Todo>, Fault> {
-        let fault = match self.fill(now) {
+        let fault = match self.give_away(now) {
             Ok(given) => {
                 todos.extend(given);
                 return Ok(todos);
@@ -2392,6 +2498,52 @@ impl Driver {
     fn filled_after(&mut self, now: Time, todos: Vec<Todo>) -> Result<Vec<Todo>, Failed> {
         self.filled(now, todos)
             .map_err(|fault| Failed::Stopped { fault, kept: true })
+    }
+
+    /// Gives each project's turn to check and merge to the work whose turn it is, where it wants it and does not hold it
+    /// yet, and then the free slots ([`Driver::fill`]), and gives what is to be done. The turn is given first, for a work
+    /// that is given it may begin a round that takes a slot.
+    fn give_away(&mut self, now: Time) -> Result<Vec<Todo>, Halt<Fault>> {
+        let mut todos = self.give_turns(now)?;
+        todos.extend(self.fill(now)?);
+        Ok(todos)
+    }
+
+    /// Looks at each work whose turn it is to check and merge in its project, that wants it and does not hold it yet,
+    /// in the room the engine leaves it, which begins its round if nothing else holds it back. Each is looked at once,
+    /// so that one that begins no round does not keep another from being looked at.
+    fn give_turns(&mut self, now: Time) -> Result<Vec<Todo>, Halt<Fault>> {
+        let mut todos = Vec::new();
+        let mut looked = BTreeSet::new();
+        loop {
+            let next = (self.turns().into_values())
+                .filter(|number| !looked.contains(number))
+                .find(|number| {
+                    (self.works.get(number)).is_some_and(|held| held.turned.wants.is_some() && !held.turned.holds)
+                });
+            let Some(number) = next else {
+                break;
+            };
+            looked.insert(number);
+            let (room, gate) = (self.room(Some(number), true), self.gate_of(number));
+            let Some(held) = self.works.get_mut(&number) else {
+                break;
+            };
+            match step(
+                self.store.as_mut(),
+                held,
+                self.policy.as_ref(),
+                now,
+                Event::Look,
+                room,
+                gate,
+            ) {
+                Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
+                Err(Halt::Store(fault)) => return Err(Halt::Store(fault)),
+                Err(Halt::Refused(refused)) => return Err(Halt::Refused(Fault::Refused { work: number, refused })),
+            }
+        }
+        Ok(todos)
     }
 
     /// Gives each free slot to the first work in the engine's order that waits for one, and gives what is to be done:
@@ -2511,6 +2663,7 @@ impl Held {
             work,
             standing: Standing::Going,
             samples: Vec::new(),
+            turned: Turned::default(),
         };
         held.update();
         held
@@ -2524,6 +2677,12 @@ impl Held {
             None => standing_of(&self.flow, &self.work),
         };
         self.samples = samples_of(&self.flow, &self.on, &self.work);
+        if self.on.installed() {
+            self.turned
+                .update(&self.flow.flow, &self.work, self.standing == Standing::Going);
+        } else {
+            self.turned.clear();
+        }
     }
 
     /// Whether what the work holds outside is being let go ([`engine::letting_go`]).
@@ -2551,6 +2710,18 @@ impl Held {
             && matches!(self.standing, Standing::Ended(_))
             && engine::at_rest(&self.work)
             && (self.work.kept_time.last()).is_none_or(|kept| r.reopens.iter().any(|reopen| *reopen > kept.at))
+    }
+
+    /// Each stretch the work held the turn of its project, in order: as it kept them as it ended, where it has kept its
+    /// time since it was last reopened, none where it kept none, so that a work that ended before they were kept is read
+    /// as one that never held it; else as they are worked out.
+    fn turn_spans(&self) -> Vec<TurnSpan> {
+        let work = &self.work;
+        let kept = (work.kept_time.last()).filter(|kept| !work.records.reopens.iter().any(|reopen| *reopen > kept.at));
+        match kept {
+            Some(kept) => kept.turn.clone().unwrap_or_default(),
+            None => self.turned.spans.clone(),
+        }
     }
 
     /// The flow that decides the work: the installed one, where the work is on it.

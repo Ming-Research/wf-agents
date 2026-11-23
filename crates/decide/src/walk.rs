@@ -32,8 +32,10 @@
 //! ([`hold`]), and once it has finished what it wrote waits, as anything else does, for the work to be let on.
 //!
 //! The owner's pause of everything holds back what the work's own pause does, and the walk reads it, as it reads
-//! whether a slot is free, from what the scheduler gives it ([`Room`]): where no slot is free, a cell that takes one
-//! waits for it before it runs, a run that answers a note as much as any other.
+//! whether a slot is free and whether it is the work's turn to check and merge, from what the scheduler gives it
+//! ([`Room`]): where no slot is free, a cell that takes one waits for it before it runs, a run that answers a note as
+//! much as any other; where it is not the work's turn, a cell that takes the turn waits for it, and the turn is asked
+//! after the pause and before the slot.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -174,6 +176,9 @@ pub enum Waited {
     /// A free slot: the cell takes one, and as many rounds that take one are under way as the engine has slots. The
     /// engine gives it the first that comes free, in its order.
     Slot,
+    /// The turn of the work's project: the cell takes it, and another work of the project holds it, or has wanted it
+    /// longer. The engine gives it to the work that has wanted it longest once the work that holds it lets go.
+    Turn,
     /// The owner's answer to the latest version of this question, which the cell asked and waits for.
     Answer { question: String },
     /// A precondition does not hold, and only this run's cell can make it hold, which it does not before the source
@@ -213,7 +218,8 @@ pub fn ended(last: &CellId, records: &Records) -> Option<End> {
 }
 
 /// What the work does next, in the room the engine leaves it: under the owner's pause of everything it begins what it
-/// would begin were it paused itself, and where no slot is free a cell that takes one waits for it.
+/// would begin were it paused itself, where it is not the work's turn a cell that takes the turn waits for it, and
+/// where no slot is free a cell that takes one waits for it.
 pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
     if let Err(fault) = check(records) {
         return Decision::Fault(fault);
@@ -318,6 +324,9 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
         // everything before this is decided whether or not the work is paused.
         if (paused(records) || room.paused) && !walk.for_a_note(i, &because, None) {
             return Decision::Paused { cell: cell.id.clone() };
+        }
+        if cell.turn && !room.turn {
+            return wait(vec![Waited::Turn]);
         }
         if cell.slot && !room.slot {
             return wait(vec![Waited::Slot]);
@@ -577,14 +586,17 @@ pub fn hold(flow: &Flow, records: &Records, run: RunId) -> Hold {
     hold_in(flow, records, run, Room::FREE)
 }
 
-/// What holds back the run's rounds in the room the engine leaves the work: every round, where its cell takes a slot
-/// and none is free; otherwise what the pause of the work would hold back ([`hold`]), where the work is paused or the
-/// owner's pause of everything holds.
+/// What holds back the run's rounds in the room the engine leaves the work: every round, where its cell takes the turn
+/// and it is not the work's, or takes a slot and none is free; otherwise what the pause of the work would hold back
+/// ([`hold`]), where the work is paused or the owner's pause of everything holds.
 pub fn hold_in(flow: &Flow, records: &Records, run: RunId, room: Room) -> Hold {
     let walk = Walk::new(flow, records);
     let Some(r) = walk.runs.get(&run) else {
         return Hold::Rounds;
     };
+    if !room.turn && (flow.place(&r.started.cell)).is_some_and(|i| flow.cells()[i].turn) {
+        return Hold::Rounds;
+    }
     if !room.slot && (flow.place(&r.started.cell)).is_none_or(|i| flow.cells()[i].slot) {
         return Hold::Rounds;
     }

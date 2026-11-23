@@ -116,7 +116,7 @@ pub fn waits(
     let shared_holds = match decision {
         Decision::Run { cell, .. } => Some(cell),
         Decision::GoOn { cell, .. } if !matches!(held, Some(Holder::Pause | Holder::Everything)) => Some(cell),
-        Decision::Wait { at, on } if on.as_slice() == [Waited::Slot] => Some(at),
+        Decision::Wait { at, on } if on.as_slice() == [Waited::Slot] || on.as_slice() == [Waited::Turn] => Some(at),
         _ => None,
     };
     if let Decision::Wait { at, on } = decision {
@@ -213,7 +213,7 @@ fn at_cell(
                 question(kept, name, standing, waits);
             }
         }
-        Waited::Precondition { .. } | Waited::Slot | Waited::Outside { .. } => {}
+        Waited::Precondition { .. } | Waited::Slot | Waited::Turn | Waited::Outside { .. } => {}
     }
 }
 

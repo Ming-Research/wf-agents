@@ -37,9 +37,7 @@
 //! as the owner opens the accounts, a look is taken under each whose usage was last heard of long enough ago, with the
 //! check of the outside, off the loop (crate `driver`, module `usage`). How many rounds of agents go on at once is what
 //! the carriers say as the loop opens ([`Carriers::slots`]), and then what the owner last set ([`Handle::set_slots`]),
-//! which the driver takes at once; it gives no more. Whether a pause holds a work back the carriers are told as the
-//! loop opens and whenever it may have changed ([`Rounds::paused`]), for what a carrier holds back of a round for
-//! itself.
+//! which the driver takes at once; it gives no more.
 //!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
@@ -368,8 +366,6 @@ impl Service {
             adding: Arc::default(),
             limits,
         };
-        let works: Vec<WorkNumber> = service.driver.works().map(|kept| kept.head.number).collect();
-        service.tell_paused(works);
         service.hand(now, todos)?;
         service.set_wake();
         Ok((service, Inbox(inbox)))
@@ -568,7 +564,6 @@ impl Service {
                         self.hand(now, todos)?;
                         // What every work does now may have changed, though no record of one grew.
                         let works: Vec<WorkNumber> = self.driver.works().map(|kept| kept.head.number).collect();
-                        self.tell_paused(works.clone());
                         let _ = self.changed.send(Changed {
                             works,
                             items: false,
@@ -1081,19 +1076,6 @@ impl Service {
         &**self.carriers.rounds(kind)
     }
 
-    /// Tells the carriers whether a pause holds each of these works back now, its own or the owner's of everything.
-    fn tell_paused(&self, works: Vec<WorkNumber>) {
-        let everything = self.driver.everything_paused().is_some();
-        for work in works {
-            let Some(kept) = self.driver.work(work) else {
-                continue;
-            };
-            let paused = everything || decide::paused(&kept.work.records);
-            self.carriers.agents.paused(work, paused);
-            self.carriers.acts.paused(work, paused);
-        }
-    }
-
     /// How many things that happened each work has taken.
     fn sizes(&self) -> BTreeMap<WorkNumber, usize> {
         (self.driver.works())
@@ -1102,8 +1084,7 @@ impl Service {
     }
 
     /// Tells whoever listens which works grew since `before`, whether an item was added, and whether the accounts
-    /// changed, as `accounts` says or as the usage limits that stand did; and the carriers whether a pause holds each
-    /// work that grew. The limits are worked out from every work's rounds and the rounds the service answered, so they
+    /// changed, as `accounts` says or as the usage limits that stand did. The limits are worked out from every work's rounds and the rounds the service answered, so they
     /// are worked out again only where a work grew or, as `answered` says, the service answered a round. Where `engine`
     /// says the engine's own state changed, whoever listens is told even where nothing else changed: the notice says
     /// that something happened, on which the pages read the engine again.
@@ -1119,7 +1100,6 @@ impl Service {
             .filter(|(work, size)| before.get(work) != Some(size))
             .map(|(work, _)| work)
             .collect();
-        self.tell_paused(works.clone());
         let mut accounts = accounts;
         if !works.is_empty() || answered {
             let limits = self.driver.limits();

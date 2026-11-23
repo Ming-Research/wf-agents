@@ -144,6 +144,7 @@ impl Attention {
                 &outages,
                 &driver.along_of(work),
                 &driver.items_waited_for(work),
+                driver.turn_waited_at(work, &at_once),
             )?;
             Ok((of, now, view, held))
         };

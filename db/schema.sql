@@ -104,12 +104,16 @@ CREATE TABLE on_flow (
 );
 
 -- What the work's time went to from its first round to its last, kept as it ended (JSON: each stretch with when it
--- began and ended, and `model`, `tools`, `owner`, `paused`, `stopping`, `items` or `other`). A work reopened and ended
--- again keeps it again; the latest is the work's.
+-- began and ended, and `model`, `tools`, `owner`, `paused`, `stopping`, `items`, `turn` or `other`), and each stretch
+-- the work held the turn of its project to check and merge (JSON: each with `from` and `until`, in order), which the
+-- time of the project's other works that waited for the turn is read by: null for a work that kept its time before
+-- that was kept, which is read as one that never held it. A work reopened and ended again keeps it again; the latest is
+-- the work's.
 CREATE TABLE kept_time (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
     stretches TEXT NOT NULL,
+    turn TEXT,
     PRIMARY KEY (work, at)
 );
 

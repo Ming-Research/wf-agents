@@ -111,7 +111,8 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
 }
 
 /// Whether a run at rest has its next round in this room, which the engine asks of `decide::hold_in`: never where its
-/// cell takes a slot and none is free (`room::SLOT_HOLDS`); otherwise, while the work is paused or the owner's pause
+/// cell takes the turn and it is not the work's (`room::TURN_HOLDS`) or takes a slot and none is free
+/// (`room::SLOT_HOLDS`); otherwise, while the work is paused or the owner's pause
 /// of everything holds, where the run started for a note a person wrote, by the histories' own reading, and its last
 /// round did not fail in a way that paused the work with no letting on since (`failed`); and otherwise always. Says so
 /// where the two differ, and gives what the engine does.
@@ -124,6 +125,18 @@ pub fn goes_on(v: &mut Verdict, flow: &Flow, reading: &Reading, run: decide::Run
     };
     let s = reading.started[&run];
     let cell = &flow.cells()[flow.place(&s.cell).expect("the histories do not change the flow")];
+    if cell.turn && !room.turn {
+        if goes {
+            v.fail(
+                crate::room::TURN_HOLDS,
+                format!(
+                    "run {run:?} of {} has its next round when it is not the work's turn",
+                    s.cell
+                ),
+            );
+        }
+        return goes;
+    }
     if cell.slot && !room.slot {
         if goes {
             v.fail(

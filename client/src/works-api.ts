@@ -143,8 +143,9 @@ export type Waited =
   /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
   /// wrote, `why` in its own words, waits for that source before the cell runs again.
   | { kind: 'outside'; source: string; cell: string; why: string }
-  /// The project's turn to check and merge, which this work holds: the cell's act, its round under way since this
-  /// time, waits for it. The works of a project check and merge one at a time.
+  /// The project's turn to check and merge, which this work has: it holds it, or has wanted it longer than the work.
+  /// The cell waits for it since this time, from when the work first wanted it. The works of a project check and merge
+  /// one at a time.
   | { kind: 'turn'; holder: number; since: number }
   /// The items the work's item depends on that are still open, by their numbers: a precondition only they make hold,
   /// as they merge. A cancelled item it depends on is waited for no more.

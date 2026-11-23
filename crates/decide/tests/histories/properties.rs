@@ -687,7 +687,11 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                             v.fail(HELD, format!("the work waits at {at} on {on:?}, which holds"));
                         }
                     }
-                    Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } | Waited::Outside { .. } => {}
+                    Waited::Call { .. }
+                    | Waited::Slot
+                    | Waited::Turn
+                    | Waited::Answer { .. }
+                    | Waited::Outside { .. } => {}
                 }
             }
             first_entered(v, flow, reading, i);
@@ -724,7 +728,9 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
     }
     let merge_begins = match d {
         Decision::Run { cell, .. } => flow.place(cell) == Some(merge),
-        Decision::GoOn { cell, .. } => !paused && room.slot && flow.place(cell) == Some(merge),
+        Decision::GoOn { cell, .. } => {
+            !paused && room.slot && (room.turn || !flow.cells()[merge].turn) && flow.place(cell) == Some(merge)
+        }
         _ => false,
     };
     if merge_begins {

@@ -5,13 +5,19 @@
 //! the flow that decides it, as the records stood then, by the one definition of what waits on the owner
 //! ([`crate::owner`]): so it is worked out for a work on the installed version, and kept as such a work ends; a work
 //! that ended without keeping it has what ran read from its records alone, and what it waited for is not known.
+//!
+//! What holds every work at once then is read with it: the pause of everything, the stop of the engine, a wait of the
+//! agents' service in which their command line could not run, and, for the turn of the work's project to check and
+//! merge, each stretch another work of the project held it. The walk is asked in the room of that moment, so that a
+//! wait for the turn is the walk's own, as it was when the work waited.
 
 use std::collections::BTreeMap;
 
-use decide::{Decision, Holder, Pauser, Records, RunId, Seq, Waited};
-use work::{Ask, Call, Stretch, Time, Went, Work};
+use decide::{Decision, Holder, Pauser, Records, Room, RunId, Seq, Waited};
+use work::{Ask, Call, Stretch, Time, TurnSpan, Went, Work};
 
 use crate::attention::on_items;
+use crate::outage::CannotRun;
 use crate::{Kept, Span, StopSpan, owner};
 
 /// Each stretch of the work's time that ran, from its begin to its end, one under way to `now`: each round, a model's
@@ -64,10 +70,11 @@ pub fn stretches(
     kept: &Kept<'_>,
     spans: &[Span],
     stops: &[StopSpan],
-    cannot_run: Option<(Time, &str)>,
+    cannot_run: &[CannotRun],
+    turns: Vec<TurnSpan>,
     now: Time,
 ) -> Vec<Stretch> {
-    let mut waits = Waits::new(*kept, spans, stops, cannot_run, now);
+    let mut waits = Waits::new(*kept, spans, stops, cannot_run, turns, now);
     let mut out = waits.ran.clone();
     let (Some(from), Some(until)) = (waits.from, waits.until) else {
         return out;
@@ -77,7 +84,19 @@ pub fn stretches(
     points.extend(kept.work.moments.iter().map(|m| m.at));
     points.extend(spans.iter().flat_map(|span| [Some(span.from), span.until]).flatten());
     points.extend(stops.iter().flat_map(|stop| [Some(stop.from), stop.until]).flatten());
-    points.extend(cannot_run.map(|(since, _)| since));
+    points.extend(
+        cannot_run
+            .iter()
+            .flat_map(|wait| [Some(wait.from), wait.until])
+            .flatten(),
+    );
+    points.extend(
+        waits
+            .turns
+            .iter()
+            .flat_map(|span| [Some(span.from), span.until])
+            .flatten(),
+    );
     points.retain(|at| *at >= from && *at <= until);
     points.sort();
     points.dedup();
@@ -104,15 +123,19 @@ pub fn stretches(
 
 /// What a work waited for at each time of its span that nothing of it ran, as the flow installed decides on its records
 /// as they stood then, with the pause of everything as `spans` say it held, the stop of the engine as `stops` say it
-/// stood, and the agents' wait where their command line could not run, since the time `cannot_run` gives, with what it
-/// said ([`waited`]). The times of one wait share the place of the first entry after them, who set the pause of
-/// everything then, whether a stop stood, and whether the agents could run, and each such wait is decided once: the bar of a work going on asks it at the middle of each of its cells, as many
-/// as it has, and what it kept as it ended at the start of each stretch, so that the two read alike.
+/// stood, the agents' wait where their command line could not run, in each stretch of `cannot_run` with what it said,
+/// and the turn of the work's project as `turns` say another work of the project held it ([`waited`]). The times of
+/// one wait share the place of the first entry after them, who set the pause of everything then, whether a stop stood,
+/// whether the agents could run and whether another work held the turn, and each such wait is decided once: the bar of
+/// a work going on asks it at the middle of each of its cells, as many as it has, and what it kept as it ended at the
+/// start of each stretch, so that the two read alike.
 pub struct Waits<'a> {
     kept: Kept<'a>,
     spans: &'a [Span],
     stops: &'a [StopSpan],
-    cannot_run: Option<(Time, &'a str)>,
+    cannot_run: &'a [CannotRun],
+    /// Each stretch another work of the work's project held the turn to check and merge, as the work's own is none.
+    turns: Vec<TurnSpan>,
     /// What ran ([`ran`]), as of the time given.
     pub ran: Vec<Stretch>,
     /// What ran, as stretches that do not overlap, in order.
@@ -121,7 +144,7 @@ pub struct Waits<'a> {
     pub from: Option<Time>,
     /// When the last of what ran ended.
     pub until: Option<Time>,
-    decided: BTreeMap<(Option<Seq>, Option<bool>, bool, bool), Went>,
+    decided: BTreeMap<(Option<Seq>, Option<bool>, bool, bool, bool), Went>,
 }
 
 impl<'a> Waits<'a> {
@@ -130,7 +153,8 @@ impl<'a> Waits<'a> {
         kept: Kept<'a>,
         spans: &'a [Span],
         stops: &'a [StopSpan],
-        cannot_run: Option<(Time, &'a str)>,
+        cannot_run: &'a [CannotRun],
+        turns: Vec<TurnSpan>,
         now: Time,
     ) -> Waits<'a> {
         let (flow, work) = (kept.flow, kept.work);
@@ -153,6 +177,7 @@ impl<'a> Waits<'a> {
             spans,
             stops,
             cannot_run,
+            turns,
             from: ran.iter().map(|s| s.from).min(),
             until: ran.iter().map(|s| s.until).max(),
             ran,
@@ -174,13 +199,17 @@ impl<'a> Waits<'a> {
         let everything = (self.spans.iter())
             .find(|span| span.from <= at && span.until.is_none_or(|until| at < until))
             .map(|span| span.by);
-        let could_not_run = self.cannot_run.filter(|(since, _)| *since <= at).map(|(_, why)| why);
+        let could_not_run = (self.cannot_run.iter())
+            .find(|wait| wait.from <= at && wait.until.is_none_or(|until| at < until))
+            .map(|wait| wait.why.as_str());
         let stopping = (self.stops.iter()).any(|stop| stop.from <= at && stop.until.is_none_or(|until| at < until));
+        let held = (self.turns.iter()).any(|span| span.from <= at && span.until.is_none_or(|until| at < until));
         let key = (
             place,
             everything.map(|by| by == Pauser::Engine),
             stopping,
             could_not_run.is_some(),
+            held,
         );
         let kept = self.kept;
         Some(*self.decided.entry(key).or_insert_with(|| {
@@ -188,9 +217,14 @@ impl<'a> Waits<'a> {
                 everything,
                 cannot_run: could_not_run,
             };
+            // Another work holding the turn is the room the work was left, the walk deciding it as the driver did.
+            let room = Room {
+                turn: !held,
+                ..Room::FREE
+            };
             match place {
-                Some(place) => waited(&kept, &work.records.before(place), then, stopping),
-                None => waited(&kept, &work.records, then, stopping),
+                Some(place) => waited(&kept, &work.records.before(place), then, stopping, room),
+                None => waited(&kept, &work.records, then, stopping, room),
             }
         }))
     }
@@ -198,12 +232,14 @@ impl<'a> Waits<'a> {
 
 /// What a work on these records waited for, with what held every work at once then: the owner, where the one
 /// definition of that says it waited on them ([`owner::waits`]); a pause, its own or the pause of everything; the stop
-/// of the engine, where `stopping`, which holds a work that would begin a round or waits for a slot; the items its
-/// item depends on; anything else, a stalled work among it; as the flow installed decides on them.
-fn waited(kept: &Kept<'_>, records: &Records, then: owner::Shared<'_>, stopping: bool) -> Went {
-    let decision = decide::decide(&kept.flow.flow, records);
+/// of the engine, where `stopping`, which holds a work that would begin a round or waits for a slot or for the turn;
+/// the turn of its project, which another work holds; the items its item depends on; anything else, a stalled work
+/// among it; as the flow installed decides on them, in the room the engine left the work.
+fn waited(kept: &Kept<'_>, records: &Records, then: owner::Shared<'_>, stopping: bool, room: Room) -> Went {
+    let decision = decide::decide_in(&kept.flow.flow, records, room);
     let paused = decide::paused(records);
-    let begins = matches!(decision, Decision::Run { .. } | Decision::GoOn { .. });
+    let begins = matches!(&decision, Decision::Run { .. } | Decision::GoOn { .. })
+        || matches!(&decision, Decision::Wait { on, .. } if on == &[Waited::Turn]);
     // The pause of everything holds a work that would begin a round, where its own pause does not.
     let held = (then.everything.is_some() && begins && !paused).then_some(Holder::Everything);
     if !owner::waits(kept, records, &decision, held, then).is_empty() {
@@ -214,10 +250,18 @@ fn waited(kept: &Kept<'_>, records: &Records, then: owner::Shared<'_>, stopping:
         Decision::Stalled { .. } | Decision::Run { .. } | Decision::GoOn { .. } if paused => Went::Paused,
         _ if held.is_some() => Went::Paused,
         Decision::Run { .. } | Decision::GoOn { .. } if stopping => Went::Stopping,
-        Decision::Wait { on, .. } if stopping && on == [Waited::Slot] => Went::Stopping,
+        Decision::Wait { on, .. } if stopping && (on == [Waited::Slot] || on == [Waited::Turn]) => Went::Stopping,
+        Decision::Wait { on, .. } if on == [Waited::Turn] => Went::Turn,
+        Decision::GoOn { cell, .. } if !room.turn && takes_turn(kept, &cell) => Went::Turn,
         Decision::Wait { on, .. } if on.iter().any(on_items) => Went::Items,
         _ => Went::Other,
     }
+}
+
+/// Whether the cell takes the turn of its work's project, as the flow that decides the work has it.
+fn takes_turn(kept: &Kept<'_>, cell: &decide::CellId) -> bool {
+    let flow = &kept.flow.flow;
+    flow.place(cell).is_some_and(|i| flow.cells()[i].turn)
 }
 
 #[cfg(test)]
@@ -310,7 +354,9 @@ mod tests {
             everything,
             cannot_run: None,
         };
-        with_kept(&flow(), work, |kept| waited(kept, &work.records, then, false))
+        with_kept(&flow(), work, |kept| {
+            waited(kept, &work.records, then, false, Room::FREE)
+        })
     }
 
     /// A work the owner's request runs the writer of, paused by this pauser where one is given.
@@ -385,7 +431,9 @@ mod tests {
         engine::handle(&flow, &mut work, Time(1000), failed()).expect("the round fails");
         engine::handle(&flow, &mut work, Time(3000), Event::Resumed).expect("the owner lets it on");
         engine::handle(&flow, &mut work, Time(4000), failed()).expect("the round fails again");
-        let stretches = with_kept(&flow, &work, |kept| stretches(kept, &[], &[], None, Time(9000)));
+        let stretches = with_kept(&flow, &work, |kept| {
+            stretches(kept, &[], &[], &[], Vec::new(), Time(9000))
+        });
         let stretch = |from: u64, until: u64, went: Went| Stretch {
             from: Time(from),
             until: Time(until),
@@ -415,7 +463,9 @@ mod tests {
             by,
         };
         let spans = [span(4000, Some(5000), Pauser::Owner), span(5500, None, Pauser::Engine)];
-        let stretches = with_kept(&flow, &work, |kept| stretches(kept, &spans, &[], None, Time(9000)));
+        let stretches = with_kept(&flow, &work, |kept| {
+            stretches(kept, &spans, &[], &[], Vec::new(), Time(9000))
+        });
         assert_eq!(
             stretches,
             [
@@ -442,7 +492,9 @@ mod tests {
             from: Time(3500),
             until: Some(Time(4500)),
         }];
-        let stretches = with_kept(&flow, &work, |kept| stretches(kept, &[], &stops, None, Time(9000)));
+        let stretches = with_kept(&flow, &work, |kept| {
+            stretches(kept, &[], &stops, &[], Vec::new(), Time(9000))
+        });
         assert_eq!(
             stretches,
             [

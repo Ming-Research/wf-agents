@@ -4,7 +4,7 @@
 
 use decide::{BlockId, CellId, Reading};
 use store::{KeptFlow, KeptOutline, SCHEMA_VERSION};
-use work::{KeptTime, OnFlow, Stretch, Went};
+use work::{KeptTime, OnFlow, Stretch, TurnSpan, Went};
 
 use super::opening::{columns, versions};
 use super::*;
@@ -77,6 +77,10 @@ fn a_work_s_moves_and_what_its_time_went_to_read_back_as_written_its_records_as_
     d.work.kept_time.push(KeptTime {
         at,
         stretches: vec![stretch],
+        turn: Some(vec![TurnSpan {
+            from: Time(START),
+            until: Some(Time(START + 500)),
+        }]),
     });
     store
         .save(number, &d.work)

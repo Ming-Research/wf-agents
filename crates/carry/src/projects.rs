@@ -247,14 +247,6 @@ impl Rounds for ByProject<dyn Rounds> {
         }
     }
 
-    // The work's project is not said with it: each project's rounds are told, and those of the others hold nothing of
-    // the work.
-    fn paused(&self, work: WorkNumber, paused: bool) {
-        for rounds in self.of.values().filter_map(|rounds| rounds.as_ref().ok()) {
-            rounds.paused(work, paused);
-        }
-    }
-
     fn release(&self, release: Release, reply: ReleaseReply) {
         match of(&self.of, &release.item) {
             Ok(rounds) => rounds.release(release, reply),

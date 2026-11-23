@@ -2131,7 +2131,7 @@ fn waited(waited: &Waited) -> String {
         Waited::Answer { question } => format!("the owner to answer the question {question}"),
         Waited::Turn { holder, .. } => {
             let holder = work_number(*holder);
-            format!("the project's turn to check and merge, which work {holder} holds")
+            format!("the project's turn to check and merge, which work {holder} has")
         }
         Waited::Agents { outage: o } => match o.first {
             Some(first) => {

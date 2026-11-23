@@ -343,7 +343,7 @@ export function waitedWords(waited: Waited): string {
     case 'outside':
       return `${waited.source} to move, before ${waited.cell} runs again: ${waited.why}`;
     case 'turn':
-      return `the project's turn to check and merge, which ${workName(waited.holder)} holds`;
+      return `the project's turn to check and merge, which ${workName(waited.holder)} has`;
     case 'items':
       return itemsWords(waited.items);
   }
