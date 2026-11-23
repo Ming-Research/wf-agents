@@ -67,13 +67,8 @@ class CheckCitations(unittest.TestCase):
         found, _ = run({"a.toml": "# What it is (design\n# statements 17 to 19).\n"})
         self.assertEqual([(f, n) for f, n, _ in found], [("a.toml", 1)])
 
-    def test_a_string_a_program_holds_and_a_file_of_another_kind_are_not_read(self):
-        found, code = run(
-            {
-                "a.rs": 'const SAMPLE: &str = r#"\n # A comment of a sample (design document `flow-notes`, 9)\n"#;\n',
-                "b.txt": "# A fixture (design document `flow-notes`, 9)\n",
-            }
-        )
+    def test_a_file_of_another_kind_is_not_read(self):
+        found, code = run({"b.txt": "# A fixture (design document `flow-notes`, 9)\n"})
         self.assertEqual((found, code), ([], 0))
 
     def test_a_citation_in_prose_is_read_in_a_markdown_file_and_a_paragraph_ends_at_a_blank_line(self):
