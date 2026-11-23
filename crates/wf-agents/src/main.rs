@@ -690,15 +690,15 @@ fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
 }
 
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
-/// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
+/// `dependencies` and `start`, written by the engine's driver, the last as the owner starts the work;
 /// `answer`, written by the engine's loop, a cell's own questions, as a question of it is asked, asked anew or
 /// withdrawn and as the owner answers one; `asked`, as the questions and their answers come to stand otherwise;
 /// `handed_in`, written by the engine's loop as the first run of a cell that dealt with something finishes; `main`,
 /// written by the acts' watch of main on the host; `tree` and `head`, read by the carriers of the design tree and of the
-/// work's head on a work's branch, written from outside or handed in with the round that committed them; `test_times`,
-/// written by the engine's driver as a call of `run_tests` of the work ends, from what the work's runs of the project's
-/// CI said of how long its tests took; and `words`,
-/// written by the engine's loop as the owner speaks to a cell, the cell's own words.
+/// work's head on a work's branch, written from outside or handed in with the round that committed them; `parallel`,
+/// written by the engine's loop as the list of the project's works under way changes; `test_times`, written by the
+/// engine's driver as a call of `run_tests` of the work ends, from what the work's runs of the project's CI said of how
+/// long its tests took; and `words`, written by the engine's loop as the owner speaks to a cell, the cell's own words.
 const SOURCES: [&str; 11] = [
     "answer",
     "asked",
@@ -706,7 +706,7 @@ const SOURCES: [&str; 11] = [
     "handed_in",
     "head",
     "main",
-    "session",
+    "parallel",
     "start",
     "test_times",
     "tree",
@@ -869,8 +869,11 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::VerdictWithoutDialogue { verdict } => {
             format!("the cell hands in {verdict}, its verdict, and judges in no dialogue its points could go in")
         }
-        F::LineDataOfAnother { block, line } => {
-            format!("{block} is the line {line}'s own, and the cell is not on that line")
+        F::EntriesWithoutTree { block } => {
+            format!("{block} names entries of the design tree, but no datum of the flow is the design tree")
+        }
+        F::EntriesNotLatest { block } => {
+            format!("{block} names entries of the design tree, and is given only as its latest version")
         }
         F::CannotBeAskedIn { cell } => format!(
             "the engine cannot ask in {cell}: it must be an agent's cell, on a line that may change the work, with words of its own"

@@ -3,7 +3,7 @@
 
 use flow::{FLOW_FILE, FaultKind::*, Has};
 
-use crate::support::{at, compiled, edit, faults, faults_with, has, unreadable, valid};
+use crate::support::{at, compiled, edit, faults, faults_with, has, names, unreadable, valid};
 
 const PLAN_WATCHES: &str = r#"watches = ["request", "opinions"]"#;
 
@@ -20,6 +20,99 @@ fn a_block_handed_in_only_with_the_answers_in_the_tree_is_compiled_so() {
     let compiled = compiled(&source);
     assert!(compiled.blocks[&"design".into()].answers_in_the_tree);
     assert!(!compiled.blocks[&"plan".into()].answers_in_the_tree);
+}
+
+// The block the source of the works under way writes says in what block of the flow a work's plan names the files it will
+// touch (`planned_in`), which the engine reads of each work by that name and not by one of its own; a name the flow
+// does not declare is refused where it is written, and a block that says nothing of it names none.
+#[test]
+fn a_block_says_in_what_block_a_plan_names_its_files_and_the_block_must_be_declared() {
+    let has = Has {
+        sources: names(&["main", "parallel"]),
+        ..has()
+    };
+    let listed = |planned_in: &str| {
+        edit(
+            valid(),
+            FLOW_FILE,
+            "[blocks.main]\noutside = \"main\"",
+            &format!("[blocks.main]\noutside = \"parallel\"\nplanned_in = \"{planned_in}\""),
+        )
+    };
+    let compiled = match flow::compile(&listed("plan"), &has) {
+        Ok(compiled) => compiled,
+        Err(faults) => panic!("the definition should compile: {faults:#?}"),
+    };
+    assert_eq!(compiled.blocks[&"main".into()].planned_in, Some("plan".into()));
+    assert_eq!(compiled.blocks[&"plan".into()].planned_in, None);
+
+    let what = NoSuchBlock {
+        block: "nowhere".to_string(),
+    };
+    assert_eq!(
+        faults_with(&listed("nowhere"), &has),
+        [at(FLOW_FILE, "blocks.main.planned_in", what)]
+    );
+}
+
+// A block whose lines name entries of the design tree says so in its file (`names_tree_entries`), and is compiled so.
+// The engine gives it as the tree has the entries it names: a flow with no datum of the tree is refused it, and a cell
+// is given it only as its latest version, since what changed in the names is not what changed in the entries' text.
+#[test]
+fn a_block_naming_entries_of_the_tree_needs_the_tree_and_is_given_only_as_its_latest_version() {
+    let names = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.design]\n",
+        "[blocks.design]\nnames_tree_entries = true\n",
+    );
+    let what = EntriesWithoutTree {
+        block: "design".to_string(),
+    };
+    assert_eq!(
+        faults(&names),
+        [at(FLOW_FILE, "blocks.design.names_tree_entries", what)]
+    );
+    let with_tree = edit(
+        names,
+        FLOW_FILE,
+        "[blocks.main]\n",
+        "[blocks.tree]\noutside = \"tree\"\nshown = true\n\n[blocks.main]\n",
+    );
+    let mut has = has();
+    has.sources.insert("tree".to_string());
+    let compiled = flow::compile(&with_tree, &has).expect("the flow compiles");
+    assert!(compiled.blocks[&"design".into()].names_tree_entries);
+    assert!(!compiled.blocks[&"plan".into()].names_tree_entries);
+    let read = edit(
+        with_tree,
+        "answer.toml",
+        "outputs = [\"reply\"]",
+        "reads = [\"design\"]\noutputs = [\"reply\"]",
+    );
+    let latest = edit(
+        read.clone(),
+        "answer.toml",
+        "plan = \"last_and_latest\"",
+        "plan = \"last_and_latest\"\ndesign = \"latest\"",
+    );
+    assert!(flow::compile(&latest, &has).is_ok(), "given as its latest");
+    for kind in ["last_and_latest", "all"] {
+        let taken = edit(
+            read.clone(),
+            "answer.toml",
+            "plan = \"last_and_latest\"",
+            &format!("plan = \"last_and_latest\"\ndesign = \"{kind}\""),
+        );
+        let what = EntriesNotLatest {
+            block: "design".to_string(),
+        };
+        assert_eq!(
+            faults_with(&taken, &has),
+            [at("answer.toml", "kinds.design", what)],
+            "{kind}"
+        );
+    }
 }
 
 #[test]
@@ -272,8 +365,8 @@ fn the_blocks_entries_are_added_to_are_each_cell_s_own_questions_and_words() {
             "asked",
             "dependencies",
             "handed_in",
+            "parallel",
             "main",
-            "session",
             "start",
             "head",
             "tree",
@@ -315,8 +408,8 @@ fn a_datum_of_a_cell_s_own_named_only_in_a_condition_is_made_for_that_cell() {
             "asked",
             "dependencies",
             "handed_in",
+            "parallel",
             "main",
-            "session",
             "start",
             "head",
             "tree",
@@ -353,8 +446,8 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
             "asked",
             "dependencies",
             "handed_in",
+            "parallel",
             "main",
-            "session",
             "start",
             "head",
             "tree",

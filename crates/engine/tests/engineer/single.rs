@@ -140,7 +140,7 @@ impl W {
     pub(super) fn planned() -> W {
         let mut w = W::started();
         w.hands_in("S1", &[("place", None)], Vec::new());
-        w.hands_in("R0", &[], Vec::new());
+        w.hands_in("R0", &[("tree_entries", None)], Vec::new());
         w.hands_in(
             "R1",
             &[
@@ -210,7 +210,7 @@ pub(super) fn wrote(block: &str, by: Outsider, value: Option<&str>) -> Event {
 fn both_reviews_of_the_plan_run_on_a_plan_the_research_wrote() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
-    w.hands_in("R0", &[], Vec::new());
+    w.hands_in("R0", &[("tree_entries", None)], Vec::new());
     let (run, cell) = w.round();
     assert_eq!(cell, "R1");
     let names = w.told(run, "R1");
@@ -241,12 +241,12 @@ fn both_reviews_of_the_plan_run_on_a_plan_the_research_wrote() {
 /// given it as it is given `plan_owner`.
 fn with_tree_edits() -> Compiled {
     let mut source = engineer_source();
-    let group = r#"plan = ["plan_owner", "plan_agent", "acceptance"]"#;
+    let group = r#"plan = ["plan_owner", "plan_agent", "acceptance", "plan_files"]"#;
     assert!(
         source.flow.contains(group),
         "the plan's group is not as this test knows it"
     );
-    let with = r#"plan = ["plan_owner", "plan_agent", "acceptance", "tree_edits"]"#;
+    let with = r#"plan = ["plan_owner", "plan_agent", "acceptance", "plan_files", "tree_edits"]"#;
     source.flow = source.flow.replace(group, with);
     let what = "Each entry the plan adds, changes or deletes in the design tree, as it will read.";
     let block = format!("what = \"{what}\"\n");
@@ -330,7 +330,7 @@ fn a_version_of_a_block_the_installed_flow_no_longer_has_is_passed_over_and_the_
     let mut works = [W::started_on(with_tree_edits()), W::started()];
     for w in &mut works {
         w.hands_in("S1", &[("place", None)], Vec::new());
-        w.hands_in("R0", &[], Vec::new());
+        w.hands_in("R0", &[("tree_entries", None)], Vec::new());
         assert_eq!(w.round().1, "R1");
         w.on(Event::Paused {
             by: Pauser::Owner,
@@ -376,7 +376,7 @@ fn a_version_of_a_block_the_installed_flow_no_longer_has_is_passed_over_and_the_
 fn the_design_review_s_points_on_the_research_s_plan_run_the_research_and_its_answer_runs_the_review_again() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
-    w.hands_in("R0", &[], Vec::new());
+    w.hands_in("R0", &[("tree_entries", None)], Vec::new());
     w.hands_in(
         "R1",
         &[
@@ -404,7 +404,7 @@ fn the_design_review_s_points_on_the_research_s_plan_run_the_research_and_its_an
 fn a_write_of_a_cell_s_words_holds_nothing_by_the_answer_kept_not_by_the_words_handed_in() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
-    w.hands_in("R0", &[], Vec::new());
+    w.hands_in("R0", &[("tree_entries", None)], Vec::new());
     let (run, _) = w.round();
     let names = w.told(run, "R1");
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
@@ -467,7 +467,7 @@ fn written_by(w: &W, run: RunId, block: &str) -> Option<decide::Seq> {
 fn each_review_s_point_on_the_plan_goes_to_the_research_before_the_next_review_judges_it() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
-    w.hands_in("R0", &[], Vec::new());
+    w.hands_in("R0", &[("tree_entries", None)], Vec::new());
     let mut ran: Vec<String> = Vec::new();
     let mut step = |w: &mut W, cell: &str, blocks: &[(&str, Option<&str>)]| {
         let (run, under_way) = w.round();
@@ -512,7 +512,7 @@ fn each_review_s_point_on_the_plan_goes_to_the_research_before_the_next_review_j
 fn a_better_way_runs_the_research_before_the_plans_reviews_judge_the_plan() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
-    w.hands_in("R0", &[], Vec::new());
+    w.hands_in("R0", &[("tree_entries", None)], Vec::new());
     let plan = [
         ("deep_needed", Some("no")),
         ("plan_owner", None),
@@ -606,7 +606,7 @@ fn the_better_way_cell_runs_until_it_has_handed_in_once() {
     };
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
-    w.hands_in("R0", &[], Vec::new());
+    w.hands_in("R0", &[("tree_entries", None)], Vec::new());
     let plan = [
         ("deep_needed", Some("no")),
         ("plan_owner", None),
@@ -673,7 +673,7 @@ fn the_better_way_cell_runs_until_it_has_handed_in_once() {
 fn the_research_woken_by_a_better_way_owes_its_answer() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
-    w.hands_in("R0", &[], Vec::new());
+    w.hands_in("R0", &[("tree_entries", None)], Vec::new());
     let plan = [
         ("deep_needed", Some("no")),
         ("plan_owner", None),

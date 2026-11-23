@@ -15,6 +15,9 @@ use flow::{Compiled, Has};
 use support::Sim;
 use work::{Question, Said, Way};
 
+/// The entries of the design tree the reading of the tree hands in, as their names.
+const ENTRIES: &str = "principle lean-agent-input";
+
 /// The directory that holds the repository's flows.
 fn root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow")
@@ -31,8 +34,8 @@ fn engineer() -> Compiled {
             "asked",
             "dependencies",
             "handed_in",
+            "parallel",
             "main",
-            "session",
             "start",
             "head",
             "test_times",
@@ -60,7 +63,7 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
         let id = sim.cell(&round).id.as_str().to_string();
         let blocks: &[(&str, &str, Option<&str>)] = match id.as_str() {
             "S1" => &[("place", "the branch and its worktree", None)],
-            "R0" => &[],
+            "R0" => &[("tree_entries", ENTRIES, None)],
             "R1" => &[
                 ("deep_needed", "", Some("no")),
                 ("plan_owner", "Greet by name.", None),
@@ -140,9 +143,25 @@ fn deeply_until(id: &str) -> (Sim, support::Given) {
 /// A work of the engineer's flow, carried out until the round of this cell is given, which is not carried out, the plan
 /// written by the deep research where `deep` holds and by the research otherwise: gives the work and that round.
 fn carried_until(id: &str, deep: bool) -> (Sim, support::Given) {
+    carried_on(engineer(), id, deep, None)
+}
+
+/// A work of this flow, carried out until the round of this cell is given, which is not carried out, the plan written by
+/// the deep research where `deep` holds and by the research otherwise, the design tree written at the start where a
+/// version of it is given: gives the work and that round. The reading of the tree hands in the entries where its cell
+/// must write them, and nothing where it need not, as on a flow before the entries were handed in.
+fn carried_on(flow: Compiled, id: &str, deep: bool, tree: Option<&str>) -> (Sim, support::Given) {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
-    let mut sim = Sim::of(engineer(), beside);
+    let must = |cell: &str| (flow.cells.iter()).any(|c| c.id.as_str() == cell && !c.must_write.is_empty());
+    let reading = match must("R0") {
+        true => vec![("tree_entries", ENTRIES, None)],
+        false => vec![],
+    };
+    let mut sim = Sim::of(flow, beside);
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
+    if let Some(tree) = tree {
+        sim.wrote("tree", tree, None, Outsider::Outside);
+    }
     sim.writes("background", "Greet the user by name.");
     let plan = [
         ("plan_owner", "Greet by name.", None),
@@ -157,7 +176,7 @@ fn carried_until(id: &str, deep: bool) -> (Sim, support::Given) {
         }
         let blocks: Vec<(&str, &str, Option<&str>)> = match cell.as_str() {
             "S1" => vec![("place", "the branch and its worktree", None)],
-            "R0" => vec![],
+            "R0" => reading.clone(),
             "R1" if deep => vec![
                 ("deep_needed", "", Some("yes")),
                 ("found", "Where the name comes from is open.", None),
@@ -390,19 +409,61 @@ fn words_to_a_work_that_has_ended_are_refused_and_go_to_no_cell() {
     assert_eq!(sim.versions("i1_words").len(), entries, "nothing is written");
 }
 
+// A compaction of the engineer's session during the implementation's round runs no cell: the round given again in the
+// compacted session, and the implementation's next round in it, are each given the entries of the design tree that the
+// reading of the tree handed in, and the reading does not run again (design document `data-and-context`, 25). Runs in
+// memory in milliseconds; the one test that a reopened session of the engineer flow is given the entries and reads the
+// tree again in no cell of its own.
 #[test]
-fn a_reopened_session_s_reading_of_the_tree_leaves_the_line_where_its_cell_that_takes_words_stands() {
+fn a_compacted_session_of_the_implementation_is_given_the_entries_and_runs_no_reading_of_the_tree() {
     let (mut sim, round) = until("I1");
     tried(&mut sim, &round);
-    // The engineer's session is reopened: R0, which the owner's words do not run, reads the tree again before the
-    // review.
-    sim.anew("engineer", engine::Why::Owner);
-    let new = "A new session of the line `engineer`: the owner asked for one.";
-    sim.wrote("engineer_session", new, None, Outsider::Outside);
-    sim.hands_in(&round, &[("code", "abc", None)]);
-    let reading = sim.round().expect("a round is given");
-    assert_eq!(reading.cell.as_str(), "R0");
-    assert_eq!(receiver(&sim, To::Line("engineer".into())), Ok(CellId::from("I1")));
+    sim.anew("engineer", engine::Why::Compacted);
+    // The round given again in the compacted session, which holds nothing.
+    let again = sim.enter(&round, true);
+    assert_eq!(again.situation.data["tree_entries"], Stands::Lacks);
+    assert!(again.text.contains(ENTRIES), "{}", again.text);
+    // The round asks for a tool, and the run entered for its result is the implementation's, not the reading's.
+    let ask = engine::Ask::Tool {
+        name: "query".to_string(),
+        input: "SELECT 1".to_string(),
+    };
+    sim.returns(&round, Came::asks(vec![ask]), 0);
+    let call = *sim.calls().last().expect("the call");
+    sim.done(call, "1");
+    let next = sim.round().expect("a round is given");
+    assert_eq!(next.cell.as_str(), "I1");
+    let entered = sim.enter(&next, sim.begins(&next));
+    assert_eq!(entered.situation.data["tree_entries"], Stands::Lacks);
+    assert!(entered.text.contains(ENTRIES), "{}", entered.text);
+    let readings = (sim.work.records.started.iter())
+        .filter(|s| s.cell.as_str() == "R0")
+        .count();
+    assert_eq!(readings, 1, "the reading of the tree ran again");
+}
+
+// A work that passed the reading of the tree on a flow before the reading handed in the entries, as one under way as
+// this flow was installed, holds no version of them: each cell that reads the tree, entered in a session that holds
+// nothing, is given the tree as read by none and no entries, and its task has it read the tree as the tree's rules say
+// (design document `data-and-context`, 25). Runs in memory in milliseconds, four short works; what it catches is a
+// change that leaves such a work without the tree, which no test of a work with entries sees.
+#[test]
+fn a_work_with_no_entries_has_each_cell_that_reads_the_tree_read_it_for_itself() {
+    let mut before = engineer();
+    for cell in before.cells.iter_mut().filter(|c| c.id.as_str() == "R0") {
+        cell.must_write.clear();
+    }
+    for (id, deep) in [("R1", false), ("P2", false), ("I1", false), ("D1", true)] {
+        let (sim, round) = carried_on(before.clone(), id, deep, Some("c1 t1"));
+        let entered = sim.enter(&round, true);
+        let text = entered.text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert_eq!(entered.situation.data["tree_entries"], Stands::Unwritten, "{id}");
+        assert!(!text.contains("## `tree_entries`"), "{id}: {text}");
+        assert_eq!(entered.situation.data["tree"], Stands::Unread, "{id}");
+        assert!(text.contains("this session has read none of it"), "{id}: {text}");
+        let reading = "Read the design tree as its rules say, beyond `tree_entries`";
+        assert!(text.contains(reading), "{id}: {text}");
+    }
 }
 
 #[test]
@@ -715,8 +776,8 @@ fn an_answer_added_while_another_cell_was_spoken_to_in_its_round_is_taken() {
 }
 
 // What the owner reads is written in the owner's language: a cell whose list of what it returns has a block the owner
-// reads is told so once, with the list; a cell whose list has none, as the reading of the tree, which writes no block, is
-// not told it.
+// reads is told so once, with the list; a cell whose list has none, as the reading of the tree, whose entries the owner
+// does not read, is not told it.
 #[test]
 fn a_cell_that_returns_what_the_owner_reads_is_told_its_language_once_with_the_list() {
     let (sim, reading) = until("R0");
@@ -979,7 +1040,7 @@ fn an_answer_to_the_questions_of_a_cell_since_skipped_runs_the_cell_in_charge() 
     sim.writes("background", "Greet the user by name, warmly.");
     tried(&mut sim, &second);
     sim.hands_in(&second, &[]);
-    next(&mut sim, "R0", &[]);
+    next(&mut sim, "R0", &[("tree_entries", ENTRIES, None)]);
     next(
         &mut sim,
         "R1",
@@ -1060,4 +1121,60 @@ fn an_answer_to_the_questions_of_a_cell_since_skipped_runs_the_cell_in_charge() 
         "{:?}",
         entered.situation.new
     );
+}
+
+/// What the engine's loop writes into `parallel` of the work, as the list of the works under way reads.
+fn works_under_way(file: &str) -> String {
+    format!("W9 (#9)\nchanged:\n{file}\nplanned:\nnot stated")
+}
+
+// The design review's message holds the list of the works under way, only its latest version, named with its number:
+// where the loop has written two lists before the review's round begins, the review is sent the second and no word of
+// the first (a round is sent what the records held as it began). Fails where the list is not among what the review is
+// given, or is given as every version, or its version is not named (reference: the message's own form,
+// `## `<block>`, version <n>`, as the other test of this file reads it; and `flow/engineer/cells/P1.toml`, which reads
+// `parallel` as its latest version). Milliseconds.
+#[test]
+fn the_design_review_is_sent_the_latest_list_of_the_works_under_way_and_no_earlier_one() {
+    let (mut sim, better) = until("R2");
+    sim.wrote("parallel", &works_under_way("old.rs"), None, Outsider::Outside);
+    sim.wrote("parallel", &works_under_way("new.rs"), None, Outsider::Outside);
+    tried(&mut sim, &better);
+    sim.hands_in(&better, &[]);
+    let review = sim.round().expect("the design review is given");
+    assert_eq!(sim.cell(&review).id.as_str(), "P1");
+    let entered = sim.enter(&review, sim.begins(&review));
+    let given = record_given(&entered.text, "parallel");
+    assert_eq!(given.len(), 1, "{}", entered.text);
+    assert!(given[0].contains("new.rs"), "{}", given[0]);
+    assert!(!entered.text.contains("old.rs"), "{}", entered.text);
+    let named = format!("## `parallel`, version {}", sim.number("parallel"));
+    assert!(entered.text.contains(&named), "{named} is not in:\n{}", entered.text);
+}
+
+// A new version of the list of the works under way runs no cell: the work that has gone on past the design review to
+// the implementation is written new lists while the implementation's round is under way, and the round that comes after
+// the implementation is the same as where no list was written. A round under way is never replaced, so it is the next
+// round that shows a cell run by the list. Fails where a cell watches the list, so that the review, or another, is run
+// by it (reference: design document `data-and-context`, 5: a datum a cell only reads runs nothing). Milliseconds.
+#[test]
+fn a_new_list_of_the_works_under_way_given_after_the_review_runs_no_cell() {
+    let after_the_implementation = |lists: bool| {
+        let (mut sim, implementation) = until("I1");
+        if lists {
+            sim.wrote("parallel", &works_under_way("a.rs"), None, Outsider::Outside);
+            sim.wrote("parallel", &works_under_way("b.rs"), None, Outsider::Outside);
+        }
+        assert_eq!(sim.round().as_ref(), Some(&implementation));
+        tried(&mut sim, &implementation);
+        sim.hands_in(&implementation, &[("code", "abc", None)]);
+        let next = sim.round().expect("a round is given after the implementation");
+        sim.cell(&next).id.as_str().to_string()
+    };
+    let without = after_the_implementation(false);
+    assert_ne!(
+        without, "P1",
+        "the review runs again after the implementation with no list"
+    );
+    assert_eq!(after_the_implementation(true), without);
 }

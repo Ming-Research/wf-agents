@@ -1,15 +1,13 @@
 //! When a line of a work begins a new session: the driver records it with why, from the work's records and the
-//! installation's policy, and writes the block of the source `session` that a cell of the line reads, so that the cell
-//! runs again before the line's next round; where each line has a block of its own, a new session of one line writes
-//! its block alone and runs again no cell of another line.
+//! installation's policy, and the work goes on where it stood: a new session runs no cell, and the next round of the
+//! line is filled in it with all its cell's data.
 
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex};
 
-use decide::BlockId;
 use driver::{Budget, Policy};
-use driver::{FirstWrite, Found, NewItem, SESSION};
+use driver::{FirstWrite, Found, NewItem};
 use engine::RanOn;
 use engine::{Ask, Handed, Session, Why};
 use flow::{Compiled, Has};
@@ -18,8 +16,8 @@ use work::sessions::of_round;
 
 use super::*;
 
-/// The flow: `load` reads the session block and loads the engineer's session, `build` goes on in it unless a person
-/// stops it, and `review` has a line of its own.
+/// The flow: `load` begins the engineer's line, `build` goes on in its session unless a person stops it, and `review`
+/// has a line of its own.
 fn flow() -> Compiled {
     let flow = r#"
         name = "sessions"
@@ -41,9 +39,6 @@ fn flow() -> Compiled {
         values = ["yes", "no"]
         people = true
         shown = true
-        [blocks.session]
-        outside = "session"
-        writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit} for its line", model = "its rounds now run on another model than {was}, which it was begun on", changed = "the rules or the form of return its agents are given changed since it began", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", guarded = "the run guard stopped its last round", too_long = "its last round's prompt was too long", lost = "the agents' program no longer had the session it was in", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }
         [blocks.tree]
         outside = "tree"
         shown = true
@@ -63,7 +58,7 @@ fn flow() -> Compiled {
             kinds.join(", ")
         )
     };
-    let load = cell("engineer", r#"["request", "session"]"#, r#"["context"]"#);
+    let load = cell("engineer", r#"["request"]"#, r#"["context"]"#);
     let build = cell("engineer", r#"["request", "context"]"#, r#"["code"]"#) + "when = { test = \"going\" }\n";
     let review = cell("review", r#"["code"]"#, r#"["verdict"]"#);
     let merge =
@@ -82,7 +77,7 @@ fn flow() -> Compiled {
         ..Default::default()
     };
     let has = Has {
-        sources: [SESSION.to_string(), "tree".to_string()].into(),
+        sources: ["tree".to_string()].into(),
         acts: ["merge".to_string()].into(),
         ..Default::default()
     };
@@ -92,14 +87,10 @@ fn flow() -> Compiled {
 /// The account the owner took in a test of keeping sessions warm, which a session is kept warm only under.
 const ACCOUNT: &str = "work";
 
-/// The words the driver writes into a session block, as the flow's own datum gives them.
-const SESSION_WRITES: &str = r#"writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit}", model = "its rounds now run on another model than {was}, which it was begun on", changed = "the rules or the form of return its agents are given changed since it began", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", lost = "the agents' program no longer had the session it was in", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }"#;
-
-/// Two lines, each loading its session by a cell that reads a session block of its own: `load` the engineer's, which
-/// `build` goes on in, and `look` the review's, which `review` goes on in.
+/// Two lines: the engineer's, which `load` begins and `build` goes on in, and the review's, which `look` begins and
+/// `review` goes on in.
 fn two_lines() -> Compiled {
-    let flow = format!(
-        r#"
+    let flow = r#"
         name = "sessions"
         order = ["load", "build", "look", "review", "merge"]
         [limits]
@@ -110,12 +101,6 @@ fn two_lines() -> Compiled {
         [lines.review]
         [blocks.request]
         people = true
-        [blocks.engineer_session]
-        outside = "session"
-        {SESSION_WRITES}
-        [blocks.review_session]
-        outside = "session"
-        {SESSION_WRITES}
         [blocks.context]
         [blocks.code]
         [blocks.notes]
@@ -123,7 +108,7 @@ fn two_lines() -> Compiled {
         [blocks.merged]
         shown = true
     "#
-    );
+    .to_string();
     let cell = |line: &str, watches: &str, outputs: &str| {
         // Each datum it watches given as it last worked from it and as it is now.
         let kinds: Vec<String> = (watches.split('"').skip(1).step_by(2))
@@ -139,12 +124,9 @@ fn two_lines() -> Compiled {
     let source = flow::Source {
         flow,
         cells: [
-            (
-                "load",
-                cell("engineer", r#"["request", "engineer_session"]"#, r#"["context"]"#),
-            ),
+            ("load", cell("engineer", r#"["request"]"#, r#"["context"]"#)),
             ("build", cell("engineer", r#"["request", "context"]"#, r#"["code"]"#)),
-            ("look", cell("review", r#"["code", "review_session"]"#, r#"["notes"]"#)),
+            ("look", cell("review", r#"["code"]"#, r#"["notes"]"#)),
             ("review", cell("review", r#"["code", "notes"]"#, r#"["verdict"]"#)),
             ("merge", merge.to_string()),
         ]
@@ -154,7 +136,6 @@ fn two_lines() -> Compiled {
         ..Default::default()
     };
     let has = Has {
-        sources: [SESSION.to_string()].into(),
         acts: ["merge".to_string()].into(),
         ..Default::default()
     };
@@ -165,8 +146,7 @@ fn two_lines() -> Compiled {
 /// engineer's, `look`, which comes before `build`, the review's, and runs on the owner's remarks, so that it runs while
 /// the build waits on a tool's result; `review` is the review's after `build`.
 fn remarks() -> Compiled {
-    let flow = format!(
-        r#"
+    let flow = r#"
         name = "sessions"
         order = ["load", "look", "build", "review", "merge"]
         [limits]
@@ -179,12 +159,6 @@ fn remarks() -> Compiled {
         people = true
         [blocks.remarks]
         people = true
-        [blocks.engineer_session]
-        outside = "session"
-        {SESSION_WRITES}
-        [blocks.review_session]
-        outside = "session"
-        {SESSION_WRITES}
         [blocks.context]
         [blocks.notes]
         [blocks.code]
@@ -192,7 +166,7 @@ fn remarks() -> Compiled {
         [blocks.merged]
         shown = true
     "#
-    );
+    .to_string();
     let cell = |line: &str, watches: &str, outputs: &str| {
         // Each datum it watches given as it last worked from it and as it is now.
         let kinds: Vec<String> = (watches.split('"').skip(1).step_by(2))
@@ -208,14 +182,8 @@ fn remarks() -> Compiled {
     let source = flow::Source {
         flow,
         cells: [
-            (
-                "load",
-                cell("engineer", r#"["request", "engineer_session"]"#, r#"["context"]"#),
-            ),
-            (
-                "look",
-                cell("review", r#"["remarks", "review_session"]"#, r#"["notes"]"#),
-            ),
+            ("load", cell("engineer", r#"["request"]"#, r#"["context"]"#)),
+            ("look", cell("review", r#"["remarks"]"#, r#"["notes"]"#)),
             (
                 "build",
                 cell("engineer", r#"["request", "context", "notes"]"#, r#"["code"]"#),
@@ -229,7 +197,6 @@ fn remarks() -> Compiled {
         ..Default::default()
     };
     let has = Has {
-        sources: [SESSION.to_string()].into(),
         acts: ["merge".to_string()].into(),
         ..Default::default()
     };
@@ -517,20 +484,6 @@ impl S {
             .collect()
     }
 
-    /// The versions of the session block, as their content.
-    fn session_block(&self) -> Vec<String> {
-        self.versions_of("session")
-    }
-
-    /// The versions of the block, as their content.
-    fn versions_of(&self, block: &str) -> Vec<String> {
-        let block = BlockId::from(block);
-        (self.kept().records.written.iter())
-            .filter(|w| w.block == block)
-            .map(|w| self.kept().contents[&(block.clone(), w.at)].clone())
-            .collect()
-    }
-
     fn engineer(&self, run: RunId, number: usize) -> (u32, bool) {
         let work = self.kept();
         let on_line = |r: RunId| {
@@ -551,7 +504,6 @@ fn a_line_goes_on_in_its_first_session_while_nothing_ends_it() {
     let mut s = S::new();
     s.hands_in(100, true);
     assert!(s.sessions().is_empty(), "no new session");
-    assert!(s.session_block().is_empty(), "a first session writes no block");
     let (build, cell) = s.round();
     assert_eq!(cell, "build", "the line goes on");
     assert_eq!(s.engineer(build, 1), (0, false), "in the session the load began");
@@ -568,7 +520,6 @@ fn a_round_ending_with_more_context_than_the_installations_number_has_its_line_g
     // The build's run ends with far more context than any number an installation sets.
     s.hands_in(10_000_000, true);
     assert!(s.sessions().is_empty(), "no new session for the context it ended with");
-    assert!(s.session_block().is_empty(), "the loading cell is not run again");
     // The line goes on in the session its load began, and the loading cell has run once.
     let (review, cell) = s.round();
     assert_eq!(cell, "review", "the engineer's line handed in; the review goes on");
@@ -576,8 +527,11 @@ fn a_round_ending_with_more_context_than_the_installations_number_has_its_line_g
     assert_eq!(runs(&s, "load"), 1);
 }
 
+// A new session of a line runs no cell: the work goes on at the cell whose turn it is, which begins the new session,
+// and the line's earlier cells do not run again (design document `data-and-context`, 7, 25). Runs in memory in
+// milliseconds; the one test that a new session asked of each line runs again none of its cells.
 #[test]
-fn a_new_session_of_one_line_writes_its_own_block_alone_and_runs_again_no_cell_of_another_line() {
+fn a_new_session_of_a_line_runs_no_cell_and_the_work_goes_on_where_it_stood() {
     let mut s = S::on_flow(two_lines(), policy("opus"), None);
     let asked = |line: &str| Event::Anew {
         line: line.to_string(),
@@ -585,80 +539,27 @@ fn a_new_session_of_one_line_writes_its_own_block_alone_and_runs_again_no_cell_o
     };
     s.hands_in(100, true);
     assert_eq!(s.round().1, "build");
-    // The owner asks the engineer's line for a new session while the build's round is under way: the line begins one
-    // as the round ends, and its own block is written.
+    // The owner asks the engineer's line for a new session while the build's round is under way: the line begins one,
+    // and the work goes on to the review's line.
     s.began();
     s.on(asked("engineer"));
     s.hands_in(100, true);
     assert!(matches!(s.sessions().last(), Some((line, Why::Owner)) if line == "engineer"));
-    assert_eq!(s.versions_of("engineer_session").len(), 1);
-    assert!(
-        s.versions_of("review_session").is_empty(),
-        "the review's line began none"
-    );
-    // Its loading cell runs again before anything else; the review's does not, and runs once, for the code.
-    assert_eq!(s.round().1, "load");
-    s.hands_in(100, false);
     assert_eq!(s.round().1, "look");
     s.hands_in(100, true);
     assert_eq!(s.round().1, "review");
-    // The owner asks the review's line while its round is under way: it begins one, which writes its own block and
-    // runs its loading cell alone.
+    // The owner asks the review's line while its round is under way: it begins one, and the round that follows goes on
+    // to the merge.
     s.began();
     s.on(asked("review"));
     s.hands_in(100, true);
     assert!(matches!(s.sessions().last(), Some((line, Why::Owner)) if line == "review"));
-    assert_eq!(s.versions_of("review_session").len(), 1);
-    assert_eq!(
-        s.versions_of("engineer_session").len(),
-        1,
-        "the engineer's line began no other"
-    );
-    assert_eq!(s.round().1, "look");
-    assert_eq!((runs(&s, "load"), runs(&s, "look")), (2, 2));
+    assert_eq!(s.round().1, "merge");
+    assert_eq!((runs(&s, "load"), runs(&s, "look"), runs(&s, "build")), (1, 1, 1));
 }
 
 #[test]
-fn the_engineers_flow_gives_each_line_that_loads_its_session_a_block_of_its_own() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
-    let source = flow::read(&dir).expect("the engineer's flow is read");
-    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
-    let has = Has {
-        sources: names(&[
-            "answer",
-            "asked",
-            "handed_in",
-            "words",
-            driver::DEPENDENCIES,
-            "main",
-            SESSION,
-            "start",
-            "head",
-            "test_times",
-            "tree",
-        ]),
-        acts: names(&["start", "check", "merge"]),
-        tools: names(&["query", "run_tests"]),
-        ..Default::default()
-    };
-    let flow = flow::compile(&source, &has).expect("the engineer's flow compiles");
-    // Each reader as its id and its line.
-    let reader = |cell: &decide::CellId| {
-        let line = (flow.cells.iter()).find(|c| &c.id == cell).and_then(|c| c.line.clone());
-        format!("{cell} on {}", line.unwrap_or_default())
-    };
-    let read: Vec<(String, Vec<String>)> = (flow.blocks.iter())
-        .filter(|(_, b)| b.writers.outside.as_deref() == Some(SESSION))
-        .map(|(block, b)| (block.to_string(), b.readers.cells.iter().map(reader).collect()))
-        .collect();
-    assert_eq!(
-        read,
-        [("engineer_session".to_string(), vec!["R0 on engineer".to_string()])]
-    );
-}
-
-#[test]
-fn a_run_waiting_on_a_tools_result_as_its_line_begins_a_new_session_goes_on_in_the_session_the_load_began() {
+fn a_run_waiting_on_a_tools_result_as_its_line_begins_a_new_session_begins_it_once_entered_again() {
     let mut s = S::new();
     s.hands_in(100, true);
     let (build, _) = s.round();
@@ -667,30 +568,26 @@ fn a_run_waiting_on_a_tools_result_as_its_line_begins_a_new_session_goes_on_in_t
     reopened(&mut s, policy("sonnet"));
     s.model = "sonnet".to_string();
     assert!(matches!(s.sessions().last(), Some((line, Why::Model { .. })) if line == "engineer"));
-    let (load, cell) = s.round();
-    assert_eq!(cell, "load");
-    assert_eq!(s.engineer(load, 1), (1, true));
-    s.hands_in(100, false);
     let call = s.kept().records.called.last().expect("the build's call").call;
     s.on(Event::Done {
         call,
         result: "the request".to_string(),
     });
-    // Entered again for the result, the build goes on in the session the load began, which never saw the run that
-    // asked.
+    // Entered again for the result, the build begins the new session, which never saw the run that asked, and no
+    // cell ran before it.
     let (again, cell) = s.round();
     assert_eq!(cell, "build");
     assert_ne!(again, build);
-    assert_eq!(s.engineer(again, 1), (1, false));
+    assert_eq!(s.engineer(again, 1), (1, true));
+    assert_eq!(runs(&s, "load"), 1);
 }
 
 // A run waiting on a tool's result as what a new session of its line would begin with comes to differ from what its
 // session began with, as after a flow installed while it waits, does not hold the new session back: as for another
-// model, the line begins it at once as the engine opens, its loading cell runs first, and the run, entered again for
-// the result, goes on in the session the load began. Runs in memory in milliseconds; the one test that this reason
-// takes the timing of a change of model.
+// model, the line begins it at once as the engine opens, and the run, entered again for the result, begins the new
+// session. Runs in memory in milliseconds; the one test that this reason takes the timing of a change of model.
 #[test]
-fn a_run_waiting_on_a_tools_result_as_its_session_comes_to_differ_goes_on_in_the_new_session_the_load_began() {
+fn a_run_waiting_on_a_tools_result_as_its_session_comes_to_differ_begins_the_new_session_once_entered_again() {
     let mut s = S::new();
     s.hands_in(100, true);
     let (build, _) = s.round();
@@ -698,10 +595,6 @@ fn a_run_waiting_on_a_tools_result_as_its_session_comes_to_differ_goes_on_in_the
     reopened(&mut s, kept_against(|line, session| line == "engineer" && session == 0));
     let why = Why::Changed { context: Some(250) };
     assert_eq!(s.sessions().last(), Some(&("engineer".to_string(), why)));
-    let (load, cell) = s.round();
-    assert_eq!(cell, "load");
-    assert_eq!(s.engineer(load, 1), (1, true));
-    s.hands_in(100, false);
     let call = s.kept().records.called.last().expect("the build's call").call;
     s.on(Event::Done {
         call,
@@ -710,7 +603,7 @@ fn a_run_waiting_on_a_tools_result_as_its_session_comes_to_differ_goes_on_in_the
     let (again, cell) = s.round();
     assert_eq!(cell, "build");
     assert_ne!(again, build);
-    assert_eq!(s.engineer(again, 1), (1, false));
+    assert_eq!(s.engineer(again, 1), (1, true));
     assert_eq!(s.sessions().len(), 1);
 }
 
@@ -814,26 +707,6 @@ fn a_round_under_way_as_a_store_kept_before_sessions_were_recorded_opens_runs_in
 }
 
 #[test]
-fn a_line_with_no_cell_that_reads_the_block_begins_its_new_session_with_no_write() {
-    let mut s = S::new();
-    s.hands_in(100, true);
-    s.hands_in(100, true);
-    assert_eq!(s.round().1, "review");
-    s.on(Event::Anew {
-        line: "review".to_string(),
-        why: Why::Owner,
-    });
-    let kept = s.kept().sessions.last().expect("the owner's").clone();
-    assert_eq!((kept.line.as_str(), &kept.why), ("review", &Why::Owner));
-    assert!(s.session_block().is_empty());
-    s.on(Event::Anew {
-        line: "engineer".to_string(),
-        why: Why::Lost,
-    });
-    assert_eq!(s.session_block().len(), 1, "the engineer's session is loaded again");
-}
-
-#[test]
 fn a_line_whose_rounds_now_run_on_another_model_begins_a_new_session_as_the_engine_opens() {
     let mut s = S::new();
     s.hands_in(100, true);
@@ -844,15 +717,19 @@ fn a_line_whose_rounds_now_run_on_another_model_begins_a_new_session_as_the_engi
         was: "opus".to_string(),
     };
     assert_eq!(s.sessions().last(), Some(&("engineer".to_string(), was)));
-    assert_eq!(s.session_block().len(), 1);
-    let loads = todos
-        .iter()
-        .any(|todo| matches!(&todo.effect, Effect::Round { cell, .. } if cell.as_str() == "load"));
-    assert!(loads, "the load runs again before the build goes on: {todos:?}");
-    let _ = build;
-    // The load's round runs on the new model, and nothing more begins anew.
+    let rounds = todos.iter().any(|todo| matches!(&todo.effect, Effect::Round { .. }));
+    assert!(!rounds, "a new session runs no cell while the build waits: {todos:?}");
+    let call = s.kept().records.called.last().expect("the build's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the request".to_string(),
+    });
+    // The build's round runs on the new model, and nothing more begins anew.
+    let (again, cell) = s.round();
+    assert_eq!(cell, "build");
+    assert_ne!(again, build);
     s.model = "sonnet".to_string();
-    s.hands_in(100, false);
+    s.hands_in(100, true);
     assert_eq!(s.sessions().len(), 1);
 }
 
@@ -868,16 +745,11 @@ fn kept_against(changed: impl Fn(&str, u32) -> bool + Send + 'static) -> Policy 
     }
 }
 
-/// The words the flow's session block gives for a new session of the engineer's line begun for this reason.
-const CHANGED: &str = "A new session of the line `engineer`: the rules or the form of return its agents are given \
-                       changed since it began.";
-
 // What a new session of the engineer's line would begin with comes to differ from what its session began with while a
 // round of the line is under way, as a change of the project's files in the worktree makes it: the line begins a new
-// session at once, recorded with the context of the session it leaves as its latest round that ended told it, and its
-// block is written in the flow's words; the round under way goes on in the session it began in, the loading cell runs
-// first after it in the new session, and the new session, begun with what a new one begins with, begins no other. Runs
-// in memory in milliseconds; the one test of the record and the block of this reason.
+// session at once, recorded with the context of the session it leaves as its latest round that ended told it; the round
+// under way goes on in the session it began in, no cell runs for the new session, and the new session, begun with what
+// a new one begins with, begins no other. Runs in memory in milliseconds; the one test of the record of this reason.
 #[test]
 fn a_line_whose_session_began_otherwise_than_a_new_one_would_now_begins_one_recorded_with_the_context_it_left() {
     let changed = Arc::new(AtomicBool::new(false));
@@ -892,20 +764,15 @@ fn a_line_whose_session_began_otherwise_than_a_new_one_would_now_begins_one_reco
     s.began();
     let why = Why::Changed { context: Some(1234) };
     assert_eq!(s.sessions(), [("engineer".to_string(), why)]);
-    assert_eq!(s.session_block(), [CHANGED]);
     assert_eq!(
         s.engineer(build, 1),
         (0, false),
         "the round under way goes on in its session"
     );
     s.hands_in(100, true);
-    let (load, cell) = s.round();
-    assert_eq!(cell, "load", "the loading cell runs first in the new session");
-    assert_eq!(s.engineer(load, 1), (1, true));
-    s.hands_in(100, false);
-    assert_eq!(s.round().1, "review");
+    assert_eq!(s.round().1, "review", "no cell runs for the new session");
     assert_eq!(s.sessions().len(), 1, "the new session begins no other");
-    assert_eq!((runs(&s, "load"), runs(&s, "build")), (2, 1));
+    assert_eq!((runs(&s, "load"), runs(&s, "build")), (1, 1));
 }
 
 // A line whose session began with what a new one would begin with now goes on in it: the carriers are asked of each
@@ -926,7 +793,6 @@ fn a_line_whose_session_began_with_what_a_new_one_would_begin_with_now_goes_on_i
     s.hands_in(100, true);
     assert_eq!(s.round().1, "review");
     assert!(s.sessions().is_empty(), "{:?}", s.sessions());
-    assert!(s.session_block().is_empty());
     let asked = asked.lock().expect("the asks");
     for line in ["engineer", "review"] {
         assert!(asked.contains(&(line.to_string(), 0)), "{line}: {asked:?}");
@@ -936,7 +802,7 @@ fn a_line_whose_session_began_with_what_a_new_one_would_begin_with_now_goes_on_i
 // A line goes on in its session under another account: the session lives in the one directory of the agents' program,
 // and the service takes a session made under another account (decision
 // a-line-goes-on-in-its-session-under-another-account). Taken while a round waits, as the engine opens, and once the
-// line goes on, the account begins no session, and the loading cell does not run again.
+// line goes on, the account begins no session.
 #[test]
 fn a_line_goes_on_in_its_session_after_another_account_is_taken() {
     let mut s = S::new();
@@ -962,7 +828,6 @@ fn a_line_goes_on_in_its_session_after_another_account_is_taken() {
     assert_eq!(cell, "build", "the build goes on, not the load");
     s.began();
     assert!(s.sessions().is_empty(), "{:?}", s.sessions());
-    assert!(s.session_block().is_empty(), "the loading cell runs not again");
     assert_eq!(s.engineer(again, 1), (0, false), "in the session its load began");
     assert_eq!(runs(&s, "load"), 1);
 }
@@ -1050,27 +915,21 @@ fn runs(s: &S, cell: &str) -> usize {
         .count()
 }
 
-/// Ends each round of the work, but the merge's, as the agents do: the loading cell hands in a context that matters
-/// the first time and changes nothing of what it means after, the others what matters. Each event is taken as the
-/// round of its number, counting from none, is under way. Gives how many of the events were taken that have the
-/// loading cell run again, which a tree does not.
-fn through(s: &mut S, events: &[(usize, Event)]) -> usize {
-    let (mut round, mut taken, mut loaded) = (0, 0, false);
+/// Ends each round of the work, but the merge's, as the agents do, each handing in what matters. Each event is taken
+/// as the round of its number, counting from none, is under way.
+fn through(s: &mut S, events: &[(usize, Event)]) {
+    let mut round = 0;
     loop {
         let (_, cell) = s.round();
         if cell == "merge" {
-            return taken;
+            return;
         }
         for (at, event) in events {
             if *at == round {
                 s.on(event.clone());
-                // The loading cell's own compaction has it run no more: it would load again without end.
-                taken += usize::from(matches!(event, Event::Anew { .. }) && cell != "load");
             }
         }
-        let matters = cell != "load" || !loaded;
-        loaded |= cell == "load";
-        s.hands_in(100, matters);
+        s.hands_in(100, true);
         round += 1;
         assert!(round < 20, "the work does not come to its merge");
     }
@@ -1084,36 +943,25 @@ fn a_compaction_within_a_round_counts_as_the_session_reopened_and_goes_on_under_
     assert_eq!(cell, "build");
     s.on(compacted());
     assert_eq!(s.sessions(), [("engineer".to_string(), Why::Compacted)]);
-    let block = s.session_block();
-    assert_eq!(block.len(), 1, "a new version of the session block");
-    assert!(
-        block[0].contains("`engineer`") && block[0].contains("compacted"),
-        "{}",
-        block[0]
-    );
     assert_eq!(
         s.engineer(build, 1),
         (0, false),
         "the round goes on in the session it began in, under its id"
     );
-    // The round did not end and consumed nothing: when it ends, the cell that loads the session runs first, and
-    // what it finds unchanged runs nothing after it.
+    // When the round ends, the work goes on: the compaction runs no cell.
     s.hands_in(100, true);
     let (_, cell) = s.round();
-    assert_eq!(cell, "load");
-    s.hands_in(100, false);
-    let (_, cell) = s.round();
     assert_eq!(cell, "review");
-    assert_eq!(runs(&s, "build"), 1);
+    assert_eq!((runs(&s, "load"), runs(&s, "build")), (1, 1));
 }
 
 #[test]
-fn a_compaction_at_any_step_has_the_cell_that_loads_the_session_run_again_and_nothing_after_it() {
+fn a_compaction_at_any_step_runs_no_cell() {
     for round in 0..4 {
         let mut s = S::new();
-        let taken = through(&mut s, &[(round, compacted())]);
+        through(&mut s, &[(round, compacted())]);
         let at = format!("a compaction as round {round} was under way");
-        assert_eq!(runs(&s, "load"), 1 + taken, "{at}");
+        assert_eq!(runs(&s, "load"), 1, "{at}");
         assert_eq!(runs(&s, "build"), 1, "{at}");
         assert_eq!(runs(&s, "review"), 1, "{at}");
     }
@@ -1141,14 +989,14 @@ fn a_new_version_of_the_tree_at_any_step_runs_no_cell() {
 }
 
 #[test]
-fn a_session_compacted_and_a_tree_changed_at_two_steps_have_the_cell_run_again_for_the_compaction_alone() {
+fn a_session_compacted_and_a_tree_changed_at_two_steps_run_no_cell() {
     for first in 0..4 {
         for second in 0..4 {
             let mut s = S::new();
             let events = [(first, compacted()), (second, tree_is("c1 t1"))];
-            let taken = through(&mut s, &events);
+            through(&mut s, &events);
             let at = format!("a compaction as round {first}, a new tree as round {second}");
-            assert_eq!(runs(&s, "load"), 1 + taken, "{at}");
+            assert_eq!(runs(&s, "load"), 1, "{at}");
             assert_eq!(runs(&s, "build"), 1, "{at}");
             assert_eq!(runs(&s, "review"), 1, "{at}");
         }
@@ -1181,22 +1029,6 @@ fn a_version_written_for_the_round_is_put_into_it_and_runs_no_cell() {
     let (_, cell) = s.round();
     assert_eq!(cell, "review", "nothing runs again for it");
     assert_eq!((runs(&s, "load"), runs(&s, "build")), (1, 1));
-}
-
-#[test]
-fn a_compaction_within_a_round_of_the_cell_that_loads_the_session_has_it_run_no_more() {
-    let mut s = S::new();
-    let (_, cell) = s.round();
-    assert_eq!(cell, "load");
-    s.on(compacted());
-    assert_eq!(s.sessions(), [("engineer".to_string(), Why::Compacted)]);
-    assert!(s.session_block().is_empty(), "nothing is written for it");
-    s.hands_in(100, true);
-    let (_, cell) = s.round();
-    assert_eq!(cell, "build", "the loading cell does not run again");
-    // A later compaction of another cell's round is written, though the session block was not written for this one.
-    s.on(compacted());
-    assert_eq!(s.session_block().len(), 1);
 }
 
 // A round that fails for a model the service does not have pauses its own work, and every other work that runs a
@@ -1277,13 +1109,10 @@ fn a_round_the_run_guard_stopped_is_tried_again_in_a_new_session_and_a_second_pa
     };
     guarded(&mut s, build);
     assert_eq!(s.sessions(), [("engineer".to_string(), Why::Guarded)]);
-    // The loading cell runs first in the new session, and the build is tried again after it, in that session.
-    let (load, cell) = s.round();
-    assert_eq!(cell, "load");
-    assert_eq!(s.engineer(load, 1), (1, true));
-    s.hands_in(100, false);
+    // The build is tried again, and begins the new session.
     let (again, _) = s.round();
     assert_eq!(again, build);
+    assert_eq!(s.engineer(again, 2), (1, true));
     assert!(!decide::paused(&s.kept().records));
     guarded(&mut s, build);
     assert!(
@@ -1963,10 +1792,10 @@ fn no_ping_of_a_line_the_work_passed_for_good_while_its_pause_holds_it_at_anothe
 }
 
 #[test]
-fn a_ping_that_compacted_the_session_after_the_loading_cells_round_has_that_cell_run_again() {
+fn a_ping_that_compacted_the_session_while_the_work_rests_runs_no_cell() {
     let mut s = S::warmed(warm("opus"));
     // A person stops the build while the load runs: once the load has handed in, the work rests, its last round the
-    // loading cell's.
+    // load's.
     s.on(Event::Wrote {
         block: "stop".into(),
         by: Outsider::Person,
@@ -1985,11 +1814,11 @@ fn a_ping_that_compacted_the_session_after_the_loading_cells_round_has_that_cell
     s.driver
         .happened(Time(s.clock), s.work, pinged(compacted, None))
         .unwrap();
-    // The compaction came in no round of the loading cell's: the session it loads holds a summary, and it runs again.
+    // The compaction is recorded as the session reopened, and runs no cell: the work rests as it did.
     assert_eq!(s.sessions(), [("engineer".to_string(), Why::Compacted)]);
-    assert_eq!(s.session_block().len(), 1);
-    let (_, cell) = s.round();
-    assert_eq!(cell, "load");
+    let round = (s.driver.pending().iter()).any(|t| matches!(t.effect, Effect::Round { .. }) && t.work == s.work);
+    assert!(!round, "a round is to be done for the compaction");
+    assert_eq!(runs(&s, "load"), 1);
 }
 
 // A round that would begin while a ping of its line is under way begins once the ping has ended, after what the ping
@@ -2114,13 +1943,12 @@ fn a_session_beside_a_round_of_another_line_is_pinged_as_often_as_a_wait_is_wort
     assert_eq!(s.round().1, "look", "the review's round is still under way");
 }
 
-// A compaction by a ping is taken as it is without a round of another line (`a_ping_that_compacted_the_session_after_
-// the_loading_cells_round_has_that_cell_run_again`): the session is recorded as reopened, and the cell that loads it
-// runs again before the line's next round. Beside a round of another line the ping changes nothing of that round: no
-// round of the work begins beside it, and once it has ended the loading cell runs, before the build.
+// A compaction by a ping is taken as it is without a round of another line (`a_ping_that_compacted_the_session_while_
+// the_work_rests_runs_no_cell`): the session is recorded as reopened, and runs no cell. Beside a round of another line
+// the ping changes nothing of that round: no round of the work begins beside it, and once it has ended the work goes
+// on where it stood.
 #[test]
-fn a_ping_that_compacted_its_session_beside_a_round_of_another_line_leaves_that_round_alone_and_has_the_loading_cell_run_after_it()
- {
+fn a_ping_that_compacted_its_session_beside_a_round_of_another_line_leaves_that_round_alone() {
     let (mut s, build_ended) = awaiting_a_tool();
     s.on(remark("a remark"));
     s.began();
@@ -2154,12 +1982,7 @@ fn a_ping_that_compacted_its_session_beside_a_round_of_another_line_leaves_that_
         "the ping's end did something to the round beside it: {todos:?}"
     );
     assert_eq!(s.round().1, "look");
-    s.hands_in(100, true);
-    assert_eq!(
-        s.round().1,
-        "load",
-        "the cell that loads the reopened session runs before the build"
-    );
+    assert_eq!(runs(&s, "load"), 1, "the compaction ran no cell");
 }
 
 // A cancelled work has all its runs abandoned and is decided as ended, though the round of another line that was under

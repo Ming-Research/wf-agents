@@ -50,9 +50,9 @@ pub type Changes = BTreeMap<(BlockId, Seq), String>;
 
 /// What the carrier brings to an entry that neither the flow nor the work's records hold: which work the round is of;
 /// what came of taking main in as the run started, where the cell takes main in and the branch did not hold it
-/// already; what changed in the data whose versions the carrier compares itself; the settings the flow's words may
-/// name, with their values; and each result given otherwise than the records hold it, as a result of the tool `query`
-/// is given cut.
+/// already; what changed in the data whose versions the carrier compares itself; what a version is given as in place
+/// of its own content; the settings the flow's words may name, with their values; and each result given otherwise than
+/// the records hold it, as a result of the tool `query` is given cut.
 #[derive(Clone, Copy, Debug)]
 pub struct Carried<'a> {
     pub about: For<'a>,
@@ -62,6 +62,10 @@ pub struct Carried<'a> {
     /// of it.
     pub compared: &'a BTreeSet<BlockId>,
     pub changes: &'a Changes,
+    /// What a version is given as in place of its own content, by the block and the version's place: the entries of
+    /// the design tree a block's lines name, whole (`names_tree_entries`), as the carrier reads them. The records keep
+    /// the version as it was written.
+    pub given_as: &'a Changes,
     pub named: &'a flow::system::Settings,
     pub results: &'a BTreeMap<CallId, String>,
 }
@@ -145,7 +149,7 @@ pub fn enter(
             Ok(Version {
                 number: number_of(block, v.at)?,
                 value: v.value.clone(),
-                content: content(work, block, v.at).to_string(),
+                content: given_as(work, carried, block, v.at).to_string(),
                 by: by(flow, &records, block, v),
             })
         };
@@ -310,7 +314,7 @@ pub fn enter(
                         let written = Version {
                             number: number_of(block, v.at)?,
                             value: v.value.clone(),
-                            content: content(work, block, v.at).to_string(),
+                            content: given_as(work, carried, block, v.at).to_string(),
                             by: by(flow, &records, block, v),
                         };
                         values.written_over.push((block.clone(), written));
@@ -378,6 +382,15 @@ fn numbered<'b>(records: &Records, datum: impl IntoIterator<Item = &'b BlockId>,
 /// Whether the part of this name is one the session keeps: one with a `kind`.
 fn kept_part(words: &Agents, name: &str) -> bool {
     (words.message.parts.iter()).any(|p| p.part.name() == name && p.kind.is_some() && p.part != Part::Context)
+}
+
+/// The content a version of a block is given as: what the carrier gives in its place, where it gives something
+/// ([`Carried::given_as`]), or else its own.
+fn given_as<'a>(work: &'a Work, carried: &'a Carried<'_>, block: &BlockId, at: Seq) -> &'a str {
+    match carried.given_as.get(&(block.clone(), at)) {
+        Some(text) => text,
+        None => content(work, block, at),
+    }
 }
 
 /// The content of a version of a block; nothing where the work keeps none.

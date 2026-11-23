@@ -237,6 +237,9 @@ export function UsageTab({ page }: { page: WorkPage }) {
         {page.summary.pinged && page.summary.pinged.rounds > 0 && (
           <Keys keys={[['keep-warm pings', String(page.summary.pinged.rounds)], ...spentKeys(page.summary.pinged)]} />
         )}
+        {page.summary.forked && page.summary.forked.rounds > 0 && (
+          <Keys keys={[['forks', String(page.summary.forked.rounds)], ...spentKeys(page.summary.forked)]} />
+        )}
       </div>
       <Fold title="Where the time went">
         <TimeBar time={u.time} />

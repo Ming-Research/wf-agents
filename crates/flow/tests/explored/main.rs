@@ -46,7 +46,7 @@ use explore::{
     A_QUESTION_WAITED, Bounds, Explored, MAIN_WHILE_THE_CHECK_WAITS, Property, WAITED_FOR_THE_OWNER, explore,
 };
 use flow::{Compiled, Has, compile, read};
-use model::{Model, dialogue_loop, ran, ran_on};
+use model::{Model, dialogue_loop, ran};
 
 /// The bound of the exploration.
 const BOUNDS: Bounds = Bounds {
@@ -71,8 +71,8 @@ fn engineer() -> Compiled {
             "asked",
             "dependencies",
             "handed_in",
+            "parallel",
             "main",
-            "session",
             "start",
             "head",
             "test_times",
@@ -167,7 +167,6 @@ fn rare() -> Vec<String> {
         dialogue_loop(&block("testing")),
         "a return was sent back".to_string(),
         A_QUESTION_WAITED.to_string(),
-        ran_on(&cell("R0"), "engineer_session"),
         MAIN_WHILE_THE_CHECK_WAITS.to_string(),
         WAITED_FOR_THE_OWNER.to_string(),
         "stop: the work merged".to_string(),
