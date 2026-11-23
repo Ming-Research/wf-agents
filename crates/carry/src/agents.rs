@@ -108,7 +108,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use decide::run::{Failure, Unmet};
-use decide::{CellId, Pauser, RunId, Seq};
+use decide::{BlockId, CellId, Pauser, RunId, Seq};
 use driver::Policy;
 use engine::Came;
 use serde::{Deserialize, Serialize};
