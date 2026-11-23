@@ -16,6 +16,7 @@ fn an_input_changed_since_the_record_shows_the_version_the_record_started_from_a
     let because = vec![Cause::Changed {
         block: "background".into(),
         was: Some(first),
+        worked: Some(first),
         behind: false,
     }];
     assert_eq!(cell_of(&w, "research").needs, because);
@@ -26,9 +27,13 @@ fn a_cell_that_wrote_a_block_that_runs_it_consumed_the_version_it_was_told_of_an
     let mut w = World::with_gate(vec![cell("design", &["plan"], &["plan"])]);
     let first = w.person_writes("plan");
     let own = w.run("design", &[("plan", Matters)]);
+    // It last worked from its own version, which is no change to it, though it consumed the one it was told of.
     assert_eq!(
         input_of(&w, "design", "plan"),
-        input("plan", Some(own), Some(first), false)
+        InputView {
+            worked: Some(own),
+            ..input("plan", Some(own), Some(first), false)
+        }
     );
 }
 
