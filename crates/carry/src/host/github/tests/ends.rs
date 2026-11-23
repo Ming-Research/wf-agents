@@ -493,3 +493,63 @@ async fn what_the_engine_writes_on_the_pull_request_is_the_words_of_its_file_and
         }]
     );
 }
+
+// Each path of this machine is said by its own words, the data directory, the project's repository and the home
+// directory, whichever of them lies inside another: the longest is said first, so that a path inside another is said as
+// the one it is. Reference: the file `flow/agents/pull_request.toml`, whose `[withheld]` names the three.
+#[test]
+fn each_path_of_this_machine_is_said_by_its_own_words_and_the_longest_first() {
+    use crate::host::github::{neutral, withheld};
+    let said = flow::agents::Withheld {
+        data: "<D>".to_string(),
+        repository: "<R>".to_string(),
+        home: "<H>".to_string(),
+    };
+    let (data, repo, home) = ("/h/me/wf/data", "/h/me/code/project", "/h/me");
+    let paths = withheld(
+        std::path::Path::new(data),
+        std::path::Path::new(repo),
+        Some(home.to_string()),
+        &said,
+    );
+    let text = format!("a {data}/w b {repo}/src c {home}/.config d {home}");
+    assert_eq!(
+        neutral(&text, &paths, "CUT"),
+        "a <D>/w b <R>/src c <H>/.config d <H>",
+        "each path by its words"
+    );
+    // A home directory that is the root says nothing of the machine, and is not withheld.
+    let paths = withheld(
+        std::path::Path::new(data),
+        std::path::Path::new(repo),
+        Some("/".to_string()),
+        &said,
+    );
+    assert_eq!(neutral("/h/me/wf/data/x /etc", &paths, "CUT"), "<D>/x /etc");
+}
+
+// A work that wrote nothing of itself has a body of what the pull request is alone: the words that frame what a work
+// wrote are not written round nothing. Reference: the file `flow/agents/pull_request.toml`, where `about` is said
+// "where the work wrote of itself, then `body`".
+#[tokio::test]
+async fn a_work_that_wrote_nothing_of_itself_has_a_pull_request_body_of_its_own_words_alone() {
+    let hub = hub_with_other_words();
+    let head = hub.committed().await;
+    hub.green(&head);
+    let place = hub.place();
+    for wrote in ["", "  \n\t "] {
+        hub.host
+            .verdict(
+                &about(&place, wrote),
+                &head,
+                &hub.main_on_github(),
+                hub.round(),
+                &Mutex::new(()),
+                &mut Stop::never(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(hub.github().pull_requests()[0].body, "BODY W1.", "{wrote:?}");
+    }
+}

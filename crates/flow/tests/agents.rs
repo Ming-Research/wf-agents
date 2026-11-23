@@ -554,3 +554,61 @@ fn a_cause_is_set_off_after_a_colon_in_the_words_of_the_pause_and_wait_cards_and
         assert!(found.is_empty(), "{file}: {found:?}");
     }
 }
+
+/// Every string a TOML value holds, at any depth.
+fn strings(value: &toml::Value, out: &mut Vec<String>) {
+    match value {
+        toml::Value::String(text) => out.push(text.clone()),
+        toml::Value::Array(values) => values.iter().for_each(|value| strings(value, out)),
+        toml::Value::Table(table) => table.values().for_each(|value| strings(value, out)),
+        _ => {}
+    }
+}
+
+/// The places of `text` where a number's letter, `W` or `#`, stands right before a place the engine fills with a
+/// number already written.
+fn lettered(text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for place in agents::NUMBER_PLACES {
+        let place = format!("{{{place}}}");
+        for (at, _) in text.match_indices(&place) {
+            if text[..at].ends_with(['W', '#']) {
+                found.push(format!("{}{place}", &text[at - 1..at]));
+            }
+        }
+    }
+    found
+}
+
+// A text of a file is what its TOML says it is, not what its lines look like: a line of a multi-line text that begins
+// with `#` is part of the text, and is sent as it is, whatever a reader of the file takes it for. The letter of a
+// number is written before a place of the engine's by no text, at any depth of any file. Reference: the TOML
+// specification, by which a `#` inside a string is no comment, read by the parser the engine reads the files with.
+#[test]
+fn no_string_of_the_flows_files_writes_a_numbers_letter_before_the_place_the_engine_fills_with_one_wherever_it_stands()
+{
+    let hidden: toml::Value = "text = '''\nIn it:\n#{item} is done\n'''\nlast = \"W{work}\"\n"
+        .parse()
+        .unwrap();
+    let mut found = Vec::new();
+    strings(&hidden, &mut found);
+    let found: Vec<String> = found.iter().flat_map(|text| lettered(text)).collect();
+    assert_eq!(
+        found,
+        ["#{item}", "W{work}"],
+        "the check finds a line that begins with a hash"
+    );
+    let flow = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let mut read = 0;
+    for dir in ["agents", "data"] {
+        for (path, text) in toml_files(&flow.join(dir)) {
+            let value: toml::Value = text.parse().unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let mut all = Vec::new();
+            strings(&value, &mut all);
+            read += all.len();
+            let found: Vec<String> = all.iter().flat_map(|text| lettered(text)).collect();
+            assert!(found.is_empty(), "{}: {found:?}", path.display());
+        }
+    }
+    assert!(read > 200, "the check reads the texts: {read}");
+}
