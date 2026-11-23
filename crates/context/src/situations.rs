@@ -505,6 +505,14 @@ impl<'a> Reach<'a> {
         if self.starts.contains(block) && watches && first && *class == Class::Rest && entry != Entry::First {
             states.retain(|s| *s != Stands::HoldsNew);
         }
+        // A datum only cells write that the cell watches by itself runs the cell as soon as it is new to it, as the run
+        // begins, and no cell writes while a run is under way: where it did not run the cell, nothing of it is new, and the
+        // cell worked from a version of it, so that the session never holds it as the latest that is new or as one the
+        // cell never worked from.
+        let by_cells = (self.flow.blocks.get(block)).is_some_and(|d| !d.writers.people && d.writers.outside.is_none());
+        if *class == Class::Rest && watches && by_cells {
+            states.retain(|s| !matches!(s, Stands::HoldsLatest | Stands::HoldsNew));
+        }
         // A datum the cell watches and writes itself: a version written by another while its run was under way ran it,
         // and the cell's own, after it, is the one it last worked from, so that nothing is new to it.
         let writes = self.flow.flow.cells()[place].outputs.contains(block);

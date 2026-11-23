@@ -187,6 +187,9 @@ struct Scene {
     talks: bool,
     /// How many steps in a hundred a person or the outside writes.
     puts: usize,
+    /// How many steps in a hundred, after those, the owner reopens a line's session, and then speaks or answers.
+    reopens: usize,
+    speaks: usize,
     /// How often, in a hundred, a cell that writes a choice with the value `yes` writes it, so that the work goes on to
     /// its later cells; none where the choice is any of its values alike.
     passes: Option<u64>,
@@ -204,6 +207,8 @@ impl Scene {
             models: true,
             talks: false,
             puts: 22,
+            reopens: 4,
+            speaks: 6,
             passes: None,
             passing: Vec::new(),
         }
@@ -219,6 +224,8 @@ impl Scene {
             models: false,
             talks: true,
             puts: 8,
+            reopens: 4,
+            speaks: 6,
             passes: Some(70),
             passing: vec![
                 "plan_ok",
@@ -256,6 +263,11 @@ struct History {
     quiet: usize,
     /// The rounds carried, each by its cell, its run and its number among the run's.
     trace: Vec<String>,
+    /// How often, in a hundred, a return hands in a block its cell need not write, and how often a return of a cell that
+    /// takes the owner's answers asks a question; and, of some blocks, how often the return hands in that block alone.
+    writes: u64,
+    asks: u64,
+    prefer: BTreeMap<String, u64>,
 }
 
 /// What a scripted return does.
@@ -289,6 +301,9 @@ impl History {
             forced: None,
             quiet: 0,
             trace: Vec::new(),
+            writes: 70,
+            asks: 8,
+            prefer: BTreeMap::new(),
         };
         history.start();
         history
@@ -362,16 +377,16 @@ impl History {
             }
         }
         let roll = self.rng.below(100);
-        let puts = self.scene.puts;
+        let (puts, reopens, speaks) = (self.scene.puts, self.scene.reopens, self.scene.speaks);
         if roll < puts {
             let block = self.scene.writes[self.rng.below(self.scene.writes.len())];
             self.put(block);
-        } else if roll < puts + 4 {
+        } else if roll < puts + reopens {
             let line = self.scene.lines[self.rng.below(self.scene.lines.len())].clone();
             self.sim.anew(&line, Why::Owner);
             self.lines.insert(line, Held::default());
             reached.reopened += 1;
-        } else if self.scene.talks && roll < puts + 10 && self.speaks() {
+        } else if self.scene.talks && roll < puts + reopens + speaks && self.speaks() {
             // The owner spoke or answered.
         } else if let Some(round) = self.sim.round() {
             self.carry(&round, reached);
@@ -402,22 +417,42 @@ impl History {
     }
 
     /// What the work holds changes before its next round, as it does among the random steps: a person or the outside
-    /// writes, the owner reopens a line's session or speaks to a cell.
-    fn perturb(&mut self, reached: &mut Reached) {
-        match self.rng.below(4) {
+    /// writes, the owner reopens a line's session or speaks to a cell, a cell is made to ask a question, or the blocks
+    /// the next returns hand in are chosen. Each is done nearer the target than the random steps would, where it can be.
+    fn perturb(&mut self, reached: &mut Reached, target: &Target) {
+        match self.rng.below(7) {
             0 | 1 => {
-                let block = self.scene.writes[self.rng.below(self.scene.writes.len())];
+                let mine: Vec<&'static str> = (self.scene.writes.iter().copied())
+                    .filter(|w| target.blocks.iter().any(|b| b == w))
+                    .collect();
+                let block = match mine.is_empty() || !self.rng.chance(70) {
+                    true => self.scene.writes[self.rng.below(self.scene.writes.len())],
+                    false => mine[self.rng.below(mine.len())],
+                };
                 self.put(block);
             }
             2 => {
-                let line = self.scene.lines[self.rng.below(self.scene.lines.len())].clone();
+                let own = (self.sim.flow.cells.iter())
+                    .find(|c| c.id.as_str() == target.cell)
+                    .and_then(|c| c.line.clone());
+                let line = match own {
+                    Some(line) if self.rng.chance(70) => line,
+                    _ => self.scene.lines[self.rng.below(self.scene.lines.len())].clone(),
+                };
                 self.sim.anew(&line, Why::Owner);
                 self.lines.insert(line, Held::default());
                 reached.reopened += 1;
             }
-            _ => {
+            3 | 4 => {
                 if self.scene.talks {
-                    self.speaks();
+                    self.speaks_near(&target.blocks);
+                }
+            }
+            5 => self.asks = [8, 40, 90][self.rng.below(3)],
+            _ => {
+                if !target.blocks.is_empty() {
+                    let block = target.blocks[self.rng.below(target.blocks.len())].clone();
+                    self.prefer.insert(block, [0, 100][self.rng.below(2)]);
                 }
             }
         }
@@ -426,6 +461,11 @@ impl History {
     /// The owner says a few words to a cell that takes them, or answers a question that stands unanswered. Says whether
     /// either was possible.
     fn speaks(&mut self) -> bool {
+        self.speaks_near(&[])
+    }
+
+    /// As [`History::speaks`], where the words go, more often than not, to a cell whose words are one of these blocks.
+    fn speaks_near(&mut self, near: &[String]) -> bool {
         if self.rng.chance(50) && self.answers() {
             return true;
         }
@@ -433,7 +473,14 @@ impl History {
             .filter(|c| spoken::words_of(&self.sim.flow, &c.id).is_some())
             .map(|c| c.id.clone())
             .collect();
-        let to = To::Cell(cells[self.rng.below(cells.len())].clone());
+        let wanted: Vec<CellId> = (cells.iter())
+            .filter(|c| (spoken::words_of(&self.sim.flow, c)).is_some_and(|b| near.iter().any(|n| n == b.as_str())))
+            .cloned()
+            .collect();
+        let to = match wanted.is_empty() || !self.rng.chance(80) {
+            true => To::Cell(cells[self.rng.below(cells.len())].clone()),
+            false => To::Cell(wanted[self.rng.below(wanted.len())].clone()),
+        };
         if spoken::receiver(&self.sim.flow, &self.sim.work, &to).is_err() {
             return false;
         }
@@ -726,7 +773,8 @@ impl History {
                 continue;
             }
             let must = cell.must_write.contains(&block);
-            if (must && !leaves_out) || (!must && !only_must && (all || self.rng.chance(70))) {
+            let percent = self.prefer.get(block.as_str()).copied().unwrap_or(self.writes);
+            if (must && !leaves_out) || (!must && !only_must && (all || self.rng.chance(percent))) {
                 let passes = self.scene.passing.contains(&block.as_str())
                     && self.scene.passes.is_some_and(|percent| self.rng.chance(percent));
                 let value = self.sim.flow.blocks[&block].values.clone().map(|v| match passes {
@@ -793,7 +841,7 @@ impl History {
     fn questions(&mut self, cell: &CellSpec) -> Vec<Question> {
         let compiled = &self.sim.flow;
         let answered = (cell.watches.iter()).any(|t| t.of_source(compiled, flow::ANSWER).is_some());
-        if !self.scene.talks || !answered || !self.rng.chance(8) {
+        if !self.scene.talks || !answered || !self.rng.chance(self.asks) {
             return Vec::new();
         }
         let name = format!("{}_{}", cell.id, self.sim.work.records.questions.len());
@@ -1029,12 +1077,15 @@ impl History {
         let sim = &self.sim;
         let cell = sim.cell(round);
         if !self.scene.models {
-            let because = (sim.work.records.started.iter())
-                .find(|s| s.run == round.run)
-                .map(|s| format!("{:?}", s.because));
             for line in stood(cell, &entered.situation) {
+                if reached.real.contains(&line) {
+                    continue;
+                }
+                let because = (sim.work.records.started.iter())
+                    .find(|s| s.run == round.run)
+                    .map(|s| format!("{:?}", s.because));
                 let example = format!("{because:?}, round {}, {:?}", round.number, entered.situation);
-                reached.examples.entry(line.clone()).or_insert(example);
+                reached.examples.insert(line.clone(), example);
                 reached.real.insert(line);
             }
             reached.rounds += 1;
@@ -1413,27 +1464,54 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
     );
 }
 
-/// How many histories go as deep into the flow as they can before the search branches, and how many steps each takes;
-/// how many branches the search runs at most, how many steps each takes, and how many states of the work at the entry
-/// of a round of each cell it keeps.
-const DEEPENING: u64 = 3;
-const DEEP_STEPS: usize = 260;
-const BRANCHES: usize = 40;
-const BRANCH_STEPS: usize = 30;
-const FRONTIER: usize = 2;
+/// How many runs the search makes at most, how many steps each takes after its quiet ones, how many of the first steps
+/// of a run begun from nothing only carry the work's rounds (up to), and how many states of the work at the entry of a
+/// round of each kind it keeps.
+const RUNS: usize = 70;
+const RUN_STEPS: usize = 40;
+const QUIET_STEPS: usize = 150;
+const FRONTIER: usize = 4;
 
-/// The states of a history as the round of a cell is to be carried, kept to branch from, by the cell and how far into
-/// the flow the work had gone: `cell@0` to `cell@2`, by how many cells had begun a run.
+/// The states of a history as the round of a cell is to be carried, kept to branch from, by the cell, how often it has
+/// begun a run (up to three) and which round of its run it is (up to the second): `cell@runs@round`.
 type Frontier = BTreeMap<String, Vec<History>>;
+
+/// What a run of the search is steered at: a cell, and the blocks its state not yet reached is of or that run it.
+struct Target {
+    cell: String,
+    blocks: Vec<String>,
+}
+
+impl Target {
+    /// What a line of [`stood`] not yet reached is of: its cell, the datum it says, and what the cell watches.
+    fn of(sim: &Sim, line: &str) -> Target {
+        let (cell, rest) = line.split_once(": ").unwrap_or(("", line));
+        let datum = match rest.strip_prefix("run by ") {
+            Some(name) => Some(name),
+            None if rest.starts_with("the session holds") || rest.starts_with("given ") => None,
+            None => rest.split(' ').next(),
+        };
+        let mut blocks: Vec<String> = datum.into_iter().map(str::to_string).collect();
+        if let Some(spec) = sim.flow.cells.iter().find(|c| c.id.as_str() == cell) {
+            for watched in &spec.watches {
+                blocks.extend(watched.blocks.iter().map(|b| b.as_str().to_string()));
+            }
+        }
+        Target {
+            cell: cell.to_string(),
+            blocks,
+        }
+    }
+}
 
 /// The keys of the frontier that are of this cell.
 fn keys_of<'a>(frontier: &'a Frontier, cell: &str) -> Vec<&'a String> {
     frontier.keys().filter(|k| k.split('@').next() == Some(cell)).collect()
 }
 
-/// Keeps the history as it stands where a round of a cell not kept enough of is given and is not yet carried: the
-/// states a datum stands in at a round depend on what was written and what the session held before it, so that many
-/// ways of coming to a round of a cell are worth keeping.
+/// Keeps the history as it stands where a round is given and is not yet carried: the states a datum stands in at a
+/// round depend on what was written and what the session held before it, so that many ways of coming to a round of a
+/// cell are worth keeping.
 fn keep_at_the_round(frontier: &mut Frontier, history: &History, last: &mut Option<(RunId, usize)>, rng: &mut Rng) {
     let Some(round) = history.sim.round() else {
         return;
@@ -1442,13 +1520,22 @@ fn keep_at_the_round(frontier: &mut Frontier, history: &History, last: &mut Opti
         return;
     }
     *last = Some((round.run, round.number));
-    let begun: BTreeSet<&CellId> = history.sim.work.records.started.iter().map(|s| &s.cell).collect();
-    let far = match begun.len() {
-        0..=4 => 0,
-        5..=9 => 1,
-        _ => 2,
-    };
-    let kept = frontier.entry(format!("{}@{far}", round.cell.as_str())).or_default();
+    let runs = history
+        .sim
+        .work
+        .records
+        .started
+        .iter()
+        .filter(|s| s.cell == round.cell)
+        .count();
+    let kept = frontier
+        .entry(format!(
+            "{}@{}@{}",
+            round.cell.as_str(),
+            runs.min(3),
+            round.number.min(2)
+        ))
+        .or_default();
     if kept.len() < FRONTIER {
         kept.push(history.clone());
     } else if rng.chance(15) {
@@ -1457,26 +1544,21 @@ fn keep_at_the_round(frontier: &mut Frontier, history: &History, last: &mut Opti
     }
 }
 
-/// Searches the engineer's flow for rounds that stand in the lines wanted. A few histories go as deep into the flow as
-/// they can, keeping the state of the work at the entry of each round they reach; then each branch takes one of those
-/// states for a cell that still has a line open (the deepest there is, where a cell was never reached), changes what
-/// the work holds before the round a few times, as the owner and the outside do, and runs on with the driver's own
-/// random steps, keeping the states at the rounds it reaches. It goes on until every line wanted was reached or the
-/// branches are spent. Says what the rounds reached, and, every tenth branch, how many lines were still open.
+/// Searches the engineer's flow for rounds that stand in the lines wanted. Each run is steered at a line not yet reached,
+/// at random: it begins from the state of the work kept at the entry of a round of the line's cell, or from nothing,
+/// where none is kept or now and then; sets how the histories' random steps are weighed, as a mode of its own (how often
+/// a return hands in what it need not, how often the owner speaks, asks and writes, how often a choice passes), and
+/// which of the blocks near the target the returns hand in or leave out; changes what the work holds a few times, as the
+/// owner and the outside do; and goes on with the driver's own steps, keeping the states at the rounds it reaches. It
+/// goes on until every line wanted was reached or the runs are spent. Says what the rounds reached, and, every tenth
+/// run, how many lines were still open.
 fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
     let mut rng = Rng::new(seed);
     let mut reached = Reached::default();
     let mut frontier: Frontier = BTreeMap::new();
     let mut log = Vec::new();
     let begun = std::time::Instant::now();
-    let sim = support::engineer_sim();
-    let order: Vec<String> = sim
-        .flow
-        .flow
-        .cells()
-        .iter()
-        .map(|c| c.id.as_str().to_string())
-        .collect();
+    let flow_of = support::engineer_sim();
     let run = |history: &mut History, steps: usize, reached: &mut Reached, frontier: &mut Frontier, rng: &mut Rng| {
         let mut last = None;
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1493,52 +1575,54 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
             std::panic::resume_unwind(e);
         }
     };
-    for deep in 0..DEEPENING {
-        let sim = support::engineer_sim();
-        let scene = Scene::engineer(&sim);
-        let mut history = History::of(sim, scene, seed.wrapping_mul(7_919).wrapping_add(deep));
-        history.quiet = DEEP_STEPS;
-        history.scene.passes = Some(85 + 5 * deep);
-        run(&mut history, DEEP_STEPS, &mut reached, &mut frontier, &mut rng);
-    }
-    for branch in 0..BRANCHES {
-        let open: BTreeSet<&str> = (wanted.iter())
-            .filter(|line| !reached.real.contains(*line))
-            .filter_map(|line| line.split_once(": ").map(|(cell, _)| cell))
-            .collect();
+    for n in 0..RUNS {
+        let open: Vec<&String> = wanted.iter().filter(|line| !reached.real.contains(*line)).collect();
         if open.is_empty() {
             break;
         }
-        // A cell with a line open and a state kept at one of its rounds; where there is none, the deepest cell there is.
-        let cells: Vec<&String> = (order.iter())
-            .filter(|c| open.contains(c.as_str()) && !keys_of(&frontier, c).is_empty())
-            .collect();
-        let cell = match cells.len() {
-            0 => (order.iter().rev().find(|c| !keys_of(&frontier, c).is_empty())).cloned(),
-            n => Some(cells[branch % n].clone()),
+        let target = Target::of(&flow_of, open[rng.below(open.len())]);
+        let keys = keys_of(&frontier, &target.cell);
+        let from = (!keys.is_empty() && rng.chance(65)).then(|| {
+            let states = &frontier[keys[rng.below(keys.len())]];
+            states[rng.below(states.len())].clone()
+        });
+        let mut history = match from {
+            Some(mut history) => {
+                history.quiet = 0;
+                history
+            }
+            None => {
+                let sim = support::engineer_sim();
+                let scene = Scene::engineer(&sim);
+                let mut history = History::of(sim, scene, seed.wrapping_mul(7_919).wrapping_add(n as u64));
+                history.quiet = 10 + rng.below(QUIET_STEPS);
+                history
+            }
         };
-        let Some(cell) = cell else {
-            break;
-        };
-        let keys = keys_of(&frontier, &cell);
-        let states = &frontier[keys[rng.below(keys.len())]];
-        let mut history = states[rng.below(states.len())].clone();
-        history.rng = Rng::new(seed.wrapping_mul(104_729).wrapping_add(branch as u64));
-        history.quiet = 0;
+        history.rng = Rng::new(seed.wrapping_mul(104_729).wrapping_add(n as u64));
+        // The mode of the run.
+        history.writes = [25, 70, 100][rng.below(3)];
+        history.asks = [8, 40, 90][rng.below(3)];
+        history.scene.passes = Some([60, 85, 100][rng.below(3)]);
+        history.scene.puts = [4, 8, 16][rng.below(3)];
+        history.scene.reopens = [2, 4, 10][rng.below(3)];
+        history.scene.speaks = [6, 20, 40][rng.below(3)];
+        history.prefer.clear();
         // What the work holds at the round changes some, before it is carried.
         for _ in 0..rng.below(4) {
-            history.perturb(&mut reached);
+            history.perturb(&mut reached, &target);
         }
-        run(&mut history, BRANCH_STEPS, &mut reached, &mut frontier, &mut rng);
-        if branch % 10 == 9 {
+        let steps = history.quiet + RUN_STEPS;
+        run(&mut history, steps, &mut reached, &mut frontier, &mut rng);
+        if n % 10 == 9 {
             log.push(format!(
-                "after {} branches, {:?}: {} lines open, {} rounds {:?}, states kept at the rounds of {}",
-                branch + 1,
+                "after {} runs, {:?}: {} lines open, {} rounds {:?}, {} kinds of state kept at the rounds",
+                n + 1,
                 begun.elapsed(),
                 wanted.difference(&reached.real).count(),
                 reached.rounds,
                 reached.of_cell,
-                frontier.keys().cloned().collect::<Vec<_>>().join(" ")
+                frontier.len()
             ));
         }
     }
@@ -1568,25 +1652,28 @@ fn every_state_written_for(cells: &[&str], seed: u64) {
         after_read > 0,
         "no situation of a session begun anew and another cell read in it"
     );
-    let wanted: BTreeSet<String> = (written.iter())
-        .filter(|line| cells.iter().any(|c| line.starts_with(&format!("{c}: "))))
-        .cloned()
-        .collect();
+    let of_these = |line: &String| cells.iter().any(|c| line.starts_with(&format!("{c}: ")));
+    let wanted: BTreeSet<String> = written.iter().filter(|line| of_these(line)).cloned().collect();
     let (reached, log) = search(&wanted, seed);
     let open: BTreeSet<String> = wanted.difference(&reached.real).cloned().collect();
     let gaps: Vec<String> = (reached.real.difference(&written))
         .map(|line| format!("{line}\n    {}", reached.examples[line]))
         .collect();
+    // The states of a datum that ran the cell and was held that rounds stood in, which the open lines are read against.
+    let held: Vec<&String> = (reached.real.iter())
+        .filter(|line| of_these(line) && line.contains(" holds") && line.ends_with("and ran it"))
+        .collect();
     assert!(
         open.is_empty() && gaps.is_empty(),
         "{} states of a datum that rounds stood in, and the tool does not write:\n{}\n\n{} of the {} states the tool writes \
-         for {cells:?} were stood in by no round:\n{}\n\nthe search: {}",
+         for {cells:?} were stood in by no round:\n{}\n\nthe search: {}\n\nheld states the rounds stood in: {}",
         gaps.len(),
         gaps.join("\n"),
         open.len(),
         wanted.len(),
         by_cell(&open),
-        log.join("\n")
+        log.join("\n"),
+        held.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")
     );
 }
 
