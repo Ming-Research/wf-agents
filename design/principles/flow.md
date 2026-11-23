@@ -47,7 +47,7 @@ A flow change applies to the cells a work has not yet passed; a cell a work has 
 Why: What a work handed in was right by the flow it ran on; running it again for a change of the flow spends rounds on work that is done. (Article 3)
 
 ### principle a-defect-is-seen-before-it-is-fixed
-A defect is fixed only once seen where it shows, as in a real browser or the program on its own data, by a test or else a probe, a log or the owner. If no tool shows it, the work stops at research, going no deeper, and asks the owner: fix the inferred cause, give the conditions, or close the item.
+A defect is fixed only once seen where it shows, never in a stand-in for it, by a test or else a probe, a log or the owner. If no tool shows it, the work stops at research, going no deeper, and asks the owner: fix the inferred cause, give the conditions, or close the item.
 Why: A cause that was only inferred was once fixed and passed its test in a stand-in for the browser, while the defect stayed and came back as a new item; and it is not known then whether the tools fall short, which a deeper research shares.
 
 ### principle the-reviewer-knows-no-less
