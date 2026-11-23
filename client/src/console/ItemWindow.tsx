@@ -178,6 +178,7 @@ function questionsStanding(questions: Question[] | undefined, s: Summary): Choic
         confirmed: answered,
         asks: { cell: q.cell, question: q.name, version: q.version },
         tree: q.tree,
+        ...(q.skipped ? { skipped: q.skipped } : {}),
         ...held,
       },
     ];
@@ -1353,6 +1354,7 @@ function ChoiceBox({ p, by, pick, discuss, messages, jump, links }: {
       <div className={open ? 'cw-choice-q' : 'cw-choice-q cw-choice-few'}>
         <Markdown text={p.question} pointers={links} />
       </div>
+      {p.skipped !== undefined ? <div className="muted small cw-choice-skipped">{p.skipped}</div> : null}
       {!open ? (
         <button type="button" className="cw-choice-turn" onClick={turn}>
           Show it all

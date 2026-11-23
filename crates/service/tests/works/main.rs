@@ -13,6 +13,7 @@ mod cancelling;
 mod contract;
 mod dependencies;
 mod failing;
+mod forking;
 mod going;
 mod pausing;
 mod pinging;
@@ -134,12 +135,17 @@ pub struct Trial {
     pub steps: usize,
     /// The keep-warm pings handed out and not yet answered, where the agents' sessions are kept warm.
     pings: Option<Pings>,
+    /// What the forks asked of the agents' sessions are to answer, the first first, where they are kept warm.
+    forks: Forks,
     /// The check of the outside of the agents' rounds, where it is not the script's, which always finds it well.
     outside: Option<Arc<dyn service::Outside>>,
 }
 
 /// The keep-warm pings handed out and not yet answered, each with its reply.
 type Pings = Arc<Mutex<Vec<(Ping, PingReply)>>>;
+
+/// The answers the agents' carrier gives to the forks it is asked, in order.
+type Forks = Arc<Mutex<std::collections::VecDeque<Result<service::Forked, service::ForkFailed>>>>;
 
 /// What the carriers were last told of whether a pause holds each work.
 type Told = Arc<Mutex<BTreeMap<WorkNumber, bool>>>;
@@ -187,7 +193,8 @@ impl Trial {
         let clock = Arc::new(TokioClock::new(START));
         let handed = Arc::new(Mutex::new(BTreeSet::new()));
         let paused = Told::default();
-        let carried = (pings.as_ref(), outside.as_ref());
+        let forks = Forks::default();
+        let carried = (pings.as_ref(), outside.as_ref(), &forks);
         let (service, inbox) = open(&path, &script, &clock, (&handed, &paused), carried);
         let trial = Trial {
             _dir: dir,
@@ -201,6 +208,7 @@ impl Trial {
             answered: BTreeMap::new(),
             steps: 0,
             pings,
+            forks,
             outside,
         };
         trial.check();
@@ -241,7 +249,7 @@ impl Trial {
             pings.lock().expect("the pings").clear();
         }
         let recorded = (&self.handed, &self.paused);
-        let carried = (self.pings.as_ref(), self.outside.as_ref());
+        let carried = (self.pings.as_ref(), self.outside.as_ref(), &self.forks);
         let (service, inbox) = open(&self.path, &self.script, &self.clock, recorded, carried);
         self.service = service;
         self.inbox = inbox;
@@ -291,6 +299,12 @@ impl Trial {
             }
             _ => panic!("only the carriers and the timers send to the loop in these tests"),
         };
+        Some(self.happened(work, event))
+    }
+
+    /// The loop takes what a carrier said happened to the work, the unit it answers counted as answered, and what must
+    /// always hold is checked; says what it was.
+    fn happened(&mut self, work: WorkNumber, event: Event) -> Event {
         let unit = match &event {
             Event::Returned { run, .. } | Event::Failed { run, .. } => {
                 Some(Unit::Round(work, *run, self.began(work, *run)))
@@ -308,7 +322,7 @@ impl Trial {
             .expect("the loop takes it");
         self.steps += 1;
         self.check();
-        Some(taken)
+        taken
     }
 
     /// Takes what comes until the work's decision is as `wanted` says, and gives it; fails where nothing more comes
@@ -527,7 +541,7 @@ fn open(
     script: &Script,
     clock: &Arc<TokioClock>,
     (handed, paused): (&Arc<Mutex<BTreeSet<Unit>>>, &Told),
-    (pings, outside): (Option<&Pings>, Option<&Arc<dyn service::Outside>>),
+    (pings, outside, forks): (Option<&Pings>, Option<&Arc<dyn service::Outside>>, &Forks),
 ) -> (Service, Inbox) {
     let store = Store::open(path).expect("the store opens");
     let recording = Arc::new(Recording {
@@ -540,6 +554,7 @@ fn open(
         Some(pings) => Arc::new(Warm {
             recording: recording.clone(),
             pings: pings.clone(),
+            forks: forks.clone(),
         }),
         None => recording.clone(),
     };
@@ -578,6 +593,7 @@ fn ran_on(account: Option<String>) -> RanOn {
 struct Warm {
     recording: Arc<Recording>,
     pings: Pings,
+    forks: Forks,
 }
 
 impl Rounds for Warm {
@@ -610,6 +626,16 @@ impl Rounds for Warm {
 
     fn ping(&self, ping: Ping, reply: PingReply) {
         self.pings.lock().expect("the pings").push((ping, reply));
+    }
+
+    fn fork(
+        &self,
+        fork: service::Fork,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<service::Forked, service::ForkFailed>> + Send + '_>>
+    {
+        let _ = fork;
+        let answer = self.forks.lock().expect("the forks").pop_front();
+        Box::pin(async move { answer.expect("a fork is asked that the test gave no answer for") })
     }
 }
 

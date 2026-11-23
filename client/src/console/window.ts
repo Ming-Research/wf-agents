@@ -31,6 +31,9 @@ export type Part =
       changed?: boolean;
       asks?: { cell: string; question: string; version: number };
       holds?: boolean;
+      /// Why the cell that asked it does not run now, where its condition does not hold: the question holds the work at
+      /// no cell.
+      skipped?: string;
       /// Its answer goes into the design tree: the question is marked `tree`.
       tree?: boolean;
     };

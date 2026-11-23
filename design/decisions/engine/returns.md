@@ -48,7 +48,7 @@ A return names a group of blocks the cell watches in `dealt_with` by the group's
 - rejected: an agent proposed letting the cell go on past its limit from the page; the owner rejected it, because the fault was in the engine and was to be fixed there, not worked around.
 
 ### decision a-return-hands-in-what-its-cell-must-every-time
-A return that asks for no call must hand in the blocks its cell must write, unless it has a question its cell waits for, comes from a round entered while the cell waits, or only answers the owner.
+A return with no call must hand in the blocks its cell must write, unless it asks a question its cell waits for, only answers the owner, or is of a round entered while it waits or told to hand in.
 - replaced: Requiring those blocks of every return that asks for no call, including one with a question its cell waits for, was on main; the owner changed it, because a cell stopped by a question then had to force a value, and the work stops at the cell until the answer comes.
 - rejected: the owner proposed deleting the rule, so that a cell testing the change would not give its verdict before any result; the owner rejected it, because the rule asks for the blocks only in a return that makes no call, so a review that asks for the tests gives its verdict after the results.
 

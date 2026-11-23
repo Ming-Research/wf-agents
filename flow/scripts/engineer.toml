@@ -17,10 +17,12 @@ output_tokens = 3200
 answer = "Every check passed."
 ms = 6000
 
-# Understanding the problem and the design tree: what it read stays in the session, and it hands in no block.
+# Understanding the problem and the design tree: it names the entries of the tree that bear on the item.
 [[flows.engineer.rounds]]
 cell = "R0"
-hands_in = []
+hands_in = [
+    { block = "tree_entries", content = "principle measure-speed-and-cost\ndecision a-miss-is-told-from-the-records" },
+]
 
 # Research: what it found, which needs deep research, and nothing else.
 [[flows.engineer.rounds]]

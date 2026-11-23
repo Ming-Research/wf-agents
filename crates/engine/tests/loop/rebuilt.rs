@@ -19,6 +19,7 @@ fn rebuilt(work: &Work) -> Work {
         observed: work.observed.clone(),
         measured: work.measured.clone(),
         pinged: work.pinged.clone(),
+        forked: work.forked.clone(),
         pulls: work.pulls.clone(),
         why_cancelled: work.why_cancelled.clone(),
         why_reopened: work.why_reopened.clone(),

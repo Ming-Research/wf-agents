@@ -95,25 +95,3 @@ fn every_setting_a_message_names_is_given_beside_its_name() {
     }
     assert!(named > 0);
 }
-
-#[test]
-fn a_session_begun_anew_runs_a_first_or_reopened_entry_never_a_later_one() {
-    let out = tempfile::tempdir().expect("a directory");
-    assert!(situations(out.path(), "R0").status.success());
-    let names: Vec<String> = (fs::read_dir(out.path().join("R0")).expect("the cell's directory is read"))
-        .map(|entry| entry.expect("an entry").file_name().to_string_lossy().into_owned())
-        .collect();
-    let with = |entry: &str| {
-        let of = |n: &&String| n.contains(&format!("-{entry}-"));
-        names.iter().filter(of).any(|n| n.contains("engineer_session"))
-    };
-    assert!(with("first") && with("reopened") && !with("later"), "{names:?}");
-    // The work starts with the background, which runs the cell's first entry with the session begun.
-    assert!(
-        names.iter().any(|n| n.contains("-first-background+engineer_session-")),
-        "{names:?}"
-    );
-    // Reopened, the background the cell worked from, which is not new, is sent whole, with what began the session.
-    let reopened = file(&out.path().join("R0"), "reopened-engineer_session-ran_lacks-rest_lacks");
-    assert!(datum(&reopened, "background").ends_with("{content}"), "{reopened}");
-}

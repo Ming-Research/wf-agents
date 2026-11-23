@@ -49,6 +49,11 @@ pub struct Records {
     /// began with. Records kept before a version reached a round so have none, and read so.
     #[serde(default)]
     pub put_in: Vec<PutIn>,
+    /// Each time the round of a run, which was under way, was told to hand in what it has now, because the owner turned
+    /// to a cell before it. The engine writes it as it begins to tell the round, so that it tells it once; whether
+    /// the round was given the telling is a [`PutIn`]. Records kept before a round was told so have none, and read so.
+    #[serde(default)]
+    pub hurried: Vec<Hurried>,
     /// Every write of a block by a person or from outside the work.
     pub written: Vec<Written>,
     /// Each version of a question put to the owner: asked, asked anew or withdrawn under its name (design document
@@ -136,6 +141,7 @@ impl Records {
             finished: kept(&self.finished, |e| e.at, place),
             abandoned: kept(&self.abandoned, |e| e.at, place),
             put_in: kept(&self.put_in, |e| e.at, place),
+            hurried: kept(&self.hurried, |e| e.at, place),
             written: kept(&self.written, |e| e.at, place),
             questions: kept(&self.questions, |e| e.at, place),
             answers: kept(&self.answers, |e| e.at, place),
@@ -266,6 +272,18 @@ pub struct PutIn {
     pub run: RunId,
     pub block: BlockId,
     /// The version put into the round, named by the place of the entry that wrote it.
+    pub version: Seq,
+    pub at: Seq,
+}
+
+/// The engine began to tell the round of the run, which was under way, to hand in what it has now, for this version of a
+/// block the owner wrote: the owner turned to a cell before the run's, which is to run first (design document
+/// `data-and-context`, 35). It tells a round once for a version.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Hurried {
+    pub run: RunId,
+    pub block: BlockId,
+    /// The version of the block the owner wrote, named by the place of the entry that wrote it.
     pub version: Seq,
     pub at: Seq,
 }

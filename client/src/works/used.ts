@@ -79,8 +79,8 @@ export interface Usage {
   rounds: RoundOf[];
   agentRounds: number;
   sentBack: number;
-  /// What its rounds took, and its keep-warm pings, which count in what it spent as its rounds do: `rounds` counts its
-  /// rounds alone.
+  /// What its rounds took, and its keep-warm pings and its forks, which count in what it spent as its rounds do:
+  /// `rounds` counts its rounds alone.
   spent: Spent;
   compactions: number;
   /// From the first round's begin to the last round's end.
@@ -238,11 +238,12 @@ export function usageOf(page: WorkPage, now: number): Usage {
   const modelsByCost = [...models.values()].sort((a, b) => b.spent.usdMicros - a.spent.usdMicros);
   const ofRounds = rounds.reduce((s, r) => (r.spent ? add(s, r.spent) : s), nothing());
   const pinged = page.summary?.pinged ?? nothing();
+  const forked = page.summary?.forked ?? nothing();
   return {
     rounds,
     agentRounds: rounds.filter((r) => r.agent).length,
     sentBack: rounds.filter((r) => r.sentBack).length,
-    spent: { ...add(ofRounds, pinged), workingMs: ofRounds.workingMs, rounds: ofRounds.rounds },
+    spent: { ...add(add(ofRounds, pinged), forked), workingMs: ofRounds.workingMs, rounds: ofRounds.rounds },
     compactions: rounds.reduce((n, r) => n + r.compactions, 0),
     start,
     end,

@@ -7,6 +7,15 @@
 # The directory that holds the project's design tree, which the engine looks at on each work's branch.
 tree = "design/"
 
+# How an entry of the design tree is found and referred to, as the tree's rules write them: each kind with the directory
+# under `tree` that holds its files, in the order the rules read them; the line an entry begins with, running to the
+# line before the next such line or to its file's end; and how a text refers to an entry, as a line of a block whose
+# file says `names_tree_entries` names one. `{kind}` stands for a kind, `{name}` for the entry's name.
+[tree_format]
+kinds = [{ kind = "principle", dir = "principles/" }, { kind = "decision", dir = "decisions/" }]
+heading = "### {kind} {name}"
+reference = "{kind} {name}"
+
 # The project's guide for its agents.
 [files.guide]
 path = "AGENTS.md"
