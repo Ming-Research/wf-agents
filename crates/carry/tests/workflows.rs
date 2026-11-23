@@ -97,7 +97,7 @@ fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
     }
     let check = under(&jobs, "check").join("\n");
     assert!(check.contains("needs: [page, lint, test]"), "{check}");
-    assert!(check.contains("if: always()"), "{check}");
+    assert!(check.contains("if: ${{ always() &&"), "{check}");
     assert!(check.contains(r#"[ "$r" = success ] || red=true"#), "{check}");
     for (job, lines) in [("page", under(&jobs, "page")), ("check", under(&jobs, "check"))] {
         assert!(
@@ -107,24 +107,45 @@ fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
     }
 }
 
-// The full workflow is run by hand by the engine, with the commit to test and a value only its request knows, and still
-// runs on each pull request into `main` and each push to `main`, and on no other push, and on none to a branch of the
-// name `main` once had.
+// The full workflow runs when the engine asks for it by hand, and on each pull request into `main` that is neither a
+// work's nor a fork's, and on no push: the engine reads only the runs it asked for, which the pull request of a work's
+// branch would only repeat; a fork's code must not run on the owner's machine; and nothing reads a push to `main`.
 #[test]
-fn the_full_workflow_runs_by_hand_and_on_the_pull_requests_and_pushes_of_main() {
+fn the_full_workflow_runs_by_hand_and_on_the_pull_requests_of_neither_a_work_nor_a_fork() {
     let text = workflow("ci.yml");
     let on = block(&text, "on");
-    assert_eq!(children(&on), ["workflow_dispatch", "pull_request", "push"]);
-    for event in ["pull_request", "push"] {
-        let branches: Vec<&str> = (under(&on, event).iter())
-            .filter_map(|l| l.trim().strip_prefix("- "))
-            .collect();
-        assert_eq!(branches, ["main"], "the branches of {event}");
-    }
+    assert_eq!(children(&on), ["workflow_dispatch", "pull_request"]);
+    let branches: Vec<&str> = (under(&on, "pull_request").iter())
+        .filter_map(|l| l.trim().strip_prefix("- "))
+        .collect();
+    assert_eq!(branches, ["main"], "the branches of pull_request");
     assert!(
         !text.contains("refs/heads/next") && !text.lines().any(|l| l.trim() == "- next"),
         "the branch `next` is no part of the workflow"
     );
+    let jobs = block(&text, "jobs");
+    // The prefix of a work's branch is the engine's: ci.yml must name the one the engine gives its branches.
+    let branch = carry::git::place(Path::new("/data"), "tag", store::WorkNumber(1)).branch;
+    assert!(branch.starts_with(carry::git::BRANCH_PREFIX), "{branch}");
+    let work = format!("!startsWith(github.head_ref, '{}')", carry::git::BRANCH_PREFIX);
+    // What each job's own `if` says is checked whole, not by its parts: the same parts joined by other operators run a
+    // fork's code on the owner's machine or red a work's pull request, and nothing before the merge evaluates them.
+    let guard = format!(
+        "if: ${{{{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && {work}) }}}}"
+    );
+    // `check` is skipped with the rest on a work's pull request of this repository, so that the run is not red there; on a
+    // fork's, whatever its branch is called, it stays, red, since its jobs are skipped.
+    let check = format!(
+        "if: ${{{{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || {work}) }}}}"
+    );
+    for (job, want) in [("page", &guard), ("lint", &guard), ("test", &guard), ("check", &check)] {
+        // The job's own condition stands at the job's indentation; those of its steps are deeper.
+        let own: Vec<&str> = (under(&jobs, job).into_iter())
+            .filter(|l| l.starts_with("    if:"))
+            .map(str::trim)
+            .collect();
+        assert_eq!(own, [want.as_str()], "the condition of the job {job}");
+    }
 }
 
 // A workflow the engine runs by hand takes the commit to test and the value that finds its run, and its name holds that
