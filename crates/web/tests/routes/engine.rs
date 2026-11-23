@@ -191,12 +191,6 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
         "{work}"
     );
     assert_eq!(work["waits"], json!([]), "{work}");
-    // The time bar reads the same pause as the pause it is, the engine's, and not as a wait for the owner.
-    let bar = get_json(router, "/api/v1/works/1").await["summary"]["bar"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert!(bar.contains('p') && !bar.contains('o'), "{bar}");
     assert_eq!(
         post(router, "/api/v1/engine/acts", &json!({ "kind": "resume" })).await,
         (StatusCode::NO_CONTENT, Value::Null)

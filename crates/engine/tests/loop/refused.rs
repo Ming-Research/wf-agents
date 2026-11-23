@@ -135,7 +135,7 @@ fn a_return_that_read_a_block_no_source_outside_writes_is_refused() {
             "request",
             Refused::NotTheirs {
                 block: "request".into(),
-                by,
+                by: Outsider::Outside,
             },
         ),
         (
@@ -149,7 +149,7 @@ fn a_return_that_read_a_block_no_source_outside_writes_is_refused() {
             "text",
             Refused::NotTheirs {
                 block: "text".into(),
-                by,
+                by: Outsider::Outside,
             },
         ),
         ("elsewhere", Refused::NoSuchBlock("elsewhere".into())),

@@ -565,7 +565,7 @@ mod tests {
                 work: WorkNumber(7),
                 version: "v1".to_string(),
             }),
-            &["work 7", "version v1", "does not keep"],
+            &["W7", "version v1", "does not keep"],
         );
         let earlier = |why| {
             words(driver::Fault::EarlierIds {
@@ -578,7 +578,7 @@ mod tests {
         let rewritten = earlier(driver::Misread::Rewritten);
         says(
             &rewritten,
-            &["judged", "works 3, 5", "does not begin with the table of version v1"],
+            &["judged", "works W3, W5", "does not begin with the table of version v1"],
         );
         let two = earlier(driver::Misread::TwoAsOne {
             cells: vec![CellId::from("A"), CellId::from("B")],

@@ -727,7 +727,7 @@ fn a_return_that_dealt_with_what_ran_it_and_did_nothing_is_sent_back_in_its_word
     sim.returns(&round, came, 0);
     let again = sim.round().expect("the build's round after it was sent back");
     let entered = sim.enter(&again, false);
-    let said = "- `check` is dealt with, but nothing is committed and no question is asked: commit the fix, or ask the owner.\n";
+    let said = "- `check` is not answered: commit, or ask.\n";
     assert!(entered.text.contains(said), "{said:?} is not in {}", entered.text);
 }
 
