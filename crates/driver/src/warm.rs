@@ -235,6 +235,7 @@ fn coming_back(flow: &Compiled, work: &Work, decision: &Decision) -> BTreeSet<St
     match decision {
         Decision::Run { cell, .. }
         | Decision::GoOn { cell, .. }
+        | Decision::Hurry { cell, .. }
         | Decision::Abandon { cell, .. }
         | Decision::Paused { cell }
         | Decision::Wait { at: cell, .. } => at.push(cell.clone()),
