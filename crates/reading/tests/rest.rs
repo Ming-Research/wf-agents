@@ -216,7 +216,7 @@ fn a_question_that_waits_holds_nothing_once_its_cell_is_skipped() {
 }
 
 #[test]
-fn a_work_whose_last_cell_has_run_has_ended_and_so_has_a_cancelled_one_with_nothing_open() {
+fn a_work_whose_last_cell_has_run_has_ended_and_a_cancelled_one_with_a_run_open_is_moving() {
     let mut w = World::with_gate(vec![cell("first", &["brief"], &["b0"])]);
     w.person_writes("brief");
     w.run("first", &[("b0", Matters)]);
