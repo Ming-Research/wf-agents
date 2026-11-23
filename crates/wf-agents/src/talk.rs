@@ -739,11 +739,7 @@ fn show(page: &WorkPage) -> String {
             }
         ),
         format!("Spent: {}.", spent(&summary.spent)),
-        format!(
-            "Item {} {}",
-            item_number(summary.item),
-            added(&page.history, happened.is_empty())
-        ),
+        format!("Item {named_item} {}", added(&page.history, happened.is_empty())),
     ];
     latest(&mut lines, &happened, work, Part::History);
     lines.push("Cells:".to_string());

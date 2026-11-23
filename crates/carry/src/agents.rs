@@ -2766,7 +2766,7 @@ mod tests {
         // A work that has not ended, its worktree gone, is not forked in a directory made for it.
         std::fs::remove_dir_all(&place.dir).expect("removed");
         let refused = agents.inner.fork(&fork).await.expect_err("refused");
-        assert_eq!(refused, "Work W3 has not ended, and its worktree is not there.");
+        assert_eq!(refused, "W3 has not ended, and its worktree is not there.");
         assert!(!place.dir.exists());
         // A work that has ended, its worktree gone, is forked in a checkout of its kept branch at the worktree's place,
         // taken away after; the branch stays.
