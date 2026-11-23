@@ -349,6 +349,10 @@ export type Ends =
   /// Does what this says, which no control of the page does.
   | { kind: 'outside'; what: string };
 
+/// What an item continues: a branch of its project's repository or a pull request on its host, whose head its work
+/// starts from.
+export type Continues = { kind: 'branch'; name: string } | { kind: 'pull'; number: number };
+
 export interface Item {
   number: number;
   title: string;
@@ -362,6 +366,9 @@ export interface Item {
   dependsOn: number[];
   /// The tags it carries, which classify it; absent from an engine that does not give them yet.
   tags?: string[];
+  /// What its work starts from, where it continues a branch or a pull request and not the head of main; absent from an
+  /// engine that does not give it yet.
+  continues?: Continues | null;
   /// What it was as it was added, and each change made to it since: what it said before, and when it changed.
   history: ItemHistory;
   /// The one work done for it, which was added with it.
@@ -370,7 +377,7 @@ export interface Item {
 
 /// An item as it was added, and each change made to it since, in the order they were made.
 export interface ItemHistory {
-  first: { title: string; level: string | null; dependsOn: number[]; tags?: string[] };
+  first: { title: string; level: string | null; dependsOn: number[]; tags?: string[]; continues?: Continues | null };
   changes: ItemChange[];
 }
 
@@ -389,7 +396,8 @@ export type ItemChanged =
   | { kind: 'dependsOn'; item: number }
   | { kind: 'noLongerDependsOn'; item: number }
   | { kind: 'tagged'; tag: string }
-  | { kind: 'untagged'; tag: string };
+  | { kind: 'untagged'; tag: string }
+  | { kind: 'continues'; continues: Continues | null };
 
 export interface Items {
   items: Item[];
@@ -398,11 +406,11 @@ export interface Items {
   outage?: Outage | null;
 }
 
-/// Why a cell runs: it has no record, or a block has another meaning than the one its record knows (`was`), which a
-/// cell after it gave the block where `behind`.
+/// Why a cell runs: it has no record, or a block has another meaning than the one its record knows (`workedFrom`, the
+/// version the cell last worked from, as a message to it names it), which a cell after it gave the block where `behind`.
 export type Cause =
   | { kind: 'noRecord' }
-  | { kind: 'changed'; block: string; was: number | null; behind: boolean }
+  | { kind: 'changed'; block: string; workedFrom: number | null; behind: boolean }
   | { kind: 'results'; calls: number[] };
 
 /// A block a cell reads, as the cell's record knows it and as it is now.
@@ -867,6 +875,7 @@ export type ChangeAsked =
   | { kind: 'noLongerDependsOn'; item: number; on: number }
   | { kind: 'tag'; item: number; tag: string }
   | { kind: 'untag'; item: number; tag: string }
+  | { kind: 'continues'; item: number; continues: Continues | null }
   | { kind: 'cancel'; item: number }
   | { kind: 'reopen'; item: number };
 
@@ -946,6 +955,8 @@ export interface NewItem {
   dependsOn: number[];
   /// The tags it carries; none where none is given.
   tags?: string[];
+  /// The branch or pull request its work starts from; none where it starts from the head of main.
+  continues?: Continues | null;
   /// The flow its work runs on.
   flow: string;
   /// What is written for it as it is added, each a block people write.

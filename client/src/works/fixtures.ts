@@ -461,7 +461,7 @@ class History {
             const meaning = this.meaningAt(i.block, i.current);
             const by = this.versions.get(i.block)?.find((v) => v.number === meaning)?.by;
             const behind = by?.kind === 'run' && (order.get(by.cell) ?? 0) > (order.get(cellId) ?? 0);
-            return { kind: 'changed', block: i.block, was: i.known, behind };
+            return { kind: 'changed', block: i.block, workedFrom: i.known, behind };
           });
     return { cell: cellId, needs, inputs };
   }
