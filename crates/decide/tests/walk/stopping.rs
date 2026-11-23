@@ -302,3 +302,76 @@ fn the_owners_words_told_to_a_run_that_was_abandoned_enter_the_waiting_cell_agai
         )
     );
 }
+
+#[test]
+fn a_run_at_rest_is_not_hurried_and_the_earlier_cell_the_owner_turned_to_runs_first() {
+    let (mut w, _, _, _) = implementing();
+    // Its round ended without finishing: the run rests, and nothing is under way to be told.
+    w.returns("implement");
+    w.outside_writes("spoken to research");
+    let Decision::Run { cell, because, .. } = w.decide() else {
+        panic!("nothing runs: {:?}", w.decide())
+    };
+    assert_eq!(cell.as_str(), "research");
+    assert_eq!(because, vec![changed("spoken to research", None, false)]);
+}
+
+#[test]
+fn a_paused_work_still_tells_the_round_under_way_to_hand_in_for_the_owner_turning_to_an_earlier_cell() {
+    let (mut w, _, _, run) = implementing();
+    w.pause();
+    let words = w.outside_writes("spoken to research");
+    assert_eq!(w.decide(), hurry(run, words));
+}
+
+#[test]
+fn a_round_under_way_is_not_hurried_for_an_earlier_cell_that_is_skipped() {
+    let mut w = World::with_gate(vec![
+        when(
+            "more",
+            "yes",
+            cell("research", &["brief", "spoken to research"], &["plan"]),
+        ),
+        cell("implement", &["brief"], &["code"]),
+    ]);
+    w.turning("spoken to research");
+    w.person_sets("more", "no");
+    w.person_writes("brief");
+    let run = w.start("implement");
+    w.outside_writes("spoken to research");
+    assert_eq!(w.decide(), busy("implement", run));
+}
+
+#[test]
+fn the_owner_turning_to_two_earlier_cells_tells_the_round_once_and_names_the_first_of_them() {
+    let mut w = World::with_gate(vec![
+        cell("a", &["brief", "to a"], &["pa"]),
+        cell("b", &["brief", "to b"], &["pb"]),
+        cell("c", &["pa", "pb"], &["code"]),
+    ]);
+    w.turning("to a");
+    w.turning("to b");
+    w.person_writes("brief");
+    w.run("a", &[("pa", Matters)]);
+    w.run("b", &[("pb", Matters)]);
+    w.run("c", &[("code", Matters)]);
+    w.person_writes("brief");
+    w.run("a", &[("pa", Matters)]);
+    w.run("b", &[("pb", Matters)]);
+    let run = w.start("c");
+    w.outside_writes("to b");
+    let to_a = w.outside_writes("to a");
+    assert_eq!(
+        w.decide(),
+        Decision::Hurry {
+            cell: "c".into(),
+            run,
+            turned_to: "a".into(),
+            block: "to a".into(),
+            version: to_a,
+        }
+    );
+    assert_eq!(w.hurry().as_str(), "a");
+    // Told once: the round is told to hand in what it has, whatever else the owner wrote meanwhile.
+    assert_eq!(w.decide(), busy("c", run));
+}
