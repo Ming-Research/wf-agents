@@ -3871,6 +3871,11 @@ pub(crate) mod tests {
 
     /// A writer the owner's request runs, and the merge, with the repository's words beside it.
     pub(crate) fn flow() -> flow::Compiled {
+        flow_with("")
+    }
+
+    /// The same, the writer's file holding these lines besides.
+    pub(crate) fn flow_with(own: &str) -> flow::Compiled {
         let text = r#"
             name = "small"
             order = ["write", "merge"]
@@ -3885,13 +3890,15 @@ pub(crate) mod tests {
             [blocks.merged]
             shown = true
         "#;
-        let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n\
-                     watches = [\"request\"]\noutputs = [\"text\"]\n[kinds]\nrequest = \"last_and_latest\"\n";
+        let write = format!(
+            "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n{own}\
+             watches = [\"request\"]\noutputs = [\"text\"]\n[kinds]\nrequest = \"last_and_latest\"\n"
+        );
         let merge =
             "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\"]\noutputs = [\"merged\"]\n";
         let source = Source {
             flow: text.to_string(),
-            cells: [("write", write), ("merge", merge)]
+            cells: [("write", write.as_str()), ("merge", merge)]
                 .iter()
                 .map(|(id, text)| (id.to_string(), text.to_string()))
                 .collect(),
@@ -4760,6 +4767,83 @@ pub(crate) mod tests {
         for went in ['m', 'o', 'p', '.'] {
             assert!(live.contains(went), "{live}");
         }
+    }
+
+    // The bar draws the wait for the turn to check and merge, `q`, where another work of the work's project held the
+    // turn while the work would have begun a round of a cell that takes it, and draws it alike live and from what the
+    // work kept as it ended; where none held it, the same time is `.`. The work is paused from 1000 to 3000, let on
+    // then, and begins its round at 6000. Milliseconds.
+    #[test]
+    fn the_bar_draws_the_wait_for_the_turn_live_and_as_kept_and_nothing_where_none_held_it() {
+        use decide::run::Failure;
+        use engine::{Effect, Event, Gate};
+
+        let flow = flow_with("takes_turn = true\n");
+        let mut work = Work::default();
+        let wrote = Event::Wrote {
+            block: "request".into(),
+            by: Outsider::Person,
+            content: "Greet.".to_string(),
+            matters: true,
+            value: None,
+        };
+        let effects = engine::handle(&flow, &mut work, Time(0), wrote).expect("the request is taken");
+        let run = effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Round { run, .. } => Some(*run),
+                _ => None,
+            })
+            .expect("the writer's round begins");
+        let failed = || Event::Failed {
+            run,
+            why: "it broke".to_string(),
+            failure: Failure::Other,
+            resets: None,
+            spent: work::Spent::default(),
+        };
+        engine::handle(&flow, &mut work, Time(1000), failed()).expect("the round fails");
+        let free = decide::Room::FREE;
+        engine::handle_held(&flow, &mut work, Time(3000), Event::Resumed, free, Gate::Agents).expect("it is let on");
+        engine::handle_held(&flow, &mut work, Time(6000), Event::Look, free, Gate::Open).expect("it is looked at");
+        engine::handle(&flow, &mut work, Time(7000), failed()).expect("the round fails again");
+        let held = |turns| HeldAll {
+            everything: Vec::new(),
+            stops: Vec::new(),
+            cannot_run: Vec::new(),
+            turns,
+        };
+        // Another work of the same project (an item of no project), and one of another project.
+        let span = work::TurnSpan {
+            from: Time(2000),
+            until: Some(Time(6000)),
+        };
+        let elsewhere = (Some("other".to_string()), WorkNumber(3), vec![span]);
+        let own = (None, WorkNumber(1), vec![span]);
+        let all = held(vec![(None, WorkNumber(2), vec![span]), elsewhere.clone(), own.clone()]);
+        let stored = Stored::new(&flow.name);
+        let on = driver::On::installed_flow(&flow);
+        let shape = |bar: String| {
+            let mut cells: Vec<char> = bar.chars().collect();
+            cells.dedup();
+            cells.into_iter().collect::<String>()
+        };
+        let now = Time(9000);
+        let live = bar(stored.kept(&flow, &on, &work), &all, now);
+        assert_eq!(shape(live.clone()), "moqm");
+        // Held by no other work of its project, only by the work itself and one of another project: nothing says what it
+        // waited for.
+        let none = bar(stored.kept(&flow, &on, &work), &held(vec![elsewhere, own]), now);
+        assert_eq!(shape(none), "mo.m");
+        let kept = stored.kept(&flow, &on, &work);
+        let stretches = driver::time::stretches(&kept, &[], &[], &[], all.turns_of_others(&kept), now);
+        let mut ended = work.clone();
+        ended.kept_time.push(work::KeptTime {
+            at: work.tick(),
+            stretches,
+            turn: Some(Vec::new()),
+        });
+        assert_eq!(live, bar(stored.kept(&flow, &on, &ended), &all, now));
     }
 
     // A new session begun because what a new one would begin with changed is given to the page with the tokens of

@@ -293,6 +293,11 @@ mod tests {
 
     /// A writer the owner's request runs, and the merge, with the repository's words beside it.
     fn flow() -> Compiled {
+        flow_with("")
+    }
+
+    /// The same, the writer's file holding these lines besides.
+    fn flow_with(own: &str) -> Compiled {
         let text = r#"
             name = "small"
             order = ["write", "merge"]
@@ -307,13 +312,15 @@ mod tests {
             [blocks.merged]
             shown = true
         "#;
-        let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n\
-                     watches = [\"request\"]\noutputs = [\"text\"]\n[kinds]\nrequest = \"last_and_latest\"\n";
+        let write = format!(
+            "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n{own}\
+             watches = [\"request\"]\noutputs = [\"text\"]\n[kinds]\nrequest = \"last_and_latest\"\n"
+        );
         let merge =
             "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\"]\noutputs = [\"merged\"]\n";
         let source = Source {
             flow: text.to_string(),
-            cells: [("write", write), ("merge", merge)]
+            cells: [("write", write.as_str()), ("merge", merge)]
                 .iter()
                 .map(|(id, text)| (id.to_string(), text.to_string()))
                 .collect(),
@@ -517,6 +524,84 @@ mod tests {
                 stretch(3000, 3500, Went::Other),
                 stretch(3500, 4500, Went::Stopping),
                 stretch(4500, 6000, Went::Other),
+            ]
+        );
+    }
+
+    // Where another work of the project held the turn to check and merge, a work that would begin a round of a cell that
+    // takes it waited for it, as the walk says it in that room; a cell that takes none is not held back by it. The work
+    // here is paused from 1000 to 3000 and would begin its round from then to 6000. Fails where the wait is read with
+    // the turn free, or not stopped at the time the holder let go.
+    #[test]
+    fn a_work_that_would_begin_a_round_of_a_cell_that_takes_the_turn_waits_for_it_while_another_work_holds_it() {
+        let flow = flow_with("takes_turn = true\n");
+        let work = held_back(&flow);
+        let at =
+            |turns: Vec<TurnSpan>| with_kept(&flow, &work, |kept| stretches(kept, &[], &[], &[], turns, Time(9000)));
+        let held = |from: u64, until: Option<u64>| TurnSpan {
+            from: Time(from),
+            until: until.map(Time),
+        };
+        let rest = [
+            stretch(0, 1000, Went::Model),
+            stretch(6000, 7000, Went::Model),
+            stretch(1000, 3000, Went::Owner),
+        ];
+        let with = |last: &[Stretch]| [&rest[..], last].concat();
+        assert_eq!(
+            at(vec![held(2000, Some(6000))]),
+            with(&[stretch(3000, 6000, Went::Turn)])
+        );
+        // Nothing holds it: nothing says what the work waited for.
+        assert_eq!(at(Vec::new()), with(&[stretch(3000, 6000, Went::Other)]));
+        // Held until the holder let go before the work began, and so for no longer.
+        assert_eq!(
+            at(vec![held(2000, Some(4000))]),
+            with(&[stretch(3000, 4000, Went::Turn), stretch(4000, 6000, Went::Other)])
+        );
+        // Held from after the work was let on.
+        assert_eq!(
+            at(vec![held(4000, None)]),
+            with(&[stretch(3000, 4000, Went::Other), stretch(4000, 6000, Went::Turn)])
+        );
+    }
+
+    #[test]
+    fn a_cell_that_takes_no_turn_is_not_held_back_by_another_work_holding_it() {
+        let flow = flow();
+        let work = held_back(&flow);
+        let turns = vec![TurnSpan {
+            from: Time(2000),
+            until: Some(Time(6000)),
+        }];
+        let got = with_kept(&flow, &work, |kept| stretches(kept, &[], &[], &[], turns, Time(9000)));
+        assert!(!got.iter().any(|s| s.went == Went::Turn), "{got:?}");
+    }
+
+    #[test]
+    fn a_stop_of_the_engine_is_said_before_the_turn() {
+        let flow = flow_with("takes_turn = true\n");
+        let work = held_back(&flow);
+        let turns = vec![TurnSpan {
+            from: Time(2000),
+            until: Some(Time(6000)),
+        }];
+        let stops = [StopSpan {
+            from: Time(3500),
+            until: Some(Time(4500)),
+        }];
+        let got = with_kept(&flow, &work, |kept| {
+            stretches(kept, &[], &stops, &[], turns, Time(9000))
+        });
+        assert_eq!(
+            got,
+            [
+                stretch(0, 1000, Went::Model),
+                stretch(6000, 7000, Went::Model),
+                stretch(1000, 3000, Went::Owner),
+                stretch(3000, 3500, Went::Turn),
+                stretch(3500, 4500, Went::Stopping),
+                stretch(4500, 6000, Went::Turn),
             ]
         );
     }
