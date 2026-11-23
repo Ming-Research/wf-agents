@@ -299,7 +299,7 @@ fn what_changed_since_the_version_the_session_holds_is_sent_as_a_change_that_reb
 
 #[test]
 fn a_session_reopened_is_filled_from_the_top_and_holds_no_return() {
-    let mut sim = reviewed_then(Some("engineer"));
+    let sim = reviewed_then(Some("engineer"));
     let round = sim.round().expect("the plan is entered again");
     let entered = sim.enter(&round, false);
     let blocks: Vec<&str> = (entered.fills.iter())
