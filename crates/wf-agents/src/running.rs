@@ -627,6 +627,10 @@ mod tests {
         let first = hold(data.path()).unwrap();
         let said = take_program_flows(data.path(), &files, &names).unwrap_err();
         assert!(said.contains("an engine already runs on this data directory"), "{said}");
+        assert!(
+            flows.join("alpha/kept.toml").exists(),
+            "a start that was refused took the flows out all the same"
+        );
         assert_eq!(std::fs::read_to_string(flows.join("alpha/kept.toml")).unwrap(), "kept");
         assert!(!flows.join("alpha/flow.toml").exists());
         assert!(!data.path().join("flows.new").exists());
