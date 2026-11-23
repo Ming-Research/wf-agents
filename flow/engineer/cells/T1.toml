@@ -21,9 +21,9 @@ design tree.
 6. Is each change to a file the project protects one the work needs?
 
 In the why of `review_ok`, answer each question by its number: what you checked and what you found. A question you did
-not check is a point: say what must be shown. Write every point in `review` at once: this is your one chance, and
-nothing that could be raised now is raised later. Leave out preferences: the engineer fixes nearly everything a review
-raises, so a wrong point makes good code worse. If `review_ok` is yes, leave `review` out of your return.
+not check is a point: say what must be shown. Write every point in `review` at once. Leave out preferences: the engineer
+fixes nearly everything a review raises, so a wrong point makes good code worse. If `review_ok` is yes, leave `review`
+out of your return.
 '''
 watches = ["change", "review"]
 reads = ["plan", "background", "tree", "tree_entries"]

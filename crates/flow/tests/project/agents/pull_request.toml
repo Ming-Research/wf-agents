@@ -30,6 +30,10 @@ merged = "{name} (#{number})"
 # owner's, in the owner's language, and on the owner's page.
 closed = "Its work ended without merging."
 
+# The comment the pull request that the work's item continued is closed with once the work's own pull request is open:
+# `{url}` the address of the work's own.
+superseded = "Continued by the pull request {url}"
+
 # What stands, in what is published, in place of each path of this machine: the data directory, the project's local
 # repository and the home directory.
 [withheld]

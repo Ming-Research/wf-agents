@@ -187,6 +187,20 @@ impl Gh {
 }
 
 impl Api for Gh {
+    async fn pull(&self, number: u64) -> Result<Option<Pull>, Failed> {
+        let path = format!("repos/{}/pulls/{number}", self.repository);
+        let answer = self.ask("GET", &path, None).await?;
+        match answer.status {
+            200 => {
+                let value: Value = serde_json::from_str(&answer.body)
+                    .map_err(|e| format!("GitHub's answer to GET {path} is not JSON: {e}"))?;
+                Ok(Some(pull(&value)?))
+            }
+            404 => Ok(None),
+            _ => Err(refused(&answer)),
+        }
+    }
+
     async fn pulls(&self, branch: &str) -> Result<Vec<Pull>, Failed> {
         let owner = self.repository.split('/').next().unwrap_or_default();
         let path = format!(
@@ -474,6 +488,9 @@ fn pull(value: &Value) -> Result<Pull, String> {
         body: value["body"].as_str().unwrap_or_default().to_string(),
         draft: value["draft"].as_bool().unwrap_or(false),
         node: text(&value["node_id"], "id")?,
+        branch: text(&value["head"]["ref"], "branch")?,
+        // The head's repository is null where a fork was deleted.
+        from_fork: value["head"]["repo"]["full_name"] != value["base"]["repo"]["full_name"],
     })
 }
 

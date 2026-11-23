@@ -179,6 +179,8 @@ fn what_the_engine_writes_as_it_works_is_read_alone_as_read_reads_it() {
     let writes = agents::writes(&beside()).unwrap();
     assert_eq!(writes.commits, read.commits);
     assert_eq!(writes.acts.start.text, read.acts.start.text);
+    assert_eq!(writes.acts.start.continued, read.acts.start.continued);
+    assert!(read.acts.start.continued.contains("{continues}"));
     assert_eq!(writes.acts.deliver.between, read.acts.deliver.between);
 }
 
@@ -478,7 +480,11 @@ fn with_key(dir: &Path, file: &str, table: &[&str], key: &str, to: Option<&str>)
 fn a_file_of_the_engines_words_that_lacks_a_text_or_holds_an_empty_one_is_refused_naming_its_file_and_key() {
     let dir = copy("every-word");
     let cases: &[(&str, &[&str], &[&str])] = &[
-        ("pull_request.toml", &[], &["about", "body", "cut", "merged", "closed"]),
+        (
+            "pull_request.toml",
+            &[],
+            &["about", "body", "cut", "merged", "closed", "superseded"],
+        ),
         ("pull_request.toml", &["withheld"], &["data", "repository", "home"]),
         ("calls.toml", &[], &["withdrawn", "waited", "no_such_tool"]),
         (

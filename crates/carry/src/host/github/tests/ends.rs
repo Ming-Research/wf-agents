@@ -433,6 +433,7 @@ fn hub_with_other_words() -> Hub {
         cut: "CUT".to_string(),
         merged: "MERGED {name} no.{number}".to_string(),
         closed: "CLOSED".to_string(),
+        superseded: "SUPERSEDED BY {url}".to_string(),
         withheld: flow::agents::Withheld {
             data: "<D>".to_string(),
             repository: "<R>".to_string(),

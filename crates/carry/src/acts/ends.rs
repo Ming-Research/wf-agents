@@ -33,6 +33,7 @@ fn item(title: &str) -> Item {
         project: None,
         depends_on: Vec::new(),
         tags: Vec::new(),
+        continues: None,
     };
     Item::new(ItemNumber(1), Time(0), first, Vec::new())
 }
@@ -71,6 +72,7 @@ async fn started(repo: &Repo) {
         title: "Greet the user",
         about: "",
         place: &place,
+        continues: None,
     };
     let started = start(&repo.project, &Fake::new(&main), &branch, &Mutex::new(()))
         .await
@@ -160,6 +162,7 @@ async fn another(repo: &Repo) -> git::Place {
         title: "Say goodbye",
         about: "",
         place: &other,
+        continues: None,
     };
     start(&repo.project, &Fake::new(&main), &branch, &Mutex::new(()))
         .await
@@ -280,6 +283,63 @@ async fn the_host_is_asked_by_the_checks_round_and_given_the_name_of_the_works_m
     acts.inner.release(&ended).await.expect("it lets go");
     assert_eq!(acts.inner.host.titles(), ["Greet the user by name", "Work W1"]);
     assert_eq!(acts.inner.host.askings(), [Asking::Round(RunId(4), 2)]);
+}
+
+/// The first round of the start's run 1 of the work, whose item is this.
+fn starting(item: Item) -> Round {
+    let flow = Arc::new(acts_flow());
+    let start = (flow.cells.iter()).find(|cell| cell.act.as_deref() == Some("start"));
+    Round {
+        work: WORK,
+        flow: flow.clone(),
+        cell: start.expect("the flow has a start").clone(),
+        run: RunId(1),
+        number: 1,
+        given: work::Given::Task,
+        item,
+        kept: Arc::new(Work::default()),
+        lines: Default::default(),
+        account: None,
+    }
+}
+
+/// What the start act writes for the item, on the host given.
+async fn start_wrote(repo: &Repo, host: Fake, item: Item) -> String {
+    let acts = acts(repo, host);
+    let (to, _told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(1), to).teller();
+    let done = acts.inner.act(&starting(item), &teller, &mut Stop::never()).await;
+    let Ok(Done::HandsIn(came)) = done else {
+        panic!("the start hands in what it wrote");
+    };
+    came.writes[0].content.clone()
+}
+
+#[tokio::test]
+async fn the_start_says_what_the_item_continues_and_the_start_of_one_that_continues_nothing_says_what_it_did() {
+    let repo = Repo::new("true");
+    let dir = &repo.project.repo;
+    let main = run(dir, &["rev-parse", "main"]);
+    run(dir, &["switch", "-q", "-c", "old"]);
+    let old = commit(dir, "old.txt", "Old.\n");
+    run(dir, &["switch", "-q", "main"]);
+    let mut continuing = item("Greet the user");
+    continuing.continues = Some(store::Continues::Branch("old".to_string()));
+    let said = start_wrote(&repo, Fake::new(&main).continued_at(Ok(old.clone())), continuing).await;
+    assert!(said.contains("It continues the branch old: "), "{said}");
+    assert!(said.contains(&format!("the commit {main} of main")), "{said}");
+    assert!(said.contains(&repo.place(WORK).reference()), "{said}");
+    assert_eq!(run(dir, &["rev-parse", &repo.place(WORK).reference()]), old);
+
+    // The same repository, the work of an item that continues nothing: from main, in the words it always had.
+    let other = Repo::new("true");
+    let main = run(&other.project.repo, &["rev-parse", "main"]);
+    let said = start_wrote(&other, Fake::new(&main), item("Greet the user")).await;
+    assert!(
+        said.contains(&format!("which started from the commit {main} of main.")),
+        "{said}"
+    );
+    assert!(!said.contains("continues"), "{said}");
 }
 
 /// The second round of the check's run 4 of the work as it is kept.

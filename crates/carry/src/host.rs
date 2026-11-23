@@ -14,6 +14,7 @@
 //! Each operation can be asked again after the engine started again, and finds what it did already rather than doing
 //! it a second time.
 
+mod continuing;
 pub mod github;
 mod local;
 
@@ -25,7 +26,7 @@ use std::sync::Arc;
 
 use decide::run::Failure;
 use decide::{CallId, RunId};
-use store::WorkNumber;
+use store::{Continues, WorkNumber};
 use tokio::sync::Mutex;
 
 use crate::git::Place;
@@ -46,6 +47,9 @@ pub struct Branch<'a> {
     /// or nothing is written yet.
     pub about: &'a str,
     pub place: &'a Place,
+    /// What the work's item continues, where it continues something: the host closes the pull request that was open
+    /// on it, once the work's own is open, saying the address of its own (`superseded` of `agents/pull_request.toml`).
+    pub continues: Option<&'a Continues>,
 }
 
 /// What asks a host to run the project's checks, as the work's records name it: a call of `run_tests`, or a round of
@@ -214,6 +218,11 @@ pub trait Host: Send + Sync + 'static {
         checked: Option<&str>,
     ) -> impl Future<Output = Result<String, NotMerged>> + Send;
 
+    /// The head of the branch, or of the pull request, that an item continues, as a work that continues it starts from
+    /// it: what the local repository and the host hold of it, the newer where one holds the other, and a refusal
+    /// ([`Failed::refused`]) where there is none to start from or where the two have gone different ways.
+    fn continued(&self, what: &Continues) -> impl Future<Output = Result<String, Failed>> + Send;
+
     /// The reference of the local repository that holds the head of main as the host last gave it, read without asking
     /// the host again: where a work's change begins is worked out from it.
     fn kept_main(&self) -> String;
@@ -293,6 +302,10 @@ impl<H: Host> Host for Arc<H> {
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
         (**self).merge(branch, checked).await
+    }
+
+    async fn continued(&self, what: &Continues) -> Result<String, Failed> {
+        (**self).continued(what).await
     }
 
     fn kept_main(&self) -> String {

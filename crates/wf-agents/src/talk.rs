@@ -19,7 +19,7 @@ use web::observations::{Observation, ObservationsPage};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
 use web::system::{Past, System, UnderWay};
 use web::works::{
-    Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, ForkAsked,
+    Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Continues, Engine, EngineAct, Failure, ForkAsked,
     ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem,
     NewWrite, Now, Outage, Pauser, Person, QuestionPage, Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Step, Until,
     VersionPage, Waited, WorkPage, Writer,
@@ -346,9 +346,28 @@ pub fn new_item(
         project,
         depends_on,
         tags,
+        continues: None,
         flow,
         writes,
     })
+}
+
+/// What `--continue-branch` and `--continue-pull` ask an item to continue; none where neither is given. The command
+/// line refuses both together.
+pub fn continues(branch: Option<String>, pull: Option<u64>) -> Option<Continues> {
+    match (branch, pull) {
+        (Some(name), _) => Some(Continues::Branch { name }),
+        (None, Some(number)) => Some(Continues::Pull { number }),
+        (None, None) => None,
+    }
+}
+
+/// What an item continues, in words: `the branch <name>` or `pull request <number>`.
+fn continues_words(continues: &Continues) -> String {
+    match continues {
+        Continues::Branch { name } => format!("the branch {name}"),
+        Continues::Pull { number } => format!("pull request {number}"),
+    }
 }
 
 /// The changes `wf-agents change` is given, each `ITEM:KIND` or `ITEM:KIND=VALUE`, in the order given.
@@ -356,7 +375,8 @@ pub fn changes(given: &[String]) -> Result<Vec<ChangeAsked>, String> {
     let usage = |given: &str, why: &str| {
         format!(
             "{given:?} is no change: {why}. A change is ITEM:KIND or ITEM:KIND=VALUE, the kind one of title=TEXT, \
-             level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, tag=TAG, untag=TAG, cancel and reopen"
+             level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, tag=TAG, untag=TAG, continue-branch=BRANCH, \
+             continue-pull=PULL, no-longer-continues, cancel and reopen"
         )
     };
     let mut changes = Vec::new();
@@ -407,6 +427,22 @@ pub fn changes(given: &[String]) -> Result<Vec<ChangeAsked>, String> {
                 item,
                 tag: text(value)?,
             },
+            "continue-branch" => ChangeAsked::Continues {
+                item,
+                continues: Some(Continues::Branch { name: text(value)? }),
+            },
+            "continue-pull" => ChangeAsked::Continues {
+                item,
+                continues: Some(Continues::Pull {
+                    number: (value.as_deref().map(|v| v.trim().parse::<u64>()))
+                        .and_then(Result::ok)
+                        .ok_or_else(|| usage(change, "it needs a pull request's number after ="))?,
+                }),
+            },
+            "no-longer-continues" => {
+                none(&value)?;
+                ChangeAsked::Continues { item, continues: None }
+            }
             "cancel" => {
                 none(&value)?;
                 ChangeAsked::Cancel { item }
@@ -630,6 +666,10 @@ fn list(items: &Items, listing: &Listing) -> String {
         let tags = match item.tags.is_empty() {
             true => String::new(),
             false => format!(", tagged {}", item.tags.join(", ")),
+        };
+        let tags = match &item.continues {
+            Some(continues) => format!("{tags}, continuing {}", continues_words(continues)),
+            None => tags,
         };
         // What it does now says which items it waits for, as the engine says.
         let work = &item.work;
@@ -970,6 +1010,10 @@ fn added(history: &ItemHistory, unchanged: bool) -> String {
         true => String::new(),
         false => format!(", tagged {}", first.tags.join(", ")),
     };
+    let tags = match &first.continues {
+        Some(continues) => format!("{tags}, continuing {}", continues_words(continues)),
+        None => tags,
+    };
     format!(
         "was added as \"{}\" at {}{after}{tags}{}",
         first.title,
@@ -991,6 +1035,12 @@ fn item_changed(what: &ItemChanged) -> String {
         ItemChanged::NoLongerDependsOn { item } => format!("no longer depends on {}", item_number(*item)),
         ItemChanged::Tagged { tag } => format!("tagged {tag}"),
         ItemChanged::Untagged { tag } => format!("no longer tagged {tag}"),
+        ItemChanged::Continues {
+            continues: Some(continues),
+        } => {
+            format!("came to continue {}", continues_words(continues))
+        }
+        ItemChanged::Continues { continues: None } => "no longer continues anything".to_string(),
     }
 }
 
@@ -1092,6 +1142,37 @@ fn changed(changes: &[ChangeAsked], done: &[bool], items: Option<&Items>) -> Str
             }
             (ChangeAsked::Untag { item, tag }, _) => {
                 format!("{item} is no longer tagged {tag}.", item = item_number(*item))
+            }
+            (
+                ChangeAsked::Continues {
+                    item,
+                    continues: Some(continues),
+                },
+                true,
+            ) => format!(
+                "{item} continues {}: its work starts from the head of that, until its branch is made.",
+                continues_words(continues),
+                item = item_number(*item)
+            ),
+            (
+                ChangeAsked::Continues {
+                    item,
+                    continues: Some(continues),
+                },
+                false,
+            ) => format!(
+                "{item} continued {} already.",
+                continues_words(continues),
+                item = item_number(*item)
+            ),
+            (ChangeAsked::Continues { item, continues: None }, true) => {
+                format!(
+                    "{item} continues nothing: its work starts from the head of main.",
+                    item = item_number(*item)
+                )
+            }
+            (ChangeAsked::Continues { item, continues: None }, false) => {
+                format!("{item} continued nothing already.", item = item_number(*item))
             }
             (ChangeAsked::Cancel { item }, _) => format!("{item} is cancelled.", item = item_number(*item)),
             (ChangeAsked::Reopen { item }, _) => match work_of(*item) {
@@ -2154,12 +2235,14 @@ mod tests {
             added: 0,
             depends_on: depends_on.to_vec(),
             tags: tags.iter().map(|t| t.to_string()).collect(),
+            continues: None,
             history: ItemHistory {
                 first: FirstItem {
                     title: format!("item {number}"),
                     level: Some("1".to_string()),
                     depends_on: depends_on.to_vec(),
                     tags: Vec::new(),
+                    continues: None,
                 },
                 changes: Vec::new(),
             },
@@ -2799,6 +2882,82 @@ mod tests {
                 "{refused}"
             );
         }
+    }
+
+    #[test]
+    fn what_an_item_continues_is_given_by_two_flags_and_changed_by_three_kinds() {
+        assert_eq!(continues(None, None), None);
+        assert_eq!(
+            continues(Some("old".to_string()), None),
+            Some(Continues::Branch {
+                name: "old".to_string()
+            })
+        );
+        assert_eq!(continues(None, Some(226)), Some(Continues::Pull { number: 226 }));
+        let given: Vec<String> = [
+            "3:continue-branch=work-226-0a1b2c3d",
+            "#4:continue-pull=226",
+            "5:no-longer-continues",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            changes(&given),
+            Ok(vec![
+                ChangeAsked::Continues {
+                    item: 3,
+                    continues: Some(Continues::Branch {
+                        name: "work-226-0a1b2c3d".to_string()
+                    })
+                },
+                ChangeAsked::Continues {
+                    item: 4,
+                    continues: Some(Continues::Pull { number: 226 })
+                },
+                ChangeAsked::Continues {
+                    item: 5,
+                    continues: None
+                },
+            ])
+        );
+        for wrong in [
+            "3:continue-branch",
+            "3:continue-pull=x",
+            "3:continue-pull",
+            "3:no-longer-continues=x",
+        ] {
+            let refused = changes(&[wrong.to_string()]).expect_err(wrong);
+            assert!(
+                refused.contains("A change is ITEM:KIND or ITEM:KIND=VALUE"),
+                "{refused}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_item_that_continues_something_says_so_where_it_is_listed_and_where_its_history_is_told() {
+        let continuing = Some(Continues::Pull { number: 226 });
+        let mut history = item(1, false, &[], &[]).history;
+        assert!(!added(&history, true).contains("continuing"));
+        history.first.continues = continuing.clone();
+        assert!(
+            added(&history, true).contains(", continuing pull request 226"),
+            "{}",
+            added(&history, true)
+        );
+        assert_eq!(
+            item_changed(&ItemChanged::Continues {
+                continues: Some(Continues::Branch {
+                    name: "old".to_string()
+                })
+            }),
+            "came to continue the branch old"
+        );
+        assert_eq!(
+            item_changed(&ItemChanged::Continues { continues: None }),
+            "no longer continues anything"
+        );
     }
 
     #[test]

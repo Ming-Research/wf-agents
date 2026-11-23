@@ -32,6 +32,42 @@ impl std::fmt::Display for WorkNumber {
     }
 }
 
+/// What an item continues: an existing branch of its project's repository, or a pull request on its host, from whose
+/// head its work starts instead of from the head of main.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Continues {
+    /// The branch of this name.
+    Branch(String),
+    /// The pull request of this number on the host.
+    Pull(u64),
+}
+
+impl Continues {
+    /// The words the store keeps it in: `branch:<name>` or `pull:<number>`.
+    pub fn kept(&self) -> String {
+        match self {
+            Continues::Branch(name) => format!("branch:{name}"),
+            Continues::Pull(number) => format!("pull:{number}"),
+        }
+    }
+
+    /// What [`Continues::kept`] kept; none for words it did not make.
+    pub fn from_kept(text: &str) -> Option<Continues> {
+        if let Some(name) = text.strip_prefix("branch:") {
+            return Some(Continues::Branch(name.to_string()));
+        }
+        text.strip_prefix("pull:")?.parse().ok().map(Continues::Pull)
+    }
+
+    /// What it names, as a sentence says it: `the branch <name>` or `pull request <number>`.
+    pub fn said(&self) -> String {
+        match self {
+            Continues::Branch(name) => format!("the branch {name}"),
+            Continues::Pull(number) => format!("pull request {number}"),
+        }
+    }
+}
+
 /// A thing to be done, as it stands: what it was added as, with each change made to it since, in turn. What it stands
 /// as is worked out of those by [`Item::new`] and [`Item::changed`] alone.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,6 +89,9 @@ pub struct Item {
     /// The tags it carries, in the order of their names: those it was added with, with each it came to carry since,
     /// but those it no longer carries.
     pub tags: Vec<String>,
+    /// What it continues: the latest it was given, or the one it was added with; none where it continues nothing and
+    /// its work starts from the head of main.
+    pub continues: Option<Continues>,
     /// What it was as it was added.
     pub first: First,
     /// Each change made to it since it was added, in the order they were made.
@@ -71,6 +110,8 @@ pub struct First {
     pub depends_on: Vec<ItemNumber>,
     /// In the order of their names; none for an item kept before items carried tags.
     pub tags: Vec<String>,
+    /// None for an item that continues nothing, and for one kept before items could continue anything.
+    pub continues: Option<Continues>,
 }
 
 /// A change made to an item, at this time, and why, as whoever made it said; none for a change kept before changes
@@ -97,6 +138,8 @@ pub enum ItemChange {
     Tagged(String),
     /// It no longer carries this tag.
     Untagged(String),
+    /// It comes to continue this, or, with none, to continue nothing.
+    Continues(Option<Continues>),
 }
 
 impl Item {
@@ -110,6 +153,7 @@ impl Item {
             added,
             depends_on: first.depends_on.clone(),
             tags: first.tags.clone(),
+            continues: first.continues.clone(),
             first,
             changes: Vec::new(),
         };
@@ -142,6 +186,7 @@ impl Item {
                 }
             }
             ItemChange::Untagged(tag) => self.tags.retain(|kept| kept != tag),
+            ItemChange::Continues(continues) => self.continues.clone_from(continues),
         }
     }
 }
@@ -168,8 +213,14 @@ pub(crate) fn add_item(db: &Connection, new: &First, at: Time) -> Result<ItemNum
         }
     }
     db.execute(
-        "INSERT INTO items (title, added, level, project) VALUES (?1, ?2, ?3, ?4)",
-        params![new.title, at.0, new.level, new.project],
+        "INSERT INTO items (title, added, level, project, continues) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            new.title,
+            at.0,
+            new.level,
+            new.project,
+            new.continues.as_ref().map(Continues::kept)
+        ],
     )?;
     let number = ItemNumber(db.last_insert_rowid().cast_unsigned());
     for on in depends_on {
@@ -252,7 +303,7 @@ pub(crate) fn items(db: &Connection) -> Result<Vec<Item>, Fault> {
         let (item, tag) = row?;
         tagged.entry(item).or_default().push(tag);
     }
-    let mut query = db.prepare("SELECT number, title, added, level, project FROM items ORDER BY number")?;
+    let mut query = db.prepare("SELECT number, title, added, level, project, continues FROM items ORDER BY number")?;
     let rows = query.query_map([], |row| {
         Ok((
             row.get::<_, u64>(0)?,
@@ -260,17 +311,26 @@ pub(crate) fn items(db: &Connection) -> Result<Vec<Item>, Fault> {
             row.get::<_, u64>(2)?,
             row.get::<_, Option<String>>(3)?,
             row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<String>>(5)?,
         ))
     })?;
     let mut items = Vec::new();
     for row in rows {
-        let (number, title, added, level, project) = row?;
+        let (number, title, added, level, project, continues) = row?;
+        let continues = match continues {
+            Some(kept) => Some(Continues::from_kept(&kept).ok_or_else(|| Fault::Value {
+                table: "items",
+                message: format!("an item continues {kept:?}, which is neither a branch nor a pull request"),
+            })?),
+            None => None,
+        };
         let first = First {
             title,
             level,
             project,
             depends_on: depends.remove(&number).unwrap_or_default(),
             tags: tagged.remove(&number).unwrap_or_default(),
+            continues,
         };
         let changes = changes.remove(&number).unwrap_or_default();
         items.push(Item::new(ItemNumber(number), Time(added), first, changes));

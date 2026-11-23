@@ -42,12 +42,13 @@ use std::path::Path;
 
 use flow::agents::fill;
 use std::time::Duration;
+use store::Continues;
 use uuid::Uuid;
 
 pub use api::{Api, Pull, State};
 pub use gh::{Gh, GhOffsite, UPLOAD_RATE};
 
-use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
+use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict, continuing};
 use crate::git::{self, With};
 use crate::held::Stop;
 use crate::settings::{self, Project};
@@ -315,6 +316,96 @@ impl<A: Api> GitHub<A> {
         }
     }
 
+    /// The head GitHub holds at this reference (`refs/heads/<branch>` or `refs/pull/<number>/head`), fetched into the
+    /// local repository; none where GitHub has no such reference, which is told from a failure to reach it by the
+    /// answer `ls-remote --exit-code` gives for none (2).
+    async fn fetched(&self, reference: &str) -> Result<Option<String>, Failed> {
+        let repo = &self.project.repo;
+        let with = self.network().await?;
+        let url = &self.config.url;
+        let listed = git::said_with(repo, &with, &["ls-remote", "--exit-code", url, reference]).await?;
+        match listed.code {
+            Some(2) => return Ok(None),
+            Some(0) => {}
+            _ => {
+                let words = if listed.err.is_empty() { listed.out } else { listed.err };
+                return Err(format!("{reference} could not be looked up on GitHub: {words}").into());
+            }
+        }
+        let args = [
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--no-recurse-submodules",
+            url,
+            reference,
+        ];
+        let fetched = git::said_with(repo, &with, &args).await?;
+        if !fetched.ok {
+            let words = if fetched.err.is_empty() {
+                fetched.out
+            } else {
+                fetched.err
+            };
+            return Err(format!("{reference} could not be fetched from GitHub: {words}").into());
+        }
+        let head = git::git(repo, &["rev-parse", "--verify", "FETCH_HEAD^{commit}"]).await?;
+        Ok(Some(head))
+    }
+
+    /// The head of the branch for a work that continues it: what the local repository and GitHub hold of it, as
+    /// [`continuing::newer`] picks. Where neither holds it and the branch is a pull request's, the head GitHub keeps
+    /// of that pull request.
+    async fn branch_head(&self, name: &str, pull: Option<u64>) -> Result<String, Failed> {
+        let repo = &self.project.repo;
+        let local = continuing::local_head(repo, name).await?;
+        let hosted = self.fetched(&format!("refs/heads/{name}")).await?;
+        match (local, hosted) {
+            (Some(local), Some(hosted)) => continuing::newer(repo, name, &local, &hosted, "GitHub").await,
+            (Some(only), None) | (None, Some(only)) => Ok(only),
+            (None, None) => match pull {
+                Some(number) => {
+                    let kept = self.fetched(&format!("refs/pull/{number}/head")).await?;
+                    kept.ok_or_else(|| {
+                        Failed::refused(format!(
+                            "the branch {name} of pull request {number} is gone from the local repository and from \
+                             GitHub, and GitHub holds no head of the pull request"
+                        ))
+                    })
+                }
+                None => Err(Failed::refused(format!(
+                    "neither the local repository nor GitHub has the branch {name}"
+                ))),
+            },
+        }
+    }
+
+    /// Closes the open pull request into main that the work continued, now that its own is open, saying the address of
+    /// its own (`superseded` of `agents/pull_request.toml`). A pull request that is closed or merged, goes into another
+    /// branch, or is a work's own (its branch is named as a work's is) is left as it is. Done at every check while the
+    /// old one is open, so that a stop between opening the new one and closing the old is finished by the next.
+    async fn supersede(&self, branch: &Branch<'_>, own: &Pull) -> Result<(), Failed> {
+        let Some(continues) = branch.continues else {
+            return Ok(());
+        };
+        let before: Vec<Pull> = match continues {
+            Continues::Pull(number) => self.api.pull(*number).await?.into_iter().collect(),
+            Continues::Branch(name) => self.api.pulls(name).await?,
+        };
+        let comment = fill(&self.config.words.superseded, &[("url", &own.url)]);
+        for old in before.iter().filter(|p| {
+            p.state == State::Open
+                && p.base == self.project.main
+                && p.number != own.number
+                && !git::is_a_works_branch(&p.branch)
+        }) {
+            let closed = self.api.close(old.number, &comment).await;
+            closed
+                .map_err(|why| why.said(|why| format!("GitHub did not close the pull request {}: {why}", old.url)))?;
+        }
+        Ok(())
+    }
+
     /// Gives the work's open pull request the title and the body the work's branch has it say now, where it says
     /// other.
     async fn follow(&self, open: &Pull, branch: &Branch<'_>) -> Result<(), Failed> {
@@ -393,6 +484,23 @@ impl<A: Api> GitHub<A> {
 }
 
 impl<A: Api> Host for GitHub<A> {
+    async fn continued(&self, what: &Continues) -> Result<String, Failed> {
+        match what {
+            Continues::Branch(name) => self.branch_head(name, None).await,
+            Continues::Pull(number) => {
+                let Some(pull) = self.api.pull(*number).await? else {
+                    return Err(Failed::refused(format!("GitHub has no pull request {number}")));
+                };
+                if pull.from_fork {
+                    let head = self.fetched(&format!("refs/pull/{number}/head")).await?;
+                    return head
+                        .ok_or_else(|| Failed::refused(format!("GitHub holds no head of pull request {number}")));
+                }
+                self.branch_head(&pull.branch, Some(*number)).await
+            }
+        }
+    }
+
     async fn main(&self) -> Result<String, String> {
         let main = &self.project.main;
         let tracking = self.kept_main();
@@ -430,6 +538,7 @@ impl<A: Api> Host for GitHub<A> {
     ) -> Result<Option<Verdict>, Failed> {
         self.push(branch, commit).await?;
         let pull = self.pull_request(branch).await?;
+        self.supersede(branch, &pull).await?;
         stop.pulled(pull.number, &pull.url);
         let request = fast::Request {
             work: branch.work,

@@ -1,6 +1,7 @@
 # What the engine writes on a work's pull request where the project's host is GitHub: its body, the title of the commit
-# its merge makes, and the comment it is closed with. None of it is an agent's: what the work wrote of itself is put in
-# `{about}`, published so that GitHub acts on nothing in it.
+# its merge makes, the comment it is closed with where its work ended without merging, and the comment the pull request
+# the work continued is closed with. None of it is an agent's: what the work wrote of itself is put in `{about}`,
+# published so that GitHub acts on nothing in it.
 
 # The body, written over at each check and before the merge: `about` where the work wrote of itself, then `body`.
 # Filled in a run: `{about}` what the work wrote of itself, in a block of plain text; `{work}` the work's number.
@@ -29,6 +30,10 @@ merged = "{name} (#{number})"
 # The comment the pull request is closed with, where its work ended without merging. It says not why: why is the
 # owner's, in the owner's language, and on the owner's page.
 closed = "Its work ended without merging."
+
+# The comment the pull request that the work's item continued is closed with once the work's own pull request is open:
+# `{url}` the address of the work's own.
+superseded = "Continued by the pull request {url}"
 
 # What stands, in what is published, in place of each path of this machine: the data directory, the project's local
 # repository and the home directory.
