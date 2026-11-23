@@ -12,6 +12,10 @@ between = ", "
 # What the round is told to do about the list: what it returned and is not listed stands (decision
 # a-sent-back-return-is-completed-by-what-is-missing).
 again = "Return again with only what is listed here. What you returned before and is not listed stands."
+# What follows the list where the return sent back stands for nothing of what the next gives: it asked for calls, or it
+# could not be read. Such a return is given whole again, as a return that asks for calls asks for nothing else (decision
+# a-sent-back-return-is-completed-by-what-is-missing).
+again_whole = "Return again, with everything this return should say in one return."
 
 # The words of each thing that can be wrong. In a text, `{block}` is a block's name; `{name}` a name as the return wrote
 # it, or, of what it dealt with, the name of the block or group; `{value}` a value it wrote; `{values}` the values of a

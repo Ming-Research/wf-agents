@@ -701,11 +701,13 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             let unmet = unmet(&came, requires);
             if unmet.is_empty() {
                 // What the round committed is the run's too, as the carrier read it of the branch, once the cell's work
-                // is handed in: a return that asks for calls hands in none of it, nor does a round entered for the
-                // owner's words while its cell waits for the results of calls or for an answer. What it committed is
-                // read, with what the run commits after, by the round that ends the cell's work (decision
+                // is handed in: a return that asks for calls hands in none of it, and what it committed is read, with
+                // what the run commits after, by the round that ends the cell's work. While a cell that may change the
+                // work waits for the results of calls, the carrier reads none of the branch for any round, the waiting
+                // cell's own round entered for the owner's words included, so there is nothing read to hand in; a round
+                // entered while its cell waits for an answer holds nothing back (decision
                 // a-version-read-at-a-rounds-end-is-that-rounds).
-                let hands_in_the_commit = taken.calls == 0 && !requires.told.waits;
+                let hands_in_the_commit = taken.calls == 0;
                 let committed = (taken.read.iter())
                     .filter(|_| hands_in_the_commit)
                     .filter(|block| !taken.writes.iter().any(|w| &w.block == *block))

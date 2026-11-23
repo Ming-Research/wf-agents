@@ -288,6 +288,11 @@ pub fn enter(
                 sent_back.push(k);
                 let round = (k < number).then_some(k);
                 values.sent_back.push((round, unmet.clone()));
+                // A return that asked for calls or could not be read is completed by nothing, nor does it complete one:
+                // the next gives it whole.
+                if k == number {
+                    values.whole = gives_whole(work, run, number);
+                }
                 for u in unmet {
                     if let Unmet::WrittenOver { block, version } = u {
                         values
@@ -377,6 +382,23 @@ fn numbered<'b>(records: &Records, datum: impl IntoIterator<Item = &'b BlockId>,
             at.0
         )
     })
+}
+
+/// Whether the return sent back for the round of this number stands alone, completing none and completed by none: it
+/// asked for calls, or it could not be read. It is the latest round before this one that came back or failed unread,
+/// a round that failed in some other way returning nothing. The run's fold reads such a return so
+/// ([`decide::run::carried`]), and the round is told to give it whole.
+fn gives_whole(work: &Work, run: RunId, number: usize) -> bool {
+    let returned = (1..number).rev().find_map(|round| match work.back.get(&(run, round)) {
+        Some(Back::Failed { failure, .. }) if *failure != decide::run::Failure::Unread => None,
+        back => Some(back),
+    });
+    match returned.flatten() {
+        Some(Back::Asked(_)) => true,
+        Some(Back::Returned { asks, .. }) => !asks.is_empty(),
+        Some(Back::Failed { .. }) => true,
+        _ => false,
+    }
 }
 
 /// Whether the part of this name is one the session keeps: one with a `kind`.

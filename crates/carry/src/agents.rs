@@ -801,9 +801,9 @@ impl Inner {
                 ran
             }
         };
-        // What the round committed is handed in with its return, where its line may change the work and the return does
-        // the cell's work: the run decides that as it takes the return ([`decide::run::next`]), the head being read
-        // here whatever the return asks for, since the check of a line that changes only tests reads it. A change found
+        // What the round committed is handed in with its return, where its line may change the work and the return asks
+        // for no call: the run decides that as it takes the return ([`decide::run::next`]), the head being read here
+        // whatever the return asks for, since the check of a line that changes only tests reads it. A change found
         // at the end of a round that only reads is none of its own, and the outside's. A round that fails hands in
         // nothing: what it committed is read at the end of the round that takes it up. The version of the work's head
         // the run began on is the latest the records keep, what an earlier round of the run committed being handed in
