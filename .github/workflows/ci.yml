@@ -1,19 +1,15 @@
 name: ci
 
 # Every check of the code: the page's types, lint, tests and build; the Rust format and clippy with warnings as errors;
-# the form of the design tree's files; and the Rust tests, which take most of the time, split across three jobs beside
-# the others. The job `check` is red whenever the job `scope`, the tree's check, the page, the lint or a job of the tests
-# is. It is the project's full workflow (`ci.full` of flow/project.toml): what the check before a work's merge runs on
-# the exact commit to merge, once, and the only thing the engine asks it for. The engine dispatches it by hand on main's
-# file, with the commit to test and a value only its request knows, which the run's name holds, and judges the run by
-# the jobs' conclusions and by the JUnit of every test in the artifact `test-results`: nextest's of each third of the
-# Rust tests, vitest's of the page's, and one of the tree's check, each in a file named by its job. It runs only when
-# asked for by hand, which only one who may write to the repository can do, so no job of it runs code of a fork on the
-# owner's machine. What an agent names to `run_tests` while it works, the fast CI runs instead (fast.yml).
-#
-# A commit that differs from main only under design/ has nothing but the tree's check to pass: the job `scope` says so,
-# and the page, the lint and the Rust tests are then skipped, which `check` takes for passing. Where `scope` cannot say
-# (main cannot be fetched, say), it says no, and everything runs.
+# and the Rust tests, which take most of the time, split across three jobs beside the others. The job `check` is red
+# whenever the page, the lint or a job of the tests is. It is the project's full workflow (`ci.full` of
+# flow/project.toml): what the check before a work's merge runs on the exact commit to merge, once, and the only thing
+# the engine asks it for. The engine dispatches it by hand on main's file, with the commit to test and a value only its
+# request knows, which the run's name holds, and judges the run by the jobs' conclusions and
+# by the JUnit of every test in the artifact `test-results`: nextest's of each third of the Rust tests and vitest's of
+# the page's, each in a file named by its job. It runs only when asked for by hand, which only one who may write to the
+# repository can do, so no job of it runs code of a fork on the owner's machine.
+# What an agent names to `run_tests` while it works, the fast CI runs instead (fast.yml).
 #
 # Its jobs run on the owner's own machine (the runners labelled 14900k, eight of them, which fast.yml uses too), whose
 # runners keep each what its last run built, as fast.yml says: the checkout, the compiled target and the page's
@@ -34,95 +30,15 @@ on:
 permissions:
   contents: read
 
-# Every run an engine asked for by hand is kept, and a merge waits for it.
+# Every run an engine asked for is kept, and a merge waits for it.
 concurrency:
   group: ci-${{ inputs.call }}
   cancel-in-progress: false
 
 jobs:
-  # Whether the commit differs from main only under design/, in which case the design tree's check is all it needs and
-  # the jobs that take minutes are left out. The two commits are compared tree against tree, so that no history is
-  # needed: the check's commit holds main's head, so what differs is the work's change; a main that moved on since only
-  # adds files, which runs everything. Anything that goes wrong here (main cannot be fetched, say) says no.
-  scope:
-    runs-on: [self-hosted, 14900k]
-    timeout-minutes: 5
-    outputs:
-      tree_only: ${{ steps.scope.outputs.tree_only }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The commit the request gives.
-          ref: ${{ inputs.commit }}
-          # No later step pushes, so the token is not left in the checkout.
-          persist-credentials: false
-          # The checkout the runner keeps from its last run, which only what changed is brought up to date in.
-          clean: false
-      - id: scope
-        run: |
-          tree_only=false
-          if git fetch --quiet --depth=1 origin main && git diff --quiet FETCH_HEAD HEAD -- . ':(exclude)design'; then
-            tree_only=true
-          fi
-          echo "tree_only=$tree_only" >> "$GITHUB_OUTPUT"
-
-  # The form of the design tree's files, against design/README.md, and the tests of that check, each on a small tree of
-  # its own. It builds nothing, and runs whatever the commit changes.
-  tree:
-    runs-on: [self-hosted, 14900k]
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        id: checkout
-        with:
-          # The commit the request gives.
-          ref: ${{ inputs.commit }}
-          # No later step pushes, so the token is not left in the checkout.
-          persist-credentials: false
-          # The checkout the runner keeps from its last run, which only what changed is brought up to date in.
-          clean: false
-      - id: clean
-        run: git clean -ffdxq -e target -e client/node_modules -e client/dist
-      - name: Design tree
-        id: tree
-        run: python3 design/lint.py
-      - name: Test the design tree's check
-        id: tests
-        run: python3 design/lint_test.py
-      # What became of the job, in a file named by it as the other jobs' are, so that the engine reads it as it reads
-      # theirs: a testsuite of the job's name that holds nothing where it passed, and one with an error that names the
-      # step where a step of it failed.
-      - name: Name the results
-        if: ${{ !cancelled() }}
-        env:
-          JOB: tree
-          RESULTS: ${{ runner.temp }}/tree.xml
-          STEPS: |
-            ${{ steps.checkout.outcome }} Check out the commit
-            ${{ steps.clean.outcome }} Clear what the last run left
-            ${{ steps.tree.outcome }} Design tree
-            ${{ steps.tests.outcome }} Test the design tree's check
-        run: |
-          mkdir -p "$(dirname "$RESULTS")"
-          failed=$(printf '%s\n' "$STEPS" | awk '$1 != "success" { $1 = ""; print substr($0, 2); exit }')
-          if [ -n "$failed" ]; then
-            printf '<testsuites><testsuite name="%s"><error message="the step %s of the job failed"/></testsuite></testsuites>\n' \
-              "$JOB" "$failed" > "$RESULTS"
-          else
-            printf '<testsuites><testsuite name="%s"/></testsuites>\n' "$JOB" > "$RESULTS"
-          fi
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ !cancelled() }}
-        with:
-          name: junit-tree
-          path: ${{ runner.temp }}/tree.xml
-          if-no-files-found: ignore
-
-  # The owner's page (client/): its types, its lint and its build, on their own, beside its tests (`page-tests`) and the
-  # Rust build, so that what is wrong with it shows without waiting for them.
+  # The owner's page (client/): checked and tested on its own, so that what is wrong with it shows without waiting for
+  # the Rust build.
   page:
-    needs: scope
-    if: ${{ needs.scope.outputs.tree_only != 'true' }}
     runs-on: [self-hosted, 14900k]
     timeout-minutes: 10
     defaults:
@@ -158,74 +74,6 @@ jobs:
       - name: Lint the page
         id: lint
         run: npm run lint
-      - name: Build the page
-        id: build
-        run: npm run build
-      # What became of the job, in a file named by it, so that the engine tells what each job reported: a step of the
-      # job's own that failed is said in it as a testsuite of the job's name with an error naming the step, as a unit
-      # not built is. The job runs no tests, so a job that passed writes nothing.
-      - name: Name the results
-        if: ${{ !cancelled() }}
-        env:
-          JOB: page
-          RESULTS: ${{ runner.temp }}/page.xml
-          STEPS: |
-            ${{ steps.checkout.outcome }} Check out the commit
-            ${{ steps.clean.outcome }} Clear what the last run left
-            ${{ steps.path.outcome }} Put the tools on the path
-            ${{ steps.node.outcome }} Check the version of node
-            ${{ steps.install.outcome }} Install the page's dependencies
-            ${{ steps.typecheck.outcome }} Type-check the page
-            ${{ steps.lint.outcome }} Lint the page
-            ${{ steps.build.outcome }} Build the page
-        run: |
-          mkdir -p "$(dirname "$RESULTS")"
-          failed=$(printf '%s\n' "$STEPS" | awk '$1 == "failure" { $1 = ""; print substr($0, 2); exit }')
-          if [ -n "$failed" ]; then
-            printf '<testsuites><testsuite name="%s"><error message="the step %s of the job failed"/></testsuite></testsuites>\n' \
-              "$JOB" "$failed" > "$RESULTS"
-          fi
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ !cancelled() }}
-        with:
-          name: junit-page
-          path: ${{ runner.temp }}/page.xml
-          if-no-files-found: ignore
-
-  # The page's tests, in Node, in a stand-in for the browser and in a real browser, beside its other checks (`page`).
-  page-tests:
-    name: page tests
-    needs: scope
-    if: ${{ needs.scope.outputs.tree_only != 'true' }}
-    runs-on: [self-hosted, 14900k]
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: client
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        id: checkout
-        with:
-          # The commit the request gives.
-          ref: ${{ inputs.commit }}
-          # No later step pushes, so the token is not left in the checkout.
-          persist-credentials: false
-          # The checkout the runner keeps from its last run, which only what changed is brought up to date in.
-          clean: false
-      - id: clean
-        run: git clean -ffdxq -e target -e client/node_modules -e client/dist
-      - id: path
-        run: echo "$HOME/.cargo/bin:/opt/node/bin" >> "$GITHUB_PATH"
-      - id: node
-        run: '[ "$(node --version)" = v24.21.0 ]'
-      # The dependencies are installed only when their lock changed since the last run of this runner.
-      - id: install
-        run: |
-          lock=$(git rev-parse HEAD:client/package-lock.json)
-          if [ "$(cat node_modules/.wf-lock 2>/dev/null)" != "$lock" ]; then
-            npm ci
-            echo "$lock" > node_modules/.wf-lock
-          fi
       # The page's browser tests (`*.browser.test.tsx`) draw it in headless Chromium: the headless shell of the one the
       # version of Playwright the lock file locks drives, installed once for each version into the runner user's cache;
       # the system libraries it needs are installed on the machine by hand, which a workflow has no root to do.
@@ -236,7 +84,10 @@ jobs:
       # ` > `, which is the name an agent asks for it by.
       - name: Test the page
         id: tests
-        run: npm test -- --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/page tests.xml"
+        run: npm test -- --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/page.xml"
+      - name: Build the page
+        id: build
+        run: npm run build
       # What became of each test of the job, in a file named by the job, so that the engine tells what each job
       # reported: a step of the job's own that failed, or its tests' where they wrote nothing, is said in it as a
       # testsuite of the job's name with an error naming the step, as a unit not built is, whatever became of the steps
@@ -244,8 +95,8 @@ jobs:
       - name: Name the results
         if: ${{ !cancelled() }}
         env:
-          JOB: page tests
-          RESULTS: ${{ runner.temp }}/page tests.xml
+          JOB: page
+          RESULTS: ${{ runner.temp }}/page.xml
           TESTED: ${{ steps.tests.outcome }} Test the page
           STEPS: |
             ${{ steps.checkout.outcome }} Check out the commit
@@ -253,7 +104,10 @@ jobs:
             ${{ steps.path.outcome }} Put the tools on the path
             ${{ steps.node.outcome }} Check the version of node
             ${{ steps.install.outcome }} Install the page's dependencies
+            ${{ steps.typecheck.outcome }} Type-check the page
+            ${{ steps.lint.outcome }} Lint the page
             ${{ steps.chromium.outcome }} Chromium for the page's browser tests
+            ${{ steps.build.outcome }} Build the page
         run: |
           mkdir -p "$(dirname "$RESULTS")"
           failed=$(printf '%s\n' "$STEPS" | awk '$1 == "failure" { $1 = ""; print substr($0, 2); exit }')
@@ -269,14 +123,12 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
-          name: junit-page-tests
-          path: ${{ runner.temp }}/page tests.xml
+          name: junit-page
+          path: ${{ runner.temp }}/page.xml
           if-no-files-found: ignore
 
-  # The Rust format and clippy with warnings as errors, beside the tests.
+  # The Rust format, the form of the design tree's files and clippy with warnings as errors, beside the tests.
   lint:
-    needs: scope
-    if: ${{ needs.scope.outputs.tree_only != 'true' }}
     runs-on: [self-hosted, 14900k]
     timeout-minutes: 15
     env:
@@ -299,6 +151,12 @@ jobs:
       # Formatting first: it needs no build, so a misformatted commit fails in seconds.
       - name: Format
         run: cargo fmt --all --check
+      # The design tree's files against the forms of design/README.md: it needs no build either.
+      - name: Design tree
+        run: python3 design/lint.py
+      # The tests of that check, each on a small tree of its own: they need no build either.
+      - name: Test the design tree's check
+        run: python3 design/lint_test.py
       # The page is built into the binary (crates/web/build.rs), so it is built before anything compiles that crate. Its
       # build of the files as they are is kept for every runner of the machine (as fast.yml keeps it), and its
       # dependencies are installed only when their lock changed.
@@ -331,8 +189,6 @@ jobs:
   # third of each binary's tests (nextest's partition count:k/3).
   test:
     name: test ${{ matrix.partition }} of 3
-    needs: scope
-    if: ${{ needs.scope.outputs.tree_only != 'true' }}
     runs-on: [self-hosted, 14900k]
     timeout-minutes: 15
     strategy:
@@ -445,16 +301,15 @@ jobs:
           path: ${{ runner.temp }}/test ${{ matrix.partition }} of 3.xml
           if-no-files-found: ignore
 
-  # Red whenever `scope`, the tree's check, the page, the lint or a job of the tests did not pass, cancelled ones
-  # included; and the one place the JUnit of every job is made one artifact, `test-results`, which the engine reads. A
-  # job that `scope` left out, because only design/ changed, counts as passed; a job skipped any other way does not.
+  # Red whenever the page, the lint or a job of the tests did not pass, cancelled ones included; and the one place the
+  # JUnit of every job is made one artifact, `test-results`, which the engine reads.
   #
   # The jobs of a run are what the engine judges the run by, each by its conclusion; this job prints, in its own log,
   # the steps of each job that did not pass, each after a line as a step begins that names the job, with GitHub's times
   # taken off and its workflow commands stopped, so that they are printed as the job printed them, for whoever reads the
   # run on GitHub.
   check:
-    needs: [scope, tree, page, page-tests, lint, test]
+    needs: [page, lint, test]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -463,8 +318,8 @@ jobs:
       # To read the logs of the run's other jobs.
       actions: read
     steps:
-      # The JUnit of the tree's check, of the page and of each third of the Rust tests, in one artifact. Where none was
-      # kept (each job was cancelled, say) there is nothing to merge, and the engine says the run uploaded none.
+      # The JUnit of the page and of each third of the Rust tests, in one artifact. Where none was kept (each job was
+      # cancelled, say) there is nothing to merge, and the engine says the run uploaded none.
       - uses: actions/upload-artifact/merge@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         continue-on-error: true
@@ -498,24 +353,17 @@ jobs:
           EOF
       - name: Every other job passed
         env:
-          SCOPE: ${{ needs.scope.result }}
-          TREE: ${{ needs.tree.result }}
-          HEAVY: ${{ needs.page.result }} ${{ needs.page-tests.result }} ${{ needs.lint.result }} ${{ needs.test.result }}
-          TREE_ONLY: ${{ needs.scope.outputs.tree_only }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "scope $SCOPE, tree $TREE, page, page tests, lint and test: $HEAVY (only design/ changed: ${TREE_ONLY:-false})"
+          echo "page, lint and test: $RESULTS"
           red=false
-          [ "$SCOPE" = success ] && [ "$TREE" = success ] || red=true
-          for r in $HEAVY; do
-            [ "$r" = success ] || { [ "$r" = skipped ] && [ "$TREE_ONLY" = true ]; } || red=true
-          done
+          for r in $RESULTS; do [ "$r" = success ] || red=true; done
           [ $red = true ] || exit 0
           jobs="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs"
           mapfile -t not_passed < <(gh api --paginate "$jobs" --jq '.jobs[]
-            | select(.name == "scope" or .name == "tree" or .name == "page" or .name == "page tests" or .name == "lint" or (.name | startswith("test ")))
-            | select(.conclusion != "success" and (env.TREE_ONLY != "true" or .conclusion != "skipped"))
-            | "\(.id)\t\(.name)\t\(.conclusion // .status)"')
+            | select(.name == "page" or .name == "lint" or (.name | startswith("test ")))
+            | select(.conclusion != "success") | "\(.id)\t\(.name)\t\(.conclusion // .status)"')
           stop="stop-$(cat /proc/sys/kernel/random/uuid)"
           for line in "${not_passed[@]}"; do
             IFS=$'\t' read -r id name how <<< "$line"

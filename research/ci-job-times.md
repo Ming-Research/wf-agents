@@ -1,7 +1,7 @@
 # How long each job of ci.yml took, and where the Rust tests' time is, on 2026-11-22
 
-Whom it serves: the decision to run the page's tests in a job of their own, and whoever next changes how the full
-workflow is split. It is kept until the split is measured again.
+Whom it serves: item 92, which splits the page's job, and whoever next changes how the full workflow is split. It is
+kept until item 92 has measured the split.
 
 ## The question
 

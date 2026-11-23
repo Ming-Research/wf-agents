@@ -11,11 +11,7 @@ The jobs of wf-agents' own workflows run on the owner's machine, on the runners 
 
 ### decision wf-agents-ci-runs-only-when-the-engine-asks
 wf-agents' full workflow runs only when the engine asks for it by hand, on the commit to merge; no pull request and no push to main starts it.
-- replaced: The full workflow also ran on every pull request into main and on every push to main, was on main; the owner changed it, because the engine reads only the runs it asked for, and most of CI's time went to runs nothing read (data: `research/ci-unread-runs.md`).
-
-### decision a-change-of-only-the-tree-runs-only-the-trees-check
-Where a commit differs from main only under `design/`, the full workflow runs only the design tree's check, and its other jobs are skipped and count as passed.
-- replaced: Every job of the full workflow running on a change of only the tree was on main; the owner changed it, because such a change can break nothing but the form of the tree, and the page, the lint and the Rust tests cost minutes for nothing.
+- replaced: Running the full workflow also on every pull request into main and on every push to main was on main; the owner changed it, because the engine reads only the runs it asked for, and most of CI's time went to runs nothing read (data: `research/ci-unread-runs.md`).
 
 ### decision wf-agents-ci-bounds-each-test-and-job
 wf-agents' workflows stop and fail a test still running after 60 seconds, except the walks of random histories, and a job past its limit, which is 15 minutes for the Rust tests.
@@ -25,12 +21,6 @@ wf-agents' workflows stop and fail a test still running after 60 seconds, except
 wf-agents' CI builds its tests with the dependencies fully optimized and its own crates unoptimized, except the flow crate, which is built at level 1.
 - replaced: Test builds unoptimized throughout, with SQLite built for debugging, was on main; the owner changed it, because slow CI was the first thing to fix, or the iterations would never end.
 - replaced: Building the workspace's own crates at level 1 was on main; the owner changed it, because the build, not the tests, was the larger part of each run.
-
-### decision wf-agents-ci-runs-the-pages-tests-in-a-job-of-their-own
-wf-agents' full workflow checks the page's types, lint and build in one job and runs the page's tests in another, so that neither waits for the other.
-- replaced: The page's checks and its tests in one job was on main; the owner changed it, because that job was the longest of a run, and its steps do not depend on each other (data: `research/ci-job-times.md`).
-- rejected: an agent proposed also splitting the largest random-history tests so that the count split balances the Rust jobs; the owner rejected it, because it changes about six test files, and each part must prove again that it reaches every rare case.
-- rejected: an agent proposed running all the Rust tests in one job, left to nextest to balance; the owner rejected it, because it was not measured, and a test that hangs or takes the memory would slow every test, not a third.
 
 ### decision wf-agents-ci-splits-its-tests-by-count
 wf-agents' CI runs its Rust tests in three jobs, each running a third of every binary's tests by nextest's count, not by any list kept by hand.
