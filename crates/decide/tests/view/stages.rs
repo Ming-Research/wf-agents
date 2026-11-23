@@ -14,7 +14,7 @@ fn a_work_where_nothing_ran_shows_every_cell_with_no_record_and_nothing_new_and_
             record: None,
             open: None,
             needs: vec![],
-            runs_on: vec![input("background", None, None, false)],
+            runs_on: vec![input("background", None, None, &[])],
         },
         CellView {
             cell: "implement".into(),
@@ -22,7 +22,7 @@ fn a_work_where_nothing_ran_shows_every_cell_with_no_record_and_nothing_new_and_
             record: None,
             open: None,
             needs: vec![],
-            runs_on: vec![input("plan", None, None, false)],
+            runs_on: vec![input("plan", None, None, &[])],
         },
         CellView {
             cell: "merge".into(),
@@ -30,7 +30,7 @@ fn a_work_where_nothing_ran_shows_every_cell_with_no_record_and_nothing_new_and_
             record: None,
             open: None,
             needs: vec![],
-            runs_on: vec![input("the merge may go", None, None, false)],
+            runs_on: vec![input("the merge may go", None, None, &[])],
         },
     ];
     assert_eq!(v.cells, cells);
@@ -69,7 +69,7 @@ fn a_cell_that_finished_shows_its_record_no_open_run_and_no_need() {
     );
     assert_eq!(
         research.runs_on,
-        vec![input("background", Some(background), Some(background), false)]
+        vec![input("background", Some(background), Some(background), &[])]
     );
 }
 

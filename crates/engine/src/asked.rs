@@ -114,7 +114,7 @@ pub(crate) fn record(flow: &Compiled, work: &mut Work, run: RunId, cell: &CellId
 /// `{ask}` what it asks, `{options}` each option as `option` says it, `{recommends}` as `recommends` says it where it
 /// recommends one, `{waits}` as `waits` says it where its cell waits for the answer, else as `goes_on` does, and
 /// `{tree}` as `tree` says it where the question is marked `tree`, else nothing; withdrawn, `withdrawn`, with `{was}`
-/// the version withdrawn and `{why}` why, as `why` says it. Each version is told by its number among the versions of
+/// the version withdrawn and `{reason}` why, as `why` says it. Each version is told by its number among the versions of
 /// the cell's questions.
 fn entry(writes: &flow::Texts, question: &Question, version: u64, was: Option<u64>) -> String {
     let text = |name: &str| writes.get(name).unwrap_or_default();
@@ -160,12 +160,12 @@ fn entry(writes: &flow::Texts, question: &Question, version: u64, was: Option<u6
             fill(text(asked), &places)
         }
         Question::Withdrawn { name, why } => {
-            let why = fill(text("why"), &[("why", why.as_str())]);
+            let reason = fill(text("why"), &[("why", why.as_str())]);
             let places = [
                 ("question", name.as_str()),
                 ("version", version.as_str()),
                 ("was", was.as_str()),
-                ("why", why.as_str()),
+                ("reason", reason.as_str()),
             ];
             fill(text("withdrawn"), &places)
         }

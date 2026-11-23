@@ -115,8 +115,8 @@ mod tests {
             assert!(built == disk, "{name} built in is not as flow/ has it");
         }
         assert!(
-            carried.iter().any(|(name, _)| name == "project.toml"),
-            "the declaration beside the flows is carried too, which the engine reads there"
+            carried.iter().any(|(name, _)| name == flow::agents::RULES_FILE),
+            "what the engine says to every agent, beside the flows, is carried too, which the engine reads there"
         );
     }
 
@@ -138,7 +138,7 @@ mod tests {
         [
             ("alpha/flow.toml", b"alpha"),
             ("alpha/cells/one.toml", b"one"),
-            ("project.toml", b"declared"),
+            ("agents/session.toml", b"shared"),
         ]
     }
 
@@ -164,9 +164,9 @@ mod tests {
         on_disk(&into, &into, &mut found);
         found.sort();
         let wanted: Vec<(String, Vec<u8>)> = vec![
+            ("agents/session.toml".to_string(), b"shared".to_vec()),
             ("alpha/cells/one.toml".to_string(), b"one".to_vec()),
             ("alpha/flow.toml".to_string(), b"alpha".to_vec()),
-            ("project.toml".to_string(), b"declared".to_vec()),
         ];
         assert_eq!(found, wanted);
         assert!(!data.path().join("flows.new").exists());

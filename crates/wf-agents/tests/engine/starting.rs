@@ -305,8 +305,9 @@ fn the_engine_runs_the_flows_the_program_carries_in_the_order_named_and_says_its
         );
     }
     assert_eq!(
-        std::fs::read(place.data().join("flows/project.toml")).expect("the declaration is taken out beside the flows"),
-        std::fs::read(root.join("project.toml")).unwrap()
+        std::fs::read(place.data().join("flows").join(flow::agents::RULES_FILE))
+            .expect("what is said to every agent is taken out beside the flows"),
+        std::fs::read(root.join(flow::agents::RULES_FILE)).unwrap()
     );
     // The flow page shows the first named.
     let shown = get_json(engine.port, "/api/v1/flow");

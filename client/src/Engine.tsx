@@ -1,4 +1,5 @@
-// The engine's part of the bar, at its right: how the engine stands, in a dot and a few words; the switch of every
+// The engine's part of the bar, at its right: how the engine stands, in a dot and a few words, stopping among them while
+// a stop it was asked for on the command line stands; the switch of every
 // work, "Pause all" while works go on and "Start all" while they are paused; the switch that keeps waiting sessions
 // warm; and the slots in use. All of them are the engine's own, and with the mocks shown (`mock-data.ts`) the made-up
 // ones of engine-mock.ts stand in for them.
@@ -77,17 +78,24 @@ export function Engine({ items, failed }: { items: Items | null; failed: string 
   // Who holds every work is said here, where the pause of everything is: the engine's own, taken as it starts again on
   // works that were going on, is told apart from the owner's.
   const byEngine = !mocks && real?.paused?.by === 'engine';
-  const [dot, words] = !paused
-    ? ['run', running === 0 ? 'Running' : `Running: ${running} ${running === 1 ? 'round' : 'rounds'}`]
-    : running > 0
-      ? ['pausing', `Pausing: ${running} ${running === 1 ? 'round' : 'rounds'} finishing`]
-      : [byEngine ? 'held' : 'paused', byEngine ? 'Paused by the engine' : 'Paused by you'];
+  // A stop holds every work as a pause does, until the engine ends: it is drawn as a pause that rounds finish under.
+  const stopping = !mocks && real?.stopping != null;
+  const rounds = `${running} ${running === 1 ? 'round' : 'rounds'}`;
+  const [dot, words] = stopping
+    ? ['pausing', running > 0 ? `Stopping: ${rounds} finishing` : 'Stopping']
+    : !paused
+      ? ['run', running === 0 ? 'Running' : `Running: ${rounds}`]
+      : running > 0
+        ? ['pausing', `Pausing: ${rounds} finishing`]
+        : [byEngine ? 'held' : 'paused', byEngine ? 'Paused by the engine' : 'Paused by you'];
   return (
     <div className="engine">
       <span
         className="engine-state"
         title={
-          !paused
+          stopping
+            ? 'The engine was asked to stop: no round begins, and it ends once the rounds under way have finished. The System view says how long that is expected to take.'
+            : !paused
             ? undefined
             : byEngine
               ? 'The engine paused every work as it started again on works that were going on: no work goes on by itself until you start them.'

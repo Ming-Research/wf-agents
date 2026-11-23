@@ -77,6 +77,23 @@ describe('the words of a round that failed and of the waits that follow', () => 
     expect(outageWords(host)).toMatch(/No act of the engine's begins until it is reached again\.$/);
   });
 
+  it('says which round goes first once the outside is well again, and that the rest wait for it', () => {
+    const first = outage({
+      failure: 'offline',
+      until: { kind: 'well', at: 0 },
+      checked: { at: 0, taken: 1, found: { kind: 'well' } },
+      first: 5,
+    });
+    expect(outageWords(first)).toMatch(
+      /^The network cannot be reached since [^.]*\. It is well again: W5's round goes first, and the rest begin once it comes back\.$/,
+    );
+    const act = outage({ service: 'host', failure: 'offline', until: { kind: 'looked', at: 0 }, first: 2 });
+    expect(outageWords(act)).toMatch(/W2's act goes first, and the rest begin once it comes back\.$/);
+    // Each work the wait holds meanwhile says it waits for that one, not for the cause the check found gone.
+    expect(waitedWords({ kind: 'agents', outage: first })).toBe("W5's round to come back: it is well again, and that round goes first");
+    expect(waitedWords({ kind: 'agents', outage: act })).toBe("W2's act to come back: it is well again, and that act goes first");
+  });
+
   it('says the wait every work shares as what the agents\' rounds wait for', () => {
     const agents = (failure: Outage['failure']): Waited => ({ kind: 'agents', outage: outage({ failure }) });
     expect(waitedWords(agents('offline'))).toBe("the agents' rounds to begin again, as the network cannot be reached");

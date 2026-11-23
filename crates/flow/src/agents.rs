@@ -1,10 +1,13 @@
-//! What the engine says to every agent, whatever the flow, as it is written beside the flows: the project's files,
-//! settings and heavy commands (`project.toml`), and in `agents/` what a session begins with, what every agent is
-//! refused whatever its project, the rules for the agents, the engine's own words, the return and its fields, the
-//! tools, the message a cell is sent as it is entered (design document `data-and-context`, 14), and what the engine
-//! writes as it works: into the blocks its acts write, and in the commits it makes. Every word an agent is sent that is
-//! not a flow's is in these files; the code holds none of them, only how they are put together. A field a file does
-//! not know is refused, and what cannot be read is said with the path of its file.
+//! What the engine says to every agent, whatever the flow, as it is written beside the flows, in `agents/`: what a
+//! session begins with, what every agent is refused whatever its project, the rules for the agents, the engine's own
+//! words, the return and its fields, the tools, the message a cell is sent as it is entered (design document
+//! `data-and-context`, 14), and what the engine writes as it works: into the blocks its acts write, in the commits it
+//! makes, on the pull requests of the works, and as the result of a call it ends itself. Every word an agent is sent,
+//! the host is written, or the owner's cards say that is not a flow's is in these files; the code holds none of them,
+//! only how they are put together. A field a file does not know is refused, a text that is empty is refused, and what
+//! cannot be read is said with the path of its file. What is a project's (its files, settings, tests, workflows, heavy
+//! commands and how its host checks and merges) is not beside the flows but in the project's own declaration
+//! ([`Declaration`]), at the root of its repository.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -18,13 +21,10 @@ use crate::{InputKind, Listed};
 /// The directory beside the flows that holds what the engine says to every agent.
 pub const AGENTS_DIR: &str = "agents";
 
-/// The file beside the flows that names the project's files and settings.
-pub const PROJECT_FILE: &str = "project.toml";
-
-/// A project's declaration, the same file as [`PROJECT_FILE`], by its path from the root of the project's repository:
-/// each project an installation names declares its files, its settings, its tests, its workflows and its heavy commands
-/// there, and the works of its items are run with it in place of the one beside the flows.
-pub const DECLARATION: &str = "flow/project.toml";
+/// A project's declaration, by its path from the root of the project's repository: each project an installation names
+/// declares its files, its settings, its tests, its workflows, its heavy commands and how its host checks and merges
+/// there, and the works of its items are run with it. No copy of it is beside the flows.
+pub const DECLARATION: &str = "wf-agents.toml";
 
 /// The file, from the directory that holds the flows, that names the sets of rules for the agents, each by its name
 /// with its file beside it. A line names those it takes.
@@ -68,6 +68,16 @@ pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
 
 /// The file, in `agents/`, of the questions the engine itself asks the owner.
 pub const ASKS_FILE: &str = "asks.toml";
+
+/// The file, in `agents/`, of what the engine writes on a work's pull request where the project's host is GitHub.
+pub const PULL_REQUEST_FILE: &str = "pull_request.toml";
+
+/// The file, in `agents/`, of the result a call has where the engine ends it itself.
+pub const CALLS_FILE: &str = "calls.toml";
+
+/// The places in the engine's words that the engine fills with a number as it is written: an item's as `#n`, a work's
+/// as `Wn`. A text writes no `W` or `#` before one of them.
+pub const NUMBER_PLACES: &[&str] = &["work", "item", "items", "last"];
 
 /// The file, in `agents/`, of what the engine says to the owner of why a work waits on them, and why it paused a work
 /// as a round of it failed. It is read with each flow, which carries it ([`crate::Compiled::waits`]), so that the
@@ -126,6 +136,11 @@ pub struct PausedWords {
     pub flagged_again: String,
     /// Letting go of what an ended work held failed.
     pub let_go: String,
+    /// The round failed, for a cause no other of these says: `{why}` it.
+    pub failed: String,
+    /// The service has no model the level a round runs on names: `{model}`, `{level}`, `{work}` the work whose round
+    /// found it, `{why}` what the service said.
+    pub no_model: String,
 }
 
 /// Why a work waits on the owner, a sentence for each thing it waits for; a question is said by what it asks.
@@ -155,7 +170,6 @@ pub const OUTPUTS: &str = "outputs";
 pub struct Agents {
     /// The directory read, which holds the flows.
     pub root: PathBuf,
-    pub project: Project,
     pub session: Session,
     /// The text of each file of the engine's own words that the session names, by its name in `agents/`.
     pub words: BTreeMap<String, String>,
@@ -183,6 +197,52 @@ pub struct Agents {
     pub asks: Asks,
     /// What the engine says as it guards what rounds cost and keeps their sessions' caches: `agents/cost.toml`.
     pub cost: Cost,
+    /// What the engine writes on a work's pull request: [`PULL_REQUEST_FILE`].
+    pub pull_request: PullRequest,
+    /// The result a call has where the engine ends it itself: [`CALLS_FILE`].
+    pub calls: Calls,
+}
+
+/// [`PULL_REQUEST_FILE`]: what the engine writes on a work's pull request where the project's host is GitHub.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PullRequest {
+    /// What opens the body where the work wrote of itself: `{about}` that, in a block of plain text.
+    pub about: String,
+    /// The rest of the body: `{work}` the work's number.
+    pub body: String,
+    /// What follows, on a line of its own, what the work wrote of itself where it is cut.
+    pub cut: String,
+    /// The title of the commit the merge makes: `{name}` the name of the work's merge, `{number}` the pull request's
+    /// number on the host.
+    pub merged: String,
+    /// The comment it is closed with, where its work ended without merging.
+    pub closed: String,
+    /// The comment the pull request an item continued is closed with, once the work's own is open: `{url}` the address
+    /// of the work's own.
+    pub superseded: String,
+    pub withheld: Withheld,
+}
+
+/// What stands, in what is published, in place of each path of this machine.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Withheld {
+    pub data: String,
+    pub repository: String,
+    pub home: String,
+}
+
+/// [`CALLS_FILE`]: the result a call has where the engine ends it itself, kept as its result in the work's records.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Calls {
+    /// Of a call withdrawn as its run was abandoned, before it had its result.
+    pub withdrawn: String,
+    /// Of the engine's wait before a round that failed in passing is tried again, once its time has come.
+    pub waited: String,
+    /// What a call of a tool the engine does not have is answered: `{name}`, `{tools}`.
+    pub no_such_tool: String,
 }
 
 /// `agents/cost.toml`: what the engine says as it runs the agents' program, guards what its rounds cost and keeps their
@@ -209,6 +269,29 @@ pub struct ProgramWords {
     pub signal: String,
     /// It ran as the process of the engine that ran it ended, and what it printed until then holds no result.
     pub cut_off: String,
+    /// Its stream holds no result.
+    pub no_stream_result: String,
+    /// Its result cannot be read: `{why}` what the reading said.
+    pub unreadable_result: String,
+    /// Its result holds no structured return.
+    pub no_return: String,
+    /// Its result is an error of a kind it names: `{subtype}` that kind, `{said}` what it said.
+    pub error_kind: String,
+    /// Its result is an error that names no kind: `{said}` what it said.
+    pub error: String,
+    /// Why there is no return where its last attempt at one is no JSON: `{reason}` why there is none, as a sentence,
+    /// `{error}` what is wrong with the attempt, `{refused}` what `refused` makes of what the program said of it.
+    pub last_attempt: String,
+    /// Where the program said why it refused the attempt: `{said}` what it said.
+    pub refused: String,
+    /// The result is longer than is read of one: `{long}` its length in bytes, `{most}` what is read.
+    pub too_long: String,
+    /// The last lines of the stream are longer than is read: `{most}` what is read.
+    pub lines_too_long: String,
+    /// What the stream holds is no result: `{why}` what the reading said.
+    pub not_a_result: String,
+    /// The program said it failed and gave no reason.
+    pub no_reason: String,
 }
 
 /// What the engine's check of the outside of the agents' rounds found down, where it says it itself.
@@ -219,6 +302,8 @@ pub struct CheckWords {
     pub no_account: String,
     /// The network does not reach the agents' service.
     pub offline: String,
+    /// What the check asks the agents' service, which it answers: the whole request.
+    pub request: String,
 }
 
 /// What a keep-warm ping sends, and why one failed.
@@ -281,31 +366,11 @@ pub struct WorkWords {
     pub started: String,
     pub let_on: String,
     pub between: String,
+    /// That the round failed too, where the work is paused for its budget as well: `{why}` its cause.
+    pub failed: String,
 }
 
 impl Agents {
-    /// These, with the project's declaration, the text of a `project.toml` read at `at`, in place of the one beside the
-    /// flows; or why it cannot be read, or lacks a file the session names, said with where it was read.
-    pub fn declared(&self, text: &str, at: &str) -> Result<Agents, String> {
-        let project: Project = toml::from_str(text).map_err(|e| format!("{at}: {}", e.to_string().trim_end()))?;
-        let faults = project.tree_format.as_ref().map(TreeFormat::faults).unwrap_or_default();
-        if !faults.is_empty() {
-            return Err(format!("{at}: {}", faults.join("; ")));
-        }
-        for part in &self.session.parts {
-            if let Some(name) = part.file()
-                && !project.files.contains_key(name)
-            {
-                let session = self.root.join(AGENTS_DIR).join("session.toml");
-                return Err(format!("{at}: has no file {name}, which {} names", session.display()));
-            }
-        }
-        Ok(Agents {
-            project,
-            ..self.clone()
-        })
-    }
-
     /// The path of a file of these, from the directory that holds the flows, with that directory's name before it, as
     /// a part names the file it comes from.
     pub fn source(&self, path: &str) -> String {
@@ -314,11 +379,14 @@ impl Agents {
     }
 }
 
-/// `project.toml`: what is the project's: its design tree, its files the engine gives every agent, its settings the words
-/// sent to the agents may name, its tests, its workflows, and its heavy commands, which no agent runs.
+/// `wf-agents.toml` at the root of a project's repository: what is the project's: its design tree, its files the engine
+/// gives every agent, its settings the words sent to the agents may name, its tests, its workflows, its heavy commands,
+/// which no agent runs, the variables its toolchain reads, which every agent's command line is given, and what its host
+/// needs to check and merge: the command that checks it where its repository is the host, and how its pull requests
+/// are merged where GitHub is.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Project {
+pub struct Declaration {
     /// The directory of the project's checkout that holds its design tree, from the root of the checkout.
     pub tree: String,
     /// How an entry of the design tree is found and referred to; none where the declaration says nothing of it, and a
@@ -331,17 +399,143 @@ pub struct Project {
     pub project: BTreeMap<String, String>,
     /// Where the project's tests are, and what its tests expect.
     pub tests: Option<Tests>,
-    /// The project's two workflows, which the engine runs tests and checks through.
+    /// The project's workflows, which the engine runs tests, checks and measurements through.
     pub ci: Option<Ci>,
+    /// How the project is checked where its own repository is the host: needed there, and read nowhere else.
+    pub local: Option<Local>,
+    /// How its pull requests are merged where GitHub is the host: needed there, and read nowhere else.
+    pub pull_request: Option<Merging>,
     /// The paths the project protects; none where it protects none.
     #[serde(default)]
     pub protected: Protected,
-    /// The project's heavy commands, which no agent runs. A declaration names them, none where its project has none,
-    /// so that one that leaves them out is refused rather than taken to refuse nothing.
-    pub heavy: Commands,
+    /// The project's heavy commands, which no agent runs, and the commands that update its lock files, which an agent
+    /// that writes may run. A declaration names the heavy commands, none where its project has none, so that one that
+    /// leaves them out is refused rather than taken to refuse nothing.
+    pub heavy: Heavy,
+    /// The variables, by name, that every agent's command line of the project's works is given after the engine's own:
+    /// what the project's toolchain reads, so that a command an agent may run reaches no further than its worktree. A
+    /// declaration names them, none where its project needs none, as it names its heavy commands, so that one that
+    /// leaves them out is refused rather than taken to need none.
+    pub environment: BTreeMap<String, String>,
 }
 
-/// `[tree_format]` of `project.toml`: how an entry of the project's design tree is found and referred to, so that the
+/// `[local]` of the declaration: how the project is checked where its own repository is the host.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Local {
+    /// A shell command whose exit with 0 means the work passes: run on a checkout of the commit to merge by the check
+    /// before the merge, and on the worktree by the tool `run_tests`.
+    pub check: String,
+}
+
+/// The ways a pull request may be merged.
+pub const MERGE_METHODS: [&str; 3] = ["squash", "merge", "rebase"];
+
+/// `[pull_request]` of the declaration: how the project's pull requests are merged where GitHub is the host. The words
+/// the engine writes on a pull request are [`PullRequest`], beside the flows.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Merging {
+    /// How a pull request is merged: one of [`MERGE_METHODS`].
+    pub merge_method: String,
+    /// Whether a work's branch on GitHub is deleted once it is merged.
+    pub delete_branch: bool,
+}
+
+/// `[heavy]` of the declaration: the project's heavy commands, and the commands that update its lock files.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Heavy {
+    /// The heavy commands, each a command with the start of its arguments: no agent runs them.
+    pub commands: Vec<String>,
+    /// Commands that update a lock file and build, run and install nothing, each a command with the start of its
+    /// arguments: the agents of a line that writes may run them, though a heavy command covers them.
+    #[serde(default)]
+    pub locks: Vec<String>,
+    /// Uses of the lock commands refused all the same, each a command whose arguments may hold `*` for any text.
+    #[serde(default)]
+    pub locks_except: Vec<String>,
+}
+
+impl Declaration {
+    /// The declaration, read from the text of its file, read at `at`, against what the session begins with: or why it
+    /// cannot be read, or lacks a file the session names, said with where it was read.
+    pub fn read(text: &str, at: &str, beside: &Agents) -> Result<Declaration, String> {
+        let declaration: Declaration =
+            toml::from_str(text).map_err(|e| format!("{at}: {}", e.to_string().trim_end()))?;
+        let faults = declaration.faults(beside);
+        if faults.is_empty() {
+            Ok(declaration)
+        } else {
+            Err(format!("{at}: {}", faults.join("; ")))
+        }
+    }
+
+    /// What is wrong with the declaration whatever the project's host is, each in words with its key: a format of the
+    /// design tree that cannot find an entry, a file the session names that it does not have, a merge method the host
+    /// does not take, a check that names no command, and a workflow's time limit that is not a time.
+    pub fn faults(&self, beside: &Agents) -> Vec<String> {
+        let mut faults = self.tree_format.as_ref().map(TreeFormat::faults).unwrap_or_default();
+        for part in &beside.session.parts {
+            if let Some(name) = part.file()
+                && !self.files.contains_key(name)
+            {
+                let session = beside.root.join(AGENTS_DIR).join("session.toml");
+                faults.push(format!("has no file {name}, which {} names", session.display()));
+            }
+        }
+        if let Some(pull) = &self.pull_request
+            && !MERGE_METHODS.contains(&pull.merge_method.as_str())
+        {
+            faults.push(format!(
+                "pull_request.merge_method: one of {}, not {:?}",
+                MERGE_METHODS.join(", "),
+                pull.merge_method
+            ));
+        }
+        if self.local.as_ref().is_some_and(|local| local.check.trim().is_empty()) {
+            faults.push("local.check: names a command".to_string());
+        }
+        if let Some(ci) = &self.ci {
+            let measure = ci
+                .measure
+                .as_ref()
+                .map(|measure| ("ci.measure.too_long", &measure.too_long));
+            for (key, text) in [
+                ("ci.fast.too_long", &ci.fast.too_long),
+                ("ci.full.too_long", &ci.full.too_long),
+            ]
+            .into_iter()
+            .chain(measure)
+            {
+                if let Err(why) = span(text) {
+                    faults.push(format!("{key}: {why}"));
+                }
+            }
+        }
+        faults
+    }
+}
+
+/// A time such as `90m`, `2h`, `30s` or `1d`; or why it is none: one whose seconds do not fit in a `u64` is none, so
+/// that a declaration, which agents write, cannot make the engine overflow or wrap to a short time.
+pub fn span(text: &str) -> Result<std::time::Duration, String> {
+    let text = text.trim();
+    let none = || format!("{text:?} is no time such as 90m or 2h");
+    let (number, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len()));
+    let number: u64 = number.parse().map_err(|_| none())?;
+    let seconds: u64 = match unit {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86_400,
+        _ => return Err(none()),
+    };
+    let seconds = number.checked_mul(seconds).ok_or_else(none)?;
+    Ok(std::time::Duration::from_secs(seconds))
+}
+
+/// `[tree_format]` of the declaration: how an entry of the project's design tree is found and referred to, so that the
 /// engine names no kind, directory or form of the tree's own (Article 1). An entry begins at a line in the form of
 /// `heading` and runs to the line before the next line in that form, of any kind, or to its file's end, less the blank
 /// lines at its end; a text refers to it in the form of `reference`. In both, `{kind}` stands for a kind's name and
@@ -424,14 +618,14 @@ pub struct Protected {
 }
 
 /// Commands, each a command with the start of its arguments: what every agent is refused whatever its project
-/// ([`REFUSED_FILE`]), and a project's heavy commands (`[heavy]` of its declaration).
+/// ([`REFUSED_FILE`]).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Commands {
     pub commands: Vec<String>,
 }
 
-/// `[tests]` of `project.toml`.
+/// `[tests]` of the declaration.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Tests {
@@ -441,14 +635,49 @@ pub struct Tests {
     pub expected: Vec<String>,
 }
 
-/// `[ci]` of `project.toml`: the project's two workflows, each with a role the engine relies on. Both report each test
-/// as JUnit XML, named by the one name an agent asks for it by. A declaration that has `[ci]` has both: the fast one is
-/// all that `run_tests` runs, and the full ones are all that the check before a merge runs.
+/// `[ci]` of the declaration: the project's two workflows, each with a role the engine relies on, and its measure
+/// workflow where it has one. All report each test, or each timing, as JUnit XML, named by the one name an agent asks for
+/// it by. A declaration that has `[ci]` has both the fast and the full: the fast one is all that `run_tests` runs for the
+/// tests and checks it is asked for, and the full ones are all that the check before a merge runs; the measure workflow
+/// is all that `run_tests` runs for the measurements it is asked for.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ci {
     pub fast: CiFast,
     pub full: CiFull,
+    /// The workflow that times what a request of `run_tests` names; none where the project has no measurements.
+    #[serde(default)]
+    pub measure: Option<CiMeasure>,
+}
+
+/// The measure workflow: dispatched by hand on a commit and the commit the work's change began from, with the names of
+/// the measurements to time, and reports every timing as JUnit XML: a testcase named as the measurement is asked for,
+/// in a testsuite named for what was timed, with its time in seconds.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CiMeasure {
+    /// The workflow, by its file's name, always run by its file on the main branch.
+    pub workflow: String,
+    /// Where it runs, as for the fast workflow: the machine the project measures on.
+    pub runner: String,
+    /// How long a run may take, such as `30m`, the wait for the machine included: one not complete by then is
+    /// cancelled and said so.
+    pub too_long: String,
+    /// The input that takes the commit to time.
+    #[serde(default = "commit_input")]
+    pub commit_input: String,
+    /// The input that takes the commit the work's change began from, to time it against.
+    #[serde(default = "base_input")]
+    pub base_input: String,
+    /// The input that takes a value only one request knows, which the run's name must hold.
+    #[serde(default = "call_input")]
+    pub call_input: String,
+    /// The input that takes the names of the measurements, each followed by a line break.
+    #[serde(default = "measure_input")]
+    pub measure_input: String,
+    /// The artifact a run uploads its JUnit files in.
+    #[serde(default = "results")]
+    pub results: String,
 }
 
 /// The fast workflow: dispatched by hand on a commit with the tests and checks to run, builds and runs only those.
@@ -471,12 +700,19 @@ pub struct CiFast {
     /// The input that takes the checks to run beside the tests, a JSON array of their jobs' names.
     #[serde(default = "checks_input")]
     pub checks_input: String,
+    /// The input that takes how long one test may run before it is stopped, in whole seconds; empty where the
+    /// workflow takes none.
+    #[serde(default = "test_stop_input")]
+    pub test_stop_input: String,
     /// The checks it runs when named, each the name of a job of the workflow, such as the lint.
     #[serde(default)]
     pub checks: Vec<String>,
     /// The artifact a run uploads its JUnit files in.
     #[serde(default = "results")]
     pub results: String,
+    /// How long a run may take, such as `2h`, `90m` or `30s`: one not complete by then is cancelled, and said as what
+    /// it found.
+    pub too_long: String,
 }
 
 /// The full workflows: every job required to merge, dispatched on the exact commit, run once before the merge.
@@ -496,6 +732,10 @@ pub struct CiFull {
     /// The input that takes a value only one request knows, which the run's name must hold.
     #[serde(default = "call_input")]
     pub call_input: String,
+    /// The input that takes how long one test may run before it is stopped, in whole seconds; empty where the
+    /// workflows take none.
+    #[serde(default = "test_stop_input")]
+    pub test_stop_input: String,
     /// The artifact a run uploads its JUnit files in.
     #[serde(default = "results")]
     pub results: String,
@@ -509,12 +749,24 @@ fn call_input() -> String {
     "call".to_string()
 }
 
+fn base_input() -> String {
+    "base".to_string()
+}
+
+fn measure_input() -> String {
+    "measure".to_string()
+}
+
 fn tests_input() -> String {
     "tests".to_string()
 }
 
 fn checks_input() -> String {
     "checks".to_string()
+}
+
+fn test_stop_input() -> String {
+    "test_stop".to_string()
 }
 
 fn results() -> String {
@@ -572,7 +824,7 @@ pub enum SessionPart {
 }
 
 impl SessionPart {
-    /// The file of the project the part holds, by its name in `project.toml`.
+    /// The file of the project the part holds, by its name in the declaration.
     pub fn file(&self) -> Option<&str> {
         match self {
             SessionPart::Project(ProjectPart { project }) => Some(project),
@@ -581,7 +833,7 @@ impl SessionPart {
     }
 }
 
-/// A file of the project, by its name in `project.toml`.
+/// A file of the project, by its name in the declaration.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectPart {
@@ -946,6 +1198,8 @@ pub struct Tool {
     pub places: BTreeMap<String, BTreeMap<String, String>>,
     /// What a round is told of a request of it that cannot be read as that shape: `{error}` what the reading said.
     pub unread: Option<String>,
+    /// What a round is told where the tool could not run its check at all, whatever the host: `{why}` what stopped it.
+    pub could_not_check: Option<String>,
     /// How much of a result of it a round is given.
     pub given: Option<ResultGiven>,
     /// What it says where the host is the local repository, in place of `words`.
@@ -967,17 +1221,23 @@ pub struct ResultWords {
     pub head: String,
     pub which_fast: String,
     pub which_full: String,
-    /// What it came to: `{passed}` of `{total}`, tests and checks, apart by `came_join`.
+    pub which_measure: String,
+    /// What it came to: `{passed}` of `{total}`, tests, measurements and checks, apart by `came_join`.
     pub came_tests: String,
+    pub came_measures: String,
     pub came_checks: String,
     pub came_join: String,
-    /// The title of the tests that did not pass, of those that passed, and of the jobs.
+    /// The title of the tests that did not pass, of those that passed, of the timings of the measurements that ran, and of
+    /// the jobs.
     pub tests_title: String,
     pub passed_title: String,
+    pub timings_title: String,
     pub jobs_title: String,
     /// A test: `{name}`, `{became}` one of the following, `{time}` as `time` says it where the results give one; the
     /// time of a job is said the same way.
     pub test: String,
+    /// A case of a measurement asked for: `{name}`, `{unit}` what was timed, `{became}`, `{time}` as for `test`.
+    pub measure_case: String,
     pub time: String,
     pub passed: String,
     pub failed: String,
@@ -1044,6 +1304,8 @@ pub struct GithubWords {
     pub unknown_checks: String,
     /// The workflow's runner is not one this installation has: `{runner}`, `{have}`.
     pub runner_missing: String,
+    /// Measurements are named and the project declares no measure workflow.
+    pub no_measure: String,
 }
 
 /// What `run_tests` says where the host is the local repository.
@@ -1061,6 +1323,8 @@ pub struct LocalWords {
     pub not_apart: String,
     /// A commit is named, and the command runs on the worktree as it is: nothing was run.
     pub no_commit: String,
+    /// Measurements are named, and the command runs the tests alone: nothing was run.
+    pub no_measure: String,
 }
 
 /// How much of a tool's result a round is given: the result is kept whole, and given cut where it is longer.
@@ -1117,12 +1381,14 @@ pub struct MessagePart {
     pub between: Option<String>,
     /// What is sent in its place where the session holds it already.
     pub held: Option<String>,
-    /// Of what is new to the cell: what a datum's line says of its versions where the cell worked from one before,
-    /// `{last}` that version's place and `{latest}` the latest's (design document `data-and-context`, 10 and 11).
+    /// Of what is new to the cell: what a datum's line says where the cell worked from a version before, `{last}` that
+    /// version's place (design document `data-and-context`, 10 and 11).
     pub since: Option<String>,
-    /// Of what is new to the cell: what a datum's line says of its version where the cell worked from none,
-    /// `{latest}` the latest's place.
-    pub first: Option<String>,
+    /// Of what is new to the cell: what a datum's line says of the one version that changed its meaning, `{changed}`
+    /// its place; none is said where none did.
+    pub changed_one: Option<String>,
+    /// And of several, `{changed}` their places, joined by `between`.
+    pub changed_many: Option<String>,
     /// Of what is new to the cell: what a datum's line says the cell does, `{do}` its words.
     #[serde(rename = "do")]
     pub does: Option<String>,
@@ -1456,29 +1722,16 @@ pub fn fill(text: &str, slots: &[(&str, &str)]) -> String {
 }
 
 /// Reads it all from the directory that holds the flows, anew each time, so that an edit of a file shows; or says which
-/// file cannot be read, and why. A file the session names that `project.toml` does not have, and a name in the form
-/// or in `how_you_return` that is no field of `return/fields/`, are refused as well, on the file that names them.
+/// file cannot be read, and why. A name in the form or in `how_you_return` that is no field of `return/fields/` is
+/// refused as well, on the file that names them.
 pub fn read(root: &Path) -> Result<Agents, String> {
     let at = root.join(AGENTS_DIR);
     let session_file = at.join("session.toml");
     let session: Session = file(&session_file)?;
-    let project: Project = file(&root.join(PROJECT_FILE))?;
-    let faults = project.tree_format.as_ref().map(TreeFormat::faults).unwrap_or_default();
-    if !faults.is_empty() {
-        return Err(format!("{}: {}", root.join(PROJECT_FILE).display(), faults.join("; ")));
-    }
     let mut words = BTreeMap::new();
     for part in &session.parts {
-        match part {
-            SessionPart::Words(WordsPart { words: name }) => {
-                words.insert(name.clone(), text(&at.join(name))?);
-            }
-            part if part.file().is_some_and(|name| !project.files.contains_key(name)) => {
-                let name = part.file().unwrap_or_default();
-                let named = format!("names the file {name}, which {PROJECT_FILE} does not have");
-                return Err(format!("{}: {named}", session_file.display()));
-            }
-            _ => {}
+        if let SessionPart::Words(WordsPart { words: name }) = part {
+            words.insert(name.clone(), text(&at.join(name))?);
         }
     }
     let rules_file = root.join(RULES_FILE);
@@ -1545,7 +1798,6 @@ pub fn read(root: &Path) -> Result<Agents, String> {
     let writes = writes(root)?;
     Ok(Agents {
         root: root.to_path_buf(),
-        project,
         session,
         words,
         your_line: file(&at.join(YOUR_LINE_FILE))?,
@@ -1562,8 +1814,82 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         acts: writes.acts,
         commits: writes.commits,
         asks: asks(&at.join(ASKS_FILE))?,
-        cost: file(&at.join("cost.toml"))?,
+        cost: cost(&at.join("cost.toml"))?,
+        pull_request: pull_request(&at.join(PULL_REQUEST_FILE))?,
+        calls: calls(&at.join(CALLS_FILE))?,
     })
+}
+
+/// The texts a file gives, each of which must say something: a file whose text is empty would have the engine say
+/// nothing where it speaks, which is refused (principle nothing-passes-for-normal).
+fn filled(path: &Path, texts: &[(&str, &str)]) -> Result<(), String> {
+    let empty: Vec<&str> = (texts.iter())
+        .filter(|(_, text)| text.trim().is_empty())
+        .map(|(key, _)| *key)
+        .collect();
+    match empty.is_empty() {
+        true => Ok(()),
+        false => Err(format!("{}: {} must not be empty", path.display(), empty.join(", "))),
+    }
+}
+
+/// What the engine says of the agents' program, its rounds' cost and their sessions' caches, read from its file.
+fn cost(path: &Path) -> Result<Cost, String> {
+    let cost: Cost = file(path)?;
+    let (program, check, work) = (&cost.program, &cost.check, &cost.work);
+    filled(
+        path,
+        &[
+            ("program.no_stream_result", &program.no_stream_result),
+            ("program.unreadable_result", &program.unreadable_result),
+            ("program.no_return", &program.no_return),
+            ("program.error_kind", &program.error_kind),
+            ("program.error", &program.error),
+            ("program.last_attempt", &program.last_attempt),
+            ("program.refused", &program.refused),
+            ("program.too_long", &program.too_long),
+            ("program.lines_too_long", &program.lines_too_long),
+            ("program.not_a_result", &program.not_a_result),
+            ("program.no_reason", &program.no_reason),
+            ("check.request", &check.request),
+            ("work.failed", &work.failed),
+        ],
+    )?;
+    Ok(cost)
+}
+
+/// What the engine writes on a work's pull request, read from its file.
+fn pull_request(path: &Path) -> Result<PullRequest, String> {
+    let words: PullRequest = file(path)?;
+    filled(
+        path,
+        &[
+            ("about", &words.about),
+            ("body", &words.body),
+            ("cut", &words.cut),
+            ("merged", &words.merged),
+            ("closed", &words.closed),
+            ("superseded", &words.superseded),
+            ("withheld.data", &words.withheld.data),
+            ("withheld.repository", &words.withheld.repository),
+            ("withheld.home", &words.withheld.home),
+        ],
+    )?;
+    Ok(words)
+}
+
+/// The result a call has where the engine ends it itself, read from its file.
+fn calls(path: &Path) -> Result<Calls, String> {
+    let words: Calls = file(path)?;
+    filled(
+        path,
+        &[
+            ("withdrawn", &words.withdrawn),
+            ("waited", &words.waited),
+            ("no_such_tool", &words.no_such_tool),
+        ],
+    )?;
+    Ok(words)
 }
 
 /// The questions the engine asks, read from their file, whose option that lets a change merge must be one of the

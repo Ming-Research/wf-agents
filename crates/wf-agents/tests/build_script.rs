@@ -132,22 +132,22 @@ fn two_checkouts_that_share_a_build_directory_each_carry_their_own_flows() {
     let a = checkout(
         base.path(),
         "a",
-        &[("alpha/flow.toml", "of a"), ("project.toml", "declared by a")],
+        &[("alpha/flow.toml", "of a"), ("shared/rules.toml", "shared by a")],
     );
     let b = checkout(
         base.path(),
         "b",
-        &[("beta/flow.toml", "of b"), ("project.toml", "declared by b")],
+        &[("beta/flow.toml", "of b"), ("shared/rules.toml", "shared by b")],
     );
     built(&a, &target, None);
-    assert_eq!(asked(&target, "names"), "alpha/flow.toml,project.toml");
-    assert_eq!(asked(&target, "project.toml"), "declared by a");
+    assert_eq!(asked(&target, "names"), "alpha/flow.toml,shared/rules.toml");
+    assert_eq!(asked(&target, "shared/rules.toml"), "shared by a");
     built(&b, &target, None);
-    assert_eq!(asked(&target, "names"), "beta/flow.toml,project.toml");
-    assert_eq!(asked(&target, "project.toml"), "declared by b");
+    assert_eq!(asked(&target, "names"), "beta/flow.toml,shared/rules.toml");
+    assert_eq!(asked(&target, "shared/rules.toml"), "shared by b");
     built(&a, &target, None);
-    assert_eq!(asked(&target, "names"), "alpha/flow.toml,project.toml");
-    assert_eq!(asked(&target, "project.toml"), "declared by a");
+    assert_eq!(asked(&target, "names"), "alpha/flow.toml,shared/rules.toml");
+    assert_eq!(asked(&target, "shared/rules.toml"), "shared by a");
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn flows_changed_after_a_build_are_the_flows_the_next_build_carries_and_a_build_
         &[
             ("alpha/flow.toml", "one"),
             ("alpha/cells/x.toml", "x"),
-            ("project.toml", "p"),
+            ("shared/rules.toml", "p"),
         ],
     );
     // What a tool of the machine leaves in the directory is not a flow's file.
@@ -168,7 +168,7 @@ fn flows_changed_after_a_build_are_the_flows_the_next_build_carries_and_a_build_
     built(&a, &target, None);
     assert_eq!(
         asked(&target, "names"),
-        "alpha/cells/x.toml,alpha/flow.toml,project.toml"
+        "alpha/cells/x.toml,alpha/flow.toml,shared/rules.toml"
     );
     let again = built(&a, &target, None);
     assert!(
@@ -184,7 +184,7 @@ fn flows_changed_after_a_build_are_the_flows_the_next_build_carries_and_a_build_
     built(&a, &target, None);
     assert_eq!(
         asked(&target, "names"),
-        "alpha/cells/y.toml,alpha/flow.toml,beta/flow.toml,project.toml"
+        "alpha/cells/y.toml,alpha/flow.toml,beta/flow.toml,shared/rules.toml"
     );
     assert_eq!(asked(&target, "alpha/flow.toml"), "two");
 }

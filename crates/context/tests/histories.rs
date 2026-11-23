@@ -150,6 +150,9 @@ struct History {
     rng: Rng,
     /// What each line's session holds.
     lines: BTreeMap<String, Held>,
+    /// The lines that began a new session while the round given was of the line, which holds nothing once that round
+    /// is carried out.
+    renewed: BTreeSet<String>,
     /// The version of each datum each cell last worked from.
     worked: BTreeMap<(CellId, BlockId), Seq>,
     /// The last content written of each block.
@@ -167,6 +170,7 @@ impl History {
             sim,
             rng: Rng::new(seed),
             lines: BTreeMap::new(),
+            renewed: BTreeSet::new(),
             worked: BTreeMap::new(),
             last: BTreeMap::new(),
             written: BTreeMap::new(),
@@ -209,10 +213,22 @@ impl History {
         } else if roll < 18 {
             let line = if self.rng.chance(50) { "engineer" } else { "reviewer" };
             self.sim.anew(line, Why::Owner);
-            self.lines.insert(line.to_string(), Held::default());
+            // The round given goes on in the session it began in, and the line's next round runs in the new one: what the
+            // session holds is forgotten once that round is carried out.
+            match self.sim.round() {
+                Some(round) if self.sim.line(&round) == line => {
+                    self.renewed.insert(line.to_string());
+                }
+                _ => {
+                    self.lines.insert(line.to_string(), Held::default());
+                }
+            }
             reached.reopened += 1;
         } else if let Some(round) = self.sim.round() {
             self.carry(&round, reached);
+            for line in std::mem::take(&mut self.renewed) {
+                self.lines.insert(line, Held::default());
+            }
         } else if let Some(call) = self.sim.calls().first() {
             self.sim.done(*call, "the rows");
         } else {
