@@ -1,11 +1,11 @@
--- From version 28 of the schema to version 29: what a round, a keep-warm ping and a fork took says how many of the
+-- From version 29 of the schema to version 30: what a round, a keep-warm ping and a fork took says how many of the
 -- tokens it sent and did not read from the cache it wrote to it, the rest being sent fresh. The column that held the
 -- tokens sent and not read from the cache is named for what it holds, `uncached_tokens`, its values as they were: the
 -- program and `measured` call the tokens sent fresh `input_tokens`. A ping and a fork kept before say no tokens
 -- written to the cache: they are NULL. Where a round has a try in `measured` whose tokens add up
 -- to the round's, exactly as the program counts them, the tokens that try says it wrote to the cache are the round's;
 -- a round whose last try's tokens do not add up to its own, or that has none kept, stays NULL. The tables are made
--- anew rather than altered, so that a database brought to version 29 holds the same tables as one made with it. The
+-- anew rather than altered, so that a database brought to version 30 holds the same tables as one made with it. The
 -- version's one row is replaced last.
 CREATE TABLE spent_new (
     work INTEGER NOT NULL,
@@ -75,4 +75,4 @@ SELECT work, at, run, round, usd_micros, input_tokens, NULL, cached_tokens, outp
 FROM forked;
 DROP TABLE forked;
 ALTER TABLE forked_new RENAME TO forked;
-UPDATE schema_version SET version = 29;
+UPDATE schema_version SET version = 30;
