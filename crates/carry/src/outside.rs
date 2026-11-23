@@ -79,7 +79,7 @@ impl Check {
             command: settings.agents.command.clone(),
             agents: settings.agents.clone(),
             profile: profile.to_path_buf(),
-            engine: std::env::vars().collect(),
+            engine: crate::programs::engine().to_vec(),
             tokens,
             setting_sources: settings.agents.setting_sources.clone(),
             model,
@@ -93,7 +93,7 @@ impl Check {
 
     /// The agents' command line with these arguments, its environment, with the token, and its directory.
     fn command(&self, args: &[&str], token: &Token) -> Command {
-        let mut command = Command::new(&self.command);
+        let mut command = crate::programs::command(&self.command);
         command
             .args(args)
             .env_clear()

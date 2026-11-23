@@ -337,7 +337,7 @@ export type ItemPanelProps = {
   open?: boolean;
   /// Tells that the owner marked the item read.
   onRead?: () => void;
-  /// Brings the item into view in the tree, where the window stands beside it.
+  /// Brings the item into view in the tree, where the window stands beside it, and flashes its card.
   onTitle?: () => void;
   /// Where the title leads instead, where the window stands on another page than the tree's.
   titleHref?: string;
@@ -1072,30 +1072,33 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
 /// the engine's list says it waits on the owner for, one sentence of why and the button that ends it, each saying on
 /// pointing at it what it does; and a fault or a stall, which no one waits on, with what is wrong.
 function StopCards({ work, act }: { work: Summary; act: (what: Act) => Promise<unknown> }) {
-  const [waiting, setWaiting] = useState(false);
+  // The wait whose button was pressed: from the press until the work's next read no longer has it, its button stays
+  // disabled, so that the press shows at once and the button does not come back before its card goes.
+  const [sent, setSent] = useState<string | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
-  const send = (what: Act) => {
-    if (waiting) return;
-    setWaiting(true);
-    setRefused(null);
-    act(what).then(
-      () => setWaiting(false),
-      (e: unknown) => {
-        setWaiting(false);
-        setRefused(refusal(e));
-      },
-    );
-  };
   const now = work.now;
   const halted = now.kind === 'fault' ? now.words : now.kind === 'stalled' ? now.why : null;
   const waits = waitsOf(work).filter((w) => !drawnInBody(w));
+  const stands = sent !== null && waits.some((w) => w.key === sent);
+  useEffect(() => {
+    if (sent !== null && !stands) setSent(null);
+  }, [sent, stands]);
+  const send = (key: string, what: Act) => {
+    if (stands) return;
+    setSent(key);
+    setRefused(null);
+    act(what).catch((e: unknown) => {
+      setSent(null);
+      setRefused(refusal(e));
+    });
+  };
   if (waits.length === 0 && halted === null) return null;
   return (
     <div className="cw-waits">
       {halted !== null && <StopCard why={halted} />}
       {waits.map((w) => (
         <StopCard key={w.key} wait={w.key} why={w.why}>
-          <WaitButton wait={w} waiting={waiting} send={send} />
+          <WaitButton wait={w} waiting={stands} send={(what) => send(w.key, what)} />
         </StopCard>
       ))}
       {refused !== null && <p className="failed small">{refused}</p>}

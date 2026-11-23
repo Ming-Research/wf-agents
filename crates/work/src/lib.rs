@@ -148,6 +148,25 @@ impl Work {
         let names = (r.started.iter().map(|s| s.run.0)).chain(r.called.iter().map(|c| c.call.0));
         names.max().unwrap_or(0) + 1
     }
+
+    /// Whether a round of the work or a tool run for it is under way: a round began and has not ended, whatever became
+    /// of its run, or a call of a tool was made and has no result. Either may change what the work's branch and
+    /// worktree hold at any moment.
+    pub fn under_way(&self) -> bool {
+        let r = &self.records;
+        let mut open: BTreeMap<RunId, i64> = BTreeMap::new();
+        for round in &r.rounds {
+            *open.entry(round.run).or_default() += 1;
+        }
+        for returned in &r.returned {
+            *open.entry(returned.run).or_default() -= 1;
+        }
+        let tool = |call: &CallId| matches!(self.calls.get(call), Some(Call::Asked(Ask::Tool { .. })));
+        open.values().any(|rounds| *rounds > 0)
+            || (r.called.iter())
+                .filter(|c| tool(&c.call))
+                .any(|c| !r.done.iter().any(|d| d.call == c.call))
+    }
 }
 
 /// The digest of a text that tells it apart from another and keeps nothing of it: its SHA-1, in hexadecimal (principle
@@ -446,5 +465,54 @@ mod tests {
             }
         );
         assert_eq!(work.tick(), Seq(9), "a fork's place is one the next entry follows");
+    }
+
+    // A round under way, of an open run or one abandoned, and a tool's call with no result may each change what the
+    // work's worktree holds; a call that waits for a person or for the clock changes nothing there.
+    #[test]
+    fn a_work_is_under_way_while_a_round_of_it_or_a_tool_run_for_it_has_not_ended() {
+        use decide::{Called, Done, Returned, Round};
+        let mut work = Work::default();
+        assert!(!work.under_way(), "nothing began");
+        let round = |run, at| Round {
+            run: RunId(run),
+            at: Seq(at),
+        };
+        let returned = |run, at| Returned {
+            run: RunId(run),
+            at: Seq(at),
+        };
+        work.records.rounds = vec![round(1, 1), round(2, 2)];
+        work.records.returned = vec![returned(2, 3)];
+        assert!(work.under_way(), "the round of run 1 has not ended");
+        work.records.rounds.push(round(2, 4));
+        work.records.returned.push(returned(1, 5));
+        assert!(work.under_way(), "the second round of run 2 has not ended");
+        work.records.returned.push(returned(2, 6));
+        assert!(!work.under_way(), "every round ended");
+        let call = |call, at| Called {
+            call: CallId(call),
+            run: RunId(2),
+            on: None,
+            at: Seq(at),
+        };
+        let tool = Call::Asked(Ask::Tool {
+            name: "run_tests".to_string(),
+            input: String::new(),
+        });
+        let wait = Call::Wait {
+            until: Time(10),
+            failed: 1,
+        };
+        work.calls = BTreeMap::from([(CallId(3), wait), (CallId(4), tool)]);
+        work.records.called = vec![call(3, 7)];
+        assert!(!work.under_way(), "a wait for the clock changes nothing");
+        work.records.called.push(call(4, 8));
+        assert!(work.under_way(), "the tool has no result");
+        work.records.done.push(Done {
+            call: CallId(4),
+            at: Seq(9),
+        });
+        assert!(!work.under_way(), "the tool has its result");
     }
 }

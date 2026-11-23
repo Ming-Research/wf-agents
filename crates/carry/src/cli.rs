@@ -1617,7 +1617,7 @@ mod tests {
         }
         assert_eq!(stream.results(), 2);
         let read = stream
-            .read(Begin::Resume, 5_000)
+            .read(Begin::Resume, 5_000, &program())
             .expect("the question's return is read");
         assert_eq!(read.structured, json!({ "answer": "yes" }));
         assert_eq!(
@@ -1659,8 +1659,9 @@ mod tests {
     #[test]
     fn a_fork_whose_question_made_no_attempt_is_not_read_as_the_opening_messages_return() {
         let lines = two_messages(None);
-        let no = read(lines.join("\n").as_bytes(), Begin::Resume, 0).expect_err("no return to the question");
-        assert_eq!(no.why, "the command line's result holds no structured return");
+        let no =
+            read(lines.join("\n").as_bytes(), Begin::Resume, 0, &program()).expect_err("no return to the question");
+        assert_eq!(no.why, program().no_return);
         // The tokens of both messages are what it took.
         assert_eq!(no.spent.map(|s| s.output_tokens), Some(5 + 8));
     }
@@ -1699,12 +1700,14 @@ mod tests {
     // milliseconds, in memory; a stream of the test's own making could not show that the real lines are read so.
     #[test]
     fn two_messages_of_the_real_stream_read_as_two_results_and_the_return_of_the_second() {
-        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0).expect("one message reads");
+        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0, &program()).expect("one message reads");
         let mut lines = real_message();
         lines.extend(second_message());
         let stream = feed(&lines);
         assert_eq!(stream.results(), 2);
-        let got = stream.read(Begin::Resume, 0).expect("the question's return is read");
+        let got = stream
+            .read(Begin::Resume, 0, &program())
+            .expect("the question's return is read");
         assert_eq!(got.structured, single.structured, "the return of the last message");
         // The tokens of both messages, and the total of the last result as the cost: the command line's total is its
         // whole call's.
@@ -1727,11 +1730,13 @@ mod tests {
         result.as_object_mut().expect("an object").remove("structured_output");
         first[at] = result.to_string();
         first.truncate(at + 1);
-        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0).expect("one message reads");
+        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0, &program()).expect("one message reads");
         first.extend(second_message());
         let stream = feed(&first);
         assert_eq!(stream.results(), 2);
-        let got = stream.read(Begin::Resume, 0).expect("the question's return is read");
+        let got = stream
+            .read(Begin::Resume, 0, &program())
+            .expect("the question's return is read");
         assert_eq!(got.structured, single.structured);
         assert_eq!(got.spent.output_tokens, 2 * single.spent.output_tokens);
     }
@@ -1742,7 +1747,7 @@ mod tests {
     // is still the second result, and the one read. A few milliseconds.
     #[test]
     fn a_first_message_the_program_answered_itself_does_not_stop_the_question_being_read() {
-        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0).expect("one message reads");
+        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0, &program()).expect("one message reads");
         let own = [
             r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Nothing to show."}]},"parent_tool_use_id":null}"#,
             r#"{"type":"result","subtype":"success","is_error":false,"result":"Nothing to show.","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}"#,
@@ -1752,7 +1757,9 @@ mod tests {
         lines.extend(second_message());
         let stream = feed(&lines);
         assert_eq!(stream.results(), 2);
-        let got = stream.read(Begin::Resume, 0).expect("the question's return is read");
+        let got = stream
+            .read(Begin::Resume, 0, &program())
+            .expect("the question's return is read");
         assert_eq!(got.structured, single.structured);
         assert_eq!(
             (got.spent.input_tokens, got.spent.cached_tokens, got.spent.output_tokens),
@@ -1774,7 +1781,9 @@ mod tests {
         lines.extend(second_message().into_iter().take(2));
         let stream = feed(&lines);
         assert_eq!(stream.results(), 1, "only the first message ended");
-        let no = stream.read(Begin::Resume, 0).expect_err("the question has no result");
+        let no = stream
+            .read(Begin::Resume, 0, &program())
+            .expect_err("the question has no result");
         assert_eq!(no.why, "the command line's stream holds no result");
         assert!(no.spent.is_some(), "the first message's calls were paid for");
     }
@@ -1798,8 +1807,10 @@ mod tests {
         lines.push(result.to_string());
         let stream = feed(&lines);
         assert_eq!(stream.results(), 2);
-        let no = stream.read(Begin::Resume, 0).expect_err("no return to the question");
-        assert_eq!(no.why, "the command line's result holds no structured return");
+        let no = stream
+            .read(Begin::Resume, 0, &program())
+            .expect_err("no return to the question");
+        assert_eq!(no.why, program().no_return);
     }
 
     #[test]
@@ -1811,7 +1822,7 @@ mod tests {
         assert!(stream.has_result());
         assert!(stream.answered());
         assert_eq!(stream.results(), 1);
-        let read = stream.read(Begin::New, 0).expect("the fixture reads");
+        let read = stream.read(Begin::New, 0, &program()).expect("the fixture reads");
         assert_eq!(read.structured["hands_in"][0]["content"], "BANANA");
     }
 
