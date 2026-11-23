@@ -63,6 +63,7 @@ const STEPS: usize = 120;
 const ENGINEER_SEEDS: u64 = 8;
 const ENGINEER_STEPS: usize = 220;
 
+#[derive(Clone)]
 pub struct Rng(u64);
 
 impl Rng {
@@ -172,6 +173,7 @@ struct Reached {
 }
 
 /// What a history of a flow does beside carrying its rounds.
+#[derive(Clone)]
 struct Scene {
     /// The blocks people or the outside write now and then, a block named twice written twice as often.
     writes: Vec<&'static str>,
@@ -231,6 +233,7 @@ impl Scene {
 }
 
 /// One history, and the test's account beside it.
+#[derive(Clone)]
 struct History {
     sim: Sim,
     scene: Scene,
@@ -255,6 +258,7 @@ struct History {
 }
 
 /// What a scripted return does.
+#[derive(Clone)]
 enum Forced {
     Ask(Ask),
     Wrong,
@@ -606,10 +610,14 @@ impl History {
             self.sim.tries(round, 1, used.fills.clone());
             used
         };
-        assert_eq!(self.sim.enter(round, false), going_on, "entered again after its try");
-        assert_eq!(self.sim.enter(round, true), anew, "entered again anew after its try");
+        // What a round is sent is checked in full on the small flow; on the engineer's flow only the situations its
+        // rounds stood in are kept, so that the search over them is not made slow by what the small flow already holds.
+        if self.scene.models {
+            assert_eq!(self.sim.enter(round, false), going_on, "entered again after its try");
+            assert_eq!(self.sim.enter(round, true), anew, "entered again anew after its try");
+        }
         // A message gives a new version whole though it says what one the session holds said.
-        for fill in &going_on.fills {
+        for fill in going_on.fills.iter().filter(|_| self.scene.models) {
             let Fill::Whole { block, version } = fill else {
                 continue;
             };
@@ -1445,6 +1453,114 @@ fn every_state_of_a_datum_that_a_round_of_the_engineer_s_flow_stood_in_is_one_th
         reached.rounds,
         per_cell(&reached.real),
         per_cell(&written)
+    );
+}
+
+/// How many steps a branch of the search runs from a state it kept, and how many branches the search runs at most.
+const BRANCH_STEPS: usize = 40;
+const BRANCHES: usize = 80;
+
+/// Searches the engineer's flow for rounds that stand in the lines wanted: a branch is a history, begun anew or taken
+/// from a state an earlier branch kept because it reached a line none had, and run some steps with the driver's own
+/// random steps. The search goes on until every line wanted was reached or the branches are spent. Says what the rounds
+/// reached, and, every tenth branch, how many lines were still open.
+fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
+    let mut rng = Rng::new(seed);
+    let mut reached = Reached::default();
+    let mut kept: Vec<History> = Vec::new();
+    let mut log = Vec::new();
+    for branch in 0..BRANCHES {
+        if wanted.is_subset(&reached.real) {
+            break;
+        }
+        let from = seed.wrapping_mul(7_919).wrapping_add(branch as u64);
+        let mut history = if kept.is_empty() || rng.chance(10) {
+            let sim = support::engineer_sim();
+            let scene = Scene::engineer(&sim);
+            let mut history = History::of(sim, scene, from);
+            // Each goes some way into the flow before anything else happens, the next further than the last.
+            history.quiet = 12 * rng.below(12);
+            history.scene.passes = Some(60 + 10 * rng.below(5) as u64);
+            history
+        } else {
+            // A state kept lately more often than the others, and a few steps that only carry the work on.
+            let at = if rng.chance(50) {
+                kept.len() - 1 - rng.below(kept.len().min(8))
+            } else {
+                rng.below(kept.len())
+            };
+            let mut history = kept[at].clone();
+            history.rng = Rng::new(from);
+            history.quiet = 10 * rng.below(4);
+            history
+        };
+        let before = reached.real.len();
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            for _ in 0..BRANCH_STEPS {
+                if history.ended() {
+                    break;
+                }
+                history.step(&mut reached);
+            }
+        }));
+        if let Err(e) = ran {
+            eprintln!("the branch {branch} of the search of seed {seed} failed");
+            std::panic::resume_unwind(e);
+        }
+        if reached.real.len() > before && !history.ended() {
+            kept.push(history);
+        }
+        if branch % 10 == 9 {
+            log.push(format!(
+                "after {} branches: {} lines open, {} states kept, {} rounds",
+                branch + 1,
+                wanted.difference(&reached.real).count(),
+                kept.len(),
+                reached.rounds
+            ));
+        }
+    }
+    (reached, log)
+}
+
+/// The lines, a cell on each, with what each says after the cell's name.
+fn by_cell(lines: &BTreeSet<String>) -> String {
+    let mut cells: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for line in lines {
+        let (cell, rest) = line.split_once(": ").unwrap_or(("", line));
+        cells.entry(cell).or_default().push(rest);
+    }
+    (cells.iter())
+        .map(|(cell, rest)| format!("{cell} ({}): {}", rest.len(), rest.join("; ")))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+// A search over the engineer's flow, which the tool writes situations for, in both directions, as the test over the
+// small flow is: every state of a datum that a round stood in is one the tool writes, and every one it writes was
+// stood in by a round the search reached.
+#[test]
+fn every_state_of_a_datum_the_tool_writes_for_the_engineer_s_flow_is_one_a_round_of_the_search_stood_in() {
+    let (written, after_read) = written(&support::engineer_sim());
+    assert!(
+        after_read > 0,
+        "no situation of a session begun anew and another cell read in it"
+    );
+    let (reached, log) = search(&written, 0);
+    let open: BTreeSet<String> = written.difference(&reached.real).cloned().collect();
+    let gaps: Vec<String> = (reached.real.difference(&written))
+        .map(|line| format!("{line}\n    {}", reached.examples[line]))
+        .collect();
+    assert!(
+        open.is_empty() && gaps.is_empty(),
+        "{} states of a datum that rounds stood in, and the tool does not write:\n{}\n\n{} of the {} states the tool writes \
+         were stood in by no round:\n{}\n\nthe search: {}",
+        gaps.len(),
+        gaps.join("\n"),
+        open.len(),
+        written.len(),
+        by_cell(&open),
+        log.join("\n")
     );
 }
 

@@ -210,7 +210,9 @@ pub struct Given {
     pub number: usize,
 }
 
-/// A work of the small flow, taken one thing at a time through the engine's loop.
+/// A work of the small flow, taken one thing at a time through the engine's loop. It is cloned where a search goes on
+/// from a state it reached.
+#[derive(Clone)]
 pub struct Sim {
     pub flow: Compiled,
     pub words: Agents,
