@@ -218,7 +218,13 @@ export interface CellNow {
 export interface Spent {
   /// Millionths of a dollar.
   usdMicros: number;
+  /// Sent fresh, neither read from the cache nor written to it.
   inputTokens: number;
+  /// Written to the cache.
+  cacheWrittenTokens: number;
+  /// Sent and not read from the cache, of rounds, pings and forks kept before the written ones were kept apart: not
+  /// told fresh from written, and counted in neither of the two above.
+  unsplitTokens: number;
   cachedTokens: number;
   outputTokens: number;
   /// How long the rounds were under way.
@@ -802,8 +808,8 @@ export type TryBack =
       durationMs: number | null;
       /// The models it was answered by, by name.
       models: string[];
-      /// The tokens it wrote to the prompt cache, as the program printed them; the records count them among those
-      /// not read from the cache. Absent from an engine that does not give it yet.
+      /// The tokens it wrote to the prompt cache, as the program printed them: a try's own, where a round's are in
+      /// what it took. Absent from an engine that does not give it yet.
       cacheCreationInputTokens?: number | null;
     }
   | { kind: 'failed'; why: string }

@@ -20,10 +20,12 @@ import {
   runTook,
   sentence,
   sessionWords,
+  spentKeys,
   stateOf,
   stateWords,
   stoppedAt,
   tokens,
+  tokensWords,
   waitCount,
   waitCounted,
   waitedWords,
@@ -340,6 +342,45 @@ describe('what was taken, in words', () => {
     expect(tokens(1_234)).toBe('1.2k');
     expect(tokens(14_400)).toBe('14k');
     expect(tokens(1_200_000)).toBe('1.2M');
+  });
+
+  // What a round took is said in four kinds of token, and a fifth only where the records do not tell the first two
+  // apart: the sum of the tokens is what was sent and came back.
+  it('says the four kinds of token apart, and those the records do not tell apart only where there are some', () => {
+    const took = {
+      usdMicros: 420_000,
+      inputTokens: 400,
+      cacheWrittenTokens: 19_800,
+      unsplitTokens: 0,
+      cachedTokens: 14_100,
+      outputTokens: 1_500,
+      workingMs: 0,
+      rounds: 1,
+    };
+    expect(spentKeys(took)).toEqual([
+      ['usd_micros in dollars', '$0.42'],
+      ['input_tokens', '400'],
+      ['cache_written_tokens', '19,800'],
+      ['cached_tokens', '14,100'],
+      ['output_tokens', '1,500'],
+      ['cached_tokens / (input_tokens + cache_written_tokens + cached_tokens)', '41%'],
+    ]);
+    expect(tokensWords(took)).toBe('400 in, 20k written to the cache, 14k from the cache, 1.5k out');
+    const unsplit = { ...took, unsplitTokens: 6_000 };
+    expect(spentKeys(unsplit).map(([key]) => key)).toEqual([
+      'usd_micros in dollars',
+      'input_tokens',
+      'cache_written_tokens',
+      'input_or_cache_written_tokens',
+      'cached_tokens',
+      'output_tokens',
+      'cached_tokens / (input_tokens + cache_written_tokens + input_or_cache_written_tokens + cached_tokens)',
+    ]);
+    expect(spentKeys(unsplit)[3]).toEqual(['input_or_cache_written_tokens', '6,000']);
+    expect(spentKeys(unsplit).at(-1)?.[1]).toBe('35%');
+    expect(tokensWords(unsplit)).toBe(
+      '400 in, 20k written to the cache, 6.0k in or written to the cache, not told apart, 14k from the cache, 1.5k out',
+    );
   });
 });
 

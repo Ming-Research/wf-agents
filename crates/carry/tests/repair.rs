@@ -214,7 +214,7 @@ fn store_with_rounds(data: &Path) -> Store {
         )
         .unwrap();
         db.execute(
-            "INSERT INTO spent (work, run, round, usd_micros, input_tokens, cached_tokens, output_tokens) \
+            "INSERT INTO spent (work, run, round, usd_micros, uncached_tokens, cached_tokens, output_tokens) \
              VALUES (1, ?1, 1, ?2, 0, 0, 0)",
             params![run, usd],
         )

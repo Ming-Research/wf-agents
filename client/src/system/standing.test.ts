@@ -6,9 +6,11 @@ import { changeables, problem, unquoted } from './SettingsView';
 import { fixtureSettings } from './fixtures';
 import { STANDING_WORDS, cacheShare, mergeAverages, nextWeekStart, standingOf, summed, weekStarts } from './standing';
 
-const spent = (usdMicros: number, inputTokens = 0, cachedTokens = 0): Spent => ({
+const spent = (usdMicros: number, inputTokens = 0, cachedTokens = 0, cacheWrittenTokens = 0, unsplitTokens = 0): Spent => ({
   usdMicros,
   inputTokens,
+  cacheWrittenTokens,
+  unsplitTokens,
   cachedTokens,
   outputTokens: 0,
   workingMs: 1000,
@@ -98,6 +100,8 @@ describe('the span', () => {
 describe('what the span adds up to', () => {
   it('gives the share read from the cache, the averages of the merges, and sums', () => {
     expect(cacheShare(spent(0, 1000, 3000))).toBe(0.75);
+    // What was written to the cache and what the records do not tell from it were sent, as what was sent fresh was.
+    expect(cacheShare(spent(0, 500, 3000, 250, 250))).toBe(0.75);
     expect(cacheShare(spent(0))).toBeNull();
     expect(mergeAverages([])).toBeNull();
     expect(
@@ -108,6 +112,17 @@ describe('what the span adds up to', () => {
       ]),
     ).toEqual({ took: 3000, usdMicros: 2_000_000 });
     expect(summed([{ spent: spent(10) }, { spent: null }, { spent: spent(5) }]).usdMicros).toBe(15);
+  });
+
+  it('sums every kind of token apart, the written to the cache and those not told apart too', () => {
+    const sum = summed([
+      { spent: { ...spent(10, 1, 100, 20, 300), outputTokens: 4 } },
+      { spent: null },
+      { spent: { ...spent(5, 2, 200, 40, 600), outputTokens: 8 } },
+    ]);
+    expect([sum.inputTokens, sum.cacheWrittenTokens, sum.unsplitTokens, sum.cachedTokens, sum.outputTokens]).toEqual([
+      3, 60, 900, 300, 12,
+    ]);
   });
 });
 
