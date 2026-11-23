@@ -320,10 +320,10 @@ describe('the Settings view', () => {
     // alone reads nothing.
     const reads = s.accountReads;
     s.accounts = fixtureAccounts();
-    act(() => s.changed({ works: [1], items: false, copies: false, accounts: false }));
+    act(() => s.changed({ works: [1], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect(s.accountReads).toBe(reads);
-    act(() => s.changed({ works: [], items: false, copies: false, accounts: true }));
+    act(() => s.changed({ works: [], items: false, copies: false, accounts: true, observations: false }));
     await settle();
     expect(s.accountReads).toBe(reads + 1);
     expect(accountRows(page)[1].children[1].textContent).toContain('seven_day 100%');
@@ -394,7 +394,7 @@ describe('the Settings view', () => {
     expect(page.querySelector('.said')?.textContent).toBe('The engine moves to another account at a usage limit.');
     // The engine's answer is what the switch shows: it is read again after the act.
     s.accounts = { ...fixtureAccounts(), movingOn: true };
-    act(() => s.changed({ works: [], items: false, copies: false, accounts: true }));
+    act(() => s.changed({ works: [], items: false, copies: false, accounts: true, observations: false }));
     await settle();
     expect((page.querySelector('.account-moving') as HTMLElement).querySelector('[aria-pressed="true"]')?.textContent).toBe(
       'On',
@@ -421,7 +421,7 @@ describe('the Settings view', () => {
         { at: accounts.now - 30 * 3_600_000, from: 'old', to: 'home', leftResets: null },
       ],
     };
-    act(() => s.changed({ works: [], items: false, copies: false, accounts: true }));
+    act(() => s.changed({ works: [], items: false, copies: false, accounts: true, observations: false }));
     await settle();
     const cells = moves().map((tr) => [...tr.children].map((td) => td.textContent));
     expect(cells).toHaveLength(3);

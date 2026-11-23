@@ -592,24 +592,62 @@ CREATE TABLE moments (
     PRIMARY KEY (work, place)
 );
 
--- An observation a run kept as it finished, numbered by the store as it is kept, counting from one, as the
--- installation's: the `n`th text, counting from one, of the `observations` of what came back at the end of a round of
--- the run, of the return the run was taken on or of one sent back that no later return was made in a session holding.
--- What it says, its cell and when it was kept are in the work's records, and are not kept again here.
+-- An observation: one a run kept as it finished, or one an architect added; numbered by the store as it is kept,
+-- counting from one, as the installation's. One a run kept is the `n`th text, counting from one, of the
+-- `observations` of what came back at the end of a round of the run, of the return the run was taken on or of one
+-- sent back that no later return was made in a session holding: its text, its cell and when it was kept are in the
+-- work's records, and are not kept again here, and the project it is of and the one that reported it are its work's
+-- item's. One an architect added has no work, run, round or `n`; it has its `text`, `project` (the project it is of:
+-- whose items may take it in), `reported_by` (the project that reported it), `added_at` and, where it was given one,
+-- the `title` it was added with. The tags it was added with are in `observation_tagged`, each change made to it since
+-- in `observation_changes`.
 CREATE TABLE observations (
     number INTEGER PRIMARY KEY,
-    work INTEGER NOT NULL,
-    run INTEGER NOT NULL,
-    round INTEGER NOT NULL,
-    n INTEGER NOT NULL,
+    work INTEGER,
+    run INTEGER,
+    round INTEGER,
+    n INTEGER,
+    text TEXT,
+    project TEXT,
+    reported_by TEXT,
+    added_at INTEGER,
+    title TEXT,
     UNIQUE (work, run, round, n),
-    FOREIGN KEY (work, run, round) REFERENCES back (work, run, round)
+    FOREIGN KEY (work, run, round) REFERENCES back (work, run, round),
+    CHECK (
+        (work IS NOT NULL AND run IS NOT NULL AND round IS NOT NULL AND n IS NOT NULL
+            AND text IS NULL AND project IS NULL AND reported_by IS NULL AND added_at IS NULL AND title IS NULL)
+        OR (work IS NULL AND run IS NULL AND round IS NULL AND n IS NULL
+            AND text IS NOT NULL AND project IS NOT NULL AND reported_by IS NOT NULL AND added_at IS NOT NULL)
+    )
 );
 
 -- The owner read the observation, at `at`: one row for one that was read, and none for one still unread.
 CREATE TABLE observations_read (
     observation INTEGER PRIMARY KEY REFERENCES observations (number),
     at INTEGER NOT NULL
+);
+
+-- An observation carries a tag, which classifies it, as it is added.
+CREATE TABLE observation_tagged (
+    observation INTEGER NOT NULL REFERENCES observations (number),
+    tag TEXT NOT NULL,
+    PRIMARY KEY (observation, tag)
+);
+
+-- A change made to an observation since it was added, its nth counting from one, at this time (JSON), and why, as
+-- whoever made it said: it was given a title, came to carry a tag or no longer carries one, was taken in by an item,
+-- or was deleted. Changes made together have one time and one reason. What an observation is as it stands is what it
+-- was added as, or kept as, with each of its changes made in turn: its latest title, its tags with each it came to
+-- carry but those it no longer carries, the latest item that took it in, and whether it was deleted, which no change
+-- follows.
+CREATE TABLE observation_changes (
+    observation INTEGER NOT NULL REFERENCES observations (number),
+    n INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    change TEXT NOT NULL,
+    why TEXT NOT NULL,
+    PRIMARY KEY (observation, n)
 );
 
 -- A copy of the database was taken, under this name, at `taken`. `seq` is the order the copies were recorded in, which

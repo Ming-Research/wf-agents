@@ -148,8 +148,8 @@ describe('the observations', () => {
   it('reads the list again when a work changes, as a run that finishes keeps the observations of its return', async () => {
     const e = engine();
     const page = await drawn(e);
-    e.held.unshift({ ...e.held[1], number: 4, text: 'A run kept another.', run: 9 });
-    act(() => e.changed({ works: [1], items: false, copies: false, accounts: false }));
+    e.held.unshift({ ...e.held[1], number: 4, text: 'A run kept another.' });
+    act(() => e.changed({ works: [1], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect([...page.querySelectorAll('.observation')].map((r) => r.getAttribute('data-observation'))).toEqual([
       '4',
@@ -158,6 +158,39 @@ describe('the observations', () => {
       '1',
     ]);
     expect(row(page, 4)?.querySelector('.observation-text')?.textContent).toBe('A run kept another.');
+  });
+
+  it('says who reported one an architect added, which has no work to open, and one a run kept still opens its work', async () => {
+    const e = engine();
+    e.held.unshift({
+      ...e.held[0],
+      number: 4,
+      text: 'The merge cell names no tests.',
+      project: 'wf-agents',
+      reportedBy: 'compiler',
+      round: null,
+    });
+    const page = await drawn(e);
+    const four = row(page, 4) as HTMLElement;
+    expect(four.querySelector('a.link')).toBeNull();
+    expect(four.querySelector('.observation-facts')?.textContent).toContain('reported by compiler');
+    expect(four.querySelector('.observation-facts')?.textContent).not.toContain('cell');
+    // One a run kept has its work to open.
+    expect((row(page, 2) as HTMLElement).querySelector('a.link')?.getAttribute('href')).toBe('#/works/1/runs/7');
+  });
+
+  it('reads the list again when the stream says an observation was added or changed, and no work changed', async () => {
+    const e = engine();
+    const page = await drawn(e);
+    e.held.unshift({ ...e.held[0], number: 4, text: 'An architect added another.', round: null, reportedBy: 'compiler' });
+    act(() => e.changed({ works: [], items: false, copies: false, accounts: false, observations: true }));
+    await settle();
+    expect([...page.querySelectorAll('.observation')].map((r) => r.getAttribute('data-observation'))).toEqual([
+      '4',
+      '3',
+      '2',
+      '1',
+    ]);
   });
 
   it('draws the number of an item in the text as a link to the item, where the page has read the item', async () => {
