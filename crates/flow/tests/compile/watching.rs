@@ -244,6 +244,15 @@ fn what_every_agent_cell_takes_is_only_read() {
     assert!(message.contains("unknown field `watches`"), "{message}");
 }
 
+// Nor does `[every_agent]` say what a cell does when a datum is new: it runs no cell, so there is nothing to do.
+#[test]
+fn what_every_agent_cell_takes_has_no_say_of_what_to_do() {
+    let mut source = plan_takes("watches = [\"request\"]\nreads = [\"opinions\"]");
+    source.flow.push_str("\n[every_agent.do]\nrequest = \"Read it.\"\n");
+    let message = unreadable(&source, FLOW_FILE);
+    assert!(message.contains("unknown field `do`"), "{message}");
+}
+
 #[test]
 fn an_engine_cell_watches_and_is_given_nothing_nor_told_what_to_do() {
     let mut source = edit(

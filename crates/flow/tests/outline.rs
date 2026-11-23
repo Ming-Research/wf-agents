@@ -192,3 +192,14 @@ fn an_outline_kept_before_a_part_was_added_reads_with_that_part_absent() {
     let line: OutlinedLine = serde_json::from_str(r#"{"name": "engineer"}"#).expect("it reads");
     assert_eq!(line.reads_only, None);
 }
+
+// The two reviews of the plan think at the effort high, the owner having chosen it over xhigh for them, as the
+// reviews of the change do; the research and the implementation keep their own.
+#[test]
+fn the_engineer_s_reviews_of_the_plan_run_at_the_effort_high() {
+    let compiled = engineer();
+    for id in ["P1", "P2"] {
+        let cell = compiled.cells.iter().find(|c| c.id.as_str() == id).expect("the cell");
+        assert_eq!(cell.effort, Some(flow::Effort::High), "{id}");
+    }
+}

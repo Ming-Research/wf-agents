@@ -178,3 +178,16 @@ impl Host for Local {
 pub(crate) fn kept_main(main: &str) -> String {
     format!("refs/heads/{main}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::git::tests::Repo;
+
+    // A work merges in its checkout there: no pull request exists for the page to link.
+    #[test]
+    fn the_local_repository_has_no_pull_request_to_link() {
+        let repo = Repo::new("true");
+        assert_eq!(Local::new(repo.project.clone()).pull_at(12), None);
+    }
+}

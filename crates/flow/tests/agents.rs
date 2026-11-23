@@ -301,6 +301,23 @@ fn a_file_of_the_project_the_session_names_is_one_project_toml_has() {
     assert!(refused.contains("charter"), "{refused}");
 }
 
+// A part of a line's session is a file of the project, the line's rules, words or the return's form: what the guide says
+// about a datum is no part of it.
+#[test]
+fn a_part_of_the_session_that_names_a_datum_is_refused() {
+    let dir = copy("datum");
+    let session = dir.join("agents/session.toml");
+    let text = fs::read_to_string(&session).unwrap();
+    fs::write(
+        &session,
+        text.replace("{ project = \"constitution\" }", "{ datum = \"constitution\" }"),
+    )
+    .unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(refused.contains(&session.display().to_string()), "{refused}");
+}
+
 #[test]
 fn each_field_the_form_and_told_name_is_a_field_of_the_return() {
     for (name, from, to) in [
