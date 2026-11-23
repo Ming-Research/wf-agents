@@ -3,10 +3,6 @@
 // sees each cell and what is beside it as one node, and the arrows to and from other nodes meet the cell itself, in a
 // lane along its top and bottom edges, so that no arrow runs through a tag. The lines between a cell and what is beside
 // it are drawn here, straight, with bends only where a line reaches the cell beyond the part of its edge it may meet.
-//
-// Brought over from the chart of `old-main` (`client/src/graph/units.ts`), where a cell had more beside it (the circles
-// of rows to and from another part, its rules, what it did every time, the stores it used): what this flow has none of
-// is left out, the rest is as it was.
 
 import type { Box, Point, Route, Size } from './layout';
 import { type ChartEdge, type ChartNode, cellNode } from './model';

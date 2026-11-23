@@ -77,6 +77,10 @@ pub struct Outage {
     /// Whether it holds rounds now: once a check found the outside well, it stands only until a round that began after
     /// the latest that failed so comes back, and holds nothing meanwhile.
     pub holds: bool,
+    /// Whether the owner has let the engine move to another account at a usage limit and some other account may yet be
+    /// moved to in this wait: then the wait ends when the engine moves as well as when the limit resets.
+    #[serde(default)]
+    pub may_move: bool,
 }
 
 /// The latest check of the outside of the agents' rounds in a wait: when, how many were taken in the wait, and what it
@@ -379,8 +383,6 @@ pub enum Ends {
     /// Answers this version of the work's question of this name, by one of its options: the version by its number
     /// among the versions of its cell's questions, none where it has none.
     Answer { question: String, version: Option<u64> },
-    /// Answers in words the question this call puts to them.
-    Reply { call: u64 },
     /// Lets the run that reached its limit go on, as the result of this call.
     GoOn { call: u64 },
     /// Lets the cell go on past its limit.
@@ -402,7 +404,6 @@ impl Wait {
             why: waiting.why,
             ends: match waiting.ends {
                 EndsOf::Answer { question, version } => Ends::Answer { question, version },
-                EndsOf::Reply { call } => Ends::Reply { call: call.0 },
                 EndsOf::GoOn { call } => Ends::GoOn { call: call.0 },
                 EndsOf::LetGo { cell } => Ends::LetGo { cell: cell.to_string() },
                 EndsOf::Write { block, value } => Ends::Write {
@@ -555,7 +556,6 @@ pub enum Waited {
 #[serde(rename_all = "camelCase")]
 pub enum Person {
     Owner,
-    Architect,
 }
 
 /// Who can make a precondition hold, by writing a block its test reads.
@@ -584,7 +584,7 @@ pub enum Pauser {
 pub enum Call {
     /// A tool the engine runs, with what it is run on.
     Tool { name: String, input: String },
-    /// A question for a person.
+    /// A question for a person, as a call recorded as one is read.
     Question { who: Person, question: String },
     /// The run reached a limit: the owner lets it go on or cancels the work.
     AtLimit { limit: Limit },
@@ -2681,7 +2681,6 @@ impl Person {
     fn of(who: &Who) -> Person {
         match who {
             Who::Owner => Person::Owner,
-            Who::Architect => Person::Architect,
         }
     }
 }
@@ -3644,6 +3643,7 @@ impl Outage {
                 UntilOf::Looked { at } => Until::Looked { at: at.0 },
             },
             holds,
+            may_move: outage.may_move,
         }
     }
 }
@@ -3668,8 +3668,8 @@ impl Failure {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    //! A work's levels, the words of a stalled work, who each version is named by, and what a work is read by of the
-    //! version of its flow it is on.
+    //! A work's levels, the words of a stalled work, who each version is named by, a call recorded as a question, and
+    //! what a work is read by of the version of its flow it is on.
 
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -3721,6 +3721,25 @@ pub(crate) mod tests {
         };
         assert_eq!(QuestionPage::ahead(&questions, &[held]), 1);
         assert_eq!(QuestionPage::ahead(&questions, &[]), 2);
+    }
+
+    /// A call recorded as a question for a person, which the engine no longer makes, is read as it was recorded.
+    #[test]
+    fn a_call_recorded_as_a_question_for_a_person_is_read_as_one() {
+        let mut work = Work::default();
+        work.calls.insert(
+            CallId(47),
+            CallOf::Asked(AskOf::Person {
+                who: Who::Owner,
+                question: "Which name?".to_string(),
+            }),
+        );
+        let Ok(Call::Question { who, question }) = call_of(&work, CallId(47)) else {
+            panic!("the call is read as a question");
+        };
+        assert!(matches!(who, Person::Owner));
+        assert_eq!(question, "Which name?");
+        assert!(call_of(&work, CallId(48)).is_err());
     }
 
     /// A writer the owner's request runs, and the merge, with the repository's words beside it.

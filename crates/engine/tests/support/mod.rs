@@ -556,7 +556,7 @@ impl Driver {
         }
     }
 
-    /// What the driver holds that it can do now: everything, but a call for a person only while people act.
+    /// What the driver holds that it can do now: everything, but the owner's call at a limit only while people act.
     pub fn doable(&self, people: bool) -> Vec<Effect> {
         (self.held.iter())
             .filter(|e| match e {

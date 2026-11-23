@@ -161,7 +161,7 @@ fn compiled(flow: &str) -> Compiled {
 
 /// What is written beside the flows, as the flow crate's tests have it.
 pub fn words() -> Agents {
-    let beside = Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out");
+    let beside = Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/project");
     flow::agents::read(&beside).expect("the words beside the flows of the tests are read")
 }
 
