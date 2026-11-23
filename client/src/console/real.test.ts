@@ -160,7 +160,16 @@ describe("the messages of a work, read from each cell's own words", () => {
         rounds: [],
         calls: [],
         end: null,
-        spent: { usdMicros: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 0 },
+        spent: {
+          usdMicros: 0,
+          inputTokens: 0,
+          cacheWrittenTokens: 0,
+          unsplitTokens: 0,
+          cachedTokens: 0,
+          outputTokens: 0,
+          workingMs: 0,
+          rounds: 0,
+        },
       }) as Step;
     const page: WorkPage = {
       summary: { ...item.work, number: item.work.number + 2 },
