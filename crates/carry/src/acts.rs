@@ -86,13 +86,6 @@ pub struct Checked {
     pub asks: Option<Question>,
 }
 
-impl Checked {
-    /// Whether the work passed: nothing failed, and nothing holds it.
-    pub fn passed(&self) -> bool {
-        self.failed.is_none() && self.held.is_none()
-    }
-}
-
 /// The paths the project protects, and the words of the question the engine asks of a change to them: none protected
 /// where the acts were not told of any.
 #[derive(Clone, Debug, Default)]

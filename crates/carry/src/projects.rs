@@ -26,7 +26,7 @@ use flow::agents::{Declaration, NoProject, fill};
 use service::{
     CallReply, Changes, Diff, OfWork, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, ToolCall, Tools,
 };
-use store::{Item, WorkNumber};
+use store::Item;
 use work::Spent;
 
 use crate::settings::{Project, Settings};

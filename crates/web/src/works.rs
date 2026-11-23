@@ -2361,7 +2361,7 @@ enum TimeOf<'a> {
     /// What it kept as it last ended, where it has not been reopened since.
     Kept(&'a [Stretch]),
     /// For a work the flow installed decides, what it waited for as that flow reads it now, asked at each time.
-    Decided(driver::time::Waits<'a>),
+    Decided(Box<driver::time::Waits<'a>>),
     /// Else what ran alone, read from its records, a round a model's where it had a try: what it waited for is not
     /// known.
     Ran(Vec<Stretch>),
@@ -2375,14 +2375,14 @@ impl<'a> TimeOf<'a> {
             return TimeOf::Kept(&kept_time.stretches);
         }
         if kept.on.installed() {
-            return TimeOf::Decided(driver::time::Waits::new(
+            return TimeOf::Decided(Box::new(driver::time::Waits::new(
                 kept,
                 &all.everything,
                 &all.stops,
                 &all.cannot_run,
                 all.turns_of_others(&kept),
                 now,
-            ));
+            )));
         }
         let tried = |run: RunId| work.ran.iter().any(|ran| ran.run == run);
         let end = work.moments.last().map_or(now, |moment| moment.at);
