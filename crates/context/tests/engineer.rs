@@ -1021,10 +1021,11 @@ fn entered_for_answers(options: [u64; 3]) -> context::Entered {
     let names = ["naming", "ending", "tone"];
     came.said.questions = names.iter().map(|name| recommended(name)).collect();
     sim.returns(&round, came, 0);
-    for (name, option) in names.iter().zip(options) {
+    // Each question is the next version of the research's questions, the first, second and third.
+    for (i, (name, option)) in names.iter().zip(options).enumerate() {
         sim.take(Event::Answer {
             question: name.to_string(),
-            version: 1,
+            version: i as u64 + 1,
             option,
         });
     }
