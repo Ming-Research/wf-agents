@@ -1,7 +1,7 @@
 //! The tokens a round, a keep-warm ping and a fork wrote to the cache are kept apart from those they sent fresh. A file
 //! made before they were kept apart is brought to this version without a value of it changed: the column of the tokens
-//! sent and not read from the cache is renamed, and a round that has a try in `measured` whose tokens add up to its own
-//! has the tokens that try wrote to the cache; no other row says how many it wrote. How a work's rounds, pings and forks
+//! sent and not read from the cache is renamed, and a round whose last try in `measured` has tokens that add up to its
+//! own has the tokens that try wrote to the cache; no other row says how many it wrote. How a work's rounds, pings and forks
 //! are kept and read back is held by the random histories and the tests of the forks.
 
 use store::SCHEMA_VERSION;
@@ -90,7 +90,8 @@ fn a_file_made_before_the_tokens_written_to_the_cache_were_kept_apart_is_brought
             .expect("a run is kept");
         }
         // Run 1 round 1: its one try's tokens add up to its own. Round 2: they do not. Round 3: it has no try kept.
-        // Run 2 round 1: its first try's tokens do not add up to its own and its last try's do.
+        // Run 2 round 1: its first try's tokens add up to its own and its last try's do not. Run 2 round 2: its first
+        // try's tokens do not add up to its own and its last try's do.
         took(&file, 1, 1, 1_060);
         tried(&file, 10, 1, 1, 1, 60, 1_000);
         took(&file, 1, 2, 500);
@@ -98,7 +99,10 @@ fn a_file_made_before_the_tokens_written_to_the_cache_were_kept_apart_is_brought
         took(&file, 1, 3, 800);
         took(&file, 2, 1, 400);
         tried(&file, 30, 2, 1, 1, 400, 0);
-        tried(&file, 31, 2, 1, 2, 100, 300);
+        tried(&file, 31, 2, 1, 2, 100, 200);
+        took(&file, 2, 2, 400);
+        tried(&file, 32, 2, 2, 1, 50, 50);
+        tried(&file, 33, 2, 2, 2, 100, 300);
         file.execute(
             "INSERT INTO pinged (work, at, line, session, usd_micros, input_tokens, cached_tokens, output_tokens, \
              context_tokens, compactions, failed) VALUES (1, 40, 'main', 0, 5, 70, 80, 9, NULL, 0, NULL)",
@@ -113,7 +117,7 @@ fn a_file_made_before_the_tokens_written_to_the_cache_were_kept_apart_is_brought
         .expect("a fork is kept");
     }
     let before = rounds(&db.path, "input_tokens");
-    assert_eq!(before.len(), 4);
+    assert_eq!(before.len(), 5);
     db.open();
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
@@ -123,7 +127,13 @@ fn a_file_made_before_the_tokens_written_to_the_cache_were_kept_apart_is_brought
     // The tokens written to the cache are those of a last try that adds up to the round's own, and no others.
     assert_eq!(
         written(&db.path),
-        [(1, 1, Some(1_000)), (1, 2, None), (1, 3, None), (2, 1, Some(300))]
+        [
+            (1, 1, Some(1_000)),
+            (1, 2, None),
+            (1, 3, None),
+            (2, 1, None),
+            (2, 2, Some(300))
+        ]
     );
     // A ping and a fork kept before say nothing of them, and keep every other value.
     let ping: (i64, Option<i64>, i64) = file
