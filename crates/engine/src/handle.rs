@@ -886,7 +886,7 @@ fn finish(
             // return that wrote it did, and each question it asks as the latest return that asked it did.
             let taken = run::together(&log.rounds).unwrap_or_default();
             questions = (taken.questions.iter())
-                .filter_map(|asked| latest_question(work, run, round, &asked.name))
+                .filter_map(|asked| work.asked_by(run, round, &asked.name).cloned())
                 .collect();
             waits = waits_for.clone();
             read = on_branch.clone();
@@ -955,15 +955,6 @@ fn finish(
 fn latest_handed(work: &Work, run: RunId, round: usize, block: &BlockId) -> Option<work::Handed> {
     (1..=round).rev().find_map(|n| match work.back.get(&(run, n))? {
         Back::Returned { handed, .. } | Back::HandedIn(handed) => handed.iter().find(|h| &h.block == block).cloned(),
-        _ => None,
-    })
-}
-
-/// The question of this name as the latest return of the run up to this round that asked it, asked it anew or withdrew
-/// it, wrote it.
-fn latest_question(work: &Work, run: RunId, round: usize, name: &str) -> Option<work::Question> {
-    (1..=round).rev().find_map(|n| match work.back.get(&(run, n))? {
-        Back::Returned { said, .. } => said.questions.iter().find(|q| q.name() == name).cloned(),
         _ => None,
     })
 }
