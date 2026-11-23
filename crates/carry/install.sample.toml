@@ -80,8 +80,8 @@ slots = 2
 # and `--dangerously-skip-permissions` are refused, and what agents may do is given as --allowedTools rules, such as
 # edits in their worktree.
 args = ["--allowedTools", "Edit(./**)", "Write(./**)", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands"]
-# Every agent is refused what the files beside the flows refuse every agent (git push) and the heavy commands its
-# project's declaration names (`[heavy]` of `flow/project.toml`: builds, test suites and the like). Here the
+# Every agent is refused what the files beside the flows refuse every agent (git push, claude) and the heavy commands
+# its project's declaration names (`[heavy]` of `flow/project.toml`: builds, test suites and the like). Here the
 # installation names the commands that update its projects' lock files and build, run and install nothing, which an
 # agent that writes may run though a heavy command covers them, as `uv lock` where a project's heavy commands hold `uv`,
 # and the uses of those that are refused all the same (`*` for any text): the engine knows no lock command of its own. A
