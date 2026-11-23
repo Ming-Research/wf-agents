@@ -239,9 +239,20 @@ impl Driver {
     /// Takes the event, which the loop must take, and gives what is to be done. Where the work is saved, it is saved
     /// and must load back as it is.
     fn on(&mut self, event: Event) -> Vec<Effect> {
+        let effects = self.take(event);
+        self.check_saved();
+        effects
+    }
+
+    /// Gives the engine the event at the driver's next second, saving nothing.
+    fn take(&mut self, event: Event) -> Vec<Effect> {
         self.clock += 1000;
         let now = Time(self.clock);
-        let effects = handle(&self.flow, &mut self.work, now, event).expect("the event is taken");
+        handle(&self.flow, &mut self.work, now, event).expect("the event is taken")
+    }
+
+    /// Where the work is saved, saves it and checks that it loads back as it is.
+    fn check_saved(&mut self) {
         if let Some(s) = &mut self.saving {
             s.store.save(s.work, &self.work).expect("the work is saved");
             let loaded = s.db.open().load(s.work).expect("the work loads");
@@ -250,7 +261,6 @@ impl Driver {
                 "the work loaded from a store opened anew is not the work saved"
             );
         }
-        effects
     }
 
     /// The run whose round is under way, and its cell.
@@ -319,9 +329,13 @@ impl Driver {
         panic!("calls are still to be made");
     }
 
-    /// The latest call is recorded as a question for the owner, as it was recorded when a return could ask one, with
-    /// the return that asked it. No return asks one now, and what was recorded of one is read as it was recorded.
-    fn recorded_as_a_question(&mut self) {
+    /// The round under way ends with a return that asks, and the last call it makes is recorded as a question for the
+    /// owner, as it was recorded when a return could ask one, with the return that asked it. No return asks one now,
+    /// and what was recorded of one is read as it was recorded.
+    fn end_recording_a_question(&mut self, came: Came) {
+        let (run, _) = self.under_way();
+        let spent = self.spent();
+        self.take(Event::Returned { run, came, spent });
         let question = Ask::Person {
             who: Who::Owner,
             question: "which way?".to_string(),
@@ -338,8 +352,7 @@ impl Driver {
                 *last = question.clone();
             }
         }
-        // Saved and loaded back as it is.
-        self.on(Event::Look);
+        self.check_saved();
     }
 
     /// Every call that is to be withdrawn is said to have its result: that it was withdrawn.
@@ -446,8 +459,7 @@ fn history(d: &mut Driver) {
     d.answer();
     // A return that asks ends the run; the writer is entered again once both calls have their results. The second call
     // is recorded as a question for the owner.
-    d.end(Came::asks(vec![tool("a"), tool("e")]));
-    d.recorded_as_a_question();
+    d.end_recording_a_question(Came::asks(vec![tool("a"), tool("e")]));
     // Two lines begin a new session.
     d.on(Event::Anew {
         line: "main".to_string(),
@@ -492,8 +504,7 @@ fn history(d: &mut Driver) {
     d.on(Event::Resumed);
     // The judge asks for a call recorded as a question for the owner, and the writer runs again for a new request while
     // the judge waits for the answer.
-    d.end(Came::asks(vec![tool("g")]));
-    d.recorded_as_a_question();
+    d.end_recording_a_question(Came::asks(vec![tool("g")]));
     d.wrote("request", Outsider::Person, None);
     d.end(hands_in(&[("text", None)]));
     d.wrote("checks", Outsider::Outside, Some("pass"));

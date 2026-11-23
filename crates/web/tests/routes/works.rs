@@ -54,7 +54,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
         .map(|number| {
             let given = match number {
                 1 => json!({ "kind": "task" }),
-                _ => json!({ "kind": "sentBack", "unmet": [{ "kind": "asksNothing" }] }),
+                _ => json!({ "kind": "sentBack", "unmet": [{ "kind": "dealtWithNothing" }] }),
             };
             json!({
                 "number": number,

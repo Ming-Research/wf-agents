@@ -159,8 +159,8 @@ fn at_cell(
 ) {
     let cell = at.as_str();
     match waited {
-        Waited::Call { call, .. } => match kept.work.calls.get(call) {
-            Some(Call::AtLimit(limit)) => {
+        Waited::Call { call, .. } => {
+            if let Some(Call::AtLimit(limit)) = kept.work.calls.get(call) {
                 let why = match limit {
                     Limit::Returns { sent_back } => {
                         let sent_back = sent_back.to_string();
@@ -173,8 +173,7 @@ fn at_cell(
                 };
                 push(waits, LIMIT.to_string(), why, Ends::GoOn { call: *call });
             }
-            _ => {}
-        },
+        }
         Waited::Precondition { on: key, by } if by.contains(&Maker::Owner) => {
             for block in decide::keeping(&kept.flow.flow, records, at, key) {
                 let Some(outsiders) = kept.flow.flow.outsiders(&block) else {
