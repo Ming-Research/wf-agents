@@ -38,8 +38,10 @@ reports (`wf-agents wait`):
 - **A work merged**: narrow the items it delivered part of, see what its parent still lacks and which items can start
   now, and let the next one start.
 - **A work stopped** (waiting for a person, stuck, failed), or made no progress for more than a day: find where it is
-  stuck. Where the item is at fault (too large, the wrong scope, a wrong dependency), change the item; otherwise tell
-  the owner.
+  stuck. `wf-agents list` ends each work's line with how long ago something last happened to it (the last entry of
+  its record, a pause or an answer too, not only a round that ended), and `wf-agents show` gives the time and the
+  work's pull request, so a day without news is read from them. Where the item is at fault (too large, the wrong
+  scope, a wrong dependency), change the item; otherwise tell the owner.
 - **The engineer says the work is too large**: the cell that finds the solution falls into parts, each mergeable on its
   own and too many for one work, asks a question that waits, naming the parts in order. Splitting is the architect's:
   the work keeps the first part, and the others become new items in their places, each depending on an earlier part
@@ -49,8 +51,10 @@ reports (`wf-agents wait`):
 - **The owner gives a new direction, or asks for a thing**: write it into the deliver items it concerns, and go through
   the unfinished items it touches: cancel, join, hold or start each, with a sentence saying why.
 - **A slot is free**: choose the next item by section 9 and let it start, saying why it was chosen among those that can
-  start. A pull request half done is finished first; an old one is continued or closed. Where nothing can start, tell
-  the owner, and make no item only to fill a slot.
+  start. A pull request half done is finished first; an old one is continued or closed: `wf-agents pulls` lists the
+  open pull requests of every project, each with the work it belongs to, what that work does and when something last
+  happened to it, or says that it has no work. Where nothing can start, tell the owner, and make no item only to fill a
+  slot.
 - **main is red**: this is a serious incident, and comes before everything else. Make an item for it at once, under
   what waits for it, let it start ahead of every other item, and tell the owner. The works that cannot merge until
   main is green depend on it.

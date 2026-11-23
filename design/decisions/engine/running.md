@@ -49,3 +49,7 @@ The agents' program keeps its settings and sessions in the engine's `profile/` i
 ### decision agents-run-as-the-engines-user
 The agents' program runs as the engine's own system user, and nothing the engine does keeps it out of the data directory; only the program's own rules do.
 - rejected: an agent proposed another system user for the agents, or else refusing the data directory to their file tools by path and dropping the shell commands that read files; the owner rejected it, because an agent works in its own worktree, and only some harmless commands were to be allowed.
+
+### decision data-directory-is-made-on-purpose
+The engine makes a data directory's store only when started with `--new`, and refuses `--new` where the directory holds a store, so that a named directory is never taken for a new data directory.
+- rejected: an agent proposed no switch: a directory that holds a store is run in, one that holds none is refused unless it holds only a known list of entries; the owner rejected it, because the list is arbitrary and an empty wrong directory is not caught.
