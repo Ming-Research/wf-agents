@@ -57,7 +57,13 @@ fn a_block_naming_entries_of_the_tree_needs_the_tree_and_is_given_only_as_its_la
         "outputs = [\"reply\"]",
         "reads = [\"design\"]\noutputs = [\"reply\"]",
     );
-    assert!(flow::compile(&read, &has).is_ok(), "given as its latest by default");
+    let latest = edit(
+        read.clone(),
+        "answer.toml",
+        "plan = \"last_and_latest\"",
+        "plan = \"last_and_latest\"\ndesign = \"latest\"",
+    );
+    assert!(flow::compile(&latest, &has).is_ok(), "given as its latest");
     for kind in ["last_and_latest", "all"] {
         let taken = edit(
             read.clone(),

@@ -266,7 +266,7 @@ fn a_format_of_the_tree_that_could_find_no_entry_is_refused_as_the_declaration_i
     let declared = agents::read(&beside())
         .unwrap()
         .declared(&format!("{text}{empty}"), "main:flow/project.toml");
-    let refused = declared.err().expect("a kind with no directory is refused");
+    let refused = declared.expect_err("a kind with no directory is refused");
     assert!(refused.starts_with("main:flow/project.toml: "), "{refused}");
     assert!(
         refused.contains("tree_format.kinds[0] must give a kind and a directory"),

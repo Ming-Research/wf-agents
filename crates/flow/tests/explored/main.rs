@@ -46,7 +46,7 @@ use explore::{
     A_QUESTION_WAITED, Bounds, Explored, MAIN_WHILE_THE_CHECK_WAITS, Property, WAITED_FOR_THE_OWNER, explore,
 };
 use flow::{Compiled, Has, compile, read};
-use model::{Model, dialogue_loop, ran, ran_on};
+use model::{Model, dialogue_loop, ran};
 
 /// The bound of the exploration.
 const BOUNDS: Bounds = Bounds {

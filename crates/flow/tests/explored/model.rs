@@ -587,6 +587,10 @@ impl Model {
                 }
                 Variant::Content | Variant::Empty | Variant::SentBack | Variant::Fails(_) => {}
             }
+            // A block the cell must write it writes in every return, whatever ran it, as an agent that does as its
+            // task says: one that no cell runs on, such as the entries of the tree the reading names, too.
+            let must = &self.compiled.cells[i].must_write;
+            prose.extend(must.iter().filter(|b| !self.choices.contains_key(*b)).cloned());
         } else {
             let fails = matches!(variant, Variant::Fails(_));
             for (block, value) in values.iter_mut() {

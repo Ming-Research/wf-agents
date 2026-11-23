@@ -371,7 +371,12 @@ fn compiled(on: On) -> Compiled {
         assert!(plan.contains(outputs), "the plan writes the plan");
         *plan = plan.replacen(outputs, "outputs = [\"plan\", \"entries\"]", 1);
         let review = source.cells.get_mut("review").expect("the trial flow has a review");
-        *review = format!("reads = [\"entries\"]\n{review}");
+        let kinds = "[kinds]\n";
+        assert!(
+            review.contains(kinds),
+            "the review says the kind of each datum it is given"
+        );
+        *review = format!("reads = [\"entries\"]\n{review}").replacen(kinds, "[kinds]\nentries = \"latest\"\n", 1);
     }
     if let Some(build) = source.cells.get_mut("build") {
         *build = format!("tools = [\"query\"]\n{build}");

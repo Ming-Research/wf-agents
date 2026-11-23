@@ -132,8 +132,8 @@ fn a_verdict_whose_judge_holds_no_dialogue_is_refused() {
     let source = edit(
         source,
         "cells/T1.toml",
-        "reads = [\"plan\", \"background\", \"tree\"]",
-        "reads = [\"plan\", \"background\", \"tree\", \"review\"]",
+        "reads = [\"plan\", \"background\", \"tree\", \"tree_entries\"]",
+        "reads = [\"plan\", \"background\", \"tree\", \"tree_entries\", \"review\"]",
     );
     let source = edit(
         source,
