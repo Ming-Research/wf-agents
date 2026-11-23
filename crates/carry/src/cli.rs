@@ -971,10 +971,14 @@ impl Stream {
         let mut spent = Spent {
             usd_micros: self.cost().0,
             context_tokens: Some(last.tokens.prompt()),
+            cache_written_tokens: Some(0),
             ..Spent::default()
         };
         for call in &self.calls {
-            spent.input_tokens += call.tokens.input;
+            spent.uncached_tokens += call.tokens.input;
+            spent.cache_written_tokens = spent
+                .cache_written_tokens
+                .map(|w| w + call.tokens.written_1h + call.tokens.written_5m);
             spent.cached_tokens += call.tokens.read;
             spent.output_tokens += call.tokens.output;
         }
@@ -1327,7 +1331,10 @@ fn spent_of_result(result: &Result, earlier: &[Value], usd_micros: u64) -> Spent
     for earlier in earlier {
         let usage = &earlier["usage"];
         let tokens = |key: &str| usage[key].as_u64().unwrap_or(0);
-        spent.input_tokens += tokens("input_tokens") + tokens("cache_creation_input_tokens");
+        spent.uncached_tokens += tokens("input_tokens") + tokens("cache_creation_input_tokens");
+        spent.cache_written_tokens = spent
+            .cache_written_tokens
+            .map(|w| w + tokens("cache_creation_input_tokens"));
         spent.cached_tokens += tokens("cache_read_input_tokens");
         spent.output_tokens += tokens("output_tokens");
     }
@@ -1338,7 +1345,8 @@ fn spent(result: &Result, usd_micros: u64) -> Spent {
     let usage = &result.usage;
     Spent {
         usd_micros,
-        input_tokens: usage.input_tokens + usage.cache_creation_input_tokens,
+        uncached_tokens: usage.input_tokens + usage.cache_creation_input_tokens,
+        cache_written_tokens: Some(usage.cache_creation_input_tokens),
         cached_tokens: usage.cache_read_input_tokens,
         output_tokens: usage.output_tokens,
         // The context the round ended with is the prompt of its last call, read from the cache or not.
@@ -1442,7 +1450,8 @@ mod tests {
             read.spent,
             Spent {
                 usd_micros: 2614,
-                input_tokens: 9094,
+                uncached_tokens: 9094,
+                cache_written_tokens: Some(9090),
                 cached_tokens: 63348,
                 output_tokens: 325,
                 context_tokens: Some(36291),
@@ -1750,8 +1759,13 @@ mod tests {
         let no = stream.read(&program()).expect_err("no result");
         let spent = no.spent.expect("its calls are priced");
         assert_eq!(
-            (spent.input_tokens, spent.cached_tokens, spent.output_tokens),
-            (200, 2000, 70)
+            (
+                spent.uncached_tokens,
+                spent.cache_written_tokens,
+                spent.cached_tokens,
+                spent.output_tokens
+            ),
+            (200, Some(0), 2000, 70)
         );
         // Opus 5.5: 200 × 4 + 2000 × 0.2 + 70 × 20 millionths.
         assert_eq!(spent.usd_micros, 800 + 400 + 1400);
@@ -1760,6 +1774,29 @@ mod tests {
         let error = json!({ "type": "assistant", "parent_tool_use_id": null, "error": "overloaded", "message": {} });
         refused.line(error.to_string().as_bytes());
         assert!(!refused.answered());
+    }
+
+    // The tokens a round's calls wrote to the cache are told from those sent fresh, as a result's are: the calls are
+    // priced in the cost of a round that crashed before its result.
+    #[test]
+    fn a_stream_cut_off_before_its_result_says_how_many_tokens_its_calls_wrote_to_the_cache() {
+        let call = |id: &str, written: u64| {
+            json!({ "type": "assistant", "parent_tool_use_id": Value::Null, "message": { "id": id,
+                "model": "claude-opus-5-5", "usage": { "input_tokens": 100, "cache_creation_input_tokens": written,
+                "cache_creation": { "ephemeral_1h_input_tokens": written, "ephemeral_5m_input_tokens": 0 },
+                "cache_read_input_tokens": 1000, "output_tokens": 10 } } })
+            .to_string()
+        };
+        let mut stream = Stream::default();
+        for line in [call("msg_1", 300), call("msg_2", 40)] {
+            stream.line(line.as_bytes());
+        }
+        let no = stream.read(&program()).expect_err("no result");
+        let spent = no.spent.expect("its calls are priced");
+        assert_eq!(
+            (spent.uncached_tokens, spent.cache_written_tokens),
+            ((100 + 300) + (100 + 40), Some(300 + 40))
+        );
     }
 
     // A weekly limit as version 2.1.323 reports it: the result's words and fields as a real round kept them, and the
@@ -1827,7 +1864,8 @@ mod tests {
         let error = r#"{"type":"result","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"model_usage_since_last_result":{"m":{"costUSD":0.3}},"usage":{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}}"#;
         let spent = Spent {
             usd_micros: 300_000,
-            input_tokens: 15,
+            uncached_tokens: 15,
+            cache_written_tokens: Some(5),
             cached_tokens: 100,
             output_tokens: 20,
             ..Default::default()
@@ -1911,7 +1949,8 @@ mod tests {
             read.spent,
             Spent {
                 usd_micros: 30_000,
-                input_tokens: (2 + 100) + (4 + 10),
+                uncached_tokens: (2 + 100) + (4 + 10),
+                cache_written_tokens: Some(100 + 10),
                 cached_tokens: 50 + 200,
                 output_tokens: 5 + 8,
                 context_tokens: None,
@@ -1994,7 +2033,11 @@ mod tests {
         let got = stream.read(&program()).expect("the question's return is read");
         assert_eq!(got.structured, single.structured, "the return of the last message");
         // The tokens and the cost of both messages: each result says what the program spent since the one before.
-        assert_eq!(got.spent.input_tokens, 2 * single.spent.input_tokens);
+        assert_eq!(got.spent.uncached_tokens, 2 * single.spent.uncached_tokens);
+        assert_eq!(
+            got.spent.cache_written_tokens,
+            single.spent.cache_written_tokens.map(|written| 2 * written)
+        );
         assert_eq!(got.spent.cached_tokens, 2 * single.spent.cached_tokens);
         assert_eq!(got.spent.output_tokens, 2 * single.spent.output_tokens);
         assert_eq!(got.spent.usd_micros, 2 * single.spent.usd_micros);
@@ -2041,9 +2084,13 @@ mod tests {
         let got = stream.read(&program()).expect("the question's return is read");
         assert_eq!(got.structured, single.structured);
         assert_eq!(
-            (got.spent.input_tokens, got.spent.cached_tokens, got.spent.output_tokens),
             (
-                single.spent.input_tokens,
+                got.spent.uncached_tokens,
+                got.spent.cached_tokens,
+                got.spent.output_tokens
+            ),
+            (
+                single.spent.uncached_tokens,
                 single.spent.cached_tokens,
                 single.spent.output_tokens
             )
