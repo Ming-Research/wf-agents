@@ -180,9 +180,9 @@ fn runs(w: &W, cell: &str) -> usize {
 
 // Asked early, as a round of the implementation ends, the question of a protected change does not hold the work, which
 // goes on by the option the question recommends, the one that lets the change merge (design document
-// `data-and-context`, 31 and 34): the owner taking it while the review runs changes nothing the work goes by, stops no
-// round and runs no cell again, and the check follows the review. Taking the change back stops the review's round under
-// way, and the work goes back to the implementation, which made the change.
+// `data-and-context`, 31 and 34): the owner taking it while the review runs changes nothing the work goes by, tells no
+// round and runs no cell again, and the check follows the review. Taking the change back tells the review's round under
+// way to hand in what it has, and the work goes back to the implementation, which made the change.
 #[test]
 fn an_early_protected_question_answered_as_it_recommends_stops_nothing_and_taken_back_returns_to_the_implementation() {
     let words = protected_words();
@@ -200,8 +200,16 @@ fn an_early_protected_question_answered_as_it_recommends_stops_nothing_and_taken
         };
         let effects = w.on(answer);
         let stopped = effects.contains(&Effect::Stop { run: review });
+        let told = (effects.iter()).find_map(|e| match e {
+            Effect::Tell { run, telling } if *run == review => Some(telling.versions.clone()),
+            _ => None,
+        });
+        assert!(
+            !stopped,
+            "the review, an agent's round, is told and not stopped: {effects:?}"
+        );
         if option == words.merges {
-            assert!(!stopped, "the option it recommends stops no round: {effects:?}");
+            assert!(told.is_none(), "the option it recommends tells no round: {effects:?}");
             assert_eq!(w.round(), (review, "T1".to_string()), "the review goes on");
             w.reviews_pass();
             assert_eq!(w.round().1, "M1", "the check follows the reviews");
@@ -211,7 +219,8 @@ fn an_early_protected_question_answered_as_it_recommends_stops_nothing_and_taken
                 "no cell runs again"
             );
         } else {
-            assert!(stopped, "taking the change back stops the review: {effects:?}");
+            let versions = told.expect("taking the change back tells the review to hand in what it has");
+            w.on(Event::SaidToRound { run: review, versions });
             w.on(Event::Returned {
                 run: review,
                 came: Came::hands_in(Vec::new()),

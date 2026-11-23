@@ -735,6 +735,13 @@ fn advance(flow: &Compiled, work: &mut Work, at: At<'_>, effects: &mut Vec<Effec
                 run
             }
             Decision::GoOn { run, .. } => run,
+            Decision::Hurry {
+                run, block, version, ..
+            } => {
+                // The round under way is told to hand in what it has, and goes on: it is not stopped.
+                spoken::hurry(work, run, block, version, effects);
+                continue;
+            }
             Decision::Abandon { run, .. } => {
                 // What the run had under way is stopped, and what it rested at is withdrawn.
                 if began(work, run) > ended(work, run) {

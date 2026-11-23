@@ -50,6 +50,38 @@ fn a_round_entered_for_the_owner_while_its_cell_waits_is_held_to_no_block_its_ce
     assert_eq!(step(vec![handed_in(vec![prose("verdict")])], &s), send_back(unmet));
 }
 
+#[test]
+fn a_round_told_to_hand_in_what_it_has_is_held_to_no_block_its_cell_must_write_and_may_deal_with_nothing() {
+    let mut s = must_write(&["verdict", "plan"]);
+    s.told.hurried = true;
+    assert_eq!(step(vec![works(&[], vec![])], &s), finish_asking());
+    assert_eq!(
+        step(vec![handed_in(vec![prose("plan")])], &s),
+        finish(vec![prose("plan")])
+    );
+    // The same return of a round that was not told is sent back, for what it deals with and for what it lacks.
+    let s = must_write(&["verdict", "plan"]);
+    let unmet = vec![
+        Unmet::DealtWithNothing,
+        Unmet::NotHandedIn {
+            block: "verdict".into(),
+        },
+        Unmet::NotHandedIn { block: "plan".into() },
+    ];
+    assert_eq!(step(vec![works(&[], vec![])], &s), send_back(unmet));
+}
+
+#[test]
+fn what_a_round_told_to_hand_in_what_it_has_hands_in_is_still_checked() {
+    let mut s = must_write(&["plan"]);
+    s.told.hurried = true;
+    // A choice written with no value is sent back, as for any round.
+    let unmet = vec![Unmet::NoValue {
+        block: "verdict".into(),
+    }];
+    assert_eq!(step(vec![handed_in(vec![prose("verdict")])], &s), send_back(unmet));
+}
+
 /// The cell, which must hand in its verdict, with words of its own, its dialogue with the owner: its round was run by
 /// the request and by the owner's words.
 fn spoken_to() -> Spec {

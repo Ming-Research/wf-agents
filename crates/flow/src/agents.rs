@@ -1066,6 +1066,10 @@ pub struct Message {
     /// the owner's version of the cell's words, `{block}` their name, `{number}` the version's place, `{do}` what the
     /// cell does when its words are new.
     pub said: String,
+    /// What the owner says, or answers, to a cell before the one whose round is under way, as its session is given it
+    /// after its next use of a tool, telling it to hand in what it has now: `{entry}` what was said, `{block}` the
+    /// datum's name, `{number}` the version's place.
+    pub hurried: String,
 }
 
 /// A part of a message.
