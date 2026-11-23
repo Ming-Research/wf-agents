@@ -48,8 +48,11 @@ describe('an address the page replaces', () => {
   });
 
   it('is replaced to the address the page already has with nothing left behind: the next change is one it brought the owner to', async () => {
+    // The page stands on an address with a hash, as a work's does: a hash that is empty is no fragment, and replacing
+    // it would load the page again.
+    history.replaceState(null, '', '#/works/3');
     const { route, back, shown } = await page();
-    route.replaceHash(window.location.hash);
+    route.replaceHash('#/works/3');
     window.location.hash = '#/works/7';
     await expect.poll(shown).toContain('"work":7');
     route.goBack('#/works');
