@@ -11,6 +11,7 @@
 
 use std::path::Path;
 use std::process::{ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -141,12 +142,14 @@ async fn run_with(
 }
 
 /// Waits for the child to end, writing its input and reading its output, each line of it given to `lines` where
-/// they are given, or stops its group once told to. Once its output has ended, the child is waited for without being
-/// reaped, so that its group's number is still its own; what it left running in its group is then stopped, as a stop
-/// does, and counted ([`stop_what_is_left`]): nobody reads what it does once the program has ended. Only then is the
-/// overseer let go of and the child reaped, after which its group's number may be given to another. Dropped with this
-/// before that, as when the runtime of a process of the engine that ends by itself drops the round, the overseer stops
-/// the group.
+/// they are given, or stops its group once told to. The child's end is waited for beside the reading of its output,
+/// which what it left running in its group may hold open: once the child has ended, what it left is stopped, as a stop
+/// does, and counted ([`stop_what_is_left`]), since nobody reads what that does once the program has ended. Then the
+/// overseer is let go of, and the rest of the output read to its end, which the stop lets come. The child is reaped
+/// as it ends, which leaves its group's number to what it left: the system gives a group's number to no other process
+/// while the group has one, so what is stopped is what the program left. Dropped with this before the overseer is let
+/// go of, as when the runtime of a process of the engine that ends by itself drops the round, the overseer stops the
+/// group.
 #[allow(clippy::too_many_arguments)]
 async fn wait(
     mut child: tokio::process::Child,
@@ -185,7 +188,7 @@ async fn wait(
         })
     });
     let stdout = child.stdout.take();
-    let output = async {
+    let read = async {
         let mut kept = Vec::new();
         if let Some(stdout) = stdout {
             let mut reader = BufReader::new(stdout);
@@ -203,20 +206,28 @@ async fn wait(
                 }
             }
         }
+        Ok::<_, String>(kept)
+    };
+    // Once the program has ended and what it left is stopped, its group holds nothing, and its number may be another's:
+    // a stop told then signals nothing.
+    let left_stopped = AtomicBool::new(false);
+    let ended = async {
+        let status = (child.wait().await).map_err(|e| format!("{program} could not be waited for: {e}"))?;
         let left = match group {
-            Some(group) => {
-                ended_unreaped(group).await;
-                stop_what_is_left(group).await
-            }
+            Some(group) => stop_what_is_left(group).await,
             None => 0,
         };
-        if left > 0 {
-            eprintln!("{program} left {left} processes running in its group as it ended, which were stopped");
-        }
+        left_stopped.store(true, Ordering::Relaxed);
         if let Some(overseer) = overseer {
             overseer.let_go().await;
         }
-        let status = (child.wait().await).map_err(|e| format!("{program} could not be waited for: {e}"))?;
+        Ok::<_, String>((status, left))
+    };
+    let output = async {
+        let (kept, (status, left)) = tokio::try_join!(read, ended)?;
+        if left > 0 {
+            eprintln!("{program} left {left} processes running in its group as it ended, which were stopped");
+        }
         Ok::<_, String>((status, kept, left))
     };
     tokio::pin!(output);
@@ -230,10 +241,14 @@ async fn wait(
             Ok(Ran::Ended { status, stdout, stderr, left })
         }
         () = async { tokio::select! { () = stop.told() => {}, () = halted => {} } } => {
-            if let Some(group) = group {
+            if let Some(group) = group
+                && !left_stopped.load(Ordering::Relaxed)
+            {
                 signal(group, "TERM").await;
                 if tokio::time::timeout(STOP_WAIT, &mut output).await.is_err() {
-                    signal(group, "KILL").await;
+                    if !left_stopped.load(Ordering::Relaxed) {
+                        signal(group, "KILL").await;
+                    }
                     let _ = output.await;
                 }
             }
@@ -250,10 +265,10 @@ const OVERSEEING: &str = r#"read -r line; kill -s TERM -- "-$1"; sleep "$2"; kil
 /// out of reach of the terminal's signals, and no handler of the engine's sees a crash or a `kill -9`: so a small shell
 /// waits on a pipe that only the engine's process holds, which closes as that process ends, and then stops the group.
 /// It is in a process group of its own, so that the terminal's signals do not end it first. Only let go of, as the
-/// program's output ends with the engine there to see it, does it end without touching the group: dropped otherwise,
-/// as the rounds are when the runtime of a process of the engine that ends by itself is dropped, it closes its pipe as
-/// well, and the shell stops the group; the runtime reaps it while the engine's process runs, and the system once that
-/// process has ended.
+/// program has ended and what it left is stopped with the engine there to see it, does it end without touching the
+/// group: dropped otherwise, as the rounds are when the runtime of a process of the engine that ends by itself is
+/// dropped, it closes its pipe as well, and the shell stops the group; the runtime reaps it while the engine's process
+/// runs, and the system once that process has ended.
 struct Overseer(tokio::process::Child);
 
 impl Overseer {
@@ -307,23 +322,10 @@ pub(crate) async fn stop_left(file: &Path, dir: &Path) {
     let _ = tokio::fs::remove_file(file).await;
 }
 
-/// Waits until the first process of the group, a child of this process not yet reaped, has ended: until it is a zombie,
-/// which keeps the group's number its own, or is gone, as where `ps` cannot say. A program ends soon after its output
-/// does, so this is looked at often.
-async fn ended_unreaped(group: u32) {
-    let process = group.to_string();
-    loop {
-        match ps(&["-o", "stat=", "-p", &process]).await {
-            Some(stat) if !stat.starts_with('Z') => tokio::time::sleep(Duration::from_millis(20)).await,
-            _ => return,
-        }
-    }
-}
-
-/// Stops what is left running in the group of a program that has ended, its first process not yet reaped: TERM, then
-/// KILL once [`STOP_WAIT`] has passed with any of it left. Gives how many processes were left.
+/// Stops what is left running in the group of a program that has ended and been reaped: TERM, then KILL once
+/// [`STOP_WAIT`] has passed with any of it left. Gives how many processes were left.
 async fn stop_what_is_left(group: u32) -> usize {
-    let others = || async { members(group).await.into_iter().filter(|p| *p != group).count() };
+    let others = || async { members(group).await.len() };
     let left = others().await;
     if left == 0 {
         return 0;
@@ -847,9 +849,10 @@ mod tests {
     }
 
     // A program run here that ends by itself has what it left running in its group stopped before its end is given,
-    // and counted: nobody reads what that does once the program has ended. One that leaves nothing is counted as
-    // leaving nothing. Under half a second alone, most of it the leftover's ending on TERM; no other test holds a
-    // program that ends leaving something in its group.
+    // and counted: nobody reads what that does once the program has ended. That holds where what it left holds its
+    // output open, whose last lines are kept. One that leaves nothing is counted as leaving nothing. Under half a
+    // second alone, most of it the leftovers' ending on TERM; no other test holds a program that ends leaving something
+    // in its group without a carrier around it, nor says what a leftover writes as it is stopped.
     #[tokio::test]
     async fn what_a_program_that_ends_by_itself_left_in_its_group_is_stopped() {
         let mut command = Command::new("sh");
@@ -873,6 +876,51 @@ mod tests {
             "what the program left in its group runs on after its end was given"
         );
         assert_eq!(count, 1, "what the program left is counted");
+
+        // What it left holding its output and its error, which says a line on each as it is stopped: the program's end
+        // is given once that is stopped, not once it ends by itself 30 s later, with every line it wrote.
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            "(trap 'echo stopped; echo stopped >&2; exit 0' TERM; sleep 30 & wait) & echo $!",
+        ]);
+        let from = std::time::Instant::now();
+        let ran = run(command, None, None, &mut Stop::never())
+            .await
+            .expect("the program runs");
+        let took = from.elapsed();
+        let Ran::Ended {
+            stdout,
+            stderr,
+            left: count,
+            ..
+        } = ran
+        else {
+            panic!("the program was stopped");
+        };
+        let stdout = String::from_utf8_lossy(&stdout);
+        let mut said = stdout.lines();
+        let left: u32 = (said.next().and_then(|line| line.trim().parse().ok())).expect("what the program left");
+        let running = runs(left).await;
+        let _ = std::process::Command::new("kill")
+            .args(["-s", "KILL", &left.to_string()])
+            .status();
+        assert!(
+            took < Duration::from_secs(10),
+            "the program's end waited {took:?} for what it left holding its output"
+        );
+        assert!(!running, "what the program left holding its output runs on");
+        assert!(count >= 1, "what the program left holding its output is counted");
+        assert_eq!(
+            said.collect::<Vec<_>>(),
+            ["stopped"],
+            "what was left wrote on the program's output as it was stopped, and was lost"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&stderr).trim(),
+            "stopped",
+            "what was left wrote on the program's error as it was stopped, and was lost"
+        );
 
         let mut command = Command::new("sh");
         command.args(["-c", "echo alone"]);
