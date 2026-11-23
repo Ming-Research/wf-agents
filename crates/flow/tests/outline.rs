@@ -22,7 +22,6 @@ fn engineer() -> Compiled {
             "dependencies",
             "handed_in",
             "main",
-            "session",
             "start",
             "head",
             "tree",
@@ -89,7 +88,7 @@ fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_i
     );
     assert_eq!(
         t2.reads.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
-        ["plan", "background", "tree"]
+        ["plan", "background", "tree", "tree_entries"]
     );
     // A cell that may ask is spoken to in its own words, whose texts the page reads the talk by.
     let words = cell("I1").words.as_ref().expect("I1 has words of its own");

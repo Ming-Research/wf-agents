@@ -46,7 +46,7 @@ use explore::{
     A_QUESTION_WAITED, Bounds, Explored, MAIN_WHILE_THE_CHECK_WAITS, Property, WAITED_FOR_THE_OWNER, explore,
 };
 use flow::{Compiled, Has, compile, read};
-use model::{Model, dialogue_loop, ran, ran_on};
+use model::{Model, dialogue_loop, ran};
 
 /// The bound of the exploration.
 const BOUNDS: Bounds = Bounds {
@@ -72,7 +72,6 @@ fn engineer() -> Compiled {
             "dependencies",
             "handed_in",
             "main",
-            "session",
             "start",
             "head",
             "tree",
@@ -166,7 +165,6 @@ fn rare() -> Vec<String> {
         dialogue_loop(&block("testing")),
         "a return was sent back".to_string(),
         A_QUESTION_WAITED.to_string(),
-        ran_on(&cell("R0"), "engineer_session"),
         MAIN_WHILE_THE_CHECK_WAITS.to_string(),
         WAITED_FOR_THE_OWNER.to_string(),
         "stop: the work merged".to_string(),
@@ -289,12 +287,5 @@ const NEVER: &[(&str, &str)] = &[
          exploration's owner makes, or a maker that, run again by the owner's answer to the question it put the \
          dispute to, having dealt with the points as it asked, hands in nothing: a judge's fail, the question, the \
          answer and a return of nothing, which the exploration does not reach within its bound.",
-    ),
-    (
-        "the work waited at M1 on asked = answered",
-        "Every question the exploration asks waits, and a question that waits holds the work at its cell, before M1, \
-         whether or not the cell applies, so asked is waiting only while nothing after that cell runs. That the merge \
-         never begins while a question that does not wait stands unanswered is the histories of questions' \
-         (crates/engine/tests/questions.rs).",
     ),
 ];

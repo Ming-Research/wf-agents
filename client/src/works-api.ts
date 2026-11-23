@@ -234,6 +234,8 @@ export interface Summary {
   spent: Spent;
   /// What the keep-warm pings of its sessions took, each counted as a round. Absent from an engine that keeps none.
   pinged?: Spent;
+  /// What the forks of its rounds' sessions took, each counted as a round. Absent from an engine that keeps none.
+  forked?: Spent;
   /// When something last happened to it.
   last: number | null;
   /// When its first round began; none before it has one. Absent from an engine that does not give it yet.
@@ -476,6 +478,8 @@ export type Unmet =
   /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
   /// change changes nothing in the design tree.
   | { kind: 'treeUnchanged'; name: string }
+  /// A line of a block that names entries of the design tree names none the tree on the work's branch holds.
+  | { kind: 'notAnEntry'; line: string }
   | { kind: 'unanswered'; block: string }
   /// It names as dealt with a dialogue it holds as the maker, woken by a point in it, and answers none of its points
   /// there, changes none of what the other side watches and asks no question the work waits for.
@@ -754,6 +758,9 @@ export interface Question {
   recommends: number | null;
   /// The owner's answer to the latest version: the option taken, counted from one, when, and why where said.
   answer: { option: number; at: number; why: string | null } | null;
+  /// Why its cell does not run now, where its condition does not hold: a question of such a cell holds the work at no
+  /// cell. None while the cell runs; absent from an engine that does not give it.
+  skipped?: string | null;
 }
 
 /// What the owner's words are said to: a line of the work's flow, or a cell of it.

@@ -3,6 +3,7 @@
 # what was sent back, and what is new to the cell.
 compacted = "Compacted: the round again."
 said = "Said: {entry} ({block}{do})"
+hurried = "Hurried: {entry} ({block})"
 
 [[parts]]
 part = "taken"

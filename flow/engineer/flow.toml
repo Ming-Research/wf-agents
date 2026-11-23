@@ -3,8 +3,8 @@ name = "engineer"
 # The order of the walk, from the first cell to the merge.
 order = ["S1", "R0", "R1", "R2", "D1", "D2", "P1", "P2", "I1", "T1", "T2", "T3", "T4", "M1", "M2"]
 
-# The engine's own data this flow uses, each defined once in `../data/`; a datum each cell or each line has its own of,
-# in `../data/of_a_cell/` or `../data/of_a_line/`, is used where a cell names it. The flow's own data are in `blocks/`,
+# The engine's own data this flow uses, each defined once in `../data/`; a datum each cell has its own of, in
+# `../data/of_a_cell/`, is used where a cell names it. The flow's own data are in `blocks/`,
 # its lines in `lines/`, its named tests in `tests/` and its cells in `cells/`, one file each.
 data = ["start", "background", "dependencies", "asked", "tree", "head", "main"]
 
@@ -44,8 +44,8 @@ reads = ["{each}_questions", "{each}_words"]
 plan = ["plan_owner", "plan_agent", "acceptance"]
 change = ["code", "title", "decisions", "evidence", "tests", "head"]
 
-# Chosen, not measured: no work yet showed what these should be.
+# Chosen, not measured.
 [limits]
-runs = 3
+runs = 5
 returns = 3
 calls = 40

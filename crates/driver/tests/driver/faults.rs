@@ -39,7 +39,6 @@ fn engineer(root: &Path) -> Compiled {
             "words",
             DEPENDENCIES,
             "main",
-            "session",
             "start",
             "head",
             "tree",
@@ -69,20 +68,6 @@ fn the_repository_s_flows_give_every_text_the_driver_fills() {
     let dir = copied();
     assert_eq!(driver::faults(&engineer(dir.path())), Vec::<String>::new());
     assert_eq!(driver::faults(&super::deliver()), Vec::<String>::new());
-}
-
-#[test]
-fn a_kind_of_new_session_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() {
-    let dir = copied();
-    without(dir.path(), "data/of_a_line/session.toml", "lost = ");
-    let faults = driver::faults(&engineer(dir.path()));
-    // One for the datum of each line a cell of which loads its session: the engineer's alone.
-    assert_eq!(faults.len(), 1, "{faults:?}");
-    for (fault, line) in faults.iter().zip(["engineer"]) {
-        assert!(fault.contains("data/of_a_line/session.toml"), "{fault}");
-        assert!(fault.contains(&format!("the block {line}_session ")), "{fault}");
-        assert!(fault.ends_with("its writes must give lost"), "{fault}");
-    }
 }
 
 #[test]
