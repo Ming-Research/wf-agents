@@ -100,6 +100,24 @@ function CallLine({ row, reader, abandoned }: { row: CallRow; reader: Reader; ab
   );
 }
 
+/// Why a return was sent back, each reason as the key its words have in `[faults]` of `agents/return/sent_back.toml` and
+/// the values recorded of it, each under the name of its field, with no sentence of the page's own (decision
+/// a-sent-back-reason-is-shown-by-its-key).
+export function Reasons({ unmet }: { unmet: Unmet[] }) {
+  return (
+    <ul className="reasons">
+      {unmet.map((u, i) => (
+        <ListRow key={i}>
+          <span className="mono">{u.key}</span>
+          {u.values.map((v, j) => (
+            <Attr key={j} name={v.name} value={v.value} />
+          ))}
+        </ListRow>
+      ))}
+    </ul>
+  );
+}
+
 /// The details of each time the cell was run within the run, when it was where there were several: where it is not the
 /// first, why it ran again, its return sent back or its
 /// last time having failed; what came back: the calls it asked the engine for, each with its result, or what it handed
@@ -188,16 +206,7 @@ function RoundPart({ run, round, calls, first, timed, sentBack, failedBefore, re
           <>
             <dt>Sent back</dt>
             <dd>
-              <ul className="reasons">
-                {sentBack.map((u, i) => (
-                  <ListRow key={i}>
-                    <span className="mono">{u.key}</span>
-                    {u.values.map((v, j) => (
-                      <Attr key={j} name={v.name} value={v.value} />
-                    ))}
-                  </ListRow>
-                ))}
-              </ul>
+              <Reasons unmet={sentBack} />
             </dd>
           </>
         )}
