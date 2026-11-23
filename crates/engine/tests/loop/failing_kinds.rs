@@ -147,6 +147,7 @@ fn each_reason_a_failed_round_pauses_the_work_with_is_a_sentence_and_its_cause_a
         decide::pause(&w.work.records)
             .expect("the work is paused")
             .why
+            .clone()
             .unwrap_or_default()
     };
 

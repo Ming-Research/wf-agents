@@ -360,7 +360,9 @@ mod tests {
     #[tokio::test]
     async fn a_check_finds_the_outside_well_where_the_network_and_a_short_request_are_and_hears_the_usage() {
         let dir = tempfile::tempdir().unwrap();
-        let check = check(dir.path(), &answering(ANSWERED), true);
+        let mut check = check(dir.path(), &answering(ANSWERED), true);
+        // What it asks is the words' `request`, whatever they are.
+        check.said.request = "Say pong.".to_string();
         let heard = check.check(Some("work".to_string())).await;
         assert_eq!(heard.found, Found::Well);
         assert_eq!(
@@ -373,6 +375,7 @@ mod tests {
         // The short request is on the cheapest level's model, in a session not kept, and names no session of a work;
         // it is given the settings that keep the program's sessions.
         let request = &calls[0];
+        assert!(request.ends_with("Say pong."), "{request}");
         for part in [
             "-p",
             "--model claude-haiku-5-5",
@@ -515,8 +518,8 @@ mod tests {
 
     // The kind of what is down where the short request did not end in time is the way it ended, a timeout, and no
     // word of the words beside the flows says it: with them changed to words of a usage limit, a command line that
-    // does not answer is the same, and the request that is asked is the words' `request`. The clock stands still, so
-    // that the request's time passes at once; the one call of the script is `sleep`, which is killed with its check.
+    // does not answer is the same. The clock stands still, so that the request's time passes at once; the one call of
+    // the script is `sleep`, which is killed with its check.
     #[tokio::test(start_paused = true)]
     async fn a_short_request_that_does_not_end_in_time_is_unavailable_whatever_the_words_beside_the_flows_say() {
         let limit = "You've hit your weekly limit. It resets Fri 5pm.".to_string();
@@ -527,7 +530,7 @@ mod tests {
                 check.said = flow::agents::CheckWords {
                     no_account: limit.clone(),
                     offline: limit.clone(),
-                    request: "Say pong.".to_string(),
+                    request: limit.clone(),
                 };
                 for text in [
                     &mut check.words.exited,
@@ -541,16 +544,12 @@ mod tests {
                     *text = limit.clone();
                 }
             }
-            let request = check.said.request.clone();
             let heard = check.check(Some("work".to_string())).await;
             let Found::Down { failure, resets, .. } = &heard.found else {
                 panic!("{changed}: {heard:?}");
             };
             assert_eq!(*failure, Failure::Unavailable, "{changed}");
             assert_eq!(*resets, None, "{changed}");
-            let calls = calls(dir.path());
-            assert_eq!(calls.len(), 1, "{changed}: {calls:?}");
-            assert!(calls[0].ends_with(&request), "{changed}: {}", calls[0]);
         }
     }
 
