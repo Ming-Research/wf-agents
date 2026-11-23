@@ -40,6 +40,7 @@ export type MarkKey =
   | 'outside'
   | 'shown'
   | 'unread'
+  | 'filesChanged'
   | RunState
   | ConsoleMark;
 
@@ -159,6 +160,16 @@ export function UnreadMark() {
   return <span className="dot dot-unread" role="img" aria-label="unread" title="unread" />;
 }
 
+/// The flow's files in the directory shown differ from those the engine started with: a tag framed in grey, in the
+/// text's colour, with the sign for unequal. It takes none of the colours that mean a state.
+export function FilesChangedMark() {
+  return (
+    <span className="files-changed" aria-hidden="true">
+      ≠
+    </span>
+  );
+}
+
 const data = (fields: Partial<Mark>) => <DataGlyphs mark={{ ...NO_MARK, ...fields }} />;
 
 /// What draws a mark, with `words` said on pointing at it where its part says anything, and the mark's name.
@@ -193,6 +204,7 @@ export const MARKS: Record<MarkKey, Entry> = {
   outside: { name: 'outside', draw: (words) => <Sign name="outside" words={words} /> },
   shown: { name: 'shown', draw: (words) => <Sign name="shown" words={words} /> },
   unread: { name: 'unread', draw: () => <UnreadMark /> },
+  filesChanged: { name: 'files changed', draw: () => <FilesChangedMark /> },
   running: ofRun('running', 'running'),
   waiting: ofRun('waiting', 'waiting'),
   atRest: ofRun('atRest', 'at rest'),

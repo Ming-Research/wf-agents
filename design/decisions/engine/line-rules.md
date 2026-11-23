@@ -28,3 +28,7 @@ Every agent is refused pushing, which the files beside the flows refuse to every
 ### decision lock-commands-under-heavy-ones
 On a line that writes, the commands that update a lock file, which the installation's settings name, may run even though a heavy command covers them.
 - replaced: The engine's tool `lock_update`, run for an agent under settings of its own, was on main; the owner changed it, because an agent works in its own worktree, where updating its own dependencies harms nothing, and only the host's processor needs guarding.
+
+### decision permissions-are-rules-not-a-mode
+The engine refuses a permission mode or a skip-permissions flag in agents.args and permissions.defaultMode in the program's settings file; permissions are --allowedTools rules.
+- replaced: Accepting --permission-mode in the arguments, and reading bypassPermissions and auto as allowing every command, was on main; the owner changed it, because the program starts in default mode under CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, which the engine always sets.

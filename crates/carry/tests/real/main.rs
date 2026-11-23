@@ -63,6 +63,9 @@ pub struct Fake {
     /// Whether the build asks for the query of the check in its first run, and its run entered for the result, going
     /// on in the session, is told the first time that the session is not found.
     pub lose_session: bool,
+    /// With `lose_session`, whether the call told that the session is not found says so as version 2.1.327 does: in
+    /// a result naming the session it was to go on in, the one line it prints, with nothing on its standard error.
+    pub lose_in_result: bool,
     /// Whether the build asks the owner in its first run a question it waits for, and for the query of the check in
     /// the run entered for the answer, before it hands in; with `lose_session`, its last run is the one told the
     /// session is not found.
@@ -143,6 +146,7 @@ impl Default for Fake {
             error_first: false,
             crashes_first: false,
             lose_session: false,
+            lose_in_result: false,
             question_first: false,
             plan_sleeps: 0,
             plan_sleeps_once_begun: 0,
@@ -590,6 +594,11 @@ case "$first" in
         else
             if [ '{lose}' = yes ] && [ ! -f "$log/lost" ] && grep -qx -- --resume "$log/$n.args"; then
                 touch "$log/lost"
+                if [ '{lose_in_result}' = yes ]; then
+                    id=$(grep -A1 -x -- --resume "$log/$n.args" | tail -n 1)
+                    printf '{{"type":"result","subtype":"error_during_execution","duration_ms":0,"is_error":true,"num_turns":0,"session_id":"%s","total_cost_usd":0,"usage":{{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}},"errors":["No conversation found with session ID: %s"]}}\n' "$id" "$id"
+                    exit 1
+                fi
                 echo 'No conversation found with session ID: 00000000-0000-5000-8000-000000000001' >&2
                 exit 1
             fi
@@ -657,6 +666,7 @@ fi
         error = yes(fake.error_first),
         crash = yes(fake.crashes_first),
         lose = yes(fake.lose_session),
+        lose_in_result = yes(fake.lose_in_result),
         question = yes(fake.question_first),
         sleeps = fake.plan_sleeps,
         begun_sleeps = fake.plan_sleeps_once_begun,
