@@ -10,22 +10,22 @@
 // and after the last section where no text points to it; drawn as they are: what it asks, as it was written, its
 // options with what each does and what follows, and the one it recommends; one the engine's one list of what waits on
 // the owner names on the red tint, framed in red, the look of every stop, an answered one settled, its options words,
-// the number of an item in them a link, with the one taken marked and nothing to press. Each is picked by a press on an option and let go by another, and at
-// the end of the last section a button as wide as the body confirms them, which counts the picks, waits until each
-// choice has one and sends each question's answer to the engine; once confirmed, the picks stand, settled; and last,
-// each block the owner may write that keeps the work from going on, drawn as such a question is, its values the
-// options, with a button that writes the one picked), each passage changed since the owner read it marked at its left,
-// and under the body the messages: the owner's and the replies, what the owner said from the window standing under them
-// until a read of the work brings it, and a box to write one to a line of the work's flow, picked above it among those
-// on which the engine has a cell to give the words to, which a passage selected in the body can be quoted into and
-// which names that cell. Under the work's state line, each other stop of the work, in the same
-// look: one sentence of why and the buttons that end it, from the engine's list, and a fault or a stall, which no one
-// waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, and what the work
-// changed, file by file, each opening its diff; the third, Step, everything about the
-// row of the work's history the page chose, else the run the work stands at; the fourth, Usage, what the work used.
-// Each page keeps its own choice of tab. While the window is out, R marks the item read, as its link does, unless a box
-// has the keys. What the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is
-// said under the item it was for, and only there.
+// the number of an item in them a link, with the one taken marked and nothing to press. Each is picked by a press on an
+// option and let go by another, and at the end of the last section a button as wide as the body confirms them, which
+// counts the picks, waits until each choice has one and sends each question's answer to the engine; once confirmed, the
+// picks stand, settled; and last, each block the owner may write that keeps the work from going on, drawn as such a
+// question is, its values the options, with a button that writes the one picked), each passage changed since the owner
+// read it marked at its left, and under the body the messages: the owner's and the replies, what the owner said from
+// the window standing under them until a read of the work brings it, and a box to write one to a line of the work's
+// flow, picked above it among those on which the engine has a cell to give the words to, which a passage selected in
+// the body can be quoted into and which names that cell. Under the work's state line, each other stop of the work, in
+// the same look: one sentence of why and the buttons that end it, from the engine's list, and a fault or a stall, which
+// no one waits on, said as the engine gives it. The second tab holds what of the work the lines do not say, and what
+// the work changed, file by file, each opening its diff; the third, Step, everything about the row of the work's
+// history the page chose, else the run the work stands at; the fourth, Usage, what the work used. Each page keeps its
+// own choice of tab. While the window is out, R marks the item read, as its link does, unless a box has the keys. What
+// the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is said under the
+// item it was for, and only there.
 //
 // What the engine does not give yet comes from the console's made-up data (`mock.ts`), which says what of it is made
 // up, when the page shows the mocks; otherwise the body and the messages are read from the work's blocks, and the rest
