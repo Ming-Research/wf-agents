@@ -49,8 +49,10 @@
 }
 
 /* The search, while it is open: one card over the middle of the console's top, a sixth of the way down, so that what
-   it finds has room under it, in a hairline frame and the shadow of what floats over a view, over the tree and the
-   window; in it the page's field, as wide as the card, and under the field what it finds, or that it finds nothing.
+   it finds has room under it, over the tree and the window: in a hairline frame with a card's corners, in the soft
+   light the item selected stands in, in the accent's colour, which is the focus's (decision
+   what-the-owner-points-at-stands-in-a-soft-light), and the shadow of what floats over a view. In it the page's
+   field, as wide as the card, and under the field what it finds, or that it finds nothing.
    Each item found is a list row of one line, its number, its title cut at the edge, and how it stands: under the
    pointer a step darker, the row the arrow keys stand on in the accent's tint, as a row chosen is. */
 .console-find {
@@ -64,8 +66,11 @@
   width: min(600px, calc(100% - 2 * var(--space-16)));
   padding: var(--space-8);
   border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
   background: var(--card);
-  box-shadow: var(--window-shadow);
+  box-shadow:
+    0 0 9px 4px color-mix(in srgb, var(--accent) 45%, transparent),
+    var(--window-shadow);
   transform: translateX(-50%);
 }
 

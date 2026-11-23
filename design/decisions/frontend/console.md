@@ -100,6 +100,10 @@ A click on the item's title in its window brings the item into view and flashes 
 `/` opens a box over the console's top that finds any item by its number or a part of its title, eight at most; a pick selects it, its kind ticked and the folds over it opened.
 - replaced: A field always shown under the boxes at the tree's corner was on main; the owner changed it, because what it found had no room under it, and he wanted it only while he searches, as Spotlight is.
 - replaced: Finding an item by its path from its root, as 26-27, was on main; the owner changed it, because with the search he needs no path.
+
+### decision what-the-search-finds-is-lit-in-the-tree
+While the search finds items, the tree lights them and dims the rest, as round the item under the pointer; the row the keys or the pointer stand on brings its item into view.
+- replaced: The tree left as it was while the search was open was on main; the owner changed it, because he wanted what the search finds to stand out in the tree as the item under the pointer does, and the item of the row chosen in view.
 - replaced: Finding an item only by scrolling the tree was on main; the owner changed it, because once many items were imported he could not find one he looked for.
 
 ### decision the-owner-walks-the-stops-by-keys

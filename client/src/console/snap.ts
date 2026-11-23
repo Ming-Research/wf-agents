@@ -1249,6 +1249,9 @@ export class SnapScene {
   private dim = 1;
   /// The items in focus: the one the pointer last rested on with what joins it, kept while the pointer moves on.
   private inFocus = new Set<number>();
+  /// The items the console's search finds while it is open, by number: lit as the items in focus are, so that the
+  /// others are dimmed; none while it is closed or finds nothing.
+  private found: number[] = [];
   /// The item the pointer was over at the last frame, and since when it has been over it (or over none).
   private hoverWas = -1;
   private hoverAt = 0;
@@ -2067,6 +2070,13 @@ export class SnapScene {
     const m = this.drawnMoved;
     if (m === null) return { x, y, size: 1, drawn: [x, y] };
     return { x, y, size: m.a[i], drawn: [m.a[i] * x + m.bx[i], m.a[i] * y + m.by[i]] };
+  }
+
+  /// How bright the card of item `id` is drawn, for the tests: fully, or dimmed while something else is lit, eased
+  /// between. None for an item the tree does not draw.
+  brightness(id: number): number | null {
+    const i = this.real.get(id);
+    return i === undefined ? null : this.views[i].alpha;
   }
 
   /// The lit ways drawn at the last frame, each by the number of the item it runs into, from where it began to where
@@ -2908,6 +2918,13 @@ export class SnapScene {
     this.dirty.add(why);
   }
 
+  /// Lights the items numbered `ids`, which the console's search finds, and dims the others, as the items in focus
+  /// do; none lights nothing.
+  find(ids: number[]): void {
+    this.mark('find');
+    this.found = ids;
+  }
+
   /// Selects the item numbered `id`, or none.
   select(id: number | null): void {
     this.mark('select');
@@ -3138,9 +3155,9 @@ export class SnapScene {
         easing = true;
       }
     }
-    // While the pointer or the selection lights something, every other item drawn is dimmed, more under the pointer
-    // than for the selection alone, so that the lit items and what joins them stand out; it comes and goes over a
-    // moment, so that a pointer passing over the tree does not make it flicker.
+    // While the pointer, the selection or the search lights something, every other item drawn is dimmed, more under
+    // the pointer than for the selection alone, so that the lit items and what joins them stand out; it comes and goes
+    // over a moment, so that a pointer passing over the tree does not make it flicker.
     // What the dimming goes by is not the pointer's every move: an item becomes the one in focus only once the
     // pointer has rested on it a moment, and the focus is let go only once the pointer has been off every item a
     // moment. So a pointer crossing many items changes nothing, and going from one item to the next fades one way
@@ -3153,12 +3170,14 @@ export class SnapScene {
     if (this.under >= 0 && rested > DWELL_ON) this.inFocus = chain;
     else if (this.under < 0 && rested > DWELL_OFF) this.inFocus = new Set();
     const focus = this.inFocus;
-    const aim = focus.size > 0 || chosen.size > 0 ? DIM : 1;
+    // The items the search finds, while it is open, lit as the items in focus are.
+    const finding = new Set(this.found.flatMap((id) => (this.real.has(id) ? [this.real.get(id) as number] : [])));
+    const aim = focus.size > 0 || chosen.size > 0 || finding.size > 0 ? DIM : 1;
     this.dim = eased(this.dim, aim, step);
     if (this.dim !== aim) easing = true;
     for (const i of drawn) {
       const view = this.views[i];
-      const to = aim === 1 || focus.has(i) || chosen.has(i) ? 1 : DIM;
+      const to = aim === 1 || focus.has(i) || chosen.has(i) || finding.has(i) ? 1 : DIM;
       view.alpha = eased(view.alpha, to, step);
       if (view.alpha !== to) easing = true;
     }
@@ -3167,7 +3186,7 @@ export class SnapScene {
     // drawn once, however many running items it is on. While something is lit, the links on its way stand at full
     // strength and the others dim with the items they join; each eases to its strength as the items do, so that none
     // jumps as the light moves or goes out.
-    const shining = new Set([...focus, ...chosen]);
+    const shining = new Set([...focus, ...chosen, ...finding]);
     // Where a way's strength eases, or a dot's changes, what stands of the ways is built again at it. A root's dot is
     // as strong as the ways from it are lit; another's as the way into its item.
     let strengthened = false;

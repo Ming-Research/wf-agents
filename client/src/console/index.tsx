@@ -364,7 +364,15 @@ export function ConsolePage({
           />
         )}
       </Drawer>
-      {finding && <Find data={data} onPick={pick} onClose={() => setFinding(false)} />}
+      {finding && (
+        <Find
+          data={data}
+          onPick={pick}
+          onClose={() => setFinding(false)}
+          onFound={(ids) => scene.current?.find(ids)}
+          onChosen={(id) => scene.current?.reveal(id, room(open))}
+        />
+      )}
     </div>
   );
 }

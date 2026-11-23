@@ -1,11 +1,12 @@
 // The console's search, which shows only while it is used: `/` opens it over the middle of the console's top, where
 // what it finds has room under it. It finds an item by its number or a part of its title, over every item, open, done
-// or cancelled (`findItems`), and lists what it finds, each row the item's number, its title and how it stands. The
-// arrow keys move in the list, and Enter or a click picks the row they stand on, which the console then shows. A pick,
-// Escape, or a press anywhere else closes it. What is typed and not yet picked is kept in the browser, and shows again
+// or cancelled (`findItems`), and lists what it finds, each row the item's number, its title and how it stands; while it
+// finds any, the tree lights them and dims the rest, as it does round the item under the pointer. The arrow keys or the
+// pointer move in the list, the tree bringing the item of the row they stand on into view, and Enter or a click picks
+// that row, which the console then shows. A pick, Escape, or a press anywhere else closes it. What is typed and not yet picked is kept in the browser, and shows again
 // the next time it opens (principle typed-words-are-kept); a pick or Escape empties it.
 
-import { type KeyboardEvent, useMemo, useState } from 'react';
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import { read, write } from '../kept';
 import type { Items } from '../works-api';
@@ -25,17 +26,32 @@ export const FIND_SAYS = {
   none: 'No item has that number or title',
 } as const;
 
-export function Find({ data, onPick, onClose }: {
+export function Find({ data, onPick, onClose, onFound, onChosen }: {
   data: Items | undefined;
   /// Told the number of the item picked.
   onPick: (id: number) => void;
   /// Told that the search is to close: at a pick, at Escape, and when the keys go anywhere else.
   onClose: () => void;
+  /// Told the numbers of the items found as they change, and none as the search closes.
+  onFound: (ids: number[]) => void;
+  /// Told the number of the item of the row the arrow keys or the pointer stand on, as it changes.
+  onChosen: (id: number) => void;
 }) {
   const [query, setQuery] = useState(() => read(KEPT) ?? '');
   // The row of the list the arrow keys stand on.
   const [at, setAt] = useState(0);
   const found = useMemo(() => (data === undefined ? [] : findItems(data, query, MOST)), [data, query]);
+  // What the console is told, as the latest render gave it.
+  const tell = useRef({ onFound, onChosen });
+  useEffect(() => {
+    tell.current = { onFound, onChosen };
+  });
+  useEffect(() => tell.current.onFound(found.map((i) => i.number)), [found]);
+  useEffect(() => () => tell.current.onFound([]), []);
+  const chosen = found[Math.min(at, found.length - 1)]?.number;
+  useEffect(() => {
+    if (chosen !== undefined) tell.current.onChosen(chosen);
+  }, [chosen]);
   const type = (q: string) => {
     setQuery(q);
     setAt(0);
@@ -95,6 +111,7 @@ export function Find({ data, onPick, onClose }: {
                     role="option"
                     aria-selected={k === at}
                     className={k === at ? 'list-row console-found-row chosen' : 'list-row console-found-row'}
+                    onMouseEnter={() => setAt(k)}
                     onClick={() => pick(item.number)}
                   >
                     <span className="mono">#{item.number}</span>

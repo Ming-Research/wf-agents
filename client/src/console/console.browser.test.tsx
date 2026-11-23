@@ -32,7 +32,21 @@ import { FIND_SAYS } from './find';
 import { CONSOLE_MARKS } from './help';
 import { ConsolePage } from './index';
 import type { Shown, ShownWork } from './items';
-import { DOT_AT, FLASH_MS, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, RUN, SnapScene, themed, UNFOLD_MS } from './snap';
+import {
+  DIM,
+  DOT_AT,
+  FLASH_MS,
+  FOLD_MS,
+  KEEP,
+  NODE_W,
+  PACE,
+  PITCH,
+  ROW,
+  RUN,
+  SnapScene,
+  themed,
+  UNFOLD_MS,
+} from './snap';
 
 const WIDTH = 1000;
 const HEIGHT = 640;
@@ -1132,6 +1146,29 @@ describe('the console page', () => {
     expect(document.activeElement?.closest('.console-find') ?? null).toBeNull();
     await userEvent.keyboard('/');
     await expect.poll(() => field()?.value).toBe('');
+  });
+
+  it('lights the items it finds and dims the rest while it is open, as round the item under the pointer, and lets the pointer choose a row', async () => {
+    const scene = await drawn();
+    const near = (id: number, to: number) => Math.abs((scene.brightness(id) ?? -1) - to);
+    await userEvent.keyboard('/');
+    await userEvent.fill(field() as HTMLInputElement, 'Fold the items under');
+    await expect.poll(found).toEqual(['#26']);
+    // Item 26, found, stays bright; item 1, drawn and not found, dims.
+    await expect.poll(() => near(1, DIM)).toBeLessThan(0.01);
+    expect(near(26, 1)).toBeLessThan(0.01);
+    // The pointer chooses the row it is over, as the arrow keys do.
+    await userEvent.fill(field() as HTMLInputElement, 'fold');
+    await expect.poll(found).toEqual(['#26', '#27', '#30', '#31']);
+    const rows = () => [...container.querySelectorAll('.console-found-row')];
+    await userEvent.hover(rows()[2] as HTMLElement);
+    await expect
+      .poll(() => rows().map((r) => r.getAttribute('aria-selected')))
+      .toEqual(['false', 'false', 'true', 'false']);
+    // Closed, it lights nothing any more.
+    await userEvent.keyboard('{Escape}');
+    await expect.poll(field).toBeNull();
+    await expect.poll(() => near(1, 1)).toBeLessThan(0.01);
   });
 
   it('opens the folds over an item it picks, ticking the box of its kind where it was not, and selects it', async () => {
