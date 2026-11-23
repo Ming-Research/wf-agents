@@ -16,6 +16,9 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use service::{Along, Hosting, Saying};
 use tokio::sync::oneshot;
+use work::Left;
+
+use crate::host::Asking;
 
 /// The rounds or the calls a carrier was given, by their key.
 pub(crate) struct Held<K, R> {
@@ -83,6 +86,20 @@ impl Stop {
     pub(crate) fn pulled(&self, number: u64, url: &str) {
         if let Some(hosting) = &self.hosting {
             hosting.pulled(number, url.to_string());
+        }
+    }
+
+    /// Says that the project's check the host ran for what asked it ended by itself and left these many processes
+    /// running in its group, which were stopped; nothing where it left none.
+    pub(crate) fn left_behind(&self, asking: Asking, processes: usize) {
+        let of = match asking {
+            Asking::Call(call) => Left::Call { call },
+            Asking::Round(run, round) => Left::Act { run, round },
+        };
+        if let Some(hosting) = &self.hosting
+            && processes > 0
+        {
+            hosting.left_behind(of, processes);
         }
     }
 

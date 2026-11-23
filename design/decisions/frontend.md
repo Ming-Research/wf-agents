@@ -168,3 +168,8 @@ A work on no version has a column for each id its runs name, in order of first r
 - rejected: an agent proposed naming its cells by the titles of the flow installed; the owner rejected it, because where an id was given again, a title would name another cell.
 - rejected: an agent proposed reading its talk with the owner from its records; the owner rejected it, because the records do not say which datum was which cell's talk.
 - replaced: A card of what people wrote for the work before its first run was on main; the owner changed it, because that held only the background, and the item's window never showed the work's plan_owner, which the store holds.
+
+### decision the-engine-is-stopped-on-the-command-line
+The engine is stopped only by `wf-agents stop`, and at once only with `--now --yes`; the bar's engine state reads Stopping, and the System view gives what each round has to go.
+- rejected: an agent proposed the stop and the stop at once as controls in the System view or beside Pause all at the bar's right; the owner rejected it, because a stop is for installing a new build, which the assistant does, and later the work that builds and installs itself, never the owner.
+- rejected: an agent proposed a mark of its own for a stop on a work's time bar, with an entry in its legend; the owner rejected it, because the page changes only where a stop must be seen, so the bar draws a stop as a pause and the records keep the two apart.

@@ -104,8 +104,8 @@ CREATE TABLE on_flow (
 );
 
 -- What the work's time went to from its first round to its last, kept as it ended (JSON: each stretch with when it
--- began and ended, and `model`, `tools`, `owner`, `paused`, `items` or `other`). A work reopened and ended again keeps
--- it again; the latest is the work's.
+-- began and ended, and `model`, `tools`, `owner`, `paused`, `stopping`, `items` or `other`). A work reopened and ended
+-- again keeps it again; the latest is the work's.
 CREATE TABLE kept_time (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
@@ -343,6 +343,16 @@ CREATE TABLE keep_warm (
     time INTEGER NOT NULL
 );
 
+-- The engine was asked to stop at `time` (`what`: `Asked`, once what is under way has ended, or `Now`, at once), or
+-- started again after a stop (`Over`), `n` counting from one: the latest row says whether a stop stands, which it does
+-- while that row is `Asked` or `Now`, and none that none does. While a stop stands no round of any work begins. It is
+-- the installation's, not a work's.
+CREATE TABLE stops (
+    n INTEGER PRIMARY KEY,
+    what TEXT NOT NULL CHECK (what IN ('Asked', 'Now', 'Over')),
+    time INTEGER NOT NULL
+);
+
 -- An account the agents' program may run under was added, removed, or taken by the owner as the one the agents run
 -- under (`what`: `Added`, `Removed` or `Taken`), by the name the owner gave it, at `time`, `n` counting from one. Its
 -- token is kept outside the store, under the name. The account in use is the latest taken that was not removed since;
@@ -517,6 +527,21 @@ CREATE TABLE measured (
     priced INTEGER NOT NULL,
     PRIMARY KEY (work, at),
     FOREIGN KEY (work, run) REFERENCES started (work, run)
+);
+
+-- A program the engine ran for the work ended by itself and left `processes` running in its process group, one or
+-- more, which its carrier stopped before it gave the program's end: no one read what they would have printed, and what
+-- they took is counted nowhere else. `of` says which program (JSON: `kind` and its fields): a try of a round of a run
+-- (`try`, with `run`, `round` and `attempt`, the round's first being one and the try's first in its round being one),
+-- the project's check run by a round of an act (`act`, with `run` and `round`) or for a call of a tool (`call`, with
+-- `call`), a keep-warm ping of the session of a line (`ping`, with `line` and `session`), or a fork of the session of a
+-- round of a run (`fork`, with `run` and `round`, the first being one).
+CREATE TABLE left_behind (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    of TEXT NOT NULL,
+    processes INTEGER NOT NULL CHECK (processes > 0),
+    PRIMARY KEY (work, at)
 );
 
 -- A keep-warm ping of the session of a line, its sessions counted from none, which keeps its prompt cache while the

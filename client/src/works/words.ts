@@ -292,6 +292,10 @@ export function heldWords(service: Outage['service'], failure: Failure, mayMove 
 /// in what was found is marked so (`Coded` draws it).
 export function outageWords(outage: Outage): string | null {
   if (!outage.holds) return null;
+  if (outage.first != null) {
+    const what = outage.service === 'host' ? 'act' : 'round';
+    return `${capital(failureWords(outage.failure))} since ${clock(outage.since)}. It is well again: ${workName(outage.first)}'s ${what} goes first, and the rest begin once it comes back.`;
+  }
   const found = outage.checked?.found;
   const down = outageDown(outage);
   // The check's time, without its day where that is the day the wait began.
@@ -324,8 +328,16 @@ export function waitedWords(waited: Waited): string {
       }`;
     case 'slot':
       return 'a free slot, which the engine gives in its order';
-    case 'agents':
-      return `the agents' rounds to begin again, as ${failureWords(outageDown(waited.outage).failure)}`;
+    case 'agents': {
+      const outage = waited.outage;
+      if (outage.first != null) {
+        const what = outage.service === 'host' ? 'act' : 'round';
+        return `${workName(outage.first)}'s ${what} to come back: it is well again, and that ${what} goes first`;
+      }
+      return `the agents' rounds to begin again, as ${failureWords(outageDown(outage).failure)}`;
+    }
+    case 'stopping':
+      return `the engine to start again, as it was asked to stop at ${clock(waited.since)}`;
     case 'answer':
       return `the owner's answer to the question ${waited.question}`;
     case 'outside':
@@ -427,6 +439,7 @@ function whoGives(w: Waited): string | null {
     }
     case 'slot':
     case 'agents':
+    case 'stopping':
       return 'the engine';
     case 'items':
       return 'the items it depends on';
