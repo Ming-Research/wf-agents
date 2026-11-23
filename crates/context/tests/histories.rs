@@ -224,8 +224,8 @@ impl Scene {
         }
     }
 
-    /// People and the outside write what the work reads from them: the background, and the branch's tree and head. The
-    /// items it depends on have merged as it starts.
+    /// People and the outside write what the work reads from them: the background, the branch's tree and head, and the
+    /// times of the project's tests. The items it depends on have merged as it starts.
     fn engineer(sim: &Sim) -> Scene {
         let lines = sim.flow.lines.keys().cloned().collect();
         Scene {
@@ -235,6 +235,7 @@ impl Scene {
                 "tree",
                 "head",
                 "head",
+                "test_times",
                 "plan_ok",
                 "tree_ok",
                 "review_ok",
