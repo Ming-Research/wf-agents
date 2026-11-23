@@ -156,7 +156,9 @@ pub(crate) async fn git_with(dir: &Path, with: &With, args: &[&str]) -> Result<S
 pub(crate) async fn blobs(dir: &Path, commit: &str, paths: &[&str]) -> Result<Vec<Option<Vec<u8>>>, String> {
     use tokio::io::AsyncWriteExt;
     if let Some(path) = paths.iter().find(|p| p.contains('\n')) {
-        return Err(format!("git cat-file cannot be given the path {path:?}, which holds a line break"));
+        return Err(format!(
+            "git cat-file cannot be given the path {path:?}, which holds a line break"
+        ));
     }
     let kept =
         std::env::vars().filter(|(name, _)| crate::cli::KEPT.contains(&name.as_str()) || name.starts_with("LC_"));
@@ -179,7 +181,10 @@ pub(crate) async fn blobs(dir: &Path, commit: &str, paths: &[&str]) -> Result<Ve
     // The input is written while the output is read: git answers each line as it reads it, and would wait for its
     // output to be read while its input waits to be written. It is closed once written, so that git ends.
     let writing = async move {
-        stdin.write_all(input.as_bytes()).await.map_err(|e| format!("git cat-file: {e}"))?;
+        stdin
+            .write_all(input.as_bytes())
+            .await
+            .map_err(|e| format!("git cat-file: {e}"))?;
         drop(stdin);
         Ok::<(), String>(())
     };

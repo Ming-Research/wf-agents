@@ -36,7 +36,10 @@ fn a_block_naming_entries_of_the_tree_needs_the_tree_and_is_given_only_as_its_la
     let what = EntriesWithoutTree {
         block: "design".to_string(),
     };
-    assert_eq!(faults(&names), [at(FLOW_FILE, "blocks.design.names_tree_entries", what)]);
+    assert_eq!(
+        faults(&names),
+        [at(FLOW_FILE, "blocks.design.names_tree_entries", what)]
+    );
     let with_tree = edit(
         names,
         FLOW_FILE,
@@ -65,7 +68,11 @@ fn a_block_naming_entries_of_the_tree_needs_the_tree_and_is_given_only_as_its_la
         let what = EntriesNotLatest {
             block: "design".to_string(),
         };
-        assert_eq!(faults_with(&taken, &has), [at("answer.toml", "kinds.design", what)], "{kind}");
+        assert_eq!(
+            faults_with(&taken, &has),
+            [at("answer.toml", "kinds.design", what)],
+            "{kind}"
+        );
     }
 }
 

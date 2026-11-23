@@ -156,7 +156,9 @@ async fn a_line_naming_no_entry_is_sent_back_and_a_reader_is_given_each_entry_na
         ..Fake::default()
     };
     let mut real = Real::open(On::Entries, fake, None, "true");
-    let entry = format!("### {GREETING_ENTRY}\nGreet by name.\n- rejected: the owner proposed a plain hello; the owner rejected it, because it names no one.");
+    let entry = format!(
+        "### {GREETING_ENTRY}\nGreet by name.\n- rejected: the owner proposed a plain hello; the owner rejected it, because it names no one."
+    );
     let file = format!("# Greeting\n\nHow the work greets.\n\n{entry}\n\n### decision greet-once\nGreet once.\n");
     let path = real.repo.join(GREETING_FILE);
     std::fs::create_dir_all(path.parent().expect("a directory")).unwrap();
@@ -175,12 +177,26 @@ async fn a_line_naming_no_entry_is_sent_back_and_a_reader_is_given_each_entry_na
     assert_eq!(kept.given.get(&(plan, 3)), None, "taken at its second round");
     let block = decide::BlockId::from("entries");
     let versions = decide::versions(&kept.records).remove(&block).unwrap_or_default();
-    let names: Vec<&str> = (versions.iter()).map(|v| kept.contents[&(block.clone(), v.at)].as_str()).collect();
-    assert_eq!(names, [GREETING_ENTRY], "the work keeps the names as they were handed in");
+    let names: Vec<&str> = (versions.iter())
+        .map(|v| kept.contents[&(block.clone(), v.at)].as_str())
+        .collect();
+    assert_eq!(
+        names,
+        [GREETING_ENTRY],
+        "the work keeps the names as they were handed in"
+    );
     let calls = real.calls();
     let review = (calls.iter()).find(|c| c.of("Review")).expect("the review ran");
     let given = format!("From `{GREETING_FILE}`:\n\n### {GREETING_ENTRY}\nGreet by the first name.");
-    assert!(review.stdin.contains(&given), "{given} is missing from:\n{}", review.stdin);
+    assert!(
+        review.stdin.contains(&given),
+        "{given} is missing from:\n{}",
+        review.stdin
+    );
     assert!(!review.stdin.contains("a plain hello"), "{}", review.stdin);
-    assert!(!review.stdin.contains("greet-once"), "an entry not named is not given:\n{}", review.stdin);
+    assert!(
+        !review.stdin.contains("greet-once"),
+        "an entry not named is not given:\n{}",
+        review.stdin
+    );
 }

@@ -381,8 +381,16 @@ fn a_tree(dir: &Path) -> String {
         "# Flow\n\nWhat the flow covers.\n\n### decision b-two\nTwo.\n- rejected: an agent proposed three.\n\n\n\
          ### decision a-one\nOne.\n",
     );
-    write(dir, "design/decisions/flow/engineer.md", "### decision c-three\nThree.\n");
-    write(dir, "design/principles/general.md", "# General\n\n### principle p-one\nA rule.\nWhy: a reason.\n")
+    write(
+        dir,
+        "design/decisions/flow/engineer.md",
+        "### decision c-three\nThree.\n",
+    );
+    write(
+        dir,
+        "design/principles/general.md",
+        "# General\n\n### principle p-one\nA rule.\nWhy: a reason.\n",
+    )
 }
 
 // What is given in place of the names: each named once, whole to the line before the next heading less its blank
@@ -393,7 +401,15 @@ async fn each_entry_named_is_given_whole_once_under_its_file_in_the_order_of_the
     let (_repo, place) = started().await;
     let commit = a_tree(&place.dir);
     let names = "decision c-three\n  decision a-one  \n\nprinciple p-one\ndecision b-two\ndecision a-one\n";
-    let given = entries(&place.dir, "design/", &kinds_of_this_repository(), Some(&commit), names, &words()).await;
+    let given = entries(
+        &place.dir,
+        "design/",
+        &kinds_of_this_repository(),
+        Some(&commit),
+        names,
+        &words(),
+    )
+    .await;
     let expected = "In `design/principles/general.md`:\n\n### principle p-one\nA rule.\nWhy: a reason.\n\n\
                     In `design/decisions/flow.md`:\n\n### decision b-two\nTwo.\n- rejected: an agent proposed three.\n\n\
                     ### decision a-one\nOne.\n\n\
@@ -408,7 +424,11 @@ async fn each_entry_named_is_given_whole_once_under_its_file_in_the_order_of_the
 async fn each_entry_is_given_as_the_commit_given_has_it_and_a_name_it_does_not_hold_in_the_words_for_that() {
     let (_repo, place) = started().await;
     let first = a_tree(&place.dir);
-    let later = write(&place.dir, "design/decisions/flow.md", "# Flow\n\n### decision b-two\nTwo, changed.\n");
+    let later = write(
+        &place.dir,
+        "design/decisions/flow.md",
+        "# Flow\n\n### decision b-two\nTwo, changed.\n",
+    );
     let format = kinds_of_this_repository();
     let names = "decision a-one\ndecision b-two\nnot a reference\n";
     let at = |commit: Option<String>| {
@@ -434,7 +454,12 @@ async fn a_line_not_written_as_a_reference_or_naming_an_entry_the_tree_lacks_of_
     let names = "decision a-one\ndecision no-such-entry\nprinciple a-one\nsee decision a-one\n\n decision a-one \n\
                  decision no-such-entry\ndecision two words\n";
     let unknown = unknown(&place.dir, "design/", &kinds_of_this_repository(), &commit, names).await;
-    let expected = ["decision no-such-entry", "principle a-one", "see decision a-one", "decision two words"];
+    let expected = [
+        "decision no-such-entry",
+        "principle a-one",
+        "see decision a-one",
+        "decision two words",
+    ];
     assert_eq!(unknown, Ok(expected.map(str::to_string).to_vec()));
 }
 
@@ -444,8 +469,16 @@ async fn a_line_not_written_as_a_reference_or_naming_an_entry_the_tree_lacks_of_
 #[tokio::test]
 async fn a_tree_of_another_format_is_checked_and_given_by_its_own_kinds_heading_and_reference() {
     let (_repo, place) = started().await;
-    write(&place.dir, "docs/tree/decisions/old.md", "### decision keep-it\nKept.\n");
-    let commit = write(&place.dir, "docs/tree/rules/a.md", "## rule: keep-it\nKeep it.\n## rule: drop-it\nDrop it.\n");
+    write(
+        &place.dir,
+        "docs/tree/decisions/old.md",
+        "### decision keep-it\nKept.\n",
+    );
+    let commit = write(
+        &place.dir,
+        "docs/tree/rules/a.md",
+        "## rule: keep-it\nKeep it.\n## rule: drop-it\nDrop it.\n",
+    );
     let format = TreeFormat {
         kinds: vec![flow::agents::EntryKind {
             kind: "rule".to_string(),
@@ -470,6 +503,14 @@ async fn a_look_at_the_entries_that_cannot_be_made_says_why() {
     let missing = "0123456789abcdef0123456789abcdef01234567";
     let unknown = unknown(&place.dir, "design/", &format, missing, "decision a-one").await;
     assert!(unknown.is_err(), "{unknown:?}");
-    let given = entries(&place.dir, "design/", &format, Some(missing), "decision a-one", &words()).await;
+    let given = entries(
+        &place.dir,
+        "design/",
+        &format,
+        Some(missing),
+        "decision a-one",
+        &words(),
+    )
+    .await;
     assert!(given.is_err(), "{given:?}");
 }

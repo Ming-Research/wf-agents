@@ -86,7 +86,7 @@ async fn a_compaction_within_a_round_is_counted_and_given_the_rounds_whole_messa
 
 #[tokio::test]
 async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its_rounds_again_in_the_session_it_begins()
- {
+{
     let fake = Fake {
         question_first: true,
         ..Fake::default()

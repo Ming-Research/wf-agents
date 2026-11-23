@@ -119,12 +119,7 @@ struct Reach<'a> {
 /// Every situation an entry of the agent's cell can reach, as the module says, each once, in order: the first entry,
 /// the later and the reopened, each by the sets of what ran it, then the other things a round may be given. `compared`
 /// is the blocks whose versions the carrier compares itself.
-pub fn situations(
-    flow: &Compiled,
-    words: &Agents,
-    cell: &CellSpec,
-    compared: &BTreeSet<BlockId>,
-) -> Vec<Named> {
+pub fn situations(flow: &Compiled, words: &Agents, cell: &CellSpec, compared: &BTreeSet<BlockId>) -> Vec<Named> {
     let reach = Reach::of(flow, words, cell, compared);
     let mut out: Vec<Named> = Vec::new();
     let mut add = |named: Named| {
@@ -179,12 +174,7 @@ pub fn situations(
 
 /// How many combinations of the entry, what ran the cell and each datum's own state the cell can reach,
 /// every datum apart, as the module says.
-pub fn combinations(
-    flow: &Compiled,
-    words: &Agents,
-    cell: &CellSpec,
-    compared: &BTreeSet<BlockId>,
-) -> u128 {
+pub fn combinations(flow: &Compiled, words: &Agents, cell: &CellSpec, compared: &BTreeSet<BlockId>) -> u128 {
     let reach = Reach::of(flow, words, cell, compared);
     let mut count: u128 = 0;
     for entry in Entry::ALL {
@@ -228,12 +218,7 @@ pub fn combinations(
 }
 
 impl<'a> Reach<'a> {
-    fn of(
-        flow: &'a Compiled,
-        words: &'a Agents,
-        cell: &'a CellSpec,
-        compared: &'a BTreeSet<BlockId>,
-    ) -> Reach<'a> {
+    fn of(flow: &'a Compiled, words: &'a Agents, cell: &'a CellSpec, compared: &'a BTreeSet<BlockId>) -> Reach<'a> {
         let place = flow.flow.place(&cell.id).unwrap_or(0);
         let spec = |id: &decide::CellId| flow.cells.iter().find(|c| c.id == *id);
         let before: Vec<&CellSpec> = (flow.flow.cells()[..place].iter())

@@ -51,8 +51,8 @@ pub type Changes = BTreeMap<(BlockId, Seq), String>;
 /// What the carrier brings to an entry that neither the flow nor the work's records hold: which work the round is of;
 /// what came of taking main in as the run started, where the cell takes main in and the branch did not hold it
 /// already; what changed in the data whose versions the carrier compares itself; what a version is given as in place
-/// of its own content; the settings the flow's words may name, with their values; and each result given otherwise than the records hold it, as a result of the tool `query`
-/// is given cut.
+/// of its own content; the settings the flow's words may name, with their values; and each result given otherwise than
+/// the records hold it, as a result of the tool `query` is given cut.
 #[derive(Clone, Copy, Debug)]
 pub struct Carried<'a> {
     pub about: For<'a>,

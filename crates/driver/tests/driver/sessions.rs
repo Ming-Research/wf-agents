@@ -126,10 +126,7 @@ fn two_lines() -> Compiled {
     let source = flow::Source {
         flow,
         cells: [
-            (
-                "load",
-                cell("engineer", r#"["request"]"#, r#"["context"]"#),
-            ),
+            ("load", cell("engineer", r#"["request"]"#, r#"["context"]"#)),
             ("build", cell("engineer", r#"["request", "context"]"#, r#"["code"]"#)),
             ("look", cell("review", r#"["code"]"#, r#"["notes"]"#)),
             ("review", cell("review", r#"["code", "notes"]"#, r#"["verdict"]"#)),
@@ -188,14 +185,8 @@ fn remarks() -> Compiled {
     let source = flow::Source {
         flow,
         cells: [
-            (
-                "load",
-                cell("engineer", r#"["request"]"#, r#"["context"]"#),
-            ),
-            (
-                "look",
-                cell("review", r#"["remarks"]"#, r#"["notes"]"#),
-            ),
+            ("load", cell("engineer", r#"["request"]"#, r#"["context"]"#)),
+            ("look", cell("review", r#"["remarks"]"#, r#"["notes"]"#)),
             (
                 "build",
                 cell("engineer", r#"["request", "context", "notes"]"#, r#"["code"]"#),

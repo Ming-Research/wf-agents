@@ -114,10 +114,7 @@ fn every_situation_is_written_once_and_every_datum_s_own_state_is_counted() {
                 again.map_or("", |o| &o.name)
             );
         }
-        assert!(
-            combinations(&flow, &words, cell(&flow, id), &compared()) > 0,
-            "{id}"
-        );
+        assert!(combinations(&flow, &words, cell(&flow, id), &compared()) > 0, "{id}");
     }
 }
 

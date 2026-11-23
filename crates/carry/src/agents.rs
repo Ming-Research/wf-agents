@@ -215,14 +215,15 @@ async fn entries_given(
         Some((at, work.contents.get(&(block.clone(), at))?.as_str()))
     };
     let tree = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(crate::tree::TREE));
-    let commit = tree.and_then(|(block, _)| latest(block)).and_then(|(_, content)| crate::tree::commit_of(content));
+    let commit = tree
+        .and_then(|(block, _)| latest(block))
+        .and_then(|(_, content)| crate::tree::commit_of(content));
     let words = &of.beside.given.entries;
     for block in naming {
         let Some((at, names)) = latest(block) else {
             continue;
         };
-        let text =
-            crate::tree::entries(dir, &of.project.tree, format, commit.as_deref(), names, words).await?;
+        let text = crate::tree::entries(dir, &of.project.tree, format, commit.as_deref(), names, words).await?;
         given.insert((block.clone(), at), text);
     }
     Ok(given)

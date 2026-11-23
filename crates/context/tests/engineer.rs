@@ -434,7 +434,9 @@ fn a_compacted_session_of_the_implementation_is_given_the_entries_and_runs_no_re
     let entered = sim.enter(&next, sim.begins(&next));
     assert_eq!(entered.situation.data["tree_entries"], Stands::Lacks);
     assert!(entered.text.contains(ENTRIES), "{}", entered.text);
-    let readings = (sim.work.records.started.iter()).filter(|s| s.cell.as_str() == "R0").count();
+    let readings = (sim.work.records.started.iter())
+        .filter(|s| s.cell.as_str() == "R0")
+        .count();
     assert_eq!(readings, 1, "the reading of the tree ran again");
 }
 

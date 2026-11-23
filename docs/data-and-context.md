@@ -18,11 +18,11 @@ the owner's pauses, when a work is at its end.
    owner answers, speaks or rules; the owner lets the work on, first or after the item was reopened (`start`); the
    items the work depends on merge or are cancelled (`dependencies`); the branch the works merge into moves (`main`);
    the design tree of the project changes (`tree`); a cell's specification changes (design document
-   `changed-flow-walks-the-records`). Each of these says that something happened outside the work, and runs a cell only where a cell watches it. From a cell: what it hands in when a round of it
-   ends. The code a round commits is handed in by that round, read from the branch as it ends (`head`). Two data are
-   neither: `asked`, which the engine works out from the questions (33), and a cell's `handed_in`, which the engine
-   writes yes as the first run of the cell that deals with something finishes, so that a cell whose condition reads it
-   runs until it has handed in once.
+   `changed-flow-walks-the-records`). Each of these says that something happened outside the work, and runs a cell
+   only where a cell watches it. From a cell: what it hands in when a round of it ends. The code a round commits is
+   handed in by that round, read from the branch as it ends (`head`). Two data are neither: `asked`, which the engine
+   works out from the questions (33), and a cell's `handed_in`, which the engine writes yes as the first run of the
+   cell that deals with something finishes, so that a cell whose condition reads it runs until it has handed in once.
 
 3. The design tree's version is its commit with the id of the tree at it, and it has a new version whenever the tree
    changed, whoever changed it and wherever: on the branch the works merge into, or in the work itself.

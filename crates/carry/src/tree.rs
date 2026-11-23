@@ -137,9 +137,16 @@ async fn tree_files(dir: &Path, tree: &str, format: &TreeFormat, commit: &str) -
     let mut paths: Vec<String> = Vec::new();
     for kind in &format.kinds {
         let under = kind.dir.trim_end_matches('/');
-        let under = if root.is_empty() { under.to_string() } else { format!("{root}/{under}") };
+        let under = if root.is_empty() {
+            under.to_string()
+        } else {
+            format!("{root}/{under}")
+        };
         let listed = git::git(dir, &["ls-tree", "-r", "-z", "--name-only", commit, &under]).await?;
-        let mut these: Vec<String> = (listed.split('\0')).filter(|p| !p.is_empty()).map(str::to_string).collect();
+        let mut these: Vec<String> = (listed.split('\0'))
+            .filter(|p| !p.is_empty())
+            .map(str::to_string)
+            .collect();
         these.sort();
         for path in these {
             if !paths.contains(&path) {

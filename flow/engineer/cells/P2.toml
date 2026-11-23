@@ -6,8 +6,8 @@ line = "plan_reviewer"
 effort = "high"
 task = '''
 You review the plan against the design tree, in a session that did not write it. Read the design tree as its rules
-say, beyond `tree_entries`, for each part of the plan it leaves out, and read the code the plan changes. The plan is `plan_owner`, `plan_agent` and `acceptance`, with the questions its
-writer asked the owner.
+say, beyond `tree_entries`, for each part of the plan it leaves out, and read the code the plan changes. The plan is
+`plan_owner`, `plan_agent` and `acceptance`, with the questions its writer asked the owner.
 
 Judge whether the plan goes against the design tree: an article of the constitution, a principle or a decision.
 Going against an entry is no fault where a question asks the owner about that change.
