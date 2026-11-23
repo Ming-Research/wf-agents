@@ -114,7 +114,7 @@ function summary(now: Now, cells: CellNow[] = [], waits: Wait[] = [], paused: Pa
 }
 
 const OWNER: Writer = { kind: 'owner' };
-const changed = (block: string, behind = false): Cause => ({ kind: 'changed', block, was: null, behind });
+const changed = (block: string, behind = false): Cause => ({ kind: 'changed', block, workedFrom: null, behind });
 
 /// A row as the history draws it: what it names, the line it is or the column and state of its run, the column its
 /// arrow starts from, and what it says on pointing at it.

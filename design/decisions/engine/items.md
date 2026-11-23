@@ -11,7 +11,7 @@ The engine has no kinds of item: an item is added on a flow, and one that only d
 - rejected: an agent proposed keeping the engine without kinds and telling a deliverable item apart on the page alone, by a rule that guesses it from the open items under it; the owner rejected it, because each kind of item has its own flow, with its state like any other item's.
 
 ### decision dependencies-until-the-work-starts
-What an item depends on can change only until its work starts a run; its title, level and tags until the work ends, and after that only the reopening of a cancelled item is accepted.
+What an item depends on can change only until its work starts a run, what it continues until its branch is made; its title, level and tags until the work ends, then only a reopen is accepted.
 - replaced: Changing an item's scope, including what it depends on, from outside while its work ran was on main; the owner changed it, because scope changed midway was the main cause of the works' redesigns, 8 of 24.
 - replaced: No way to remove a dependency was on main; the owner changed it, because a dependency on items built on an old branch held a finished work back from its merge.
 - replaced: A done item taking on a dependency on one not done was on main; the owner changed it, because a dependency says what must be done first, so a done item depending on an open one contradicts itself.
