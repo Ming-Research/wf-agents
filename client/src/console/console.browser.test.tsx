@@ -1343,6 +1343,29 @@ describe('the console page, opened at an item the address names', () => {
       container.remove();
     }
   });
+
+  it('ticks the box of the item\'s kind where it is not ticked, and selects the item, as it does for one picked from the search', async () => {
+    localStorage.clear();
+    const container = document.createElement('div');
+    container.style.cssText = 'position: fixed; inset: 0; display: flex';
+    document.body.append(container);
+    delete (window as { consoleScene?: SnapScene }).consoleScene;
+    const root = createRoot(container);
+    // Item 35 is cancelled, and Cancelled is not ticked at first.
+    root.render(<ConsolePage source={fixtureSource()} named={35} />);
+    try {
+      await expect.poll(() => container.querySelector('.drawer-title')?.textContent ?? null).toBe('Try the tree as a flat list');
+      const cancelled = [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')]
+        .find((l) => l.textContent === 'Cancelled')
+        ?.querySelector('input');
+      expect(cancelled?.checked).toBe(true);
+      expect(container.querySelector('aside.cw')?.classList.contains('cw-open')).toBe(true);
+    } finally {
+      root.unmount();
+      container.remove();
+      localStorage.clear();
+    }
+  });
 });
 
 describe('the console page, as things happen', () => {

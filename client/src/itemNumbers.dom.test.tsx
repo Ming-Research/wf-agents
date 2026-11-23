@@ -1,0 +1,166 @@
+// @vitest-environment happy-dom
+import './dom-setup';
+
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { Shell } from './App';
+import { Markdown } from './console/markdown';
+import { ItemTitlesProvider } from './itemNumbers';
+import { INTERFACE, SourceContext } from './works/source';
+import { fixtureItems } from './works/fixtures';
+import type { Item } from './works-api';
+
+let unmount: (() => void) | undefined;
+afterEach(() => {
+  unmount?.();
+  unmount = undefined;
+  document.body.innerHTML = '';
+  localStorage.clear();
+});
+
+/// The items the page has read, of which only the numbers and the titles matter here.
+const ITEMS = [
+  { number: 46, title: 'Link the numbers' },
+  { number: 47, title: 'Keep the tree' },
+] as Item[];
+
+function drawn(text: string): HTMLElement {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  act(() =>
+    root.render(
+      <ItemTitlesProvider items={{ items: ITEMS }}>
+        <Markdown text={text} />
+      </ItemTitlesProvider>,
+    ),
+  );
+  unmount = () => act(() => root.unmount());
+  return container;
+}
+
+/// What each link to an item of the console says, as it is written in the text.
+const numbers = (page: ParentNode) =>
+  [...page.querySelectorAll('a')]
+    .filter((a) => a.getAttribute('href')?.startsWith('#/console/items/'))
+    .map((a) => a.textContent);
+
+describe('the number of an item in a text', () => {
+  it('is a link to the item in the console that says its title, however it is written after an item word or with a #', () => {
+    const page = drawn('See #46.');
+    const link = page.querySelector('a');
+    expect(link?.getAttribute('href')).toBe('#/console/items/46');
+    expect(link?.getAttribute('title')).toBe('#46 Link the numbers');
+    expect(link?.className).toBe('link mono');
+    expect(page.textContent).toBe('See #46.');
+    const written: [string, string[]][] = [
+      ['#46', ['#46']],
+      ['(#47)', ['#47']],
+      ['条目 46', ['46']],
+      ['item 47', ['47']],
+      ['Items 46 and 47', ['46', '47']],
+      ['条目 46、47', ['46', '47']],
+      ['items 46, 47', ['46', '47']],
+      ['items 46, and 47', ['46', '47']],
+      // Chinese is written with no blanks, so a Han character never joins a number to a word.
+      ['见#46的计划', ['#46']],
+      ['条目46的背景', ['46']],
+      ['依赖#47，再看条目 46。', ['#47', '46']],
+    ];
+    for (const [text, links] of written) {
+      unmount?.();
+      expect([text, numbers(drawn(text))]).toEqual([text, links]);
+    }
+  });
+
+  it('is a link too in a list, a table, a heading and strong words, and stays the text it was', () => {
+    const page = drawn('# Plan for #46\n\n- first #46\n- **item 47** next\n\n| a |\n|---|\n| #47 |\n');
+    expect(numbers(page)).toEqual(['#46', '#46', '47', '#47']);
+    expect(page.textContent).toBe('Plan for #46first #46item 47 nexta#47');
+  });
+
+  /// The texts among these in which a link to an item stands, or one link inside another, with the links each holds:
+  /// none where the texts are as they should be, so that a failure names every text that still has one.
+  const linked = (texts: string[]) =>
+    texts.flatMap((text) => {
+      unmount?.();
+      const page = drawn(text);
+      const found = numbers(page);
+      const inside = page.querySelectorAll('a a').length;
+      return found.length > 0 || inside > 0 ? [[text, found, inside]] : [];
+    });
+
+  it('is no link where it is not an item number: in code, in a link, joined to a word or a path, after PR, or of no item', () => {
+    // Each text holds one number that some rule leaves alone, and is a link at once where that rule is taken away:
+    // code, the words of a link, a word of another kind of number before the `#`, a letter or a path round the number,
+    // a leading zero, and a number no item has.
+    const excluded = [
+      '`#46` and `item 46`',
+      '[the item #46](https://example.com/46)',
+      'https://example.com/#46',
+      'PR #46',
+      'pull request #46',
+      'issue #47',
+      'a#46',
+      'lineitems 46',
+      '#46-1',
+      '#46a',
+      '#46.5',
+      '#046',
+      '#9999',
+      'item 9999',
+      '条目 3',
+    ];
+    expect(linked(excluded)).toEqual([]);
+  });
+
+  it('is no link where it is a bare number, with neither a # nor the word item before it: files, rounds, Articles, works, observations, versions and paths', () => {
+    // `#n` and the number after the word item are the whole of what links: the number of an item the page has read is
+    // text as long as it stands with neither. A rule that linked any such number would make each of the first three a
+    // link. The rest stand for the numbers of works, observations, versions and paths of items, which no rule may link.
+    const bare = ['46 files', 'Article 46', 'round 47', 'W46, O46 and v46', '46-47-46'];
+    expect(linked(bare)).toEqual([]);
+  });
+
+  it('links only the items that exist in a list, and the words of an explicit link stay its words', () => {
+    expect(numbers(drawn('items 46, 9999 and 47'))).toEqual(['46', '47']);
+    unmount?.();
+    const page = drawn('[the item #46](https://example.com/46) then #47');
+    expect(numbers(page)).toEqual(['#47']);
+    expect(page.querySelector('a')?.textContent).toBe('the item #46');
+  });
+
+  it('is a link once the bar has read the items, in a view the shell holds', async () => {
+    const [first] = fixtureItems().items;
+    const source = {
+      ...INTERFACE,
+      loadItems: async () => fixtureItems(),
+      loadEngine: undefined,
+      changes: () => () => undefined,
+    };
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <SourceContext.Provider value={source}>
+          <Shell route={{ view: 'console' }}>
+            <Markdown text={`See #${first.number}.`} />
+          </Shell>
+        </SourceContext.Provider>,
+      ),
+    );
+    unmount = () => act(() => root.unmount());
+    // Before the items are read, the number is the text it was written as.
+    expect(numbers(container)).toEqual([]);
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    expect(numbers(container)).toEqual([`#${first.number}`]);
+    expect(container.querySelector('.cw-md a')?.getAttribute('title')).toBe(`#${first.number} ${first.title}`);
+  });
+});
