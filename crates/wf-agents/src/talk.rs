@@ -1692,7 +1692,7 @@ fn waited(waited: &Waited) -> String {
         Waited::Slot {} => "a free slot".to_string(),
         Waited::Answer { question } => format!("the owner to answer the question {question}"),
         Waited::Turn { holder, .. } => {
-            let holder = work_number(holder);
+            let holder = work_number(*holder);
             format!("the project's turn to check and merge, which work {holder} holds")
         }
         Waited::Agents { outage: o } => format!("the agents' rounds to begin again, as {}", cause(o)),

@@ -721,27 +721,27 @@ impl Stream {
     /// went on in it, that total less what the line's earlier rounds cost, or the whole total where that is less
     /// (measured: the total is the whole session's, even where two lines take turns in one worktree). What it says
     /// of why there is none is in these words.
-    pub fn read(self, begin: Begin, before: u64, words: &ProgramWords) -> std::result::Result<Read, NoResult> {
+    pub fn read(self, begin: Begin, before: u64, words: &ProgramWords) -> std::result::Result<Read, Box<NoResult>> {
         let fields = self.said;
         let priced = self.priced();
         let Some(result) = self.result else {
-            return Err(NoResult {
+            return Err(Box::new(NoResult {
                 why: words.no_stream_result.clone(),
                 report: String::new(),
                 spent: priced,
                 said: fields,
-            });
+            }));
         };
         let result: Result = match serde_json::from_value(result) {
             Ok(result) => result,
             Err(e) => {
                 let report = e.to_string();
-                return Err(NoResult {
+                return Err(Box::new(NoResult {
                     why: fill(&words.unreadable_result, &[("why", &report)]),
                     report,
                     spent: priced,
                     said: fields,
-                });
+                }));
             }
         };
         let spent = spent(&result, begin, before);
@@ -759,12 +759,12 @@ impl Stream {
             };
             return match structured {
                 Ok(structured) => Ok(Read { structured, spent }),
-                Err((why, report)) => Err(NoResult {
+                Err((why, report)) => Err(Box::new(NoResult {
                     why,
                     report,
                     spent: Some(spent),
                     said: fields,
-                }),
+                })),
             };
         }
         // What it says goes back to the agent where the return is sent back: its quote of the attempt is left out.
@@ -790,12 +790,12 @@ impl Stream {
         } else {
             (why, report)
         };
-        Err(NoResult {
+        Err(Box::new(NoResult {
             why,
             report,
             spent: Some(spent),
             said: fields,
-        })
+        }))
     }
 }
 
@@ -844,7 +844,12 @@ pub fn took(stream: &[u8], begin: Begin, before: u64) -> Option<Spent> {
 }
 
 /// Reads a whole stream, line by line, as [`Stream::read`] does.
-pub fn read(stream: &[u8], begin: Begin, before: u64, words: &ProgramWords) -> std::result::Result<Read, NoResult> {
+pub fn read(
+    stream: &[u8],
+    begin: Begin,
+    before: u64,
+    words: &ProgramWords,
+) -> std::result::Result<Read, Box<NoResult>> {
     let mut read = Stream::default();
     for line in stream.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
         read.line(line);

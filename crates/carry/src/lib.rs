@@ -292,7 +292,10 @@ mod tests {
     fn what_a_request_that_cannot_be_read_is_told_is_what_the_repositorys_file_of_the_tool_says() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
         let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
-        let told = super::unread(&beside).expect("the file of run_tests says it");
+        let told = super::tools::Said::of(&beside)
+            .expect("the file of run_tests says what it tells")
+            .unread
+            .expect("the file of run_tests says it");
         assert!(
             told.starts_with("Nothing was run: ") && told.contains("{error}"),
             "{told}"
