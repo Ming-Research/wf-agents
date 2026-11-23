@@ -110,6 +110,7 @@ pub const REACHED: &[&str] = &[
     OWED_SENT_BACK,
     NO_POINT_SENT_BACK,
     RULED_ON,
+    STALLED,
 ];
 
 pub const PERSON_UNDER_WAY: &str = "a person writes while a round is under way";
@@ -142,7 +143,6 @@ const MAKERS_CHECKED: &str = "a work waits on a precondition";
 const STANDING_NO_HOLDS: &str = "the merge waits on a judge's no while the judge is not skipped";
 const PERSON_NO_HOLDS: &str = "the merge waits on a person's no";
 pub const SKIPPED_NO_PASSES: &str = "a round of the merge begins over the no of a judge that is skipped";
-/// Not required: the histories' merge waits for its word while nothing else is to be done.
 const STALLED: &str = "a work is stalled";
 pub const FAILED: &str = "a round fails and the engine pauses its work";
 pub const FAILED_GOES_ON: &str = "a run whose round failed goes on once the work is let on";

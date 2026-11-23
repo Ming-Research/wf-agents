@@ -24,7 +24,8 @@
 //!    by a run of it that dealt with it.
 //! 7. A work never stalls at the check's gate: after every step, the records alone (`Reading::rest`), not the deciding
 //!    code, do not read it as stalled on a key that reads a choice the check's record wrote as it failed, which only
-//!    the owner speaking to a cell would move.
+//!    the owner speaking to a cell would move; and the deciding code says the work is stalled where, and only where,
+//!    the records read it so, so that a stall it calls a wait is found.
 //!
 //! The first two are judged as each round of the merge begins, and the sixth as the merge finishes, by the histories'
 //! own reading of the records as they were then (`reading`), never by the deciding code's tests.
@@ -179,7 +180,8 @@ const CONTENT_MERGES: &str = "3: a work everyone is content with merges within t
 const RUNS_FOR_NOTHING: &str = "4: runs for nothing stay within the bound";
 const MUST_WRITE_WRITTEN: &str = "5: no finished run lacks a block its cell must write";
 const MERGE_UNSEEN: &str = "6: the work's head the merge merges is a version the review dealt with";
-const CHECK_NEVER_STALLS: &str = "7: a work never stalls at the check's gate";
+const CHECK_NEVER_STALLS: &str =
+    "7: a work never stalls at the check's gate, and the decision says it is stalled where the records read it so";
 const DRIVER: &str = "the driver";
 
 /// The source of the block of the work's head, which the carriers read of the work's branch.
@@ -1670,7 +1672,8 @@ impl History {
             }
         }
         let mut stalled = None;
-        match decide(flow, records) {
+        let decision = decide(flow, records);
+        match &decision {
             Decision::Wait { on, .. } if on.iter().any(|w| matches!(w, Waited::Limit { .. })) => {
                 reached.push(CELL_LIMIT.to_string());
             }
@@ -1681,7 +1684,14 @@ impl History {
         // it. Where the work stands is read from the records alone, never from what the deciding code calls it. A
         // work stalled before the check ran, which stands at the first gate that does not hold, the merge's where the
         // check's own hold, is not at the check's.
-        if let whole::Rest::Stalled { at, on } = whole::Reading::new(flow, records).rest(flow) {
+        let rest = whole::Reading::new(flow, records).rest(flow);
+        // And the decision says the work is stalled where, and only where, the records read it so: a stall it calls a
+        // wait is one the owner is never shown.
+        let reads_stalled = matches!(rest, whole::Rest::Stalled { .. });
+        if reads_stalled != matches!(decision, Decision::Stalled { .. }) {
+            stalled = Some(format!("the records read {rest:?}, and the decision is {decision:?}"));
+        }
+        if let whole::Rest::Stalled { at, on } = rest {
             let check = &flow.cells()[self.roles.check].id;
             let failed: Vec<&BlockId> = (self.roles.check_passes(&self.d.flow))
                 .filter(|(b, pass)| {

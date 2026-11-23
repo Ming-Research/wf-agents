@@ -16,7 +16,11 @@
 //!   owner's word, a choice people write of the same name, and the merge is run by its own. In half the histories of
 //!   the first test, drawn apart from the rest, a judge stands before the merge, run only while "flip" holds and
 //!   writing a verdict, yes or no, and its points in a dialogue with each cell that writes what it judges, which
-//!   watches it and answers there; the merge then also waits while the verdict stands at no. In a third of the
+//!   watches it and answers there; the merge then also waits while the verdict stands at no. In three histories of ten,
+//!   drawn apart from the rest, a check stands before the merge, run by the brief and writing a choice only cells write,
+//!   which the merge also waits for as yes: where the check says no or nothing and has nothing new to run for, only a
+//!   cell keeps the merge from running, and the work is stalled, which the records alone read (`Reading::rest`). In a
+//!   third of the
 //!   histories a cell drawn at random is run by the owner's words to it, a block that interrupts. Each cell may be
 //!   entered again for the results of what it asked for one to three times in a row. In two histories of five, drawn
 //!   apart from the rest, the cells ask the owner questions, and a cell drawn at random is run by the owner's answers
@@ -130,6 +134,12 @@ const BRIEF: &str = "brief";
 
 /// The block whose value a condition reads.
 const CHOICE: &str = "choice";
+
+/// The block only the check cell writes, a choice of yes or no, and the name of the merge's precondition that reads it:
+/// where it is not yes and the check has nothing new to run for, nothing but a cell keeps the merge from running, and
+/// the work is stalled.
+const CHECKED: &str = "checked";
+const CHECKED_OK: &str = "checked_ok";
 
 /// The block only the outside writes.
 const MAIN: &str = "main";
@@ -363,6 +373,20 @@ impl History {
             cells[i].runs_on.push(ANSWERED.into());
             cells[i].id.clone()
         });
+        // A check before the merge in three histories of ten, drawn apart from the rest: a cell the brief runs, which
+        // writes the choice the merge also waits for, and which only cells write.
+        let mut checking = Rng::new(seed ^ 0x0C4E_C4ED_5A1E_0001);
+        let check = checking.chance(30).then(|| {
+            let mut c = cell("check", &[BRIEF], &[CHECKED]);
+            c.limit = 1 + checking.below(2) as u32;
+            c.calls = 1 + checking.below(3) as u32;
+            c
+        });
+        let checked_ok = Test {
+            kind: TestKind::All,
+            reads: vec![CHECKED.into()],
+            is: Some("yes".to_string()),
+        };
         let mut w = if judged.is_some() {
             let mut judge = when_flipped(cell("judge", &[BRIEF, "b0", POINTS], &[VERDICT, POINTS]));
             judge.limit = 2;
@@ -382,16 +406,33 @@ impl History {
             cells.push(judge);
             let mut merge = gate();
             merge.requires.push(UNREFUSED.into());
+            if let Some(check) = check.clone() {
+                merge.requires.push(CHECKED_OK.into());
+                cells.push(check);
+            }
             cells.push(merge);
             let unrefused = Test {
                 kind: TestKind::NoneStanding,
                 reads: vec![VERDICT.into()],
                 is: Some("no".to_string()),
             };
-            World::with_tests(cells, [(TestName::from(UNREFUSED), unrefused)].into())
+            let mut tests = BTreeMap::from([(TestName::from(UNREFUSED), unrefused)]);
+            if check.is_some() {
+                tests.insert(TestName::from(CHECKED_OK), checked_ok);
+            }
+            World::with_tests(cells, tests)
+        } else if let Some(check) = check.clone() {
+            let mut merge = gate();
+            merge.requires.push(CHECKED_OK.into());
+            cells.push(check);
+            cells.push(merge);
+            World::with_tests(cells, [(TestName::from(CHECKED_OK), checked_ok)].into())
         } else {
             World::with_gate(cells)
         };
+        if check.is_some() {
+            w.written_by_cells(CHECKED);
+        }
         w.notes(&[BRIEF]);
         w.turning(SPOKEN);
         w.answering(ANSWERED);
@@ -728,7 +769,7 @@ impl History {
             .expect("the run started")
             .clone();
         let cell = flow.cells()[flow.place(&started.cell).expect("a cell of the flow")].clone();
-        let choices: BTreeMap<BlockId, Vec<String>> = [CHOICE, VERDICT, GATE, "ready", "flip"]
+        let choices: BTreeMap<BlockId, Vec<String>> = [CHOICE, VERDICT, CHECKED, GATE, "ready", "flip"]
             .into_iter()
             .map(|b| (b.into(), vec!["yes".to_string(), "no".to_string()]))
             .collect();
@@ -945,7 +986,7 @@ impl History {
     /// A return drawn from all the form allows; where `meets`, one that does the cell's work, dealing with everything
     /// that ran the round, and writes only what the cell may, each as it may be written.
     fn draw_return(&mut self, spec: &Cell, told: &run::Told, meets: bool) -> Back {
-        let choice = |b: &BlockId| [CHOICE, VERDICT].contains(&b.as_str());
+        let choice = |b: &BlockId| [CHOICE, VERDICT, CHECKED].contains(&b.as_str());
         let write = |rng: &mut Rng, block: &BlockId, meets: bool| {
             let value = if choice(block) {
                 match rng.below(10) {
