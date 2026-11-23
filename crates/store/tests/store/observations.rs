@@ -102,9 +102,10 @@ fn each_return_of_a_run_keeps_its_own_observations_the_one_sent_back_and_the_one
         all.reverse();
         all
     };
-    assert_eq!(
-        kept_now(&path),
-        [(1, "Said in a return sent back.".to_string(), run, 1)]
+    // A run keeps its observations as it finishes: until then none is kept.
+    assert!(
+        kept_now(&path).is_empty(),
+        "an observation was kept before its run finished"
     );
     // The next return says what was wrong with it only, and is taken: its observation is kept beside the first.
     d.end(handing_in(&[("text", None)], &["Said in the return taken."]));

@@ -112,9 +112,10 @@ async fn between(dir: &Path, tree: &str, was: &str, now: &str) -> Result<Vec<Str
 /// The name of each question of the work whose answer the design tree in this directory of the checkout does not hold,
 /// as a round ends whose return writes a block handed in only with the answers there (`answers_in_the_tree` of its
 /// file), the return saying this beside its work, or as the check before the merge looks, with no return, which says
-/// nothing (`rewritten`: the names of the questions the return, with what it completes, asks anew or withdraws): each question marked `tree` that has the owner's answer to its latest version ([`answered`]), where the
-/// work's own change against main, at `main`, changes no file of the tree; none where it changes one. In the order of
-/// their names. A question kept before questions said `tree` is marked by none.
+/// nothing: each question marked `tree` that has the owner's answer to its latest version ([`answered`]), where the
+/// work's own change against main, at `main`, changes no file of the tree; none where it changes one. `rewritten` names
+/// the questions the return, with what it completes, asks anew or withdraws. In the order of their names. A question
+/// kept before questions said `tree` is marked by none.
 pub(crate) async fn unwritten(
     project: &Project,
     place: &Place,

@@ -6,7 +6,7 @@ use std::path::Path;
 
 use decide::{Answered, Questioned, Returned, RunId, Seq, Started};
 use store::WorkNumber;
-use work::{Back, Way};
+use work::{Back, Said, Way};
 
 use super::*;
 use crate::git::tests::{Repo, run};
