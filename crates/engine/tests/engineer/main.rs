@@ -79,9 +79,9 @@
 //! question, which in the histories not steered end or rework a work before the check. In three of ten, the work is
 //! paused while the
 //! check's round is under way; once
-//! the check passed, a person writes, while the pause holds the merge back, for a judge that applies, who then refuses,
-//! or writes a verdict as its refusal, or commits on the branch, after which the first judge of the head to hand in
-//! refuses in one of two, a coin of its own deciding; then the work is let on. In one of ten the check
+//! the check passed, a person writes, while the pause holds the merge back, an input only people write that runs a cell
+//! before a judge, the background, after which the first judge to hand in refuses, or writes a verdict as its refusal,
+//! a coin of its own deciding; then the work is let on. In one of ten the check
 //! fails the first time it runs and the random steps end there; in two of ten, they end only once the cell told of
 //! the failure has answered it with a commit and nothing that matters, the commit running the review and the check
 //! again through the work's head; in one of ten, the first cell that may ask asks a question that does not wait, and
@@ -759,7 +759,8 @@ impl Random {
 
     /// What the steering through a refusal does now, where it does anything: pauses the work while the check's round
     /// is under way; once the check passed under the pause, commits on the branch as a person, in one of three, or
-    /// writes for a judge that applies (who then refuses) or a verdict as its refusal, a coin of its own deciding; then
+    /// writes an input that runs the cells before a judge (which then refuses) or a verdict as its refusal, a coin of its
+    /// own deciding; then
     /// lets the work on. Where the check failed under its
     /// pause, it lets the work on, to try at the next check.
     fn steered(&mut self, d: &Driver) -> Option<Event> {
@@ -788,13 +789,11 @@ impl Random {
             return Some(Event::Resumed);
         }
         self.stage = 1;
-        // A person commits on the branch, which the merge finds moved since the check passed, and which the judges of the
-        // head look at again: the first to hand in refuses in one of two.
+        // A person commits on the branch, which the merge finds moved since the check passed.
         if self.steering.chance(33) {
             let mut b = self.branch.get();
             b.head += 1;
             self.branch.set(b);
-            self.refuse_next = self.steering.chance(50);
             return Some(Event::Look);
         }
         let reading = Reading::new(&d.flow.flow, &d.work.records, None);
@@ -802,9 +801,11 @@ impl Random {
             let block = &d.flow.blocks[*b];
             block.writers.people && block.writers.cells.is_empty() && block.values.is_none()
         };
-        let for_judges: Vec<&BlockId> = (self.roles.judges.iter())
-            .filter(|(j, _)| reading.applies(*j))
-            .flat_map(|(j, _)| d.flow.flow.cells()[*j].runs_on.iter().filter(only_people))
+        // The input a judge looks at again is one that runs the cells before it: a block only people write that some cell
+        // which applies runs on, the background, from which the plan and then its judges are reached again.
+        let for_judges: Vec<&BlockId> = (d.flow.flow.cells().iter().enumerate())
+            .filter(|(i, _)| reading.applies(*i))
+            .flat_map(|(_, c)| c.runs_on.iter().filter(only_people))
             .collect();
         if self.steering.chance(50) && !for_judges.is_empty() {
             self.refuse_next = true;
