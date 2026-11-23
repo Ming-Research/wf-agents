@@ -189,7 +189,9 @@ mod tests {
     /// repository, the work's place and main's new head.
     async fn moved(file: &str) -> (Repo, Place, String) {
         let repo = Repo::new("true");
-        let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
         let main = commit(&repo.project.repo, file, "Good day.\n");
         (repo, started.place, main)
@@ -223,7 +225,9 @@ mod tests {
     #[tokio::test]
     async fn main_taken_in_by_a_branch_with_no_commit_of_its_own_is_a_merge_commit_and_not_a_move_forward() {
         let repo = Repo::new("true");
-        let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let main = commit(&repo.project.repo, "other.txt", "Good day.\n");
         let caught = take_in(&repo.project, &started.place, "refs/heads/main", RUN, WHOSE).await;
         let Outcome::TookIn { merge, .. } = caught.outcome else {
@@ -241,7 +245,7 @@ mod tests {
         let merge = git::merge_as(
             &place.dir,
             &main,
-            &taking_in(&repo.project, &main, RUN),
+            &taking_in(&repo.project, &main, RUN, WHOSE),
             &repo.project.commits,
         )
         .await
@@ -271,6 +275,7 @@ mod tests {
             title: "Greet the user",
             about: "",
             place: &place,
+            continues: None,
         };
         let lock = tokio::sync::Mutex::new(());
         let mut stop = crate::held::Stop::never();
@@ -375,7 +380,9 @@ mod tests {
     #[tokio::test]
     async fn a_branch_that_holds_main_takes_nothing_in() {
         let repo = Repo::new("true");
-        let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
         let main = run(&repo.project.repo, &["rev-parse", "main"]);
         let caught = take_in(&repo.project, &started.place, "refs/heads/main", RUN, WHOSE).await;

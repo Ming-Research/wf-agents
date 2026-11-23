@@ -48,7 +48,7 @@ mod tests {
     /// it started; gives the repository and main's new head.
     async fn moved(file: &str) -> (Repo, String) {
         let repo = Repo::new("true");
-        let started = crate::git::start(&repo.project, &repo.place(WORK), "main")
+        let started = crate::git::start(&repo.project, &repo.place(WORK), "main", "main")
             .await
             .unwrap();
         commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
@@ -71,6 +71,7 @@ mod tests {
             title: "Greet the user",
             about: "",
             place: &place,
+            continues: None,
         };
         let told = Told {
             unread: None,

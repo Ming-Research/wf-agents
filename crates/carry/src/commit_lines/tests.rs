@@ -356,7 +356,7 @@ async fn a_commit_in_a_works_linked_worktree_ends_with_the_lines_where_the_data_
     let spaced = repo.data.parent().unwrap().join("a data directory");
     std::fs::create_dir_all(&spaced).unwrap();
     install(&spaced).unwrap();
-    let started = crate::git::start(&repo.project, &repo.place(WorkNumber(12)), "main")
+    let started = crate::git::start(&repo.project, &repo.place(WorkNumber(12)), "main", "main")
         .await
         .unwrap();
     let dir = &started.place.dir;

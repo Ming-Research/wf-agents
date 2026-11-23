@@ -122,6 +122,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
                     title: &name,
                     about: &about,
                     place: &place,
+                    continues: None,
                 };
                 let tools = flow::form::tools(&call.flow);
                 let told = Told {
@@ -411,6 +412,7 @@ mod tests {
             title: "Greet the user",
             about: "",
             place: &place,
+            continues: None,
         };
         let call = Call {
             id: CallId(1),
@@ -549,13 +551,15 @@ mod tests {
     #[tokio::test]
     async fn the_tests_say_whether_they_passed_with_what_they_said() {
         let repo = Repo::new("echo all is well");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         assert_eq!(
             answered(&repo, RUN_TESTS).await,
             "The check `echo all is well` passed. What it said:\nall is well\n"
         );
         let failing = Repo::new("echo it broke; exit 2");
-        git::start(&failing.project, &failing.place(WORK), "main")
+        git::start(&failing.project, &failing.place(WORK), "main", "main")
             .await
             .unwrap();
         let said = answered(&failing, RUN_TESTS).await;
@@ -566,7 +570,9 @@ mod tests {
     #[tokio::test]
     async fn what_the_tests_said_is_given_whole_to_be_kept_whole() {
         let repo = Repo::new("seq 1 3000");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let said = answered(&repo, RUN_TESTS).await;
         assert!(
             said.contains("\n1\n2\n3\n") && said.ends_with("\n2999\n3000\n"),
@@ -580,7 +586,9 @@ mod tests {
         // token for GitHub is one such.
         assert!(std::env::var("CARGO_PKG_NAME").is_ok(), "cargo runs the tests");
         let repo = Repo::new("env");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let said = answered(&repo, RUN_TESTS).await;
         assert!(said.contains("\nHOME=") || said.contains(":\nHOME="), "{said}");
         assert!(!said.contains("CARGO_PKG_NAME="), "{said}");
@@ -612,7 +620,9 @@ mod tests {
     #[tokio::test]
     async fn withdrawn_tests_are_stopped_where_they_run() {
         let repo = Repo::new("sleep 30");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let held: Held<u8, ()> = Held::new();
         let mut stop = held.hold(1, ()).expect("held");
         let began = Instant::now();
@@ -628,6 +638,7 @@ mod tests {
             title: "Greet the user",
             about: "",
             place: &place,
+            continues: None,
         };
         let call = Call {
             id: CallId(1),
@@ -646,7 +657,9 @@ mod tests {
     #[tokio::test]
     async fn the_host_is_asked_by_the_call_and_given_the_name_of_the_works_merge_never_its_items_title() {
         let repo = Repo::new("true");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let host = Fake::new("unused").runs("The tests passed.");
         let tools = Tools::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string(), None);
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow");
@@ -662,6 +675,7 @@ mod tests {
             project: None,
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
         };
         let call = ToolCall {
             work: WORK,
@@ -723,7 +737,9 @@ mod tests {
     #[tokio::test]
     async fn the_host_is_asked_for_what_the_request_names_and_what_it_says_is_the_result() {
         let repo = Repo::new("true");
-        let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         crate::git::tests::commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
         let host = Fake::new("main").runs("ran what was named");
         let input = r#"{"tests": ["a"], "checks": ["lint"]}"#;
@@ -743,7 +759,9 @@ mod tests {
     #[tokio::test]
     async fn tests_whose_project_runs_whole_say_the_names_are_not_run_apart() {
         let repo = Repo::new("echo all is well");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let said = answered_with(&repo, RUN_TESTS, r#"{"tests": ["tools::tests::a"]}"#, &[]).await;
         assert!(
             said.starts_with(
@@ -757,7 +775,9 @@ mod tests {
     #[tokio::test]
     async fn a_commit_named_where_the_check_runs_on_the_worktree_is_refused_and_the_command_is_not_run() {
         let repo = Repo::new("echo all is well");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let said = answered_with(&repo, RUN_TESTS, r#"{"tests": ["a"], "commit": "HEAD"}"#, &[]).await;
         assert_eq!(
             said,

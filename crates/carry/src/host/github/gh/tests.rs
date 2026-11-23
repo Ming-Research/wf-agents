@@ -288,8 +288,20 @@ fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
             body: String::new(),
             draft: true,
             node: "PR_kwDO".to_string(),
+            branch: "work-1-0a1b2c3d".to_string(),
+            from_fork: false,
         }
     );
+    // A pull request whose head is in another repository, or in none that GitHub still has, is from a fork.
+    value["head"]["repo"] = json!({ "full_name": "someone/r" });
+    value["base"]["repo"] = json!({ "full_name": "o/r" });
+    assert!(pull(&value).unwrap().from_fork);
+    value["head"]["repo"] = json!({ "full_name": "o/r" });
+    assert!(!pull(&value).unwrap().from_fork);
+    value["head"]["repo"] = json!(null);
+    assert!(pull(&value).unwrap().from_fork);
+    value["head"] = json!({ "sha": "c0ffee", "ref": "work-1-0a1b2c3d" });
+    value["base"] = json!({ "ref": "next" });
     value["state"] = json!("closed");
     assert_eq!(pull(&value).unwrap().state, State::Closed);
     value["merged_at"] = json!("2026-11-10T12:00:00Z");

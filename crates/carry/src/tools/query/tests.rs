@@ -507,7 +507,7 @@ fn the_real_schema_is_read_table_by_table() {
     );
     assert_eq!(
         items.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
-        ["number", "title", "added", "level", "project"]
+        ["number", "title", "added", "level", "project", "continues"]
     );
     assert!(all.iter().all(|t| !t.columns.is_empty()));
 }

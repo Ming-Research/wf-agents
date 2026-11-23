@@ -73,7 +73,9 @@ fn reading() -> Reading {
 /// A started work.
 async fn started() -> (Repo, Place) {
     let repo = Repo::new("true");
-    let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+    let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+        .await
+        .unwrap();
     (repo, started.place)
 }
 
