@@ -297,7 +297,7 @@ async fn graph(
         Ok(Some(graph)) => Json(graph).into_response(),
         Ok(None) => fail(
             StatusCode::NOT_FOUND,
-            format!("There is no item {}.", store::ItemNumber(item)),
+            format!("There is no item {item}.", item = store::ItemNumber(item)),
         ),
         Err(refusal) => refused(&refusal),
     }

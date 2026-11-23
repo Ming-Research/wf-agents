@@ -180,7 +180,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
             Asked::Text { item, block, whole } => {
                 let items: Items = send(address, Method::GET, "/api/v1/items", None::<&()>).await?;
                 let Some(work) = items.items.iter().find(|i| i.number == item).map(|i| i.work.number) else {
-                    return Err(format!("There is no item {}.", item_number(item)));
+                    return Err(format!("There is no item {item}.", item = item_number(item)));
                 };
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
                 let mut texts = Vec::new();
@@ -1584,15 +1584,15 @@ fn observations_said(page: &ObservationsPage, from: Option<u64>, limit: usize) -
             None => "unread".to_string(),
         };
         lines.push(format!(
-            "O{}, {read}, kept {}: item {} \"{}\", {}, cell {}, run {}, round {}",
+            "O{}, {read}, kept {}: item {item} \"{}\", {}, cell {}, run {}, round {}",
             o.number,
             utc(o.kept),
-            item_number(o.item),
             cut_title(&o.title),
             work_number(o.work),
             o.cell,
             o.run,
-            o.round
+            o.round,
+            item = item_number(o.item),
         ));
         lines.extend(o.text.trim().lines().map(|line| format!("  {line}")));
     }
