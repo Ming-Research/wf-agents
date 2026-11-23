@@ -463,15 +463,23 @@ async fn once_the_worktree_is_gone_a_file_s_diff_is_taken_between_the_base_and_t
 async fn a_diff_over_its_bound_is_cut_at_a_character_with_its_whole_length_said() {
     let (repo, place) = started().await;
     let r = &repo.project.repo;
-    // Each line of the diff is four bytes, one of them a two-byte letter: over a megabyte, with the cut among them.
-    commit(&place.dir, "big.txt", &"é\n".repeat(600_000));
-    let diff = (Known::default().diff(r, MAIN, (WORK, &place), "big.txt").await.unwrap()).expect("changed");
-    assert!(diff.cut.is_some_and(|whole| whole as usize > DIFF), "{:?}", diff.cut);
-    assert!(
-        diff.text.len() <= DIFF && diff.text.len() + 4 > DIFF,
-        "{}",
-        diff.text.len()
-    );
+    // Each line of the diff is four bytes, one of them a two-byte letter: over a megabyte, with the cut among them. Where
+    // in a line the bound falls depends on the length of the diff's head, which holds the path three times; four paths a
+    // letter longer than one another have it fall at each place of a line, one of which is inside the letter.
+    for name in ["big.txt", "bigg.txt", "biggg.txt", "bigggg.txt"] {
+        commit(&place.dir, name, &"é\n".repeat(600_000));
+        let diff = (Known::default().diff(r, MAIN, (WORK, &place), name).await.unwrap()).expect("changed");
+        assert!(
+            diff.cut.is_some_and(|whole| whole as usize > DIFF),
+            "{name}: {:?}",
+            diff.cut
+        );
+        assert!(
+            diff.text.len() <= DIFF && diff.text.len() + 4 > DIFF,
+            "{name}: {}",
+            diff.text.len()
+        );
+    }
 }
 
 #[tokio::test]
