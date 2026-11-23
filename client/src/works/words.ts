@@ -399,6 +399,10 @@ export const WRITE_WORDS = {
   writes: (block: string, value: string): string => `Write ${block} = ${value}`,
 } as const;
 
+/// What the soft light on a section of the Step says, on pointing at it: that the owner was brought to it by a link, in
+/// words that leave out what the engine counts by (decision the-step-names-no-round).
+export const CHOSEN_SECTION = 'Where the link you followed points';
+
 /// What a pointer to a question does, said on pointing at it: the pointer stands in a text, and the question's card
 /// elsewhere in the item's window.
 export const SHOW_QUESTION = 'Show the question this points to';

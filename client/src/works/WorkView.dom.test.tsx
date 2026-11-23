@@ -3,7 +3,7 @@ import '../dom-setup';
 
 import { type ReactNode, act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { age } from '../console/items';
 import { levelWords } from '../marks';
@@ -23,7 +23,7 @@ import {
 import { pauseDiffers } from './marks';
 import { placeSteps } from './placing';
 import { type Source, SourceContext, readerOf } from './source';
-import { NOT_KEPT, clock, duration, ranLast, runTook } from './words';
+import { CHOSEN_SECTION, NOT_KEPT, clock, duration, ranLast, runTook } from './words';
 import { WorkScreen, WorkView } from './WorkView';
 import { WorksList, WorksTable } from './WorksList';
 
@@ -33,6 +33,7 @@ afterEach(() => {
   unmounts = [];
   document.body.innerHTML = '';
   localStorage.clear();
+  vi.restoreAllMocks();
 });
 
 /// A promise kept apart, answered when the test says.
@@ -586,6 +587,142 @@ describe("the Step of the work's item window", () => {
     const { page } = await drawWork(42);
     await click(button(page.querySelector('aside') as HTMLElement, 'Step'));
     expect(step(page).textContent).toContain(began(42, 2));
+  });
+
+  /// The work's first run, which ran its cell twice, and the number of its second time.
+  const twice = () => {
+    const page = fixtureWork(41);
+    const run = page.steps.find((s) => s.kind === 'run');
+    if (run?.kind !== 'run' || run.rounds.length < 2) throw new Error('the first run did not run twice');
+    return { page, run: run.run, second: run.rounds[1].number };
+  };
+
+  /// Draws the work where it can be drawn again with other props, as the page does as the address changes.
+  function drawAgain(source = fixtureSource()) {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    const render = (element: ReactNode) =>
+      act(() => root.render(<SourceContext.Provider value={source}>{element}</SourceContext.Provider>));
+    unmounts.push(() => act(() => root.unmount()));
+    return { container, render };
+  }
+
+  it('shows the round the address names open and lit under the run chosen, and scrolls to it once for each time the address names it', async () => {
+    const { page, run, second } = twice();
+    // Kept folded by the owner: a round the address names is open all the same.
+    localStorage.setItem('console-window-folded', JSON.stringify(['Ran again']));
+    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const { container, render } = drawAgain();
+    const work = (props: { round?: number; active?: boolean }) => (
+      <WorkScreen page={page} onActed={() => undefined} run={run} {...props} />
+    );
+    render(work({ round: second }));
+    await settle();
+    expect(container.querySelector('aside [role="tab"][aria-selected="true"]')?.textContent).toBe('Step');
+    expect(runRows(container)[0].classList.contains('chosen')).toBe(true);
+    // The first time is not lit, the second is, open, and says what its light is without a word of round.
+    const lit = [...container.querySelectorAll<HTMLElement>('section.cw-fold-chosen')];
+    expect(lit).toHaveLength(1);
+    expect(lit[0].querySelector('.cw-fold-head')?.textContent).toMatch(/^Ran again/);
+    expect(lit[0].querySelector('.cw-fold-head')?.getAttribute('aria-expanded')).toBe('true');
+    expect(lit[0].getAttribute('title')).toBe(CHOSEN_SECTION);
+    expect(CHOSEN_SECTION).not.toMatch(/round/i);
+    expect(lit[0].querySelector('.cw-fold-head')?.getAttribute('title')).toBeNull();
+    const scrolledTo = (section: Element | null) => scrolled.mock.contexts.filter((c) => c === section).length;
+    expect(scrolledTo(lit[0])).toBe(1);
+    // Drawn again, the Step left and come back to, the window put away and out, the view hidden and shown: the owner's
+    // place stays where he left it.
+    render(work({ round: second }));
+    render(work({ round: second, active: false }));
+    render(work({ round: second }));
+    await settle();
+    const tab = (name: string) =>
+      [...container.querySelectorAll<HTMLElement>('aside [role="tab"]')].find((t) => t.textContent === name);
+    await click(tab('Item'));
+    await click(tab('Step'));
+    const again = container.querySelector<HTMLElement>('section.cw-fold-chosen');
+    expect(again).not.toBeNull();
+    expect(scrolledTo(lit[0])).toBe(1);
+    expect(scrolledTo(again)).toBe(0);
+    // A round the run has not is no light, and the run is chosen all the same.
+    render(work({ round: 99 }));
+    await settle();
+    expect(container.querySelector('section.cw-fold-chosen')).toBeNull();
+    expect(runRows(container)[0].classList.contains('chosen')).toBe(true);
+    // The address naming the round again is a new time of its being named: the Step is scrolled to it once more.
+    render(work({ round: second }));
+    await settle();
+    expect(scrolledTo(container.querySelector('section.cw-fold-chosen'))).toBe(1);
+  });
+
+  it('has the section open when it is scrolled to, though it was drawn folded before the address named it', async () => {
+    const { page, run, second } = twice();
+    localStorage.setItem('console-window-folded', JSON.stringify(['Ran again']));
+    // What the section shows at the moment it is scrolled to: its body is drawn only while it is open.
+    const open: boolean[] = [];
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+      if (this.classList.contains('cw-fold-chosen')) open.push(this.querySelector('.cw-fold-body') !== null);
+    });
+    const { container, render } = drawAgain();
+    const work = (props: { round?: number }) => (
+      <WorkScreen page={page} onActed={() => undefined} run={run} {...props} />
+    );
+    render(work({}));
+    await settle();
+    // The run is chosen and its Step drawn, the round kept folded: no light, no scroll.
+    const ranAgain = () =>
+      [...container.querySelectorAll<HTMLElement>('.cw-fold-head')].find((h) => h.textContent?.startsWith('Ran again'));
+    expect(ranAgain()?.getAttribute('aria-expanded')).toBe('false');
+    expect(open).toEqual([]);
+    render(work({ round: second }));
+    await settle();
+    expect(open).toEqual([true]);
+    expect(ranAgain()?.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('follows the address as it changes, choosing the run it names and bringing the window out on its Step, and lights nothing for another run', async () => {
+    const { page, run, second } = twice();
+    const { container, render } = drawAgain();
+    const work = (props: { run?: number; round?: number }) => (
+      <WorkScreen page={page} onActed={() => undefined} {...props} />
+    );
+    render(work({}));
+    await settle();
+    expect(runRows(container).some((r) => r.classList.contains('chosen'))).toBe(false);
+    render(work({ run, round: second }));
+    await settle();
+    expect(runRows(container)[0].classList.contains('chosen')).toBe(true);
+    expect(container.querySelectorAll('section.cw-fold-chosen')).toHaveLength(1);
+    // Another run named: its row is chosen and the first run's light is out.
+    render(work({ run: 3 }));
+    await settle();
+    expect(runRows(container).map((r) => r.classList.contains('chosen'))).toEqual(
+      runRows(container).map((_, i) => i === 2),
+    );
+    expect(container.querySelector('section.cw-fold-chosen')).toBeNull();
+    // No run named: the row is let go.
+    render(work({}));
+    await settle();
+    expect(runRows(container).some((r) => r.classList.contains('chosen'))).toBe(false);
+  });
+
+  it('writes the address of the row the owner chooses, and of none when it is let go, and the light goes out', async () => {
+    const { page, run, second } = twice();
+    const { container, render } = drawAgain();
+    render(<WorkScreen page={page} onActed={() => undefined} run={run} round={second} />);
+    await settle();
+    expect(container.querySelectorAll('section.cw-fold-chosen')).toHaveLength(1);
+    // Another row chosen: the address says it, with no round, so a link to the round is another address.
+    await chooseRun(container, 2);
+    expect(window.location.hash).toBe('#/works/41/runs/3');
+    expect(container.querySelector('section.cw-fold-chosen')).toBeNull();
+    render(<WorkScreen page={page} onActed={() => undefined} run={3} />);
+    await settle();
+    expect(container.querySelector('section.cw-fold-chosen')).toBeNull();
+    // The same row pressed again lets it go.
+    await chooseRun(container, 2);
+    expect(window.location.hash).toBe('#/works/41');
   });
 
   it('shows why a return was sent back, and a way round', async () => {
