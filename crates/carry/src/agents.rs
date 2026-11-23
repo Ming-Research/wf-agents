@@ -1020,7 +1020,7 @@ impl Inner {
         refusing: bool,
     ) -> Command {
         let agents = &self.settings.agents;
-        let mut command = Command::new(&agents.command);
+        let mut command = crate::programs::command(&agents.command);
         let compact = self.settings.sessions.compact_at;
         let args = cli::arguments(
             agents,
@@ -1039,7 +1039,12 @@ impl Inner {
         command
             .args(args)
             .env_clear()
-            .envs(cli::environment(agents, &profile, std::env::vars(), token))
+            .envs(cli::environment(
+                agents,
+                &profile,
+                crate::programs::engine().iter().cloned(),
+                token,
+            ))
             .current_dir(dir);
         command
     }
@@ -1854,12 +1859,17 @@ impl Inner {
             Begin::Resume,
         );
         let of = crate::projects::of(&self.projects, &fork.item)?;
-        let mut command = Command::new(&agents.command);
+        let mut command = crate::programs::command(&agents.command);
         let profile = account::profile(&self.data);
         command
             .args(cli::forked(round, begins))
             .env_clear()
-            .envs(cli::environment(agents, &profile, std::env::vars(), token))
+            .envs(cli::environment(
+                agents,
+                &profile,
+                crate::programs::engine().iter().cloned(),
+                token,
+            ))
             .current_dir(dir);
         // The program counts a session it goes on with from all it cost, whatever message the fork begins at.
         let line_of = |cell: &CellId| fork.outline.cell(cell).and_then(|c| c.line.clone());
