@@ -10,7 +10,8 @@ fn a_return_handed_in_during_a_pause_finishes_the_run_and_the_next_cells_round_w
     assert_eq!(
         w.on(Event::Paused {
             by: Pauser::Owner,
-            why: None
+            why: None,
+            waits_for: Vec::new(),
         }),
         vec![]
     );
@@ -38,6 +39,7 @@ fn a_judge_whose_round_ends_during_a_pause_finishes_and_once_let_on_the_writer_r
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     let (effects, r2) = w.person_writes("request");
     assert_eq!(effects, vec![]);
@@ -65,6 +67,7 @@ fn calls_asked_for_during_a_pause_are_made_and_the_round_given_their_results_wai
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     let calls = calls_of(&w.returns(write, Came::asks(vec![tool("a")])));
     assert_eq!(
@@ -86,6 +89,7 @@ fn a_return_sent_back_during_a_pause_is_given_back_once_the_work_is_let_on() {
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     assert_eq!(w.returns(write, wanting()), vec![]);
     assert_eq!(
@@ -102,6 +106,7 @@ fn the_owner_is_asked_at_a_limit_during_a_pause() {
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     let calls = calls_of(&w.returns(write, wanting()));
     assert_eq!(
@@ -117,6 +122,7 @@ fn a_cell_that_waits_for_a_calls_result_during_a_pause_is_entered_for_it_and_wha
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     let (effects, request) = w.person_writes("request");
     assert_eq!(effects, vec![]);
@@ -146,6 +152,7 @@ fn the_engine_pausing_a_work_with_a_reason_as_its_round_ends_lets_the_return_be_
     let paused = Event::Paused {
         by: Pauser::Engine,
         why: Some("The work spent more than it may.".to_string()),
+        waits_for: Vec::new(),
     };
     assert_eq!(w.on(paused), vec![]);
     assert_eq!(w.returns(write, hands_in(&[("text", None)])), vec![]);
@@ -170,6 +177,7 @@ fn the_engines_pause_of_a_work_that_has_ended_adds_nothing() {
     let paused = Event::Paused {
         by: Pauser::Engine,
         why: Some("The work spent more than it may.".to_string()),
+        waits_for: Vec::new(),
     };
     let before = w.work.records.clone();
     assert_eq!(w.on(paused), vec![]);

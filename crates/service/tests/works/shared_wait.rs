@@ -25,7 +25,7 @@ async fn waiting(trial: &mut Trial) -> store::WorkNumber {
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     trial.step().await.unwrap();
     assert!(trial.service.driver().outage().is_some(), "the wait stands");
     work
@@ -79,7 +79,7 @@ async fn two_works_held_by_the_wait_both_go_on_by_the_loops_timer_whatever_comes
         while !ended(&trial) {
             for work in [held, busy] {
                 if trial.owners_call(work).is_some() {
-                    trial.answer(work, "Yes, by name.");
+                    trial.let_go_on(work);
                 }
             }
             assert!(trial.step().await.is_some(), "{failure}: nothing more comes");

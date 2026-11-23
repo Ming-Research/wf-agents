@@ -586,6 +586,7 @@ impl World {
             at,
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         });
     }
 
@@ -597,6 +598,7 @@ impl World {
             at,
             by: Pauser::Engine,
             why: Some(why.to_string()),
+            waits_for: Vec::new(),
         });
     }
 
@@ -615,6 +617,7 @@ impl World {
             at,
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         });
     }
 

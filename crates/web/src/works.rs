@@ -502,12 +502,18 @@ pub enum Now {
     },
     /// It is paused at this cell, by the owner, or by the engine itself for this reason, as when a round failed: what
     /// it would do next is begin a round there, or, where it is stalled and its own pause holds it, it stands there. An
-    /// engine of a build before the cell was said gives none, read as empty.
+    /// engine of a build before the cell was said gives none, read as empty. The owner's pause may say why, and the
+    /// items it waits for to merge or be cancelled, `waits_for`, of which `open` are those that have not yet: with
+    /// `waits_for` and no `open`, what it waited for is over, and only the owner lets the work on.
     Paused {
         #[serde(default)]
         at: String,
         by: Pauser,
         why: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        waits_for: Vec<u64>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        open: Vec<u64>,
     },
     /// The pause of everything holds it back, and what it would do next is begin a round at this cell; its own pause
     /// does not hold it. `by` is who set it: the owner, or the engine as it started with works going on, which holds
@@ -1827,8 +1833,15 @@ pub enum Act {
     },
     /// Lets the cell go on at its limit.
     LetGo { cell: String },
-    /// Pauses the work.
-    Pause {},
+    /// Lets the run at its limit go on, as the engine's own result of this call.
+    GoOn { call: u64 },
+    /// Pauses the work, saying why where the owner will, and the items the pause waits for to merge or be cancelled.
+    Pause {
+        #[serde(default)]
+        why: Option<String>,
+        #[serde(default)]
+        waits_for: Vec<u64>,
+    },
     /// Lets the work on again.
     Resume {},
     /// Cancels the work's item, saying why where a reason is given, such as the item it was joined into.
@@ -1836,7 +1849,8 @@ pub enum Act {
         #[serde(default)]
         why: Option<String>,
     },
-    /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
+    /// Gives a call that waits for a person its result: a person's answer to a question put to them. A run at its
+    /// limit is let go on, which gives it no words.
     Result { call: u64, result: String },
     /// Answers a version of a question, the one the page shows, by its number among the versions of its cell's
     /// questions, taking an option, counted from one, and nothing else.
@@ -1954,6 +1968,12 @@ pub struct NewItem {
     pub flow: String,
     /// What is written for it as it is added, each a block people write.
     pub writes: Vec<NewWrite>,
+    /// Why its work is paused as it is added, where whoever adds it says.
+    #[serde(default)]
+    pub why: Option<String>,
+    /// The items its work's pause waits for to merge or be cancelled, where whoever adds it says.
+    #[serde(default)]
+    pub waits_for: Vec<u64>,
 }
 
 /// The engine as a whole: its slots, the pause of everything, and the stop it was asked for.
@@ -2158,6 +2178,7 @@ impl Summary {
             &every.outages,
             along,
             &driver.items_waited_for(number),
+            &driver.items_paused_for(number),
         )?;
         // The cell the work waits at for a tool's call the engine runs.
         let calling = match &now {
@@ -2500,6 +2521,7 @@ impl Now {
         outages: &Outages,
         along: &[(Under, &Along)],
         waited_for: &[ItemNumber],
+        paused_for: &[ItemNumber],
     ) -> Result<Now, Broken> {
         let work = kept.work;
         // Held by the pause of everything, which holds while the driver says it holds the work.
@@ -2564,10 +2586,10 @@ impl Now {
                 }
             }
             Decision::Paused { cell } if held == Some(Holder::Everything) => everything(cell)?,
-            Decision::Paused { cell } => Now::paused(work, cell)?,
+            Decision::Paused { cell } => Now::paused(work, cell, paused_for)?,
             // A run at rest that goes on holds its next round while something holds it back: the engine leaves a work
             // so only then, as when the run's last round failed and the work was paused.
-            Decision::GoOn { cell, .. } if held == Some(Holder::Pause) => Now::paused(work, cell)?,
+            Decision::GoOn { cell, .. } if held == Some(Holder::Pause) => Now::paused(work, cell, paused_for)?,
             Decision::GoOn { cell, .. } if held == Some(Holder::Everything) => everything(cell)?,
             // A cell that would run or go on, and does not, is held by the stop of the engine where one stands, else by
             // the wait every work shares, where it holds now and holds the cell's rounds: the engine leaves a work so
@@ -2628,7 +2650,7 @@ impl Now {
             | Decision::Hurry { cell, .. }
             | Decision::Abandon { cell, .. } => Now::Next { cell: cell.to_string() },
             // A stalled work that its own pause holds is shown paused: it is the pauser's to let on.
-            Decision::Stalled { at, .. } if decide::paused(&work.records) => Now::paused(work, at)?,
+            Decision::Stalled { at, .. } if decide::paused(&work.records) => Now::paused(work, at, paused_for)?,
             Decision::Stalled { at, on, by } => {
                 let on: Vec<CellKey> = (on.iter())
                     .map(|key| key_of(&kept, key))
@@ -2661,13 +2683,16 @@ impl Now {
         })
     }
 
-    /// The work's pause at the cell it would go on at, with who paused it and why.
-    pub(crate) fn paused(work: &Work, at: &CellId) -> Result<Now, Broken> {
+    /// The work's pause at the cell it would go on at, with who paused it, why, and the items it waits for, `open`
+    /// being those of them that have not merged or been cancelled.
+    pub(crate) fn paused(work: &Work, at: &CellId, open: &[ItemNumber]) -> Result<Now, Broken> {
         let pause = decide::pause(&work.records).ok_or_else(|| Broken("the work has no pause".to_string()))?;
         Ok(Now::Paused {
             at: at.to_string(),
             by: Pauser::of(pause.by),
             why: pause.why.clone(),
+            waits_for: pause.waits_for.clone(),
+            open: open.iter().map(|item| item.0).collect(),
         })
     }
 }
@@ -3173,7 +3198,11 @@ impl Act {
                 value,
             },
             Act::LetGo { cell } => service::Act::LetGo { cell: CellId(cell) },
-            Act::Pause {} => service::Act::Pause,
+            Act::GoOn { call } => service::Act::GoOn { call: CallId(call) },
+            Act::Pause { why, waits_for } => service::Act::Pause {
+                why,
+                waits_for: waits_for.into_iter().map(ItemNumber).collect(),
+            },
             Act::Resume {} => service::Act::Resume,
             Act::Cancel { why } => service::Act::Cancel { why },
             Act::Result { call, result } => service::Act::Result {
@@ -3222,6 +3251,8 @@ impl NewItem {
                     value: write.value,
                 })
                 .collect(),
+            why: self.why,
+            waits_for: self.waits_for.into_iter().map(ItemNumber).collect(),
         })
     }
 }

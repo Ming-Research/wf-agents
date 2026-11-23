@@ -1,7 +1,7 @@
 //! What needs whoever plans the work since a mark (`driver::attention`): a work that ended, one that waits on the owner,
-//! one that is stalled, and one that waits for items none of which is going on, each once from the mark after it came to stand so, since the
-//! time it did; never a work going on; the same answer for the same mark, a restart between or not; at most a number
-//! of lines, the rest coming again.
+//! one that is stalled, one that waits for items none of which is going on, and one the owner paused for items that
+//! have all ended, each once from the mark after it came to stand so, since the time it did; never a work going on; the
+//! same answer for the same mark, a restart between or not; at most a number of lines, the rest coming again.
 
 use driver::Asked;
 use driver::attention::{Attention, Heed, Idle, LINES, Line, Mark, Refused, Stuck};
@@ -116,7 +116,14 @@ fn the_engine_pausing_a_work_for_its_reason_is_a_line_and_the_owner_pausing_one_
         (by_owner, Pauser::Owner, None),
     ] {
         h.let_on(work);
-        h.on(work, Event::Paused { by, why });
+        h.on(
+            work,
+            Event::Paused {
+                by,
+                why,
+                waits_for: Vec::new(),
+            },
+        );
         // Its round under way, the work goes on until the round ends.
         let heeds = heeds(&since(&h, Some(&mark)));
         assert!(!heeds.contains(&Heed::ForAPerson { work }), "{heeds:?}");
@@ -234,6 +241,7 @@ fn a_work_waiting_for_an_item_nobody_lets_on_is_idle_and_again_when_that_item_st
         Event::Paused {
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         },
     );
     // Its round under way, the item goes on until the round ends.
@@ -691,6 +699,7 @@ fn a_work_the_engine_paused_while_it_waits_for_a_tool_rests_for_a_person_from_th
         Event::Paused {
             by: Pauser::Engine,
             why: Some("it spent more than it may".to_string()),
+            waits_for: Vec::new(),
         },
     );
     assert!(matches!(h.decision(w), Decision::Wait { .. }), "{:?}", h.decision(w));
@@ -732,4 +741,156 @@ fn the_owners_pause_of_everything_is_one_line_about_no_work_and_leaves_no_work_i
         vec![Heed::Everything { by: Pauser::Owner }],
         "a later pause is given again"
     );
+}
+
+/// The heeds of the answer's lines that say a pause is over.
+fn over(attention: &Attention) -> Vec<Heed> {
+    (attention.lines.iter())
+        .map(|line| line.heed.clone())
+        .filter(|heed| matches!(heed, Heed::PauseOver { .. }))
+        .collect()
+}
+
+// The owner's pause that waited for items is a line once each has merged or been cancelled, since the time the last did:
+// not while one has not, not again from the mark after it, and not once the owner lets the work on.
+#[test]
+fn the_owners_pause_that_waited_for_items_is_a_line_once_each_has_ended_and_never_again_or_after_it_is_lifted() {
+    let mut h = H::new();
+    let (a, _) = h.add(new_item("a", &[], "plain"));
+    let (b, _) = h.add(new_item("b", &[], "plain"));
+    let (_, wc) = h.add(new_item("c", &[], "plain"));
+    h.on(
+        wc,
+        Event::Paused {
+            by: Pauser::Owner,
+            why: Some("after a and b".to_string()),
+            waits_for: vec![a.0, b.0],
+        },
+    );
+    let first = since(&h, None);
+    assert_eq!(over(&first), vec![], "nothing it waits for has ended");
+    h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
+    let one = since(&h, Some(&first.mark));
+    assert_eq!(over(&one), vec![], "one of the two has ended");
+    h.changes(vec![(b, Asked::Cancel)]).expect("b is cancelled");
+    let ended = Time(h.clock);
+    let both = since(&h, Some(&one.mark));
+    assert_eq!(
+        over(&both),
+        vec![Heed::PauseOver {
+            work: wc,
+            items: vec![a, b]
+        }]
+    );
+    let line = both
+        .lines
+        .iter()
+        .find(|line| matches!(line.heed, Heed::PauseOver { .. }));
+    assert_eq!(line.map(|line| line.since), Some(ended));
+    assert_eq!(over(&since(&h, Some(&both.mark))), vec![], "it is given once");
+    assert_eq!(
+        over(&since(&h, None)).len(),
+        1,
+        "with no mark, what stands now is given"
+    );
+    h.let_on(wc);
+    assert_eq!(over(&since(&h, None)), vec![], "let on, its pause waits for nothing");
+}
+
+// A pause that is over is given again to the same mark after the driver is opened again, and those past the most lines
+// of an answer come at the next mark, each work once: the line is read from the records, and the mark counts the records.
+#[test]
+fn a_pause_that_is_over_is_given_again_to_the_same_mark_after_a_restart_and_those_past_the_most_come_at_the_next() {
+    let mut h = H::new();
+    let (a, _) = h.add(new_item("a", &[], "plain"));
+    let waiting: Vec<WorkNumber> = (0..LINES + 2)
+        .map(|i| {
+            let (_, work) = h.add(new_item(&format!("item {i}"), &[], "plain"));
+            h.on(
+                work,
+                Event::Paused {
+                    by: Pauser::Owner,
+                    why: None,
+                    waits_for: vec![a.0],
+                },
+            );
+            work
+        })
+        .collect();
+    let mark = since(&h, None).mark;
+    h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
+    let works = |attention: &Attention| -> Vec<WorkNumber> {
+        over(attention)
+            .into_iter()
+            .filter_map(|heed| match heed {
+                Heed::PauseOver { work, .. } => Some(work),
+                _ => None,
+            })
+            .collect()
+    };
+    let first = since(&h, Some(&mark));
+    // The cancelled item may be a line of its own beside the pauses that waited for it.
+    assert_eq!(first.lines.len(), LINES);
+    assert!(first.left_out >= 2, "{}", first.left_out);
+    h.restart();
+    let again = since(&h, Some(&mark));
+    assert_eq!(
+        works(&again),
+        works(&first),
+        "the same mark gives the same lines after a restart"
+    );
+    assert_eq!(again.left_out, first.left_out);
+    assert_eq!(again.mark, first.mark);
+    let rest = since(&h, Some(&first.mark));
+    assert_eq!(rest.left_out, 0);
+    let mut every: Vec<WorkNumber> = works(&first);
+    every.extend(works(&rest));
+    every.sort();
+    assert_eq!(
+        every, waiting,
+        "each work is given once, those past the most at the next mark"
+    );
+    assert_eq!(over(&since(&h, Some(&rest.mark))), vec![]);
+}
+
+// A pause for items that have ended already is over as it is made: it is a line at once, as is a pause that names none
+// but is given again, which is no line.
+#[test]
+fn a_pause_for_items_that_ended_already_is_a_line_at_once_and_one_that_waits_for_none_is_not() {
+    let mut h = H::new();
+    let (a, _) = h.add(new_item("a", &[], "plain"));
+    let (_, wb) = h.add(new_item("b", &[], "plain"));
+    let (_, wc) = h.add(new_item("c", &[], "plain"));
+    h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
+    let mark = since(&h, None).mark;
+    h.on(
+        wb,
+        Event::Paused {
+            by: Pauser::Owner,
+            why: None,
+            waits_for: vec![a.0],
+        },
+    );
+    let paused = Time(h.clock);
+    h.on(
+        wc,
+        Event::Paused {
+            by: Pauser::Owner,
+            why: Some("for a reason alone".to_string()),
+            waits_for: Vec::new(),
+        },
+    );
+    let answer = since(&h, Some(&mark));
+    assert_eq!(
+        over(&answer),
+        vec![Heed::PauseOver {
+            work: wb,
+            items: vec![a]
+        }]
+    );
+    let line = answer
+        .lines
+        .iter()
+        .find(|line| matches!(line.heed, Heed::PauseOver { .. }));
+    assert_eq!(line.map(|line| line.since), Some(paused));
 }

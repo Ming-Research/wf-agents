@@ -914,11 +914,13 @@ export type Act =
   /// Writes a block people write: what the item is about, an opinion for a cell, a choice (with its value).
   | { kind: 'write'; block: string; content: string; value: string | null }
   | { kind: 'letGo'; cell: string }
+  /// Lets the run at its limit go on, as the engine's own result of this call, which takes no words.
+  | { kind: 'goOn'; call: number }
   | { kind: 'pause' }
   | { kind: 'resume' }
   /// Cancels the work's item, saying why where a reason is given, such as the item it was joined into.
   | { kind: 'cancel'; why?: string | null }
-  /// Gives a call that waits for a person its result.
+  /// Gives a call that waits for a person its result: the answer to a question put to them.
   | { kind: 'result'; call: number; result: string }
   /// Answers a version of a question, by its number, taking an option counted from one, and nothing else.
   | { kind: 'answer'; question: string; version: number; option: number }

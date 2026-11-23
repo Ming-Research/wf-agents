@@ -387,7 +387,7 @@ describe('the cards of what waits for the owner', () => {
     // The engine's pause is lifted by Resume, which no switch of the owner's own pause is named.
     expect(labels).toEqual(['Let it go on', 'Let it go on', 'Resume']);
     expect(sent).toEqual([
-      { kind: 'result', call: 4, result: 'go on' },
+      { kind: 'goOn', call: 4 },
       { kind: 'letGo', cell: 'plan' },
       { kind: 'resume' },
     ]);

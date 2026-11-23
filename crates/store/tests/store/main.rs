@@ -496,10 +496,12 @@ fn history(d: &mut Driver) {
     d.end(Came::asks(vec![tool("b"), tool("c")]));
     d.answer();
     d.end(hands_in(&[("text", None)]));
-    // The judge asks for a tool during a pause: the call is made, and entering it again waits for the resume.
+    // The judge asks for a tool during a pause that says why and the items it waits for: the call is made, and entering
+    // it again waits for the resume.
     d.on(Event::Paused {
         by: Pauser::Owner,
-        why: None,
+        why: Some("After the base.".to_string()),
+        waits_for: vec![12, 14],
     });
     d.end(Came::asks(vec![tool("f")]));
     d.answer();

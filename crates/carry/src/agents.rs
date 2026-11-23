@@ -2569,6 +2569,7 @@ mod tests {
             at: Seq(at),
             by,
             why: None,
+            waits_for: Vec::new(),
         }
     }
 

@@ -4,9 +4,10 @@
 //! the planner gives: it ended, merged or cancelled; it waits on the owner, for what the one definition of that names
 //! ([`crate::owner`]), the engine's pause among it, and a work that ended and could not let go of what it held, which
 //! the engine paused saying why; it is stalled, no cell able to write what it waits for; it waits for items none of
-//! which is going on; or its records cannot be those of a work. A work going on from one cell to the next is nothing
-//! for the planner, and neither is one the owner paused, which shows only as the reason why a work waiting for it is
-//! idle. One line is about no work: the wait every work shares, while no agent's round begins; a work whose round it
+//! which is going on; its owner's pause waited for items, each of which has merged or been cancelled; or its records
+//! cannot be those of a work. A work going on from one cell to the next is nothing for the planner, and neither is one
+//! the owner paused, which shows only as the reason why a work waiting for it is idle, unless what its pause waited for
+//! is over. One line is about no work: the wait every work shares, while no agent's round begins; a work whose round it
 //! holds is going on. So is the pause of everything, the owner's or the engine's as it started with works going on,
 //! its own line about no work, under which every work is read as if it did not hold: a work held by it alone goes on,
 //! and is no reason for another to be idle. A wait for a slot is going on.
@@ -67,6 +68,9 @@ pub enum Heed {
     Stalled { work: WorkNumber },
     /// The work waits for these items, none of which is going on.
     Idle { work: WorkNumber, items: Vec<Idle> },
+    /// The owner's pause of the work waited for these items to merge or be cancelled, and each has: the pause holds
+    /// the work still, and only the owner lets it on.
+    PauseOver { work: WorkNumber, items: Vec<ItemNumber> },
     /// The work ended.
     Ended { work: WorkNumber, end: End },
 }
@@ -341,6 +345,7 @@ fn work_of(heed: &Heed) -> Option<WorkNumber> {
         | Heed::ForAPerson { work }
         | Heed::Stalled { work }
         | Heed::Idle { work, .. }
+        | Heed::PauseOver { work, .. }
         | Heed::Ended { work, .. } => Some(*work),
     }
 }
@@ -432,7 +437,11 @@ impl Reader<'_> {
                     end: *end,
                 },
             ),
-            Standing::PausedByOwner { .. } | Standing::Going => return None,
+            Standing::PausedByOwner { .. } => {
+                let items = self.pause_over(number)?;
+                (4, Heed::PauseOver { work: number, items })
+            }
+            Standing::Going => return None,
         };
         if !self.came_since_the_mark(number) {
             return None;
@@ -448,7 +457,7 @@ impl Reader<'_> {
 
     /// Whether the work came to stand as it does since the mark: an idle work, also where an item it waits for
     /// stopped going on since, or one it waited for merged or was cancelled since and left it waiting for items that
-    /// stood still before.
+    /// stood still before; a work whose pause waited for items, once the last of them merged or was cancelled since.
     fn came_since_the_mark(&self, number: WorkNumber) -> bool {
         let unread =
             |number: &WorkNumber| (self.unread[number]).is_some_and(|from| self.began(*number, from).is_some());
@@ -456,7 +465,8 @@ impl Reader<'_> {
             return true;
         }
         let Some(Some(items)) = self.idle.get(&number) else {
-            return false;
+            // A pause that waited for items is over once the last of them ended since the mark.
+            return self.ended_paused_for(number).any(|on| unread(&on));
         };
         let stopped = (items.iter()).any(|idle| {
             let on = self.of_item[&idle.item];
@@ -474,13 +484,40 @@ impl Reader<'_> {
     fn since(&self, number: WorkNumber) -> Time {
         let own = self.began(number, Seq(0)).map_or(Time::default(), |moment| moment.at);
         let Some(Some(items)) = self.idle.get(&number) else {
-            return own;
+            // A pause that waited for items was not over before the last of them ended.
+            return (self.ended_paused_for(number).map(|on| self.since(on))).fold(own, Time::max);
         };
         let ended = self.ended_waited_for(number).map(|on| self.since(on));
         (items.iter())
             .map(|idle| self.since(self.of_item[&idle.item]))
             .chain(ended)
             .fold(own, Time::max)
+    }
+
+    /// The items, by their numbers, the work's pause waits for, where the owner paused it.
+    fn pause_items(&self, number: WorkNumber) -> Vec<u64> {
+        match self.standing.get(&number) {
+            Some(Standing::PausedByOwner { .. }) => (decide::pause(&self.works[&number].work.records))
+                .map_or_else(Vec::new, |pause| pause.waits_for.clone()),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The works of the items the work's pause waits for that merged or were cancelled.
+    fn ended_paused_for(&self, number: WorkNumber) -> impl Iterator<Item = WorkNumber> + '_ {
+        (self.pause_items(number).into_iter())
+            .filter_map(|item| self.of_item.get(&ItemNumber(item)).copied())
+            .filter(|on| matches!(self.standing[on], Standing::Ended(_)))
+    }
+
+    /// The items the owner's pause of the work waited for, where it waited for some and each has merged or been
+    /// cancelled; an item with no work goes on, as it does for an item that waits for it.
+    fn pause_over(&self, number: WorkNumber) -> Option<Vec<ItemNumber>> {
+        let items = self.pause_items(number);
+        let open = (items.iter())
+            .filter_map(|item| self.of_item.get(&ItemNumber(*item)))
+            .any(|on| !matches!(self.standing[on], Standing::Ended(_)));
+        (!items.is_empty() && !open).then(|| items.into_iter().map(ItemNumber).collect())
     }
 
     /// The works of the items the work's item depends on that merged or were cancelled, which it waits for no more.

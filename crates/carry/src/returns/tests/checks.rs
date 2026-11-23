@@ -314,6 +314,7 @@ fn entered(flow: &Compiled, spoken: bool) -> (Work, RunId) {
         Event::Paused {
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         },
         written("request"),
     ] {

@@ -27,7 +27,7 @@ async fn waiting(trial: &mut Trial) -> store::WorkNumber {
         }
         trial.step().await.expect("the loop goes on");
     }
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     for _ in 0..10 {
         if trial.service.driver().outage().is_some() {
             break;

@@ -278,6 +278,7 @@ impl Part for Shape {
                     Event::Paused {
                         by: Pauser::Owner,
                         why: None,
+                        waits_for: Vec::new(),
                     }
                 }
             }

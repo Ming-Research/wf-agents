@@ -62,6 +62,20 @@ impl fmt::Display for Refusal {
                     call = call.0
                 )
             }
+            Refusal::AtItsLimit(call) => {
+                write!(
+                    f,
+                    "Call {call} is a run at its limit: it is let go on and takes no words, and words are said to its cell.",
+                    call = call.0
+                )
+            }
+            Refusal::NotAtItsLimit(call) => {
+                write!(
+                    f,
+                    "Call {call} is no run at its limit, which is all that is let go on.",
+                    call = call.0
+                )
+            }
             Refusal::NotKept(why) => f.write_str(&sentence(&format!("no account was added: {why}"))),
             Refusal::Closed(why) => f.write_str(&sentence(&format!("no account can be added or taken: {why}"))),
             Refusal::Gone => f.write_str("The engine is not running."),
@@ -83,6 +97,9 @@ fn failed_words(failed: &Failed) -> String {
             format!("{}; so none of the changes was made", said.join("; "))
         }
         Failed::BlankTitle => blank_title().to_string(),
+        Failed::WaitsForItself(item) => {
+            format!("a pause cannot wait for item {item} of its own work, which would wait for ever")
+        }
         Failed::BadTag(tag) => bad_tag(tag),
         Failed::BadContinues(continues) => bad_continues(continues),
         Failed::NoStart(flow) => no_start(flow),
