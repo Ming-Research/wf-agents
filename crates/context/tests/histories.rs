@@ -225,7 +225,7 @@ impl History {
 
     fn step(&mut self, reached: &mut Reached) {
         let roll = self.rng.below(100);
-        if roll < 14 {
+        if roll < 22 {
             let blocks = [
                 "request", "notes", "tree", "plan", "opinions", "finish", "finish", "verdict", "verdict",
             ];
@@ -238,7 +238,7 @@ impl History {
                 }
                 _ => self.sim.writes(block, &content),
             }
-        } else if roll < 18 {
+        } else if roll < 26 {
             let line = if self.rng.chance(50) { "engineer" } else { "reviewer" };
             self.sim.anew(line, Why::Owner);
             self.lines.insert(line.to_string(), Held::default());
@@ -332,7 +332,7 @@ impl History {
     /// What the round returns: a tool asked for in one in ten, the review's verdict left out in one in seven, and
     /// otherwise each block the cell writes with a chance of seven in ten, those it must write every time.
     fn came(&mut self, round: &Round) -> Came {
-        if self.rng.chance(10) {
+        if self.rng.chance(15) {
             // A tool run on something, a tool run on nothing, or a question for the owner.
             let ask = match self.rng.below(4) {
                 0 | 1 => Ask::Tool {
@@ -371,8 +371,13 @@ impl History {
                 });
             }
         }
-        // A block the cell may not write is handed in beside the rest in one return of twenty-five, which is sent back.
-        if self.rng.chance(4) {
+        // A block the cell may not write is handed in beside the rest in one return of twenty-five, which is sent back,
+        // and in two of five of a return that was sent back, so that a run reaches the limit of its returns.
+        let again = matches!(
+            self.sim.work.given.get(&(round.run, round.number)),
+            Some(Given::SentBack(_))
+        );
+        if self.rng.chance(if again { 40 } else { 4 }) {
             let others: Vec<BlockId> = (self.sim.flow.blocks.keys())
                 .filter(|b| !self.sim.flow.flow.cells()[place].outputs.contains(b))
                 .cloned()

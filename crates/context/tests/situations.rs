@@ -27,8 +27,8 @@ fn holding(named: &Named) -> bool {
 
 #[test]
 fn the_first_cell_of_a_line_is_entered_first_holding_nothing_and_run_by_all_the_work_starts_with() {
-    // The plan is the first of its line, and the request and the opinions, which people write, run it: the work starts
-    // with them, so that both are new to a plan that worked from nothing.
+    // The plan is the first of its line, and the request, the first of what people write that runs it, starts the work:
+    // it is new to a plan that worked from nothing, and the opinions, which people write too, may be.
     let all = of("plan");
     let first: Vec<&Named> = all.iter().filter(|n| n.name.starts_with("first-")).collect();
     assert!(!first.is_empty());
@@ -39,7 +39,12 @@ fn the_first_cell_of_a_line_is_entered_first_holding_nothing_and_run_by_all_the_
             named.name
         );
         assert!(!holding(named), "{}", named.name);
-        assert_eq!(named.situation.new, ["request", "opinions"], "{}", named.name);
+        assert_eq!(
+            named.situation.new.first().map(String::as_str),
+            Some("request"),
+            "{}",
+            named.name
+        );
     }
 }
 
@@ -99,16 +104,15 @@ fn a_reopened_session_holds_nothing_and_a_return_that_asked_or_was_sent_back_han
 #[test]
 fn a_datum_watched_that_did_not_run_the_cell_stands_as_any_other_does() {
     let all = of("plan");
-    let opinions = |name: &str| {
+    let opinions = |ran: &[&str], rest: Stands| {
         let named = all
             .iter()
-            .find(|n| n.name == name)
-            .unwrap_or_else(|| panic!("no {name}"));
-        named.situation.data["opinions"]
+            .filter(|n| n.situation.new == ran && n.situation.data["request"] == rest);
+        named.map(|n| n.situation.data["opinions"]).collect::<Vec<_>>()
     };
     // A version of it written while the run was under way is new to the cell, though it did not run it.
-    assert_eq!(opinions("later-request-ran_holds_last-rest_lacks"), Stands::Lacks);
-    assert_eq!(opinions("reopened-request-ran_lacks-rest_lacks"), Stands::Lacks);
+    assert!(opinions(&["request"], Stands::HoldsLast).contains(&Stands::Lacks));
+    assert!(opinions(&["request"], Stands::Lacks).contains(&Stands::Lacks));
     let later = all.iter().filter(|n| n.name.starts_with("later-request-"));
     assert!(
         later

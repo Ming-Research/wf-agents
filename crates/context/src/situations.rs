@@ -18,9 +18,10 @@
 //! write that runs the flow's first agent's cell.
 //!
 //! A datum is certainly written when the cell runs where the work starts with it, or where the cells before it in the
-//! order that may write it run whichever way the conditions go: one of them runs on no condition, or between them they
-//! run on each value of a choice the cell itself does not run on one value of. A cell that runs is taken to write what
-//! it may write; the flow says no more of which blocks a cell writes each time than what it must write.
+//! order that must write it, and surely run, run whichever way the conditions go: one of them runs on no condition, or
+//! between them they run on each value of a choice the cell itself does not run on one value of. A cell surely runs
+//! where something it watches is certainly written before it. The flow says no more of which blocks a cell writes each
+//! time than what it must write, so that a cell is taken to write no more.
 //!
 //! On a first entry, a datum only the cell itself or cells after it in the order write is not written yet, and what the
 //! cell watches of such data runs no first entry.
@@ -334,12 +335,23 @@ impl<'a> Reach<'a> {
         starting.is_some_and(|t| t.name == block.as_str())
     }
 
-    /// Whether the cells before the one at this place that may write the datum run whichever way the conditions go, as
-    /// the module says.
+    /// Whether the cells before the one at this place that write the datum on every run and surely run, do run whichever
+    /// way the conditions go, as the module says. A cell surely runs where something it watches is certainly written
+    /// before it.
     fn written_before(&self, place: usize, block: &BlockId) -> bool {
         let flow = self.flow;
         let cells = flow.flow.cells();
-        let writers: Vec<&Cell> = cells[..place].iter().filter(|c| c.outputs.contains(block)).collect();
+        let surely = |w: &Cell| {
+            let Some(spec) = flow.cells.iter().find(|c| c.id == w.id) else {
+                return false;
+            };
+            let at = flow.flow.place(&w.id).unwrap_or(0);
+            let watched = |b: &BlockId| self.starts_with(b) || self.written_before(at, b);
+            spec.must_write.contains(block) && (spec.watches.iter()).any(|t| t.blocks.iter().any(watched))
+        };
+        let writers: Vec<&Cell> = (cells[..place].iter())
+            .filter(|c| c.outputs.contains(block) && surely(c))
+            .collect();
         if writers.iter().any(|w| w.applies.is_empty()) {
             return true;
         }

@@ -143,10 +143,9 @@ pub fn flow() -> Compiled {
     compiled(FLOW)
 }
 
-/// The small flow with a limit of two on the runs of a cell in a row that only ask for calls, so that the owner is asked
-/// to let a cell go on.
+/// The small flow with a limit of one on the returns of a run sent back, so that the owner is asked to let a run go on.
 pub fn limited() -> Compiled {
-    compiled(&FLOW.replace("calls = 1000", "calls = 2"))
+    compiled(&FLOW.replace("returns = 1000", "returns = 1"))
 }
 
 fn compiled(flow: &str) -> Compiled {
