@@ -148,8 +148,10 @@ async fn what_a_trys_program_leaves_running_is_stopped_and_counted_with_the_try_
 }
 
 /// Runs the plan's first round with its program leaving a process of this kind in its group, and gives how long the
-/// round took to end once the program was called, what was counted of the try, and whether the process was still
-/// running, not a zombie, once the round had ended. The process is killed before anything is asserted.
+/// round took to end once that process was started, what was counted of the try, and whether the process was still
+/// running, not a zombie, once the round had ended. The process is killed before anything is asserted. The time is
+/// taken from when the program wrote the process's number, which is before the program ended and so before anything
+/// could stop what it left; a time taken once the test sees the program's call may come after its end.
 async fn leaves(leftover: crate::Leftover) -> (std::time::Duration, Vec<(work::Left, usize)>, bool, decide::RunId) {
     let fake = Fake {
         plan_leaves_running: true,
@@ -160,14 +162,18 @@ async fn leaves(leftover: crate::Leftover) -> (std::time::Duration, Vec<(work::L
     let work = real.add().await;
     real.act(work, Act::Resume);
     real.wait(|real| real.calls().len() == 1).await;
-    let called = std::time::Instant::now();
     let plan = real.run_of(work, "plan");
     real.until(|real| real.ended_rounds(work, plan)).await;
-    let took = called.elapsed();
+    let ended = std::time::SystemTime::now();
     let counted = (real.work(work).left_behind.iter())
         .map(|l| (l.of.clone(), l.processes))
         .collect();
-    let left = std::fs::read_to_string(real.calls_dir().join("left_running")).expect("what the plan left");
+    let written = real.calls_dir().join("left_running");
+    let started = (std::fs::metadata(&written).and_then(|file| file.modified())).expect("when the plan left it");
+    let took = ended
+        .duration_since(started)
+        .expect("the round ended after the process was started");
+    let left = std::fs::read_to_string(&written).expect("what the plan left");
     let left = left.trim().to_string();
     let mut running = true;
     // A process killed is a zombie until the system reaps it, its parent having ended: that is no process running.
@@ -227,7 +233,7 @@ async fn what_a_trys_program_leaves_running_holding_its_output_is_stopped_once_t
     };
     assert!(
         took < std::time::Duration::from_secs(12),
-        "the round ended {took:?} after its program was called, waiting for what the program left to end by itself"
+        "the round ended {took:?} after the program started what it left, waiting for that to end by itself"
     );
     assert!(!running, "what the plan's program left runs on after its round ended");
     assert_eq!(counted, [(of, 1)], "counted with the try");
