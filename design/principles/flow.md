@@ -71,7 +71,7 @@ A cell that may ask the owner a question can be spoken to by the owner; a cell t
 Why: The owner may ask back about a question, and only the cell that asked knows why: words to another cell reach one that does not know it. A cell that asks nothing has nothing to take up; the owner's word on a review goes to the cell that answers it, which fixes the point or has the owner rule.
 
 ### principle the-flow-gives-the-trees-rules
-The rules of the design tree, the tree's own file of rules, are given to every agent by the flow, in the system prompt of every session, as the project's guide is: no cell is left to find them by following the guide. The guide points to them as well, for the agents that work outside the flow.
+The rules of the design tree are wf-agents', the same for every project, and the flow gives them to every agent in the system prompt of every session, as the project's guide is: no cell is left to find them. The guide points to them as well, for the agents that work outside the flow.
 Why: Every project's agents need the same rules, and said once in the flow they reach every cell, where a rule an agent must find by itself may go unread. An agent outside the flow is given nothing by the flow and has only the guide.
 
 ### principle an-agent-knows-only-its-task
