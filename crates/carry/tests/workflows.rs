@@ -127,27 +127,24 @@ fn the_full_workflow_runs_by_hand_and_on_the_pull_requests_of_neither_a_work_nor
     // The prefix of a work's branch is the engine's: ci.yml must name the one the engine gives its branches.
     let branch = carry::git::place(Path::new("/data"), "tag", store::WorkNumber(1)).branch;
     assert!(branch.starts_with(carry::git::BRANCH_PREFIX), "{branch}");
-    let not_a_works = format!("!startsWith(github.head_ref, '{}')", carry::git::BRANCH_PREFIX);
-    for job in ["page", "lint", "test"] {
-        let lines = under(&jobs, job).join("\n");
-        assert!(
-            lines.contains(&not_a_works),
-            "the job {job} runs on a work's pull request:\n{lines}"
-        );
-        assert!(
-            lines.contains("github.event.pull_request.head.repo.full_name == github.repository"),
-            "the job {job} runs on a fork's pull request:\n{lines}"
-        );
-    }
+    let work = format!("!startsWith(github.head_ref, '{}')", carry::git::BRANCH_PREFIX);
+    // What each job's own `if` says is checked whole, not by its parts: the same parts joined by other operators run a
+    // fork's code on the owner's machine or red a work's pull request, and nothing before the merge evaluates them.
+    let guard = format!(
+        "if: ${{{{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && {work}) }}}}"
+    );
     // `check` is skipped with the rest on a work's pull request of this repository, so that the run is not red there; on a
     // fork's, whatever its branch is called, it stays, red, since its jobs are skipped.
-    let check = under(&jobs, "check").join("\n");
-    for want in [
-        "always()",
-        "github.event.pull_request.head.repo.full_name != github.repository",
-        &not_a_works,
-    ] {
-        assert!(check.contains(want), "check lacks {want}:\n{check}");
+    let check = format!(
+        "if: ${{{{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || {work}) }}}}"
+    );
+    for (job, want) in [("page", &guard), ("lint", &guard), ("test", &guard), ("check", &check)] {
+        // The job's own condition stands at the job's indentation; those of its steps are deeper.
+        let own: Vec<&str> = (under(&jobs, job).into_iter())
+            .filter(|l| l.starts_with("    if:"))
+            .map(str::trim)
+            .collect();
+        assert_eq!(own, [want.as_str()], "the condition of the job {job}");
     }
 }
 
