@@ -102,12 +102,12 @@ fn a_pause_that_waits_for_an_item_is_said_with_its_reason_and_wait_says_that_the
     assert!(
         engine
             .refuses(&["pause", "1", "--waits-for", "1"])
-            .contains("a pause cannot wait for item #1 of its own work"),
+            .contains("A pause cannot wait for item #1 of its own work"),
     );
     assert!(
         engine
             .refuses(&["pause", "2", "--waits-for", "9"])
-            .contains("there is no item #9")
+            .contains("There is no item #9")
     );
 
     engine.says(&["resume", "1"]);

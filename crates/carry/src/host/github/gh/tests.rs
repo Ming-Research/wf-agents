@@ -483,7 +483,7 @@ fn open_pull(number: u64) -> Value {
         "number": number, "html_url": format!("https://github.com/o/r/pull/{number}"), "state": "open",
         "head": { "sha": "c0ffee", "ref": format!("work-{number}") }, "base": { "ref": "main" },
         "title": format!("Pull {number}"), "body": null,
-        "draft": number % 2 == 0, "node_id": format!("PR_{number}"), "updated_at": "2026-11-10T11:00:00Z",
+        "draft": number.is_multiple_of(2), "node_id": format!("PR_{number}"), "updated_at": "2026-11-10T11:00:00Z",
     })
 }
 

@@ -99,14 +99,14 @@ async fn a_pause_cannot_wait_for_an_item_there_is_none_of_or_for_its_own_work_an
     let nowhere = json!({ "kind": "pause", "waitsFor": [9] });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &nowhere).await,
-        (unprocessable, json!({ "error": "there is no item #9." }))
+        (unprocessable, json!({ "error": "There is no item #9." }))
     );
     let itself = json!({ "kind": "pause", "waitsFor": [1] });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &itself).await,
         (
             unprocessable,
-            json!({ "error": "a pause cannot wait for item #1 of its own work, which would wait for ever." })
+            json!({ "error": "A pause cannot wait for item #1 of its own work, which would wait for ever." })
         )
     );
     let now = get_json(router, "/api/v1/works/1").await["summary"]["now"].clone();
@@ -137,7 +137,7 @@ async fn an_item_is_added_paused_with_its_reason_and_the_items_its_pause_waits_f
         post(router, "/api/v1/items", &after).await,
         (
             StatusCode::UNPROCESSABLE_ENTITY,
-            json!({ "error": "there is no item #9." })
+            json!({ "error": "There is no item #9." })
         )
     );
 }

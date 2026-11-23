@@ -189,7 +189,8 @@ reports (`wf-agents wait`):
   `--waits-for`, once for each item), its background saying what it waits for, something whose coming can be seen: an
   item merged, which the pause names with `--waits-for`, or the owner's word, which names no item.
 - A paused item is one that will be done. An item that will not be done is cancelled, saying why, never left paused.
-- An item that changes what the owner's page shows or how it looks is paused and never let on: a work cannot find in
-  the code where it goes and what it shows, and the owner tunes it as he sees it. The owner and the architect talk it
-  through and build it in their session, one at a time; once it merges, the item is cancelled, its reason naming the
-  pull request that did it.
+- An item that changes what the owner's page shows or how it looks is paused and never let on where a work cannot find
+  in the code where it goes and what it shows, and the owner tunes it as he sees it. The owner and the architect talk
+  it through and build it in their session, one at a time; once it merges, the item is cancelled, its reason naming
+  the pull request that did it. Where a design document, the owner's word or the item itself already says where it
+  goes and what it shows, it needs no talk and runs in the engine as any other item.

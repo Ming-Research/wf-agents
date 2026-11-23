@@ -172,7 +172,7 @@ fn several_changes_are_made_at_once_or_none_and_tags_classify_items() {
         tagged.contains("\n#3 (project script) \"C\" at level 1, W3 on trial, after #1, tagged parser: "),
         "{tagged}"
     );
-    assert!(!tagged.contains("#1 "), "{tagged}");
+    assert!(!tagged.lines().any(|line| line.starts_with("#1 ")), "{tagged}");
     assert_eq!(engine.says(&["tags"]), "page: 1 open of 1\nparser: 1 open of 1\n");
     assert_eq!(
         engine.says(&["untag", "3", "parser", "--why", "Not the parser's."]),
