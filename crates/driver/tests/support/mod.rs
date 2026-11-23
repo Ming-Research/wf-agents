@@ -241,6 +241,42 @@ pub fn plain() -> Compiled {
     compiled(&flow, &[("write", write), ("merge", merge)])
 }
 
+/// A flow whose first cell is the engine's act that starts a work, which makes the work's branch, and then the merge:
+/// the flow of a work whose item may continue a branch or a pull request. It is not among [`flows`], and a test that
+/// needs it opens the driver on it.
+pub fn placing() -> Compiled {
+    let flow = format!(
+        r#"
+        name = "placing"
+        order = ["place", "merge"]
+        [limits]
+        runs = 2
+        returns = 2
+        calls = 3
+        [lines.main]
+        [blocks.place]
+        shown = true
+        [blocks.merged]
+        shown = true
+        {START_BLOCK}"#
+    );
+    let place = r#"
+        title = "Place"
+        kind = "engine"
+        act = "start"
+        watches = ["start"]
+        outputs = ["place"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        watches = ["place"]
+        outputs = ["merged"]
+    "#;
+    compiled(&flow, &[("place", place), ("merge", merge)])
+}
+
 /// Every flow the driver is given.
 pub fn flows() -> Vec<Compiled> {
     vec![judged(), short(), plain()]
@@ -584,6 +620,7 @@ pub fn new_item(title: &str, depends_on: &[ItemNumber], flow: &str) -> NewItem {
         project: PROJECT.to_string(),
         depends_on: depends_on.to_vec(),
         tags: Vec::new(),
+        continues: None,
         flow: flow.to_string(),
         writes: Vec::new(),
         why: None,

@@ -29,6 +29,10 @@ pub struct Pull {
     pub node: String,
     /// When GitHub last updated it, in milliseconds since 1970.
     pub updated: u64,
+    /// The branch its head is on.
+    pub branch: String,
+    /// Whether its head is on a branch of another repository, a fork, or of none that GitHub still has.
+    pub from_fork: bool,
 }
 
 /// The most open pull requests of a repository [`Api::open_pulls`] reads.
@@ -101,6 +105,8 @@ pub trait Api: Send + Sync + 'static {
     /// Every pull request open in the repository, whatever its branch, each page of GitHub's list read; it is an `Err`
     /// where the repository holds more than [`OPEN_PULLS`] of them, which a list cut short would hide.
     fn open_pulls(&self) -> impl Future<Output = Result<Vec<Pull>, Failed>> + Send;
+    /// The pull request of this number; none where the repository has none so numbered.
+    fn pull(&self, number: u64) -> impl Future<Output = Result<Option<Pull>, Failed>> + Send;
 
     /// Opens a pull request of the branch into the base, with this title and body, as a draft.
     fn open(

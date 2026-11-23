@@ -19,7 +19,10 @@ wf-agents runs coding agents through a defined flow.
   directory's store, and is given only where it holds none); then
   `wf-agents add --title "Greet the user" --flow trial --project script --write "request=Greet the user."` and
   `wf-agents resume 1`,
-  and `wf-agents list` or the pages to follow it;
+  and `wf-agents list` or the pages to follow it; a work starts from the head of main, or from the head of a branch or a
+  pull request its item continues (`wf-agents add ... --continue-branch <name>` or `--continue-pull <number>`, changed
+  until the work's branch is made with the kinds `continue-branch=<name>`, `continue-pull=<number>` and
+  `no-longer-continues`);
   `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it; `wf-agents pause <work>` and `add`
   take `--why <sentence>` and `--waits-for <item>`, which say why the work is paused and which items it waits for to
   merge or be cancelled, and `wf-agents wait` says once that each has. Whoever plans the work waits

@@ -10,6 +10,7 @@
 mod accounts;
 mod acts;
 mod cancelling;
+mod continuing;
 mod contract;
 mod dependencies;
 mod failing;
@@ -49,6 +50,7 @@ pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
         project: "trial".to_string(),
         depends_on: depends_on.iter().copied().map(ItemNumber).collect(),
         tags: Vec::new(),
+        continues: None,
         flow: "trial".to_string(),
         writes: vec![FirstWrite {
             block: "request".into(),

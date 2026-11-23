@@ -16,6 +16,10 @@ A work's worktree is made in the data directory, under `worktrees/`, on a branch
 - rejected: an agent proposed putting the works' worktrees under the directory of the wf projects; the owner rejected it, because that directory belongs to wf, and wf-agents' worktrees go under its own data directory, which git keeps with the worktrees ignored.
 - rejected: an agent proposed keeping the worktrees, the logs and the tools' output apart from the data, as a runtime that can be thrown away; the owner rejected it, because what cannot be thrown away belongs in the data.
 
+### decision a-continuing-work-has-a-branch-of-its-own
+A work whose item continues a branch or pull request is made on a new branch of its own, from the head of what the item names, and the old branch is left as it was.
+- rejected: an agent proposed that the work commit on the old branch itself, the old pull request staying its own; the owner rejected it, because the branch name would no longer come from the work's number alone, the old branch would not stay as it was, and two works could not continue one branch.
+
 ### decision agents-run-by-their-programs-print-mode
 An agent's round is one run of its program's print mode, `claude -p` unless the installation names another program.
 - rejected: an agent proposed running the agents through the Claude Agent SDK; the owner rejected it, because with a print mode he can switch accounts in the terminal or move to another program, since many programs have one, and the SDK showed no advantage that a print mode lacks.

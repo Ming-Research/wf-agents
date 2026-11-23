@@ -1,11 +1,14 @@
 //! The GitHub host against a fake of GitHub: a bare repository on disk and pull requests and checks in memory.
 //!
+//! - `continued`: where a work that continues a branch or a pull request starts, and the pull request it takes the
+//!   place of.
 //! - `ends`: the pull request's text and draft, the checks that hold no work, main red, and the end of a work.
 //! - `again`: a check or a call of `run_tests` given again after the engine started again, which finds the runs it
 //!   asked for.
 //! - `red`: a check whose full workflows failed tests alone, which are run again on the commit and on main's head.
 
 mod again;
+mod continued;
 mod ends;
 mod red;
 
@@ -233,6 +236,7 @@ fn branch(place: &Place) -> Branch<'_> {
         title: "Greet the user",
         about: "Greets the user by name.",
         place,
+        continues: None,
     }
 }
 

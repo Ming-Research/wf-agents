@@ -1042,6 +1042,7 @@ impl Real {
             project: self.project.clone(),
             depends_on: depends_on.to_vec(),
             tags: Vec::new(),
+            continues: None,
             flow: self.flow.name.clone(),
             writes: request.into_iter().collect(),
             why: None,
@@ -1057,7 +1058,7 @@ impl Real {
         if !starts && agents {
             let project = self.settings.projects[&self.project].clone();
             let place = self.place(work);
-            git::start(&project, &place, &project.main)
+            git::start(&project, &place, &project.main, &project.main)
                 .await
                 .expect("the work's place is made");
         }

@@ -2,7 +2,7 @@
 //! and each added together with the work done for it and what is kept of that work from its start.
 
 use decide::{Pause, Seq};
-use store::{Fault, First, Item, ItemChange, ItemNumber, WorkHead};
+use store::{Continues, Fault, First, Item, ItemChange, ItemNumber, WorkHead};
 
 use super::*;
 
@@ -13,6 +13,7 @@ fn item(number: u64, title: &str, added: u64, depends_on: &[u64]) -> Item {
         project: Some("one".to_string()),
         depends_on: depends_on.iter().map(|n| ItemNumber(*n)).collect(),
         tags: Vec::new(),
+        continues: None,
     };
     Item::new(ItemNumber(number), Time(added), first, Vec::new())
 }
@@ -176,4 +177,51 @@ fn an_item_whose_work_cannot_be_kept_is_not_added() {
         store.add(&first("the item", "2", &[]), "judged", Time(START), &Work::default()),
         Ok((ItemNumber(1), WorkNumber(1)))
     );
+}
+
+#[test]
+fn an_item_is_added_continuing_a_branch_or_a_pull_request_and_read_back_with_it_as_it_was_added() {
+    let mut store = Store::in_memory().expect("the store opens");
+    let nothing = Work::default();
+    let continuing = |what: Option<Continues>| First {
+        continues: what,
+        ..first("item", "2", &[])
+    };
+    for (at, what) in [
+        (10, Some(Continues::Branch("work-226-0a1b2c3d".to_string()))),
+        (20, Some(Continues::Pull(252))),
+        (30, None),
+    ] {
+        store
+            .add(&continuing(what), "judged", Time(at), &nothing)
+            .expect("the item is added");
+    }
+    let items = store.items().expect("the items are read");
+    let read: Vec<Option<Continues>> = items.iter().map(|i| i.continues.clone()).collect();
+    assert_eq!(
+        read,
+        [
+            Some(Continues::Branch("work-226-0a1b2c3d".to_string())),
+            Some(Continues::Pull(252)),
+            None
+        ]
+    );
+    let added: Vec<Option<Continues>> = items.iter().map(|i| i.first.continues.clone()).collect();
+    assert_eq!(added, read);
+}
+
+#[test]
+fn what_is_kept_of_what_an_item_continues_is_what_it_is_read_from() {
+    for what in [
+        Continues::Branch("feature/x".to_string()),
+        Continues::Branch("a:b".to_string()),
+        Continues::Pull(1),
+    ] {
+        assert_eq!(Continues::from_kept(&what.kept()), Some(what.clone()));
+    }
+    for kept in ["", "branch", "pull:x", "pull:", "tag:1", "pull:-1"] {
+        assert_eq!(Continues::from_kept(kept), None, "{kept:?}");
+    }
+    assert_eq!(Continues::Branch("old".to_string()).said(), "the branch old");
+    assert_eq!(Continues::Pull(226).said(), "pull request 226");
 }

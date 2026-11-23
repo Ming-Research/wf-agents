@@ -269,6 +269,7 @@ mod tests {
             project: None,
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
         };
         let item = Item::new(ItemNumber(1), Time(0), first, Vec::new());
         let on = On::installed_flow(flow);

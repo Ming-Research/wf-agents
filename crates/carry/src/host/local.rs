@@ -6,9 +6,10 @@
 use std::path::Path;
 
 use flow::agents::{LocalWords, Tool, fill};
+use store::Continues;
 use tokio::sync::Mutex;
 
-use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
+use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict, continuing};
 use crate::git;
 use crate::held::Stop;
 use crate::process::{self, Ran};
@@ -76,6 +77,17 @@ impl Local {
 impl Host for Local {
     async fn main(&self) -> Result<String, String> {
         git::git(&self.project.repo, &["rev-parse", "--verify", &self.kept_main()]).await
+    }
+
+    /// The branch's head in the repository. The local repository has no pull requests.
+    async fn continued(&self, what: &Continues) -> Result<String, Failed> {
+        let Continues::Branch(name) = what else {
+            return Err(Failed::refused(
+                "the local repository has no pull requests: have the item continue a branch, or none".to_string(),
+            ));
+        };
+        let found = continuing::local_head(&self.project.repo, name).await?;
+        found.ok_or_else(|| Failed::refused(format!("the local repository has no branch {name}")))
     }
 
     /// The command runs on a checkout of the commit alone, which the verdict is on and which is what a merge would

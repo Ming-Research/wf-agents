@@ -290,8 +290,20 @@ fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
             draft: true,
             node: "PR_kwDO".to_string(),
             updated: 1_794_308_400_000,
+            branch: "work-1-0a1b2c3d".to_string(),
+            from_fork: false,
         }
     );
+    // A pull request whose head is in another repository, or in none that GitHub still has, is from a fork.
+    value["head"]["repo"] = json!({ "full_name": "someone/r" });
+    value["base"]["repo"] = json!({ "full_name": "o/r" });
+    assert!(pull(&value).unwrap().from_fork);
+    value["head"]["repo"] = json!({ "full_name": "o/r" });
+    assert!(!pull(&value).unwrap().from_fork);
+    value["head"]["repo"] = json!(null);
+    assert!(pull(&value).unwrap().from_fork);
+    value["head"] = json!({ "sha": "c0ffee", "ref": "work-1-0a1b2c3d" });
+    value["base"] = json!({ "ref": "next" });
     value["state"] = json!("closed");
     assert_eq!(pull(&value).unwrap().state, State::Closed);
     value["merged_at"] = json!("2026-11-10T12:00:00Z");
@@ -469,7 +481,8 @@ async fn a_jobs_log_is_asked_for_with_its_escapes_allowed_and_given_as_github_ga
 fn open_pull(number: u64) -> Value {
     json!({
         "number": number, "html_url": format!("https://github.com/o/r/pull/{number}"), "state": "open",
-        "head": { "sha": "c0ffee" }, "base": { "ref": "main" }, "title": format!("Pull {number}"), "body": null,
+        "head": { "sha": "c0ffee", "ref": format!("work-{number}") }, "base": { "ref": "main" },
+        "title": format!("Pull {number}"), "body": null,
         "draft": number % 2 == 0, "node_id": format!("PR_{number}"), "updated_at": "2026-11-10T11:00:00Z",
     })
 }
