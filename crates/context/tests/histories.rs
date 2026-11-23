@@ -229,7 +229,19 @@ impl Scene {
     fn engineer(sim: &Sim) -> Scene {
         let lines = sim.flow.lines.keys().cloned().collect();
         Scene {
-            writes: vec!["background", "tree", "tree", "head", "head"],
+            writes: vec![
+                "background",
+                "tree",
+                "tree",
+                "head",
+                "head",
+                "plan_ok",
+                "tree_ok",
+                "review_ok",
+                "test_ok",
+                "design_ok",
+                "testing_ok",
+            ],
             lines,
             models: false,
             talks: true,
@@ -1569,7 +1581,7 @@ const QUIET_STEPS: usize = 150;
 const ARCHIVE: usize = 50;
 
 /// What a run of the search is steered at: a cell, the datum and the state of it a line not yet reached says, and the
-/// blocks near them: those that run the cell.
+/// blocks near them: those that run the cell, and the verdict that the owner's ruling on the datum is written in.
 #[derive(Clone)]
 struct Target {
     cell: String,
@@ -1590,6 +1602,15 @@ impl Target {
             None => rest.split(' ').next(),
         };
         let mut blocks: Vec<String> = datum.into_iter().map(str::to_string).collect();
+        // The owner rules on a dialogue by writing the verdict the flow pairs with it, which makes the judge's points
+        // before it new to no cell.
+        for judge in sim.flow.flow.cells() {
+            for (verdict, of) in &judge.verdicts {
+                if datum.is_some_and(|d| of.dialogue.as_str() == d) {
+                    blocks.push(verdict.as_str().to_string());
+                }
+            }
+        }
         if let Some(spec) = sim.flow.cells.iter().find(|c| c.id.as_str() == cell) {
             for watched in &spec.watches {
                 blocks.extend(watched.blocks.iter().map(|b| b.as_str().to_string()));

@@ -494,6 +494,9 @@ impl<'a> Reach<'a> {
     /// is told what changed since, though the cell worked from none: that is the one datum that stands held as last
     /// worked from.
     fn allowed(&self, entry: Entry, block: &BlockId, class: &Class) -> Vec<Stands> {
+        if self.written_only_later(block) {
+            return vec![Stands::Unwritten];
+        }
         let mut states = self.allowed_in(entry, block, class);
         let compares = self.compared.contains(block)
             && (self.given.iter())
@@ -546,6 +549,64 @@ impl<'a> Reach<'a> {
             }
         }
         states
+    }
+
+    /// Whether the datum is written only by cells that run after every run of this cell: each cell that writes it
+    /// applies only on a value of a choice that the cell itself does not apply on, and that choice, once it has left
+    /// the value the cell applies on, is never set back, since every cell that writes it applies only on that value. Of
+    /// a datum the owner or the outside writes, the cell it is written to is the one that writes it.
+    fn written_only_later(&self, block: &BlockId) -> bool {
+        let flow = self.flow;
+        let Some(declared) = flow.blocks.get(block) else {
+            return false;
+        };
+        let source = declared.writers.outside.as_deref();
+        if declared.writers.people
+            || declared.writers.cells.is_empty()
+            || !matches!(source, None | Some(flow::WORDS | flow::ANSWER))
+        {
+            return false;
+        }
+        let cells = flow.flow.cells();
+        let place = flow.flow.place(&self.cell.id).unwrap_or(0);
+        let values = |cell: &Cell| -> Vec<(BlockId, String)> {
+            (cell.applies.iter())
+                .filter_map(|key| match key {
+                    Condition::Is { block, value } => Some((block.clone(), value.clone())),
+                    Condition::Test(_) => None,
+                })
+                .collect()
+        };
+        let mine = values(&cells[place]);
+        declared.writers.cells.iter().all(|id| {
+            let Some(at) = flow.flow.place(id) else {
+                return false;
+            };
+            (values(&cells[at]).iter()).any(|(choice, value)| {
+                (mine.iter()).any(|(own, on)| own == choice && on != value && self.never_set_back(choice, on))
+            })
+        })
+    }
+
+    /// Whether the choice, once it has left this value, is never set back to it: only cells write it, and each applies
+    /// only on this value.
+    fn never_set_back(&self, choice: &BlockId, value: &str) -> bool {
+        let flow = self.flow;
+        let Some(declared) = flow.blocks.get(choice) else {
+            return false;
+        };
+        let writers = &declared.writers;
+        !writers.people
+            && writers.outside.is_none()
+            && !writers.cells.is_empty()
+            && writers.cells.iter().all(|id| {
+                let applies = flow.flow.place(id).map(|at| &flow.flow.cells()[at].applies);
+                applies.is_some_and(|applies| {
+                    applies
+                        .iter()
+                        .any(|key| matches!(key, Condition::Is { block, value: on } if block == choice && on == value))
+                })
+            })
     }
 
     fn allowed_in(&self, entry: Entry, block: &BlockId, class: &Class) -> Vec<Stands> {
