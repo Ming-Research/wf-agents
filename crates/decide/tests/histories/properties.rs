@@ -406,9 +406,10 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
     let given: Vec<Reason> = (s.because.iter())
         .filter_map(|c| match c {
             Cause::NoRecord => None,
-            Cause::Changed { block, was, .. } => Some(Reason::Changed {
+            Cause::Changed { block, was, worked, .. } => Some(Reason::Changed {
                 block: block.clone(),
                 was: *was,
+                worked: *worked,
             }),
             Cause::Results { calls } => Some(Reason::Results { calls: calls.clone() }),
         })

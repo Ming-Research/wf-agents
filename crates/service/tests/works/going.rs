@@ -80,6 +80,7 @@ async fn a_work_goes_through_its_cells_round_the_objection_to_the_merge() {
         [Cause::Changed {
             block: "opinions".into(),
             was: None,
+            worked: None,
             behind: true
         }]
     );

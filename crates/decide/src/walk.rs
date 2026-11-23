@@ -928,6 +928,18 @@ impl<'a> Walk<'a> {
             .max()
     }
 
+    /// The version of the block the cell last worked from: the latest of the one it consumed, one a run of it wrote,
+    /// and one the owner ruled on, a cell's own version being no change to it and a point the owner ruled on being new
+    /// to no cell (design document `data-and-context`, 10). A message to the cell names it, and a cause records it.
+    pub(crate) fn worked(&self, cell: &CellId, block: &BlockId) -> Option<Seq> {
+        let own = |v: &Version<'a>| (v.by.and_then(|run| self.runs.get(&run))).is_some_and(|r| &r.started.cell == cell);
+        let latest = (self.versions(block).iter())
+            .filter(|v| own(v) || v.ruled)
+            .map(|v| v.at)
+            .max();
+        self.consumed(cell, block).max(latest)
+    }
+
     /// The versions of the block that are new to the cell: later than the one it consumed, changing the block's
     /// meaning, and not written by a run of the cell itself (design document `data-and-context`, 6 and 10).
     fn new_to(&self, cell: &CellId, block: &BlockId) -> (Option<Seq>, Vec<&Version<'a>>) {
@@ -1127,6 +1139,7 @@ impl<'a> Walk<'a> {
                 (!new.is_empty()).then(|| Cause::Changed {
                     block: block.clone(),
                     was,
+                    worked: self.worked(&cell.id, block),
                     behind,
                 })
             })

@@ -62,7 +62,9 @@ the owner's pauses, when a work is at its end.
     need not be the one before the latest: the latest of what it consumed, what it wrote itself, and what the owner ruled
     on (39), since a point the owner ruled on is new to no cell, and so what came before it is no change to the cell.
     That is the version a round is told, and what is sent of a datum given the last and the latest is what changed since
-    it; which versions are new to the cell, and so run it, is decided from what it consumed (5).
+    it; which versions are new to the cell, and so run it, is decided from what it consumed (5). As a run begins, the
+    engine records this version with the reason the run begins for, beside the one the cell consumed, so that the
+    owner's page names the version a round was told, and a run recorded before it was has only the consumed one.
 
 11. The engine tells each round which of the data it watches are new, and for each of them the version the cell last
     worked from (10) and the latest. What the cell does when a datum it watches is new is said with that datum in the

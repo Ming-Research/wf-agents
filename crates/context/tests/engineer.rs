@@ -865,7 +865,8 @@ fn the_plan_changed_by_the_owner_s_words(sim: &mut Sim, words: &str, plan: &str)
 // since, by the owner's words to the research, and the review fails again with A' and C. The points the review
 // wrote before the ruling are new to no cell from then on, in the walk, in the points a round is told and in what the
 // context manager tells a round is new to it alike (5, 11): the research, which writes the plan and answers in the
-// dialogue, owes a word for A' and C alone, and is told the dialogue is new to it since the points the owner ruled on.
+// dialogue, owes a word for A' and C alone, and is told the dialogue is new to it since the points the owner ruled on,
+// the version the cause recorded for the run names alike.
 // The research answers, the review fails a third time with D, the owner rules again, and the review fails a fourth time
 // with E on a plan changed since: the second ruling marks the points before it, D among them, and neither E nor the
 // research's answer, and the research is told the dialogue is new since D.
@@ -925,6 +926,23 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
         let told = decide::told(&sim.flow.flow, &sim.work.records, round.run).expect("the run started");
         if told.points != [dialogue.clone()] {
             failures.push(format!("the round: told points in {:?}", told.points));
+        }
+        // The cause the walk recorded as the run began names the version the cell last worked from, as the message
+        // below does, the ruled versions counting: a run begun when the owner had ruled a version the cell had not
+        // consumed, which the page shows.
+        let recorded = (sim.work.records.started.iter())
+            .find(|s| s.run == round.run)
+            .and_then(|s| {
+                s.because.iter().find_map(|c| match c {
+                    decide::Cause::Changed { block, worked, .. } if *block == dialogue => Some(*worked),
+                    _ => None,
+                })
+            });
+        if recorded != Some(Some(since)) {
+            failures.push(format!(
+                "the cause: the run began with the dialogue worked from {recorded:?}, where the version the message names \
+                 is {since:?}"
+            ));
         }
         let entered = sim.enter(&round, sim.begins(&round));
         // Told by their numbers among the dialogue's versions.

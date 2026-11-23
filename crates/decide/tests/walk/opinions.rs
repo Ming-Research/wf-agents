@@ -131,3 +131,41 @@ fn the_owner_s_verdict_in_a_judge_s_place_leaves_the_points_it_wrote_before_new_
         w.decide()
     );
 }
+
+// What a cause records of the version the cell last worked from (design document `data-and-context`, 10): the latest of
+// the one it consumed, one a run of it wrote and one the owner ruled on, whereas `was` stays the one it consumed. The
+// implementation consumed the review's first point, answered it in the dialogue, and the review wrote a second point;
+// the owner rules the review's verdict at yes, which makes the review's points new to no cell, and then writes a note
+// of its own in the dialogue, which runs the implementation.
+#[test]
+fn a_cause_records_the_version_last_worked_from_beside_the_one_consumed_counting_its_own_and_the_owner_s_ruled() {
+    let mut review = cell("review", &["code", "opinions"], &["verdict", "opinions"]);
+    let verdict = decide::Verdict {
+        fails: "no".to_string(),
+        dialogue: "opinions".into(),
+    };
+    review.verdicts = BTreeMap::from([("verdict".into(), verdict)]);
+    let cells = vec![cell("implement", &["plan", "opinions"], &["code", "opinions"]), review];
+    let mut w = World::with_gate(cells);
+    w.person_writes("plan");
+    w.run("implement", &[("code", Matters)]);
+    let first_point = w.run("review", &[("verdict", Value("no")), ("opinions", Matters)]);
+    // The implementation is told the first point, and answers in the dialogue.
+    let answer = w.run("implement", &[("code", Matters), ("opinions", Matters)]);
+    let second_point = w.run("review", &[("verdict", Value("no")), ("opinions", Matters)]);
+    w.person_sets("verdict", "yes");
+    assert_eq!(w.decide(), resting());
+    let note = w.person_writes("opinions");
+    let Decision::Run {
+        cell: next, because, ..
+    } = w.decide()
+    else {
+        panic!("the walk runs nothing: {:?}", w.decide())
+    };
+    assert_eq!(next.as_str(), "implement");
+    assert!(answer > first_point && second_point > answer && note > second_point);
+    assert_eq!(
+        because,
+        vec![changed_worked("opinions", Some(first_point), Some(second_point), false)]
+    );
+}
