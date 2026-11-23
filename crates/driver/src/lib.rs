@@ -1954,7 +1954,7 @@ impl Driver {
     /// a wait every work shares lets one round go first, the work whose round met it first is looked at first.
     fn look(&mut self, now: Time) -> Result<Vec<Todo>, Fault> {
         let mut todos = Vec::new();
-        let first = first_turns(self.outage().as_ref(), self.host_outage().as_ref());
+        let first = first_turns(self.agents_wait().as_ref(), self.host_outage().as_ref());
         let mut numbers: Vec<WorkNumber> = (self.works.iter())
             .filter(|(_, held)| held.standing == Standing::Going)
             .map(|(number, _)| *number)
@@ -2284,7 +2284,7 @@ impl Driver {
     fn fill(&mut self, now: Time) -> Result<Vec<Todo>, Halt<Fault>> {
         let mut todos = Vec::new();
         let mut looked = BTreeSet::new();
-        let first = first_turns(self.outage().as_ref(), None);
+        let first = first_turns(self.agents_wait().as_ref(), None);
         while self.taken(None) < self.slots {
             let waiting = self.room(None, false);
             let next = (self.works.values())
