@@ -383,3 +383,155 @@ fn sentence(clause: &str) -> String {
         None => String::new(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! What the owner and the command line are told where something stopped or was refused: each reason says what it
+    //! is about, so that whoever reads it knows which line, cell, question or version it speaks of.
+
+    use std::collections::BTreeSet;
+
+    use decide::CellId;
+    use store::WorkNumber;
+
+    use super::*;
+
+    fn says(words: &str, parts: &[&str]) {
+        for part in parts {
+            assert!(words.contains(part), "{words:?} does not say {part:?}");
+        }
+    }
+
+    #[test]
+    fn each_reason_no_cell_takes_the_owner_s_words_is_said_with_what_it_is_about() {
+        let cell = || CellId::from("R1");
+        let line = || "planner".to_string();
+        let cases: [(NoOne, &[&str]); 7] = [
+            (NoOne::Ended, &["ended"]),
+            (NoOne::NoSuchLine(line()), &["no cell on the line planner"]),
+            (NoOne::NoSuchCell(cell()), &["no cell R1"]),
+            (NoOne::NoneOfTheLine(line()), &["planner", "words of its own"]),
+            (NoOne::NotReached(line()), &["planner", "has run"]),
+            (NoOne::NotSpokenTo(cell()), &["R1", "no words of its own"]),
+            (NoOne::Skipped(cell()), &["R1", "does not apply"]),
+        ];
+        let mut all = BTreeSet::new();
+        for (why, parts) in cases {
+            let words = no_one_words(&why);
+            says(&words, parts);
+            // The refusal of the loop says it as its own reason says it.
+            assert_eq!(refused_words(&Refused::NoOneSpokenTo(why)), words);
+            all.insert(words);
+        }
+        assert_eq!(all.len(), 7, "two reasons are said alike: {all:?}");
+    }
+
+    #[test]
+    fn a_question_a_version_or_an_option_the_work_has_not_is_refused_naming_which_and_where_the_reopen_and_the_install_say_why()
+     {
+        let question = || "check".to_string();
+        let cases: [(Refused, &[&str]); 8] = [
+            (Refused::NoSuchQuestion(question()), &["no question check"]),
+            (
+                Refused::NoSuchVersion {
+                    question: question(),
+                    version: 3,
+                },
+                &["question check", "no version 3"],
+            ),
+            (
+                Refused::NotAnOption {
+                    question: question(),
+                    option: 4,
+                },
+                &["question check", "no option 4"],
+            ),
+            (Refused::NoSuchLine("planner".to_string()), &["line planner"]),
+            (Refused::NoSuchCell(CellId::from("R9")), &["no cell R9"]),
+            (Refused::NotCancelled, &["not cancelled", "no cancel to reopen"]),
+            (Refused::NotInstalled, &["not installed"]),
+            (Refused::NotToRelease, &["has not ended"]),
+        ];
+        let mut all = BTreeSet::new();
+        for (refused, parts) in cases {
+            let words = refused_words(&refused);
+            says(&words, parts);
+            all.insert(words);
+        }
+        assert_eq!(all.len(), 8, "two refusals are said alike: {all:?}");
+    }
+
+    #[test]
+    fn what_stopped_the_driver_on_a_flow_version_is_said_with_the_work_the_version_and_the_cells_it_misreads() {
+        let flow = || "judged".to_string();
+        let words = |fault: driver::Fault| Fault::Driver(fault).to_string();
+        says(
+            &words(driver::Fault::Outline {
+                version: "v1".to_string(),
+                why: "a field is lacking".to_string(),
+            }),
+            &["version v1", "does not read", "a field is lacking"],
+        );
+        says(
+            &words(driver::Fault::NoSuchVersion {
+                work: WorkNumber(7),
+                version: "v1".to_string(),
+            }),
+            &["work 7", "version v1", "does not keep"],
+        );
+        let earlier = |why| {
+            words(driver::Fault::EarlierIds {
+                flow: flow(),
+                version: "v1".to_string(),
+                works: vec![WorkNumber(3), WorkNumber(5)],
+                why: Box::new(why),
+            })
+        };
+        let rewritten = earlier(driver::Misread::Rewritten);
+        says(
+            &rewritten,
+            &["judged", "works 3, 5", "does not begin with the table of version v1"],
+        );
+        let two = earlier(driver::Misread::TwoAsOne {
+            cells: vec![CellId::from("A"), CellId::from("B")],
+            reads_as: CellId::from("C"),
+        });
+        says(&two, &["cells A, B", "the one cell C"]);
+        let lost = earlier(driver::Misread::Lost {
+            cell: CellId::from("A"),
+            reads_as: CellId::from("D"),
+        });
+        says(&lost, &["the cell A", "as D", "neither has nor took out"]);
+        assert_eq!(
+            BTreeSet::from([rewritten, two, lost]).len(),
+            3,
+            "two ways of misreading are said alike"
+        );
+    }
+
+    #[test]
+    fn a_store_that_refuses_a_save_says_where_the_work_given_differs_from_what_it_holds() {
+        let words = |how, entry| {
+            store_fault_words(&store::Fault::Diverged {
+                table: "on_flow",
+                entry,
+                how,
+            })
+        };
+        let changed = words(store::Divergence::Changed, store::Entry::At(decide::Seq(12)));
+        says(
+            &changed,
+            &["holds something else", "place 12", "table on_flow", "nothing was saved"],
+        );
+        let lacking = words(store::Divergence::Missing, store::Entry::At(decide::Seq(12)));
+        says(&lacking, &["lacks", "place 12"]);
+        let round = words(
+            store::Divergence::Changed,
+            store::Entry::Round {
+                run: decide::RunId(4),
+                round: 2,
+            },
+        );
+        says(&round, &["round 2 of run 4"]);
+    }
+}

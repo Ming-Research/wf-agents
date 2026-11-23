@@ -3,9 +3,10 @@
 //! work read through its moves saves as it was read (decision `a-move-is-read-through-the-renumberings`).
 
 use decide::{BlockId, CellId, Reading};
-use store::{KeptFlow, KeptOutline, SCHEMA_VERSION};
+use store::{Divergence, Entry, KeptFlow, KeptOutline, SCHEMA_VERSION};
 use work::{KeptTime, OnFlow, Stretch, Went};
 
+use super::diverged::refused;
 use super::opening::{columns, versions};
 use super::*;
 
@@ -186,4 +187,76 @@ fn the_forks_of_a_work_read_back_as_written_each_with_its_round_and_what_it_took
     );
     assert_eq!(loaded, d.work);
     assert_eq!(count(&db.path, "forked"), 2);
+}
+
+// A table the store holds is only added to: the moves a work made onto the versions of its flow, what its time went to
+// and the forks of its sessions are as refused where a save changes or lacks an entry as those of the records.
+#[test]
+fn a_work_changed_at_or_lacking_an_entry_of_its_moves_its_time_or_its_forks_is_refused() {
+    let db = Db::new();
+    let mut store = db.open();
+    store.keep_flow(&kept("a", &[("flow.toml", "one")])).expect("a is kept");
+    store.keep_flow(&kept("b", &[("flow.toml", "two")])).expect("b is kept");
+    let number = first_work(&mut store);
+    let mut d = Driver::new();
+    d.work.onto(Time(START), Some("a".to_string()), Reading::default());
+    history(&mut d);
+    let run = d.work.records.rounds[0].run;
+    d.on(Event::Forked {
+        run,
+        round: 1,
+        spent: Spent {
+            usd_micros: 400_000,
+            ..Spent::default()
+        },
+    });
+    d.work
+        .onto(Time(START + 60_000), Some("b".to_string()), Reading::default());
+    let stretch = Stretch {
+        from: Time(START),
+        until: Time(START + 1000),
+        went: Went::Model,
+    };
+    let at = d.work.tick();
+    d.work.kept_time.push(KeptTime {
+        at,
+        stretches: vec![stretch],
+    });
+    store.save(number, &d.work).expect("the work is saved");
+    let kept = d.work;
+    assert_eq!((kept.flows.len(), kept.kept_time.len(), kept.forked.len()), (2, 1, 1));
+
+    let changes: [fn(&mut Work) -> (&'static str, Entry); 3] = [
+        |w| {
+            let on = &mut w.flows[0];
+            on.version = Some("b".to_string());
+            ("on_flow", Entry::At(on.at))
+        },
+        |w| {
+            let k = &mut w.kept_time[0];
+            k.stretches.pop();
+            ("kept_time", Entry::At(k.at))
+        },
+        |w| {
+            let f = &mut w.forked[0];
+            f.usd_micros += 1;
+            ("forked", Entry::At(f.at))
+        },
+    ];
+    for change in changes {
+        let mut given = kept.clone();
+        let (table, entry) = change(&mut given);
+        refused(&db, &mut store, number, &given, table, entry, Divergence::Changed);
+    }
+    let removals: [fn(&mut Work) -> (&'static str, Entry); 3] = [
+        |w| ("on_flow", Entry::At(w.flows.pop().expect("a move").at)),
+        |w| ("kept_time", Entry::At(w.kept_time.pop().expect("a time kept").at)),
+        |w| ("forked", Entry::At(w.forked.pop().expect("a fork").at)),
+    ];
+    for removal in removals {
+        let mut given = kept.clone();
+        let (table, entry) = removal(&mut given);
+        refused(&db, &mut store, number, &given, table, entry, Divergence::Missing);
+    }
+    assert_eq!(store.load(number), Ok(kept));
 }

@@ -229,7 +229,7 @@ fn removals() -> Vec<Change> {
 }
 
 /// Saving the work is refused as diverged at the entry, and the database is as it was.
-fn refused(
+pub(super) fn refused(
     db: &Db,
     store: &mut Store,
     work: WorkNumber,
