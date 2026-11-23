@@ -19,6 +19,7 @@ mod items;
 mod observations;
 mod other_sites;
 mod page;
+mod pausing;
 mod planning;
 mod pulls;
 mod slots;

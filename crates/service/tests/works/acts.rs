@@ -47,7 +47,13 @@ async fn a_write_of_a_block_people_do_not_write_is_refused() {
     };
     assert_eq!(trial.act(work, write), Err(Refusal::Failed(Failed::Refused(refused))));
     assert_eq!(
-        trial.act(WorkNumber(9), Act::Pause),
+        trial.act(
+            WorkNumber(9),
+            Act::Pause {
+                why: None,
+                waits_for: Vec::new()
+            }
+        ),
         Err(Refusal::Failed(Failed::NoSuchWork(WorkNumber(9))))
     );
 }
@@ -67,6 +73,8 @@ async fn an_item_on_a_flow_there_is_none_of_is_refused() {
             content: "Greet the user, please.".to_string(),
             value: None,
         }],
+        why: None,
+        waits_for: Vec::new(),
     };
     let (reply, mut answer) = oneshot::channel();
     trial.take(Message::Add { item, reply });

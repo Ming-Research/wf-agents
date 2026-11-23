@@ -135,6 +135,7 @@ fn kept_before() -> Work {
     d.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     d.wrote("request", Outsider::Person, None);
     d.on(Event::Resumed);

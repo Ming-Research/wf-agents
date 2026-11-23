@@ -20,7 +20,15 @@ async fn a_pause_lets_the_round_under_way_end_and_its_calls_be_made_and_holds_th
         )
         .await;
 
-    trial.act(work, Act::Pause).unwrap();
+    trial
+        .act(
+            work,
+            Act::Pause {
+                why: None,
+                waits_for: Vec::new(),
+            },
+        )
+        .unwrap();
     // The build's round ends while the work is paused, and the CI it asks for is run.
     trial.step().await.unwrap();
     assert!(matches!(trial.decision(work), Decision::Wait { at, .. } if at.as_str() == "build"));
@@ -42,7 +50,15 @@ async fn a_paused_work_begins_no_run() {
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
     trial.let_go_on(work);
-    trial.act(work, Act::Pause).unwrap();
+    trial
+        .act(
+            work,
+            Act::Pause {
+                why: None,
+                waits_for: Vec::new(),
+            },
+        )
+        .unwrap();
     // The plan's run, let go on, has its round end and finishes; the build does not begin.
     trial.step().await.unwrap();
     assert_eq!(trial.finished(work), ["plan"]);
@@ -64,7 +80,15 @@ async fn the_carriers_are_told_of_each_works_pause_as_it_changes_and_as_the_loop
     assert_eq!(trial.told_paused(work), Some(true), "the pause of everything holds it");
     trial.everything(false);
     assert_eq!(trial.told_paused(work), Some(false));
-    trial.act(work, Act::Pause).unwrap();
+    trial
+        .act(
+            work,
+            Act::Pause {
+                why: None,
+                waits_for: Vec::new(),
+            },
+        )
+        .unwrap();
     trial.restart();
     assert_eq!(
         trial.told_paused(work),

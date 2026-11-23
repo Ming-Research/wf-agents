@@ -98,6 +98,12 @@ fn failed_words(failed: &Failed) -> String {
             format!("{}; so none of the changes was made", said.join("; "))
         }
         Failed::BlankTitle => blank_title().to_string(),
+        Failed::WaitsForItself(item) => {
+            format!(
+                "a pause cannot wait for item #{} of its own work, which would wait for ever",
+                item.0
+            )
+        }
         Failed::BadTag(tag) => bad_tag(tag),
         Failed::NoSuchWork(work) => format!("there is no work {}", work.0),
         Failed::NoSuchFlow(flow) => format!("there is no flow named {flow}"),

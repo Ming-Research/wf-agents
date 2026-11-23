@@ -75,6 +75,9 @@ pub enum Line {
         now: Now,
         items: Vec<Idle>,
     },
+    /// The owner's pause of the work waited for these items to merge or be cancelled, and each has: the work is paused
+    /// still, and only the owner lets it on.
+    PauseOver { of: Of, since: u64, items: Vec<u64> },
     /// The work ended, merged or cancelled.
     Ended { of: Of, since: u64, now: Now },
 }
@@ -145,6 +148,7 @@ impl Attention {
                 &outages,
                 &driver.along_of(work),
                 &driver.items_waited_for(work),
+                &driver.items_paused_for(work),
             )?;
             Ok((of, now, view, held))
         };
@@ -188,6 +192,11 @@ impl Attention {
                             })
                             .collect();
                         Line::Idle { of, since, now, items }
+                    }
+                    Heed::PauseOver { work, items } => {
+                        let (of, ..) = of_work(*work)?;
+                        let items = items.iter().map(|item| item.0).collect();
+                        Line::PauseOver { of, since, items }
                     }
                     Heed::Ended { work, .. } => {
                         let (of, now, ..) = of_work(*work)?;

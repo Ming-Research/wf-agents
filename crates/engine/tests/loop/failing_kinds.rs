@@ -161,6 +161,7 @@ fn a_notes_round_that_failed_in_passing_over_its_budget_waits_and_is_then_held_f
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     // A note to the writer is answered while the work is paused.
     let (effects, _) = w.person_writes("opinions");
@@ -169,6 +170,7 @@ fn a_notes_round_that_failed_in_passing_over_its_budget_waits_and_is_then_held_f
     w.on(Event::Paused {
         by: Pauser::Engine,
         why: Some("over its budget".to_string()),
+        waits_for: Vec::new(),
     });
     let (call, ..) = wait_of(&w.on(failed_as(note, Failure::Passing)));
     assert_eq!(

@@ -84,6 +84,8 @@ struct Plan {
     on: BTreeMap<u64, Vec<u64>>,
     /// What depends on each item.
     by: BTreeMap<u64, Vec<u64>>,
+    /// The items each item's pause waits for, where the owner paused its work for some.
+    waits: BTreeMap<u64, Vec<u64>>,
 }
 
 impl Plan {
@@ -92,6 +94,7 @@ impl Plan {
             rows: BTreeMap::new(),
             on: BTreeMap::new(),
             by: BTreeMap::new(),
+            waits: BTreeMap::new(),
         };
         for kept in driver.works() {
             let number = kept.item.number.0;
@@ -108,6 +111,12 @@ impl Plan {
                 tags: kept.item.tags.clone(),
                 standing: Standing::of(&kept),
             };
+            if row.standing == Standing::Paused
+                && let Some(pause) = decide::pause(&kept.work.records)
+                && !pause.waits_for.is_empty()
+            {
+                plan.waits.insert(number, pause.waits_for.clone());
+            }
             plan.rows.insert(number, row);
             plan.on.insert(number, depends_on);
         }
@@ -144,8 +153,8 @@ impl Plan {
 
 /// The items whoever plans the work could let on now, in a default order for reading, the choice being theirs: the
 /// works the owner paused, or that were added or reopened paused and never let on since, every item of which they
-/// depend on has merged or was cancelled. Those more items wait for, by way of any items, come first, then the earlier
-/// added.
+/// depend on has merged or was cancelled, and every item of which their pause waits for has merged or was cancelled.
+/// Those more items wait for, by way of any items, come first, then the earlier added.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Candidates {
@@ -154,6 +163,10 @@ pub struct Candidates {
     pub taken: u64,
     /// Every candidate there is, listed or not.
     pub total: usize,
+    /// How many more paused items, every item they depend on merged or cancelled, are none yet: their pause waits for
+    /// items that have neither merged nor been cancelled.
+    #[serde(default)]
+    pub waiting: usize,
     /// The first [`CANDIDATES`] of them.
     pub rows: Vec<Candidate>,
 }
@@ -177,8 +190,14 @@ impl Candidates {
             .collect();
         // A cancelled item is waited for no more than a merged one.
         let ended = |on: &u64| plan.rows.get(on).is_some_and(|row| row.standing.ended());
-        let mut found: Vec<Candidate> = (plan.rows.values())
+        let free: Vec<&Row> = (plan.rows.values())
             .filter(|row| row.standing == Standing::Paused && plan.next(row.item, Way::Up).iter().all(ended))
+            .collect();
+        // A pause that waits for items is none until each has merged or been cancelled.
+        let (ready, waiting): (Vec<&Row>, Vec<&Row>) =
+            (free.into_iter()).partition(|row| plan.waits.get(&row.item).is_none_or(|waits| waits.iter().all(ended)));
+        let mut found: Vec<Candidate> = ready
+            .into_iter()
             .map(|row| Candidate {
                 row: row.clone(),
                 started: started.get(&row.item).copied().unwrap_or(false),
@@ -193,6 +212,7 @@ impl Candidates {
             slots: slots.slots as u64,
             taken: slots.taken as u64,
             total: found.len(),
+            waiting: waiting.len(),
             rows: found.into_iter().take(CANDIDATES).collect(),
         }
     }

@@ -257,6 +257,7 @@ impl History {
                     Event::Paused {
                         by: Pauser::Owner,
                         why: None,
+                        waits_for: Vec::new(),
                     }
                 }
             }

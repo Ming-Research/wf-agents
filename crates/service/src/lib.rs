@@ -227,7 +227,12 @@ pub enum Act {
     GoOn {
         call: CallId,
     },
-    Pause,
+    /// Pauses the work as the owner does, saying why where they will, and the items the pause waits for to merge or be
+    /// cancelled.
+    Pause {
+        why: Option<String>,
+        waits_for: Vec<ItemNumber>,
+    },
     Resume,
     /// Cancels the work's item, for this reason where one is given.
     Cancel {
@@ -819,10 +824,15 @@ impl Service {
                     result: GO_ON.to_string(),
                 }
             }
-            Act::Pause => Event::Paused {
-                by: Pauser::Owner,
-                why: None,
-            },
+            Act::Pause { why, waits_for } => {
+                let own = (self.driver.work(work)).map(|kept| kept.item.number);
+                let waits_for = (self.driver.pause_waits(own, waits_for)).map_err(Refusal::Failed)?;
+                Event::Paused {
+                    by: Pauser::Owner,
+                    why,
+                    waits_for,
+                }
+            }
             Act::Resume => Event::Resumed,
             Act::Cancel { why } => {
                 // A cancel is a change of the item, judged as every change is.

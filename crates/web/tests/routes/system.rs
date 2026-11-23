@@ -191,6 +191,8 @@ fn planned(driver: &mut driver::Driver, at: u64, ms: u64, usd: u64) -> store::Wo
             content: "Please.".to_string(),
             value: None,
         }],
+        why: None,
+        waits_for: Vec::new(),
     };
     let (_, work, _) = driver.add(work::Time(at), new).unwrap();
     happened(driver, at, work, engine::Event::Resumed);
@@ -407,6 +409,8 @@ fn answered(driver: &mut driver::Driver, at: u64, bytes: usize) -> (store::WorkN
             content: "Please.".to_string(),
             value: None,
         }],
+        why: None,
+        waits_for: Vec::new(),
     };
     let (_, work, _) = driver.add(work::Time(at), new).unwrap();
     happened(driver, at, work, engine::Event::Resumed);

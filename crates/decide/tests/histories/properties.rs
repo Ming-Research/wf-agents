@@ -1232,6 +1232,7 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
                 at: Seq(last_place(records).0 + 1),
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
             match decide(flow, &let_on) {
                 Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Wait { at: cell, .. } => {

@@ -401,6 +401,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 at,
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
         }
         // A call for a person to answer is one no agent can make: the engine has no one to give it to. The carrier that
@@ -505,6 +506,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                         at,
                         by: Pauser::Engine,
                         why: Some(pausing_words(&flow.waits.paused, &pausing, &why)),
+                        waits_for: Vec::new(),
                     });
                 }
             }
@@ -573,7 +575,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
 fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, event: Event) -> Result<(), Refused> {
     match event {
         Event::Look => {}
-        Event::Paused { by, why } => {
+        Event::Paused { by, why, waits_for } => {
             // The engine's pause of a work that has ended, as one a carrier asks for as a round of a cancelled work
             // ends, would hold back nothing and say what is not so: it adds nothing.
             if by == Pauser::Engine && end(work).is_some() {
@@ -585,6 +587,7 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 at,
                 by,
                 why,
+                waits_for,
             });
         }
         Event::Resumed => {
@@ -594,6 +597,7 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 at,
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
         }
         Event::Done { call, result } => {
@@ -687,6 +691,7 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 at,
                 by: Pauser::Engine,
                 why: Some(flow::agents::fill(let_go, &[("why", &flow::agents::sentence(&why))])),
+                waits_for: Vec::new(),
             });
         }
         Event::Released => {

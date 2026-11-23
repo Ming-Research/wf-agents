@@ -53,6 +53,93 @@ fn wait_gives_the_owners_call_once_the_plan_reaches_its_limit_then_nothing_from_
     );
 }
 
+// A pause that waits for an item says why and for what; its work is none of the items to let on while the item has not
+// ended; when the item has merged, `wait` says so, the work stays paused until the owner lets it on, and letting it on
+// takes the line away.
+#[test]
+fn a_pause_that_waits_for_an_item_is_said_with_its_reason_and_wait_says_that_the_item_has_merged() {
+    let place = Place::new(SCRIPT);
+    let engine = Engine::start(&place);
+    engine.says(&[
+        "add",
+        "--title",
+        "Greet the user",
+        "--flow",
+        "trial",
+        "--project",
+        "script",
+        "--write",
+        "request=Greet the user, please.",
+    ]);
+    engine.says(&[
+        "add",
+        "--title",
+        "Say goodbye",
+        "--flow",
+        "trial",
+        "--project",
+        "script",
+        "--write",
+        "request=Bye.",
+        "--why",
+        "After the greeting.",
+        "--waits-for",
+        "1",
+    ]);
+    let shown = engine.says(&["show", "2"]);
+    assert!(
+        shown.contains("paused at plan until #1 merges or is cancelled: After the greeting."),
+        "{shown}"
+    );
+    let candidates = engine.says(&["candidates"]);
+    assert!(
+        candidates.contains("1 item could be let on now")
+            && candidates.contains("wf-agents resume 1")
+            && !candidates.contains("wf-agents resume 2")
+            && candidates.contains("1 paused item is not among them: its pause waits for items"),
+        "{candidates}"
+    );
+    assert!(
+        engine
+            .refuses(&["pause", "1", "--waits-for", "1"])
+            .contains("a pause cannot wait for item #1 of its own work"),
+    );
+    assert!(
+        engine
+            .refuses(&["pause", "2", "--waits-for", "9"])
+            .contains("there is no item #9")
+    );
+
+    engine.says(&["resume", "1"]);
+    engine.says(&["wait"]);
+    engine.says(&["let-go", "1", "--call", "2"]);
+    let line = engine.until(&["wait", "--since", "0", "--for", "0"], |line| {
+        line.starts_with("Item 2 ")
+    });
+    assert!(
+        line.starts_with(
+            "Item 2 \"Say goodbye\", work 2: its pause waited for #1, which has merged or been cancelled, "
+        ) && line.ends_with(": it is paused still, and only `wf-agents resume 2` lets it on."),
+        "{line}"
+    );
+    let shown = engine.says(&["show", "2"]);
+    assert!(
+        shown.contains(
+            "paused at plan, and what it waited for is over: #1 merged or was cancelled: After the greeting."
+        ),
+        "{shown}"
+    );
+    let candidates = engine.says(&["candidates"]);
+    assert!(
+        candidates.contains("wf-agents resume 2") && !candidates.contains("paused item"),
+        "{candidates}"
+    );
+
+    engine.says(&["resume", "2"]);
+    let said = engine.says(&["wait", "--since", "0", "--for", "0"]);
+    assert!(!said.contains("its pause waited for"), "{said}");
+}
+
 #[test]
 fn wait_refuses_a_mark_that_is_none_and_one_of_other_records() {
     let place = Place::new(SCRIPT);

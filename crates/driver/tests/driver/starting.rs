@@ -125,6 +125,7 @@ fn opened_with_no_work_going_on_it_pauses_nothing() {
         Event::Paused {
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         },
     );
     let (_, merged) = h.add_let_on(new_item("merged", &[], "plain"));

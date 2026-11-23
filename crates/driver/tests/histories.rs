@@ -319,6 +319,8 @@ impl History {
             tags: Vec::new(),
             flow: flow.to_string(),
             writes,
+            why: None,
+            waits_for: Vec::new(),
         };
         let let_on = self.room.chance(33);
         self.act(Act::Add(new));
@@ -675,6 +677,7 @@ impl History {
                     Event::Paused {
                         by: Pauser::Owner,
                         why: None,
+                        waits_for: Vec::new(),
                     }
                 }
             }

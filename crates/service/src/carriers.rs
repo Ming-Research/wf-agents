@@ -935,6 +935,7 @@ impl RoundReply {
         let paused = Event::Paused {
             by: Pauser::Engine,
             why: Some(why),
+            waits_for: Vec::new(),
         };
         // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
         let _ = self.to.send(Message::Happened {
@@ -957,6 +958,7 @@ impl RoundReply {
         let paused = Event::Paused {
             by: Pauser::Engine,
             why: Some(pause),
+            waits_for: Vec::new(),
         };
         // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
         let _ = self.to.send(Message::Happened {

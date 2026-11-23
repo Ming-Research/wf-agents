@@ -1044,6 +1044,8 @@ impl Real {
             tags: Vec::new(),
             flow: self.flow.name.clone(),
             writes: request.into_iter().collect(),
+            why: None,
+            waits_for: Vec::new(),
         };
         let (reply, mut answer) = oneshot::channel();
         self.service

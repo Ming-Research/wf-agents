@@ -734,6 +734,7 @@ impl Random {
             return Some(Event::Paused {
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
         }
         if !(d.paused && self.paused_it && !checking) {
@@ -1125,6 +1126,7 @@ impl Random {
             return Event::Paused {
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             };
         }
         if paused && passed_before_merge(d, &self.roles) {
@@ -1213,6 +1215,7 @@ impl Random {
                 Event::Paused {
                     by: Pauser::Owner,
                     why: None,
+                    waits_for: Vec::new(),
                 }
             }),
             // A person commits on the work's branch, outside any round: nothing is written until a carrier reads it.

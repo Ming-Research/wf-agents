@@ -34,6 +34,8 @@ fn kept(path: &Path) {
                 content: "Please.".to_string(),
                 value: None,
             }],
+            why: None,
+            waits_for: Vec::new(),
         };
         driver.add(at(0), new).unwrap();
     }
@@ -50,6 +52,7 @@ fn kept(path: &Path) {
     let paused = Event::Paused {
         by: decide::Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     };
     driver.happened(at(1500), first, paused).unwrap();
     let handed = engine::Handed {

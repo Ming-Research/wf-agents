@@ -312,10 +312,18 @@ pub struct Written<'a> {
     pub texts: &'a [String],
     pub files: &'a [String],
     pub choices: &'a [String],
+    /// Why the item is added paused, and what its pause waits for.
+    pub paused: Paused,
+}
+
+/// Why a work is paused, and the items its pause waits for, as the owner says them as they pause it or add it paused.
+pub struct Paused {
+    pub why: Option<String>,
+    pub waits_for: Vec<u64>,
 }
 
 /// The new item, with what is written for it: each text, then each file's content, then each choice, in the order
-/// given. It is added paused.
+/// given. It is added paused, for the reason given where there is one.
 pub fn new_item(
     title: String,
     level: Option<String>,
@@ -325,7 +333,12 @@ pub fn new_item(
     tags: Vec<String>,
     written: Written<'_>,
 ) -> Result<NewItem, String> {
-    let Written { texts, files, choices } = written;
+    let Written {
+        texts,
+        files,
+        choices,
+        paused,
+    } = written;
     let mut writes = Vec::new();
     for text in texts {
         let (block, content) = split(text, "--write")?;
@@ -360,6 +373,8 @@ pub fn new_item(
         tags,
         flow,
         writes,
+        why: paused.why,
+        waits_for: paused.waits_for,
     })
 }
 
@@ -545,7 +560,7 @@ fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
         Act::Write { block, .. } => format!("Wrote {block} for work {work}."),
         Act::LetGo { cell } => format!("Cell {cell} of work {work} goes on."),
         Act::GoOn { call } => format!("The run of work {work} whose call {call} was at its limit goes on."),
-        Act::Pause {} => format!("Work {work} is paused."),
+        Act::Pause { .. } => format!("Work {work} is paused."),
         Act::Resume {} => format!("Work {work} goes on."),
         Act::Cancel { .. } => format!("Work {work} is cancelled."),
         Act::Result { call, .. } => format!("Call {call} of work {work} has its result."),
@@ -1290,6 +1305,17 @@ fn candidates_said(candidates: &Candidates) -> String {
     if more > 0 {
         lines.push(format!("  And {more} more, which fewer items wait for."));
     }
+    if candidates.waiting > 0 {
+        let (items, waits) = match candidates.waiting {
+            1 => ("item is", "its pause waits"),
+            _ => ("items are", "their pauses wait"),
+        };
+        lines.push(format!(
+            "{} paused {items} not among them: {waits} for items that have neither merged nor been cancelled \
+             (`wf-agents list` says which).",
+            candidates.waiting
+        ));
+    }
     lines.join("\n")
 }
 
@@ -1608,6 +1634,23 @@ fn heed(line: &Line, now: u64) -> String {
                 format!("waits{at} for {items}, {none} ({}), for {waited}", why.join(", ")),
             )
         }
+        Line::PauseOver { of, since, items } => {
+            let has = if items.len() == 1 {
+                "which has"
+            } else {
+                "each of which has"
+            };
+            (
+                of,
+                format!(
+                    "its pause waited for {}, {has} merged or been cancelled, {} ago: it is paused still, and only \
+                     `wf-agents resume {}` lets it on",
+                    numbers(items),
+                    duration(now.saturating_sub(*since)),
+                    of.work
+                ),
+            )
+        }
         Line::Ended { of, since, now: is } => (
             of,
             format!("{}, {} ago", self::now(is), duration(now.saturating_sub(*since))),
@@ -1734,17 +1777,23 @@ fn now(now: &Now) -> String {
         Now::Cancelled => "cancelled".to_string(),
         Now::Round { cell, run, round, .. } => format!("a round of {cell} is under way, round {round} of run {run}"),
         Now::Paused {
-            at, by: Pauser::Owner, ..
-        } => format!("paused at {at}"),
+            at,
+            by: Pauser::Owner,
+            why,
+            waits_for,
+            open,
+        } => owner_paused(at, why.as_deref(), waits_for, open),
         Now::Paused {
             at,
             by: Pauser::Engine,
             why: Some(why),
+            ..
         } => format!("paused at {at} by the engine. {}", sentence(why)),
         Now::Paused {
             at,
             by: Pauser::Engine,
             why: None,
+            ..
         } => format!("paused at {at} by the engine, which gave no reason"),
         Now::Everything { at, .. } => format!("held back at {at} by the pause of everything"),
         Now::Waits { at, on } => {
@@ -1753,6 +1802,27 @@ fn now(now: &Now) -> String {
         }
         Now::Next { cell } => format!("about to go on at {cell}"),
         Now::Stalled { at, why, .. } => format!("stalled at {at}. {why}"),
+    }
+}
+
+/// The owner's pause, as a clause: where it is, until which items have merged or been cancelled where it waits for
+/// items, or that what it waited for is over, and why where the owner said.
+fn owner_paused(at: &str, why: Option<&str>, waits_for: &[u64], open: &[u64]) -> String {
+    let each = |items: &[u64]| match items {
+        [_] => numbers(items),
+        _ => format!("each of {}", numbers(items)),
+    };
+    let waits = match (waits_for.is_empty(), open.is_empty()) {
+        (true, _) => String::new(),
+        (false, false) => format!(" until {} merges or is cancelled", each(open)),
+        (false, true) => format!(
+            ", and what it waited for is over: {} merged or was cancelled",
+            each(waits_for)
+        ),
+    };
+    match why {
+        Some(why) if !why.trim().is_empty() => format!("paused at {at}{waits}: {}", first_line(why)),
+        _ => format!("paused at {at}{waits}"),
     }
 }
 
@@ -2390,6 +2460,80 @@ mod tests {
         assert!(lines[LISTED - 1].starts_with("b pull request #40 "), "{said}");
     }
 
+    // The owner's pause is said with why, and with the items it waits for until each has merged or been cancelled, and that
+    // what it waited for is over once each has; one with neither is said as it always was, and the engine's keeps its words.
+    #[test]
+    fn the_owners_pause_is_said_with_its_reason_and_the_items_it_waits_for_until_they_end() {
+        let paused = |by, why: Option<&str>, waits_for: &[u64], open: &[u64]| {
+            now(&Now::Paused {
+                at: "plan".to_string(),
+                by,
+                why: why.map(str::to_string),
+                waits_for: waits_for.to_vec(),
+                open: open.to_vec(),
+            })
+        };
+        let owner = Pauser::Owner;
+        assert_eq!(paused(owner, None, &[], &[]), "paused at plan");
+        assert_eq!(
+            paused(owner, Some("After the base."), &[], &[]),
+            "paused at plan: After the base."
+        );
+        assert_eq!(
+            paused(owner, None, &[12], &[12]),
+            "paused at plan until #12 merges or is cancelled"
+        );
+        assert_eq!(
+            paused(owner, Some("After both."), &[12, 14], &[12, 14]),
+            "paused at plan until each of #12 and #14 merges or is cancelled: After both."
+        );
+        assert_eq!(
+            paused(owner, Some("After both."), &[12, 14], &[14]),
+            "paused at plan until #14 merges or is cancelled: After both."
+        );
+        assert_eq!(
+            paused(owner, None, &[12, 14], &[]),
+            "paused at plan, and what it waited for is over: each of #12 and #14 merged or was cancelled"
+        );
+        assert_eq!(
+            paused(Pauser::Engine, Some("A round failed"), &[], &[]),
+            "paused at plan by the engine. A round failed."
+        );
+    }
+
+    // A pause whose items have all ended is a line for the planner, which says whom it waited for, since when, and how to
+    // let the work on; the candidates say how many paused items are none yet because their pause still waits.
+    #[test]
+    fn a_pause_that_is_over_is_a_line_and_the_candidates_count_the_pauses_that_still_wait() {
+        let hour = 3_600_000;
+        let line = Line::PauseOver {
+            of: web::attention::Of {
+                work: 5,
+                item: 40,
+                title: "Greet".to_string(),
+            },
+            since: hour,
+            items: vec![12, 14],
+        };
+        assert_eq!(
+            heed(&line, 3 * hour),
+            "Item 40 \"Greet\", work 5: its pause waited for #12 and #14, each of which has merged or been cancelled, \
+             2h 00m ago: it is paused still, and only `wf-agents resume 5` lets it on."
+        );
+        let none = Candidates {
+            slots: 3,
+            taken: 1,
+            total: 0,
+            waiting: 2,
+            rows: Vec::new(),
+        };
+        assert_eq!(
+            candidates_said(&none),
+            "1 of 3 slots taken; 0 items could be let on now.\n2 paused items are not among them: their pauses wait \
+             for items that have neither merged nor been cancelled (`wf-agents list` says which)."
+        );
+    }
+
     #[test]
     fn observations_are_said_whole_a_bounded_few_at_a_time_with_the_number_to_ask_for_the_rest() {
         let page = ObservationsPage {
@@ -2674,6 +2818,7 @@ mod tests {
             slots: 3,
             taken: 1,
             total: 2,
+            waiting: 0,
             rows: (1..=2)
                 .map(|n| Candidate {
                     row: row(n, projects[n as usize - 1]),

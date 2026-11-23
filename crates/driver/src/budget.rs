@@ -95,6 +95,7 @@ mod tests {
                 at: Seq(*at),
                 by: *by,
                 why: None,
+                waits_for: Vec::new(),
             });
         }
         work
@@ -174,6 +175,7 @@ mod tests {
             at: Seq(at),
             by,
             why: None,
+            waits_for: Vec::new(),
         };
         work.records.rounds.push(Round { run, at: Seq(1) });
         work.records.pauses.push(pause(true, 2, Pauser::Engine));

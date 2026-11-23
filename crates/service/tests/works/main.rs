@@ -55,6 +55,8 @@ pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
             content: format!("{title}, please."),
             value: None,
         }],
+        why: None,
+        waits_for: Vec::new(),
     }
 }
 

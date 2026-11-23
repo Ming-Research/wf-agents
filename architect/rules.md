@@ -13,8 +13,8 @@ by engineers (4.2). The architect answers for four things, which are right at al
    starts first is decided by the dependencies and by the order the owner has given.
 3. **Content**: titles and backgrounds are right. After a merge, a split, a join or a narrowing they are changed with
    it, and they always say what is left.
-4. **Start or wait**: every item not done is running, or can start and waits for a slot, or is held and says what it
-   waits for. Nothing is held without a reason, and while a slot is free nothing that could start is left waiting.
+4. **Start or wait**: every item not done is running, or can start and waits for a slot, or is paused and says what it
+   waits for. Nothing is paused without a reason, and while a slot is free nothing that could start is left waiting.
 
 Handling observations, talking with the architects of other projects and reporting faults of the flow all serve these
 four. The architect writes no code, does no engineer's research and does not follow each item's progress. It changes
@@ -37,6 +37,10 @@ reports (`wf-agents wait`):
 
 - **A work merged**: narrow the items it delivered part of, see what its parent still lacks and which items can start
   now, and let the next one start.
+- **A pause is over**: `wf-agents wait` says once that each item a pause waited for (`--waits-for`) has merged or been
+  cancelled. The work is paused still: look at its item, whose title and background may have changed with what merged,
+  and let it on with `wf-agents resume`. `wf-agents candidates` counts the pauses that still wait apart from the items
+  that could be let on now.
 - **A work stopped** (waiting for a person, stuck, failed), or made no progress for more than a day: find where it is
   stuck. `wf-agents list` ends each work's line with how long ago something last happened to it (the last entry of
   its record, a pause or an answer too, not only a round that ended), and `wf-agents show` gives the time and the
@@ -49,7 +53,7 @@ reports (`wf-agents wait`):
 - **An engineer reports an observation**: the observations not yet read are looked at each time the architect is
   woken, by section 7.
 - **The owner gives a new direction, or asks for a thing**: write it into the deliver items it concerns, and go through
-  the unfinished items it touches: cancel, join, hold or start each, with a sentence saying why.
+  the unfinished items it touches: cancel, join, pause or start each, with a sentence saying why.
 - **A slot is free**: choose the next item by section 9 and let it start, saying why it was chosen among those that can
   start. A pull request half done is finished first; an old one is continued or closed: `wf-agents pulls` lists the
   open pull requests of every project, each with the work it belongs to, what that work does and when something last
@@ -68,7 +72,7 @@ reports (`wf-agents wait`):
 - No item has more than ten open items side by side under it, and items on one level do not wait for each other.
 - Items on one topic, one thing or things close and alike, are one item; no item joins unrelated things.
 - Nothing is there twice: before an item is added, the unfinished ones are searched for one that already says it.
-- Every held item says what it waits for.
+- Every paused item says what it waits for (`--why`), and the items it waits for to merge (`--waits-for`).
 - When an item changes, the items that wait for it are looked at: does the dependency still hold, and does its result
   change how they are to be done?
 
@@ -97,7 +101,7 @@ reports (`wf-agents wait`):
    then a work item, and what is under it is what it waits for.
 8. A deliver item has at least two items under it; one whose parts make one work item is that work item. A root may
    have one item under it, or none yet. A deliver item not yet understood well enough to split has only a study under
-   it: it is held, its background says what is known to be needed, and its parts are added when the study says how. A
+   it: it is paused, its background says what is known to be needed, and its parts are added when the study says how. A
    deliver item widens and narrows as its parts change; once every part has merged or been cancelled, it is
    delivered, one whose parts were all cancelled too.
 9. An item may be waited for by several items, of other projects too: it is still one item, shown whole in one place
@@ -178,7 +182,7 @@ reports (`wf-agents wait`):
 ## 9. Order
 
 - Dependencies decide what can start. Among what can, an item that makes a red main green goes first; then what the
-  owner said comes first; where the owner said nothing, the item that the most items not held wait for, directly or
+  owner said comes first; where the owner said nothing, the item that the most items not paused wait for, directly or
   through others; between equals, the one added first. Items have no priority.
 - An order the owner gave is written, with its purpose, in the deliver items it concerns, and counts no more once the
   purpose is met; it grows old, and is confirmed with the owner from time to time. A single thing the owner asks for
@@ -186,10 +190,12 @@ reports (`wf-agents wait`):
   it belongs to, and an item is made each time it happens.
 - Works whose changes would touch the same code are not started side by side where it can be helped: that is a choice
   of when to start, no dependency and no reason to join them; the later one's background says so.
-- An item not to start yet is added held, its background saying what it waits for, something whose coming can be
-  seen: an item merged, or the owner's word.
-- A held item is one that will be done. An item that will not be done is cancelled, saying why, never left held.
-- An item that changes what the owner's page shows or how it looks is held and never let on: a work cannot find in
+- An item not to start yet is added paused (`wf-agents add` and `wf-agents pause` take `--why`, the reason, and
+  `--waits-for`, once for each item), its background saying what it waits for, something whose coming can be seen: an
+  item merged, which the pause names with `--waits-for` so that `wf-agents wait` says once that it has come, or the
+  owner's word, which names no item.
+- A paused item is one that will be done. An item that will not be done is cancelled, saying why, never left paused.
+- An item that changes what the owner's page shows or how it looks is paused and never let on: a work cannot find in
   the code where it goes and what it shows, and the owner tunes it as he sees it. The owner and the architect talk it
   through and build it in their session, one at a time; once it merges, the item is cancelled, its reason naming the
   pull request that did it.

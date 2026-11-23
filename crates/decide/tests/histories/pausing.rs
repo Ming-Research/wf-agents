@@ -87,6 +87,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                 at: Seq(last_place(records).0 + 1),
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
             let lifted = Room { paused: false, ..room };
             if let Decision::Run { cell, .. } = decide_in(flow, &let_on, lifted) {

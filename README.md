@@ -20,7 +20,9 @@ wf-agents runs coding agents through a defined flow.
   `wf-agents add --title "Greet the user" --flow trial --project script --write "request=Greet the user."` and
   `wf-agents resume 1`,
   and `wf-agents list` or the pages to follow it;
-  `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it. Whoever plans the work waits
+  `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it; `wf-agents pause <work>` and `add`
+  take `--why <sentence>` and `--waits-for <item>`, which say why the work is paused and which items it waits for to
+  merge or be cancelled, and `wf-agents wait` says once that each has. Whoever plans the work waits
   with `wf-agents wait` for what needs them, each answer ending with the mark to give the next, and read the
   observations agents reported with `wf-agents observations`, the newest first. They read the plan
   with `wf-agents changes --since <mark>`, `candidates`, `search <text>`, `graph <item>` (up to what it depends on and
