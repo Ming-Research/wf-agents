@@ -29,7 +29,9 @@
 // with the pointer's tint and says what a press does and how many items stand under the item by kind. What a fold hides
 // counts at its item wherever the tree marks what is under an item: the edge above a work, the title of what has begun,
 // and the map. A click on the shadow of an item folded away, or the selection of one, has the console open the folds
-// over it, and the item is selected once it is drawn.
+// over it, and the item is selected once it is drawn. Asked to, as a click on the item's title in its window asks, the
+// item selected flashes once, whether or not the tree moved to bring it into view: its soft light grows wider and
+// stronger, and eases back to rest.
 // What stands is drawn once and kept until something in it changes: a tree read again that draws the same makes
 // nothing again, and one that changed makes again only the cards that changed; a frame in which only the lights, the
 // pulses and the ages move draws only those, the cards standing in a group of their own that is drawn as it was.
@@ -272,11 +274,28 @@ const SOFT_BLUR = 6;
 const SOFT_ALPHA = 0.45;
 const CHOSEN_SPREAD = 4;
 const CHOSEN_BLUR = 9;
+/// The flash of the item selected's soft light, which a click on the item's title in its window asks for, so that the
+/// eye finds the card whether or not the tree moved to bring it into view. At its height the light reaches this many
+/// pixels past the card's edge, four times as far as at rest, at full strength, more than twice its strength at rest.
+/// It rises over this part of its time and eases back to rest over the rest, this many milliseconds in all
+/// ([`flashOf`]).
+const FLASH_SPREAD = 16;
+const FLASH_RISE = 0.15;
+export const FLASH_MS = 800;
 /// The room a soft light's blur is drawn in past its fill, in strengths of the blur: wide enough that the blur fades
 /// out before its edge. It is also as far as the light reaches past its fill.
 const BLUR_ROOM = 4;
 /// The step in pixels by which a texture a kept glow is laid on is made larger than the glow ([`SnapScene.bake`]).
 const TEXTURE_STEP = 128;
+
+/// How far on a flash of the item selected's soft light is, `ms` into it: from 0 up to 1 at its height and back down
+/// to 0 once its time is over, smoothly both ways ([`FLASH_MS`]).
+function flashOf(ms: number): number {
+  const u = ms / FLASH_MS;
+  if (u <= 0 || u >= 1) return 0;
+  const k = u < FLASH_RISE ? u / FLASH_RISE : (1 - u) / (1 - FLASH_RISE);
+  return k * k * (3 - 2 * k);
+}
 
 /// The blur of a soft light round an item, this strong, with its room: set after the filter is made, which sets its
 /// own from its strength, too narrow for the blur to fade out in.
@@ -730,7 +749,8 @@ export type Stats = {
   /// How many cards the last tree shown made, the others kept from the tree before.
   made: number;
   /// How many frames have drawn the still parts of the tree again ([`draw`]), and for what, each frame counted for each
-  /// thing that asked: `tree`, `pointer`, `select`, `view`, `shown`, `start`, `turns`, `moved`, `size` or `easing`.
+  /// thing that asked: `tree`, `pointer`, `select`, `view`, `flash`, `shown`, `start`, `turns`, `moved`, `size` or
+  /// `easing`.
   redraws: number;
   redrawn: Record<string, number>;
   /// How many frames have built again what stands of the lit ways: their lines, glow and strands, and the lights at
@@ -1066,6 +1086,10 @@ export class SnapScene {
   /// blurred.
   private chosenGlow = new Graphics({ filters: [softBlur(CHOSEN_BLUR)] });
   private hoverGlow = new Graphics({ filters: [softBlur(SOFT_BLUR)] });
+  /// The flash of the item selected's soft light under way, by the item's number and the scene's time it began at
+  /// ([`flash`]); and the item selected's soft light as it was last drawn, for the tests ([`chosenLight`]).
+  private flashing: { id: number; at: number } | null = null;
+  private chosenDrawn: { id: number; out: number; alpha: number } | null = null;
   /// The page's ground at each item a soft light reaches, over the lights and under the cards.
   private glowGround = new Graphics();
   /// The funnel or the dot of the fold under the pointer, filled with the pointer's tint, under the lit ways; and the
@@ -1985,6 +2009,13 @@ export class SnapScene {
     return [...this.waysDrawn];
   }
 
+  /// The soft light round the item selected as it was last drawn, and so stands, for the tests: the item's number, how
+  /// many pixels past its card's edge its fill reaches, and how strong the fill is. None while no item selected is
+  /// drawn whole.
+  chosenLight(): { id: number; out: number; alpha: number } | null {
+    return this.chosenDrawn;
+  }
+
   /// The shadow of an item under another item that depends on it besides its main one: a white card, its edge dashed,
   /// its number and title grey, and at the right an arrow pointing away, to where the item stands.
   private shadow(item: Shown, view: Container, top: number, h: number, row1: number): Container {
@@ -2739,6 +2770,14 @@ export class SnapScene {
     else if (x + NODE_W > room) this.leftGoal = room - INSET - NODE_W - d * PITCH;
   }
 
+  /// Flashes the soft light round the item numbered `id` once, from the next frame: it grows wider and stronger and
+  /// eases back to rest ([`FLASH_SPREAD`]). Only the item selected has that light, so the flash ends once `id` is not
+  /// the item selected; and a flash asked for again begins again.
+  flash(id: number): void {
+    this.mark('flash');
+    this.flashing = { id, at: this.clock };
+  }
+
   /// Folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or its dot
   /// does, the console told; a shadow, or a card with nothing under it, folds nothing. Whether it folded or unfolded.
   foldPointedCard(): boolean {
@@ -2846,8 +2885,8 @@ export class SnapScene {
     const x = (d: number) => this.left + d * PITCH;
     // The still parts of the tree, the cards where they stand, the funnels, the rings and the ribbons, the soft lights,
     // the dots, the edges and the map, are drawn again only where something they draw changed: a new tree, the
-    // pointer, a selection, the columns moving, a fold turning, the screen's size, or what was still easing at the last
-    // frame. Else they stand as they were drawn, and only the lights, the pulses and the ages are drawn.
+    // pointer, a selection, a flash, the columns moving, a fold turning, the screen's size, or what was still easing at
+    // the last frame. Else they stand as they were drawn, and only the lights, the pulses and the ages are drawn.
     // Moved since the last frame: by the glide of this frame, or by a pan or a scroll between the two.
     const shifted =
       this.left !== this.drawnLeft ||
@@ -2985,6 +3024,17 @@ export class SnapScene {
     // so that it stands out among them.
     const picked = this.selected === null ? -1 : (this.real.get(this.selected) ?? -1);
     const chosen = lit(picked);
+    // How far on the flash of the item selected's soft light is. It ends once its time is over or its item is no longer
+    // the one selected; while it lasts, the still parts are drawn again at the next frame.
+    let flare = 0;
+    if (this.flashing !== null) {
+      const ms = this.clock - this.flashing.at;
+      if (ms >= FLASH_MS || this.flashing.id !== this.selected) this.flashing = null;
+      else {
+        flare = flashOf(ms);
+        easing = true;
+      }
+    }
     // While the pointer or the selection lights something, every other item drawn is dimmed, more under the pointer
     // than for the selection alone, so that the lit items and what joins them stand out; it comes and goes over a
     // moment, so that a pointer passing over the tree does not make it flicker.
@@ -3357,9 +3407,9 @@ export class SnapScene {
         this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
         this.links.fill({ color: PALETTE.hoverRibbon, alpha: a });
       }
-      // The soft lights, each in its item's own colour: behind the item selected, and behind the item under the
-      // pointer, as far as it has come in; over them, the page's ground where [`grounded`] says, so that the light
-      // shows only round the cards and never through one drawn faint.
+      // The soft lights, each in its item's own colour: behind the item selected, wider and stronger as far as its
+      // flash is on, and behind the item under the pointer, as far as it has come in; over them, the page's ground
+      // where [`grounded`] says, so that the light shows only round the cards and never through one drawn faint.
       this.chosenGlow.clear();
       this.hoverGlow.clear();
       const lights: Light[] = [];
@@ -3372,8 +3422,13 @@ export class SnapScene {
         });
         lights.push({ item: i, gx, gy, gh, reach: out + BLUR_ROOM * blur });
       };
-      if (picked >= 0 && isWhole(picked))
-        softLight(this.chosenGlow, picked, CHOSEN_SPREAD, CHOSEN_BLUR, this.own[picked], 1);
+      this.chosenDrawn = null;
+      if (picked >= 0 && isWhole(picked)) {
+        const out = CHOSEN_SPREAD + (FLASH_SPREAD - CHOSEN_SPREAD) * flare;
+        const on = 1 + (1 / SOFT_ALPHA - 1) * flare;
+        softLight(this.chosenGlow, picked, out, CHOSEN_BLUR, this.own[picked], on);
+        this.chosenDrawn = { id: this.ids[picked], out, alpha: SOFT_ALPHA * on };
+      }
       for (const [i, a] of this.softLit)
         if (isWhole(i)) softLight(this.hoverGlow, i, SOFT_SPREAD, SOFT_BLUR, this.own[i], a);
       this.glowGround.clear();

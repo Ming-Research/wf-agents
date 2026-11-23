@@ -2242,11 +2242,7 @@ pub fn asked(driver: &Driver, summary: &Summary) -> Option<service::OfWork> {
         (None, Now::Merged) => merge_wrote(&kept),
         _ => None,
     };
-    Some(service::OfWork {
-        work: number,
-        item: kept.item.clone(),
-        merged,
-    })
+    Some(service::OfWork::of(&kept, merged))
 }
 
 /// What the run that merged the work wrote, of a work that merged: its latest finished run, the merge's finish being

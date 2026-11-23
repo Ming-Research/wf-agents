@@ -392,6 +392,25 @@ describe('the cards of what waits for the owner', () => {
     ]);
   });
 
+  it('keep a pressed button disabled until its card goes, and enable it again where the act is refused', async () => {
+    const [, now, w] = OWNERS[2];
+    const button = (el: HTMLElement) => el.querySelector(`[data-wait="${w.key}"] button`) as HTMLButtonElement;
+    // The engine takes the act: the button stays disabled once the answer is back, while the card still stands.
+    const taken = draw(now, [w], w.key, () => Promise.resolve(null));
+    act(() => button(taken).click());
+    expect(button(taken).disabled).toBe(true);
+    await act(async () => undefined);
+    expect(button(taken).disabled).toBe(true);
+    unmount();
+    // The engine refuses it: the button is enabled again and the refusal is said.
+    const refusing = draw(now, [w], w.key, () => Promise.reject(new Error('refused here')));
+    act(() => button(refusing).click());
+    expect(button(refusing).disabled).toBe(true);
+    await act(async () => undefined);
+    expect(button(refusing).disabled).toBe(false);
+    expect(refusing.textContent).toContain('refused here');
+  });
+
   it('say a question the merge waits for by what it asks and nothing more, as at its cell', async () => {
     const [, now, w] = OWNERS[4];
     const container = draw(now, [w], undefined, none);
