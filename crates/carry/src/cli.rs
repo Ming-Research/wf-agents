@@ -1508,9 +1508,13 @@ mod tests {
         assert!(refused.why.contains("issue with the selected model"), "{}", refused.why);
         let nothing = read(b"Error: something").expect_err("what is no JSON is not taken");
         assert_eq!(nothing.spent, None, "what the round took is not known");
-        let cut = STREAM.lines().take(5).collect::<Vec<_>>().join("\n");
-        let cut = read(cut.as_bytes()).expect_err("a stream with no result is not taken");
+        // Before its first call the round took nothing known; once a call began it took that call's prompt and what it had
+        // written, priced (Haiku 5.5: 2 fresh, 27,199 read and 8,950 written for an hour, with 17 tokens out).
+        let calls = |lines: usize| STREAM.lines().take(lines).collect::<Vec<_>>().join("\n");
+        let cut = read(calls(2).as_bytes()).expect_err("a stream with no result is not taken");
         assert_eq!(cut.spent, None);
+        let begun = read(calls(5).as_bytes()).expect_err("a stream with no result is not taken");
+        assert_eq!(begun.spent.map(|s| s.usd_micros), Some(2071));
         let bare = r#"{"type":"result","is_error":false,"result":"hello","total_cost_usd":0.1}"#;
         assert!(read(bare.as_bytes()).is_err(), "a result with no structured return");
     }
@@ -1882,17 +1886,10 @@ mod tests {
     // priced from them again, and the call is priced with the rest. Opus 5.5: 100 fresh, 1,000 read, 50 out.
     #[test]
     fn the_start_and_the_end_of_every_call_are_kept_and_priced_again_as_they_were() {
-        let start =
-            json!({ "type": "stream_event", "parent_tool_use_id": "toolu_1", "event": { "type": "message_start",
-            "message": { "id": "msg_sub", "model": "claude-opus-5-5", "usage": { "input_tokens": 100,
-                "cache_creation_input_tokens": 0, "cache_read_input_tokens": 1000, "output_tokens": 1 } } } })
-            .to_string();
-        let end = json!({ "type": "stream_event", "parent_tool_use_id": "toolu_1", "api_message_id": "msg_sub",
-            "event": { "type": "message_delta", "usage": { "input_tokens": 100, "output_tokens": 50 } } })
-        .to_string();
-        let piece = json!({ "type": "stream_event", "parent_tool_use_id": "toolu_1",
-            "event": { "type": "content_block_delta", "delta": { "type": "text_delta", "text": "x" } } })
-        .to_string();
+        // As the program prints them, the type first.
+        let start = r#"{"type":"stream_event","parent_tool_use_id":"toolu_1","event":{"type":"message_start","message":{"id":"msg_sub","model":"claude-opus-5-5","usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":1}}}}"#;
+        let end = r#"{"type":"stream_event","parent_tool_use_id":"toolu_1","api_message_id":"msg_sub","event":{"type":"message_delta","usage":{"input_tokens":100,"output_tokens":50}}}"#;
+        let piece = r#"{"type":"stream_event","parent_tool_use_id":"toolu_1","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"x"}}}"#;
         let mut stream = Stream::default();
         assert!(stream.line(start.as_bytes()), "a subagent's start is kept");
         assert!(!stream.line(piece.as_bytes()), "a piece of its text is not");
@@ -1900,7 +1897,7 @@ mod tests {
         // 100 × 4 + 1,000 × 0.2 + 50 × 20 millionths.
         assert_eq!(stream.cost(), (1600, true));
         let mut again = Stream::default();
-        for line in [&start, &end] {
+        for line in [start, end] {
             again.line(line.as_bytes());
         }
         assert_eq!(again.cost(), stream.cost());
