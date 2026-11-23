@@ -185,6 +185,7 @@ reports (`wf-agents wait`):
 - An item not to start yet is added held, its background saying what it waits for, something whose coming can be
   seen: an item merged, or the owner's word.
 - A held item is one that will be done. An item that will not be done is cancelled, saying why, never left held.
-- An item that changes what the owner's page shows or how it looks is held until the owner and the architect have
-  talked through where it goes and what it shows: a work cannot find that in the code. Its first conclusions then go
-  under the background's reference, and the owner lets it on.
+- An item that changes what the owner's page shows or how it looks is held and never let on: a work cannot find in
+  the code where it goes and what it shows, and the owner tunes it as he sees it. The owner and the architect talk it
+  through and build it in their session, one at a time; once it merges, the item is cancelled, its reason naming the
+  pull request that did it.
