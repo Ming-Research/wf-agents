@@ -62,7 +62,7 @@ reports (`wf-agents wait`):
 - Every parent and child pass the test of a dependency (section 5).
 - The roots are only the few things the project delivers.
 - No item has more than ten items side by side under it, and items on one level do not wait for each other.
-- No item is too small to be worth a run of the flow on its own: small related things are joined into one.
+- Items on one topic, one thing or things close and alike, are one item; no item joins unrelated things.
 - Nothing is there twice: before an item is added, the unfinished ones are searched for one that already says it.
 - Every held item says what it waits for.
 - When an item changes, the items that wait for it are looked at: does the dependency still hold, and does its result
@@ -111,16 +111,15 @@ reports (`wf-agents wait`):
 
 ## 6. Size, joining, splitting, narrowing, cancelling
 
-- Every work goes through the whole flow, whatever its size, and a run is not light: about ten rounds of agents and
-  half an hour go on a work before anything of it merges, whatever the change is. A work is at least what is worth
-  that: a change of a wording, of a constant, of a comment and the like does not run alone, and is joined into an item
-  that carries it. A work is at most what one engineer finishes in a day and a reader of its pull request takes in at
-  once.
+- Every work goes through the whole flow, whatever its size. A small work goes through it quickly, so being small is no
+  reason to join it to another. A work is at most what one engineer finishes in a day and a reader of its pull request
+  takes in at once.
 - A change is a work item of its own only for a reason that can be named: other items wait for it alone; it needs a
   higher level than its neighbours; it is in another repository; joined, the work would take more than a day; joined,
   it would wait for what it does not need; the owner wants it first. That it is a separate change is no reason.
-- Only related things of one kind are joined; unrelated ones never, however small. Items not begun are joined when they
-  are seen to make one work. The one kept is the one most items wait for; its title says what they share, its
+- Items are joined by topic: one thing, or things so close or alike that one engineer does them as one. Where things
+  are that close, one larger item is better than several small ones. Unrelated things are never joined, however small,
+  and never to make an item bigger. Items not begun are joined when they are seen to make one work. The one kept is the one most items wait for; its title says what they share, its
   background gives each part a sentence, its level is the highest of theirs, and what depended on any of them depends
   on it. The others are cancelled, each saying which item it went into. A work that has begun takes nothing more.
 - What is too large is split; where it is not yet understood well enough to split, its first part is a study that says
@@ -155,12 +154,13 @@ reports (`wf-agents wait`):
      code or a design document, where. Of a cause, only what was found.
   3. Why that is a problem: what goes wrong, or what the owner cannot do.
   4. What is to be done, and the result wanted.
-  Where the item joins several problems, parts 1 and 4 are said once, and each problem is one numbered line between
-  them: what is wrong, with its case. The whole background, references included, is at most 300 characters, a Chinese
-  character counting as one; a story that does not fit belongs to an item that is too big (section 6). Sentences are
-  short, and each has a subject that acts. Every name, such as a file, a test, a cell, a command or an item's number,
-  is said in plain words where it first appears. Never how to do it, which the work's research finds. It names the
-  owner as the owner, never as "you".
+  Where the item joins several problems, parts 1, 3 and 4 are said once, and each problem is one numbered line between
+  them: what is wrong, with its case. The whole background, references included, aims at about 300 characters as
+  `wf-agents show` counts them. This is a guide, not a hard limit; a story far longer belongs to an item that is too
+  big (section 6). Sentences
+  are short, and each has a subject that acts. Every name, such as a file, a test, a cell or a command, is said in
+  plain words where it first appears, and an item by its number and its title. Never how to do it, which the work's
+  research finds. It names the owner as the owner, never as "you".
   The acceptance is the work's plan's, not the background's. The background is written before the work begins; once it
   has begun, the background changes only where what the item asks changes, never for its wording, since a change runs
   the work's cells again.
