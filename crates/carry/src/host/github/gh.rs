@@ -209,11 +209,11 @@ impl Api for Gh {
                 .as_array()
                 .ok_or("GitHub's list of pull requests is not a list")?;
             open.extend(listed.iter().map(pull).collect::<Result<Vec<_>, String>>()?);
+            if open.len() > OPEN_PULLS {
+                return Err(format!("the repository holds more than {OPEN_PULLS} open pull requests").into());
+            }
             if listed.len() < 100 {
                 break;
-            }
-            if open.len() >= OPEN_PULLS {
-                return Err(format!("the repository holds more than {OPEN_PULLS} open pull requests").into());
             }
         }
         Ok(open)
