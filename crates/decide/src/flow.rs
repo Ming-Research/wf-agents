@@ -128,7 +128,7 @@ pub enum FlowFault {
     Twice(CellId),
     /// The cell's condition reads a block the cell itself writes, and another writer writes it too. A cell that is the
     /// block's only writer may: the block says which of two cells is in charge, which the cell decides for its own
-    /// next round (design document `data-and-context`, 46).
+    /// next round (design document `data-and-context`, 27).
     ConditionOnOwnOutput(CellId),
     /// The last cell has a condition: a work ends when its last cell has a record, so the last cell always runs.
     LastHasCondition(CellId),

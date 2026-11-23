@@ -12,6 +12,12 @@ Everything the engine sends agents is in the flow's files, never in the code or 
 - rejected: an agent proposed keeping the paths of the project's guide, constitution and tree rules, and the owner's language, in the installation's settings; the owner rejected it, because he checks the flow's files for repetition, copies and hard-coding, and the page for what the files lack.
 - replaced: Keeping in the engine's code the words that its acts write into blocks and commits was on main; the owner changed it, because what an agent is sent comes from the flow's files.
 
+### decision the-flows-words-hold-for-every-project
+The flow's words say only what holds for every project; a requirement of one kind of project is in that project's guide, which every agent's session begins with.
+- replaced: Taking a browser, a pull request and CI as holding for every project, in the words of the flow's files, was on main; the owner changed it, because an agent of another project reads them and does what its own project does not have.
+- rejected: an agent proposed a setting in the project's declaration that a cell's words name; the owner rejected it, because every other project's declaration must then define it too, or the flow is refused there, and a project with no such requirement writes a value for nothing.
+- rejected: an agent proposed a kind of setting that a project may leave out; the owner rejected it, because it is a new mechanism in the engine and the compiler, which the guide makes unnecessary.
+
 ### decision the-flows-files-are-a-tree-of-concepts
 The flow's files are laid out by concept, one thing to a file: the project's declaration, what every agent is sent, and each flow's lines, cells, blocks and tests.
 - rejected: an agent proposed one file holding everything the flows share; the owner rejected it, because it held too much, including every line's definition.

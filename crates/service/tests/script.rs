@@ -260,6 +260,15 @@ fn a_script_with_a_field_it_does_not_know_is_not_read() {
 }
 
 #[test]
+fn a_script_cannot_ask_a_person_a_question_which_no_return_does() {
+    let asked = "[[flows.trial.rounds]]\ncell = \"plan\"\nasks = [{ question = \"Which name?\" }]\n";
+    assert!(Script::read(asked).is_err());
+    let with_a_tool =
+        "[[flows.trial.rounds]]\ncell = \"plan\"\nasks = [{ question = \"Which name?\" }, { tool = \"ci\" }]\n";
+    assert!(Script::read(with_a_tool).is_err());
+}
+
+#[test]
 fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads() {
     let flow = trial();
     let planned = Script::default().round(&flow, cell(&flow, "review"), 2, 3, &BTreeMap::new());
@@ -452,22 +461,32 @@ fn a_round_asks_for_what_its_entry_says() {
         r#"
         [[flows.trial.rounds]]
         cell = "plan"
-        asks = [{ question = "Which name?" }, { tool = "ci", input = "main" }]
+        asks = [{ tool = "check" }, { tool = "ci", input = "main" }]
+
+        [[flows.trial.rounds]]
+        cell = "plan"
+        round = 2
+        asks = []
         "#,
     )
     .unwrap();
     assert_eq!(
         script.round(&flow, cell(&flow, "plan"), 1, 1, &BTreeMap::new()).ends,
         Ends::Came(Came::asks(vec![
-            Ask::Person {
-                who: decide::Who::Owner,
-                question: "Which name?".to_string()
+            Ask::Tool {
+                name: "check".to_string(),
+                input: String::new()
             },
             Ask::Tool {
                 name: "ci".to_string(),
                 input: "main".to_string()
             },
         ]))
+    );
+    // A round that asks for nothing returns nothing, and is sent back.
+    assert_eq!(
+        script.round(&flow, cell(&flow, "plan"), 1, 2, &BTreeMap::new()).ends,
+        Ends::Came(Came::asks(vec![]))
     );
 }
 

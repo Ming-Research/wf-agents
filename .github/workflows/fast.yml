@@ -109,6 +109,8 @@ jobs:
       # The design tree's files against the forms of design/README.md, as the full CI checks them.
       - name: Design tree
         run: python3 design/lint.py
+      - name: Citations of the documents
+        run: python3 docs/check_citations.py
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
