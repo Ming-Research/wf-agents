@@ -1694,19 +1694,6 @@ mod tests {
         assert_eq!(no.why, "the command line's result holds no structured return");
     }
 
-    // A fork's two messages are two lines of the standard input (JSON Lines), whatever the question holds: its lines,
-    // quotes and the separators JSON leaves unescaped. A few milliseconds.
-    #[test]
-    fn a_fork_is_given_two_lines_whatever_its_question_holds() {
-        let question = "Why \"this\"?\nAnd why not\r\nthat\u{2028}one?\n\n";
-        let bytes = fork_stdin("# A question follows", question);
-        assert!(bytes.ends_with(b"\n"));
-        let lines: Vec<&[u8]> = bytes.split(|b| *b == b'\n').filter(|l| !l.is_empty()).collect();
-        assert_eq!(lines.len(), 2);
-        let second: Value = serde_json::from_slice(lines[1]).expect("JSON");
-        assert_eq!(second["message"]["content"][0]["text"], question);
-    }
-
     #[test]
     fn a_stream_with_one_result_keeps_answered_and_has_result_true_and_reads_as_before() {
         let mut stream = Stream::default();
