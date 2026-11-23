@@ -171,6 +171,8 @@ struct Reached {
     of_cell: BTreeMap<String, usize>,
     /// The rounds of the last scripted history.
     trace: Vec<String>,
+    /// For each agent's cell, the states of a history at the entry of a round of it, one for each situation it stood in.
+    archive: BTreeMap<String, Vec<(u64, History)>>,
 }
 
 /// What a history of a flow does beside carrying its rounds.
@@ -668,6 +670,9 @@ impl History {
         let anew = self.sim.enter(round, true);
         self.check(round, &going_on, &held, reached);
         self.check(round, &anew, &Held::default(), reached);
+        if !self.scene.models {
+            self.keep(round.cell.as_str(), &going_on.situation, reached);
+        }
         let lost = !begins && self.rng.chance(10);
         let used = if lost {
             self.sim.tries(round, 1, going_on.fills.clone());
@@ -1076,6 +1081,28 @@ impl History {
         fills
     }
 
+    /// Keeps the history as it stands where a round of the cell is given and not yet carried, for the search to go on
+    /// from, where no state kept stood in the same situation: what a datum stands in at a round depends on what was
+    /// written and what the session held before it, so that the states worth going on from are those that differ. Where
+    /// the cell has kept enough, the new one takes the place of one by the situation's own number.
+    fn keep(&self, cell: &str, situation: &Situation, reached: &mut Reached) {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        format!("{situation:?}").hash(&mut hasher);
+        let number = hasher.finish();
+        let kept = reached.archive.entry(cell.to_string()).or_default();
+        if kept.iter().any(|(n, _)| *n == number) {
+            return;
+        }
+        match kept.len() < ARCHIVE {
+            true => kept.push((number, self.clone())),
+            false => {
+                let at = (number % kept.len() as u64) as usize;
+                kept[at] = (number, self.clone());
+            }
+        }
+    }
+
     fn check(&self, round: &Round, entered: &Entered, held: &Held, reached: &mut Reached) {
         let sim = &self.sim;
         let cell = sim.cell(round);
@@ -1469,15 +1496,11 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
 
 /// How many runs the search makes at most, how many steps each takes after its quiet ones, how many of the first steps
 /// of a run begun from nothing only carry the work's rounds (up to), and how many states of the work at the entry of a
-/// round of each kind it keeps.
-const RUNS: usize = 85;
-const RUN_STEPS: usize = 40;
+/// round of a cell it keeps, each of a situation the round stood in that no other kept did.
+const RUNS: usize = 220;
+const RUN_STEPS: usize = 30;
 const QUIET_STEPS: usize = 150;
-const FRONTIER: usize = 6;
-
-/// The states of a history as the round of a cell is to be carried, kept to branch from, by the cell, how often it has
-/// begun a run (up to three) and which round of its run it is (up to the second): `cell@runs@round`.
-type Frontier = BTreeMap<String, Vec<History>>;
+const ARCHIVE: usize = 50;
 
 /// What a run of the search is steered at: a cell, the datum and the state of it a line not yet reached says, and the
 /// blocks near them: those that run the cell.
@@ -1512,73 +1535,31 @@ impl Target {
     }
 }
 
-/// The keys of the frontier that are of this cell.
-fn keys_of<'a>(frontier: &'a Frontier, cell: &str) -> Vec<&'a String> {
-    frontier.keys().filter(|k| k.split('@').next() == Some(cell)).collect()
-}
-
-/// Keeps the history as it stands where a round is given and is not yet carried: the states a datum stands in at a
-/// round depend on what was written and what the session held before it, so that many ways of coming to a round of a
-/// cell are worth keeping.
-fn keep_at_the_round(frontier: &mut Frontier, history: &History, last: &mut Option<(RunId, usize)>, rng: &mut Rng) {
-    let Some(round) = history.sim.round() else {
-        return;
-    };
-    if *last == Some((round.run, round.number)) {
-        return;
-    }
-    *last = Some((round.run, round.number));
-    let runs = history
-        .sim
-        .work
-        .records
-        .started
-        .iter()
-        .filter(|s| s.cell == round.cell)
-        .count();
-    let kept = frontier
-        .entry(format!(
-            "{}@{}@{}",
-            round.cell.as_str(),
-            runs.min(3),
-            round.number.min(2)
-        ))
-        .or_default();
-    if kept.len() < FRONTIER {
-        kept.push(history.clone());
-    } else if rng.chance(15) {
-        let at = rng.below(kept.len());
-        kept[at] = history.clone();
-    }
-}
-
 /// Searches the engineer's flow for rounds that stand in the lines wanted. Each run is steered at a line not yet reached,
-/// at random: it begins from the state of the work kept at the entry of a round of the line's cell, or from nothing,
-/// where none is kept or now and then; sets how the histories' random steps are weighed, as a mode of its own (how often
-/// a return hands in what it need not, how often the owner speaks, asks and writes, how often a choice passes), and
-/// which of the blocks near the target the returns hand in or leave out; changes what the work holds a few times, as the
-/// owner and the outside do; and goes on with the driver's own steps, keeping the states at the rounds it reaches. It
-/// goes on until every line wanted was reached or the runs are spent. Says what the rounds reached, and, every tenth
-/// run, how many lines were still open.
+/// at random: it begins from a state of the work kept at the entry of a round of the line's cell, or of the nearest cell
+/// before it that has one, or from nothing, where none is kept and now and then; sets how the histories' random steps are
+/// weighed, as a mode of its own (how often a return hands in what it need not, how often the owner speaks, asks and
+/// writes, how often a choice passes), and which of the blocks near the target the returns hand in or leave out; changes
+/// what the work holds a few times, as the owner and the outside do; and goes on with the driver's own steps. The rounds
+/// it carries keep the states they were entered in, one for each situation ([`History::keep`]). It goes on until every
+/// line wanted was reached or the runs are spent. Says what the rounds reached, and, every tenth run, how many lines
+/// were still open.
 fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
     let mut rng = Rng::new(seed);
     let mut reached = Reached::default();
-    let mut frontier: Frontier = BTreeMap::new();
     let mut log = Vec::new();
     let begun = std::time::Instant::now();
     let flow_of = support::engineer_sim();
     let order: Vec<String> = (flow_of.flow.flow.cells().iter())
         .map(|c| c.id.as_str().to_string())
         .collect();
-    let run = |history: &mut History, steps: usize, reached: &mut Reached, frontier: &mut Frontier, rng: &mut Rng| {
-        let mut last = None;
+    let run = |history: &mut History, steps: usize, reached: &mut Reached| {
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             for _ in 0..steps {
                 if history.ended() {
                     break;
                 }
                 history.step(reached);
-                keep_at_the_round(frontier, history, &mut last, rng);
             }
         }));
         if let Err(e) = ran {
@@ -1586,6 +1567,7 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
             std::panic::resume_unwind(e);
         }
     };
+    let has = |reached: &Reached, cell: &str| reached.archive.get(cell).is_some_and(|kept| !kept.is_empty());
     for n in 0..RUNS {
         let open: Vec<&String> = wanted.iter().filter(|line| !reached.real.contains(*line)).collect();
         if open.is_empty() {
@@ -1595,18 +1577,14 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         // Where the run begins: a state kept at a round of the target's cell, or of the nearest cell before it that has
         // one, which the run then carries on to the cell; from nothing, where none is kept and now and then.
         let at = order.iter().position(|c| *c == target.cell).unwrap_or(0);
-        let own = !keys_of(&frontier, &target.cell).is_empty() && rng.chance(90);
+        let own = has(&reached, &target.cell) && rng.chance(90);
         let source = match own {
             true => Some(target.cell.as_str()),
-            false => (0..=at)
-                .rev()
-                .map(|i| order[i].as_str())
-                .find(|c| !keys_of(&frontier, c).is_empty()),
+            false => (0..=at).rev().map(|i| order[i].as_str()).find(|c| has(&reached, c)),
         };
         let from = source.filter(|_| rng.chance(92)).map(|cell| {
-            let keys = keys_of(&frontier, cell);
-            let states = &frontier[keys[rng.below(keys.len())]];
-            (states[rng.below(states.len())].clone(), cell == target.cell)
+            let kept = &reached.archive[cell];
+            (kept[rng.below(kept.len())].1.clone(), cell == target.cell)
         });
         let mut history = match from {
             Some((mut history, at_target)) => {
@@ -1635,20 +1613,20 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
             history.prefer.insert(datum.clone(), 0);
         }
         // What the work holds at the round changes some, before it is carried.
-        for _ in 0..rng.below(4) {
+        for _ in 0..1 + rng.below(3) {
             history.perturb(&mut reached, &target);
         }
         let steps = history.quiet + RUN_STEPS;
-        run(&mut history, steps, &mut reached, &mut frontier, &mut rng);
+        run(&mut history, steps, &mut reached);
         if n % 10 == 9 {
             log.push(format!(
-                "after {} runs, {:?}: {} lines open, {} rounds {:?}, {} kinds of state kept at the rounds",
+                "after {} runs, {:?}: {} lines open, {} rounds {:?}, {} states kept",
                 n + 1,
                 begun.elapsed(),
                 wanted.difference(&reached.real).count(),
                 reached.rounds,
                 reached.of_cell,
-                frontier.len()
+                reached.archive.values().map(Vec::len).sum::<usize>()
             ));
         }
     }
