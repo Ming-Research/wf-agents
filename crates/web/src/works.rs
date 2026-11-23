@@ -713,8 +713,14 @@ fn settled(applies: bool, ran: bool, changed: bool) -> CellState {
 pub struct Spent {
     /// The cost, in millionths of a dollar.
     pub usd_micros: u64,
-    /// The tokens sent that were not read from the cache.
+    /// The tokens sent fresh, neither read from the cache nor written to it.
     pub input_tokens: u64,
+    /// The tokens written to the cache.
+    pub cache_written_tokens: u64,
+    /// The tokens sent and not read from the cache by rounds, pings and forks whose records do not tell those sent
+    /// fresh from those written to it, as they were kept before the written ones were kept apart: neither of the two
+    /// above counts them.
+    pub unsplit_tokens: u64,
     /// The tokens sent that were read from the cache.
     pub cached_tokens: u64,
     /// The tokens that came back.
@@ -1652,8 +1658,8 @@ pub enum TryBack {
         duration_ms: Option<u64>,
         /// The models it was answered by, by name.
         models: Vec<String>,
-        /// The tokens it wrote to the prompt cache, as the program printed them; the records count them among those
-        /// not read from the cache.
+        /// The tokens it wrote to the prompt cache, as the program printed them: a try's own, where a round's are in
+        /// what it took.
         cache_creation_input_tokens: Option<u64>,
     },
     /// The program said the try failed, for this reason.
@@ -2213,7 +2219,7 @@ impl Summary {
             .map(Wait::of)
             .collect();
         let ahead = QuestionPage::ahead(&QuestionPage::all(&kept)?, &waits);
-        let beside = spent_beside_rounds(work, &|_| true);
+        let beside = spent_beside_rounds(work, &|_| true)?;
         Ok(Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
@@ -2748,10 +2754,40 @@ impl Maker {
 }
 
 impl Spent {
+    /// What a round, a keep-warm ping or a fork took as its record says it, counted as one round that was under way
+    /// this long. A record that says it wrote more tokens to the cache than it sent and did not read from it is
+    /// broken.
+    pub(crate) fn of(took: &work::Spent, working_ms: u64) -> Result<Spent, Broken> {
+        let (input_tokens, cache_written_tokens, unsplit_tokens) = match took.cache_written_tokens {
+            Some(written) => match took.uncached_tokens.checked_sub(written) {
+                Some(fresh) => (fresh, written, 0),
+                None => {
+                    return Err(Broken(format!(
+                        "a record says {written} tokens were written to the cache of the {} sent and not read from it",
+                        took.uncached_tokens
+                    )));
+                }
+            },
+            None => (0, 0, took.uncached_tokens),
+        };
+        Ok(Spent {
+            usd_micros: took.usd_micros,
+            input_tokens,
+            cache_written_tokens,
+            unsplit_tokens,
+            cached_tokens: took.cached_tokens,
+            output_tokens: took.output_tokens,
+            working_ms,
+            rounds: 1,
+        })
+    }
+
     pub(crate) fn with(self, other: Spent) -> Spent {
         Spent {
             usd_micros: self.usd_micros + other.usd_micros,
             input_tokens: self.input_tokens + other.input_tokens,
+            cache_written_tokens: self.cache_written_tokens + other.cache_written_tokens,
+            unsplit_tokens: self.unsplit_tokens + other.unsplit_tokens,
             cached_tokens: self.cached_tokens + other.cached_tokens,
             output_tokens: self.output_tokens + other.output_tokens,
             working_ms: self.working_ms + other.working_ms,
@@ -2790,35 +2826,32 @@ impl Beside {
 /// What each call of the work beside its rounds that ended at a time `within` took, each counted as a round, with the
 /// time of its place: the one reading of what a work spent beside its rounds that the pages share
 /// ([`work::Work::spent_beside_rounds`]).
-pub(crate) fn beside_rounds(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Vec<(u64, work::BesideKind, Spent)> {
+pub(crate) fn beside_rounds(
+    work: &work::Work,
+    within: &dyn Fn(u64) -> bool,
+) -> Result<Vec<(u64, work::BesideKind, Spent)>, Broken> {
     (work.spent_beside_rounds().into_iter())
         .filter_map(|call| {
             let at = work.time_of(call.at).map(|at| at.0).filter(|at| within(*at))?;
-            let one = Spent {
-                usd_micros: call.spent.usd_micros,
-                input_tokens: call.spent.input_tokens,
-                cached_tokens: call.spent.cached_tokens,
-                output_tokens: call.spent.output_tokens,
-                working_ms: 0,
-                rounds: 1,
-            };
-            Some((at, call.kind, one))
+            Some(Spent::of(&call.spent, 0).map(|one| (at, call.kind, one)))
         })
         .collect()
 }
 
 /// What the work's calls beside its rounds that ended at a time `within` took, the keep-warm pings and the forks apart.
-pub(crate) fn spent_beside_rounds(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Beside {
-    (beside_rounds(work, within).into_iter()).fold(Beside::default(), |sum, (_, kind, one)| match kind {
-        work::BesideKind::Ping => Beside {
-            pinged: sum.pinged.with(one),
-            ..sum
-        },
-        work::BesideKind::Fork => Beside {
-            forked: sum.forked.with(one),
-            ..sum
-        },
-    })
+pub(crate) fn spent_beside_rounds(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Result<Beside, Broken> {
+    Ok(beside_rounds(work, within)?
+        .into_iter()
+        .fold(Beside::default(), |sum, (_, kind, one)| match kind {
+            work::BesideKind::Ping => Beside {
+                pinged: sum.pinged.with(one),
+                ..sum
+            },
+            work::BesideKind::Fork => Beside {
+                forked: sum.forked.with(one),
+                ..sum
+            },
+        }))
 }
 
 impl WorkPage {
@@ -3489,14 +3522,7 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 Some(ended) => {
                     let spent = (work.spent.get(&(run, number)))
                         .ok_or_else(|| Broken(format!("round {number} of run {} ended and took nothing", run.0)))?;
-                    Some(Spent {
-                        usd_micros: spent.usd_micros,
-                        input_tokens: spent.input_tokens,
-                        cached_tokens: spent.cached_tokens,
-                        output_tokens: spent.output_tokens,
-                        working_ms: ended.saturating_sub(began),
-                        rounds: 1,
-                    })
+                    Some(Spent::of(spent, ended.saturating_sub(began))?)
                 }
             };
             let took = took.flatten();
@@ -4451,6 +4477,44 @@ pub(crate) mod tests {
         compile(&source, &has).expect("the deliver flow compiles")
     }
 
+    // What a round, a ping or a fork took is told in the kinds its record tells. Tokens a record does not tell apart
+    // are counted as neither sent fresh nor written to the cache; one that says it wrote more to the cache than it
+    // sent and did not read from it is refused, and not shown as nothing.
+    #[test]
+    fn a_record_tells_the_cache_written_from_the_sent_fresh_only_where_it_says_and_a_wrong_one_is_refused() {
+        let took = |uncached_tokens, cache_written_tokens| work::Spent {
+            usd_micros: 7,
+            uncached_tokens,
+            cache_written_tokens,
+            cached_tokens: 100,
+            output_tokens: 3,
+            ..Default::default()
+        };
+        let told = |spent: Spent| {
+            (
+                spent.input_tokens,
+                spent.cache_written_tokens,
+                spent.unsplit_tokens,
+                spent.cached_tokens,
+                spent.output_tokens,
+            )
+        };
+        let apart = Spent::of(&took(5_100, Some(5_000)), 40).expect("the record is sound");
+        assert_eq!(told(apart), (100, 5_000, 0, 100, 3));
+        assert_eq!((apart.usd_micros, apart.working_ms, apart.rounds), (7, 40, 1));
+        let not_apart = Spent::of(&took(5_100, None), 0).expect("the record is sound");
+        assert_eq!(told(not_apart), (0, 0, 5_100, 100, 3), "in neither of the two");
+        // Every token it sent and did not read from the cache was written to it.
+        let all_written = Spent::of(&took(5_000, Some(5_000)), 0).expect("the record is sound");
+        assert_eq!(told(all_written), (0, 5_000, 0, 100, 3));
+        assert_eq!(
+            Spent::of(&took(5_000, Some(5_001)), 0),
+            Err(Broken(
+                "a record says 5001 tokens were written to the cache of the 5000 sent and not read from it".to_string()
+            ))
+        );
+    }
+
     // What a work spent beside its rounds is told by kind, each call counted as a round, and by when it ended: a ping and
     // a fork that ended at different times. Microseconds.
     #[test]
@@ -4466,9 +4530,11 @@ pub(crate) mod tests {
             at: decide::Seq(2),
             line: "engineer".to_string(),
             session: 0,
+            // Kept before the tokens written to the cache were kept apart: its 5 are sent fresh or written, not told.
             spent: work::Spent {
                 usd_micros: 20_000,
-                input_tokens: 5,
+                uncached_tokens: 5,
+                cache_written_tokens: None,
                 cached_tokens: 100,
                 output_tokens: 1,
                 ..Default::default()
@@ -4480,29 +4546,47 @@ pub(crate) mod tests {
             run: decide::RunId(1),
             round: 1,
             usd_micros: 300_000,
-            input_tokens: 120,
+            uncached_tokens: 120,
+            cache_written_tokens: Some(100),
             cached_tokens: 18_100,
             output_tokens: 30,
         });
-        let each = |usd_micros, input_tokens, cached_tokens, output_tokens| Spent {
-            usd_micros,
-            input_tokens,
-            cached_tokens,
-            output_tokens,
-            working_ms: 0,
-            rounds: 1,
-        };
-        let all = spent_beside_rounds(&work, &|_| true);
-        assert_eq!(all.pinged, each(20_000, 5, 100, 1));
-        assert_eq!(all.forked, each(300_000, 120, 18_100, 30));
+        let each =
+            |usd_micros, (input_tokens, cache_written_tokens, unsplit_tokens), cached_tokens, output_tokens| Spent {
+                usd_micros,
+                input_tokens,
+                cache_written_tokens,
+                unsplit_tokens,
+                cached_tokens,
+                output_tokens,
+                working_ms: 0,
+                rounds: 1,
+            };
+        let all = spent_beside_rounds(&work, &|_| true).expect("the records are sound");
+        assert_eq!(
+            all.pinged,
+            each(20_000, (0, 0, 5), 100, 1),
+            "a ping not told apart counts in neither"
+        );
+        assert_eq!(all.forked, each(300_000, (20, 100, 0), 18_100, 30));
         assert_eq!((all.all().usd_micros, all.all().rounds), (320_000, 2));
-        let early = spent_beside_rounds(&work, &|at| at < 2_000);
+        assert_eq!(
+            (
+                all.all().input_tokens,
+                all.all().cache_written_tokens,
+                all.all().unsplit_tokens
+            ),
+            (20, 100, 5),
+            "the tokens of the two are told apart as far as the records tell them"
+        );
+        let early = spent_beside_rounds(&work, &|at| at < 2_000).expect("the records are sound");
         assert_eq!(
             (early.pinged.rounds, early.forked.rounds),
             (1, 0),
             "only the ping had ended"
         );
         let kinds: Vec<work::BesideKind> = beside_rounds(&work, &|_| true)
+            .expect("the records are sound")
             .into_iter()
             .map(|(_, kind, _)| kind)
             .collect();

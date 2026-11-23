@@ -197,9 +197,17 @@ fn kept_in_works(version: u32, works: &[&Work]) -> (Db, Db) {
             let names: Vec<String> = (query.query_map([], |row| row.get(1)).expect("its columns"))
                 .collect::<Result<_, _>>()
                 .expect("its columns");
-            let names = names.join(", ");
+            // The tokens sent and not read from the cache were named `input_tokens` in the tables of a round's, a ping's
+            // and a fork's spend before version 31.
+            let from: Vec<&str> = (names.iter())
+                .map(|name| match (table.as_str(), name.as_str()) {
+                    ("spent" | "pinged" | "forked", "input_tokens") => "uncached_tokens",
+                    _ => name.as_str(),
+                })
+                .collect();
+            let (names, from) = (names.join(", "), from.join(", "));
             file.execute(
-                &format!("INSERT INTO main.{table} ({names}) SELECT {names} FROM new.{table}"),
+                &format!("INSERT INTO main.{table} ({names}) SELECT {from} FROM new.{table}"),
                 [],
             )
             .expect("the rows are copied");
@@ -617,11 +625,41 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     let after = dump(&old.path);
+    let spends = ["spent", "pinged", "forked"];
     for (table, rows) in &before {
-        if table == "schema_version" || table == "ran" || table == "items" {
+        if table == "schema_version" || table == "ran" || table == "items" || spends.contains(&table.as_str()) {
             continue;
         }
         assert_eq!(after.get(table), Some(rows), "the rows of {table}");
+    }
+    // What a round, a ping and a fork took is carried whole, and none of it says how many tokens it wrote to the cache:
+    // the column a later version added after the tokens not read from the cache holds none. A round says it only
+    // where a try kept of it adds up to its own tokens, and none of this file's does.
+    let file = Connection::open(&old.path).expect("the database opens");
+    let adding_up: i64 = file
+        .query_row(
+            "SELECT count(*) FROM spent s JOIN measured m ON m.work = s.work AND m.run = s.run AND m.round = s.round \
+             WHERE m.input_tokens + m.cache_written_tokens = s.uncached_tokens",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the rounds are counted");
+    assert_eq!(
+        adding_up, 0,
+        "no round of the file has a try whose tokens add up to its own"
+    );
+    assert!(!before["spent"].is_empty(), "the work has rounds that took something");
+    // The file has no table of forks yet, which a later version makes empty.
+    for (table, written) in [("spent", 5), ("pinged", 6), ("forked", 6)] {
+        let mut told_apart: Vec<Vec<String>> = (before.get(table).into_iter().flatten())
+            .map(|row| {
+                let mut row = row.clone();
+                row.insert(written, "Null".to_string());
+                row
+            })
+            .collect();
+        told_apart.sort();
+        assert_eq!(after[table], told_apart, "the rows of {table}");
     }
     // Each item's row is carried whole, and continues nothing: the column a later version added to it holds none.
     assert!(!before["items"].is_empty(), "the work has an item");
