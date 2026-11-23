@@ -145,7 +145,7 @@ const MIGRATIONS: &[Migration] = &[
         "../../../db/migrations/202611211200-keep-the-versions-of-the-flows-works-run-on.sql"
     )),
     Migration::sql(include_str!(
-        "../../../db/migrations/202611221000-keep-what-the-programs-of-tries-left-running.sql"
+        "../../../db/migrations/202611221000-keep-what-the-programs-run-for-works-left-running.sql"
     )),
     Migration::sql(include_str!(
         "../../../db/migrations/202611221100-keep-the-engine-s-stops.sql"

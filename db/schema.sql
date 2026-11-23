@@ -493,18 +493,18 @@ CREATE TABLE measured (
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 
--- The program of a try of a round of a run, the round's first being one and the try's first in its round being one,
--- ended by itself and left `processes` running in its process group, one or more, which its carrier stopped before it
--- gave the try's end: no one read what they would have printed, and what they took is counted nowhere else.
+-- A program the engine ran for the work ended by itself and left `processes` running in its process group, one or
+-- more, which its carrier stopped before it gave the program's end: no one read what they would have printed, and what
+-- they took is counted nowhere else. `of` says which program (JSON: `kind` and its fields): a try of a round of a run
+-- (`try`, with `run`, `round` and `attempt`, the round's first being one and the try's first in its round being one),
+-- the project's check run by a round of an act (`act`, with `run` and `round`) or for a call of a tool (`call`, with
+-- `call`), or a keep-warm ping of the session of a line (`ping`, with `line` and `session`).
 CREATE TABLE left_behind (
-    work INTEGER NOT NULL,
+    work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
-    run INTEGER NOT NULL,
-    round INTEGER NOT NULL,
-    attempt INTEGER NOT NULL,
+    of TEXT NOT NULL,
     processes INTEGER NOT NULL CHECK (processes > 0),
-    PRIMARY KEY (work, at),
-    FOREIGN KEY (work, run) REFERENCES started (work, run)
+    PRIMARY KEY (work, at)
 );
 
 -- A keep-warm ping of the session of a line, its sessions counted from none, which keeps its prompt cache while the

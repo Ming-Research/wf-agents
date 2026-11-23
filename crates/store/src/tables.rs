@@ -430,20 +430,18 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
         measured.measures.before = parse("measured", &before)?;
         out.measured.push(measured);
     }
-    out.left_behind = rows(
+    for (at, of, processes) in rows(
         db,
-        "SELECT at, run, round, attempt, processes FROM left_behind WHERE work = ?1 ORDER BY at",
+        "SELECT at, of, processes FROM left_behind WHERE work = ?1 ORDER BY at",
         w,
-        |row| {
-            Ok(LeftBehind {
-                at: Seq(row.get(0)?),
-                run: RunId(row.get(1)?),
-                round: row.get(2)?,
-                attempt: row.get(3)?,
-                processes: row.get(4)?,
-            })
-        },
-    )?;
+        |row| Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?, row.get::<_, usize>(2)?)),
+    )? {
+        out.left_behind.push(LeftBehind {
+            at: Seq(at),
+            of: parse("left_behind", &of)?,
+            processes,
+        });
+    }
     out.pinged = rows(
         db,
         "SELECT at, line, session, usd_micros, input_tokens, cached_tokens, output_tokens, context_tokens, \
@@ -841,9 +839,10 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         )?;
     }
     for l in left_behind {
+        let of = json("left_behind", &l.of)?;
         db.execute(
-            "INSERT INTO left_behind (work, at, run, round, attempt, processes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![w, l.at.0, l.run.0, l.round, l.attempt, l.processes],
+            "INSERT INTO left_behind (work, at, of, processes) VALUES (?1, ?2, ?3, ?4)",
+            params![w, l.at.0, of, l.processes],
         )?;
     }
     for p in pinged {

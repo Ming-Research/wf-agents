@@ -14,7 +14,9 @@ use crate::asked;
 use crate::event::{Effect, Event, Gate, Hold, Refused};
 use crate::handed_in;
 use crate::spoken;
-use work::{Ask, Back, Call, Filled, Given, LeftBehind, Measured, Moment, Pinged, Pulled, Ran, Session, Time, Work};
+use work::{
+    Ask, Back, Call, Filled, Given, Left, LeftBehind, Measured, Moment, Pinged, Pulled, Ran, Session, Time, Work,
+};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
 /// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`], [`Gate::Open`]). Where the
@@ -634,23 +636,26 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 measures,
             });
         }
-        Event::LeftBehind {
-            run,
-            attempt,
-            processes,
-        } => {
-            let number = began(work, run);
-            if number == ended(work, run) {
-                return Err(Refused::NoRoundUnderWay(run));
+        Event::LeftBehind { of, processes } => {
+            match &of {
+                Left::Try { run, round, .. } | Left::Act { run, round } => {
+                    let number = began(work, *run);
+                    if number == ended(work, *run) || number != *round {
+                        return Err(Refused::NoRoundUnderWay(*run));
+                    }
+                }
+                Left::Call { call } => {
+                    if !work.records.called.iter().any(|c| c.call == *call) {
+                        return Err(Refused::NoSuchCall(*call));
+                    }
+                    if done(work, *call).is_some() {
+                        return Err(Refused::AlreadyDone(*call));
+                    }
+                }
+                Left::Ping { .. } => {}
             }
             let at = work.tick();
-            work.left_behind.push(LeftBehind {
-                at,
-                run,
-                round: number,
-                attempt,
-                processes,
-            });
+            work.left_behind.push(LeftBehind { at, of, processes });
         }
         Event::Pulled { number, url } => {
             // Found again at each check, the same pull request is kept once.

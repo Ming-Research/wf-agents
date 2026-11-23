@@ -21,7 +21,7 @@ pub use filled::{Fill, FillFault, Filled};
 pub use flows::{OnFlow, Read, Version, version_of};
 pub use measured::{Measured, Measures, Pinged};
 pub use observations::Observed;
-pub use sessions::{LeftBehind, Ran, RanOn, Session, Why};
+pub use sessions::{Left, LeftBehind, Ran, RanOn, Session, Why};
 pub use time::{KeptTime, Stretch, Went};
 
 /// Everything kept of one work.

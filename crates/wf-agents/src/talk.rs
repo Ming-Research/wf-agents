@@ -17,7 +17,7 @@ use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
 use web::observations::{Observation, ObservationsPage};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
-use web::system::{Past, Rest, System, UnderWay};
+use web::system::{LeftOf, Past, Rest, System, UnderWay};
 use web::works::{
     Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, ForkAsked,
     ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem,
@@ -2216,14 +2216,23 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
         lines.push("Left running by a program as it ended, and stopped, the latest first:".to_string());
     }
     for left in system.left_behind.iter().take(limit) {
+        let of = match &left.of {
+            LeftOf::Try {
+                cell,
+                run,
+                round,
+                attempt,
+            } => format!("try {attempt} of round {round} of run {run} of {cell}"),
+            LeftOf::Act { cell, run, round } => format!("the check of round {round} of run {run} of {cell}"),
+            LeftOf::Call { cell, run, call, tool } => {
+                format!("the check of call {call} of the tool {tool} by run {run} of {cell}")
+            }
+            LeftOf::Ping { line, session } => format!("a keep-warm ping of session {session} of the line {line}"),
+        };
         lines.push(format!(
-            "  W{} of #{}, try {} of round {} of run {} of {}, ended {}: {} {}",
+            "  W{} of #{}, {of}, ended {}: {} {}",
             left.work,
             left.item,
-            left.attempt,
-            left.round,
-            left.run,
-            left.cell,
             utc(left.at),
             left.processes,
             if left.processes == 1 { "process" } else { "processes" }
@@ -2396,6 +2405,88 @@ mod tests {
         outage.until = Until::Well { at: 2 * hour };
         outage.holds = false;
         assert!(list(&waiting, &Listing::default()).starts_with("#1 "));
+    }
+
+    // The system view lists what each program run for a work left running and had stopped, the latest first, saying
+    // which program it was: a try of a round, the check of an act's round or of a call, or a keep-warm ping.
+    // Microseconds.
+    #[test]
+    fn the_system_says_which_program_left_processes_running_and_how_many() {
+        let left = |at: u64, of: LeftOf, processes: usize| web::system::LeftBehind {
+            work: 4,
+            item: 9,
+            of,
+            at,
+            processes,
+        };
+        let system = System {
+            now: 600_000,
+            from: None,
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            weeks: Vec::new(),
+            by_cell: Vec::new(),
+            by_model: Vec::new(),
+            by_work: Vec::new(),
+            merged: Vec::new(),
+            cancelled: Vec::new(),
+            added: Vec::new(),
+            sent_back: Vec::new(),
+            failed: Vec::new(),
+            past: Vec::new(),
+            under_way: Vec::new(),
+            left_behind: vec![
+                left(
+                    240_000,
+                    LeftOf::Ping {
+                        line: "engineer".to_string(),
+                        session: 2,
+                    },
+                    1,
+                ),
+                left(
+                    180_000,
+                    LeftOf::Call {
+                        cell: "I1".to_string(),
+                        run: 7,
+                        call: 3,
+                        tool: "run_tests".to_string(),
+                    },
+                    2,
+                ),
+                left(
+                    120_000,
+                    LeftOf::Act {
+                        cell: "M1".to_string(),
+                        run: 8,
+                        round: 1,
+                    },
+                    3,
+                ),
+                left(
+                    60_000,
+                    LeftOf::Try {
+                        cell: "I1".to_string(),
+                        run: 7,
+                        round: 2,
+                        attempt: 1,
+                    },
+                    1,
+                ),
+            ],
+            stopping: None,
+        };
+        let said = system_said(&system, 7, 10);
+        assert!(
+            said.ends_with(
+                "Left running by a program as it ended, and stopped, the latest first:\n  W4 of #9, a keep-warm ping of \
+                 session 2 of the line engineer, ended 1970-01-01 00:04 UTC: 1 process\n  W4 of #9, the check of call 3 \
+                 of the tool run_tests by run 7 of I1, ended 1970-01-01 00:03 UTC: 2 processes\n  W4 of #9, the check of \
+                 round 1 of run 8 of M1, ended 1970-01-01 00:02 UTC: 3 processes\n  W4 of #9, try 1 of round 2 of run 7 \
+                 of I1, ended 1970-01-01 00:01 UTC: 1 process"
+            ),
+            "{said}"
+        );
     }
 
     // A work the wait every work shares holds while one round goes first says it waits for that round, not for the
@@ -3168,6 +3259,13 @@ pub fn forked_said(page: &ForkPage) -> String {
         }
     }
     out.push_str(&format!("\nIt cost ${:.4}.\n", page.usd_micros as f64 / 1e6));
+    if page.left > 0 {
+        let processes = if page.left == 1 { "process" } else { "processes" };
+        out.push_str(&format!(
+            "Its program left {} {processes} running in its group as it ended, which were stopped.\n",
+            page.left
+        ));
+    }
     let share = match (page.read, page.held) {
         (Some(read), Some(held)) if held > 0 => Some((read.min(held) * 100 / held, read, held)),
         _ => None,
@@ -3259,6 +3357,7 @@ mod fork_tests {
             kept: "/k/7-1.fork.1.answer".to_string(),
             account: "work".to_string(),
             instead: None,
+            left: 0,
         }
     }
 
@@ -3306,6 +3405,12 @@ mod fork_tests {
                 .contains("The session ran under no account: the fork ran under the account in use, work, whose cache")
         );
         assert!(!forked_said(&page()).contains("the fork ran under the account in use"));
+        // What its program left running, stopped as it ended, is said with its cost, and nothing where it left none.
+        let left = ForkPage { left: 2, ..page() };
+        assert!(forked_said(&left).contains(
+            "It cost $0.0410.\nIts program left 2 processes running in its group as it ended, which were stopped.\n"
+        ));
+        assert!(!forked_said(&page()).contains("running in its group"));
     }
 
     #[test]

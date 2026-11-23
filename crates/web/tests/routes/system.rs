@@ -525,11 +525,13 @@ fn a_stop_is_given_with_the_rests_of_what_is_under_way_and_holds_a_work_that_wou
     assert!(!driver.may_end(), "two rounds are under way");
 }
 
-// What the program of a try left running in its group as it ended, which its carrier stopped, is kept by the store and
-// given in the System view with the try, the round and the cell it belongs to, once the driver is opened again on the
-// store. A few milliseconds; the one test of the count from its event to what the page and `wf-agents system` read.
+// What a program run for a work left running in its group as it ended, which its carrier stopped, is kept by the store
+// and given in the System view, the latest first, with which program it was: here a try of the build's round, with the
+// cell it belongs to, and a keep-warm ping of the engineer's session; once the driver is opened again on the store. One
+// that names no round under way is refused. A few milliseconds; the one test of the count from its event to what the
+// page and `wf-agents system` read.
 #[test]
-fn what_a_try_s_program_left_running_is_kept_and_given_in_the_system_view() {
+fn what_a_program_left_running_is_kept_and_given_in_the_system_view() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("store.sqlite");
     let open = |at: u64| {
@@ -546,21 +548,48 @@ fn what_a_try_s_program_left_running_is_kept_and_given_in_the_system_view() {
     let mut driver = open(START);
     let work = planned(&mut driver, START, 10_000, 1_000);
     let build = driver.work(work).unwrap().work.records.started.last().unwrap().run;
-    let left = engine::Event::LeftBehind {
+    let try_of = |round: usize| work::Left::Try {
         run: build,
+        round,
         attempt: 1,
+    };
+    let left = engine::Event::LeftBehind {
+        of: try_of(1),
         processes: 2,
     };
     happened(&mut driver, START + 12_000, work, left);
+    let ping = work::Left::Ping {
+        line: "engineer".to_string(),
+        session: 0,
+    };
+    let pinged = engine::Event::LeftBehind { of: ping, processes: 1 };
+    happened(&mut driver, START + 13_000, work, pinged);
+    let not_under_way = engine::Event::LeftBehind {
+        of: try_of(2),
+        processes: 1,
+    };
+    assert!(
+        driver
+            .happened(work::Time(START + 14_000), work, not_under_way)
+            .is_err(),
+        "a try of a round not under way is refused"
+    );
     drop(driver);
     let driver = open(START + 20_000);
     let system =
         serde_json::to_value(web::system::System::of(&driver, work::Time(START + 20_000), &[]).unwrap()).unwrap();
     assert_eq!(
         system["leftBehind"],
-        json!([{
-            "work": work.0, "item": work.0, "cell": "build", "run": build.0, "round": 1, "attempt": 1,
-            "at": START + 12_000, "processes": 2
-        }])
+        json!([
+            {
+                "work": work.0, "item": work.0, "of": { "kind": "ping", "line": "engineer", "session": 0 },
+                "at": START + 13_000, "processes": 1
+            },
+            {
+                "work": work.0, "item": work.0,
+                "of": { "kind": "try", "cell": "build", "run": build.0, "round": 1, "attempt": 1 },
+                "at": START + 12_000, "processes": 2
+            }
+        ])
     );
 }

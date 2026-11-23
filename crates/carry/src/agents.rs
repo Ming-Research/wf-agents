@@ -413,10 +413,14 @@ impl Rounds for Agents {
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let mut usage = None;
-            let pinged = inner.ping(&ping, &mut usage).await;
+            let mut left_running = 0;
+            let pinged = inner.ping(&ping, &mut usage, &mut left_running).await;
             // Said before the ping's end, under the account the ping was handed out with.
             if let (Some(account), Some(said)) = (ping.account.clone(), usage) {
                 reply.usage(account, said);
+            }
+            if left_running > 0 {
+                reply.left_behind(left_running);
             }
             match pinged {
                 Ok(spent) => reply.ended(spent),
@@ -720,11 +724,12 @@ impl Inner {
                     let priced = halted || (ended && !kept.stream.has_result() && kept.stream.priced().is_some());
                     let measures = kept.measures(given, before, crossed.is_some(), priced);
                     tell_try(teller, line, n, compactions, measures);
-                    // What the program left running in its group, stopped as it ended, is counted with the try.
+                    // What the program left running in its group, stopped as it ended, is counted with the try, before
+                    // its round ends.
                     if let Ok(Ran::Ended { left, .. }) = &ran
                         && *left > 0
                     {
-                        teller.left_behind(n, *left);
+                        teller.left_behind(round.number, n, *left);
                     }
                     let ran = match ran {
                         Ok(ran) => ran,
@@ -1401,8 +1406,14 @@ impl Inner {
     /// line has a round under way is not pinged, and a ping that has not ended by the time the cache lets the session
     /// go is stopped, since after that it would write the session again for nothing. The program is let use no tool, so
     /// that it changes nothing in the worktree beside the rounds of the work's other lines. What the service said of
-    /// the usage of the account it ran under is put in `usage`.
-    async fn ping(&self, ping: &Ping, usage: &mut Option<driver::Said>) -> Result<Spent, (String, Spent)> {
+    /// the usage of the account it ran under is put in `usage`, and how many processes its program left running in
+    /// its group as it ended, which were stopped, in `left_running`.
+    async fn ping(
+        &self,
+        ping: &Ping,
+        usage: &mut Option<driver::Said>,
+        left_running: &mut usize,
+    ) -> Result<Spent, (String, Spent)> {
         let failed = |why: String| (why, Spent::default());
         let of = crate::projects::of(&self.projects, &ping.item).map_err(failed)?;
         let said = &of.beside.cost.ping;
@@ -1491,10 +1502,17 @@ impl Inner {
             compactions: marks,
             ..stream.priced().unwrap_or_default()
         };
-        let Ran::Ended { status, stderr, .. } = ran.map_err(failed)? else {
+        let Ran::Ended {
+            status,
+            stderr,
+            left: stopped,
+            ..
+        } = ran.map_err(failed)?
+        else {
             let minutes = (left / 60_000).to_string();
             return Err((fill(&said.stopped, &[("minutes", &minutes)]), priced()));
         };
+        *left_running = stopped;
         let spent = match cli::read(&lines, Begin::Resume, before) {
             Ok(read) => read.spent,
             Err(no) => no.spent.unwrap_or_else(priced),
@@ -1709,7 +1727,7 @@ impl Inner {
         if let Some(stand_in) = stand_in.as_mut() {
             stand_in.take_away().await;
         }
-        let (answer, text, spent, read, kept, usage) = asked?;
+        let (answer, text, spent, read, kept, usage, left) = asked?;
         let last = match until {
             Some(_) => (fork.run, fork.round),
             None => (made.run, made.number),
@@ -1762,6 +1780,7 @@ impl Inner {
             account: account.unwrap_or_default(),
             instead,
             usage,
+            left,
         })
     }
 
@@ -1843,7 +1862,10 @@ impl Inner {
             let _ = tokio::fs::remove_file(file).await;
         }
         write(&at("stream.jsonl"), &lines).await?;
-        let Ran::Ended { status, stderr, .. } = ran? else {
+        let Ran::Ended {
+            status, stderr, left, ..
+        } = ran?
+        else {
             return Err("The fork's program was stopped before it ended.".to_string());
         };
         let read = stream.own.first.map(|(read, _)| read);
@@ -1873,12 +1895,13 @@ impl Inner {
         };
         let kept = answer.clone().unwrap_or_else(|| text.clone());
         write(&at("answer"), kept.as_bytes()).await?;
-        Ok((answer, text, spent, read, at("answer"), stream.usage().cloned()))
+        Ok((answer, text, spent, read, at("answer"), stream.usage().cloned(), left))
     }
 }
 
 /// What a fork's program came to: its return, what it said at its end, what it cost, what its first call read from the
-/// cache, the file its answer is kept in, and what its stream said of the usage, where it said anything.
+/// cache, the file its answer is kept in, what its stream said of the usage, where it said anything, and how many
+/// processes the program left running in its group as it ended, which were stopped.
 type Forking = (
     Option<String>,
     String,
@@ -1886,6 +1909,7 @@ type Forking = (
     Option<u64>,
     PathBuf,
     Option<driver::Said>,
+    usize,
 );
 
 /// A checkout at an ended work's worktree's place that a fork ran in: taken away once the fork is done with it, or,

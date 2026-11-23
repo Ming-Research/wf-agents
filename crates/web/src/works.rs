@@ -1859,6 +1859,9 @@ pub struct ForkPage {
     /// Why that is the account in use and not the one the session ran under, whose cache holds the session, where it
     /// is.
     pub instead: Option<ForkInstead>,
+    /// How many processes its program left running in its group as it ended, which were stopped.
+    #[serde(default)]
+    pub left: usize,
 }
 
 /// Why a fork ran under the account in use and not the one its session last ran under: that one was removed, or the
@@ -1887,6 +1890,7 @@ impl ForkPage {
                 service::Instead::Removed(account) => ForkInstead::Removed { account },
                 service::Instead::NoAccount => ForkInstead::NoAccount,
             }),
+            left: forked.left,
         }
     }
 }

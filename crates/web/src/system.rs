@@ -270,18 +270,40 @@ pub struct FailedRound {
     pub spent: Spent,
 }
 
-/// A try of a round whose program left processes running in its group as it ended, which were stopped then: how many.
+/// A program run for a work that left processes running in its group as it ended, which were stopped then: which
+/// program, and how many.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LeftBehind {
     pub work: u64,
     pub item: u64,
-    pub cell: String,
-    pub run: u64,
-    pub round: usize,
-    pub attempt: usize,
+    pub of: LeftOf,
     pub at: u64,
     pub processes: usize,
+}
+
+/// What a program that left processes running was run for ([`work::Left`]), with the cell of the run it was run for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum LeftOf {
+    /// A try of a round of a run of an agent's cell.
+    Try {
+        cell: String,
+        run: u64,
+        round: usize,
+        attempt: usize,
+    },
+    /// The project's check, run by a round of a run of an act's cell.
+    Act { cell: String, run: u64, round: usize },
+    /// The project's check, run for a call of the tool by a run of the cell.
+    Call {
+        cell: String,
+        run: u64,
+        call: u64,
+        tool: String,
+    },
+    /// A keep-warm ping of the session of this number of the line.
+    Ping { line: String, session: u32 },
 }
 
 /// What ended past the line of its history.
@@ -468,16 +490,44 @@ impl System {
                 let Some(at) = kept.work.time_of(left.at).map(|at| at.0).filter(|at| within(*at)) else {
                     continue;
                 };
-                let Some(run) = runs.iter().find(|run| run.run == left.run.0) else {
+                let cell_of = |of: RunId| runs.iter().find(|run| run.run == of.0).map(|run| run.cell.clone());
+                let of = match &left.of {
+                    work::Left::Try { run, round, attempt } => cell_of(*run).map(|cell| LeftOf::Try {
+                        cell,
+                        run: run.0,
+                        round: *round,
+                        attempt: *attempt,
+                    }),
+                    work::Left::Act { run, round } => cell_of(*run).map(|cell| LeftOf::Act {
+                        cell,
+                        run: run.0,
+                        round: *round,
+                    }),
+                    work::Left::Call { call } => (runs.iter()).find_map(|run| {
+                        let made = run.calls.iter().find(|c| c.call == call.0)?;
+                        let tool = match &made.what {
+                            Call::Tool { name, .. } => name.clone(),
+                            _ => return None,
+                        };
+                        Some(LeftOf::Call {
+                            cell: run.cell.clone(),
+                            run: run.run,
+                            call: call.0,
+                            tool,
+                        })
+                    }),
+                    work::Left::Ping { line, session } => Some(LeftOf::Ping {
+                        line: line.clone(),
+                        session: *session,
+                    }),
+                };
+                let Some(of) = of else {
                     continue;
                 };
                 system.left_behind.push(LeftBehind {
                     work,
                     item,
-                    cell: run.cell.clone(),
-                    run: run.run,
-                    round: left.round,
-                    attempt: left.attempt,
+                    of,
                     at,
                     processes: left.processes,
                 });

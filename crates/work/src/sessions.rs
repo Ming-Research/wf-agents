@@ -8,7 +8,7 @@
 //! What each try of a round ran on is recorded as the try begins ([`RanOn`]), so that what a session was begun on is
 //! the records' too ([`began_on`]).
 
-use decide::{RunId, Seq};
+use decide::{CallId, RunId, Seq};
 use serde::{Deserialize, Serialize};
 
 use crate::{Spent, Work};
@@ -37,20 +37,31 @@ pub struct Ran {
     pub on: RanOn,
 }
 
-/// The program of a try of an agent's round ended by itself and left processes running in its process group, which
-/// its carrier stopped before it gave the try's end (decision `what-a-program-leaves-is-stopped`): how many it stopped.
-/// No one read what they would have printed, and what they took is counted nowhere else.
+/// A program the engine ran for the work ended by itself and left processes running in its process group, which its
+/// carrier stopped before it gave the program's end (decision `what-a-program-leaves-is-stopped`): which program, and
+/// how many it stopped. No one read what they would have printed, and what they took is counted nowhere else.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeftBehind {
     /// The place of the entry in the order of what happened to the work.
     pub at: Seq,
-    pub run: RunId,
-    /// The round's number in its run, the first being one.
-    pub round: usize,
-    /// The try's number in its round, the first being one, as [`Ran`] numbers it.
-    pub attempt: usize,
+    pub of: Left,
     /// How many processes were stopped: one or more.
     pub processes: usize,
+}
+
+/// What a program that left processes running was run for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Left {
+    /// A try of an agent's round: the round's number in its run and the try's in its round, the first of each being
+    /// one, as [`Ran`] numbers them.
+    Try { run: RunId, round: usize, attempt: usize },
+    /// The project's check, run by a round of an engine's act, its number in its run, the first being one.
+    Act { run: RunId, round: usize },
+    /// The project's check, run for a call of a tool.
+    Call { call: CallId },
+    /// A keep-warm ping of the session of this number of the line, its sessions counted from none.
+    Ping { line: String, session: u32 },
 }
 
 /// What a try of an agent's round ran on, as its carrier chose it as the try began: the level, the model of that
