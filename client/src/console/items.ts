@@ -13,7 +13,7 @@
 import type { CellNow, Item, Items, Now, Pauser, Summary, Wait } from '../works-api';
 import { mocksShown } from '../mock-data';
 import { aheadOf, waitsOf } from '../works/waiting';
-import { stateOf } from '../works/words';
+import { itemName, stateOf } from '../works/words';
 import { itemOf } from './real';
 
 /// What the item is to deliver: not yet, delivered, or given up.
@@ -149,8 +149,9 @@ export function itemPaths(data: Items): Map<number, number[]> {
   );
 }
 
-/// An item's path as the page writes it, its numbers joined by `-` from its root down: `53-27-23`.
-export const pathWords = (path: number[]): string => path.join('-');
+/// An item's path as the page writes it, its numbers joined by `-` from its root down: `53-27-23`. A path of one number
+/// is no path to read: it is the item's number, written as the page writes one, `#53`.
+export const pathWords = (path: number[]): string => (path.length === 1 ? itemName(path[0]) : path.join('-'));
 
 /// What the search of the console finds for `query`, at most `most`, each item with its path, as the query stands while
 /// it is typed a digit at a time: where it is a number, `65` or `#65`, the items whose number begins with it, the item

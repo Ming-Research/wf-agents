@@ -7,6 +7,7 @@ import { type ReactNode, createContext, useContext, useMemo } from 'react';
 
 import { hashOf } from './route';
 import type { Items } from './works-api';
+import { itemName } from './works/words';
 
 /// The title of each item the page has read, by its number.
 const ItemTitlesContext = createContext<ReadonlyMap<number, string>>(new Map());
@@ -68,7 +69,12 @@ export function linkItemNumbers(text: string, titles: ReadonlyMap<number, string
   for (const { from, to, n } of writtenIn(text, titles)) {
     if (from > at) out.push(text.slice(at, from));
     out.push(
-      <a key={from} className="link mono" href={hashOf({ view: 'console', item: n })} title={`#${n} ${titles.get(n)}`}>
+      <a
+        key={from}
+        className="link mono"
+        href={hashOf({ view: 'console', item: n })}
+        title={`${itemName(n)} ${titles.get(n)}`}
+      >
         {text.slice(from, to)}
       </a>,
     );

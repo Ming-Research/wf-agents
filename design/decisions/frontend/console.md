@@ -3,7 +3,7 @@
 The tree of items in columns, their cards and folds, and how the page lights what runs and what the owner points at.
 
 ### decision the-console-is-the-old-engines-console
-The console's tree is the old engine's console brought over, with its layout, its motion and its constants unchanged; the page's new look is used only around it.
+The console's tree is the old engine's console brought over, its layout and its motion as the decisions on its columns, cards and folds say; the page's new look is used only around it.
 - rejected: an agent proposed restyling the console in the page's new look; the owner rejected it, because its graph shows the dependencies, the progress and the activity at a glance, and even its sliding had been tuned.
 
 ### decision the-tree-is-drawn-on-a-canvas
@@ -51,6 +51,11 @@ A card has one row, with its number and its title, and a second row only once it
 Beside the red count of what holds its work, a card counts in orange its work's questions that hold it at nothing yet, as decision a-question-that-holds-the-work-is-red draws them.
 - replaced: A card that counted only what held its work was on main; the owner changed it, because he could not see where something would wait on him until it turned red and the work stopped.
 
+### decision a-cards-number-column
+A card writes its item's number as `#n`, and every card's title starts past the widest number the whole tree holds, folded items included.
+- replaced: A bare number on each card, its title placed after that card's own number, was on main; the owner changed it, because a bare number does not say whether it numbers an item or a work.
+- rejected: an agent proposed placing each title after its own `#n`; the owner rejected it, because the left edges of the titles would then differ with the digits of the numbers.
+
 ### decision a-cards-strip-shows-every-cell
 A card's strip draws every cell of its flow, the marks of the whole tree made smaller by one factor until the longest strip fits, and never larger than on the works page.
 - replaced: Marks at the works page's size, the strip cut where the card's room ended with a count of the cells left out, was on main; the owner changed it, because the engineer flow's last cells were hidden behind the count.
@@ -97,8 +102,10 @@ A click on the item's title in its window brings the item into view and flashes 
 - replaced: A click on the title that only moved the tree was on main; the owner changed it, because with the card already in view beside the window the click did nothing he could see.
 
 ### decision an-item-is-found-from-the-trees-corner
-A field under the boxes finds any item by its number, its path from its root or a part of its title, eight at most; a pick selects it, its kind ticked and the folds over it opened.
+A field under the boxes finds an item by its number, path or part of its title, eight at most, a row its path, `53-27`, or `#n` for a root; a pick selects it, its kind ticked and its folds opened.
 - replaced: Finding an item only by scrolling the tree was on main; the owner changed it, because once many items were imported he could not find one he looked for.
+- replaced: A root written as its bare number, `26`, in a row was on main; the owner changed it, because a bare number does not say what it numbers, and a path that has no `-` shows nothing else.
+- rejected: an agent proposed writing each row with its own `#n` before its path; the owner rejected it, because the last number of a path would then be written twice and each row would be wider.
 
 ### decision the-owner-walks-the-stops-by-keys
 n goes to the next of what the red and orange counts count, N to the one before, in the tree's order and each window's, round from the last; Next, left of Discuss on each but the last, does as n.

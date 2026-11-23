@@ -1826,7 +1826,7 @@ export class SnapScene {
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
     const number = new BitmapText({
-      text: String(item.id),
+      text: itemName(item.id),
       style: s.mono(NUMBER()[item.standing]),
     });
     number.position.set(x, row1 - number.height / 2);
@@ -1838,7 +1838,7 @@ export class SnapScene {
           ? PALETTE.ink
           : between(PALETTE.ink, PALETTE.muted, NOT_BEGUN);
     const title = new BitmapText({ text: item.title, style: s.title(ink) });
-    title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
+    title.position.set(x + this.titleOffset, row1 - title.height / 2);
     this.numbersDrawn.set(k, { text: number.text, titleAt: title.x });
     view.addChild(number, title);
     // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
@@ -2088,10 +2088,10 @@ export class SnapScene {
     along(0, top + r, 0, top + h - r);
     along(NODE_W, top + r, NODE_W, top + h - r);
     edge.stroke({ color: PALETTE.pale, width: 1 });
-    const number = new BitmapText({ text: String(item.id), style: s.mono(PALETTE.pale) });
+    const number = new BitmapText({ text: itemName(item.id), style: s.mono(PALETTE.pale) });
     number.position.set(CARD_INSET, row1 - number.height / 2);
     const title = new BitmapText({ text: item.title, style: s.title(PALETTE.faint) });
-    title.position.set(CARD_INSET + Math.max(26, number.width + 8), row1 - title.height / 2);
+    title.position.set(CARD_INSET + this.titleOffset, row1 - title.height / 2);
     this.numbersDrawn.set(k, { text: number.text, titleAt: title.x });
     fit(title, NODE_W - 24 - title.x);
     // The arrow, drawn: the font may have no such sign.
