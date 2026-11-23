@@ -79,7 +79,7 @@ describe('the number of an item in a text, at the edges of the Markdown round it
   // the item links it must have, which says what became of the number in it: in the words of a link and in an address
   // it is no link; the words of a link whose target the page refuses are plain words, and the number in them is a link
   // to the item. The `#46` of the bare address stands after a `/`, which joins it to the address alone; that of the
-  // address in angle brackets stands after a `?`, which joins nothing, so that only the words of the link keep it plain.
+  // address in angle brackets stands after a `?`, which joins nothing, so only the words of the link keep it plain.
   it('draws no link inside a link and none to an address an agent wrote: a bare address, an address in angle brackets, a refused target', () => {
     const texts: [string, string[]][] = [
       ['see https://example.com/#46 and #47', ['#47']],
