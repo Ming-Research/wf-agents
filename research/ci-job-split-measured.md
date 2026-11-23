@@ -58,13 +58,15 @@ the longest test is 57 to 68 s; no test took 101 s in any of them.
 
 ## What is not measured
 
-The owner chose to merge without a comparison of the branch's workflow against main's: a workflow takes effect only once
-on main, so the branch's file cannot be run before the merge. So these are inferred, not measured:
+The owner chose to merge without a comparison run by hand of the branch's workflow against main's, so no number of the
+branch's workflow is taken here. These are therefore inferred, not measured:
 
 - what `scope` adds to a run that changes code (a job on GitHub's machine that makes one API request and ends in seconds,
   which `page`, `page tests`, `lint` and `test` then wait for);
 - how long a run of only the design tree takes (it runs `scope`, `tree` and `check`, none of which builds anything);
 - whether `scope` says the right thing for the commit the engine gives, a merge of main into the work's branch.
 
-The first runs on main after the merge show them (`gh api repos/<repository>/actions/runs/<id>/jobs`, the jobs'
-times); the owner reads them there.
+Where they first show: the work's own pull request into main runs the branch's file (`on: pull_request`), so the jobs of
+that run, which changes code, show what `scope` adds and each job's wait for a runner; a run of only the design tree, and
+`scope` on the engine's own request, show on main after the merge (`gh api repos/<repository>/actions/runs/<id>/jobs`, the
+jobs' times). The owner reads them there.
