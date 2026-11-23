@@ -113,8 +113,8 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
     history(&mut d);
     let (old, new) = kept_in_21(&d.work);
     let store = old.open();
+    // The file ends at the schema of this build, whichever migrations follow the one that makes the tables below.
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
-    assert_eq!(SCHEMA_VERSION, 22);
     assert_eq!(
         columns(&old.path),
         columns(&new.path),
