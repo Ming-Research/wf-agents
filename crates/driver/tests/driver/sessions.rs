@@ -832,6 +832,51 @@ fn a_session_begun_while_a_round_takes_main_in_is_the_next_rounds() {
     assert_eq!(s.sessions().len(), 1, "the new session begins no other");
 }
 
+// A round flagged after its line began a new session while the round took main in ran in the session it began in, which
+// that new session ended already, so the flag begins no other: the round is tried again in the one session recorded, which
+// holds nothing of it. Runs in memory in milliseconds; the one test of a round that fails after a session was recorded
+// between its beginning and its first try, where the flag's session would otherwise be counted from the first try.
+#[test]
+fn a_flagged_round_whose_line_began_a_new_session_as_it_took_main_in_is_tried_again_in_that_session() {
+    let changed = Arc::new(AtomicBool::new(false));
+    let since = changed.clone();
+    let policy = kept_against(move |line, session| line == "engineer" && session == 0 && since.load(SeqCst));
+    let mut s = S::with(policy, None);
+    s.hands_in(1234, true);
+    let (build, cell) = s.round();
+    assert_eq!(cell, "build");
+    changed.store(true, SeqCst);
+    s.on(Event::WroteForRound {
+        run: build,
+        block: "tree".into(),
+        content: "c1 t1".to_string(),
+    });
+    s.began();
+    let spent = Spent {
+        input_tokens: 10,
+        context_tokens: Some(100),
+        ..Default::default()
+    };
+    s.on(Event::Failed {
+        run: build,
+        why: "the safeguards flagged this message".to_string(),
+        failure: decide::run::Failure::Flagged,
+        resets: None,
+        spent,
+    });
+    assert!(
+        matches!(s.sessions().as_slice(), [(line, Why::Changed { .. })] if line == "engineer"),
+        "the flag begins no session beside the one recorded as main was taken in: {:?}",
+        s.sessions()
+    );
+    // The round is given again, as its run's next, and begins that session.
+    assert_eq!(s.round().0, build);
+    let next = s.kept().records.rounds.iter().filter(|r| r.run == build).count();
+    assert_eq!(next, 2);
+    assert_eq!(s.engineer(build, 1), (0, false));
+    assert_eq!(s.engineer(build, 2), (1, true));
+}
+
 // A line whose session began with what a new one would begin with now goes on in it: the carriers are asked of each
 // line, of the session its next round runs in, and say no. Runs in memory in milliseconds; beside the test of a session
 // that began otherwise, it shows that the new session comes from the carriers' answer, and not from their being asked.
