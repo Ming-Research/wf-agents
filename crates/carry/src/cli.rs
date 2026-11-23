@@ -1784,7 +1784,7 @@ mod tests {
         let no = stream
             .read(Begin::Resume, 0, &program())
             .expect_err("the question has no result");
-        assert_eq!(no.why, "the command line's stream holds no result");
+        assert_eq!(no.why, program().no_stream_result);
         assert!(no.spent.is_some(), "the first message's calls were paid for");
     }
 
