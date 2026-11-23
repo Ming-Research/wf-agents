@@ -176,8 +176,10 @@ describe('the observations', () => {
     expect(four.querySelector('a.link')).toBeNull();
     expect(four.querySelector('.observation-facts')?.textContent).toContain('reported by compiler');
     expect(four.querySelector('.observation-facts')?.textContent).not.toContain('cell');
-    // One a run kept has its work to open.
-    expect((row(page, 2) as HTMLElement).querySelector('a.link')?.getAttribute('href')).toBe('#/works/1/runs/7');
+    // One a run kept has its work to open, with the round that kept it chosen.
+    expect((row(page, 2) as HTMLElement).querySelector('a.link')?.getAttribute('href')).toBe(
+      '#/works/1/runs/7/rounds/1',
+    );
   });
 
   it('reads the list again when the stream says an observation was added or changed, and no work changed', async () => {
