@@ -309,6 +309,20 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Stops the engine, as for installing a new build: no round of any work begins from then, and the engine ends,
+    /// with status 0, once the rounds under way have ended and their returns are kept. Says each round it waits for,
+    /// how long it has taken and how much longer it is expected to take. With --now, says the rounds a stop at once
+    /// would cut off and stops nothing; with --now --yes, stops the engine at once, cutting them off.
+    Stop {
+        /// Stop at once, cutting off the rounds under way.
+        #[arg(long)]
+        now: bool,
+        /// Confirms a stop at once.
+        #[arg(long, requires = "now")]
+        yes: bool,
+        #[command(flatten)]
+        at: At,
+    },
     /// Cancels a work's item, saying why: nothing of the work goes on. The items that depend on it keep that
     /// dependency, and no longer wait for it; `wf-agents change` cancels several at once, by item.
     Cancel {
@@ -609,6 +623,7 @@ fn main() -> ExitCode {
             (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Pause {})),
             _ => talk::ask(at.port, Asked::Everything(EngineAct::Pause {})),
         },
+        Command::Stop { now, yes, at } => talk::ask(at.port, Asked::Stop { now, yes }),
         Command::Cancel { work, why, at } => talk::ask(at.port, Asked::Cancel(work, why)),
         Command::Write {
             work,
