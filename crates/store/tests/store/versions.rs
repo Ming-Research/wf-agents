@@ -6,7 +6,7 @@ use decide::{BlockId, CellId, Reading};
 use store::{Divergence, Entry, KeptFlow, KeptOutline, SCHEMA_VERSION};
 use work::{KeptTime, OnFlow, Stretch, Went};
 
-use super::diverged::refused;
+use super::diverged::{Change, refused};
 use super::opening::{columns, versions};
 use super::*;
 
@@ -226,7 +226,7 @@ fn a_work_changed_at_or_lacking_an_entry_of_its_moves_its_time_or_its_forks_is_r
     let kept = d.work;
     assert_eq!((kept.flows.len(), kept.kept_time.len(), kept.forked.len()), (2, 1, 1));
 
-    let changes: [fn(&mut Work) -> (&'static str, Entry); 3] = [
+    let changes: [Change; 3] = [
         |w| {
             let on = &mut w.flows[0];
             on.version = Some("b".to_string());
@@ -248,7 +248,7 @@ fn a_work_changed_at_or_lacking_an_entry_of_its_moves_its_time_or_its_forks_is_r
         let (table, entry) = change(&mut given);
         refused(&db, &mut store, number, &given, table, entry, Divergence::Changed);
     }
-    let removals: [fn(&mut Work) -> (&'static str, Entry); 3] = [
+    let removals: [Change; 3] = [
         |w| ("on_flow", Entry::At(w.flows.pop().expect("a move").at)),
         |w| ("kept_time", Entry::At(w.kept_time.pop().expect("a time kept").at)),
         |w| ("forked", Entry::At(w.forked.pop().expect("a fork").at)),

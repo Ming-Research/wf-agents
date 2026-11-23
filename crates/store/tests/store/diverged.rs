@@ -25,7 +25,7 @@ fn held_as(kept: Work) -> (Db, Store, WorkNumber, Work) {
 }
 
 /// Each way of changing an entry the store holds: the table that holds it, and the entry it changes.
-type Change = fn(&mut Work) -> (&'static str, Entry);
+pub(super) type Change = fn(&mut Work) -> (&'static str, Entry);
 
 fn changes() -> Vec<Change> {
     vec![
