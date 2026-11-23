@@ -1,1 +1,1 @@
-what = "Each test the testing wrote, with what it checks, its reference, its kind, its results after and before the change, how long it runs alone, and what it catches that no other test does."
+what = "Each test the testing wrote, with what it checks, its reference, its kind, its results after and before the change, and what it catches that no other test does."

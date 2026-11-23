@@ -13,6 +13,7 @@ import {
 } from 'react';
 
 import { hashOf } from './route';
+import { workName } from './works/words';
 
 /// The bar: the page's name, the views as text tabs (the one shown marked), and at its right what belongs to the page
 /// as a whole.
@@ -445,7 +446,7 @@ export function RoundLink({ work, run, round }: { work: number; run: number; rou
       href={hashOf({ view: 'work', work, run, round })}
       className="link mono"
       title="Open the work with this round chosen"
-    >{`W${work}`}</a>
+    >{workName(work)}</a>
   );
 }
 

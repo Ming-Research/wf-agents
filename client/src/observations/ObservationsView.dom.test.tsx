@@ -5,9 +5,10 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { ItemTitlesProvider } from '../itemNumbers';
 import type { Observation } from '../observations-api';
 import { type Source, SourceContext } from '../works/source';
-import type { Changed } from '../works-api';
+import type { Changed, Item } from '../works-api';
 import { fixtureObservations } from './fixtures';
 import { type ObservationsSource, ObservationsView } from './ObservationsView';
 
@@ -72,14 +73,16 @@ async function settle() {
   });
 }
 
-async function drawn(e: ReturnType<typeof engine>): Promise<HTMLElement> {
+async function drawn(e: ReturnType<typeof engine>, items: Item[] = []): Promise<HTMLElement> {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
   act(() =>
     root.render(
       <SourceContext.Provider value={e.works}>
-        <ObservationsView source={e.observations} />
+        <ItemTitlesProvider items={{ items }}>
+          <ObservationsView source={e.observations} />
+        </ItemTitlesProvider>
       </SourceContext.Provider>,
     ),
   );
@@ -146,8 +149,8 @@ describe('the observations', () => {
   it('reads the list again when a work changes, as a run that finishes keeps the observations of its return', async () => {
     const e = engine();
     const page = await drawn(e);
-    e.held.unshift({ ...e.held[1], number: 4, text: 'A run kept another.', run: 9 });
-    act(() => e.changed({ works: [1], items: false, copies: false, accounts: false }));
+    e.held.unshift({ ...e.held[1], number: 4, text: 'A run kept another.' });
+    act(() => e.changed({ works: [1], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect([...page.querySelectorAll('.observation')].map((r) => r.getAttribute('data-observation'))).toEqual([
       '4',
@@ -156,6 +159,55 @@ describe('the observations', () => {
       '1',
     ]);
     expect(row(page, 4)?.querySelector('.observation-text')?.textContent).toBe('A run kept another.');
+  });
+
+  it('says who reported one an architect added, which has no work to open, and one a run kept still opens its work', async () => {
+    const e = engine();
+    e.held.unshift({
+      ...e.held[0],
+      number: 4,
+      text: 'The merge cell names no tests.',
+      project: 'wf-agents',
+      reportedBy: 'compiler',
+      round: null,
+    });
+    const page = await drawn(e);
+    const four = row(page, 4) as HTMLElement;
+    expect(four.querySelector('a.link')).toBeNull();
+    expect(four.querySelector('.observation-facts')?.textContent).toContain('reported by compiler');
+    expect(four.querySelector('.observation-facts')?.textContent).not.toContain('cell');
+    // One a run kept has its work to open.
+    expect((row(page, 2) as HTMLElement).querySelector('a.link')?.getAttribute('href')).toBe('#/works/1/runs/7');
+  });
+
+  it('reads the list again when the stream says an observation was added or changed, and no work changed', async () => {
+    const e = engine();
+    const page = await drawn(e);
+    e.held.unshift({ ...e.held[0], number: 4, text: 'An architect added another.', round: null, reportedBy: 'compiler' });
+    act(() => e.changed({ works: [], items: false, copies: false, accounts: false, observations: true }));
+    await settle();
+    expect([...page.querySelectorAll('.observation')].map((r) => r.getAttribute('data-observation'))).toEqual([
+      '4',
+      '3',
+      '2',
+      '1',
+    ]);
+  });
+
+  it('draws the number of an item in the text as a link to the item, where the page has read the item', async () => {
+    const e = engine();
+    const text = 'Item #46 and #9999 both say it; the test of #46 is missing.';
+    (e.held.find((o) => o.number === 2) as Observation).text = text;
+    const linked = await drawn(e, [{ number: 46, title: 'Link the numbers' } as Item]);
+    const links = [...(row(linked, 2)?.querySelectorAll('.observation-text a') ?? [])];
+    expect(links.map((a) => [a.getAttribute('href'), a.getAttribute('title'), a.textContent])).toEqual([
+      ['#/console/items/46', '#46 Link the numbers', '#46'],
+      ['#/console/items/46', '#46 Link the numbers', '#46'],
+    ]);
+    expect(row(linked, 2)?.querySelector('.observation-text')?.textContent).toBe(text);
+    // With no item read, the text is as it was written.
+    const plain = await drawn(e);
+    expect(row(plain, 2)?.querySelectorAll('.observation-text a').length).toBe(0);
   });
 
   it('says so when there is none', async () => {

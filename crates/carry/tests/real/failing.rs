@@ -202,12 +202,11 @@ async fn a_session_lost_on_a_later_run_is_begun_again_with_the_task_and_the_runs
     );
 }
 
-/// The fake whose first call prints an error that cost eighty cents, every later call saying the session has cost
-/// eighty-five.
+/// The fake whose first call prints an error that cost eighty cents, every later call saying it spent five cents.
 fn erring() -> Fake {
     Fake {
         error_first: true,
-        cost: "0.85",
+        cost: "0.05",
         ..Fake::default()
     }
 }
@@ -309,4 +308,8 @@ async fn a_failed_round_that_takes_the_work_over_its_budget_says_both() {
         .expect("a reason");
     assert!(why.contains(crate::GAVE_UP), "{why}");
     assert!(why.contains("over its budget of $0.50"), "{why}");
+    // The failure is said by a sentence of the words beside the flows with its cause after a colon, then the budget's
+    // sentence follows, so that the reason reads as sentences through.
+    assert!(why.starts_with("The round failed too. The cause: "), "{why}");
+    assert!(why.contains(". It has spent $"), "{why}");
 }

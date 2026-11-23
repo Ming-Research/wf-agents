@@ -200,7 +200,9 @@ pub(crate) fn hurry(work: &mut Work, run: RunId, block: BlockId, version: Seq, e
 /// round ([`Effect::Tell`]) and the carrier says the round was given; or why they cannot be: no round of the run is
 /// under way, or one of them is no version the owner wrote to turn to a cell, words or an answer. Of a run abandoned
 /// meanwhile, whose round is being stopped, they are put in all the same, so that its session is known to hold them;
-/// its return is dropped, and they stay new to the cell.
+/// its return is dropped, and they stay new to the cell. A version put into the run already is not put in again, as
+/// where the round is given again after the process of the engine that said it ended, and its carrier says it again
+/// from what the round's hook kept.
 pub(crate) fn heard(
     flow: &Compiled,
     work: &mut Work,
@@ -221,6 +223,10 @@ pub(crate) fn heard(
         }
     }
     for (block, version) in versions {
+        let put = |p: &PutIn| p.run == run && p.block == block && p.version == version;
+        if work.records.put_in.iter().any(put) {
+            continue;
+        }
         let at = work.tick();
         work.records.put_in.push(PutIn {
             run,

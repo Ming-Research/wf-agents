@@ -8,11 +8,11 @@
 
 use std::collections::BTreeMap;
 
-use decide::{Decision, Holder, Pauser, Records, RunId, Seq};
+use decide::{Decision, Holder, Pauser, Records, RunId, Seq, Waited};
 use work::{Ask, Call, Stretch, Time, Went, Work};
 
 use crate::attention::on_items;
-use crate::{Kept, Span, owner};
+use crate::{Kept, Span, StopSpan, owner};
 
 /// Each stretch of the work's time that ran, from its begin to its end, one under way to `now`: each round, a model's
 /// where `model` says its run is an agent's, else the tools'; and each call of a tool, the tools', from when it was made
@@ -60,8 +60,14 @@ pub fn ran(work: &Work, model: &dyn Fn(RunId) -> bool, now: Time) -> Vec<Stretch
 /// What the work's time went to as the flow installed decides it, as `kept` holds it, as of `now`: what ran ([`ran`]),
 /// and between, each stretch nothing ran all through, what the work waited for then ([`Waits::at`]). None for a work no
 /// round of which began.
-pub fn stretches(kept: &Kept<'_>, spans: &[Span], cannot_run: Option<(Time, &str)>, now: Time) -> Vec<Stretch> {
-    let mut waits = Waits::new(*kept, spans, cannot_run, now);
+pub fn stretches(
+    kept: &Kept<'_>,
+    spans: &[Span],
+    stops: &[StopSpan],
+    cannot_run: Option<(Time, &str)>,
+    now: Time,
+) -> Vec<Stretch> {
+    let mut waits = Waits::new(*kept, spans, stops, cannot_run, now);
     let mut out = waits.ran.clone();
     let (Some(from), Some(until)) = (waits.from, waits.until) else {
         return out;
@@ -70,6 +76,7 @@ pub fn stretches(kept: &Kept<'_>, spans: &[Span], cannot_run: Option<(Time, &str
     let mut points: Vec<Time> = vec![from, until];
     points.extend(kept.work.moments.iter().map(|m| m.at));
     points.extend(spans.iter().flat_map(|span| [Some(span.from), span.until]).flatten());
+    points.extend(stops.iter().flat_map(|stop| [Some(stop.from), stop.until]).flatten());
     points.extend(cannot_run.map(|(since, _)| since));
     points.retain(|at| *at >= from && *at <= until);
     points.sort();
@@ -96,14 +103,15 @@ pub fn stretches(kept: &Kept<'_>, spans: &[Span], cannot_run: Option<(Time, &str
 }
 
 /// What a work waited for at each time of its span that nothing of it ran, as the flow installed decides on its records
-/// as they stood then, with the pause of everything as `spans` say it held, and the agents' wait where their command
-/// line could not run, since the time `cannot_run` gives, with what it said ([`waited`]). The times of one wait share
-/// the place of the first entry after them, who set the pause of everything then, and whether the agents could run,
-/// and each such wait is decided once: the bar of a work going on asks it at the middle of each of its cells, as many
+/// as they stood then, with the pause of everything as `spans` say it held, the stop of the engine as `stops` say it
+/// stood, and the agents' wait where their command line could not run, since the time `cannot_run` gives, with what it
+/// said ([`waited`]). The times of one wait share the place of the first entry after them, who set the pause of
+/// everything then, whether a stop stood, and whether the agents could run, and each such wait is decided once: the bar of a work going on asks it at the middle of each of its cells, as many
 /// as it has, and what it kept as it ended at the start of each stretch, so that the two read alike.
 pub struct Waits<'a> {
     kept: Kept<'a>,
     spans: &'a [Span],
+    stops: &'a [StopSpan],
     cannot_run: Option<(Time, &'a str)>,
     /// What ran ([`ran`]), as of the time given.
     pub ran: Vec<Stretch>,
@@ -113,12 +121,18 @@ pub struct Waits<'a> {
     pub from: Option<Time>,
     /// When the last of what ran ended.
     pub until: Option<Time>,
-    decided: BTreeMap<(Option<Seq>, Option<bool>, bool), Went>,
+    decided: BTreeMap<(Option<Seq>, Option<bool>, bool, bool), Went>,
 }
 
 impl<'a> Waits<'a> {
     /// The waits of the work `kept` holds, as of `now`.
-    pub fn new(kept: Kept<'a>, spans: &'a [Span], cannot_run: Option<(Time, &'a str)>, now: Time) -> Waits<'a> {
+    pub fn new(
+        kept: Kept<'a>,
+        spans: &'a [Span],
+        stops: &'a [StopSpan],
+        cannot_run: Option<(Time, &'a str)>,
+        now: Time,
+    ) -> Waits<'a> {
         let (flow, work) = (kept.flow, kept.work);
         let agent = |run: RunId| {
             let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
@@ -137,6 +151,7 @@ impl<'a> Waits<'a> {
         Waits {
             kept,
             spans,
+            stops,
             cannot_run,
             from: ran.iter().map(|s| s.from).min(),
             until: ran.iter().map(|s| s.until).max(),
@@ -160,9 +175,11 @@ impl<'a> Waits<'a> {
             .find(|span| span.from <= at && span.until.is_none_or(|until| at < until))
             .map(|span| span.by);
         let could_not_run = self.cannot_run.filter(|(since, _)| *since <= at).map(|(_, why)| why);
+        let stopping = (self.stops.iter()).any(|stop| stop.from <= at && stop.until.is_none_or(|until| at < until));
         let key = (
             place,
             everything.map(|by| by == Pauser::Engine),
+            stopping,
             could_not_run.is_some(),
         );
         let kept = self.kept;
@@ -172,17 +189,18 @@ impl<'a> Waits<'a> {
                 cannot_run: could_not_run,
             };
             match place {
-                Some(place) => waited(&kept, &work.records.before(place), then),
-                None => waited(&kept, &work.records, then),
+                Some(place) => waited(&kept, &work.records.before(place), then, stopping),
+                None => waited(&kept, &work.records, then, stopping),
             }
         }))
     }
 }
 
 /// What a work on these records waited for, with what held every work at once then: the owner, where the one
-/// definition of that says it waited on them ([`owner::waits`]); a pause, its own or the pause of everything; the items
-/// its item depends on; anything else, a stalled work among it; as the flow installed decides on them.
-fn waited(kept: &Kept<'_>, records: &Records, then: owner::Shared<'_>) -> Went {
+/// definition of that says it waited on them ([`owner::waits`]); a pause, its own or the pause of everything; the stop
+/// of the engine, where `stopping`, which holds a work that would begin a round or waits for a slot; the items its
+/// item depends on; anything else, a stalled work among it; as the flow installed decides on them.
+fn waited(kept: &Kept<'_>, records: &Records, then: owner::Shared<'_>, stopping: bool) -> Went {
     let decision = decide::decide(&kept.flow.flow, records);
     let paused = decide::paused(records);
     let begins = matches!(decision, Decision::Run { .. } | Decision::GoOn { .. });
@@ -195,6 +213,8 @@ fn waited(kept: &Kept<'_>, records: &Records, then: owner::Shared<'_>) -> Went {
         Decision::Paused { .. } => Went::Paused,
         Decision::Stalled { .. } | Decision::Run { .. } | Decision::GoOn { .. } if paused => Went::Paused,
         _ if held.is_some() => Went::Paused,
+        Decision::Run { .. } | Decision::GoOn { .. } if stopping => Went::Stopping,
+        Decision::Wait { on, .. } if stopping && on == [Waited::Slot] => Went::Stopping,
         Decision::Wait { on, .. } if on.iter().any(on_items) => Went::Items,
         _ => Went::Other,
     }
@@ -290,7 +310,7 @@ mod tests {
             everything,
             cannot_run: None,
         };
-        with_kept(&flow(), work, |kept| waited(kept, &work.records, then))
+        with_kept(&flow(), work, |kept| waited(kept, &work.records, then, false))
     }
 
     /// A work the owner's request runs the writer of, paused by this pauser where one is given.
@@ -365,7 +385,7 @@ mod tests {
         engine::handle(&flow, &mut work, Time(1000), failed()).expect("the round fails");
         engine::handle(&flow, &mut work, Time(3000), Event::Resumed).expect("the owner lets it on");
         engine::handle(&flow, &mut work, Time(4000), failed()).expect("the round fails again");
-        let stretches = with_kept(&flow, &work, |kept| stretches(kept, &[], None, Time(9000)));
+        let stretches = with_kept(&flow, &work, |kept| stretches(kept, &[], &[], None, Time(9000)));
         let stretch = |from: u64, until: u64, went: Went| Stretch {
             from: Time(from),
             until: Time(until),
@@ -388,6 +408,66 @@ mod tests {
     #[test]
     fn the_pause_of_everything_holds_a_work_from_the_time_it_was_set_up_to_the_time_it_was_lifted() {
         let flow = flow();
+        let work = held_back(&flow);
+        let span = |from: u64, until: Option<u64>, by: Pauser| Span {
+            from: Time(from),
+            until: until.map(Time),
+            by,
+        };
+        let spans = [span(4000, Some(5000), Pauser::Owner), span(5500, None, Pauser::Engine)];
+        let stretches = with_kept(&flow, &work, |kept| stretches(kept, &spans, &[], None, Time(9000)));
+        assert_eq!(
+            stretches,
+            [
+                stretch(0, 1000, Went::Model),
+                stretch(6000, 7000, Went::Model),
+                stretch(1000, 3000, Went::Owner),
+                stretch(3000, 4000, Went::Other),
+                stretch(4000, 5000, Went::Paused),
+                stretch(5000, 5500, Went::Other),
+                stretch(5500, 6000, Went::Paused),
+            ]
+        );
+    }
+
+    // A stop of the engine holds a work that would begin a round from the time it was asked for up to the time the
+    // engine started again, as a stretch of its own, and not the pause's: what the time went to keeps the two apart,
+    // though the bar draws them alike. Fails where the stop is read as holding past its end or not from its start, or
+    // as a pause. Milliseconds; the one test that reads a stop through its stretches.
+    #[test]
+    fn a_stop_holds_a_work_from_the_time_it_was_asked_for_up_to_the_engine_s_start_after_it() {
+        let flow = flow();
+        let work = held_back(&flow);
+        let stops = [StopSpan {
+            from: Time(3500),
+            until: Some(Time(4500)),
+        }];
+        let stretches = with_kept(&flow, &work, |kept| stretches(kept, &[], &stops, None, Time(9000)));
+        assert_eq!(
+            stretches,
+            [
+                stretch(0, 1000, Went::Model),
+                stretch(6000, 7000, Went::Model),
+                stretch(1000, 3000, Went::Owner),
+                stretch(3000, 3500, Went::Other),
+                stretch(3500, 4500, Went::Stopping),
+                stretch(4500, 6000, Went::Other),
+            ]
+        );
+    }
+
+    /// A stretch of the work's time, in milliseconds.
+    fn stretch(from: u64, until: u64, went: Went) -> Stretch {
+        Stretch {
+            from: Time(from),
+            until: Time(until),
+            went,
+        }
+    }
+
+    /// A work whose round failed, paused it, and was let on at 3000 while the agents' wait held its round back, then
+    /// began the round at 6000 and failed again at 7000: from 3000 to 6000 it would begin the round all along.
+    fn held_back(flow: &Compiled) -> Work {
         let mut work = Work::default();
         let wrote = Event::Wrote {
             block: "request".into(),
@@ -396,7 +476,7 @@ mod tests {
             matters: true,
             value: None,
         };
-        let effects = engine::handle(&flow, &mut work, Time(0), wrote).expect("the request is taken");
+        let effects = engine::handle(flow, &mut work, Time(0), wrote).expect("the request is taken");
         let run = effects
             .iter()
             .find_map(|effect| match effect {
@@ -411,36 +491,13 @@ mod tests {
             resets: None,
             spent: Spent::default(),
         };
-        engine::handle(&flow, &mut work, Time(1000), failed()).expect("the round fails");
+        engine::handle(flow, &mut work, Time(1000), failed()).expect("the round fails");
         let held = |work: &mut Work, at: u64, event: Event, gate: engine::Gate| {
-            engine::handle_held(&flow, work, Time(at), event, decide::Room::FREE, gate).expect("it is taken")
+            engine::handle_held(flow, work, Time(at), event, decide::Room::FREE, gate).expect("it is taken")
         };
         held(&mut work, 3000, Event::Resumed, engine::Gate::Agents);
         held(&mut work, 6000, Event::Look, engine::Gate::Open);
-        engine::handle(&flow, &mut work, Time(7000), failed()).expect("the round fails again");
-        let span = |from: u64, until: Option<u64>, by: Pauser| Span {
-            from: Time(from),
-            until: until.map(Time),
-            by,
-        };
-        let spans = [span(4000, Some(5000), Pauser::Owner), span(5500, None, Pauser::Engine)];
-        let stretches = with_kept(&flow, &work, |kept| stretches(kept, &spans, None, Time(9000)));
-        let stretch = |from: u64, until: u64, went: Went| Stretch {
-            from: Time(from),
-            until: Time(until),
-            went,
-        };
-        assert_eq!(
-            stretches,
-            [
-                stretch(0, 1000, Went::Model),
-                stretch(6000, 7000, Went::Model),
-                stretch(1000, 3000, Went::Owner),
-                stretch(3000, 4000, Went::Other),
-                stretch(4000, 5000, Went::Paused),
-                stretch(5000, 5500, Went::Other),
-                stretch(5500, 6000, Went::Paused),
-            ]
-        );
+        engine::handle(flow, &mut work, Time(7000), failed()).expect("the round fails again");
+        work
     }
 }

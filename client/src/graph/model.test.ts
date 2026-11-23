@@ -313,6 +313,7 @@ describe('the flowchart of the engineer flow', () => {
       'background latest reads',
       'tree lastAndLatest reads',
       'tree_entries latest reads',
+      'test_times latest reads',
       'plan_owner lastAndLatest watches',
       'plan_agent lastAndLatest watches',
       'acceptance lastAndLatest watches',

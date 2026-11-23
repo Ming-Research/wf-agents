@@ -20,8 +20,7 @@ use flow::Compiled;
 use store::{Continues, Item, ItemChange, ItemNumber};
 use work::Work;
 
-/// The longest a tag may be, in characters.
-pub const TAG_CHARS: usize = 40;
+pub use store::TAG_CHARS;
 
 /// A change of an item, as whoever plans the work asks for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -155,8 +154,7 @@ pub fn judge(
 
 /// Whether the tag is one an item may carry; why not, where it is not.
 pub fn tag_fault(tag: &str) -> Option<Refused> {
-    let bad = tag.is_empty() || tag.chars().count() > TAG_CHARS || tag.chars().any(|c| c.is_whitespace() || c == ',');
-    bad.then(|| Refused::BadTag(tag.to_string()))
+    store::tag_is_bad(tag).then(|| Refused::BadTag(tag.to_string()))
 }
 
 /// Whether the item may continue this: a pull request of a number, or a branch of a name git takes for one

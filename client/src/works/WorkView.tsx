@@ -25,6 +25,7 @@ import { ChosenRound } from './chosen-round';
 import { HISTORY_MARKS, HistoryChart } from './History';
 import { placeSteps } from './placing';
 import { useChanges, useItems, useReading, useSource } from './source';
+import { itemName, workName } from './words';
 
 export function WorkView({ work, run, round, active = true }: {
   work: number;
@@ -43,9 +44,9 @@ export function WorkView({ work, run, round, active = true }: {
   }, read);
   if (!page) {
     return failed ? (
-      <p className="message">The page could not read work {work}: {failed}</p>
+      <p className="message">The page could not read {workName(work)}: {failed}</p>
     ) : (
-      <p className="message muted">Reading work {work}</p>
+      <p className="message muted">Reading {workName(work)}</p>
     );
   }
   return <WorkScreen page={page} failed={failed} onActed={read} run={run} round={round} active={active} />;
@@ -203,7 +204,9 @@ export function WorkScreen({ page, failed = null, onActed, run, round, active = 
           >
             ← Back
           </a>
-          <span className="mono muted">#{summary.item}</span>
+          <span className="mono muted">
+            {workName(summary.number)} {itemName(summary.item)}
+          </span>
           <span className="view-name">{page.title}</span>
         </span>
         <span className="view-end">

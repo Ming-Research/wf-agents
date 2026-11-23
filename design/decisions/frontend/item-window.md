@@ -40,10 +40,6 @@ A question that holds the work is framed in red on its tint, as a stop is; one t
 The stop n or N goes to, or a click on its frame chooses, stands in the soft light of a card chosen on the console, in its own colour; one at a time, none after Escape.
 - replaced: Nothing showing which stop the walk stood at was on main; the owner changed it, because n scrolled the window to a stop, but a question box cannot be selected, so nothing showed which stop was current.
 
-### decision the-round-a-link-names-stands-in-a-soft-light
-The round a link names is open in the Step, scrolled to and lit in the accent's soft light, as a stop walked to is, until another row is chosen.
-- rejected: an agent proposed only opening the round and scrolling to it, with no mark; the owner rejected it, because with several rounds open he could not tell which one the link named.
-
 ### decision a-question-stands-where-a-text-points-to-it
 A question is drawn at the first `{{name}}` that points to it, in the body's passages and then in an agent's messages; a later pointer links to it, and one no text points to is drawn after the body.
 - replaced: Every question drawn at the end of the card's last section was on main; the owner changed it, because a question is shown where it is asked, in the text it is about.

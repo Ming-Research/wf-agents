@@ -310,7 +310,7 @@ describe('the list of works', () => {
     await settle();
     expect(page.querySelectorAll('tbody tr.work-row')).toHaveLength(10);
     fail = true;
-    act(() => source.changed({ works: [41], items: true, copies: false, accounts: false }));
+    act(() => source.changed({ works: [41], items: true, copies: false, accounts: false, observations: false }));
     await settle();
     expect(page.querySelectorAll('tbody tr.work-row')).toHaveLength(10);
     expect(page.querySelector('.read-failed')?.textContent).toContain('the server went away');
@@ -330,7 +330,7 @@ describe("a work's line", () => {
     expect(line.querySelector('a.link')?.getAttribute('href')).toBe('#/works');
     expect(texts(line, '.view-title > *')).toEqual([
       '← Back',
-      '#141',
+      'W41 #141',
       'Show the cost of each round on the works page',
     ]);
     expect(texts(line, '.legend li').slice(0, 2)).toEqual(['wakes', 'way back']);
@@ -347,14 +347,14 @@ describe('a work as it is read', () => {
   it('says it is reading, then shows the work, and reads it again when it changed', async () => {
     const source = fixtureSource();
     const page = draw(<WorkView work={41} />, source);
-    expect(page.textContent).toContain('Reading work 41');
+    expect(page.textContent).toContain('Reading W41');
     await settle();
     expect(page.querySelector('.view-name')?.textContent).toBe('Show the cost of each round on the works page');
-    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect(source.reads.work).toBe(2);
     // A change to another work does not read this one again.
-    act(() => source.changed({ works: [42], items: false, copies: false, accounts: false }));
+    act(() => source.changed({ works: [42], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect(source.reads.work).toBe(2);
   });
@@ -367,7 +367,7 @@ describe('a work as it is read', () => {
     const page = draw(<WorkView work={41} />, source);
     await settle();
     fail = true;
-    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect(page.querySelector('.read-failed')?.textContent).toBe(
       'The work could not be read again: the server went away. What is shown is from before.',
@@ -391,9 +391,9 @@ describe('a work as it is read', () => {
     const page = draw(<WorkView work={41} />, source);
     answers[0].resolve(fixtureWork(41));
     await settle();
-    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false }));
-    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false }));
-    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
     expect(answers).toHaveLength(2);
     answers[1].resolve({ ...fixtureWork(41), title: 'Older' });
     await settle();
