@@ -245,3 +245,137 @@ fn the_squash_gives_each_piece_the_agents_wrote_to_tidy_and_not_the_lines() {
     let one = squash(&["first\n\nbody"], &shout);
     assert_eq!(one, "BODY\n\nItem: 36\nWork: W12");
 }
+
+/// Whether the message holds each of the two lines once, whatever else it holds.
+fn names_once(message: &str) -> bool {
+    let count = |line: &str| message.lines().filter(|said| said.trim_end() == line).count();
+    count("Item: 36") == 1 && count("Work: W12") == 1
+}
+
+// Reference: git-interpret-trailers(1) for where the lines go and git-commit(1) for the ways a message is made. The
+// agents also write a first line that looks like a trailer, read a message from a file or an editor, revert, and
+// resolve a conflicted merge by `git commit`; each of those messages holds the lines once, and `git log --grep` finds it.
+#[test]
+fn a_message_made_from_a_file_an_editor_a_revert_or_a_resolved_conflict_holds_the_lines_once() {
+    let (repo, mut given) = hooked(WHOSE);
+    let dir = &repo.project.repo;
+    let grep = |pattern: &str| {
+        run(dir, &["log", &format!("--grep={pattern}"), "--format=%H"])
+            .lines()
+            .count()
+    };
+
+    // A first line of the form `key: value` is the subject, not a trailer: the lines are set apart from it.
+    staged(dir, "a.txt");
+    run_with(dir, &["commit", "-q", "-m", "Fix: the greeting"], &given);
+    assert_eq!(message(dir), "Fix: the greeting\n\nItem: 36\nWork: W12");
+
+    // A message read from a file, whose last paragraph reads as a trailer.
+    staged(dir, "b.txt");
+    let file = dir.join("message.txt");
+    std::fs::write(&file, "Subject\n\nBody.\n\nNote: this matters\n").unwrap();
+    let path = file.to_string_lossy().into_owned();
+    run_with(dir, &["commit", "-q", "-F", &path], &given);
+    assert!(names_once(&message(dir)), "{}", message(dir));
+    assert!(message(dir).ends_with("Item: 36\nWork: W12"), "{}", message(dir));
+
+    // The same message edited by an editor, which leaves it as it is.
+    staged(dir, "c.txt");
+    given.push(("GIT_EDITOR".to_string(), "true".to_string()));
+    run_with(dir, &["commit", "-q", "-e", "-F", &path], &given);
+    assert!(names_once(&message(dir)), "{}", message(dir));
+    assert!(message(dir).ends_with("Item: 36\nWork: W12"), "{}", message(dir));
+
+    // A revert writes a message of its own, with a line of git's after the subject.
+    run_with(dir, &["revert", "--no-edit", "HEAD"], &given);
+    assert!(names_once(&message(dir)), "{}", message(dir));
+
+    // A merge that met a conflict, resolved and committed with the message git prepared, whose end is git's own list of
+    // the conflicts.
+    run(dir, &["checkout", "-q", "-b", "side", "HEAD~4"]);
+    std::fs::write(dir.join("greeting.txt"), "Side.\n").unwrap();
+    run(dir, &["commit", "-qam", "Side"]);
+    run(dir, &["checkout", "-q", "main"]);
+    std::fs::write(dir.join("greeting.txt"), "Main.\n").unwrap();
+    run(dir, &["commit", "-qam", "Main"]);
+    let merging = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["merge", "side"])
+        .envs(given.iter().cloned())
+        .output()
+        .unwrap();
+    assert!(!merging.status.success(), "the merge meets the conflict");
+    std::fs::write(dir.join("greeting.txt"), "Both.\n").unwrap();
+    run(dir, &["add", "greeting.txt"]);
+    run_with(dir, &["commit", "-q", "--no-edit"], &given);
+    assert!(names_once(&message(dir)), "{}", message(dir));
+
+    // Each of the five commits made with the lines is found by the item's line, and no other is.
+    assert_eq!(grep("^Item: 36$"), 5);
+}
+
+// The data directory of an installation may have a space in its path, which the hook's directory is given through
+// git's variables with, and a work is done in a linked worktree made by the engine, not in the repository itself.
+#[tokio::test]
+async fn a_commit_in_a_works_linked_worktree_ends_with_the_lines_where_the_data_directory_has_a_space() {
+    let repo = Repo::new("true");
+    let spaced = repo.data.parent().unwrap().join("a data directory");
+    std::fs::create_dir_all(&spaced).unwrap();
+    install(&spaced).unwrap();
+    let started = crate::git::start(&repo.project, &repo.place(WorkNumber(12)), "main")
+        .await
+        .unwrap();
+    let dir = &started.place.dir;
+    assert_ne!(dir, &repo.project.repo, "the work is in a linked worktree");
+    let given = environment(&spaced, &words(), WHOSE);
+    staged(dir, "a.txt");
+    run_with(dir, &["commit", "-q", "-m", "In the worktree"], &given);
+    assert_eq!(message(dir), "In the worktree\n\nItem: 36\nWork: W12");
+}
+
+/// The text with each `#` and `@` broken as `neutral` breaks them, which is how the squash makes what an agent wrote fit
+/// to publish.
+fn published(text: &str) -> String {
+    crate::host::github::neutral(text, &[])
+}
+
+// Reference: the contract of `neutral` ("no mention notifies anyone, no reference names an issue or a pull request" in
+// what an agent wrote and the repository publishes) and the design principle agent-writing-is-data. A `Co-authored-by`
+// line is what an agent wrote: a name that is a mention or a reference must not reach the squash message as one, while
+// a real co-author, whose email has an `@`, is still read by the host.
+#[test]
+fn the_squash_publishes_no_mention_or_reference_that_an_agent_put_in_a_co_author_line() {
+    let said = squash(
+        &[
+            "First\n\nWhat was done.\n\nCo-authored-by: Claude <noreply@anthropic.com>\n\
+             Co-authored-by: Mallory <m@example.org> thanks @victim, see #7",
+        ],
+        &published,
+    );
+    assert!(
+        said.contains("Co-authored-by: Claude <noreply@anthropic.com>"),
+        "{said}"
+    );
+    assert!(!said.contains("@victim"), "a mention reaches the host as one: {said}");
+    assert!(!said.contains("#7"), "a reference reaches the host as one: {said}");
+    assert!(said.ends_with("Item: 36\nWork: W12"), "{said}");
+}
+
+// Reference: the item's own requirement, that a commit on main leads back to one item, found by `git log --grep`: a
+// commit of the work that carries the lines of another work (one copied from another work's branch or from main, which
+// ends with that work's lines) must not make the work's squash say two items.
+#[test]
+fn the_squash_says_one_item_and_one_work_where_a_commit_of_the_work_carries_the_lines_of_another() {
+    let said = squash(
+        &[
+            "Copied\n\nWhy.\n\nItem: 20\nWork: W3\nItem: 36\nWork: W12",
+            "Own\n\nItem: 36\nWork: W12",
+        ],
+        &as_it_is,
+    );
+    let count = |key: &str| said.lines().filter(|line| line.starts_with(key)).count();
+    assert_eq!(count("Item: "), 1, "{said}");
+    assert_eq!(count("Work: "), 1, "{said}");
+    assert!(said.ends_with("Item: 36\nWork: W12"), "{said}");
+}
