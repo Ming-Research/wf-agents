@@ -376,7 +376,7 @@ impl Rounds for Hosted {
 }
 
 // The pull requests open on a project's host are asked of that project's carriers alone; a project the settings do not
-// name is said not to be, which says nothing of there being none.
+// name, or one held for its declaration, is said not to be asked, with why, which says nothing of there being none.
 #[tokio::test]
 async fn the_open_pull_requests_are_asked_of_the_named_projects_host_and_one_not_named_says_so() {
     let rounds = by_project::<dyn Rounds>(Arc::new(Hosted));
@@ -389,5 +389,9 @@ async fn the_open_pull_requests_are_asked_of_the_named_projects_host_and_one_not
     assert_eq!(
         rounds.open_pulls("two").await,
         Err("the installation's settings do not name the project two".to_string())
+    );
+    assert_eq!(
+        rounds.open_pulls("held").await,
+        Err(format!("the project held is held: {HELD}"))
     );
 }

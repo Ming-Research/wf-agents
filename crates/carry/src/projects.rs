@@ -301,13 +301,18 @@ impl Rounds for ByProject<dyn Rounds> {
         }
     }
 
-    // A project the settings do not name has no host to ask, which is not a host with no pull requests.
+    // A project the settings do not name, or one held for its declaration, has no host to ask, which is not a host with
+    // no pull requests.
     fn open_pulls(
         &self,
         project: &str,
     ) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
         match self.of.get(project) {
-            Some(rounds) => rounds.open_pulls(project),
+            Some(Ok(rounds)) => rounds.open_pulls(project),
+            Some(Err(why)) => {
+                let why = format!("the project {project} is held: {why}");
+                Box::pin(async move { Err(why) })
+            }
             None => {
                 let why = format!("the installation's settings do not name the project {project}");
                 Box::pin(async move { Err(why) })

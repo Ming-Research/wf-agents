@@ -580,6 +580,8 @@ fn a_stop_is_given_with_the_rests_of_what_is_under_way_and_holds_a_work_that_wou
             content: "Please.".to_string(),
             value: None,
         }],
+        why: None,
+        waits_for: Vec::new(),
     };
     let (_, held, _) = driver.add(work::Time(START + 55 * S), new).unwrap();
     let todos = driver

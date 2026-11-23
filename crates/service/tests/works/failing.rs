@@ -226,7 +226,7 @@ async fn the_wait_before_a_failed_round_is_tried_again_ends_with_the_result_the_
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     let event = trial.step().await.unwrap();
     assert!(matches!(&event, Event::Failed { .. }), "{event:?}");
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
