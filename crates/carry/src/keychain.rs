@@ -193,7 +193,8 @@ mod tests {
     /// A stand-in for the program, which keeps each item as a file named by its account in the directory, its
     /// arguments, a line a call, in `args`, and what it read on its standard input in `stdin`. As the program does, it
     /// ends with 44 where it has no such item, and, read a command on its standard input, as that command ended; where
-    /// the file `locked` is there, it keeps nothing, saying so in words that hold the line it read, as the program may.
+    /// the file `locked` is there, it keeps nothing, saying so in words that hold the line it read, as the program may;
+    /// where the file `refuse-delete` is there, it lets go of nothing and ends with 36.
     fn stand_in(dir: &Path) -> PathBuf {
         let program = dir.join("security");
         let script = format!(
@@ -230,6 +231,10 @@ case "$command" in
             exit 44
         fi ;;
     delete-generic-password)
+        if [ -f "$dir/refuse-delete" ]; then
+            echo 'security: SecKeychainItemDelete: User interaction is not allowed.' >&2
+            exit 36
+        fi
         if [ -f "$dir/item-$account" ]; then rm "$dir/item-$account"; else
             echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2
             exit 44
@@ -310,5 +315,36 @@ esac
                 .closed()
                 .is_some_and(|why| why.contains("is not on this system"))
         );
+    }
+
+    #[test]
+    fn a_name_that_cannot_stand_as_one_word_is_refused_and_nothing_is_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let keychain = Keychain::new(&stand_in(dir.path()), &uuid::Uuid::nil(), "claude setup-token".into());
+        let token = Token::new("sk-ant-oat01-secret".to_string());
+        for name in ["", "two words", "quo\"te", "it's", "back\\slash", "line\nbreak"] {
+            let refused = keychain.keep(name, &token).unwrap_err();
+            assert!(
+                refused.contains("cannot name an item of the keychain"),
+                "{name:?}: {refused}"
+            );
+        }
+        assert_eq!(read(dir.path(), "args"), "", "nothing was run");
+    }
+
+    // A token read back empty or not as text is an error, which says so, and a let-go that ends other than with 0 or
+    // with 44, no such item, is one that says what the program said. A few milliseconds: a shell script run a few times.
+    #[test]
+    fn a_token_read_back_empty_or_not_text_and_a_let_go_that_fails_are_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let keychain = Keychain::new(&stand_in(dir.path()), &uuid::Uuid::nil(), "claude setup-token".into());
+        std::fs::write(dir.path().join("item-empty"), "").unwrap();
+        assert_eq!(keychain.token("empty"), Err("the token kept is empty".to_string()));
+        std::fs::write(dir.path().join("item-binary"), [0xff, 0xfe, 0x80]).unwrap();
+        assert_eq!(keychain.token("binary"), Err("the token kept is not text".to_string()));
+        std::fs::write(dir.path().join("refuse-delete"), "").unwrap();
+        let refused = keychain.let_go("empty").unwrap_err();
+        assert!(refused.contains("User interaction is not allowed"), "{refused}");
+        assert!(dir.path().join("item-empty").exists(), "the item is still kept");
     }
 }
