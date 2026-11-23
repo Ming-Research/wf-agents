@@ -379,3 +379,54 @@ fn the_squash_says_one_item_and_one_work_where_a_commit_of_the_work_carries_the_
     assert_eq!(count("Work: "), 1, "{said}");
     assert!(said.ends_with("Item: 36\nWork: W12"), "{said}");
 }
+
+// Reference: the form the host reads a co-author in, `Co-authored-by: Name <email>` (GitHub's "Creating a commit with
+// multiple authors"). Each line below has one fault of that form, so each is told apart from a co-author by its own
+// condition: it is no co-author, stays in the commit's text through `tidy`, and the end of the message holds none.
+#[test]
+fn a_line_that_is_not_exactly_a_name_and_an_email_stays_in_the_text_and_is_no_co_author() {
+    let faulty = [
+        "Co-authored-by: Ada <a#1@example.org>",
+        "Co-authored-by: Ada <ada.example.org>",
+        "Co-authored-by: Ada <a@b@example.org>",
+        "Co-authored-by: Ada <@example.org>",
+        "Co-authored-by: Ada <ada@>",
+        "Co-authored-by: <ada@example.org>",
+        "Co-authored-by: A>da <ada@example.org>",
+        "Co-authored-by: Ada <ada@example.org> thanks",
+        "Co-authored-by: Ada Lovelace",
+    ];
+    for line in faulty {
+        let message = format!("First\n\nBody.\n\n{line}");
+        let said = squash(&[message.as_str()], &published);
+        let text = published(&format!("Body.\n\n{line}"));
+        assert_eq!(said, format!("{text}\n\nItem: 36\nWork: W12"), "{line}");
+    }
+}
+
+// A name that `tidy` cuts short is followed by a line of its own, which no co-author line has.
+#[test]
+fn a_name_that_tidy_cuts_short_makes_the_line_no_co_author() {
+    let cutting = |text: &str| format!("{text}\n(cut)");
+    let said = squash(&["First\n\nBody.\n\nCo-authored-by: Ada <ada@example.org>"], &cutting);
+    assert_eq!(
+        said,
+        "Body.\n\nCo-authored-by: Ada <ada@example.org>\n(cut)\n\nItem: 36\nWork: W12"
+    );
+}
+
+// A real co-author whose name holds a mention or a closing word still reaches the host as one, with the name broken and
+// the email, which the host reads by its `@`, as it was written.
+#[test]
+fn a_co_author_whose_name_holds_a_mention_is_kept_with_the_name_made_neutral_and_the_email_as_it_is() {
+    let said = squash(
+        &["First\n\nBody.\n\nCo-authored-by: @victim Fixes <v@example.org>"],
+        &published,
+    );
+    let name = published("@victim Fixes");
+    assert_ne!(name, "@victim Fixes");
+    assert_eq!(
+        said,
+        format!("Body.\n\nCo-authored-by: {name} <v@example.org>\nItem: 36\nWork: W12")
+    );
+}
