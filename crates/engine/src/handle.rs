@@ -1265,7 +1265,7 @@ fn pausing_words(words: &flow::agents::PausedWords, pausing: &Pausing, why: &str
     };
     match pausing {
         Pausing::Failed(Failure::PromptTooLong) => fill(&words.too_long, None),
-        Pausing::Failed(_) => why.to_string(),
+        Pausing::Failed(_) => fill(&words.failed, None),
         Pausing::Passing { failed } => fill(&words.passing, Some(*failed)),
         Pausing::Outside { failed } => fill(&words.outside, Some(*failed)),
         Pausing::FlaggedAgain => fill(&words.flagged_again, None),

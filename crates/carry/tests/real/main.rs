@@ -22,6 +22,7 @@ mod permissions;
 mod projects;
 mod protected;
 mod query;
+mod reading;
 mod sessions;
 mod stopping;
 mod testing;

@@ -60,7 +60,7 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
     // names it.
     let log = git_in(&real.repo, &["log", "main", "--format=%s"]);
     assert!(log.lines().any(|line| line == "Build the greeting"), "{log}");
-    assert_eq!(log.lines().next(), Some("Work 1"), "{log}");
+    assert_eq!(log.lines().next(), Some("Work W1"), "{log}");
 }
 
 #[tokio::test]

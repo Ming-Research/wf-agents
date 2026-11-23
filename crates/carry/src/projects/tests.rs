@@ -62,6 +62,9 @@ fn said() -> NoProject {
 const HELD: &str =
     "refs/heads/main:wf-agents.toml, the project's declaration on main where works branch from, cannot be read";
 
+/// Words, unlike the files' own, for the result of a call withdrawn.
+const WITHDRAWN: &str = "Dropped, no answer came.";
+
 /// The carriers of the one project `one`, and what reaches them, and the project `held`, which is held.
 fn by_project<T: ?Sized>(reached: Arc<T>) -> ByProject<T> {
     ByProject {
@@ -71,6 +74,7 @@ fn by_project<T: ?Sized>(reached: Arc<T>) -> ByProject<T> {
         ]
         .into(),
         said: said(),
+        withdrawn: WITHDRAWN.to_string(),
     }
 }
 
@@ -247,7 +251,7 @@ fn a_call_of_an_item_of_no_project_named_is_answered_in_the_words_beside_the_flo
         [
             "Nothing was run: two is not named.",
             "Nothing was run: no project.",
-            service::WITHDRAWN
+            WITHDRAWN
         ]
     );
 }

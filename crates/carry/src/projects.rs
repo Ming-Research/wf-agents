@@ -190,19 +190,19 @@ pub(crate) fn local_words(beside: &mut flow::agents::Agents) {
 /// What of these, by the name of a project, is the item's project's; or why the item has none of them, in words for the
 /// owner, who reads them where the work is paused: a project is held, and says why its declaration cannot be used.
 pub(crate) fn of<'a, T>(of: &'a BTreeMap<String, Result<T, String>>, item: &Item) -> Result<&'a T, String> {
-    let number = item.number.0;
+    let number = item.number;
     match &item.project {
         Some(name) => match of.get(name) {
             Some(Ok(carried)) => Ok(carried),
             Some(Err(why)) => Err(format!(
-                "the item #{number} belongs to the project {name}, which is held: {why}"
+                "the item {number} belongs to the project {name}, which is held: {why}"
             )),
             None => Err(format!(
-                "the item #{number} belongs to the project {name}, which the installation's settings do not name"
+                "the item {number} belongs to the project {name}, which the installation's settings do not name"
             )),
         },
         None => Err(format!(
-            "the item #{number} belongs to no project: it was added before items had projects, and its work is carried \
+            "the item {number} belongs to no project: it was added before items had projects, and its work is carried \
              out in no repository"
         )),
     }
@@ -222,6 +222,8 @@ pub struct ByProject<T: ?Sized> {
     /// What a tool's result says where the work's item belongs to no project of these, as the files beside the flows
     /// word it.
     pub said: NoProject,
+    /// The result of a call withdrawn, as the files beside the flows word it.
+    pub withdrawn: String,
 }
 
 impl Rounds for ByProject<dyn Rounds> {
@@ -311,7 +313,7 @@ impl Tools for ByProject<dyn Tools> {
     fn withdraw(&self, call: ToolCall, reply: CallReply) {
         match of(&self.of, &call.item) {
             Ok(tools) => tools.withdraw(call, reply),
-            Err(_) => reply.done(service::WITHDRAWN.to_string()),
+            Err(_) => reply.done(self.withdrawn.clone()),
         }
     }
 }
