@@ -96,8 +96,10 @@ Selecting an item that is off the screen, or half under the window, moves the tr
 A click on the item's title in its window brings the item into view and flashes its soft light once, wider and stronger, easing back to rest.
 - replaced: A click on the title that only moved the tree was on main; the owner changed it, because with the card already in view beside the window the click did nothing he could see.
 
-### decision an-item-is-found-from-the-trees-corner
-A field under the boxes finds any item by its number, its path from its root or a part of its title, eight at most; a pick selects it, its kind ticked and the folds over it opened.
+### decision an-item-is-found-from-a-box-the-slash-opens
+`/` opens a box over the console's top that finds any item by its number or a part of its title, eight at most; a pick selects it, its kind ticked and the folds over it opened.
+- replaced: A field always shown under the boxes at the tree's corner was on main; the owner changed it, because what it found had no room under it, and he wanted it only while he searches, as Spotlight is.
+- replaced: Finding an item by its path from its root, as 26-27, was on main; the owner changed it, because with the search he needs no path.
 - replaced: Finding an item only by scrolling the tree was on main; the owner changed it, because once many items were imported he could not find one he looked for.
 
 ### decision the-owner-walks-the-stops-by-keys

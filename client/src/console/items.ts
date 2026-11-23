@@ -135,60 +135,24 @@ function mainDependents(data: Items): Map<number, number> {
   return main;
 }
 
-/// Each item's path in the tree: the numbers of the items it stands under, from its root down, and its own last, as the
-/// tree places an item, under its main dependent; an item met again on its own way up, which only a cycle of
-/// dependencies does, ends the path.
-export function itemPaths(data: Items): Map<number, number[]> {
-  const main = mainDependents(data);
-  return new Map(
-    data.items.map((i) => {
-      const path = [i.number];
-      for (let p = main.get(i.number); p !== undefined && !path.includes(p); p = main.get(p)) path.unshift(p);
-      return [i.number, path];
-    }),
-  );
-}
-
-/// An item's path as the page writes it, its numbers joined by `-` from its root down: `53-27-23`.
-export const pathWords = (path: number[]): string => path.join('-');
-
-/// What the search of the console finds for `query`, at most `most`, each item with its path, as the query stands while
-/// it is typed a digit at a time: where it is a number, `65` or `#65`, the items whose number begins with it, the item
-/// of that very number first; where it is a path from a root, `53-27-23`, or a part of one, `53-2` or `53-`, the items
-/// whose path holds its numbers but its last, and at the place of its last a number that begins with it, each with the
-/// items under it: the item the whole path names first, then the others in the tree's order. Then every item whose
-/// title holds the query, in any case, by number. Every item counts, open, done or cancelled.
-export function findItems(data: Items, query: string, most = 8): { item: Item; path: number[] }[] {
+/// What the search of the console finds for `query`, at most `most`, as the query stands while it is typed a digit at a
+/// time: where it is a number, `65` or `#65`, the items whose number begins with it, the item of that very number first;
+/// then every item whose title holds the query, in any case, by number. Every item counts, open, done or cancelled.
+export function findItems(data: Items, query: string, most = 8): Item[] {
   const q = query.trim();
   if (q === '') return [];
-  const paths = itemPaths(data);
-  const found: { item: Item; path: number[] }[] = [];
+  const found: Item[] = [];
   const taken = new Set<number>();
   const take = (item: Item) => {
     if (taken.has(item.number)) return;
     taken.add(item.number);
-    found.push({ item, path: paths.get(item.number) ?? [item.number] });
+    found.push(item);
   };
   const byNumber = [...data.items].sort((a, b) => a.number - b.number);
-  const parts = /^#?\d+(-\d+)*-?$/.test(q) ? q.replace(/^#/, '').split('-') : null;
-  if (parts !== null && parts.length === 1) {
-    const [typed] = parts;
+  const typed = /^#?\d+$/.test(q) ? q.replace(/^#/, '') : null;
+  if (typed !== null) {
     const begins = byNumber.filter((i) => String(i.number).startsWith(typed));
     for (const item of [...begins.filter((i) => String(i.number) === typed), ...begins]) take(item);
-  } else if (parts !== null) {
-    const last = parts.length - 1;
-    const fits = (path: number[]) =>
-      path.length > last && parts.every((p, k) => (k < last ? path[k] === Number(p) : String(path[k]).startsWith(p)));
-    const named = (path: number[]) => path.length === parts.length && String(path[last]) === parts[last];
-    const order = (a: number[], b: number[]) => {
-      for (let k = 0; k < Math.min(a.length, b.length); k += 1) if (a[k] !== b[k]) return a[k] - b[k];
-      return a.length - b.length;
-    };
-    const below = byNumber
-      .map((item) => ({ item, path: paths.get(item.number) ?? [item.number] }))
-      .filter(({ path }) => fits(path))
-      .sort((a, b) => Number(named(b.path)) - Number(named(a.path)) || order(a.path, b.path));
-    for (const { item } of below) take(item);
   }
   const words = q.toLocaleLowerCase();
   for (const item of byNumber) if (item.title.toLocaleLowerCase().includes(words)) take(item);
