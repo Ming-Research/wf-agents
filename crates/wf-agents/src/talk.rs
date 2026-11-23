@@ -2447,7 +2447,7 @@ mod tests {
     }
 
     /// An observation an architect added, of this project and reported by that one.
-    fn added(number: u64, text: &str, project: &str, reported_by: &str) -> Observation {
+    fn an_added_observation(number: u64, text: &str, project: &str, reported_by: &str) -> Observation {
         Observation {
             round: None,
             project: Some(project.to_string()),
@@ -2489,7 +2489,7 @@ mod tests {
 
     #[test]
     fn the_line_of_an_added_observation_says_who_reported_it_what_it_is_of_and_its_title_tags_and_taker() {
-        let mut one = added(5, "The merge cell names no tests.", "wf-agents", "compiler");
+        let mut one = an_added_observation(5, "The merge cell names no tests.", "wf-agents", "compiler");
         one.title = Some("Name the tests".to_string());
         one.tags = vec!["flow".to_string(), "tests".to_string()];
         let page = ObservationsPage {
@@ -2513,9 +2513,9 @@ mod tests {
 
     #[test]
     fn observations_are_filtered_by_tag_and_project_and_the_handled_are_left_out_unless_all() {
-        let mut tagged = added(4, "Tagged.", "wf-agents", "wf-agents");
+        let mut tagged = an_added_observation(4, "Tagged.", "wf-agents", "wf-agents");
         tagged.tags = vec!["flow".to_string()];
-        let mut handled = added(3, "Handled.", "wf-agents", "wf-agents");
+        let mut handled = an_added_observation(3, "Handled.", "wf-agents", "wf-agents");
         handled.tags = vec!["flow".to_string()];
         handled.taken_in_by = Some(7);
         handled.handled = true;
@@ -2523,8 +2523,8 @@ mod tests {
             observations: vec![
                 tagged,
                 handled,
-                added(2, "Another project's.", "compiler", "compiler"),
-                added(1, "Untagged.", "wf-agents", "wf-agents"),
+                an_added_observation(2, "Another project's.", "compiler", "compiler"),
+                an_added_observation(1, "Untagged.", "wf-agents", "wf-agents"),
             ],
         };
         let numbers = |showing: &Showing| -> Vec<String> {
