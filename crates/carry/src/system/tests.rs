@@ -140,8 +140,7 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
         "`agents.subagents.most` (3)",
         "`project.research` (research/)",
         "`owner.language` (Chinese)",
-        "and checks among `lint`;",
-        "`project.test_names` (To name a test to `run_tests`, an agent gives the test's name",
+        "Name checks among `lint`;",
     ] {
         assert!(engineer.contains(named), "{named}:\n{engineer}");
     }
@@ -152,6 +151,44 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
     let reviewer = of("code_reviewer");
     assert!(reviewer.contains("You only read it, and change no file."), "{reviewer}");
     assert!(!reviewer.contains("Make your changes there"), "{reviewer}");
+}
+
+// The words of `run_tests` name how tests are named by the setting `project.test_names`, whose value is one short phrase
+// that the engine's way of giving a setting's value beside its name, in brackets, can hold; the sentence is said as the
+// words write it, whatever the lines break.
+#[test]
+fn the_words_of_run_tests_name_the_projects_naming_of_tests_with_one_short_phrase_beside_it() {
+    let value = declaration().project["test_names"].clone();
+    assert!(
+        value.len() <= 250 && !value.contains('\n') && !value.contains(". "),
+        "{value}"
+    );
+    let said = "Name each test exactly as its JUnit result names it; this project's naming is `project.test_names` (a \
+                Rust test as nextest names it, such as `tests::a_row`, with no test binary; a page test as vitest \
+                lists it, its describes and its title joined by ` > `; a binary, module, file or describe alone names \
+                none). Name checks among `lint`;";
+    for line in lines(&engineer()) {
+        let prompt = of(&line);
+        let flat = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(flat.contains(said), "{line}:\n{prompt}");
+    }
+}
+
+// What a block marked "hand it in every time" is, is told with the cell's own blocks, to a cell that has such a block,
+// and to no other: no line's system prompt says it, which every cell of the line would read; a text may point to a
+// question as `{{name}}`, which every cell of every line is told how to read.
+#[test]
+fn no_system_prompt_tells_what_a_marked_block_is_and_every_one_tells_what_a_pointer_to_a_question_is() {
+    let flow = engineer();
+    assert!(!lines(&flow).is_empty());
+    for line in lines(&flow) {
+        let prompt = of(&line);
+        assert!(!prompt.contains("hand it in every time"), "{line}:\n{prompt}");
+        assert!(
+            prompt.contains("A text may point to a question as `{{name}}`: it is the question of that name"),
+            "{line}:\n{prompt}"
+        );
+    }
 }
 
 // The tester's line changes only the project's tests, as its file says: its system prompt tells it so, with the paths
@@ -526,15 +563,15 @@ fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workfl
         declared
     };
     let fast = told(&whole);
-    assert!(fast.contains("and checks among `lint`;"), "{fast}");
-    assert!(told(&declared(&["lint", "page"])).contains("and checks among `lint`, `page`;"));
-    assert!(told(&declared(&[])).contains(&format!("and checks among {};", ways["none_named"])));
+    assert!(fast.contains("Name checks among `lint`;"), "{fast}");
+    assert!(told(&declared(&["lint", "page"])).contains("Name checks among `lint`, `page`;"));
+    assert!(told(&declared(&[])).contains(&format!("Name checks among {};", ways["none_named"])));
     // A project that declares no workflows, on GitHub or on the local repository alike.
     let mut no_fast = whole.clone();
     no_fast.ci = None;
     let nothing = told(&no_fast);
     assert!(
-        nothing.contains(&format!("and checks among {};", ways["whole"])),
+        nothing.contains(&format!("Name checks among {};", ways["whole"])),
         "{nothing}"
     );
     assert!(!nothing.contains("{named_checks}"), "{nothing}");
