@@ -14,7 +14,7 @@ use crate::asked;
 use crate::event::{Effect, Event, Gate, Hold, Refused};
 use crate::handed_in;
 use crate::spoken;
-use work::{Ask, Back, Call, Filled, Given, Measured, Moment, Pinged, Pulled, Ran, Session, Time, Work};
+use work::{Ask, Back, Call, Filled, Given, Measured, Moment, Pinged, Pulled, Ran, Session, Time, Timed, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
 /// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`], [`Gate::Open`]). Where the
@@ -293,6 +293,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
         | Event::Filled { .. }
         | Event::Measured { .. }
         | Event::Pulled { .. }
+        | Event::Timed { .. }
         | Event::NotReleased { .. }
         | Event::Released) => {
             take_kept(&|work| end_of(flow, work), &flow.waits.paused.let_go, work, event)?;
@@ -640,6 +641,17 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
             }
             let at = work.tick();
             work.pulls.push(Pulled { at, number, url });
+        }
+        Event::Timed { reading } => {
+            // Read again after the engine started again, the same run is kept once.
+            if work.timed.iter().any(|t| t.reading.same_run(&reading)) {
+                return Ok(());
+            }
+            let at = work.tick();
+            work.timed.push(Timed {
+                at,
+                reading: reading.normalised(),
+            });
         }
         Event::NotReleased { why } => {
             // The engine's pause of the ended work, with why: the owner sees it where the engine's other reasons are,

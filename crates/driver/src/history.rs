@@ -224,6 +224,9 @@ pub struct Lines {
     pub work_spent: Option<Line>,
     /// How long the rounds of a work of the flow take in all, in milliseconds, as the flow's other works' have.
     pub work_time: Option<Line>,
+    /// For the engine's own rounds: how long one test of the project's CI may run before it is stopped, in
+    /// milliseconds, as the history of the project's merged checks says it ([`crate::timed::test_time`]).
+    pub test_time: Option<f64>,
 }
 
 impl Lines {
@@ -262,6 +265,7 @@ impl Lines {
             time: whole(&|s| s.ms.map(|ms| ms as f64)),
             work_spent: None,
             work_time: None,
+            test_time: None,
         }
     }
 }

@@ -6,7 +6,7 @@ use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
 use flow::{Compiled, Kind};
 
-use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Why};
+use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Reading, Said, Spent, Time, Why};
 
 use crate::spoken::{NoOne, Telling, To};
 
@@ -105,6 +105,10 @@ pub enum Event {
     /// The host of the work's repository found the work checked through the pull request of this number, at this
     /// address, opening it where the work had none: kept with the work where it is another than the latest kept.
     Pulled { number: u64, url: String },
+    /// The host of the work's repository read a run of the project's CI, which a call of `run_tests` or a round of the
+    /// check asked for, and says how long its tests and jobs took, or that it gives no time: kept with the work where
+    /// the same run is not kept already.
+    Timed { reading: Reading },
     /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
     Released,
     /// What the work held outside the engine could not be let go, for this reason, as whatever carried out

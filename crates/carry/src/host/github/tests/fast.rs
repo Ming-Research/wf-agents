@@ -171,6 +171,52 @@ fn inputs(commit: &str, tests: &str, checks: Option<&str>) -> Vec<(String, Strin
     inputs
 }
 
+// The line the engine gives is an input of the run, in whole seconds rounded up; where the history gives none, or the
+// project's workflow takes no such input, the run is asked for without it.
+#[tokio::test]
+async fn the_stop_the_engine_gives_is_an_input_of_the_run_in_whole_seconds_rounded_up() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github()
+        .fast(&head, vec![passed("test")], Some(("test-results", junit_green())));
+    let place = hub.place();
+    let mut stop = Stop::never().test_time(Some(12_001.0));
+    (hub.host
+        .run_tests(
+            &branch(&place),
+            &named(&["tools::tests::a"], &[]),
+            hub.call(),
+            &mut stop,
+        )
+        .await)
+        .expect("run")
+        .expect("nothing stopped it");
+    let mut want = inputs(&head, "tools::tests::a\n", None);
+    want.push(("test_stop".to_string(), "13".to_string()));
+    let asked = hub.dispatched_as_said();
+    assert!(
+        matches!(asked.as_slice(), [Asked::Dispatch { inputs, .. }] if *inputs == want),
+        "{asked:?}"
+    );
+}
+
+#[test]
+fn a_stop_is_given_only_where_the_history_says_one_and_the_workflow_takes_one() {
+    let said =
+        |input: &str, millis: Option<f64>| super::super::fast::test_stop(input, &Stop::never().test_time(millis));
+    assert_eq!(
+        said("test_stop", Some(1.0)),
+        Some(("test_stop".to_string(), "1".to_string()))
+    );
+    assert_eq!(
+        said("test_stop", Some(5_000.0)),
+        Some(("test_stop".to_string(), "5".to_string()))
+    );
+    assert_eq!(said("test_stop", None), None, "the history gives none");
+    assert_eq!(said("test_stop", Some(0.0)), None, "no time is no stop");
+    assert_eq!(said("", Some(5_000.0)), None, "the workflow takes none");
+}
+
 #[tokio::test]
 async fn the_tests_named_run_by_the_fast_workflow_and_each_is_said_with_its_result_and_time() {
     let hub = Hub::new();

@@ -525,6 +525,50 @@ CREATE TABLE pulls (
     PRIMARY KEY (work, at)
 );
 
+-- A test of a project, named by the unit it is in (a test binary, a test file) and its own name, kept once for every
+-- run that reported it. Its number is given by the store, counting from one.
+CREATE TABLE test_names (
+    test INTEGER PRIMARY KEY,
+    unit TEXT NOT NULL,
+    name TEXT NOT NULL,
+    UNIQUE (unit, name)
+);
+
+-- A run of the project's CI that the host read, and how it came to the work: `asking` is what asked for it (`call/<call>`
+-- of `run_tests`, or `run/<run>/round/<round>` of the check before the merge), `source` is `fast` (the fast workflow),
+-- `full` (the full workflows) or `no_times` (a host that runs the project's check command and gives no time of any
+-- test), and `commit_id` is the commit it ran on. The same asking of the same source on the same commit is kept once.
+CREATE TABLE timed (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    asking TEXT NOT NULL,
+    source TEXT NOT NULL,
+    commit_id TEXT NOT NULL,
+    PRIMARY KEY (work, at)
+);
+
+-- How long each job of a run kept in `timed` took from its start to its end, in milliseconds, as the host records it.
+CREATE TABLE timed_jobs (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    millis INTEGER NOT NULL,
+    PRIMARY KEY (work, at, name),
+    FOREIGN KEY (work, at) REFERENCES timed (work, at)
+);
+
+-- How long each test of a run kept in `timed` took, in milliseconds, as the run's results give it, and whether it
+-- passed. A test the run did not run is not here.
+CREATE TABLE timed_tests (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    test INTEGER NOT NULL REFERENCES test_names (test),
+    passed INTEGER NOT NULL,
+    millis INTEGER NOT NULL,
+    PRIMARY KEY (work, at, test),
+    FOREIGN KEY (work, at) REFERENCES timed (work, at)
+);
+
 -- A thing that happened to the work was taken at `time`, and its entries begin at the place `place`.
 CREATE TABLE moments (
     work INTEGER NOT NULL REFERENCES works (number),

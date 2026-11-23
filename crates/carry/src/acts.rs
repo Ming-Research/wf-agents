@@ -229,7 +229,7 @@ impl<H: Host> Rounds for Acts<H> {
         let Some(stop) = self.inner.held.hold(key, reply) else {
             return;
         };
-        let mut stop = stop.saying(saying).hosting(hosting);
+        let mut stop = stop.saying(saying).hosting(hosting).test_time(round.lines.test_time);
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let done = inner.act(&round, &teller, &mut stop).await;

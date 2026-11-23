@@ -117,6 +117,7 @@ fn call(item: Item) -> ToolCall {
         input: String::new(),
         item,
         kept: Arc::new(Work::default()),
+        test_time: None,
     }
 }
 

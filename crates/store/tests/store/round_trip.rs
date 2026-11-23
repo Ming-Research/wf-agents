@@ -49,6 +49,19 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
         [(41, "https://github.com/o/r/pull/41")],
         "the pull request found"
     );
+    assert_eq!(w.timed.len(), 1, "the run's times, read twice and kept once");
+    let reading = &w.timed[0].reading;
+    assert_eq!(reading.source, work::Source::Full);
+    let jobs: Vec<(&str, u64)> = reading.jobs.iter().map(|j| (j.name.as_str(), j.millis)).collect();
+    assert_eq!(jobs, [("lint", 7_000), ("test 1 of 3", 61_000)], "its jobs, by name");
+    let tests: Vec<(&str, bool, u64)> = (reading.tests.iter())
+        .map(|t| (t.name.as_str(), t.passed, t.millis))
+        .collect();
+    assert_eq!(
+        tests,
+        [("tools::tests::a", true, 120), ("tools::tests::b", false, 2_500)],
+        "its tests, by name"
+    );
     assert_eq!(w.ran.len(), 2, "the tries and what they ran on");
     assert!(
         w.spent

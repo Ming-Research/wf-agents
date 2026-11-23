@@ -926,6 +926,9 @@ impl Service {
                     input: input.clone(),
                     item: kept.item.clone(),
                     kept: Arc::new(kept.work.clone()),
+                    test_time: (name == driver::timed::RUN_TESTS)
+                        .then(|| self.driver.test_time(work))
+                        .flatten(),
                 };
                 self.carriers
                     .tools
@@ -958,6 +961,7 @@ impl Service {
                         input: input.clone(),
                         item: kept.item.clone(),
                         kept: Arc::new(kept.work.clone()),
+                        test_time: None,
                     };
                     self.carriers
                         .tools

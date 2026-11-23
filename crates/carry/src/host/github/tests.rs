@@ -61,6 +61,7 @@ fn ci() -> flow::agents::Ci {
             call_input: "call".to_string(),
             tests_input: "tests".to_string(),
             checks_input: "checks".to_string(),
+            test_stop_input: "test_stop".to_string(),
             checks: vec!["lint".to_string()],
             results: "test-results".to_string(),
         },
@@ -70,6 +71,7 @@ fn ci() -> flow::agents::Ci {
             too_long: "1m".to_string(),
             commit_input: "commit".to_string(),
             call_input: "call".to_string(),
+            test_stop_input: "test_stop".to_string(),
             results: "test-results".to_string(),
         },
     }

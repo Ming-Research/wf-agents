@@ -25,6 +25,7 @@ fn engineer() -> Compiled {
             "session",
             "start",
             "head",
+            "test_times",
             "tree",
             "words",
         ]),
@@ -89,7 +90,15 @@ fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_i
     );
     assert_eq!(
         t2.reads.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
-        ["plan", "background", "tree"]
+        ["plan", "background", "tree", "test_times"]
+    );
+    // The tests' times are read where the change and its tests are written and judged, and watched by no cell: what the
+    // engine writes of them as a run reports them runs none.
+    let reads_times = |id: &str| cell(id).reads.iter().any(|r| r.name == "test_times");
+    assert!(reads_times("I1") && reads_times("T2"));
+    assert!(
+        (outline.cells.iter()).all(|c| c.watches.iter().all(|w| w.name != "test_times")),
+        "no cell watches the tests' times"
     );
     // A cell that may ask is spoken to in its own words, whose texts the page reads the talk by.
     let words = cell("I1").words.as_ref().expect("I1 has words of its own");
@@ -108,6 +117,7 @@ fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_i
     assert_eq!(from("background"), Some("owner"));
     assert_eq!(from("i1_words"), Some("words"));
     assert_eq!(from("i1_questions"), Some("answer"));
+    assert_eq!(from("test_times"), Some("test_times"));
     assert_eq!(from("plan_owner"), None);
     // Each line by its name; the groups, the card, the table and the data made for a cell.
     let lines: Vec<&str> = outline.lines.iter().map(|l| l.name.as_str()).collect();

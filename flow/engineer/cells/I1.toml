@@ -42,7 +42,7 @@ watches = [
   "i1_questions",
   "i1_words",
 ]
-reads = ["background", "tree"]
+reads = ["background", "tree", "test_times"]
 outputs = [
   "code",
   "title",
@@ -75,6 +75,7 @@ check = """Fix what `check` found and commit. If you judge it is not this change
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
 background = "latest"
+test_times = "latest"
 plan_owner = "last_and_latest"
 plan_doubts = "all"
 plan_agent = "last_and_latest"

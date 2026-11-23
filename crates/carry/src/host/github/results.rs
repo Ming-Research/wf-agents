@@ -67,6 +67,8 @@ pub struct Case {
     pub said: Option<String>,
     /// How long it took, in seconds, as the results give it.
     pub time: Option<String>,
+    /// How long it took, in milliseconds: none where the results give no time.
+    pub millis: Option<u64>,
 }
 
 /// A unit a run did not build, so that none of its tests ran: its name, and the first line of why.
@@ -141,6 +143,12 @@ pub fn read(files: &[(String, Vec<u8>)]) -> Result<Run, String> {
                     .find(|t| !t.trim().is_empty());
                 own.or(message).or(written)
             });
+            let millis = match case.attribute("time") {
+                Some(time) => {
+                    work::timed::millis_of(time).map_err(|why| format!("{path}: the time of the test {name}: {why}"))?
+                }
+                None => None,
+            };
             run.cases.push(Case {
                 test: Reported {
                     unit: unit.to_string(),
@@ -151,6 +159,7 @@ pub fn read(files: &[(String, Vec<u8>)]) -> Result<Run, String> {
                 ended: failed.map(|f| f.tag_name().name().to_string()),
                 said,
                 time: case.attribute("time").map(str::to_string),
+                millis,
             });
         }
         // A unit not built is a testsuite with no testcase in it, and an error of its own.
@@ -334,6 +343,26 @@ error[E0599]: no method named `rounds_mark` found
                 unit: "db::rounds".to_string(),
                 why: "error[E0599]: no method named `rounds_mark` found".to_string(),
             }]
+        );
+    }
+
+    // A test's time is read in milliseconds from its `time`; a test with none has none; a time that is no number refuses
+    // the file, saying the file and the test.
+    #[test]
+    fn a_tests_time_in_milliseconds_is_read_and_a_time_that_is_no_number_refuses_the_file() {
+        let one = |attributes: &str| {
+            let xml =
+                format!(r#"<testsuites><testsuite name="u"><testcase name="a"{attributes}/></testsuite></testsuites>"#);
+            read(&[file("test.xml", &xml)])
+        };
+        assert_eq!(one(r#" time="4.887""#).unwrap().cases[0].millis, Some(4887));
+        assert_eq!(one("").unwrap().cases[0].millis, None);
+        let refused = one(r#" time="soon""#)
+            .err()
+            .expect("a time that is no number is refused");
+        assert!(
+            refused.contains("test.xml") && refused.contains("the time of the test a"),
+            "{refused}"
         );
     }
 

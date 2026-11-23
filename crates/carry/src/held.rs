@@ -50,6 +50,9 @@ pub(crate) struct Stop {
     saying: Option<(Saying, Option<Along>)>,
     /// The way to say what the host found of the work; none where nobody listens.
     hosting: Option<Hosting>,
+    /// How long one test of the project's CI may run before it is stopped, in milliseconds, as the history of the
+    /// project's merged checks says it; none where that history is too short.
+    test_time: Option<f64>,
 }
 
 impl Stop {
@@ -64,6 +67,7 @@ impl Stop {
             stopped: false,
             saying: None,
             hosting: None,
+            test_time: None,
         }
     }
 
@@ -79,10 +83,30 @@ impl Stop {
         self
     }
 
+    /// The stop, which gives the host how long one test may run before it is stopped.
+    pub(crate) fn test_time(mut self, test_time: Option<f64>) -> Stop {
+        self.test_time = test_time;
+        self
+    }
+
+    /// How long one test may run before it is stopped, in whole seconds rounded up, at least one; none where the
+    /// history says none.
+    pub(crate) fn test_seconds(&self) -> Option<u64> {
+        let millis = self.test_time.filter(|millis| millis.is_finite() && *millis > 0.0)?;
+        Some(((millis / 1000.0).ceil() as u64).max(1))
+    }
+
     /// Says that the host checks the work through the pull request of this number, at this address.
     pub(crate) fn pulled(&self, number: u64, url: &str) {
         if let Some(hosting) = &self.hosting {
             hosting.pulled(number, url.to_string());
+        }
+    }
+
+    /// Says how long the tests and jobs of a run of the project's CI took, as the host read it.
+    pub(crate) fn timed(&self, reading: work::Reading) {
+        if let Some(hosting) = &self.hosting {
+            hosting.timed(reading);
         }
     }
 

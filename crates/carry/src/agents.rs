@@ -2494,6 +2494,7 @@ mod tests {
                 "session",
                 "start",
                 "head",
+                "test_times",
                 "tree",
                 "words",
             ]),

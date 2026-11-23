@@ -27,6 +27,12 @@ on:
       call:
         description: A value only the request that asks for this run knows, which the run's name holds
         required: true
+      test_stop:
+        description: >-
+          How long one test may run before it is stopped, in whole seconds, as the engine's history of the project's
+          tests says; the engine gives it only when that history is long enough. Empty for no stop but the job's limit
+        required: false
+        default: ''
   pull_request:
     branches:
       - main
@@ -261,15 +267,25 @@ jobs:
           fi
           echo "$tree" > node_modules/.wf-tree
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), as fast.yml runs them:
-      # a test still running at 60 s (the tests of random histories at 300 s) is stopped and fails under its own name.
-      # Every test of the job's third runs to its end, so that a red run shows every test that fails, not the first one's.
+      # where the engine gave the line of the history of tests' times (`test_stop`, in seconds), a test still running at
+      # it is stopped and fails under its own name; the line is put in a copy of nextest's file, which names the profile
+      # after it. Every test of the job's third runs to its end, so that a red run shows every test that fails, not the
+      # first one's.
       - name: Test
         id: tests
         env:
           PARTITION: ${{ matrix.partition }}
+          TEST_STOP: ${{ inputs.test_stop }}
         run: |
+          config=.config/nextest.toml
+          if [ -n "$TEST_STOP" ]; then
+            [[ $TEST_STOP =~ ^[1-9][0-9]*$ ]] || { echo "test_stop is not a whole number of seconds: $TEST_STOP"; exit 1; }
+            config="$RUNNER_TEMP/nextest.toml"
+            { printf '[profile.ci]\nslow-timeout = { period = "%ss", terminate-after = 1 }\n\n' "$TEST_STOP"
+              cat .config/nextest.toml; } > "$config"
+          fi
           rm -f target/nextest/ci/junit.xml
-          cargo nextest run --workspace --locked --cargo-profile ci --profile ci --no-fail-fast \
+          cargo nextest run --workspace --locked --cargo-profile ci --profile ci --config-file "$config" --no-fail-fast \
             --partition "count:$PARTITION/3"
       # What became of each test of the job, in a file named by the job, so that the engine tells what each job
       # reported: a step of the job's own that failed, or its tests' where they wrote nothing, is said in it as a

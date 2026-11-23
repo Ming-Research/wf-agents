@@ -93,7 +93,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
         let Some(stop) = self.inner.held.hold(key, reply) else {
             return;
         };
-        let mut stop = stop.saying(saying).hosting(hosting);
+        let mut stop = stop.saying(saying).hosting(hosting).test_time(call.test_time);
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let answered = if call.name == QUERY {
@@ -669,12 +669,60 @@ mod tests {
             input: String::new(),
             item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
             kept: Arc::new(work::Work::default()),
+            test_time: None,
         };
         let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
         tools.call(call, CallReply::new(WORK, CallId(2), to));
         said.recv().await.expect("the call is answered");
         assert_eq!(tools.inner.host.titles(), ["Work 1"]);
         assert_eq!(tools.inner.host.askings(), [Asking::Call(CallId(2))]);
+    }
+
+    // The local host runs the project's check command and reads no JUnit: a call that runs it says the host gives no
+    // time of any test, so that the work's records tell a host that gives none from a run that ran no test.
+    #[tokio::test]
+    async fn the_local_host_says_it_gives_no_time_of_any_test_for_a_call_that_runs_the_check() {
+        let repo = Repo::new("true");
+        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let place = repo.place(WORK);
+        let branch = Branch {
+            work: WORK,
+            title: "Greet the user",
+            about: "",
+            place: &place,
+        };
+        let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+        let reply = CallReply::new(WORK, CallId(7), to);
+        let mut stop = Stop::never().hosting(reply.hosting());
+        let named = Named {
+            tests: vec!["a".to_string()],
+            ..Named::default()
+        };
+        (local(&repo)
+            .run_tests(&branch, &named, Asking::Call(CallId(7)), &mut stop)
+            .await)
+            .expect("it runs")
+            .expect("nothing stopped it");
+        let mut readings = Vec::new();
+        while let Ok(message) = said.try_recv() {
+            if let service::Message::Happened {
+                event: engine::Event::Timed { reading },
+                ..
+            } = message
+            {
+                readings.push(reading);
+            }
+        }
+        assert_eq!(
+            readings,
+            [work::Reading {
+                asking: "call/7".to_string(),
+                source: work::Source::NoTimes,
+                commit: String::new(),
+                jobs: Vec::new(),
+                tests: Vec::new(),
+            }]
+        );
     }
 
     #[test]

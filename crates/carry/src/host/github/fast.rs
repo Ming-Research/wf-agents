@@ -33,6 +33,7 @@ use crate::held::Stop;
 use crate::host::{Asking, Failed, Named, Verdict};
 use crate::process;
 use service::Along;
+use work::timed::{Job, Reading, Source, Test};
 
 /// A request for runs of the workflows: the commit they run on, and which of the work's asks it is, by which its runs
 /// are found again.
@@ -150,6 +151,42 @@ fn judged<'a>(ran: &'a [Ran], tests: &'a [String]) -> Option<Vec<results::Row<'a
     concluded.then(|| results::rows(tests, run))
 }
 
+/// How long the jobs and the tests of a run took, as the work's records keep it: each job that ran to a conclusion GitHub
+/// gave a time for, and each test the run ran and gave a time for. A run whose results could not be read has its jobs
+/// only.
+fn reading(ran: &Ran, source: Source, request: Request<'_>) -> Reading {
+    let jobs = (ran.jobs.iter())
+        .filter_map(|job| {
+            job.took.map(|seconds| Job {
+                name: job.name.clone(),
+                millis: seconds * 1000,
+            })
+        })
+        .collect();
+    let tests = match &ran.results {
+        Ok(run) => (run.cases.iter())
+            .filter(|case| case.outcome != results::Outcome::Skipped)
+            .filter_map(|case| {
+                case.millis.map(|millis| Test {
+                    unit: case.test.unit.clone(),
+                    name: case.test.name.clone(),
+                    passed: case.outcome == results::Outcome::Passed,
+                    millis,
+                })
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    Reading {
+        asking: request.asking.name(),
+        source,
+        commit: request.commit.to_string(),
+        jobs,
+        tests,
+    }
+    .normalised()
+}
+
 /// A time such as `90m`, `2h`, `30s` or `1d`; or why it is none.
 pub(super) fn span_of(text: &str) -> Result<Duration, String> {
     let text = text.trim();
@@ -165,6 +202,15 @@ pub(super) fn span_of(text: &str) -> Result<Duration, String> {
         _ => return Err(format!("{text:?} is no time such as 90m or 2h")),
     };
     Ok(Duration::from_secs(number * seconds))
+}
+
+/// The input that says how long one test may run before it is stopped, in whole seconds, where the project's workflows
+/// take one and the history of its merged checks says it.
+pub(super) fn test_stop(input: &str, stop: &Stop) -> Option<(String, String)> {
+    if input.is_empty() {
+        return None;
+    }
+    Some((input.to_string(), stop.test_seconds()?.to_string()))
 }
 
 /// What a request is run by.
@@ -312,6 +358,7 @@ impl<A: Api> GitHub<A> {
                     let checks = serde_json::to_string(&named.checks).unwrap_or_default();
                     inputs.push((fast.checks_input.clone(), checks));
                 }
+                inputs.extend(test_stop(&fast.test_stop_input, stop));
                 let plan = Plan {
                     workflow: &fast.workflow,
                     results: &fast.results,
@@ -320,7 +367,10 @@ impl<A: Api> GitHub<A> {
                     limit: self.config.timeout,
                 };
                 match self.execute(&plan, commit, stop).await? {
-                    Some(one) => ran.push(one),
+                    Some(one) => {
+                        stop.timed(reading(&one, Source::Fast, request));
+                        ran.push(one);
+                    }
                     None => return Ok(None),
                 }
             }
@@ -328,10 +378,11 @@ impl<A: Api> GitHub<A> {
                 let limit = span_of(&full.too_long).map_err(|why| format!("ci.full.too_long: {why}"))?;
                 for workflow in &full.workflows {
                     let call = self.call(request, workflow);
-                    let inputs = vec![
+                    let mut inputs = vec![
                         (full.commit_input.clone(), commit.to_string()),
                         (full.call_input.clone(), call.clone()),
                     ];
+                    inputs.extend(test_stop(&full.test_stop_input, stop));
                     let plan = Plan {
                         workflow,
                         results: &full.results,
@@ -340,7 +391,10 @@ impl<A: Api> GitHub<A> {
                         limit,
                     };
                     match self.execute(&plan, commit, stop).await? {
-                        Some(one) => ran.push(one),
+                        Some(one) => {
+                            stop.timed(reading(&one, Source::Full, request));
+                            ran.push(one);
+                        }
                         None => return Ok(None),
                     }
                 }

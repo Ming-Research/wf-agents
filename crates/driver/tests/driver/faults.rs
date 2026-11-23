@@ -42,6 +42,7 @@ fn engineer(root: &Path) -> Compiled {
             "session",
             "start",
             "head",
+            "test_times",
             "tree",
         ]),
         acts: names(&["start", "check", "merge", "deliver"]),
@@ -69,6 +70,19 @@ fn the_repository_s_flows_give_every_text_the_driver_fills() {
     let dir = copied();
     assert_eq!(driver::faults(&engineer(dir.path())), Vec::<String>::new());
     assert_eq!(driver::faults(&super::deliver()), Vec::<String>::new());
+}
+
+// The datum of the tests' times gives the words the engine writes it with: where its file gives none, it is a fault on
+// that file.
+#[test]
+fn a_test_time_report_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() {
+    let dir = copied();
+    without(dir.path(), "data/test_times.toml", "covers = ");
+    let faults = driver::faults(&engineer(dir.path()));
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(faults[0].contains("data/test_times.toml"), "{}", faults[0]);
+    assert!(faults[0].contains("the block test_times "), "{}", faults[0]);
+    assert!(faults[0].ends_with("its writes must give covers"), "{}", faults[0]);
 }
 
 #[test]
