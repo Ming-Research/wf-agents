@@ -14,5 +14,6 @@ When main does not merge without a conflict, or the worktree holds uncommitted c
 - replaced: Listing every file main changed, and on a conflict telling the agent to merge it and then change the code, was on main; the owner changed it, because the engine's words are then the same for every cell, including the first reading of the tree, which is not to merge.
 
 ### decision what-a-run-took-in-from-main-it-has
-What the round that takes main in reads from the branch after the merge, including a new design tree, is put into that round, and does not run its cell again.
+What a round that takes main in reads after the merge, a new design tree too, is put into it and does not run its cell again; while a cell that may change the work waits for results it reads none.
 - replaced: Taking a version brought in by a run's own merge of main as a change that ran its cell again was on main; the owner changed it, because main is merged first and what changed is judged after, both in the one run, whereas running it again had the research read the same files twice.
+- replaced: Reading the branch after the merge of main even while a cell that may change the work waited for results was on main; the owner changed it, because the code review ran on a branch whose tests had not come back yet.

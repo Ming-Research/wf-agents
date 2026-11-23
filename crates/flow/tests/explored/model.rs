@@ -557,6 +557,7 @@ impl Model {
                 waits: false,
                 questions: Vec::new(),
                 read: Vec::new(),
+                protected: Default::default(),
             };
             return (ret, false);
         }
@@ -637,6 +638,7 @@ impl Model {
             waits: asks,
             questions: Vec::new(),
             read: read.into_iter().collect(),
+            protected: Default::default(),
         };
         (ret, asks)
     }

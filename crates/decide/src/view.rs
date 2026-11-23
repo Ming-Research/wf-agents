@@ -140,14 +140,14 @@ pub fn view_in(flow: &Flow, records: &Records, room: Room) -> View {
 /// Every version of every block that has one, in the order they were written, read from the records alone, with no
 /// flow.
 pub fn versions(records: &Records) -> BTreeMap<BlockId, Vec<VersionView>> {
-    shown(&read_versions(records, &read_runs(records)))
+    shown(&read_versions(records, &read_runs(records), None))
 }
 
 /// The versions of each block as the walk reads them by the flow, each judge's point the owner ruled on marked, as
 /// what reads which versions are new to a cell must take them.
 pub fn ruled_versions(flow: &Flow, records: &Records) -> BTreeMap<BlockId, Vec<VersionView>> {
     let runs = read_runs(records);
-    let mut versions = read_versions(records, &runs);
+    let mut versions = read_versions(records, &runs, Some(flow));
     rule(flow, &runs, &mut versions);
     shown(&versions)
 }

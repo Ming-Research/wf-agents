@@ -46,9 +46,12 @@ fn a_return_with_the_value_and_a_question_is_sent_back_naming_the_value_and_the_
             questions: vec![Asking {
                 name: "which".to_string(),
                 withdrawn: true,
+                waits: false,
             }],
             read: Vec::new(),
+            protected: Default::default(),
         }),
+        sent_back: Vec::new(),
     };
     let mut told = s;
     told.told.questions = BTreeMap::from([(

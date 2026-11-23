@@ -326,6 +326,9 @@ struct History {
     often: bool,
     /// What each round of each run returned, in order: `None` while under way.
     backs: BTreeMap<RunId, Vec<Option<Back>>>,
+    /// What each round of each run that came back was sent back for, by the round's place among the run's rounds, as
+    /// the next round was told.
+    sent: BTreeMap<RunId, BTreeMap<usize, Vec<Unmet>>>,
     /// The calls the engine made for the owner at a run's limit of returns.
     at_limit: BTreeSet<CallId>,
     /// The runs whose last round failed, pausing the work, and that the work was not let on since.
@@ -463,6 +466,7 @@ impl History {
             room: Room::FREE,
             often: drawn.failing,
             backs: BTreeMap::new(),
+            sent: BTreeMap::new(),
             at_limit: BTreeSet::new(),
             unseen: BTreeSet::new(),
             failed: BTreeSet::new(),
@@ -723,6 +727,7 @@ impl History {
                         waits: false,
                         questions: Vec::new(),
                         read: Vec::new(),
+                        protected: Default::default(),
                     },
                     Back::Failed(failure) => Return::Failed {
                         failure: *failure,
@@ -740,6 +745,7 @@ impl History {
                             .collect(),
                     },
                 }),
+                sent_back: self.sent.get(&run).and_then(|m| m.get(&i)).cloned().unwrap_or_default(),
             })
             .collect();
         let rounds_ended_before = |at: Seq| ended.iter().filter(|e| **e < at).count();
@@ -754,6 +760,65 @@ impl History {
             .max()
             .map_or(0, rounds_ended_before);
         Log { rounds, let_go, let_on }
+    }
+
+    /// What the run's returns come to taken together, from the design's own words (decision
+    /// a-sent-back-return-is-completed-by-what-is-missing) and not from the deciding code: each return that came back
+    /// is completed by the ones after it, but for the blocks that the faults it was sent back for name, and a return
+    /// that asks for calls is neither carried nor carried into. What it deals with, what it writes, and whether it asks
+    /// for calls.
+    fn together(&self, run: RunId) -> (Vec<BlockId>, Vec<Write>, bool) {
+        let (mut dealt, mut writes, mut calls) = (Vec::<BlockId>::new(), Vec::<Write>::new(), false);
+        let mut before: Option<usize> = None;
+        for (i, back) in self.backs.get(&run).into_iter().flatten().enumerate() {
+            let Some(Back::Came {
+                dealt_with,
+                writes: now,
+                calls: asked,
+            }) = back
+            else {
+                continue;
+            };
+            let carries = before.is_some() && !calls && asked.is_empty();
+            if carries {
+                let faults = self
+                    .sent
+                    .get(&run)
+                    .and_then(|m| m.get(&before.unwrap()))
+                    .cloned()
+                    .unwrap_or_default();
+                let wrong: Vec<BlockId> = faults
+                    .iter()
+                    .flat_map(|u| match u {
+                        Unmet::NotAnOutput { block }
+                        | Unmet::WrittenTwice { block }
+                        | Unmet::NoValue { block }
+                        | Unmet::NotAValue { block, .. }
+                        | Unmet::NotAChoice { block }
+                        | Unmet::WrittenOver { block, .. }
+                        | Unmet::ChoiceChanged { block } => vec![block.clone()],
+                        Unmet::NothingBut { block, besides, .. } => {
+                            std::iter::once(block.clone()).chain(besides.iter().cloned()).collect()
+                        }
+                        _ => Vec::new(),
+                    })
+                    .collect();
+                writes.retain(|w| !wrong.contains(&w.block));
+            } else {
+                dealt.clear();
+                writes.clear();
+            }
+            for name in dealt_with {
+                if !dealt.contains(name) {
+                    dealt.push(name.clone());
+                }
+            }
+            writes.retain(|w| !now.iter().any(|n| n.block == w.block));
+            writes.extend(now.iter().cloned());
+            calls = !asked.is_empty();
+            before = Some(i);
+        }
+        (dealt, writes, calls)
     }
 
     /// Does what the run does next, as the engine's loop does, until a round of it begins or it rests: takes a return
@@ -795,17 +860,13 @@ impl History {
         let hold = decide::hold_in(&flow, &self.w.records, run, self.room);
         let step = run::next(&self.log_of(run), requires, hold);
         self.note(format!("run {run:?} of {}: {step:?}", cell.id));
-        if let Some(Some(Back::Came {
-            dealt_with,
-            writes,
-            calls,
-        })) = self.backs.get(&run).and_then(|b| b.last())
-        {
+        if let Some(Some(Back::Came { .. })) = self.backs.get(&run).and_then(|b| b.last()) {
+            let (dealt_with, writes, calls) = self.together(run);
             let reading = Reading::new(&flow, &self.w.records);
             let came = properties::Came {
-                dealt_with,
-                writes,
-                calls: !calls.is_empty(),
+                dealt_with: &dealt_with,
+                writes: &writes,
+                calls,
             };
             properties::next_word(&mut self.verdict, &flow, &reading, &started, came, &step);
         }
@@ -835,6 +896,8 @@ impl History {
             }
             Step::SendBack { unmet } => {
                 self.begin_round(run);
+                let sent = self.backs[&run].len() - 2;
+                self.sent.entry(run).or_default().insert(sent, unmet.clone());
                 for u in unmet {
                     if let Unmet::WrittenOver { block, version } = u {
                         self.verdict.count(properties::WRITTEN_OVER_SENT_BACK);
