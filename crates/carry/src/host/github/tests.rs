@@ -76,6 +76,7 @@ fn ci() -> flow::agents::Ci {
             call_input: "call".to_string(),
             results: "test-results".to_string(),
         },
+        measure: None,
     }
 }
 

@@ -18,3 +18,6 @@ paths = ["AGENTS.md", "flow/"]
 
 [heavy]
 commands = ["cargo", "npm"]
+
+[environment]
+RUSTUP_AUTO_INSTALL = "0"

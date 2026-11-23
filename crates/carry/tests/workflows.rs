@@ -1,9 +1,9 @@
-//! The repository's two CI workflows as the engine relies on them. The engine runs the workflows the project declares
+//! The repository's CI workflows as the engine relies on them. The engine runs the workflows the project declares
 //! (`ci` in wf-agents.toml) by hand on the commit it gives, finds its own run by the value it gives (`call`) in the
-//! run's name, and judges a run by the conclusions of its jobs and by the JUnit of its tests in the artifact
-//! `test-results`; so a job renamed, or added to the wrong workflow, or a trigger changed, or JUnit left out, changes
-//! what a green run means. GitHub is the reference for the workflow syntax; the comments at the head of each workflow
-//! say what it must and must not hold.
+//! run's name, and judges a run by the conclusions of its jobs and by the JUnit of its tests, or of its timings, in the
+//! artifact `test-results`; so a job renamed, or added to the wrong workflow, or a trigger changed, or JUnit left out,
+//! changes what a green run means. GitHub is the reference for the workflow syntax; the comments at the head of each
+//! workflow say what it must and must not hold.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -295,19 +295,24 @@ fn the_fast_workflow_selects_tests_by_their_names_as_they_are() {
     }
 }
 
-/// The one script of fast.yml that holds `marker`.
-fn fast_script(marker: &str) -> String {
-    let mut found: Vec<String> = (scripts(&workflow("fast.yml")).into_iter())
+/// The one script of a workflow that holds `marker`.
+fn script_of(file: &str, marker: &str) -> String {
+    let mut found: Vec<String> = (scripts(&workflow(file)).into_iter())
         .map(|(_, script)| script)
         .filter(|script| script.contains(marker))
         .collect();
     assert_eq!(
         found.len(),
         1,
-        "scripts of fast.yml that hold {marker:?}: {}",
+        "scripts of {file} that hold {marker:?}: {}",
         found.len()
     );
     found.remove(0)
+}
+
+/// The one script of fast.yml that holds `marker`.
+fn fast_script(marker: &str) -> String {
+    script_of("fast.yml", marker)
 }
 
 /// Runs a script of a workflow under bash in `dir`, with the environment a step is given: whether it ended well, and
@@ -716,13 +721,13 @@ fn a_build_of_the_tests_that_fails_leaves_no_results_of_an_earlier_run_to_be_upl
 // A part of a script that no green run reaches is run for the first time when something has failed. The first time a
 // job was red, the step of `check` that copies the failed jobs' logs ended in a syntax error of its last lines, where
 // an apostrophe inside `${names:-...}` began a quoted string: `check` was red, but by the shell's error and without the
-// line that names the jobs. So bash is given every script of both workflows to parse, which reads all of one and runs
-// none of it.
+// line that names the jobs. So bash is given every script of the workflows to parse, which reads all of one and runs
+// none of it; each with the number of scripts it has, so that a reading that finds fewer is seen.
 #[test]
 fn every_script_of_the_workflows_parses() {
-    for file in ["ci.yml", "fast.yml"] {
+    for (file, least) in [("ci.yml", 6), ("fast.yml", 6), ("measure.yml", 3)] {
         let found = scripts(&workflow(file));
-        assert!(found.len() > 5, "{file}: only {} scripts found", found.len());
+        assert!(found.len() >= least, "{file}: only {} scripts found", found.len());
         // The script this test was written for is among them.
         let gathers = found.iter().any(|(_, script)| script.contains("Did not pass:"));
         assert!(
@@ -745,4 +750,252 @@ fn every_script_of_the_workflows_parses() {
             assert!(ended.status.success(), "{file}:{line}: {said}");
         }
     }
+}
+
+/// The measure workflow the repository's declaration names, as the engine reads that declaration.
+fn declared_measure() -> flow::agents::CiMeasure {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let agents = flow::agents::read(&root.join("flow")).expect("what is written beside the flows is read");
+    let text = std::fs::read_to_string(root.join(flow::agents::DECLARATION)).expect("the declaration is read");
+    let declaration = flow::agents::Declaration::read(&text, flow::agents::DECLARATION, &agents)
+        .expect("the repository's declaration is one");
+    (declaration.ci.expect("the project declares its workflows"))
+        .measure
+        .expect("the project declares a measure workflow")
+}
+
+// The measure workflow runs by hand and by nothing else, as the fast one does: it runs on the owner's machine, and a
+// trigger by a push or a pull request would run anyone's code there. It takes the inputs the declaration names, names
+// its run by the call, has no concurrency group, since each run is a request an agent waits for, and runs on the
+// declared machine, where its job stops at the minutes the declaration says a run may take: the wait for the machine's
+// lock counts in them, and a job with no limit of its own would hold the machine for the six hours GitHub allows. It
+// uploads in the artifact the declaration names. Under a millisecond alone; no other test holds that the file and the
+// declaration say the same.
+#[test]
+fn the_measure_workflow_runs_by_hand_on_the_declared_machine_and_stops_when_the_declaration_says() {
+    let measure = declared_measure();
+    let text = workflow(&measure.workflow);
+    let on = block(&text, "on");
+    assert_eq!(children(&on), ["workflow_dispatch"]);
+    let inputs = children(&under(&under(&on, "workflow_dispatch"), "inputs")[1..]);
+    for input in [
+        &measure.commit_input,
+        &measure.base_input,
+        &measure.call_input,
+        &measure.measure_input,
+    ] {
+        assert!(inputs.contains(input), "no input {input} in {inputs:?}");
+    }
+    let run_name = text.lines().find(|l| l.starts_with("run-name:")).unwrap_or_default();
+    assert!(
+        run_name.contains(&format!("inputs.{}", measure.call_input)),
+        "{run_name:?}"
+    );
+    assert!(block(&text, "concurrency").is_empty(), "a concurrency group");
+    let job = under(&block(&text, "jobs"), "measure").join("\n");
+    assert!(
+        job.contains(&format!("runs-on: [self-hosted, {}]", measure.runner)),
+        "{job}"
+    );
+    let minutes: u64 = (measure.too_long.strip_suffix('m'))
+        .and_then(|m| m.parse().ok())
+        .unwrap_or_else(|| panic!("too_long {:?} is not in minutes", measure.too_long));
+    assert!(job.contains(&format!("timeout-minutes: {minutes}\n")), "{job}");
+    assert!(text.contains(&format!("name: {}\n", measure.results)), "{text}");
+}
+
+/// A repository of two commits, as the measure workflow's job has it checked out at the commit it times: the commit the
+/// work began from, with the measurement `seen`, and the work's, which changes the file `version` the measurements write
+/// and adds the measurement `added`. Both write the `version` of the checkout they run in to a file of the runner's
+/// temporary directory named as they are, so that what is written says in which checkout each timing ran.
+fn two_commits(dir: &Path) -> (PathBuf, String, String) {
+    std::fs::create_dir_all(dir.join("measure")).expect("a directory");
+    let git = |args: &[&str]| {
+        let ended = Command::new("git")
+            .args(["-c", "user.name=Someone", "-c", "user.email=someone@example.com"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git starts");
+        let said = String::from_utf8_lossy(&ended.stderr);
+        assert!(ended.status.success(), "git {args:?}: {said}");
+        String::from_utf8_lossy(&ended.stdout).trim().to_string()
+    };
+    git(&["init", "-q", "-b", "main"]);
+    let writes = |name: &str| format!("cat version >> \"$RUNNER_TEMP/{name}\"\n");
+    std::fs::write(dir.join("measure/seen"), writes("seen")).expect("a measurement");
+    std::fs::write(dir.join("version"), "base\n").expect("the version");
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "Base"]);
+    let base = git(&["rev-parse", "HEAD"]);
+    std::fs::write(dir.join("measure/added"), writes("added")).expect("a measurement");
+    std::fs::write(dir.join("version"), "candidate\n").expect("the version");
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "Candidate"]);
+    let candidate = git(&["rev-parse", "HEAD"]);
+    (dir.to_path_buf(), base, candidate)
+}
+
+// The step that times the measurements, run as GitHub runs it on a repository of two commits, with the clock as a
+// function that gives every timing a duration of the test's choosing. Each name is timed in the three checkouts, in
+// pairs whose order rotates, by the work's own file of that name in each checkout, so that a measurement the work adds is
+// timed in the checkout that lacks it; and it writes the suites the engine reads, each side's timings in the order they
+// were made and each side's median, which is computed here again from the durations and the order, apart from the shell,
+// for an even number of pairs and an odd one, the workflow's own. The step that checks the results are whole passes on
+// them, and is red for a timing lost and for one that is not above zero. About half a second alone (twenty-four and
+// thirty timings of a script that does nothing, two checkouts, and a lock): the only run of the workflow's shell before
+// it is on main, where the first run of a script that no test has run would otherwise be an agent's.
+#[test]
+fn the_measure_workflow_times_each_name_in_three_checkouts_and_reports_the_suites_the_engine_reads() {
+    let timing = script_of("measure.yml", "flock 9");
+    let whole = script_of("measure.yml", "timings for");
+    let dir = tempfile::tempdir().expect("a directory");
+    let (work, base, candidate) = two_commits(&dir.path().join("work"));
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).expect("a directory");
+    // The time of day, as a function that bash reads before the script (`BASH_ENV`): each timing begins a hundred
+    // seconds after the one before it, and ends the number of seconds that the file `durations` has on its line.
+    let clock = dir.path().join("clock.sh");
+    std::fs::write(
+        &clock,
+        r#"date() {
+  local n j d
+  n=$(cat "$RUNNER_TEMP/clock" 2>/dev/null || echo 0)
+  echo $((n + 1)) > "$RUNNER_TEMP/clock"
+  j=$((n / 2))
+  if [ $((n % 2)) -eq 0 ]; then
+    echo "$((j * 100)).000000000"
+  else
+    d=$(sed -n "$((j + 1))p" "$RUNNER_TEMP/durations")
+    echo "$((j * 100 + d)).000000000"
+  fi
+}
+"#,
+    )
+    .expect("the clock");
+    // The first of the two names is a measurement the work's base has too, the second one the work adds.
+    let names = ["seen", "added"];
+    // Which side each timing of a name was, counting from the first: the sides rotate by a place each pair.
+    let sides = ["base", "twin", "candidate"];
+    let side_of = |p: usize| sides[(p / 3 + p % 3) % 3];
+    for pairs in [4usize, 5] {
+        let temp = dir.path().join(format!("temp-{pairs}"));
+        let count = pairs.to_string();
+        std::fs::create_dir_all(&temp).expect("a directory");
+        let durations: Vec<usize> = (0..names.len() * pairs * 3).map(|j| (j * 7) % 11 + 1).collect();
+        let lines: String = durations.iter().map(|d| format!("{d}\n")).collect();
+        std::fs::write(temp.join("durations"), lines).expect("the durations");
+        let env = [
+            ("RUNNER_TEMP", temp.to_str().expect("a path")),
+            ("GITHUB_WORKSPACE", work.to_str().expect("a path")),
+            ("HOME", home.to_str().expect("a path")),
+            ("PAIRS", count.as_str()),
+            ("COMMIT", candidate.as_str()),
+            ("BASE", base.as_str()),
+            ("MEASURE", "seen\nadded\n"),
+            ("BASH_ENV", clock.to_str().expect("a path")),
+        ];
+        run_script(&timing, &work, &env);
+
+        let mut expected = String::from("<testsuites>\n");
+        let mut medians = String::new();
+        for side in sides {
+            expected += &format!("  <testsuite name=\"{side}\">\n");
+            medians += &format!("  <testsuite name=\"median {side}\">\n");
+            for (n, name) in names.iter().enumerate() {
+                let mut of_side: Vec<usize> = Vec::new();
+                for p in (0..pairs * 3).filter(|p| side_of(*p) == side) {
+                    let d = durations[n * pairs * 3 + p];
+                    expected += &format!("    <testcase name=\"{name}\" time=\"{d}.000000\"/>\n");
+                    of_side.push(d);
+                }
+                of_side.sort();
+                let middle = of_side.len() / 2;
+                let median = if of_side.len() % 2 == 1 {
+                    of_side[middle] as f64
+                } else {
+                    (of_side[middle - 1] + of_side[middle]) as f64 / 2.0
+                };
+                medians += &format!("    <testcase name=\"{name}\" time=\"{median:.6}\"/>\n");
+            }
+            expected += "  </testsuite>\n";
+            medians += "  </testsuite>\n";
+        }
+        expected += &medians;
+        expected += "</testsuites>\n";
+        let results = temp.join("measurement/xml/measure.xml");
+        assert_eq!(read(&results), expected, "{pairs} pairs");
+
+        // The checkout each timing ran in: the base's and its twin's hold the version of the commit the work began from.
+        let ran_in: String = (0..pairs * 3)
+            .map(|p| {
+                if side_of(p) == "candidate" {
+                    "candidate\n"
+                } else {
+                    "base\n"
+                }
+            })
+            .collect();
+        for name in names {
+            assert_eq!(read(&temp.join(name)), ran_in, "{name}, {pairs} pairs");
+        }
+
+        // The results are whole; one timing lost, or one that is not above zero, is not.
+        let env = [
+            ("RUNNER_TEMP", temp.to_str().expect("a path")),
+            ("PAIRS", count.as_str()),
+        ];
+        run_script(&whole, &work, &env);
+        let kept: Vec<&str> = expected.lines().collect();
+        let timing_of = |name: &str| {
+            kept.iter()
+                .position(|l| l.contains(&format!("<testcase name=\"{name}\"")))
+        };
+        let mut lost = kept.clone();
+        lost.remove(timing_of("added").expect("a timing of the second name"));
+        std::fs::write(&results, lost.join("\n") + "\n").expect("the results");
+        let (ok, said) = try_script(&whole, &work, &env);
+        let total = names.len() * (3 * pairs + 3);
+        let wrong = format!("{} timings for {} measurements, not {total}", total - 1, names.len());
+        assert!(!ok && said.contains(&wrong), "{said}");
+        let mut zero = kept.clone();
+        zero[timing_of("seen").expect("a timing of the first name")] =
+            "    <testcase name=\"seen\" time=\"0.000000\"/>";
+        std::fs::write(&results, zero.join("\n") + "\n").expect("the results");
+        let (ok, said) = try_script(&whole, &work, &env);
+        assert!(!ok && said.contains("a timing is not above zero"), "{said}");
+    }
+}
+
+// What the step that times the measurements refuses before it times anything: a name that is no measurement of the
+// commit, one the shell would read as more than a name, no name at all, and a base that is no commit. Each says why in
+// its own words, and none leaves a checkout of the base behind. Milliseconds alone; the refusals of the one script,
+// which the test above does not reach.
+#[test]
+fn the_measure_workflow_times_nothing_for_a_name_that_is_no_measurement_or_a_base_that_is_no_commit() {
+    let timing = script_of("measure.yml", "flock 9");
+    let dir = tempfile::tempdir().expect("a directory");
+    let (work, base, candidate) = two_commits(&dir.path().join("work"));
+    let temp = dir.path().join("temp");
+    std::fs::create_dir_all(&temp).expect("a directory");
+    let refused = |measure: &str, base: &str| {
+        let env = [
+            ("RUNNER_TEMP", temp.to_str().expect("a path")),
+            ("GITHUB_WORKSPACE", work.to_str().expect("a path")),
+            ("HOME", dir.path().to_str().expect("a path")),
+            ("PAIRS", "1"),
+            ("COMMIT", candidate.as_str()),
+            ("BASE", base),
+            ("MEASURE", measure),
+        ];
+        let (ok, said) = try_script(&timing, &work, &env);
+        assert!(!ok, "{measure:?}: {said}");
+        said
+    };
+    assert!(refused("nothere\n", &base).contains("no measurement is named nothere"));
+    assert!(refused("a;b\n", &base).contains("a;b is not the name of a measurement"));
+    assert!(refused("\n  \n", &base).contains("no measurement is named"));
+    assert!(refused("seen\n", "0123abc").contains("0123abc is no commit of this repository"));
+    assert!(!temp.join("base").exists() && !temp.join("twin").exists());
 }

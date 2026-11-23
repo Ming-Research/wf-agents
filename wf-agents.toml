@@ -32,6 +32,10 @@ path = "design/README.md"
 [project]
 # Where an agent keeps what it makes for research, committed.
 research = "research/"
+# How an agent names a measurement to `run_tests`: by the file of `measure/` that times it.
+measure_names = '''
+A measurement is named by its file in `measure/`: `design-lint` times `measure/design-lint`. A name holds letters, digits,
+`_` and `-`.'''
 # The command that checks the design tree's files, which an agent runs after changing the tree, before the project's
 # check.
 tree_check = "python3 design/lint.py"
@@ -52,8 +56,9 @@ paths = [
 ]
 expected = ["crates/carry/tests/fixtures/", "crates/flow/tests/project/"]
 
-# The project's two workflows, which the engine runs by hand on main's file with a commit given. Each reports every test
-# as JUnit XML, named as an agent asks for it, in the artifact `test-results`.
+# The project's workflows, which the engine runs by hand on main's file with a commit given: the fast and the full, and
+# the one that measures. Each reports every test, or every timing, as JUnit XML, named as an agent asks for it, in the
+# artifact `test-results`.
 [ci.fast]
 # Builds and runs only the tests and checks it is given.
 workflow = "fast.yml"
@@ -67,6 +72,14 @@ too_long = "2h"
 workflows = ["ci.yml"]
 runner = "14900k"
 too_long = "2h"
+
+# The workflow that times the measurements an agent's `run_tests` names, each on the commit the work's change began from and
+# on the work's commit, in one run. It reports every timing as JUnit XML in the artifact `test-results`. Its job holds the
+# machine's lock while it times, and its time limit counts the wait, so `too_long` is the job's `timeout-minutes`.
+[ci.measure]
+workflow = "measure.yml"
+runner = "14900k"
+too_long = "30m"
 
 # How a pull request of the project is merged where GitHub is its host: squash, merge or rebase; and whether a work's
 # branch on GitHub is deleted once it is merged.
@@ -109,3 +122,11 @@ locks_except = [
   "npm install * -C*",
   "npm install *--C*",
 ]
+
+# The variables every agent's command line of the project's works is given beside the engine's own, by name: what the
+# project's toolchain reads, so that a command an agent may run reaches no further than its worktree. Rustup installs no
+# Rust toolchain that a command asks for and the machine lacks: the command fails instead of downloading one, which
+# would write beyond the worktree. The engine's own variables, the installation's `agents.env` and the agents' program's
+# (`CLAUDE_*`, `ANTHROPIC_*`) are refused here.
+[environment]
+RUSTUP_AUTO_INSTALL = "0"

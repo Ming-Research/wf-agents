@@ -50,11 +50,12 @@ pub struct Declared {
 /// read with.
 ///
 /// A project is held, with every reason at once, where its own declaration is the cause: one that cannot be read from
-/// its project's main, or lacks what its host needs ([`needs_of_its_host`]), or does not protect itself, a heavy or lock
-/// command of it that names nothing or holds a `*` or a parenthesis ([`crate::permissions::heavy_faults`]), a fast
-/// workflow that is given less time than the CI is given to start, a setting the flows' texts name that it lacks, no
-/// paths of its tests where a line changes only them, and a file it names that main does not hold
-/// ([`crate::system::project_files`]).
+/// its project's main (a time limit of its workflows that is no time among it), or lacks what its host needs
+/// ([`needs_of_its_host`]), or does not protect itself, a heavy or lock command of it that names nothing or holds a `*`
+/// or a parenthesis ([`crate::permissions::heavy_faults`]), a variable it names for the agents' command line that the
+/// engine, the installation or the program owns ([`crate::cli::environment_faults`]), a fast workflow that is given less
+/// time than the CI is given to start, a setting the flows' texts name that it lacks, no paths of its tests where a
+/// line changes only them, and a file it names that main does not hold ([`crate::system::project_files`]).
 pub fn declared(
     settings: &Settings,
     beside: &flow::agents::Agents,
@@ -92,6 +93,10 @@ pub fn declared(
         let mut why = needs_of_its_host(project, &declaration);
         why.extend(protects_itself(&declaration));
         why.extend(crate::permissions::heavy_faults(&beside, &declaration));
+        why.extend(crate::cli::environment_faults(
+            &declaration.environment,
+            &settings.agents.env,
+        ));
         for flow in flows {
             let texts = crate::system::faults(settings, &beside, &declaration, flow);
             why.extend(texts.of_project);

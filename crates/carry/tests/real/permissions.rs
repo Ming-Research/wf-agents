@@ -1,8 +1,10 @@
 //! What each line's agents may run reaches the command line of every round, and its system prompt says it.
 
+use std::collections::BTreeMap;
+
 use service::Act;
 
-use crate::{Call, Fake, Real, ended};
+use crate::{Call, DECLARED_VARIABLE, Fake, Real, ended};
 
 /// The values the call was given after each time it was given the flag, up to the next flag.
 fn after<'a>(call: &'a Call, flag: &str) -> Vec<&'a str> {
@@ -117,4 +119,46 @@ async fn a_change_of_the_guide_in_the_worktree_reaches_the_lines_next_round_as_a
         .map(|s| &s.why)
         .collect();
     assert!(matches!(renewed.as_slice(), [work::Why::Changed { .. }]), "{renewed:?}");
+}
+
+// Every round's command line is given the variables the project's declaration names (`[environment]` of the declaration
+// on its main), with the values it gives them: the test repository's declaration gives RUSTUP_AUTO_INSTALL a value of
+// its own, which no value the engine writes could be. A few rounds of the stand-in, with git: about a second; the one
+// test that the declared variables, and not the engine's, reach the command line a round runs.
+#[tokio::test]
+async fn every_round_is_given_the_variables_the_projects_declaration_names_with_the_values_it_gives() {
+    let mut real = Real::trial(Fake::default());
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let calls = real.calls();
+    assert!(!calls.is_empty());
+    for n in 1..=calls.len() {
+        let given =
+            std::fs::read_to_string(real.calls_dir().join(format!("{n}.rustup"))).expect("the stand-in kept it");
+        assert_eq!(given, DECLARED_VARIABLE, "call {n}");
+    }
+}
+
+// A declared value that holds a NUL is refused as the engine starts: a NUL ends a string of a process's environment, and
+// a program is not started with one (here shown with the operating system's own: `Command` fails to start `true` given
+// it), so every round of the project would fail to start the agents' program, with the declaration read and accepted. A
+// value with any other character is none. Milliseconds alone, one process started; the one test of what a declared
+// value may hold.
+#[test]
+fn a_declared_value_that_holds_a_nul_is_refused_as_one_no_program_can_be_started_with() {
+    let started = std::process::Command::new("true").env("SOME_VARIABLE", "a\0b").status();
+    assert!(
+        started.is_err(),
+        "a program is started with a NUL in a variable: {started:?}"
+    );
+    let faults = |value: &str| {
+        let declared = BTreeMap::from([("SOME_VARIABLE".to_string(), value.to_string())]);
+        carry::cli::environment_faults(&declared, &[])
+    };
+    assert_eq!(faults("a b\nc"), Vec::<String>::new());
+    assert_eq!(faults(""), Vec::<String>::new());
+    let said = faults("a\0b");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("SOME_VARIABLE"), "{said:?}");
 }

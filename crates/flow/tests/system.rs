@@ -81,6 +81,7 @@ fn sent(parts: &[Part], agents: &Agents) -> String {
         "your_line" => Some("YOUR LINE".to_string()),
         "store" => Some(String::new()),
         "named_checks" => Some("THE CHECKS".to_string()),
+        "measure" => Some("THE MEASURE".to_string()),
         _ => None,
     };
     system::prompt(parts, &settings(agents), fill).expect("the prompt is made")
@@ -214,7 +215,7 @@ fn a_setting_the_texts_name_with_no_value_makes_no_prompt() {
         project,
     )
     .unwrap();
-    let fills = |name: &str| ["your_line", "store", "named_checks"].contains(&name);
+    let fills = |name: &str| ["your_line", "store", "named_checks", "measure"].contains(&name);
     assert_eq!(system::check(&parts, &settings(&agents), fills), Vec::<String>::new());
     // The way the project names its tests, which the words of `run_tests` name, given as the installation's here, with
     // no value; and the subagents an agent may start.
@@ -275,6 +276,20 @@ fn a_tools_place_is_filled_from_its_own_file() {
             "{words}"
         );
     }
+    // What it says of measurements is a place of its own, with words for a project that declares a measure workflow and
+    // none for one that does not.
+    assert!(run_tests.words.contains("{measure}"), "{}", run_tests.words);
+    let ways: Vec<&str> = run_tests.places["measure"].keys().map(String::as_str).collect();
+    assert_eq!(ways, ["declared", "none"]);
+    assert!(run_tests.places["measure"]["none"].is_empty());
+    let declared = &run_tests.places["measure"]["declared"];
+    assert!(
+        returns
+            .texts
+            .iter()
+            .any(|t| t.source == "flow/agents/tools/run_tests.toml" && &t.text == declared),
+        "{declared}"
+    );
 }
 
 // Every agent's cell is given every cell's questions and words first, each in full, and is run by data of its own

@@ -724,8 +724,10 @@ mod tests {
     }
 
     // A project whose declaration cannot be used is held, and every one is said at once with its project's key and why,
-    // whatever else is wrong: the declaration main does not hold, one that names no heavy commands, and lock commands
-    // that fall under what every agent is refused or that would allow a heavy command whole. None of it keeps the engine
+    // whatever else is wrong: the declaration main does not hold, one that names no heavy commands, lock commands
+    // that fall under what every agent is refused or that would allow a heavy command whole, variables it names for the
+    // agents' command line that the engine, the settings or the agents' program own, and time limits of its workflows
+    // that are no times. None of it keeps the engine
     // from starting, and the project that is fine is not held. Two projects that name one repository are a fault of the
     // engine's, which their declarations do not cause, and keep it from starting.
     #[test]
@@ -744,10 +746,25 @@ mod tests {
         with_project(&mut settings, dir.path(), "other", None, false);
         with_project(&mut settings, dir.path(), "lacking", Some(unheavy), false);
         with_project(&mut settings, dir.path(), "locks", Some(&locks), false);
+        // The same declaration naming, for the agents' command line, a variable the engine owns, one the agents' program
+        // reads itself and one the settings keep of the engine's environment.
+        settings.agents.env = vec!["LANGUAGE".to_string()];
+        let named = good.replace(
+            "RUSTUP_AUTO_INSTALL = \"0\"",
+            "PATH = \"/elsewhere\"\nANTHROPIC_BASE_URL = \"https://example.com\"\nLANGUAGE = \"en\"",
+        );
+        assert_ne!(named, good, "the declaration names the variable that is replaced");
+        with_project(&mut settings, dir.path(), "unsafe", Some(&named), false);
+        // The same declaration whose full and measure workflows' time limits are no times.
+        let slow = good
+            .replace("too_long = \"2h\"", "too_long = \"two hours\"")
+            .replace("too_long = \"30m\"", "too_long = \"30\"");
+        assert_ne!(slow, good, "the declaration names the limits that are replaced");
+        with_project(&mut settings, dir.path(), "untimed", Some(&slow), false);
         let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
         let started = start(&settings, &beside, &[engineer()]);
         assert_eq!(started.faults, Vec::<String>::new(), "no fault of the engine's");
-        assert_eq!(started.held.len(), 3, "{:?}", started.held);
+        assert_eq!(started.held.len(), 5, "{:?}", started.held);
         let held = |name: &str| {
             (started.held.iter())
                 .find(|line| line.starts_with(&format!("projects.{name}: held")))
@@ -773,6 +790,22 @@ mod tests {
                 .contains("wf-agents.toml [heavy] locks: \"cargo\" would allow all of the heavy command \"cargo\""),
             "{locks}"
         );
+        let unsafe_line = held("unsafe");
+        for fault in [
+            "wf-agents.toml [environment]: ANTHROPIC_BASE_URL is read by the agents' program itself, which it would \
+             change in a round beside what the records name",
+            "wf-agents.toml [environment]: LANGUAGE is one the installation's agents.env keeps of the engine's \
+             environment, which a declared value would override",
+            "wf-agents.toml [environment]: PATH is the engine's own, which it gives every round itself",
+        ] {
+            assert!(unsafe_line.contains(fault), "{fault}: {unsafe_line}");
+        }
+        let untimed = held("untimed");
+        assert!(
+            untimed.contains("ci.full.too_long: \"two hours\" is no time such as 90m or 2h")
+                && untimed.contains("ci.measure.too_long: \"30\" is no time such as 90m or 2h"),
+            "{untimed}"
+        );
         // Two projects in one repository keep the engine from starting, and neither is held for it.
         let example = settings.projects["example"].clone();
         settings.projects.insert("same".to_string(), example);
@@ -783,7 +816,7 @@ mod tests {
             "{:?}",
             started.faults
         );
-        assert_eq!(started.held.len(), 3, "{:?}", started.held);
+        assert_eq!(started.held.len(), 5, "{:?}", started.held);
     }
 
     // The engine starts with its one project held, as with any: the held project's reason is the only thing said.

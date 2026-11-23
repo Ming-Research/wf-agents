@@ -289,6 +289,27 @@ fn a_field_a_file_does_not_know_is_refused_with_the_path_of_its_file() {
     assert!(refused.contains("colour"), "{refused}");
 }
 
+// A declaration names the variables its toolchain reads, none where it needs none, as it names its heavy commands: one
+// that leaves `[environment]` out is refused with where it was read, rather than taken to need none; one that names
+// them is read. Well under a millisecond alone, and no other test holds that the table is required.
+#[test]
+fn a_declaration_that_lacks_its_environment_is_refused_with_where_it_was_read() {
+    let text = declaration_text();
+    let (before, _) = text
+        .split_once("\n[environment]\n")
+        .expect("the fixture names its environment");
+    let refused = declared(before).unwrap_err();
+    assert!(refused.starts_with("main:wf-agents.toml: "), "{refused}");
+    assert!(refused.contains("missing field `environment`"), "{refused}");
+    let none = declared(&format!("{before}\n[environment]\n")).unwrap();
+    assert!(none.environment.is_empty());
+    let read = declared(&text).unwrap();
+    assert_eq!(
+        read.environment.get("RUSTUP_AUTO_INSTALL").map(String::as_str),
+        Some("0")
+    );
+}
+
 // A time a declaration gives, as a workflow's limit, is read in seconds, minutes, hours or days. It moved here from the
 // host of GitHub, where the declaration's limit is read now by the one function that reads it for both the fast and
 // the full workflows.
@@ -332,6 +353,53 @@ fn a_declaration_of_ci_that_lacks_one_of_its_two_workflows_or_a_time_limit_is_re
         ),
         ("fast.yml", "2h", &["ci.yml".to_string()][..])
     );
+}
+
+// A project that measures declares a measure workflow beside the fast and the full one, which it must still have: one that
+// declares none is read with none, one that declares it is read with the names of the inputs the engine gives it, and one
+// that does not say how long a run may take, or declares it with no other workflow, is refused. Well under a millisecond
+// alone; no other test holds the measure workflow's declaration.
+#[test]
+fn a_declaration_may_name_a_measure_workflow_which_says_how_long_a_run_may_take() {
+    let text = declaration_text();
+    let fast = "\n[ci.fast]\nworkflow = \"fast.yml\"\nrunner = \"github\"\ntoo_long = \"2h\"\n";
+    let full = "\n[ci.full]\nworkflows = [\"ci.yml\"]\nrunner = \"github\"\ntoo_long = \"2h\"\n";
+    let measure = "\n[ci.measure]\nworkflow = \"measure.yml\"\nrunner = \"14900k\"\ntoo_long = \"30m\"\n";
+    assert_eq!(
+        declared(&format!("{text}{fast}{full}"))
+            .unwrap()
+            .ci
+            .expect("both")
+            .measure,
+        None
+    );
+    let named = declared(&format!("{text}{fast}{full}{measure}"))
+        .unwrap()
+        .ci
+        .expect("all three")
+        .measure;
+    let text_of = |s: &str| s.to_string();
+    assert_eq!(
+        named,
+        Some(agents::CiMeasure {
+            workflow: text_of("measure.yml"),
+            runner: text_of("14900k"),
+            too_long: text_of("30m"),
+            commit_input: text_of("commit"),
+            base_input: text_of("base"),
+            call_input: text_of("call"),
+            measure_input: text_of("measure"),
+            results: text_of("test-results"),
+        })
+    );
+    let lacking = "\n[ci.measure]\nworkflow = \"measure.yml\"\nrunner = \"14900k\"\n";
+    let refused = declared(&format!("{text}{fast}{full}{lacking}")).unwrap_err();
+    assert!(refused.contains("missing field `too_long`"), "{refused}");
+    let refused = declared(&format!("{text}{measure}")).unwrap_err();
+    assert!(refused.contains("missing field `fast`"), "{refused}");
+    let unreadable = measure.replace("30m", "soon");
+    let refused = declared(&format!("{text}{fast}{full}{unreadable}")).unwrap_err();
+    assert!(refused.contains("ci.measure.too_long"), "{refused}");
 }
 
 // How an entry of the design tree is found is the project's: a `[tree_format]` that names no kind, or whose heading or

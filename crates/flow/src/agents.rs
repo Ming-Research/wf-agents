@@ -381,8 +381,9 @@ impl Agents {
 
 /// `wf-agents.toml` at the root of a project's repository: what is the project's: its design tree, its files the engine
 /// gives every agent, its settings the words sent to the agents may name, its tests, its workflows, its heavy commands,
-/// which no agent runs, and what its host needs to check and merge: the command that checks it where its repository is
-/// the host, and how its pull requests are merged where GitHub is.
+/// which no agent runs, the variables its toolchain reads, which every agent's command line is given, and what its host
+/// needs to check and merge: the command that checks it where its repository is the host, and how its pull requests
+/// are merged where GitHub is.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Declaration {
@@ -398,7 +399,7 @@ pub struct Declaration {
     pub project: BTreeMap<String, String>,
     /// Where the project's tests are, and what its tests expect.
     pub tests: Option<Tests>,
-    /// The project's two workflows, which the engine runs tests and checks through.
+    /// The project's workflows, which the engine runs tests, checks and measurements through.
     pub ci: Option<Ci>,
     /// How the project is checked where its own repository is the host: needed there, and read nowhere else.
     pub local: Option<Local>,
@@ -411,6 +412,11 @@ pub struct Declaration {
     /// that writes may run. A declaration names the heavy commands, none where its project has none, so that one that
     /// leaves them out is refused rather than taken to refuse nothing.
     pub heavy: Heavy,
+    /// The variables, by name, that every agent's command line of the project's works is given after the engine's own:
+    /// what the project's toolchain reads, so that a command an agent may run reaches no further than its worktree. A
+    /// declaration names them, none where its project needs none, as it names its heavy commands, so that one that
+    /// leaves them out is refused rather than taken to need none.
+    pub environment: BTreeMap<String, String>,
 }
 
 /// `[local]` of the declaration: how the project is checked where its own repository is the host.
@@ -491,10 +497,17 @@ impl Declaration {
             faults.push("local.check: names a command".to_string());
         }
         if let Some(ci) = &self.ci {
+            let measure = ci
+                .measure
+                .as_ref()
+                .map(|measure| ("ci.measure.too_long", &measure.too_long));
             for (key, text) in [
                 ("ci.fast.too_long", &ci.fast.too_long),
                 ("ci.full.too_long", &ci.full.too_long),
-            ] {
+            ]
+            .into_iter()
+            .chain(measure)
+            {
                 if let Err(why) = span(text) {
                     faults.push(format!("{key}: {why}"));
                 }
@@ -622,14 +635,49 @@ pub struct Tests {
     pub expected: Vec<String>,
 }
 
-/// `[ci]` of the declaration: the project's two workflows, each with a role the engine relies on. Both report each test
-/// as JUnit XML, named by the one name an agent asks for it by. A declaration that has `[ci]` has both: the fast one is
-/// all that `run_tests` runs, and the full ones are all that the check before a merge runs.
+/// `[ci]` of the declaration: the project's two workflows, each with a role the engine relies on, and its measure
+/// workflow where it has one. All report each test, or each timing, as JUnit XML, named by the one name an agent asks for
+/// it by. A declaration that has `[ci]` has both the fast and the full: the fast one is all that `run_tests` runs for the
+/// tests and checks it is asked for, and the full ones are all that the check before a merge runs; the measure workflow
+/// is all that `run_tests` runs for the measurements it is asked for.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ci {
     pub fast: CiFast,
     pub full: CiFull,
+    /// The workflow that times what a request of `run_tests` names; none where the project has no measurements.
+    #[serde(default)]
+    pub measure: Option<CiMeasure>,
+}
+
+/// The measure workflow: dispatched by hand on a commit and the commit the work's change began from, with the names of
+/// the measurements to time, and reports every timing as JUnit XML: a testcase named as the measurement is asked for,
+/// in a testsuite named for what was timed, with its time in seconds.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CiMeasure {
+    /// The workflow, by its file's name, always run by its file on the main branch.
+    pub workflow: String,
+    /// Where it runs, as for the fast workflow: the machine the project measures on.
+    pub runner: String,
+    /// How long a run may take, such as `30m`, the wait for the machine included: one not complete by then is
+    /// cancelled and said so.
+    pub too_long: String,
+    /// The input that takes the commit to time.
+    #[serde(default = "commit_input")]
+    pub commit_input: String,
+    /// The input that takes the commit the work's change began from, to time it against.
+    #[serde(default = "base_input")]
+    pub base_input: String,
+    /// The input that takes a value only one request knows, which the run's name must hold.
+    #[serde(default = "call_input")]
+    pub call_input: String,
+    /// The input that takes the names of the measurements, each followed by a line break.
+    #[serde(default = "measure_input")]
+    pub measure_input: String,
+    /// The artifact a run uploads its JUnit files in.
+    #[serde(default = "results")]
+    pub results: String,
 }
 
 /// The fast workflow: dispatched by hand on a commit with the tests and checks to run, builds and runs only those.
@@ -691,6 +739,14 @@ fn commit_input() -> String {
 
 fn call_input() -> String {
     "call".to_string()
+}
+
+fn base_input() -> String {
+    "base".to_string()
+}
+
+fn measure_input() -> String {
+    "measure".to_string()
 }
 
 fn tests_input() -> String {
@@ -1153,17 +1209,23 @@ pub struct ResultWords {
     pub head: String,
     pub which_fast: String,
     pub which_full: String,
-    /// What it came to: `{passed}` of `{total}`, tests and checks, apart by `came_join`.
+    pub which_measure: String,
+    /// What it came to: `{passed}` of `{total}`, tests, measurements and checks, apart by `came_join`.
     pub came_tests: String,
+    pub came_measures: String,
     pub came_checks: String,
     pub came_join: String,
-    /// The title of the tests that did not pass, of those that passed, and of the jobs.
+    /// The title of the tests that did not pass, of those that passed, of the timings of the measurements that ran, and of
+    /// the jobs.
     pub tests_title: String,
     pub passed_title: String,
+    pub timings_title: String,
     pub jobs_title: String,
     /// A test: `{name}`, `{became}` one of the following, `{time}` as `time` says it where the results give one; the
     /// time of a job is said the same way.
     pub test: String,
+    /// A case of a measurement asked for: `{name}`, `{unit}` what was timed, `{became}`, `{time}` as for `test`.
+    pub measure_case: String,
     pub time: String,
     pub passed: String,
     pub failed: String,
@@ -1230,6 +1292,8 @@ pub struct GithubWords {
     pub unknown_checks: String,
     /// The workflow's runner is not one this installation has: `{runner}`, `{have}`.
     pub runner_missing: String,
+    /// Measurements are named and the project declares no measure workflow.
+    pub no_measure: String,
 }
 
 /// What `run_tests` says where the host is the local repository.
@@ -1247,6 +1311,8 @@ pub struct LocalWords {
     pub not_apart: String,
     /// A commit is named, and the command runs on the worktree as it is: nothing was run.
     pub no_commit: String,
+    /// Measurements are named, and the command runs the tests alone: nothing was run.
+    pub no_measure: String,
 }
 
 /// How much of a tool's result a round is given: the result is kept whole, and given cut where it is longer.
