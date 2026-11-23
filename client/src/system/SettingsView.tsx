@@ -29,6 +29,7 @@ import { clock, duration, fullTime } from '../works/words';
 import {
   type AccountAsked,
   type AccountDone,
+  type AccountMove,
   type AccountsPage,
   type AccountUsage,
   type Change,
@@ -499,8 +500,40 @@ function Accounts() {
             : busy !== null
               ? 'An act on an account is on its way'
               : undefined;
+  const moving = page.movingOn;
+  const setMoving = (on: boolean) =>
+    ask({ kind: 'setMovingOn', on }, () => ({
+      ok: true,
+      words: on
+        ? 'The engine moves to another account at a usage limit.'
+        : 'The engine no longer moves to another account at a usage limit.',
+    }));
   return (
     <>
+      <div className="account-moving">
+        <span className="muted">Move on at the limit</span>
+        <Switch<'on' | 'off'>
+          label="Move on at the limit"
+          value={moving ? 'on' : 'off'}
+          onChange={(v) => {
+            if (busy === null && (v === 'on') !== moving) setMoving(v === 'on');
+          }}
+          choices={[
+            {
+              value: 'on',
+              name: 'On',
+              title:
+                'When the account in use is at its usage limit, the engine checks the other accounts, takes the first ' +
+                'that is well, and the agents go on under it, spending its usage and writing each session to its cache.',
+            },
+            {
+              value: 'off',
+              name: 'Off',
+              title: 'The agents wait for the limit to reset, unless you take another account.',
+            },
+          ]}
+        />
+      </div>
       {page.accounts.length > 0 && (
         <ViewTable heads={['Account', 'Usage', '']} label="The accounts">
           {page.accounts.map((a) => (
@@ -528,6 +561,13 @@ function Accounts() {
                 )
               }
             />
+          ))}
+        </ViewTable>
+      )}
+      {page.moves.length > 0 && (
+        <ViewTable heads={['Moved', 'From', 'To', 'Why']} label="The engine's moves">
+          {page.moves.map((m) => (
+            <MoveRow key={`${m.at}-${m.to}`} move={m} now={now} />
           ))}
         </ViewTable>
       )}
@@ -579,6 +619,25 @@ function Accounts() {
         </p>
       )}
     </>
+  );
+}
+
+/// A move the engine made, one line: when, the account it left, the account it took, and why, the usage limit of the
+/// account it left with when that resets where it was said, as a usage limit is said in the accounts' table.
+function MoveRow({ move: m, now }: { move: AccountMove; now: number }) {
+  const why = `reached its usage limit${m.leftResets === null ? '' : `, ${resetsWords(m.leftResets, now)}`}`;
+  const from = m.from ?? 'no account';
+  return (
+    <tr>
+      <td title={fullTime(m.at)}>{clock(m.at)}</td>
+      <td title={from}>
+        <span className="mono">{from}</span>
+      </td>
+      <td title={m.to}>
+        <span className="mono">{m.to}</span>
+      </td>
+      <td title={`${from} ${why}`}>{why}</td>
+    </tr>
   );
 }
 

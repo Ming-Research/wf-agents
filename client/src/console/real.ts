@@ -11,7 +11,6 @@
 //   to the owner; each with the words alone, read back out of the version by the block's `owner` or `reply` text; of a
 //   flow before cells had words of their own, each version of a block people write as a note to one cell (one people
 //   write, with no fixed values, that one cell reads) is the owner's, to that cell. In the order of their times.
-// - A question a cell asked the owner: its sentence alone, answered in words, since the engine gives no options.
 // - A ruling: for each block the engine's list of what waits on the owner says the owner may write, its latest version's
 //   content (`readRulings`).
 // Nothing, with the mocks off: an item's unseen mark, unread messages, open questions, tier and verdicts; a work's tier.
@@ -19,8 +18,8 @@
 import { mocksShown } from '../mock-data';
 import type { SentPiece } from '../api';
 import type { Item, Version, VersionPage, Wait, WorkPage } from '../works-api';
-import { askedMock, bodyMock, type ItemMock, itemMock, workTierMock } from './mock';
-import type { Body, Choice, Message, Part } from './window';
+import { bodyMock, type ItemMock, itemMock, workTierMock } from './mock';
+import type { Body, Message, Part } from './window';
 
 /// Reads the content of a version of a block, by its number among the block's versions.
 export type LoadVersion = (work: number, block: string, number: number) => Promise<VersionPage>;
@@ -29,13 +28,6 @@ export type LoadVersion = (work: number, block: string, number: number) => Promi
 export function itemOf(item: Item): ItemMock {
   if (mocksShown()) return itemMock(item);
   return { unseen: false, unread: 0, tier: null, verdicts: [] };
-}
-
-/// A question a cell asked the owner, as a choice at the plan's end: with made-up options with the mocks, and with none
-/// without, to be answered in words.
-export function askedChoice(question: string, call: number, cell: string): Choice {
-  if (mocksShown()) return askedMock(question, call, cell);
-  return { kind: 'choice', question, options: [], recommended: null, chosen: null, asks: { call, cell } };
 }
 
 /// The work's tier: made up with the mocks, none without.

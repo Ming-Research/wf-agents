@@ -401,7 +401,8 @@ pub enum Call {
 pub enum Ask {
     /// A tool the engine runs, with what it is run on.
     Tool { name: String, input: String },
-    /// A question for a person.
+    /// A question for a person. No return that asks one is taken (the engine fails its round); the variant stays so
+    /// that a call recorded as one is read as it was recorded.
     Person { who: Who, question: String },
 }
 

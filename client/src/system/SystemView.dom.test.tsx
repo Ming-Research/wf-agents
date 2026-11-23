@@ -193,6 +193,7 @@ describe('the System view', () => {
     },
     until: { kind: holds ? 'checked' : 'well', at: 0 },
     holds,
+    mayMove: false,
   });
 
   it('says none where the wait every work shares holds no work, in no colour of a problem', async () => {

@@ -1,4 +1,4 @@
--- From version 24 of the schema to version 25: an observation may be one an architect added, with a text, the project
+-- From version 25 of the schema to version 26: an observation may be one an architect added, with a text, the project
 -- it is of and the project that reported it, as well as one a run kept as it finished; each is given a title and tags
 -- as it is added, and has its later changes kept with why, in the order they were made. The table of the observations
 -- is made anew so that the columns of a run's observation may be null, and carries each row across whole with its
@@ -48,4 +48,4 @@ CREATE TABLE observation_changes (
     why TEXT NOT NULL,
     PRIMARY KEY (observation, n)
 );
-UPDATE schema_version SET version = 25;
+UPDATE schema_version SET version = 26;

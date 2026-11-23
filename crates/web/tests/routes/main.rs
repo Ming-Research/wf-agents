@@ -357,8 +357,9 @@ pub async fn next(body: &mut Body) -> String {
     }
 }
 
-/// The trial item, added held at the start and let on a second later: by 2.5 seconds its plan has asked the owner its
-/// question (call 2), and the work waits for the answer.
+/// The trial item, added held at the start and let on a second later: by 5.5 seconds its plan's run has had three
+/// returns sent back, each a second and a half, and reached its limit of returns, and the work waits for the owner to
+/// let it go on (call 2).
 pub async fn greeted(router: &Router) {
     let item = json!({
         "title": "Greet the user",
@@ -376,5 +377,5 @@ pub async fn greeted(router: &Router) {
         post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" })).await,
         (StatusCode::NO_CONTENT, Value::Null)
     );
-    pass(2000).await;
+    pass(5000).await;
 }
