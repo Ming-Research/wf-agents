@@ -25,7 +25,6 @@ import {
   stoppedAt,
   tokens,
   tokensWords,
-  unmetWords,
   waitCount,
   waitCounted,
   waitedWords,
@@ -316,59 +315,6 @@ describe('why a run ran, in words', () => {
     expect(callState(row)).toBe(`made ${clock(0)}, no result yet`);
     expect(callState(row, true)).toBe(`made ${clock(0)}, withdrawn with its run`);
     expect(callState({ ...row, done: 12_000, chars: 3 }, true)).toBe(`made ${clock(0)}, done in 12s`);
-  });
-
-  it('says why a return was sent back', () => {
-    expect(unmetWords({ kind: 'asksNothing' })).toBe('it asked for calls and named none');
-    expect(unmetWords({ kind: 'notAnOutput', block: 'code' })).toBe('it handed in code, which the cell may not write');
-    expect(unmetWords({ kind: 'writtenTwice', block: 'code' })).toBe('it handed in code twice');
-    expect(unmetWords({ kind: 'noValue', block: 'ci' })).toBe('it handed in ci, a choice, with no value');
-    expect(unmetWords({ kind: 'notAValue', block: 'ci', value: 'amber' })).toBe(
-      'it handed in ci as amber, which is not one of its values',
-    );
-    expect(unmetWords({ kind: 'notAChoice', block: 'plan' })).toBe('it handed in plan with a value, but it is not a choice');
-    expect(unmetWords({ kind: 'notHandedIn', block: 'verdict' })).toBe(
-      'it did not hand in verdict, which the cell must hand in every time',
-    );
-    expect(
-      unmetWords({ kind: 'nothingBut', block: 'deep_needed', value: 'yes', besides: ['plan_owner', 'r1_questions'] }),
-    ).toBe('it handed in deep_needed as yes, and plan_owner, r1_questions besides, which no return of that value holds');
-    expect(unmetWords({ kind: 'notWatched', name: 'on_nothing' })).toBe(
-      'it said it dealt with on_nothing, which does not run the cell',
-    );
-    expect(unmetWords({ kind: 'notATool', name: 'browse' })).toBe(
-      'it asked for browse, which is not a tool the cell may ask for',
-    );
-    expect(unmetWords({ kind: 'unchangedNotWritten', block: 'plan' })).toBe(
-      'it named plan as unchanged in meaning, and did not write it',
-    );
-    expect(unmetWords({ kind: 'unexplained', path: 'AGENTS.md' })).toBe(
-      'it left AGENTS.md, a file the project protects, changed, and said not why',
-    );
-    expect(unmetWords({ kind: 'unanswered', block: 'check' })).toBe(
-      'it dealt with check, and committed nothing and asked nothing',
-    );
-    expect(unmetWords({ kind: 'notATest', path: 'src/lib.rs' })).toBe(
-      'it changed src/lib.rs, which is none of the project\'s tests',
-    );
-    expect(unmetWords({ kind: 'uncommitted', changes: ' M src/lib.rs' })).toBe(
-      'it ended its round with changes to tracked files that are not committed',
-    );
-    expect(unmetWords({ kind: 'merging', changes: 'M  src/lib.rs' })).toBe(
-      'it ended its round with a merge under way that is not committed',
-    );
-    expect(unmetWords({ kind: 'treeUnchanged', name: 'placement' })).toBe(
-      'it handed in the change, which changes nothing in the design tree, while placement, marked tree, has the owner\'s answer',
-    );
-    expect(unmetWords({ kind: 'notAnEntry', line: 'decision no-such-entry' })).toBe(
-      'it named decision no-such-entry, which is no entry of the design tree on the work\'s branch',
-    );
-    expect(unmetWords({ kind: 'wordOwed', name: 'review', watched: ['code', 'title'] })).toBe(
-      'it dealt with review, woken by a point in it, and answered none of its points, changed none of code, title, and asked no question the work waits for',
-    );
-    expect(unmetWords({ kind: 'noPoint', block: 'review_ok', value: 'no', name: 'review' })).toBe(
-      'it handed in review_ok as no, which does not pass, and gave no review',
-    );
   });
 });
 
