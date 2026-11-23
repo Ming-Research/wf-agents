@@ -214,3 +214,36 @@ fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_
     assert_eq!(rows["filled"].len(), 5);
     assert!(new.filled.iter().any(|f| f.attempt == 2));
 }
+
+// A reason a return was sent back for was kept under the name it had then (`NotATrigger`, now `NotWatched`): a work kept
+// before is read with the name it has now, and what is kept of it is not changed by reading it.
+#[test]
+fn a_reason_a_return_was_sent_back_for_that_was_kept_under_its_earlier_name_loads_under_its_name_now() {
+    use decide::run::Unmet;
+    let db = Db::new();
+    let mut store = db.open();
+    let number = first_work(&mut store);
+    let mut d = Driver::new();
+    reopened_after(&mut d);
+    let (&(run, round), _) = (d.work.given.iter())
+        .find(|(_, given)| matches!(given, Given::SentBack(_)))
+        .expect("a round that was sent back");
+    store.save(number, &d.work).expect("the work is saved");
+    let now = Given::SentBack(vec![Unmet::NotWatched {
+        name: "opinions".to_string(),
+    }]);
+    let then = serde_json::to_string(&now)
+        .expect("it is JSON")
+        .replace("NotWatched", "NotATrigger");
+    assert!(then.contains("NotATrigger"), "{then}");
+    let kept = Connection::open(&db.path).expect("the database opens");
+    let changed = kept
+        .execute(
+            "UPDATE given SET given = ?1 WHERE work = ?2 AND run = ?3 AND round = ?4",
+            rusqlite::params![then, number.0, run.0, round],
+        )
+        .expect("the row is changed");
+    assert_eq!(changed, 1);
+    let loaded = db.open().load(number).expect("the work loads");
+    assert_eq!(loaded.given.get(&(run, round)), Some(&now));
+}
