@@ -177,7 +177,15 @@ fn round_of(file: &Connection, work: u64, run: u64, round: u64, uncached: u64, t
              cache_written_tokens, thinking_tokens, turns, calls, first_read, first_context, added, given, before, \
              received, crossed, priced) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, NULL, 1, 1, NULL, NULL, 0, 0, '{}', 1, 0, 0)",
-            rusqlite::params![work, 100 * run + 10 * round + attempt, run, round, attempt, fresh, written],
+            rusqlite::params![
+                work,
+                100 * run + 10 * round + attempt,
+                run,
+                round,
+                attempt,
+                fresh,
+                written
+            ],
         )
         .expect("a try is kept");
     }
