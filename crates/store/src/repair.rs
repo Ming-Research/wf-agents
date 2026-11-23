@@ -1,7 +1,6 @@
 //! What the one-off repair of the costs recorded before a round's cost was what its results say it spent reads and
 //! writes (`wf-agents repair-costs`). It rewrites the cost of recorded rounds and forks in place, the one exception to
-//! the rule that rows are only added to (decision `a-wrongly-recorded-cost-is-corrected-once-in-place`), and is removed
-//! with the command.
+//! the rule that rows are only added to (decision `tables-only-added-to`), and is removed with the command.
 
 use rusqlite::params;
 

@@ -1,7 +1,7 @@
 //! The one-off repair of the costs recorded before a round's cost was what its results say it spent (`wf-agents
 //! repair-costs`), which rewrites the recorded cost of rounds and forks in place from the streams kept of them, after
-//! a copy of the database (decision `a-wrongly-recorded-cost-is-corrected-once-in-place`). It is removed with the
-//! command.
+//! a copy of the database, the one exception to the rule that rows are only added to (decision `tables-only-added-to`).
+//! It is removed with the command.
 //!
 //! A round that kept a stream with its results costs what they say they spent. A round with no result, such as one
 //! its engine's restart cut off, was priced from its calls and never told what it cost; it is told only where the
