@@ -1,6 +1,5 @@
 // The console in a real browser (Chromium, through Vitest's browser mode): the tree is drawn by WebGL, which happy-dom
-// does not have, and its motion is the frames the browser draws. These pin what the console on `old-main` did, which
-// had no tests of its own for it: a scroll over a column moves that column and rests where the scroll stops, as far as
+// does not have, and its motion is the frames the browser draws. These pin what the console does: a scroll over a column moves that column and rests where the scroll stops, as far as
 // leaves three rows on the screen; a sideways scroll or a drag moves the columns sideways, no further than leaves half
 // of the first or the last column on the screen; a click selects the item under the pointer, and a click on a shadow
 // the item it points to, brought to the middle; the tree drawn again stands where it stood, the item selected kept; an
@@ -9,7 +8,7 @@
 // level, and never faster than half again the one it follows; the view stands through a change of height or theme; and
 // once destroyed, the scene listens to nothing. The pointer and the wheel are events sent to the canvas at the points
 // the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
-// browser's own. They pin as well what the old console did not do: a click on an item's funnel folds what is under it
+// browser's own. They pin as well: a click on an item's funnel folds what is under it
 // into a dot and a click on the dot shows it again, both selecting nothing, the fold turning over its time; the
 // console keeps that choice over its own rule; a lit way turns into the cards it joins along its own curve; the way to
 // a work the engine runs a call for is lit, as to one whose round runs; and the item selected flashes once when asked,
