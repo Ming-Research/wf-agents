@@ -32,7 +32,8 @@
 //! is given it or writes it, as the version last worked from or the latest, or as one the cell never worked from; of a
 //! group, one datum of the group at least is new, and each stands by its own state. A datum the cell writes as well
 //! may stand with nothing new in it though it ran the cell: a version written by another while its run was under way
-//! ran it, and the cell's own, after it, is the one it last worked from. Any other datum the cell is given, the cell's own writes aside,
+//! ran it, and the cell's own, after it, is the one it last worked from; not the record of its questions, whose versions
+//! are the owner's. Any other datum the cell is given, the cell's own writes aside,
 //! stands any way the entry allows, since a version of it may be written while the run is under way: unwritten where
 //! it is not certainly written, lacking, held from a cell of the line, or, on a later entry, held as last worked from,
 //! latest, or with nothing new; but a datum only people write that an earlier cell of the line watches is never held as
@@ -512,7 +513,7 @@ impl<'a> Reach<'a> {
             Entry::ReopenedAfterRead => self.holdable(entry, block),
             Entry::First | Entry::Reopened => false,
         };
-        if *class == Class::Fired && writes && holds_own && !states.contains(&Stands::Holds) {
+        if *class == Class::Fired && writes && holds_own && !self.answered(block) && !states.contains(&Stands::Holds) {
             states.push(Stands::Holds);
         }
         // A new version of a datum only people write, as it is of what an earlier cell of the line watches, runs that
@@ -600,6 +601,12 @@ impl<'a> Reach<'a> {
             Stands::Lacks if last_and_latest && self.compared.contains(block) => Stands::Unread,
             stands => stands,
         }
+    }
+
+    /// Whether the owner's answers write the datum: the record of a cell's questions, none of whose versions the cell
+    /// wrote itself, so that its run on an answer always has something new in it.
+    fn answered(&self, block: &BlockId) -> bool {
+        (self.flow.blocks.get(block)).is_some_and(|d| d.writers.outside.as_deref() == Some(flow::ANSWER))
     }
 
     /// Whether the datum may be written before the cell's first entry: people or the outside write it, or a cell before
