@@ -4,7 +4,8 @@
 //! one, or something makes its session hold only a summary: each is an entry of the work, [`Session`], with why. A
 //! session the program lost is begun again under the same id, and a compacted one goes on under it; every other new
 //! session has an id of its own, so that a round finds its session by counting the line's new sessions recorded before
-//! its first try began ([`start`], [`of_round`]), and needs nothing stored but the records.
+//! the round began ([`start`], [`of_round`]), and needs nothing stored but the records: a new session recorded while a
+//! round of the line is under way is the line's next round's, whatever the round has recorded of itself since.
 //! What each try of a round ran on is recorded as the try begins ([`RanOn`]), so that what a session was begun on is
 //! the records' too ([`began_on`]).
 
@@ -111,19 +112,12 @@ pub fn began_at(work: &Work, run: RunId, number: usize) -> Option<Seq> {
 }
 
 /// Where the round of this number of the run takes its session from: the line's sessions recorded before this place
-/// are the ones it counts. A round runs in the session its line is in as its first try begins, so this is where its
-/// first try's record is; where it has none and has ended (a round kept before tries were recorded, or one that failed
-/// before its program ran), where it began; and where it has none and has not ended, or has not begun, the next place,
-/// since its first try is yet to begin. A round under way as the engine opens and records a new session of its line
-/// before giving it again, as for a flag of a store kept before sessions were recorded, so runs in that session.
+/// are the ones it counts. A round runs in the session its line is in as the round begins, which is what the carrier
+/// decides it from, the work as it was kept as the round was handed out; so this is where the round began, whatever is
+/// recorded after it, such as a new session the line begins as the carrier takes main in, before the round's first try.
+/// Where the records hold no such round, it is the next place.
 pub fn start(work: &Work, run: RunId, number: usize) -> Seq {
-    let first = (work.ran.iter()).find(|r| r.run == run && r.round == number);
-    let ended = work.records.returned.iter().filter(|r| r.run == run).count() >= number;
-    match (first, began_at(work, run, number)) {
-        (Some(first), _) => first.at,
-        (None, Some(began)) if ended => began,
-        _ => work.tick(),
-    }
+    began_at(work, run, number).unwrap_or_else(|| work.tick())
 }
 
 /// The line's sessions, in the order they were recorded.
