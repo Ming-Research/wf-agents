@@ -42,6 +42,25 @@ impl Rounds for Reached {
     fn paused(&self, work: WorkNumber, paused: bool) {
         self.0.lock().unwrap().push(format!("paused W{} {paused}", work.0));
     }
+
+    fn seen(&self, asked: OfWork) -> Pin<Box<dyn Future<Output = Result<Seen, String>> + Send + '_>> {
+        self.note("seen", &asked.item);
+        Box::pin(async { Ok(Seen::default()) })
+    }
+
+    fn changes(&self, asked: OfWork) -> Pin<Box<dyn Future<Output = Result<Option<Changes>, String>> + Send + '_>> {
+        self.note("changes", &asked.item);
+        Box::pin(async { Ok(None) })
+    }
+
+    fn diff(
+        &self,
+        asked: OfWork,
+        _: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Diff>, String>> + Send + '_>> {
+        self.note("diff", &asked.item);
+        Box::pin(async { Ok(None) })
+    }
 }
 
 impl Tools for Reached {
@@ -273,4 +292,32 @@ fn a_pause_of_a_work_is_told_to_the_carriers_of_every_project() {
     for reached in [one, two] {
         assert_eq!(*reached.0.lock().unwrap(), ["paused W4 true", "paused W4 false"]);
     }
+}
+
+/// The work of this item as the driver gives it to be looked at.
+fn of_work(item: Item) -> OfWork {
+    OfWork {
+        work: WORK,
+        item,
+        merged: None,
+        place: decide::Seq(1),
+        under_way: false,
+    }
+}
+
+// What a work changed is asked of the carrier of its item's project; where the item has a project the settings do not
+// name, or none, there is nothing to say of it, and no carrier is asked. Well under a millisecond alone; no other test
+// holds this to the carriers of more than one project.
+#[tokio::test]
+async fn what_a_work_changed_is_asked_of_its_projects_carrier_and_is_nothing_where_it_has_none() {
+    let reached = Arc::new(Reached::default());
+    let rounds = by_project::<dyn Rounds>(reached.clone());
+    for project in [Some("one"), Some("two"), None] {
+        let number = if project == Some("one") { 1 } else { 2 };
+        let of = || of_work(item(number, project));
+        assert!(matches!(rounds.seen(of()).await, Ok(_)));
+        assert!(matches!(rounds.changes(of()).await, Ok(None)));
+        assert!(matches!(rounds.diff(of(), "farewell.txt".to_string()).await, Ok(None)));
+    }
+    assert_eq!(*reached.0.lock().unwrap(), ["seen #1", "changes #1", "diff #1"]);
 }
