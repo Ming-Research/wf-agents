@@ -382,11 +382,17 @@ pub fn environment(
 /// What is wrong with the variables a project's declaration names for every round's command line, each said with where
 /// it is written: a name that is no name of a variable; one the engine owns, which it keeps of its environment, sets
 /// itself or gives the program; one the installation's settings name to keep (`agents.env`: `named`), which a declared
-/// value would silently override; and one the agents' program reads itself ([`PROGRAM`]).
+/// value would silently override; one the agents' program reads itself ([`PROGRAM`]); and a value that holds a NUL, which
+/// ends a string of a process's environment, so that no program can be started with it. Any other value is none.
 pub fn environment_faults(declared: &BTreeMap<String, String>, named: &[String]) -> Vec<String> {
     let at = format!("{} [environment]", flow::agents::DECLARATION);
     let mut faults = Vec::new();
-    for name in declared.keys() {
+    for (name, value) in declared {
+        if value.contains('\0') {
+            faults.push(format!(
+                "{at}: {name} holds a NUL in its value, with which no program can be started"
+            ));
+        }
         let shell = name.starts_with(|c: char| c == '_' || c.is_ascii_alphabetic())
             && name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric());
         if !shell {
