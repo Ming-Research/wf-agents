@@ -337,6 +337,62 @@ fn a_datum_a_cell_has_its_own_of_takes_its_kind_from_what_every_agent_cell_takes
     );
 }
 
+// What every agent cell reads is named once, is a datum of the flow, and has the kind it is read in; a kind for a name it
+// does not read is refused beside the kind.
+#[test]
+fn what_every_agent_cell_reads_is_refused_where_a_name_is_twice_unknown_without_a_kind_or_a_kind_has_no_name() {
+    let given = |text: &str| {
+        let mut source = laid_out();
+        source.flow.push_str(text);
+        faults(&source)
+    };
+    let twice =
+        given("\n[every_agent]\nreads = [\"request\", \"request\"]\n\n[every_agent.kinds]\nrequest = \"latest\"\n");
+    assert_eq!(
+        twice,
+        [at(
+            FLOW_FILE,
+            "every_agent.reads[1]",
+            Twice {
+                name: "request".to_string()
+            }
+        )]
+    );
+    let unknown = given("\n[every_agent]\nreads = [\"nowhere\"]\n\n[every_agent.kinds]\nnowhere = \"latest\"\n");
+    assert_eq!(
+        unknown,
+        [at(
+            FLOW_FILE,
+            "every_agent.reads[0]",
+            NoSuchData {
+                name: "nowhere".to_string()
+            }
+        )]
+    );
+    let no_kind = given("\n[every_agent]\nreads = [\"request\"]\n");
+    assert_eq!(
+        no_kind,
+        [at(
+            FLOW_FILE,
+            "every_agent.reads[0]",
+            NoKind {
+                block: "request".to_string()
+            }
+        )]
+    );
+    let not_read = given("\n[every_agent]\n\n[every_agent.kinds]\nrequest = \"latest\"\n");
+    assert_eq!(
+        not_read,
+        [at(
+            FLOW_FILE,
+            "every_agent.kinds.request",
+            NotGiven {
+                block: "request".to_string()
+            }
+        )]
+    );
+}
+
 #[test]
 fn what_every_agent_cell_reads_is_given_it_first_and_to_no_engine_cell() {
     let mut source = plan_takes("watches = [\"opinions\"]");

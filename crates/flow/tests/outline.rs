@@ -202,3 +202,19 @@ fn the_engineer_s_reviews_of_the_plan_run_at_the_effort_high() {
         assert_eq!(cell.effort, Some(flow::Effort::High), "{id}");
     }
 }
+
+// The three reviews of the change are cells of one line that only reads, so that they share a session and none of them
+// can change the work; the adversarial testing runs on a line of its own.
+#[test]
+fn the_three_reviews_of_the_change_share_one_line_that_only_reads_and_the_adversarial_testing_has_its_own() {
+    let compiled = engineer();
+    let cell =
+        |id: &str| (compiled.cells.iter().find(|c| c.id.as_str() == id)).unwrap_or_else(|| panic!("the cell {id}"));
+    for id in ["T1", "T2", "T3"] {
+        assert_eq!(cell(id).line.as_deref(), Some("code_reviewer"), "{id}");
+        assert!(cell(id).reads_only, "{id} may change the work");
+    }
+    let testing = cell("T4");
+    assert!(testing.line.is_some(), "the adversarial testing has a line");
+    assert_ne!(testing.line.as_deref(), Some("code_reviewer"));
+}

@@ -493,3 +493,12 @@ fn whole_works_on_the_deliver_flow_wait_for_their_items_deliver_once_and_come_to
         && seen.background > 0;
     assert!(every, "a class of step never occurred: {seen:?}");
 }
+
+// The card of a deliverable item shows what people wrote of it, then what became of it.
+#[test]
+fn the_card_of_a_deliverable_item_shows_its_background_and_then_what_was_delivered() {
+    assert_eq!(
+        deliver().card,
+        [BlockId::from("background"), BlockId::from("delivered")]
+    );
+}
