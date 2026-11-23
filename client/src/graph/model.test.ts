@@ -328,7 +328,7 @@ describe('the flowchart of the engineer flow', () => {
     expect(context.find((t) => t.block === 'tree')?.outside).toEqual({ people: false, sources: ['tree'] });
     // What every agent cell is given (every cell's questions and words) is the view line's, not the box's.
     expect(context.some((t) => t.block === 'r1_questions')).toBe(false);
-    expect([...litBy(engineer, 'I1')].sort()).toEqual(['D1', 'M1', 'R1', 'T1', 'T2', 'T3', 'T4']);
+    expect([...litBy(engineer, 'I1')].sort()).toEqual(['D1', 'M1', 'R0', 'R1', 'T1', 'T2', 'T3', 'T4']);
   });
 });
 
