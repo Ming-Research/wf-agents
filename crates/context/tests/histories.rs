@@ -196,6 +196,9 @@ struct Scene {
     /// How many steps in a hundred, after those, the owner reopens a line's session, and then speaks or answers.
     reopens: usize,
     speaks: usize,
+    /// How many steps in a hundred, after those, a run of the search changes what the work holds at its target
+    /// ([`History::perturb`]).
+    nudges: usize,
     /// How often, in a hundred, a cell that writes a choice with the value `yes` writes it, so that the work goes on to
     /// its later cells; none where the choice is any of its values alike.
     passes: Option<u64>,
@@ -215,6 +218,7 @@ impl Scene {
             puts: 22,
             reopens: 4,
             speaks: 6,
+            nudges: 0,
             passes: None,
             passing: Vec::new(),
         }
@@ -232,6 +236,7 @@ impl Scene {
             puts: 8,
             reopens: 4,
             speaks: 6,
+            nudges: 0,
             passes: Some(70),
             passing: vec![
                 "plan_ok",
@@ -275,6 +280,10 @@ struct History {
     writes: u64,
     asks: u64,
     prefer: BTreeMap<String, u64>,
+    /// The value a return that writes a choice gives it, of some choices.
+    force: BTreeMap<String, String>,
+    /// What a run of the search is steered at.
+    target: Option<Target>,
 }
 
 /// What a scripted return does.
@@ -311,6 +320,8 @@ impl History {
             writes: 70,
             asks: 8,
             prefer: BTreeMap::new(),
+            force: BTreeMap::new(),
+            target: None,
         };
         history.start();
         history
@@ -395,6 +406,9 @@ impl History {
             reached.reopened += 1;
         } else if self.scene.talks && roll < puts + reopens + speaks && self.speaks() {
             // The owner spoke or answered.
+        } else if roll < puts + reopens + speaks + self.scene.nudges && self.target.is_some() {
+            let target = self.target.clone().expect("a target");
+            self.perturb(reached, &target);
         } else if let Some(round) = self.sim.round() {
             self.carry(&round, reached);
         } else if let Some(call) = self.sim.calls().first() {
@@ -427,7 +441,7 @@ impl History {
     /// writes, the owner reopens a line's session or speaks to a cell, a cell is made to ask a question, or the blocks
     /// the next returns hand in are chosen. Each is done nearer the target than the random steps would, where it can be.
     fn perturb(&mut self, reached: &mut Reached, target: &Target) {
-        match self.rng.below(7) {
+        match self.rng.below(9) {
             0 | 1 => {
                 let mine: Vec<&'static str> = (self.scene.writes.iter().copied())
                     .filter(|w| target.blocks.iter().any(|b| b == w))
@@ -456,6 +470,24 @@ impl History {
                 }
             }
             5 => self.asks = [8, 40, 90][self.rng.below(3)],
+            6 | 7 => {
+                // A choice a cell writes is given one of its values, or left to the draw.
+                let choices: Vec<&BlockId> = (self.sim.flow.blocks.iter())
+                    .filter(|(_, d)| d.values.is_some() && !d.writers.cells.is_empty())
+                    .map(|(b, _)| b)
+                    .collect();
+                let block = choices[self.rng.below(choices.len())].clone();
+                let values = self.sim.flow.blocks[&block].values.clone().unwrap_or_default();
+                match self.rng.chance(25) {
+                    true => {
+                        self.force.remove(block.as_str());
+                    }
+                    false => {
+                        let value = values[self.rng.below(values.len())].clone();
+                        self.force.insert(block.as_str().to_string(), value);
+                    }
+                }
+            }
             _ => {
                 if !target.blocks.is_empty() {
                     let block = target.blocks[self.rng.below(target.blocks.len())].clone();
@@ -671,14 +703,19 @@ impl History {
             self.lines.get(&line).cloned().unwrap_or_default()
         };
         let going_on = self.sim.enter(round, false);
-        let anew = self.sim.enter(round, true);
+        let lost = !begins && self.rng.chance(10);
+        // Entered in a session that holds nothing: on the small flow every round; on the engineer's where the round begins
+        // one or is lost, and in two of five of the others, which each take as long as the walk of the work to enter.
+        let anew = (self.scene.models || begins || lost || self.rng.chance(40)).then(|| self.sim.enter(round, true));
         self.check(round, &going_on, &held, reached);
-        self.check(round, &anew, &Held::default(), reached);
+        if let Some(anew) = &anew {
+            self.check(round, anew, &Held::default(), reached);
+        }
         if !self.scene.models {
             self.keep(round.cell.as_str(), &going_on.situation, reached);
         }
-        let lost = !begins && self.rng.chance(10);
         let used = if lost {
+            let anew = anew.as_ref().expect("a round that is lost is entered anew");
             self.sim.tries(round, 1, going_on.fills.clone());
             self.sim.anew(&line, Why::Lost);
             self.lines.insert(line.clone(), Held::default());
@@ -686,7 +723,10 @@ impl History {
             reached.lost += 1;
             anew.clone()
         } else {
-            let used = if begins { anew.clone() } else { going_on.clone() };
+            let used = match &anew {
+                Some(anew) if begins => anew.clone(),
+                _ => going_on.clone(),
+            };
             self.sim.tries(round, 1, used.fills.clone());
             used
         };
@@ -694,7 +734,11 @@ impl History {
         // rounds stood in are kept, so that the search over them is not made slow by what the small flow already holds.
         if self.scene.models {
             assert_eq!(self.sim.enter(round, false), going_on, "entered again after its try");
-            assert_eq!(self.sim.enter(round, true), anew, "entered again anew after its try");
+            assert_eq!(
+                Some(self.sim.enter(round, true)),
+                anew,
+                "entered again anew after its try"
+            );
         }
         // A message gives a new version whole though it says what one the session holds said.
         for fill in going_on.fills.iter().filter(|_| self.scene.models) {
@@ -788,6 +832,7 @@ impl History {
                 let passes = self.scene.passing.contains(&block.as_str())
                     && self.scene.passes.is_some_and(|percent| self.rng.chance(percent));
                 let value = self.sim.flow.blocks[&block].values.clone().map(|v| match passes {
+                    _ if self.force.contains_key(block.as_str()) => self.force[block.as_str()].clone(),
                     true if v.iter().any(|x| x == "yes") => "yes".to_string(),
                     _ => v[self.rng.below(v.len())].clone(),
                 });
@@ -1502,13 +1547,14 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
 /// How many runs the search makes at most, how many steps each takes after its quiet ones, how many of the first steps
 /// of a run begun from nothing only carry the work's rounds (up to), and how many states of the work at the entry of a
 /// round of a cell it keeps, each of a situation the round stood in that no other kept did.
-const RUNS: usize = 220;
+const RUNS: usize = 130;
 const RUN_STEPS: usize = 30;
 const QUIET_STEPS: usize = 150;
 const ARCHIVE: usize = 50;
 
 /// What a run of the search is steered at: a cell, the datum and the state of it a line not yet reached says, and the
 /// blocks near them: those that run the cell.
+#[derive(Clone)]
 struct Target {
     cell: String,
     datum: Option<String>,
@@ -1655,7 +1701,10 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         history.scene.puts = [4, 8, 16][rng.below(3)];
         history.scene.reopens = [2, 4, 10][rng.below(3)];
         history.scene.speaks = [6, 20, 40][rng.below(3)];
+        history.scene.nudges = [0, 5, 12][rng.below(3)];
+        history.target = Some(target.clone());
         history.prefer.clear();
+        history.force.clear();
         // A state of a datum unwritten is brought about by no return handing it in, and of the owner's talk with a cell, by
         // the owner not talking nor a cell asking.
         let quiet_owner = target.unwritten && target.talk() && rng.chance(85);
