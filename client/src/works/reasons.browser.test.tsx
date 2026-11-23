@@ -13,24 +13,25 @@ import { describe, expect, it } from 'vitest';
 
 import { Reasons } from './StepPanel';
 
-/// The number of lines the browser lays the value `changes` of a reason out in, drawn as the Step draws it: an inline
-/// box has one rectangle for each line it takes.
-function linesOf(changes: string): number {
+/// The height the browser lays out the part of a reason that holds the value `changes` in, drawn as the Step draws it:
+/// a block with one line box for each line of the value, all of the same height.
+function heightOf(changes: string): number {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   const unmet = [{ key: 'uncommitted', values: [{ name: 'changes', value: changes }] }];
   flushSync(() => root.render(<Reasons unmet={unmet} />));
   const value = Array.from(host.querySelectorAll('.reasons .mono')).find((e) => e.textContent === changes);
-  const lines = value?.getClientRects().length ?? 0;
+  const height = value?.parentElement?.getBoundingClientRect().height ?? 0;
   root.unmount();
   host.remove();
-  return lines;
+  return height;
 }
 
 describe('a reason a return was sent back for', () => {
   it('keeps each line of a value recorded of it on a line of its own', () => {
-    expect(linesOf(' M a.rs')).toBe(1);
-    expect(linesOf(' M a.rs\n M b.rs\n?? c.rs')).toBe(3);
+    const oneLine = heightOf(' M a.rs');
+    expect(oneLine).toBeGreaterThan(0);
+    expect(Math.round(heightOf(' M a.rs\n M b.rs\n?? c.rs') / oneLine)).toBe(3);
   });
 });
