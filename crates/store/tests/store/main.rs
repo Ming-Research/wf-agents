@@ -11,6 +11,7 @@ mod items;
 mod observations;
 mod only_added;
 mod opening;
+mod repair;
 mod round_trip;
 mod versions;
 
@@ -515,6 +516,54 @@ fn history(d: &mut Driver) {
         number: 41,
         url: "https://github.com/o/r/pull/41".to_string(),
     });
+    // It read the run of the project's CI that checked it, which told how long its tests and jobs took, and read it again:
+    // the same run is kept once, its tests named once for every work that reports them.
+    let reading = work::Reading {
+        asking: "run/1/round/1".to_string(),
+        source: work::Source::Full,
+        commit: "0123abc".to_string(),
+        workflow: "ci.yml".to_string(),
+        jobs: vec![
+            work::timed::Job {
+                name: "test 1 of 3".to_string(),
+                millis: 61_000,
+            },
+            work::timed::Job {
+                name: "lint".to_string(),
+                millis: 7_000,
+            },
+        ],
+        tests: vec![
+            work::timed::Test {
+                unit: "carry".to_string(),
+                name: "tools::tests::b".to_string(),
+                passed: false,
+                millis: 2_500,
+            },
+            work::timed::Test {
+                unit: "carry".to_string(),
+                name: "tools::tests::a".to_string(),
+                passed: true,
+                millis: 120,
+            },
+        ],
+    };
+    // The check before the merge asked for another full workflow under the same asking: its run is another reading,
+    // kept beside the first.
+    let other = work::Reading {
+        workflow: "slow.yml".to_string(),
+        jobs: vec![work::timed::Job {
+            name: "slow".to_string(),
+            millis: 90_000,
+        }],
+        tests: Vec::new(),
+        ..reading.clone()
+    };
+    d.on(Event::Timed {
+        reading: reading.clone(),
+    });
+    d.on(Event::Timed { reading });
+    d.on(Event::Timed { reading: other });
     d.wrote("verdict", Outsider::Person, Some("no"));
     d.on(Event::LetGo { cell: "write".into() });
     // Answered, the judge is entered again, and hands in until a run of it finishes, writing a choice; the writer then

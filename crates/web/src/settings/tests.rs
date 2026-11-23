@@ -19,7 +19,7 @@ slots = 2
 args = [
   "--allowedTools", "Edit(./**)",
 ]
-permissions = { locks = ["uv lock"] }
+subagents = { most = 3 }
 
 [agents.levels.1]
 desc = "Easy work"
@@ -40,7 +40,7 @@ const RUNNING: usize = 2;
 /// The keys the stand-in reading knows, by table.
 const KNOWN: [(&str, &[&str]); 4] = [
     ("owner", &["language"]),
-    ("agents", &["command", "slots", "args", "permissions", "levels"]),
+    ("agents", &["command", "slots", "args", "subagents", "levels"]),
     ("items", &["default_level", "highest_level", "title_max"]),
     ("sessions", &["compact_at"]),
 ];
@@ -173,8 +173,8 @@ fn the_file_is_shown_as_it_writes_the_settings_in_its_order() {
         "a value as the file writes it, over lines"
     );
     assert_eq!(
-        key(&page, "agents", "permissions").written.as_deref(),
-        Some("{ locks = [\"uv lock\"] }")
+        key(&page, "agents", "subagents").written.as_deref(),
+        Some("{ most = 3 }")
     );
     assert_eq!(key(&page, "agents", "command").change, None, "only the file changes it");
     assert_eq!(key(&page, "agents.levels.2", "model").change, Some(Change::Name));

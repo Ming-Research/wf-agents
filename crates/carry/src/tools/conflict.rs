@@ -72,8 +72,9 @@ mod tests {
             place: &place,
             continues: None,
         };
+        let said = super::super::tests::said();
         let told = Told {
-            unread: None,
+            said: &said,
             tools: &[],
         };
         let call = Call {
@@ -119,7 +120,7 @@ mod tests {
     async fn a_branch_that_merges_cleanly_is_checked_by_the_host_as_before() {
         let (repo, _) = moved("other.txt").await;
         let (said, asked) = checked(&repo).await;
-        assert_eq!(said, format!("The check could not be run: {NO_TOOLS}"));
+        assert_eq!(said, format!("No check ran ({NO_TOOLS})."));
         assert_eq!(asked, [Asked::RunTests(Named::default())]);
     }
 

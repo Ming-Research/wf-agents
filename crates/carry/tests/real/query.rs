@@ -13,5 +13,9 @@ fn the_store_is_closed_to_agents_unless_the_settings_open_it_and_with_the_real_s
     open.query.open = true;
     let described = carry::store(&open, &beside()).expect("the schema hides what agents may not read");
     assert!(described.contains("### `items`"), "{described}");
-    assert!(carry::carriers(open, &real.data, beside()).is_ok(), "the engine starts");
+    let flows = [real.flow.clone()];
+    assert!(
+        carry::carriers(open, &real.data, beside(), &flows).is_ok(),
+        "the engine starts"
+    );
 }

@@ -61,7 +61,7 @@ not_answerable = "The question `{name}` cannot be asked from this cell: no answe
 # return nor the engine's question that stands of the file as it is says why.
 unexplained = "`{path}` is a file the project protects. The work's branch changes it, and nothing says why: say in `protected_changes` why the change is needed, or take it back."
 # A file, `{path}`, that the run of a line that changes only the project's tests changed on the work's branch, and that
-# is none of the project's tests (`[tests]` of `project.toml`).
+# is none of the project's tests (`[tests]` of its declaration).
 not_a_test = "`{path}` is not one of the project's tests, which are the only files your line changes: take back what this run changed in it."
 # The worktree, as the round of a line that may change the work ended with a return that asks for no call, holds, of the
 # files git tracks, `{changes}` as `git status --porcelain` lists them, that are not committed; or a merge begun in it is
