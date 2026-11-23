@@ -156,7 +156,7 @@ pub fn rest_of_rounds(under_way: &[UnderWay]) -> Rest {
 #[serde(rename_all = "camelCase")]
 pub struct TestTimes {
     pub project: Option<String>,
-    /// How many merged checks the project has: a judgment needs the installation's `history.samples` of them, and the
+    /// How many merged checks the project has: a judgment needs [`driver::history::HISTORY_SAMPLES`] of them, and the
     /// growth of the CI twice as many.
     pub checks: usize,
     /// The tests that took longer than their own history says in the latest merged check and in the one before.

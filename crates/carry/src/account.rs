@@ -271,8 +271,7 @@ mod tests {
         let mode = format!(
             "{} names permissions.defaultMode, which has no effect: the engine runs the program with \
              CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, which makes it start in default permission mode whatever is given; \
-             take it out of the file, and allow what agents may do with --allowedTools rules in agents.args, such \
-             as Edit(./**).",
+             take it out of the file, and what agents may do is said in allowed.toml beside the flows.",
             at.display()
         );
         std::fs::write(
@@ -281,7 +280,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(settings_file_faults(dir.path()), vec![credential.clone()]);
-        // A mode is refused whatever its value, as the arguments' --permission-mode is.
+        // A mode is refused whatever its value.
         for value in ["acceptEdits", "default"] {
             std::fs::write(&at, format!(r#"{{"permissions":{{"defaultMode":"{value}"}}}}"#)).unwrap();
             assert_eq!(settings_file_faults(dir.path()), vec![mode.clone()], "{value}");
