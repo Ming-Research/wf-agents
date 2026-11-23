@@ -301,6 +301,11 @@ struct History {
     unmatters: u64,
     /// How often, in a hundred, a return that hands in names only some of what ran its round as dealt with.
     partial: u64,
+    /// How often, in a hundred, a return asks for a tool, so that its run goes on to a round after the first.
+    calls: u64,
+    /// The cells whose returns deal with nothing, so that a cell that runs until a run of it has dealt with something is
+    /// run again.
+    nothing_dealt: BTreeSet<String>,
     prefer: BTreeMap<String, u64>,
     /// The value a return that writes a choice gives it, of some choices.
     force: BTreeMap<String, String>,
@@ -345,6 +350,8 @@ impl History {
             asks: 8,
             unmatters: 0,
             partial: 0,
+            calls: 15,
+            nothing_dealt: BTreeSet::new(),
             prefer: BTreeMap::new(),
             force: BTreeMap::new(),
             target: None,
@@ -848,7 +855,7 @@ impl History {
             Some(Forced::Fail) => {}
             None => {}
         }
-        if !scripted && self.rng.chance(15) {
+        if !scripted && self.rng.chance(self.calls) {
             // A tool run on something, or a tool run on nothing.
             let ask = match self.rng.below(3) {
                 0 | 1 => Ask::Tool {
@@ -937,7 +944,9 @@ impl History {
             });
         }
         let mut came = Came::hands_in(writes);
-        if self.partial > 0 && cell.line.is_some() && self.rng.chance(self.partial) {
+        if self.nothing_dealt.contains(cell.id.as_str()) && self.rng.chance(80) {
+            came.dealt_with = Some(Vec::new());
+        } else if self.partial > 0 && cell.line.is_some() && self.rng.chance(self.partial) {
             let ran_by = (decide::told(&self.sim.flow.flow, &self.sim.work.records, round.run))
                 .map(|told| told.ran_by)
                 .unwrap_or_default();
@@ -947,16 +956,13 @@ impl History {
         came
     }
 
-    /// Whether a block a return hands in changes its meaning: a block written before, which is no choice, is handed in
-    /// as changing nothing in meaning as often as the history says.
+    /// Whether a block a return hands in changes its meaning: a block that is no choice is handed in as changing nothing
+    /// in meaning as often as the history says, a first version included, which says nothing and is new to no cell.
     fn matters(&mut self, block: &BlockId, value: Option<&str>) -> bool {
         if self.unmatters == 0 || value.is_some() {
             return true;
         }
-        let written = decide::versions(&self.sim.work.records)
-            .get(block)
-            .is_some_and(|versions| !versions.is_empty());
-        !(written && self.rng.chance(self.unmatters))
+        !self.rng.chance(self.unmatters)
     }
 
     /// A question of the cell's own in one return of twelve, where its cell takes the owner's answers: it waits for the
@@ -1633,6 +1639,9 @@ struct Target {
     blocks: Vec<String>,
     /// The value of each choice the cell's own condition names, which the cell runs on.
     runs_on: Vec<(String, String)>,
+    /// Whether the cell runs only until a run of it has dealt with something: its condition names a datum the engine's
+    /// source writes once a run that dealt with something has finished.
+    one_shot: bool,
 }
 
 impl Target {
@@ -1680,6 +1689,15 @@ impl Target {
                     .collect()
             })
             .unwrap_or_default();
+        let one_shot = (sim.flow.flow.cells().iter())
+            .find(|c| c.id.as_str() == cell)
+            .is_some_and(|c| {
+                (c.applies.iter()).any(|key| match key {
+                    Condition::Is { block, .. } => (sim.flow.blocks.get(block))
+                        .is_some_and(|d| d.writers.outside.as_deref() == Some(flow::HANDED_IN)),
+                    Condition::Test(_) => false,
+                })
+            });
         Target {
             cell: cell.to_string(),
             datum: datum.map(str::to_string),
@@ -1687,6 +1705,7 @@ impl Target {
             unwritten: rest.contains(" unwritten and "),
             blocks,
             runs_on,
+            one_shot,
         }
     }
 
@@ -1836,6 +1855,11 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         history.asks = [8, 40, 90][rng.below(3)];
         history.unmatters = [0, 20, 50][rng.below(3)];
         history.partial = [0, 25, 60][rng.below(3)];
+        history.calls = [15, 40, 70][rng.below(3)];
+        history.nothing_dealt.clear();
+        if target.one_shot && rng.chance(85) {
+            history.nothing_dealt.insert(target.cell.clone());
+        }
         history.scene.passes = Some([60, 85, 100][rng.below(3)]);
         history.scene.puts = [4, 8, 16][rng.below(3)];
         history.scene.reopens = [2, 4, 10][rng.below(3)];

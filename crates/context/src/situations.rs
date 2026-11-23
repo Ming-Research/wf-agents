@@ -297,6 +297,16 @@ pub fn combinations(flow: &Compiled, words: &Agents, cell: &CellSpec, compared: 
     count
 }
 
+/// The value of each choice the cell applies on.
+fn applied(cell: &Cell) -> Vec<(BlockId, String)> {
+    (cell.applies.iter())
+        .filter_map(|key| match key {
+            Condition::Is { block, value } => Some((block.clone(), value.clone())),
+            Condition::Test(_) => None,
+        })
+        .collect()
+}
+
 impl<'a> Reach<'a> {
     fn of(flow: &'a Compiled, words: &'a Agents, cell: &'a CellSpec, compared: &'a BTreeSet<BlockId>) -> Reach<'a> {
         let place = flow.flow.place(&cell.id).unwrap_or(0);
@@ -554,6 +564,11 @@ impl<'a> Reach<'a> {
         if *class == Class::Fired && self.filled_first(block) {
             states.retain(|s| *s != Stands::HoldsLast);
         }
+        // A datum written within the cell's line: its session holds each version of it that a round handed in, and the
+        // first round of a session is sent each one written before.
+        if self.written_within_the_line(block) {
+            states.retain(|s| *s != Stands::HoldsLast);
+        }
         // The last cell worked from nothing, so that the session holds what it was sent in an earlier round of its run,
         // never as the version it last worked from.
         if self.last && entry == Entry::Later {
@@ -614,22 +629,57 @@ impl<'a> Reach<'a> {
         }
         let cells = flow.flow.cells();
         let place = flow.flow.place(&self.cell.id).unwrap_or(0);
-        let values = |cell: &Cell| -> Vec<(BlockId, String)> {
-            (cell.applies.iter())
-                .filter_map(|key| match key {
-                    Condition::Is { block, value } => Some((block.clone(), value.clone())),
-                    Condition::Test(_) => None,
-                })
-                .collect()
-        };
-        let mine = values(&cells[place]);
+        let mine = applied(&cells[place]);
         declared.writers.cells.iter().all(|id| {
             let Some(at) = flow.flow.place(id) else {
                 return false;
             };
-            (values(&cells[at]).iter()).any(|(choice, value)| {
-                (mine.iter()).any(|(own, on)| own == choice && on != value && self.never_set_back(choice, on))
-            })
+            (applied(&cells[at]).iter()).any(|(choice, value)| self.after_every_run(&mine, choice, value))
+        })
+    }
+
+    /// Whether a cell that applies on this value of the choice runs only after every run of a cell that applies on
+    /// `mine`: it applies on another value of the choice than the cell does, which the choice, once it has left it, never
+    /// returns to.
+    fn after_every_run(&self, mine: &[(BlockId, String)], choice: &BlockId, value: &str) -> bool {
+        (mine.iter()).any(|(own, on)| own == choice && on != value && self.never_set_back(choice, on))
+    }
+
+    /// Whether every version of the datum a cell's session lacks is one no session of its line has held: only cells
+    /// write it, and each of them is of the cell's line, whose session holds what a round of it hands in; or runs only
+    /// after every run of this cell; or runs only before the first run of every cell of the line, which a session's
+    /// first round is sent whole: it applies on a value of a choice that each cell of the line applies away from, and
+    /// the choice, once it has left that value, is never set back to it. So no session holds an earlier version of the
+    /// datum and lacks a later one.
+    fn written_within_the_line(&self, block: &BlockId) -> bool {
+        let flow = self.flow;
+        let Some(declared) = flow.blocks.get(block) else {
+            return false;
+        };
+        let writers = &declared.writers;
+        if writers.people || writers.outside.is_some() || writers.cells.is_empty() || self.cell.line.is_none() {
+            return false;
+        }
+        let cells = flow.flow.cells();
+        let place = flow.flow.place(&self.cell.id).unwrap_or(0);
+        let mine = applied(&cells[place]);
+        let members: Vec<Vec<(BlockId, String)>> = (flow.cells.iter())
+            .filter(|c| c.line == self.cell.line)
+            .map(|c| applied(&cells[flow.flow.place(&c.id).unwrap_or(0)]))
+            .collect();
+        writers.cells.iter().all(|id| {
+            let of_line = flow.cells.iter().any(|c| c.id == *id && c.line == self.cell.line);
+            let Some(at) = flow.flow.place(id) else {
+                return false;
+            };
+            of_line
+                || (applied(&cells[at]).iter()).any(|(choice, value)| {
+                    self.after_every_run(&mine, choice, value)
+                        || (self.never_set_back(choice, value)
+                            && members
+                                .iter()
+                                .all(|member| member.iter().any(|(c, on)| c == choice && on != value)))
+                })
         })
     }
 
@@ -888,10 +938,7 @@ impl<'a> Reach<'a> {
             Entry::First => {
                 let (alike, writes) = self.after_the_line();
                 add(alike.clone(), writes, None);
-                // A cell that must write a block hands in one before the line goes on to the next cell.
-                if self.before.last().is_none_or(|b| b.must_write.is_empty()) {
-                    add(alike.clone(), false, Some("after_nothing_handed_in".to_string()));
-                }
+                add(alike.clone(), false, Some("after_nothing_handed_in".to_string()));
                 add(Vec::new(), false, Some("fresh".to_string()));
                 // The cell before it took main in too, and was sent what came of it.
                 if self.before.last().is_some_and(|b| b.takes_main) && self.cell.takes_main {
@@ -919,16 +966,12 @@ impl<'a> Reach<'a> {
                     let (holds, after_hand_in) = self.after(other);
                     let id = other.id.as_str().to_lowercase();
                     add(holds.clone(), after_hand_in, Some(format!("after_{id}")));
-                    if other.must_write.is_empty() {
-                        add(holds.clone(), false, Some(format!("after_{id}_nothing_handed_in")));
-                    }
+                    add(holds.clone(), false, Some(format!("after_{id}_nothing_handed_in")));
                     // That cell took main in too, and was sent what came of it.
                     if other.takes_main && self.cell.takes_main {
                         let held = self.with_main(&holds);
                         add(held.clone(), after_hand_in, Some(format!("after_{id}_main")));
-                        if other.must_write.is_empty() {
-                            add(held, false, Some(format!("after_{id}_main_nothing_handed_in")));
-                        }
+                        add(held, false, Some(format!("after_{id}_main_nothing_handed_in")));
                     }
                 }
             }
@@ -989,7 +1032,14 @@ impl<'a> Reach<'a> {
                 let stands = match (class, self.last) {
                     (Class::Fired | Class::Grouped | Class::Rest, true) => Stands::HoldsNew,
                     (Class::Never | Class::Output, true) => Stands::Unwritten,
-                    (Class::Fired | Class::Grouped, false) => Stands::HoldsLast,
+                    // The first of these the datum may stand in, the session holding some version of it.
+                    (Class::Fired | Class::Grouped, false) => {
+                        let allowed = self.allowed(entry, &block, &class);
+                        [Stands::HoldsLast, Stands::HoldsLatest, Stands::HoldsNew]
+                            .into_iter()
+                            .find(|s| allowed.contains(s))
+                            .unwrap_or(Stands::HoldsLast)
+                    }
                     (Class::Rest | Class::Never | Class::Output, false) => Stands::Holds,
                 };
                 // What only cells that run after every run of this cell write is not written whenever it is entered.
