@@ -1282,8 +1282,12 @@ pub struct Missed {
     /// The tokens its session held.
     pub held: u64,
     /// What comes before the session's messages in the prompt and differs from the call before, by name: the cause by
-    /// design; none where nothing does, and the miss is a fault of wf-agents.
+    /// design; none where nothing does, and the miss is a fault of wf-agents unless `unknown`.
     pub differs: Vec<String>,
+    /// Whether the records do not say why it missed: none of the parts differs by what they hold, and they do not hold
+    /// what both calls were given, or the first prompt is shorter than what the session held with no compaction
+    /// recorded.
+    pub unknown: bool,
 }
 
 /// The session of its line a round runs in.
@@ -2621,9 +2625,12 @@ fn skipped_words(words: &flow::agents::StalledWords, cell: &str, on: &[CellKey])
     flow::agents::sentence(&unrun_words(words, cell, &skipped_why(words, on)))
 }
 
-/// A cell that does not run, and why, in the words of a stalled work.
-fn unrun_words(words: &flow::agents::StalledWords, cell: &str, why: &str) -> String {
-    flow::agents::fill(&words.unrun, &[("cell", &name_words(words, cell)), ("why", why)])
+/// A cell that does not run, and because of what, in the words of a stalled work.
+fn unrun_words(words: &flow::agents::StalledWords, cell: &str, because: &str) -> String {
+    flow::agents::fill(
+        &words.unrun,
+        &[("cell", &name_words(words, cell)), ("because", because)],
+    )
 }
 
 /// That a cell is skipped, its keys not holding, in the words of a stalled work.
@@ -3146,8 +3153,7 @@ fn numbered(records: &Records, block: &BlockId, at: Seq) -> Result<u64, Broken> 
 
 /// The deciding code's view of the work, which the driver holds, in the room what holds every work at once leaves it.
 pub(crate) fn viewed_at(driver: &Driver, number: WorkNumber, at_once: &driver::AtOnce) -> Result<View, Broken> {
-    (driver.view_at(number, at_once))
-        .ok_or_else(|| Broken(format!("the driver shows work {} and has no view of it", number.0)))
+    (driver.view_at(number, at_once)).ok_or_else(|| Broken(format!("the driver shows {number} and has no view of it")))
 }
 
 /// The link of the CI run a round or a call runs as, where what carries it out says it does.
@@ -3326,7 +3332,11 @@ fn in_detail(
                 .map(|m| Missed {
                     read: m.read,
                     held: m.held,
-                    differs: m.differs.clone(),
+                    differs: match &m.cause {
+                        driver::cache::Cause::Differs(parts) => parts.clone(),
+                        driver::cache::Cause::Unknown | driver::cache::Cause::Fault => Vec::new(),
+                    },
+                    unknown: m.cause == driver::cache::Cause::Unknown,
                 });
             round.session = line.map(|line| {
                 let on_line = |other: RunId| line_of(other) == Some(line);

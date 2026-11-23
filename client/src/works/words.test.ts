@@ -10,6 +10,7 @@ import {
   duration,
   isOpen,
   isWayRound,
+  itemName,
   itemsWords,
   nowTone,
   nowWords,
@@ -26,6 +27,7 @@ import {
   waitCount,
   waitCounted,
   waitedWords,
+  workName,
 } from './words';
 
 const precondition: Waited = {
@@ -55,6 +57,15 @@ const limit: Wait = {
   why: 'The cell ran 3 times in a row for what a cell after it wrote, which is its limit.',
   ends: { kind: 'letGo', cell: 'merge' },
 };
+
+describe("a work's number and an item's, as the engine writes them", () => {
+  it('writes a work as W and its number, an item as # and its number, and a holder of the turn as a work', () => {
+    expect(workName(43)).toBe('W43');
+    expect(itemName(79)).toBe('#79');
+    const turn: Waited = { kind: 'turn', holder: 7, since: 0 };
+    expect(waitedWords(turn)).toContain('W7');
+  });
+});
 
 describe('what a work does now, in words', () => {
   it('names every state by the one catalogue: the word first, then the cell, then why', () => {

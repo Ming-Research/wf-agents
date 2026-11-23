@@ -170,7 +170,7 @@ fn carry_keeping(
         let beside = declared.beside;
         project.tree = beside.project.tree.clone();
         let tool = beside.tools.get(tools::RUN_TESTS).cloned();
-        let unread = unread(&beside);
+        let said = tools::Said::of(&beside).map_err(|why| format!("projects.{name}: {why}"))?;
         // The check before the merge holds a change to what the project protects until the owner lets it merge.
         let protecting = acts::Protecting {
             paths: beside.project.protected.paths.clone(),
@@ -188,14 +188,14 @@ fn carry_keeping(
                     &tag,
                     (words.clone(), protecting, None),
                     query.clone(),
-                    unread,
+                    said,
                 )
             }
             Some(github) => {
                 let env = |name: &str| std::env::var(name).ok();
                 let ci = beside.project.ci.clone();
-                let said = (tool.clone(), Some(words.check.clone()));
-                let host = host::GitHub::from_settings(github, &project, &data, installation, env, ci, said)
+                let hosting = (tool.clone(), Some(words.check.clone()), beside.pull_request.clone());
+                let host = host::GitHub::from_settings(github, &project, &data, installation, env, ci, hosting)
                     .map_err(|why| format!("projects.{name}: {why}"))?;
                 let look = (host_look.get_or_insert_with(|| Arc::new(failure::LookAt(host::github::LOOK.to_string()))))
                     .clone();
@@ -206,7 +206,7 @@ fn carry_keeping(
                     &tag,
                     (words.clone(), protecting, Some(look)),
                     query.clone(),
-                    unread,
+                    said,
                 )
             }
         };
@@ -227,14 +227,17 @@ fn carry_keeping(
         acts: Arc::new(ByProject {
             of: acts,
             said: beside.installation.no_project.clone(),
+            withdrawn: beside.calls.withdrawn.clone(),
         }),
         tools: Arc::new(ByProject {
             of: tools,
             said: beside.installation.no_project.clone(),
+            withdrawn: beside.calls.withdrawn.clone(),
         }),
         outside: Arc::new(outside),
         host: host_look,
         tokens,
+        calls: beside.calls.clone(),
     };
     Ok((carriers, watches))
 }
@@ -253,11 +256,6 @@ pub fn store(settings: &Settings, beside: &flow::agents::Agents) -> Result<Strin
     querying(settings, beside, Path::new("")).map(|query| query.store())
 }
 
-/// What an agent is told of a request of `run_tests` that cannot be read, from the file of the tool.
-fn unread(beside: &flow::agents::Agents) -> Option<String> {
-    beside.tools.get(tools::RUN_TESTS).and_then(|tool| tool.unread.clone())
-}
-
 /// The acts, with their words and what their check holds to the owner's yes, the tools and the watch of main, on one
 /// host they share, and the reference that holds main's head as the host last gave it.
 fn on<H: Host>(
@@ -267,7 +265,7 @@ fn on<H: Host>(
     tag: &str,
     (words, protecting, look): (Words, acts::Protecting, Option<Arc<dyn service::Network>>),
     query: Querying,
-    unread: Option<String>,
+    said: tools::Said,
 ) -> (Arc<dyn Rounds>, Arc<dyn ToolsTrait>, Watch, String) {
     let main = host.kept_main();
     let host = Arc::new(host);
@@ -284,7 +282,7 @@ fn on<H: Host>(
         None => acts,
     };
     let watch = acts.watch(WATCH);
-    let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string(), unread).querying(query);
+    let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string(), said).querying(query);
     (Arc::new(acts), Arc::new(tools), watch, main)
 }
 
@@ -296,7 +294,10 @@ mod tests {
     fn what_a_request_that_cannot_be_read_is_told_is_what_the_repositorys_file_of_the_tool_says() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
         let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
-        let told = super::unread(&beside).expect("the file of run_tests says it");
+        let told = super::tools::Said::of(&beside)
+            .expect("the file of run_tests says what it tells")
+            .unread
+            .expect("the file of run_tests says it");
         assert!(
             told.starts_with("Nothing was run: ") && told.contains("{error}"),
             "{told}"

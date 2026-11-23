@@ -36,11 +36,12 @@ use crate::message::{self, By, Called, Datum, Form, Main, NewVersions, Run, Sent
 use crate::text::as_written;
 use decide::run::Unmet;
 
-/// Which work a round is of, and the item it is done for, by their numbers, with the item's title.
+/// Which work a round is of, and the item it is done for, by their numbers as the engine writes them (`W1`, `#1`),
+/// with the item's title.
 #[derive(Clone, Copy, Debug)]
 pub struct For<'a> {
-    pub work: u64,
-    pub item: u64,
+    pub work: &'a str,
+    pub item: &'a str,
     pub title: &'a str,
 }
 

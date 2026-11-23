@@ -12,6 +12,13 @@ const STREAM: &str = include_str!("fixtures/stream.jsonl");
 /// The real stream of a round the command line gave up on: two calls and a result.
 const GAVE_UP: &str = include_str!("fixtures/gave-up.jsonl");
 
+/// The words beside the flows of this repository, which the sentences of a result are in.
+fn program() -> flow::agents::ProgramWords {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+    beside.cost.program
+}
+
 fn lines(text: &str) -> Vec<String> {
     text.lines().filter(|l| !l.is_empty()).map(str::to_string).collect()
 }
@@ -79,7 +86,7 @@ fn a_real_stream_costs_what_its_result_says_it_spent_and_no_call_is_added_to_it(
         let stream = feed(&all);
         assert_eq!(stream.cost(), (said, false), "the program's own count, none priced");
         assert!(!stream.estimated());
-        let spent = match stream.read() {
+        let spent = match stream.read(&program()) {
             Ok(read) => read.spent,
             Err(no) => no.spent.expect("a result says what it cost"),
         };
@@ -163,7 +170,7 @@ fn a_result_that_names_no_model_spent_nothing_whatever_the_session_cost_before()
     .to_vec();
     let stream = feed(&lines);
     assert_eq!(stream.cost(), (0, false));
-    let no = stream.read().expect_err("an error result is no return");
+    let no = stream.read(&program()).expect_err("an error result is no return");
     assert_eq!(no.spent.map(|s| s.usd_micros), Some(0));
 }
 
