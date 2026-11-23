@@ -20,8 +20,7 @@ impl fmt::Display for Fault {
                 let failed = failed_words(failed);
                 write!(
                     f,
-                    "what was said to have come of something to be done for work {}: {failed}",
-                    work.0
+                    "what was said to have come of something to be done for {work}: {failed}"
                 )
             }
             Fault::Stray { todo, missing } => {
@@ -35,8 +34,8 @@ impl fmt::Display for Fault {
                 };
                 write!(
                     f,
-                    "the driver gave something to be done for work {} that names {what}",
-                    todo.work.0
+                    "the driver gave something to be done for {} that names {what}",
+                    todo.work
                 )
             }
         }
@@ -87,7 +86,7 @@ impl fmt::Display for Refusal {
 /// Why the driver did not do what it was asked, as a clause.
 fn failed_words(failed: &Failed) -> String {
     match failed {
-        Failed::NoSuchItem(item) => format!("there is no item #{}", item.0),
+        Failed::NoSuchItem(item) => format!("there is no item {item}"),
         // One change asked is refused in its own words; of several, each refused is named by its place, and none was
         // made.
         Failed::NotChanged { asked: 1, refused } if refused.len() == 1 => why_not_made(&refused[0]),
@@ -107,7 +106,7 @@ fn failed_words(failed: &Failed) -> String {
         Failed::BadTag(tag) => bad_tag(tag),
         Failed::BadContinues(continues) => bad_continues(continues),
         Failed::NoStart(flow) => no_start(flow),
-        Failed::NoSuchWork(work) => format!("there is no work {}", work.0),
+        Failed::NoSuchWork(work) => format!("there is no work {work}"),
         Failed::NoSuchFlow(flow) => format!("there is no flow named {flow}"),
         Failed::Refused(refused) => refused_words(refused),
         Failed::Stopped { fault, .. } => format!("the engine stopped: {}", driver_fault(fault)),
@@ -154,7 +153,7 @@ fn no_start(flow: &str) -> String {
 
 /// Items by number, in words: `#3`, `#3 and #5`, `#3, #5 and #9`.
 fn items(numbers: &[ItemNumber]) -> String {
-    let named: Vec<String> = numbers.iter().map(|n| format!("#{}", n.0)).collect();
+    let named: Vec<String> = numbers.iter().map(|n| n.to_string()).collect();
     match named.as_slice() {
         [] => "no item".to_string(),
         [one] => one.clone(),
@@ -165,14 +164,14 @@ fn items(numbers: &[ItemNumber]) -> String {
 /// Why a change was refused, as a clause.
 fn why_not_made(refused: &NotMade) -> String {
     match &refused.why {
-        driver::changes::Refused::NoSuchItem(item) => format!("there is no item #{}", item.0),
+        driver::changes::Refused::NoSuchItem(item) => format!("there is no item {item}"),
         driver::changes::Refused::BlankTitle => blank_title().to_string(),
         driver::changes::Refused::BadTag(tag) => bad_tag(tag),
         driver::changes::Refused::BadContinues(continues) => bad_continues(continues),
         driver::changes::Refused::NoStart => format!(
-            "the flow of the work of #{} has no cell that starts a work, so nothing would read what the item continues: \
-             leave it out",
-            refused.item.0
+            "the flow of the work of {item} has no cell that starts a work, so nothing would read what the item \
+             continues: leave it out",
+            item = refused.item
         ),
         driver::changes::Refused::Unchangeable(why) => unchangeable_words(refused.item, why),
     }
@@ -180,35 +179,34 @@ fn why_not_made(refused: &NotMade) -> String {
 
 /// Why an item may not be changed so, as a clause.
 fn unchangeable_words(item: ItemNumber, why: &Unchangeable) -> String {
-    let item = item.0;
     match why {
         Unchangeable::Ended(End::Merged) => {
-            format!("#{item} has merged: an item that has ended takes no change, and is what it ended as")
+            format!("{item} has merged: an item that has ended takes no change, and is what it ended as")
         }
         Unchangeable::Ended(End::Cancelled) => format!(
-            "#{item} is cancelled: an item that has ended takes no change, and is what it ended as; reopen it first"
+            "{item} is cancelled: an item that has ended takes no change, and is what it ended as; reopen it first"
         ),
         Unchangeable::Started => format!(
-            "the work of #{item} has started, and what an item depends on changes only until its work starts: \
+            "the work of {item} has started, and what an item depends on changes only until its work starts: \
              what it depends on is what its work started on. What turns up for it is a new item, which may depend on it"
         ),
         Unchangeable::Placed => format!(
-            "the work of #{item} has made its branch, and what an item continues changes only until its work's \
+            "the work of {item} has made its branch, and what an item continues changes only until its work's \
              branch is made: the branch was made from it"
         ),
-        Unchangeable::Circle(way) if way.len() == 1 => format!("#{item} cannot depend on itself"),
+        Unchangeable::Circle(way) if way.len() == 1 => format!("{item} cannot depend on itself"),
         Unchangeable::Circle(way) => {
-            let way: Vec<String> = way.iter().map(|on| format!("#{}", on.0)).collect();
+            let way: Vec<String> = way.iter().map(|on| on.to_string()).collect();
             format!(
-                "#{item} cannot depend on {}, which depends on it already: {}",
+                "{item} cannot depend on {}, which depends on it already: {}",
                 way[0],
                 way.join(" depends on ")
             )
         }
-        Unchangeable::NotDependent(on) => format!("#{item} does not depend on #{}", on.0),
-        Unchangeable::NotTagged(tag) => format!("#{item} does not carry the tag {tag}"),
+        Unchangeable::NotDependent(on) => format!("{item} does not depend on {on}"),
+        Unchangeable::NotTagged(tag) => format!("{item} does not carry the tag {tag}"),
         Unchangeable::MergedDependants(merged) => format!(
-            "{} merged depending on #{item}, and a merged item depends on nothing that has not ended",
+            "{} merged depending on {item}, and a merged item depends on nothing that has not ended",
             items(merged)
         ),
         Unchangeable::StartedDependants(started) => {
@@ -217,14 +215,14 @@ fn unchangeable_words(item: ItemNumber, why: &Unchangeable) -> String {
                 _ => ("depend", "their works have", "they have"),
             };
             format!(
-                "{} {depend} on #{item}, and {works} started: a work goes on from what it depended on as it \
-                 started, so #{item} is not reopened while {they} not ended",
+                "{} {depend} on {item}, and {works} started: a work goes on from what it depended on as it \
+                 started, so {item} is not reopened while {they} not ended",
                 items(started)
             )
         }
-        Unchangeable::NotCancelled => format!("#{item} is not cancelled: only a cancelled item is reopened"),
+        Unchangeable::NotCancelled => format!("{item} is not cancelled: only a cancelled item is reopened"),
         Unchangeable::LettingGo => {
-            format!("the cancel of #{item} is still letting go of what its work held: reopen it once that is done")
+            format!("the cancel of {item} is still letting go of what its work held: reopen it once that is done")
         }
     }
 }
@@ -349,19 +347,15 @@ fn driver_fault(fault: &driver::Fault) -> String {
             "more than one block of the flow {flow} is written by the source {}",
             driver::DEPENDENCIES
         ),
-        F::NoSuchFlow { work, flow } => format!("work {} runs on the flow {flow}, which was not given", work.0),
-        F::NotOneWork(item) => format!("the store holds item {} without exactly one work", item.0),
+        F::NoSuchFlow { work, flow } => format!("{work} runs on the flow {flow}, which was not given"),
+        F::NotOneWork(item) => format!("the store holds {item} without exactly one work"),
         F::Refused { work, refused } => format!(
-            "what the driver itself gave the engine's loop for work {} was refused: {}",
-            work.0,
+            "what the driver itself gave the engine's loop for {work} was refused: {}",
             refused_words(refused)
         ),
         F::Outline { version, why } => format!("the outline kept of version {version} of a flow does not read: {why}"),
         F::NoSuchVersion { work, version } => {
-            format!(
-                "work {} is on version {version} of its flow, which the store does not keep",
-                work.0
-            )
+            format!("{work} is on version {version} of its flow, which the store does not keep")
         }
         F::EarlierIds {
             flow,
@@ -369,7 +363,7 @@ fn driver_fault(fault: &driver::Fault) -> String {
             works,
             why,
         } => {
-            let works: Vec<String> = works.iter().map(|work| work.0.to_string()).collect();
+            let works: Vec<String> = works.iter().map(|work| work.to_string()).collect();
             let why = match &**why {
                 driver::Misread::Rewritten => format!("it does not begin with the table of version {version}"),
                 driver::Misread::TwoAsOne { cells, reads_as } => {
@@ -384,9 +378,9 @@ fn driver_fault(fault: &driver::Fault) -> String {
                 ),
             };
             format!(
-                "the table of earlier ids of the flow {flow} would misread what works {} recorded: {why}; mend the table \
-                 in the flow",
-                works.join(", ")
+                "the table of earlier ids of the flow {flow} would misread what the works {works} recorded: {why}; mend the \
+                 table in the flow",
+                works = works.join(", ")
             )
         }
     }
@@ -406,9 +400,9 @@ pub fn store_fault_words(fault: &store::Fault) -> String {
         F::Schema { found: None, expected } => {
             format!("the database has tables but no version of the schema, and this program keeps version {expected}")
         }
-        F::NoSuchWork(work) => format!("it has no work {}", work.0),
-        F::NoSuchDependency(item) => format!("an item was to depend on item {}, which it does not have", item.0),
-        F::NoSuchItem(item) => format!("it has no item {}", item.0),
+        F::NoSuchWork(work) => format!("it has no work {work}"),
+        F::NoSuchDependency(item) => format!("an item was to depend on {item}, which it does not have"),
+        F::NoSuchItem(item) => format!("it has no item {item}"),
         F::Diverged { table, entry, how } => {
             let how = match how {
                 store::Divergence::Changed => "holds something else",

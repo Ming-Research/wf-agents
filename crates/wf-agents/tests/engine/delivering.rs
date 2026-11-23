@@ -58,7 +58,7 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
     add("Build it", "engineer", None);
     assert_eq!(
         add("Deliver it", "deliver", Some("1")),
-        "Added item 2 with its work 2, paused: let it on with `wf-agents resume 2`.\n"
+        "Added item #2 with its work W2, paused: let it on with `wf-agents resume 2`.\n"
     );
     add("Build on it", "engineer", Some("2"));
     engine.says(&["resume", "3"]);

@@ -147,13 +147,13 @@ describe('the list of works with several hundred works', () => {
     drawn.rows = 0;
     const changed = 2000 + 7;
     s.changedWork = changed;
-    act(() => s.changed({ works: [changed], items: false, copies: false, accounts: false }));
+    act(() => s.changed({ works: [changed], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect(page.querySelector(`tr[data-work="${changed}"] .now-words`)?.textContent).toBe('Running · review');
     expect(drawn.rows).toBe(1);
     // Read again with nothing changed, no row is drawn again.
     drawn.rows = 0;
-    act(() => s.changed({ works: [2000], items: false, copies: false, accounts: false }));
+    act(() => s.changed({ works: [2000], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect(drawn.rows).toBe(0);
   }, 60_000);
@@ -170,12 +170,12 @@ describe('the list of works with several hundred works', () => {
     await settle();
     expect(s.reads).toBe(1);
     act(() => {
-      for (let i = 0; i < 10; i += 1) s.changed({ works: [2000 + i], items: false, copies: false, accounts: false });
+      for (let i = 0; i < 10; i += 1) s.changed({ works: [2000 + i], items: false, copies: false, accounts: false, observations: false });
     });
     await settle();
     // The first change reads at once; the nine that came while it was under way, once after it.
     expect(s.reads).toBe(3);
-    act(() => s.changed({ works: [], items: false, copies: true, accounts: false }));
+    act(() => s.changed({ works: [], items: false, copies: true, accounts: false, observations: false }));
     await settle();
     expect(s.reads).toBe(3);
   });

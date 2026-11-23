@@ -54,7 +54,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
         .map(|number| {
             let given = match number {
                 1 => json!({ "kind": "task" }),
-                _ => json!({ "kind": "sentBack", "unmet": [{ "kind": "dealtWithNothing" }] }),
+                _ => json!({ "kind": "sentBack", "unmet": [{ "key": "dealt_with_nothing", "values": [] }] }),
             };
             json!({
                 "number": number,
@@ -301,23 +301,23 @@ async fn what_there_is_none_of_is_refused_with_why() {
     let none = StatusCode::NOT_FOUND;
     assert_eq!(
         refused(router, "/api/v1/works/9").await,
-        (none, "There is no work 9.".to_string())
+        (none, "There is no work W9.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/9/calls/2").await,
-        (none, "There is no work 9.".to_string())
+        (none, "There is no work W9.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/versions/request/2").await,
-        (none, "Work 1 has no version 2 of request.".to_string())
+        (none, "W1 has no version 2 of request.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/runs/1/rounds/7").await,
-        (none, "Work 1 has no round 7 of run 1.".to_string())
+        (none, "W1 has no round 7 of run 1.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/calls/3").await,
-        (none, "Work 1 has no call 3.".to_string())
+        (none, "W1 has no call 3.".to_string())
     );
     let (status, words) = refused(router, "/api/v1/works/one").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);

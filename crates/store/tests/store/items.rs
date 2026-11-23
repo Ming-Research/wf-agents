@@ -179,6 +179,15 @@ fn an_item_whose_work_cannot_be_kept_is_not_added() {
     );
 }
 
+// A number is written as what it numbers wherever the engine writes one in words, by one writer: an item with a `#`, a
+// work with a `W`.
+#[test]
+fn an_item_number_is_written_with_a_hash_and_a_work_number_with_a_w() {
+    assert_eq!(ItemNumber(79).to_string(), "#79");
+    assert_eq!(WorkNumber(43).to_string(), "W43");
+    assert_eq!(format!("{} of {}", WorkNumber(1), ItemNumber(2)), "W1 of #2");
+}
+
 #[test]
 fn an_item_is_added_continuing_a_branch_or_a_pull_request_and_read_back_with_it_as_it_was_added() {
     let mut store = Store::in_memory().expect("the store opens");

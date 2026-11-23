@@ -122,6 +122,8 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
+    // A file of version 21 kept no times of the runs of the CI, which version 30 keeps.
+    work.timed.clear();
     assert_eq!(store.load(WorkNumber(1)), Ok(work));
     for table in ["flow_files", "flows", "on_flow", "kept_time"] {
         assert_eq!(count(&old.path, table), 0, "{table} holds rows");
@@ -148,6 +150,8 @@ fn a_file_of_version_23_is_migrated_with_no_fork_kept() {
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
+    // A file of version 23 kept no times of the runs of the CI, which version 30 keeps.
+    work.timed.clear();
     assert_eq!(store.load(WorkNumber(1)), Ok(work));
     assert_eq!(count(&old.path, "forked"), 0, "a work kept before has no fork");
 }

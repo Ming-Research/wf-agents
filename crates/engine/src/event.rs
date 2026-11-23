@@ -6,7 +6,7 @@ use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
 use flow::{Compiled, Kind};
 
-use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Why};
+use work::{Ask, Call, Fill, Given, Handed, Left, Measures, Question, RanOn, Reading, Said, Spent, Time, Why};
 
 use crate::spoken::{NoOne, Telling, To};
 
@@ -99,6 +99,10 @@ pub enum Event {
         attempt: usize,
         measures: Measures,
     },
+    /// A program run for the work ended by itself and left these many processes running in its group, one or more,
+    /// which its carrier stopped before it gave the program's end: a try of the round under way, the check of an act's
+    /// round under way or of a call with no result yet, or a keep-warm ping.
+    LeftBehind { of: Left, processes: usize },
     /// A keep-warm ping of the session of this number of the line ended, having taken this, or failed for this
     /// reason, as [`Effect::Ping`] asked.
     Pinged {
@@ -113,6 +117,10 @@ pub enum Event {
     /// The host of the work's repository found the work checked through the pull request of this number, at this
     /// address, opening it where the work had none: kept with the work where it is another than the latest kept.
     Pulled { number: u64, url: String },
+    /// The host of the work's repository read a run of the project's CI, which a call of `run_tests` or a round of the
+    /// check asked for, and says how long its tests and jobs took, or that it gives no time: kept with the work where
+    /// the same run is not kept already.
+    Timed { reading: Reading },
     /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
     Released,
     /// What the work held outside the engine could not be let go, for this reason, as whatever carried out

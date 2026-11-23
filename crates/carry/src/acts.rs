@@ -231,7 +231,7 @@ impl<H: Host> Rounds for Acts<H> {
         let Some(stop) = self.inner.held.hold(key, reply) else {
             return;
         };
-        let mut stop = stop.saying(saying).hosting(hosting);
+        let mut stop = stop.saying(saying).hosting(hosting).test_time(round.lines.test_time);
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let done = inner.act(&round, &teller, &mut stop).await;
@@ -1043,7 +1043,7 @@ pub fn faults(flow: &Compiled, values: &CheckValues) -> Vec<String> {
 
 /// What `deliver` writes: that the item is delivered, and the items it was made of, by their numbers in order.
 fn delivered(made_of: &[ItemNumber], words: &Deliver) -> String {
-    let numbers: Vec<String> = made_of.iter().map(|item| item.0.to_string()).collect();
+    let numbers: Vec<String> = made_of.iter().map(ToString::to_string).collect();
     match numbers.as_slice() {
         [] => words.none.clone(),
         [one] => fill(&words.one, &[("item", one)]),
@@ -1208,7 +1208,7 @@ pub(crate) fn name(flow: &Compiled, work: &Work, number: WorkNumber, commits: &f
     let written = described(&named, work);
     let line = written.lines().map(str::trim).find(|line| !line.is_empty());
     line.map_or_else(
-        || fill(&commits.unnamed, &[("work", &number.0.to_string())]),
+        || fill(&commits.unnamed, &[("work", &number.to_string())]),
         str::to_string,
     )
 }
@@ -1249,7 +1249,7 @@ mod tests {
     use crate::git::Place;
     use crate::git::tests::{Repo, commit, marking, run};
     use crate::host::fake::{Asked, Fake};
-    use crate::host::{Local, Verdict};
+    use crate::host::{Local, Named, Verdict};
     use crate::tree::tests::{asked, asked_in, withdrawn};
 
     fn outputs() -> Vec<(BlockId, Option<Vec<String>>)> {
@@ -1434,15 +1434,15 @@ mod tests {
         );
         assert_eq!(
             delivered(&items(&[4]), &words().deliver),
-            "Delivered, made of the item 4."
+            "Delivered, made of the item #4."
         );
         assert_eq!(
             delivered(&items(&[2, 4]), &words().deliver),
-            "Delivered, made of the items 2 and 4."
+            "Delivered, made of the items #2 and #4."
         );
         assert_eq!(
             delivered(&items(&[2, 4, 7]), &words().deliver),
-            "Delivered, made of the items 2, 4 and 7."
+            "Delivered, made of the items #2, #4 and #7."
         );
     }
 
@@ -1776,7 +1776,7 @@ mod tests {
 
     /// Checks the work in the repository with the local host, which must give a verdict.
     async fn checked_locally(repo: &Repo) -> Checked {
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         check_with(repo, &host, &mut Stop::never())
             .await
             .expect("the work is checked")
@@ -2090,7 +2090,7 @@ mod tests {
     async fn the_local_host_continues_a_branch_of_the_repository_and_no_pull_request() {
         let repo = Repo::new("true");
         let old = aside(&repo, "old.txt", "Old.\n");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         assert_eq!(
             host.continued(&store::Continues::Branch("aside".to_string())).await,
             Ok(old)
@@ -2531,14 +2531,16 @@ mod tests {
     #[tokio::test]
     async fn a_work_with_no_worktree_is_not_checked() {
         let repo = Repo::new("true");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         assert!(check_with(&repo, &host, &mut Stop::never()).await.is_err());
     }
 
     #[tokio::test]
     async fn the_local_check_passes_a_committed_work_that_merges_and_passes_the_command() {
         let repo = Repo::new("test -f greeting.txt");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let checked = checked_locally(&repo).await;
         assert_eq!(checked.failed, None);
@@ -2552,7 +2554,9 @@ mod tests {
     #[tokio::test]
     async fn the_local_check_runs_on_a_checkout_of_the_commit_alone_and_takes_it_away() {
         let repo = Repo::new("test -f new.txt");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         let dir = &started.place.dir;
         commit(dir, "farewell.txt", "Bye.\n");
         std::fs::write(dir.join("new.txt"), "Forgotten.\n").unwrap();
@@ -2582,13 +2586,13 @@ mod tests {
         let mut repo = Repo::new("true");
         let files = ["started", "release", "ended"].map(|name| repo.data.join(name));
         let [started, release, ended] = &files;
-        repo.project.check = format!(
+        repo.check = format!(
             "touch '{}'; while [ ! -f '{}' ]; do sleep 0.02; done; touch '{}'",
             started.display(),
             release.display(),
             ended.display()
         );
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let work = start_with(&repo, &host).await.unwrap();
         let commit = commit(&work.place.dir, "farewell.txt", "Bye.\n");
         (repo, host, work.place, commit, files)
@@ -2603,6 +2607,89 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!("{} did not appear", file.display());
+    }
+
+    // What the project's check leaves running as it ends is stopped, and said through the way of saying what the host
+    // found of what ran it, before its verdict or its result is given: for the act's round that ran it as the check
+    // before the merge, and for the call of `run_tests` that ran it on the worktree. Nobody reads what it does once the
+    // check has ended. Under a second alone, most of it the two leftovers ending on TERM; no other test holds a check of
+    // the local host that leaves something running.
+    #[tokio::test]
+    async fn what_the_local_check_leaves_running_is_stopped_and_said_for_its_round_or_call() {
+        let mut repo = Repo::new("true");
+        let left = repo.data.join("left");
+        repo.check = format!("sleep 30 >/dev/null 2>&1 & echo $! > '{}'", left.display());
+        let text = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../flow/agents/tools/run_tests.toml"
+        ));
+        let tool: flow::agents::Tool = toml::from_str(text).expect("the file of run_tests reads");
+        let host = Local::new(repo.project.clone(), repo.check.clone()).saying(Some(&tool));
+        let work = start_with(&repo, &host).await.unwrap();
+        let commit = commit(&work.place.dir, "farewell.txt", "Bye.\n");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+        let reply = service::CallReply::new(WorkNumber(1), decide::CallId(1), to);
+        let stopped = || {
+            let process = std::fs::read_to_string(&left).expect("the check wrote what it left");
+            let running = std::process::Command::new("kill")
+                .args(["-0", process.trim()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .expect("kill runs")
+                .success();
+            let _ = std::process::Command::new("kill")
+                .args(["-s", "KILL", process.trim()])
+                .status();
+            !running
+        };
+        let mut heard = || {
+            let mut events = Vec::new();
+            while let Ok(message) = said.try_recv() {
+                if let service::Message::Happened { event, .. } = message {
+                    events.push(event);
+                }
+            }
+            events
+        };
+
+        let mut stop = Stop::never().hosting(reply.hosting());
+        let lock = Mutex::new(());
+        let verdict = host
+            .verdict(&branch(&work.place), &commit, &main, ROUND, &lock, &mut stop)
+            .await;
+        assert_eq!(verdict.unwrap().expect("judged").failed, None);
+        assert!(stopped(), "what the check left runs on after its verdict was given");
+        let of = work::Left::Act {
+            run: RunId(1),
+            round: 1,
+        };
+        assert_eq!(heard(), [engine::Event::LeftBehind { of, processes: 1 }]);
+
+        let call = decide::CallId(4);
+        let mut stop = Stop::never().hosting(reply.hosting());
+        let ran = host
+            .run_tests(&branch(&work.place), &Named::default(), Asking::Call(call), &mut stop)
+            .await;
+        assert!(ran.expect("it ran").is_some(), "nothing stopped it");
+        assert!(stopped(), "what the check left runs on after its result was given");
+        let of = work::Left::Call { call };
+        // The local host reads no JUnit, so it says the run of its command with no job and no test before it ends.
+        let reading = work::Reading {
+            asking: Asking::Call(call).name(),
+            source: work::Source::Command,
+            commit: String::new(),
+            workflow: String::new(),
+            jobs: Vec::new(),
+            tests: Vec::new(),
+        };
+        assert_eq!(
+            heard(),
+            [
+                engine::Event::Timed { reading },
+                engine::Event::LeftBehind { of, processes: 1 }
+            ]
+        );
     }
 
     // The checkout registers a worktree in the repository, as the acts' own worktrees are, so it is made holding the
@@ -2682,7 +2769,9 @@ mod tests {
     #[tokio::test]
     async fn a_checkout_a_stopped_engine_left_is_taken_away_before_the_next_is_made_and_with_the_work() {
         let repo = Repo::new("test -f farewell.txt");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let left = git::checking(&started.place);
         run(
@@ -2710,7 +2799,9 @@ mod tests {
     #[tokio::test]
     async fn the_local_check_fails_a_failing_command_with_the_end_of_what_it_said() {
         let repo = Repo::new("echo the greeting is wrong >&2; exit 3");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let failed = checked_locally(&repo).await.failed.expect("the check fails");
         assert!(failed.contains("the greeting is wrong"), "{failed}");
@@ -2719,7 +2810,9 @@ mod tests {
     #[tokio::test]
     async fn the_local_check_fails_a_conflict_with_main_and_merges_nothing() {
         let repo = Repo::new("true");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
         commit(&repo.project.repo, "greeting.txt", "Good day.\n");
         let failed = checked_locally(&repo).await.failed.expect("the check fails");
@@ -2733,7 +2826,7 @@ mod tests {
     #[tokio::test]
     async fn a_stopped_local_check_gives_nothing() {
         let repo = Repo::new("sleep 30");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let started = start_with(&repo, &host).await.unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let held: Held<u8, ()> = Held::new();
@@ -2752,7 +2845,9 @@ mod tests {
         let mut repo = Repo::new("true");
         // Allowed, so that the check goes on to run its commands, none of which runs it.
         repo.project.allowed_config = vec!["core.fsmonitor".to_string()];
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let marked = repo.data.join("monitor-ran");
         let monitor = repo.data.join("monitor");
@@ -2768,11 +2863,13 @@ mod tests {
     #[tokio::test]
     async fn the_check_refuses_what_the_works_own_worktree_configuration_names() {
         let mut repo = Repo::new("true");
-        start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         run(&repo.project.repo, &["config", "extensions.worktreeConfig", "true"]);
         run(&repo.place(WORK).dir, &["config", "--worktree", "core.editor", "vim"]);
         repo.project.allowed_config = vec!["extensions.worktreeconfig".to_string()];
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let refused = check_with(&repo, &host, &mut Stop::never()).await.expect_err("refused");
         assert!(refused.contains("core.editor (worktree)"), "{refused}");
         assert!(!refused.contains("extensions"), "an allowed key is let be: {refused}");
@@ -2781,7 +2878,7 @@ mod tests {
     #[tokio::test]
     async fn the_merge_refuses_a_main_that_moved_since_the_check() {
         let repo = Repo::new("true");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let started = start_with(&repo, &host).await.unwrap();
         let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let moved = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
@@ -2806,7 +2903,7 @@ mod tests {
     #[tokio::test]
     async fn a_merge_given_again_after_it_was_made_finds_it_made() {
         let repo = Repo::new("true");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let started = start_with(&repo, &host).await.unwrap();
         let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let place = repo.place(WORK);
@@ -2870,7 +2967,7 @@ mod tests {
     #[tokio::test]
     async fn the_local_host_gives_the_repositorys_main_and_merges_there() {
         let repo = Repo::new("true");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         assert_eq!(host.main().await, Ok(run(&repo.project.repo, &["rev-parse", "main"])));
         let started = start_with(&repo, &host).await.unwrap();
         let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");

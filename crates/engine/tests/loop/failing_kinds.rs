@@ -119,6 +119,91 @@ fn a_prompt_too_long_pauses_the_work_saying_so() {
     );
 }
 
+// The reason the engine stores is a sentence of the words beside the flows with the cause, whoever wrote it and however
+// it begins, after a colon: the owner's card says "The engine paused the work." before it.
+#[test]
+fn a_round_that_failed_for_another_cause_pauses_the_work_with_a_sentence_and_the_cause_after_a_colon() {
+    let (mut w, write, _) = W::requested();
+    let cause = "the command line's result holds no structured return";
+    w.on(Event::Failed {
+        run: write,
+        why: cause.to_string(),
+        failure: Failure::Other,
+        resets: None,
+        spent: spent(1),
+    });
+    let pause = decide::pause(&w.work.records).expect("the work is paused");
+    let said = format!("The round failed. The cause: {cause}.");
+    assert_eq!(pause.why.as_deref(), Some(said.as_str()));
+}
+
+// Every reason the engine stores as it pauses a work for a failed round is a sentence of the words beside the flows,
+// the cause after a colon, whatever the cause is. The sentences are written here as they stand in `waits.toml`, and the
+// cause as the round's carrier gave it, with a full stop added, so that a reason that is only the cause, or the cause
+// before a sentence, or a sentence with no colon, fails. All four are compared at once, so that one failing shows each
+// that does.
+#[test]
+fn each_reason_a_failed_round_pauses_the_work_with_is_a_sentence_and_its_cause_after_a_colon() {
+    let paused = |w: &W| match decide::pause(&w.work.records) {
+        Some(pause) => pause.why.clone().unwrap_or_default(),
+        None => "the work is not paused".to_string(),
+    };
+    let failed = PASSING + 1;
+    let mut got = Vec::new();
+
+    let (mut w, write, _) = W::requested();
+    w.on(failed_as(write, Failure::PromptTooLong));
+    got.push(("too long", paused(&w)));
+
+    let (mut w, write, _) = W::requested();
+    for _ in 0..PASSING {
+        let (call, ..) = wait_of(&w.on(failed_as(write, Failure::Passing)));
+        w.done(call);
+    }
+    w.on(failed_as(write, Failure::Passing));
+    got.push(("in passing", paused(&w)));
+
+    let (mut w, write, _) = W::requested();
+    w.on(failed_as(write, Failure::Flagged));
+    w.on(failed_as(write, Failure::Flagged));
+    got.push(("flagged again", paused(&w)));
+
+    let (mut w, write, _) = W::requested();
+    for _ in 0..=PASSING {
+        w.on(failed_as(write, Failure::Offline));
+        w.on(Event::Look);
+    }
+    got.push(("outside every work", paused(&w)));
+
+    let want = [
+        (
+            "too long",
+            "Running the round again cannot help. The cause: it failed: PromptTooLong.".to_string(),
+        ),
+        (
+            "in passing",
+            format!(
+                "The round failed in passing {failed} times in a row, and running it again has not helped. The cause: \
+                 it failed: Passing."
+            ),
+        ),
+        (
+            "flagged again",
+            "The service's safety check flagged the round again, in the new session its line was given. The cause: it \
+             failed: Flagged."
+                .to_string(),
+        ),
+        (
+            "outside every work",
+            format!(
+                "The round failed {failed} times in a row for a cause outside every work. It was tried again each \
+                 time the engine's check found the outside working. The cause: it failed: Offline."
+            ),
+        ),
+    ];
+    assert_eq!(got, want);
+}
+
 #[test]
 fn a_cause_every_work_shares_pauses_nothing_and_the_shut_gate_holds_only_agents_rounds() {
     let (mut w, write, _) = W::requested();

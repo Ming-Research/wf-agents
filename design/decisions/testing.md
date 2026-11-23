@@ -9,9 +9,16 @@ The jobs of wf-agents' own workflows run on the owner's machine, on the runners 
 - rejected: an agent proposed checking several works together in one run of the full CI; the owner rejected it, because he chose to move the full CI to his machine instead, which is faster.
 - rejected: an agent proposed not using the machine's runners until the owner narrowed them to this repository in GitHub's settings; the owner rejected it, because a pull request from outside runs only with his approval.
 
+### decision wf-agents-ci-runs-only-where-someone-reads-it
+wf-agents' full workflow runs when the engine asks for it by hand and on each pull request into main that is neither a work's nor a fork's; no push to main and no work's pull request starts it.
+- replaced: Running the full workflow on every pull request into main and on every push to main was on main; the owner changed it, because nothing reads a push, nor the run of a work's pull request, which repeats the run the engine asks for (data: `research/ci-unread-runs.md`).
+- rejected: an agent proposed running it only when the engine asks, with no pull request trigger at all; the owner rejected it, because the owner reads the run of a pull request opened in a session before it merges (data: `research/ci-unread-runs.md`).
+
 ### decision wf-agents-ci-bounds-each-test-and-job
-wf-agents' workflows stop and fail a test still running after 60 seconds, except the walks of random histories, and a job past its limit, which is 15 minutes for the Rust tests.
+wf-agents' workflows stop and fail a test still running at the line the engine gives them from the history of the tests' times, and a job past its limit, which is 15 minutes for the Rust tests.
 - replaced: A 30-minute limit on a job, and no limit on a single test, was on main; the owner changed it, because the flow's gates limited only single tests, and nothing limited the whole run.
+- replaced: A stop of 60 seconds for a test, and of 300 seconds for the walks of random histories, was on main; the owner changed it, because a test that runs too long is judged by its own history, not by a number written in.
+- rejected: an agent proposed no stop for a single test, the job's limit its only bound; the owner rejected it, because a test that hung would hold its job for up to 15 minutes and the job is cancelled with no JUnit, so the test is found only from the log.
 
 ### decision wf-agents-tests-build-dependencies-optimized
 wf-agents' CI builds its tests with the dependencies fully optimized and its own crates unoptimized, except the flow crate, which is built at level 1.

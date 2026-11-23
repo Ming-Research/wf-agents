@@ -104,6 +104,7 @@ async fn engine_act(State(handle): State<Handle>, body: Bytes) -> Response {
         EngineAct::Pause {} => handle.pause_everything(true).await,
         EngineAct::Resume {} => handle.pause_everything(false).await,
         EngineAct::KeepWarm { on } => handle.keep_warm(on).await,
+        EngineAct::Stop { now } => handle.stop(now).await,
     };
     match done {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -347,7 +348,10 @@ async fn graph(
     let depth = query.depth.unwrap_or(3).max(1);
     match handle.read(move |driver| Graph::of(driver, item, way, depth)).await {
         Ok(Some(graph)) => Json(graph).into_response(),
-        Ok(None) => fail(StatusCode::NOT_FOUND, format!("There is no item #{item}.")),
+        Ok(None) => fail(
+            StatusCode::NOT_FOUND,
+            format!("There is no item {item}.", item = store::ItemNumber(item)),
+        ),
         Err(refusal) => refused(&refusal),
     }
 }
@@ -361,7 +365,7 @@ async fn work(
         Ok(Path(number)) => WorkNumber(number),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("There is no work {}.", number.0);
+    let missing = format!("There is no work {number}.");
     let page = handle
         .read_at(move |driver, now| {
             driver.work(number).map(|_| {
@@ -397,8 +401,8 @@ async fn saw(handle: &Handle, asked: Vec<Option<service::OfWork>>, mut summaries
         match seen {
             Ok(seen) => summary.saw(seen),
             Err(why) => eprintln!(
-                "what git says of work {} could not be worked out: {why}",
-                summary.number
+                "what git says of {} could not be worked out: {why}",
+                store::WorkNumber(summary.number)
             ),
         }
     }
@@ -410,7 +414,7 @@ async fn version(State(handle): State<Handle>, path: Result<Path<(u64, String, u
         Ok(Path((number, block, version))) => (WorkNumber(number), block, version),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("Work {} has no version {version} of {block}.", number.0);
+    let missing = format!("{number} has no version {version} of {block}.");
     let page = handle.read(move |driver| {
         driver
             .work(number)
@@ -424,7 +428,7 @@ async fn round(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)
         Ok(Path((number, run, round))) => (WorkNumber(number), run, round),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("Work {} has no round {round} of run {run}.", number.0);
+    let missing = format!("{number} has no round {round} of run {run}.");
     let page = handle.read(move |driver| driver.work(number).map(|_| RoundPage::of(driver, number, run, round)));
     found(page.await, number, missing)
 }
@@ -434,7 +438,7 @@ async fn told(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)>
         Ok(Path((number, run, round))) => (WorkNumber(number), run, round),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("Work {} has no round {round} of run {run}.", number.0);
+    let missing = format!("{number} has no round {round} of run {run}.");
     let told = handle.told(number, RunId(run), round).await;
     let page = told.map(|work| work.map(|told| told.map(|round| round.map(ToldPage::of)).map_err(Broken)));
     found(page, number, missing)
@@ -447,7 +451,7 @@ async fn doing(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)
         Ok(Path((number, run, round))) => (WorkNumber(number), run, round),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("Work {} has no round {round} of run {run}.", number.0);
+    let missing = format!("{number} has no round {round} of run {run}.");
     let doing = handle.doing((number, RunId(run), round), Mark::default()).await;
     let page = doing.map(|work| {
         work.map(|doing| (doing.map(|round| round.map(|(doings, _)| DoingPage::of(doings.done)))).map_err(Broken))
@@ -473,9 +477,9 @@ async fn following(State(handle): State<Handle>, path: Result<Path<(u64, u64, us
     let (number, run, round) = key;
     let (doings, ended) = match handle.doing(key, Mark::default()).await {
         Ok(Some(Ok(Some(found)))) => found,
-        Ok(None) => return fail(StatusCode::NOT_FOUND, format!("There is no work {}.", number.0)),
+        Ok(None) => return fail(StatusCode::NOT_FOUND, format!("There is no work {number}.")),
         Ok(Some(Ok(None))) => {
-            let missing = format!("Work {} has no round {round} of run {}.", number.0, run.0);
+            let missing = format!("{number} has no round {round} of run {}.", run.0);
             return fail(StatusCode::NOT_FOUND, missing);
         }
         Ok(Some(Err(why))) => {
@@ -560,7 +564,7 @@ async fn changes_of(State(handle): State<Handle>, path: Result<Path<u64>, PathRe
         Ok(Path(number)) => WorkNumber(number),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("Work {} has no change to tell yet: its branch is not made.", number.0);
+    let missing = format!("{number} has no change to tell yet: its branch is not made.");
     let changes = handle.changes_of(number).await;
     let page = changes.map(|work| work.map(|changes| changes.map(|c| c.map(ChangesPage::of)).map_err(Broken)));
     found(page, number, missing)
@@ -585,7 +589,7 @@ async fn diff(
             );
         }
     };
-    let missing = format!("Work {} changed no file {file}.", number.0);
+    let missing = format!("{number} changed no file {file}.");
     let diff = handle.diff(number, file).await;
     let page = diff.map(|work| work.map(|diff| diff.map(|d| d.map(DiffPage::of)).map_err(Broken)));
     found(page, number, missing)
@@ -598,10 +602,7 @@ async fn system(State(handle): State<Handle>, path: Result<Path<(u64, String, u3
         Ok(Path((number, line, session))) => (WorkNumber(number), line, session),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!(
-        "Work {} kept no system prompt of session {session} of {line}.",
-        number.0
-    );
+    let missing = format!("{number} kept no system prompt of session {session} of {line}.",);
     let system = handle.system(number, line.clone(), session).await;
     let page = system.map(|work| {
         work.map(|system| {
@@ -618,7 +619,7 @@ async fn call(State(handle): State<Handle>, path: Result<Path<(u64, u64)>, PathR
         Ok(Path((number, call))) => (WorkNumber(number), call),
         Err(rejection) => return unreadable(&rejection),
     };
-    let missing = format!("Work {} has no call {call}.", number.0);
+    let missing = format!("{number} has no call {call}.");
     let page = handle.read(move |driver| driver.work(number).map(|_| CallPage::of(driver, number, call)));
     found(page.await, number, missing)
 }
@@ -671,7 +672,7 @@ async fn fork(State(handle): State<Handle>, path: Result<Path<(u64, u64)>, PathR
     match handle.fork(number, run, asked.round, asked.question).await {
         Ok(Some(Ok(forked))) => Json(ForkPage::of(forked)).into_response(),
         Ok(Some(Err(why))) => fail(StatusCode::UNPROCESSABLE_ENTITY, why),
-        Ok(None) => fail(StatusCode::NOT_FOUND, format!("There is no work {}.", number.0)),
+        Ok(None) => fail(StatusCode::NOT_FOUND, format!("There is no work {number}.")),
         Err(refusal) => refused(&refusal),
     }
 }
@@ -700,7 +701,7 @@ async fn changes(State(handle): State<Handle>) -> Response {
     Sse::new(stream).keep_alive(KeepAlive::default()).into_response()
 }
 
-/// That every work, the items, the copies and the accounts may have changed.
+/// That every work, the items, the copies, the accounts and the observations may have changed.
 async fn everything(handle: &Handle) -> Result<Changed, service::Refusal> {
     let works = handle
         .read(|driver| driver.works().map(|kept| kept.head.number.0).collect())
@@ -710,6 +711,7 @@ async fn everything(handle: &Handle) -> Result<Changed, service::Refusal> {
         items: true,
         copies: true,
         accounts: true,
+        observations: true,
     })
 }
 
@@ -726,7 +728,7 @@ fn found<T: Serialize>(
 ) -> Response {
     match page {
         Ok(Some(Ok(Some(page)))) => Json(page).into_response(),
-        Ok(None) => fail(StatusCode::NOT_FOUND, format!("There is no work {}.", number.0)),
+        Ok(None) => fail(StatusCode::NOT_FOUND, format!("There is no work {number}.")),
         Ok(Some(Ok(None))) => fail(StatusCode::NOT_FOUND, missing),
         Ok(Some(Err(broken))) => fail(
             StatusCode::INTERNAL_SERVER_ERROR,

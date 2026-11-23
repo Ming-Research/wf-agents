@@ -438,6 +438,123 @@ pub enum Unmet {
     Unanswered { block: BlockId },
 }
 
+/// What a thing wrong with a return records, as a value of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Recorded {
+    /// A name, a path, a value or a text, as the return or the engine's look at the branch gave it.
+    Text(String),
+    /// The version of the block written at this place, which the work's records number among the block's versions.
+    Version { block: BlockId, at: Seq },
+}
+
+impl Unmet {
+    /// The key the words of this thing wrong have in `[faults]` of `agents/return/sent_back.toml`: the one place a
+    /// variant is given its key, by which a round is told it and the owner's page names it.
+    pub fn key(&self) -> &'static str {
+        match self {
+            Unmet::AsksNothing => "asks_nothing",
+            Unmet::NotAnOutput { .. } => "not_an_output",
+            Unmet::WrittenTwice { .. } => "written_twice",
+            Unmet::NoValue { .. } => "no_value",
+            Unmet::NotAValue { .. } => "not_a_value",
+            Unmet::NotAChoice { .. } => "not_a_choice",
+            Unmet::NotHandedIn { .. } => "not_handed_in",
+            Unmet::NothingBut { .. } => "nothing_but",
+            Unmet::Unreadable { .. } => "unreadable",
+            Unmet::NotRunBy { .. } => "not_run_by",
+            Unmet::DealtWithTwice { .. } => "dealt_with_twice",
+            Unmet::DealtWithNothing => "dealt_with_nothing",
+            Unmet::WrittenOver { .. } => "written_over",
+            Unmet::ChoiceChanged { .. } => "choice_changed",
+            Unmet::AsksAndWorks => "asks_and_works",
+            Unmet::WordOwed { .. } => "word_owed",
+            Unmet::NoPoint { .. } => "no_point",
+            Unmet::NotWatched { .. } => "not_watched",
+            Unmet::NotATool { .. } => "not_a_tool",
+            Unmet::UnchangedNotWritten { .. } => "unchanged_not_written",
+            Unmet::QuestionTaken { .. } => "question_taken",
+            Unmet::NoSuchQuestion { .. } => "no_such_question",
+            Unmet::QuestionTwice { .. } => "question_twice",
+            Unmet::NotAnOption { .. } => "not_an_option",
+            Unmet::NotAnswerable { .. } => "not_answerable",
+            Unmet::NotAnswered { .. } => "not_answered",
+            Unmet::Unexplained { .. } => "unexplained",
+            Unmet::NotATest { .. } => "not_a_test",
+            Unmet::Uncommitted { .. } => "uncommitted",
+            Unmet::Merging { .. } => "merging",
+            Unmet::TreeUnchanged { .. } => "tree_unchanged",
+            Unmet::NotAnEntry { .. } => "not_an_entry",
+            Unmet::Unanswered { .. } => "unanswered",
+        }
+    }
+
+    /// What the thing wrong records, each value under the name of the field that holds it, in the order the variant
+    /// holds them: a list is one pair for each of its elements. A name here is the record's, which the words of the
+    /// file may take another for, as `{name}` of `not_run_by` is the datum or group the cell watches.
+    pub fn values(&self) -> Vec<(&'static str, Recorded)> {
+        let text = |name: &'static str, value: &str| (name, Recorded::Text(value.to_string()));
+        let block = |block: &BlockId| ("block", Recorded::Text(block.to_string()));
+        match self {
+            Unmet::AsksNothing | Unmet::DealtWithNothing | Unmet::AsksAndWorks => vec![],
+            Unmet::NotAnOutput { block: b }
+            | Unmet::WrittenTwice { block: b }
+            | Unmet::NoValue { block: b }
+            | Unmet::NotAChoice { block: b }
+            | Unmet::NotHandedIn { block: b }
+            | Unmet::NotRunBy { block: b }
+            | Unmet::DealtWithTwice { block: b }
+            | Unmet::ChoiceChanged { block: b }
+            | Unmet::UnchangedNotWritten { block: b }
+            | Unmet::Unanswered { block: b } => vec![block(b)],
+            Unmet::NotAValue { block: b, value } => vec![block(b), text("value", value)],
+            Unmet::NothingBut {
+                block: b,
+                value,
+                besides,
+            } => {
+                let mut values = vec![block(b), text("value", value)];
+                values.extend(besides.iter().map(|b| ("besides", Recorded::Text(b.to_string()))));
+                values
+            }
+            Unmet::Unreadable { why } => vec![text("why", why)],
+            Unmet::WrittenOver { block: b, version } => vec![
+                block(b),
+                (
+                    "version",
+                    Recorded::Version {
+                        block: b.clone(),
+                        at: *version,
+                    },
+                ),
+            ],
+            Unmet::WordOwed { name, watched } => {
+                let mut values = vec![("name", Recorded::Text(name.to_string()))];
+                values.extend(watched.iter().map(|b| ("watched", Recorded::Text(b.to_string()))));
+                values
+            }
+            Unmet::NoPoint { block: b, value, name } => {
+                vec![
+                    block(b),
+                    text("value", value),
+                    ("name", Recorded::Text(name.to_string())),
+                ]
+            }
+            Unmet::NotWatched { name }
+            | Unmet::NotATool { name }
+            | Unmet::QuestionTaken { name }
+            | Unmet::NoSuchQuestion { name }
+            | Unmet::QuestionTwice { name }
+            | Unmet::NotAnOption { name }
+            | Unmet::NotAnswerable { name }
+            | Unmet::NotAnswered { name }
+            | Unmet::TreeUnchanged { name } => vec![text("name", name)],
+            Unmet::Unexplained { path } | Unmet::NotATest { path } => vec![text("path", path)],
+            Unmet::Uncommitted { changes } | Unmet::Merging { changes } => vec![text("changes", changes)],
+            Unmet::NotAnEntry { line } => vec![text("line", line)],
+        }
+    }
+}
+
 /// What runs an act of the engine's again, of a block it wrote that runs a cell before it: the blocks that run the
 /// act; whether the block of the questions' standing is among them, so that a question that stands unanswered runs it
 /// once it is answered; and whether one of them has a version new to the act already, as the return is taken, which

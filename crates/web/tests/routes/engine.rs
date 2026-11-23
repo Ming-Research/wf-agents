@@ -39,7 +39,7 @@ async fn the_engine_says_its_slots_and_whether_everything_is_paused() {
     let router = &running.router;
     assert_eq!(
         get_json(router, "/api/v1/engine").await,
-        json!({ "slots": 2, "taken": 0, "paused": null, "keepWarm": true })
+        json!({ "slots": 2, "taken": 0, "paused": null, "keepWarm": true, "stopping": null })
     );
     assert_eq!(post(router, "/api/v1/items", &item("First")).await.0, StatusCode::OK);
     let engine = get_json(router, "/api/v1/engine").await;

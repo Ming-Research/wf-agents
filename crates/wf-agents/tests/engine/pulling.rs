@@ -19,18 +19,18 @@ fn pulls_gives_the_pull_requests_the_projects_host_says_are_open_and_that_no_wor
     let lines: Vec<&str> = said.lines().collect();
     assert_eq!(lines.len(), 2, "{said}");
     assert!(
-        lines[0].starts_with("script pull request #12 \"Greet the user\" (draft), updated ")
+        lines[0].starts_with("script pull request 12 \"Greet the user\" (draft), updated ")
             && lines[0].ends_with(" ago, https://host.example/pull/12: no work keeps it."),
         "{said}"
     );
     assert!(
-        lines[1].starts_with("script pull request #14 \"Greet them all\", updated ")
+        lines[1].starts_with("script pull request 14 \"Greet them all\", updated ")
             && lines[1].ends_with(" ago, https://host.example/pull/14: no work keeps it."),
         "{said}"
     );
     let from = engine.says(&["pulls", "--from", "13"]);
     assert_eq!(from.lines().count(), 1, "{from}");
-    assert!(from.starts_with("script pull request #14 "), "{from}");
+    assert!(from.starts_with("script pull request 14 "), "{from}");
     assert_eq!(
         engine.says(&["pulls", "--from", "15"]),
         "No pull request is open numbered 15 or more.\n"

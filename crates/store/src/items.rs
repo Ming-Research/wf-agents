@@ -8,6 +8,15 @@ use work::Time;
 
 use crate::Fault;
 
+/// The longest a tag may be, in characters.
+pub const TAG_CHARS: usize = 40;
+
+/// Whether the tag is no name an item or an observation may carry: it is empty, longer than [`TAG_CHARS`], or holds a
+/// space or a comma.
+pub fn tag_is_bad(tag: &str) -> bool {
+    tag.is_empty() || tag.chars().count() > TAG_CHARS || tag.chars().any(|c| c.is_whitespace() || c == ',')
+}
+
 /// The number of an item, given by the store, counting from one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -16,6 +25,21 @@ pub struct ItemNumber(pub u64);
 /// The number of a work, given by the store, counting from one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WorkNumber(pub u64);
+
+/// An item's number as it is written wherever the engine writes one in words: `#79`. A number in an address, a branch's
+/// or a session's name, or an argument of the command line is the bare number.
+impl std::fmt::Display for ItemNumber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#{}", self.0)
+    }
+}
+
+/// A work's number as it is written wherever the engine writes one in words: `W43`.
+impl std::fmt::Display for WorkNumber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "W{}", self.0)
+    }
+}
 
 /// What an item continues: an existing branch of its project's repository, or a pull request on its host, from whose
 /// head its work starts instead of from the head of main.

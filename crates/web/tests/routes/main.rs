@@ -345,7 +345,7 @@ pub fn running_flow(
     tokio::spawn(service.run(inbox));
     let flows = Flows::dirs(trial_dir().join("flow"), Box::new(trial_has));
     // The observations are read from the store's file, as the engine's program serves them.
-    let observations = web::observations::router(handle.clone(), dir.path().join("store.sqlite"));
+    let observations = web::observations::router(handle.clone(), dir.path().join("store.sqlite"), levels(), projects());
     Running {
         router: web::with_works(flows, handle, levels(), projects()).merge(observations),
         _dir: dir,
@@ -404,6 +404,17 @@ pub async fn refused(router: &Router, path: &str) -> (StatusCode, String) {
 /// Lets this many milliseconds of the paused clock pass, the loop and the carriers doing what falls in them.
 pub async fn pass(ms: u64) {
     tokio::time::sleep(Duration::from_millis(ms)).await;
+}
+
+/// The next event of a stream of server-sent events, past the comments that keep it open.
+pub async fn next(body: &mut Body) -> String {
+    loop {
+        let frame = body.frame().await.unwrap().unwrap();
+        let text = String::from_utf8(frame.into_data().unwrap().to_vec()).unwrap();
+        if !text.starts_with(':') {
+            return text;
+        }
+    }
 }
 
 /// The trial item, added held at the start and let on a second later: by 5.5 seconds its plan's run has had three
