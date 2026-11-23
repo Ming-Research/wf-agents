@@ -124,11 +124,14 @@ fn the_full_workflow_runs_by_hand_and_on_the_pull_requests_of_neither_a_work_nor
         "the branch `next` is no part of the workflow"
     );
     let jobs = block(&text, "jobs");
-    let not_a_works = "!startsWith(github.head_ref, 'work-')";
+    // The prefix of a work's branch is the engine's: ci.yml must name the one the engine gives its branches.
+    let branch = carry::git::place(Path::new("/data"), "tag", store::WorkNumber(1)).branch;
+    assert!(branch.starts_with(carry::git::BRANCH_PREFIX), "{branch}");
+    let not_a_works = format!("!startsWith(github.head_ref, '{}')", carry::git::BRANCH_PREFIX);
     for job in ["page", "lint", "test"] {
         let lines = under(&jobs, job).join("\n");
         assert!(
-            lines.contains(not_a_works),
+            lines.contains(&not_a_works),
             "the job {job} runs on a work's pull request:\n{lines}"
         );
         assert!(
@@ -136,13 +139,16 @@ fn the_full_workflow_runs_by_hand_and_on_the_pull_requests_of_neither_a_work_nor
             "the job {job} runs on a fork's pull request:\n{lines}"
         );
     }
-    // `check` is skipped with the rest on a work's pull request, so that the run is not red there; on a fork's it stays,
-    // red, since its jobs are skipped.
+    // `check` is skipped with the rest on a work's pull request of this repository, so that the run is not red there; on a
+    // fork's, whatever its branch is called, it stays, red, since its jobs are skipped.
     let check = under(&jobs, "check").join("\n");
-    assert!(
-        check.contains("always()") && check.contains(not_a_works),
-        "check:\n{check}"
-    );
+    for want in [
+        "always()",
+        "github.event.pull_request.head.repo.full_name != github.repository",
+        &not_a_works,
+    ] {
+        assert!(check.contains(want), "check lacks {want}:\n{check}");
+    }
 }
 
 // A workflow the engine runs by hand takes the commit to test and the value that finds its run, and its name holds that
