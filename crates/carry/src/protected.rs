@@ -425,6 +425,7 @@ pub(crate) mod tests {
             engine: vec![question],
             waits_for: None,
             read: Vec::new(),
+            protected: Default::default(),
         };
         work.back.insert((run, 1), back);
         work
