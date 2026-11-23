@@ -288,9 +288,8 @@ pub(crate) fn tell(flow: &Compiled, work: &mut Work) {
     else {
         return;
     };
-    let skipped = decide::skipped(&flow.flow, &work.records);
     let waiting: Vec<&str> = (questions(&work.records).into_iter())
-        .filter(|(_, q)| q.unanswered() && !skipped.contains_key(&q.latest.cell))
+        .filter(|(_, q)| q.unanswered())
         .map(|(name, _)| name)
         .collect();
     let writes = &declared.writes;
