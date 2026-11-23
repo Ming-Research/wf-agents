@@ -12,7 +12,6 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
 
 use super::api::{Api, Check, File, Outcome, Pull, Run, State};
 use crate::host::Failed;
@@ -59,7 +58,7 @@ impl Gh {
         Gh {
             command: command.to_string(),
             repository: repository.to_string(),
-            env: environment(std::env::vars(), token, config_dir),
+            env: environment(crate::programs::engine().iter().cloned(), token, config_dir),
             limit: LIMIT,
         }
     }
@@ -94,7 +93,7 @@ impl Gh {
         if body.is_some() {
             args.extend(["--input", "-"]);
         }
-        let mut child = Command::new(&self.command)
+        let mut child = crate::programs::command(&self.command)
             .args(&args)
             .env_clear()
             .envs(self.env.iter().cloned())
@@ -140,7 +139,7 @@ impl Gh {
     /// Runs `gh` with these arguments, other than `api`, given up after `limit`; gives what it printed, or what it said
     /// where it failed.
     async fn output(&self, args: &[&str], limit: Duration) -> Result<String, String> {
-        let child = Command::new(&self.command)
+        let child = crate::programs::command(&self.command)
             .args(args)
             .env_clear()
             .envs(self.env.iter().cloned())

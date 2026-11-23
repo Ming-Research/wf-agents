@@ -122,10 +122,20 @@ pub(crate) struct With {
 
 /// Runs git in the directory as [`said`] does, with what is given beside its arguments.
 pub(crate) async fn said_with(dir: &Path, with: &With, args: &[&str]) -> Result<Said, String> {
-    let kept =
-        std::env::vars().filter(|(name, _)| crate::cli::KEPT.contains(&name.as_str()) || name.starts_with("LC_"));
+    let output = crate::process::output(command(dir, with, args), LIMIT).await?;
+    Ok(Said {
+        ok: output.status.success(),
+        code: output.status.code(),
+        out: String::from_utf8_lossy(&output.stdout).trim_end().to_string(),
+        err: String::from_utf8_lossy(&output.stderr).trim_end().to_string(),
+    })
+}
+
+/// The git command [`said_with`] runs in the directory: git by its path ([`crate::programs`]), given of the engine's
+/// environment only what [`said`] says.
+fn command(dir: &Path, with: &With, args: &[&str]) -> Command {
     let settings = (with.settings.iter()).flat_map(|setting| ["-c", setting.as_str()]);
-    let mut command = Command::new("git");
+    let mut command = crate::programs::command("git");
     command
         .arg("-C")
         .arg(dir)
@@ -133,17 +143,11 @@ pub(crate) async fn said_with(dir: &Path, with: &With, args: &[&str]) -> Result<
         .args(settings)
         .args(args)
         .env_clear()
-        .envs(kept)
+        .envs(crate::programs::kept().iter().cloned())
         .envs(with.env.iter().cloned())
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(std::process::Stdio::null());
-    let output = crate::process::output(command, LIMIT).await?;
-    Ok(Said {
-        ok: output.status.success(),
-        code: output.status.code(),
-        out: String::from_utf8_lossy(&output.stdout).trim_end().to_string(),
-        err: String::from_utf8_lossy(&output.stderr).trim_end().to_string(),
-    })
+    command
 }
 
 /// Runs git in the directory and gives its standard output; or says what failed, with what git said.
@@ -173,16 +177,14 @@ pub(crate) async fn blobs(dir: &Path, commit: &str, paths: &[&str]) -> Result<Ve
             "git cat-file cannot be given the path {path:?}, which holds a line break"
         ));
     }
-    let kept =
-        std::env::vars().filter(|(name, _)| crate::cli::KEPT.contains(&name.as_str()) || name.starts_with("LC_"));
-    let mut command = Command::new("git");
+    let mut command = crate::programs::command("git");
     command
         .arg("-C")
         .arg(dir)
         .args(SAFE)
         .args(["cat-file", "--batch"])
         .env_clear()
-        .envs(kept)
+        .envs(crate::programs::kept().iter().cloned())
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

@@ -208,6 +208,33 @@ fn a_works_branch_is_named_by_a_number_and_an_installations_tag_of_any_installat
     }
 }
 
+// Git is started by its path, so that the standard library starts it with `posix_spawn`, not `fork`, and is given of
+// the engine's environment only what is kept, with what the command is given beside. It builds a command and starts
+// nothing.
+#[test]
+fn git_is_started_by_its_path_given_only_what_is_kept_of_the_environment() {
+    let with = With {
+        settings: Vec::new(),
+        env: vec![("GIT_SSH_COMMAND".to_string(), "ssh".to_string())],
+    };
+    let git = command(Path::new("/"), &with, &["status"]);
+    let program = Path::new(git.as_std().get_program());
+    assert!(program.is_absolute(), "{}", program.display());
+    assert_eq!(program.file_name(), Some(std::ffi::OsStr::new("git")));
+    assert_eq!(crate::programs::named(program.as_os_str()), "git");
+    let given: Vec<String> = (git.as_std().get_envs())
+        .filter(|(_, value)| value.is_some())
+        .map(|(name, _)| name.to_string_lossy().into_owned())
+        .collect();
+    let kept = |name: &str| crate::cli::KEPT.contains(&name) || name.starts_with("LC_");
+    let beside = ["GIT_SSH_COMMAND", "GIT_TERMINAL_PROMPT"];
+    assert!(
+        (given.iter()).all(|name| kept(name) || beside.contains(&name.as_str())),
+        "{given:?}"
+    );
+    assert!(given.iter().any(|name| name == "PATH"), "{given:?}");
+}
+
 // A command run in a worktree may leave directories that do not let their owner take a file out, at any depth: the
 // worktree is still taken away, since git alone cannot, and the repository no longer names it.
 #[tokio::test]

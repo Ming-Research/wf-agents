@@ -102,6 +102,96 @@ async fn once_its_worktree_and_branch_are_gone_a_merged_work_changed_what_its_ke
     );
 }
 
+/// How many times the work's changes were worked out with git.
+fn looked(known: &Known) -> usize {
+    known.looked.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The repository's own directory stands aside, a file no git can read in its place, so that every git command there
+/// and in its worktrees fails whatever directory holds the repository; and comes back.
+struct Hidden<'a>(&'a Path);
+
+impl<'a> Hidden<'a> {
+    fn of(repo: &'a Path) -> Hidden<'a> {
+        std::fs::rename(repo.join(".git"), repo.join(".git-aside")).unwrap();
+        std::fs::write(repo.join(".git"), "no repository\n").unwrap();
+        Hidden(repo)
+    }
+}
+
+impl Drop for Hidden<'_> {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(self.0.join(".git"));
+        let _ = std::fs::rename(self.0.join(".git-aside"), self.0.join(".git"));
+    }
+}
+
+// Nothing but a round of the work or a tool run for it changes what its branch and worktree hold, and each is recorded:
+// so with nothing under way its numbers are worked out once for its records as they stand, no git running for the
+// reads after, and again once its records move on, the head a round moved read with them, or once its worktree goes.
+#[tokio::test]
+async fn the_numbers_of_a_work_with_nothing_under_way_are_kept_until_its_records_move_on() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    let known = Known::default();
+    let at_rest = |at| (Seq(at), false);
+    commit(&place.dir, "farewell.txt", "Bye.\n");
+    std::fs::write(place.dir.join("notes.txt"), "One\n").unwrap();
+    let hidden = Hidden::of(r);
+    let failed = known.stat(r, MAIN, (WORK, &place), at_rest(5)).await;
+    drop(hidden);
+    assert!(failed.is_err(), "{failed:?}");
+    let first = known.stat(r, MAIN, (WORK, &place), at_rest(5)).await;
+    let stat = |files, added| -> Result<Option<Diffstat>, String> {
+        Ok(Some(Diffstat {
+            files,
+            added,
+            removed: 0,
+        }))
+    };
+    assert_eq!(first, stat(2, 2), "a look that failed is taken again");
+    assert_eq!(looked(&known), 2);
+    std::fs::write(place.dir.join("later.txt"), "Later.\n").unwrap();
+    let hidden = Hidden::of(r);
+    let again = known.stat(r, MAIN, (WORK, &place), at_rest(5)).await;
+    drop(hidden);
+    assert_eq!(again, first, "no git ran");
+    assert_eq!(looked(&known), 2);
+    commit(&place.dir, "more.txt", "More.\nAnd more.\n");
+    let moved = known.stat(r, MAIN, (WORK, &place), at_rest(9)).await;
+    assert_eq!(moved, stat(4, 5), "the head moved, and what the worktree holds beside");
+    assert_eq!(looked(&known), 3);
+    git::remove(&repo.project, &place).await.unwrap();
+    let gone = known.stat(r, MAIN, (WORK, &place), at_rest(9)).await;
+    assert_eq!(gone, stat(2, 3), "only what the head holds, once the worktree is gone");
+    assert_eq!(looked(&known), 4);
+}
+
+// What a worktree under way holds changes at any moment: each read works it out again, but a read that asks of the work
+// as it stands while a look at it runs is given that look's answer.
+#[tokio::test]
+async fn the_numbers_of_a_work_under_way_are_worked_out_for_each_read_and_shared_while_a_look_runs() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    let known = Known::default();
+    let look = || known.stat(r, MAIN, (WORK, &place), (Seq(5), true));
+    let (one, two) = tokio::join!(look(), look());
+    let none: Result<Option<Diffstat>, String> = Ok(Some(Diffstat::default()));
+    assert_eq!((&one, &two), (&none, &none));
+    assert_eq!(looked(&known), 1, "the second read was given the first's look");
+    std::fs::write(place.dir.join("notes.txt"), "One\n").unwrap();
+    let three = look().await;
+    assert_eq!(
+        three,
+        Ok(Some(Diffstat {
+            files: 1,
+            added: 1,
+            removed: 0
+        }))
+    );
+    assert_eq!(looked(&known), 2);
+}
+
 #[tokio::test]
 async fn the_diff_of_a_file_the_work_changed_is_given_and_of_no_other_path() {
     let (repo, place) = started().await;
