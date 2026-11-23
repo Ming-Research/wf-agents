@@ -250,6 +250,26 @@ fn a_line_every_commit_ends_with_that_names_no_number_is_refused_with_the_path_o
     }
 }
 
+// A line that names its number but runs over two lines would make the trailer block of every commit hold a stray line.
+#[test]
+fn a_line_every_commit_ends_with_that_runs_over_two_lines_is_refused_with_the_path_of_its_file() {
+    for (key, line, place) in [
+        ("item_line", "Item: {item}", "Item: {item}\\nSee {item}"),
+        ("work_line", "Work: W{work}", "Work: W{work}\\nSee {work}"),
+    ] {
+        let dir = copy(key);
+        let file = dir.join("agents/commits.toml");
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(text.contains(line), "{key}");
+        fs::write(&file, text.replace(line, place)).unwrap();
+        let refused = agents::read(&dir).unwrap_err();
+        fs::remove_dir_all(&dir).unwrap();
+        assert!(refused.contains(&file.display().to_string()), "{refused}");
+        assert!(refused.contains(&format!("{key} is not one line")), "{refused}");
+        assert!(!refused.contains("does not name"), "{refused}");
+    }
+}
+
 // A project that declares `[ci]` declares both workflows: `run_tests` runs only the fast one and the check before the
 // merge only the full ones, so a declaration with one of them leaves one of the two with nothing to run.
 #[test]

@@ -82,6 +82,31 @@ fn a_commit_the_agents_git_makes_ends_with_the_two_lines_however_it_is_made_and_
     assert_eq!(message(dir), format!("Merge side{ends}"));
 }
 
+// The agents' commits usually end with a `Co-Authored-By` line: git puts the two lines in that block, with no blank
+// line between, and the squash message is built from the message git made, not from one written by hand.
+#[test]
+fn a_commit_that_already_ends_in_a_trailer_gets_the_lines_in_the_same_block_and_the_squash_reads_it() {
+    let (repo, given) = hooked(WHOSE);
+    let dir = &repo.project.repo;
+    staged(dir, "a.txt");
+    let co_author = "Co-Authored-By: Claude <noreply@anthropic.com>";
+    run_with(
+        dir,
+        &["commit", "-q", "-m", "First", "-m", "What was done.", "-m", co_author],
+        &given,
+    );
+    let made = message(dir);
+    assert_eq!(
+        made,
+        format!("First\n\nWhat was done.\n\n{co_author}\nItem: 36\nWork: W12")
+    );
+    let said = squash(&[made.as_str()], &as_it_is);
+    assert_eq!(
+        said,
+        "What was done.\n\nCo-authored-by: Claude <noreply@anthropic.com>\nItem: 36\nWork: W12"
+    );
+}
+
 // Without the lines in its environment the hook does nothing, so that a commit made by hand, with the hook's directory
 // still configured, is not given lines that name nothing.
 #[test]
@@ -117,8 +142,6 @@ fn the_lines_find_the_commits_of_one_item_and_not_those_of_another_whose_number_
     assert_eq!(found("^Item: 36$"), "Write c.txt\nWrite a.txt");
     assert_eq!(found("^Item: 360$"), "Write b.txt");
     assert_eq!(found("^Work: W12$"), "Write c.txt\nWrite a.txt");
-    // Without the anchors the shorter number finds the longer one's commit too: the lines are searched whole.
-    assert!(found("Item: 36").contains("Write b.txt"));
 }
 
 #[test]

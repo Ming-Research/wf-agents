@@ -1293,7 +1293,7 @@ impl Commits {
     }
 
     /// What is wrong with the two lines, as one sentence for each: each must name its number, or every commit would
-    /// end with a line that names nothing.
+    /// end with a line that names nothing, and be one line, or the trailer block would hold a stray line.
     fn faults(&self) -> Vec<String> {
         let mut faults = Vec::new();
         for (key, line, place) in [
@@ -1303,7 +1303,7 @@ impl Commits {
             if !line.contains(place) {
                 faults.push(format!("{key} does not name {place}"));
             }
-            if line.trim().is_empty() || line.contains('\n') {
+            if line.contains('\n') {
                 faults.push(format!("{key} is not one line"));
             }
         }
