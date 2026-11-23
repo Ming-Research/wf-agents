@@ -87,6 +87,9 @@ pub struct Fake {
     /// in, made one call to the model, and had its hook give it what the owner said to it, as the hook the command line
     /// was given for each use of a tool does, before it answers.
     pub build_hears_once_begun: u32,
+    /// Whether the plan's first call starts a process that runs on in its group, its output sent elsewhere, before it
+    /// answers and ends, writing the process's number in `left_running` beside the calls.
+    pub plan_leaves_running: bool,
     /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
     /// says no call.
     pub context: Option<u64>,
@@ -155,6 +158,7 @@ impl Default for Fake {
             plan_sleeps_once_it_wrote_its_return: 0,
             build_sleeps_once_committed: 0,
             build_hears_once_begun: 0,
+            plan_leaves_running: false,
             context: None,
             compacts: false,
             plan_again_unchanged: false,
@@ -524,6 +528,10 @@ leaves() {{
 }}
 case "$first" in
     Plan)
+        if [ '{leaves_running}' = yes ] && [ ! -f "$log/left_running" ]; then
+            sleep 30 >/dev/null 2>&1 &
+            echo $! > "$log/left_running"
+        fi
         if [ '{sleeps}' != 0 ] && [ ! -f "$log/slept" ]; then
             touch "$log/slept"
             sleep '{sleeps}'
@@ -682,6 +690,7 @@ fi
         wrote_sleeps = fake.plan_sleeps_once_it_wrote_its_return,
         committed_sleeps = fake.build_sleeps_once_committed,
         hears_sleeps = fake.build_hears_once_begun,
+        leaves_running = yes(fake.plan_leaves_running),
         cost = fake.cost,
         compacts = yes(fake.compacts),
         unchanged = yes(fake.plan_again_unchanged),

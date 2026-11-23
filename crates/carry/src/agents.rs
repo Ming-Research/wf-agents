@@ -2647,7 +2647,8 @@ mod tests {
         let script = format!(
             "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}/args'\npwd > '{0}/cwd'\nls > '{0}/listed'\n\
              printf '%s' \"${{CLAUDE_CODE_OAUTH_TOKEN:-none}}\" > '{0}/token'\n\
-             printf '%s' \"$CLAUDE_CONFIG_DIR\" > '{0}/directory'\ncat > /dev/null\n{printed}",
+             printf '%s' \"$CLAUDE_CONFIG_DIR\" > '{0}/directory'\ncat > /dev/null\n\
+             if [ -f '{0}/leave' ]; then sleep 30 >/dev/null 2>&1 & echo $! > '{0}/left'; fi\n{printed}",
             data.display()
         );
         std::fs::write(&program, script).expect("written");
@@ -3111,8 +3112,10 @@ mod tests {
 
     // A keep-warm ping runs under the account it is handed out with, the one in use, which its session's last call ran
     // under: its program is given that account's token and the engine's directory, and what its stream says of the
-    // account's usage is heard; handed out with none, or under an account whose token cannot be given, it fails, saying
-    // so, its program not run. One run of a stand-in program: a few tens of milliseconds.
+    // account's usage is heard; what its program leaves running is stopped and counted, as a fork's is; handed out with
+    // none, or under an account whose token cannot be given, it fails, saying so, its program not run. Three runs of a
+    // stand-in program, two leaving a process that ends on TERM: a few tens of milliseconds; no other test holds a ping
+    // or a fork whose program leaves something running.
     #[tokio::test]
     async fn a_ping_runs_under_the_account_it_is_handed_out_with_given_its_token() {
         let dir = tempfile::tempdir().expect("a directory");
@@ -3159,6 +3162,45 @@ mod tests {
             cli::refusal(),
             "{settings}"
         );
+        // A program that leaves a process running in its group as it ends has it stopped, and counted for the ping's
+        // reply to say; and a fork's, for its answer. The leftover's ending on TERM adds a few milliseconds.
+        std::fs::write(data.join("leave"), "").expect("written");
+        let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+        let reply = service::PingReply::new(fork.work, "engineer".to_string(), 0, to);
+        Rounds::ping(&agents, ping(Some("work")), reply);
+        let mut events = Vec::new();
+        while let Some(message) = said.recv().await {
+            if let service::Message::Happened { event, .. } = message {
+                let ended = matches!(event, engine::Event::Pinged { .. });
+                events.push(event);
+                if ended {
+                    break;
+                }
+            }
+        }
+        let of = work::Left::Ping {
+            line: "engineer".to_string(),
+            session: 0,
+        };
+        let ended = |event: &engine::Event| matches!(event, engine::Event::Pinged { failed: None, .. });
+        assert!(
+            matches!(&events[..], [engine::Event::LeftBehind { of: told, processes: 1 }, end] if *told == of && ended(end)),
+            "what the ping's program left is said before its end: {events:?}"
+        );
+        let left = std::fs::read_to_string(data.join("left")).expect("what it left");
+        let running = std::process::Command::new("kill")
+            .args(["-0", left.trim()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("kill runs")
+            .success();
+        let _ = std::process::Command::new("kill")
+            .args(["-s", "KILL", left.trim()])
+            .status();
+        assert!(!running, "what the ping's program left runs on");
+        let forked = agents.inner.fork(&fork).await.expect("the fork ends");
+        assert_eq!(forked.left, 1, "what the fork's program left is counted");
+        std::fs::remove_file(data.join("leave")).expect("taken away");
         std::fs::remove_file(data.join("token")).expect("taken away");
         let (why, _) = (agents.inner.ping(&ping(None), &mut None, &mut 0).await).expect_err("no account");
         assert_eq!(why, "No account is in use: choose one on the Settings view.");

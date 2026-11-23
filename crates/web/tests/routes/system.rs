@@ -319,6 +319,16 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
 /// A work of the trial flow added and let on at `at`, whose plan asks for a tool at once and has the result, of this
 /// many bytes, two seconds later: the call, the work it is of, and when it had its result.
 fn answered(driver: &mut driver::Driver, at: u64, bytes: usize) -> (store::WorkNumber, decide::CallId, u64) {
+    let (work, call) = asking(driver, at);
+    let done = at + 2_000;
+    let result = "x".repeat(bytes);
+    happened(driver, done, work, engine::Event::Done { call, result });
+    (work, call, done)
+}
+
+/// A work of the trial flow added and let on at `at`, whose plan asks for a tool at once: the work, and the call, which
+/// has no result yet.
+fn asking(driver: &mut driver::Driver, at: u64) -> (store::WorkNumber, decide::CallId) {
     let new = driver::NewItem {
         title: "Ask".to_string(),
         level: "2".to_string(),
@@ -357,10 +367,7 @@ fn answered(driver: &mut driver::Driver, at: u64, bytes: usize) -> (store::WorkN
             _ => None,
         })
         .expect("the tool is called");
-    let done = at + 2_000;
-    let result = "x".repeat(bytes);
-    happened(driver, done, work, engine::Event::Done { call, result });
-    (work, call, done)
+    (work, call)
 }
 
 // What the System view and a work's page are given of how the results of calls of a tool went against the line of
@@ -527,8 +534,9 @@ fn a_stop_is_given_with_the_rests_of_what_is_under_way_and_holds_a_work_that_wou
 
 // What a program run for a work left running in its group as it ended, which its carrier stopped, is kept by the store
 // and given in the System view, the latest first, with which program it was: here a try of the build's round, with the
-// cell it belongs to, and a keep-warm ping of the engineer's session; once the driver is opened again on the store. One
-// that names no round under way is refused. A few milliseconds; the one test of the count from its event to what the
+// cell it belongs to, a keep-warm ping of the engineer's session, and the check a call of the plan's ran, with its tool;
+// once the driver is opened again on the store. One that names no round under way, a call never made or a call that
+// has its result is refused. A few milliseconds; the one test of the count from its event to what the
 // page and `wf-agents system` read.
 #[test]
 fn what_a_program_left_running_is_kept_and_given_in_the_system_view() {
@@ -574,6 +582,33 @@ fn what_a_program_left_running_is_kept_and_given_in_the_system_view() {
             .is_err(),
         "a try of a round not under way is refused"
     );
+    // The check a call ran is counted while the call has no result; of a call never made, or one that has its result,
+    // it is refused.
+    let (asked, call) = asking(&mut driver, START + 15_000);
+    let of_call = |call| engine::Event::LeftBehind {
+        of: work::Left::Call { call },
+        processes: 3,
+    };
+    happened(&mut driver, START + 16_000, asked, of_call(call));
+    let refused = |driver: &mut driver::Driver, at: u64, event| match driver.happened(work::Time(at), asked, event) {
+        Err(driver::Failed::Refused(refused)) => refused,
+        other => panic!("not refused: {other:?}"),
+    };
+    let never = decide::CallId(call.0 + 100);
+    assert!(matches!(
+        refused(&mut driver, START + 17_000, of_call(never)),
+        engine::Refused::NoSuchCall(c) if c == never
+    ));
+    let done = engine::Event::Done {
+        call,
+        result: "passed".to_string(),
+    };
+    happened(&mut driver, START + 18_000, asked, done);
+    assert!(matches!(
+        refused(&mut driver, START + 19_000, of_call(call)),
+        engine::Refused::AlreadyDone(c) if c == call
+    ));
+    let run_of_call = driver.work(asked).unwrap().work.records.called[0].run;
     drop(driver);
     let driver = open(START + 20_000);
     let system =
@@ -581,6 +616,11 @@ fn what_a_program_left_running_is_kept_and_given_in_the_system_view() {
     assert_eq!(
         system["leftBehind"],
         json!([
+            {
+                "work": asked.0, "item": asked.0,
+                "of": { "kind": "call", "cell": "plan", "run": run_of_call.0, "call": call.0, "tool": "search" },
+                "at": START + 16_000, "processes": 3
+            },
             {
                 "work": work.0, "item": work.0, "of": { "kind": "ping", "line": "engineer", "session": 0 },
                 "at": START + 13_000, "processes": 1

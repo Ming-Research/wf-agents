@@ -106,3 +106,43 @@ async fn a_work_is_started_checked_and_merged_at_the_commit_the_check_passed() {
     let parents = git_in(&real.repo, &["rev-list", "--parents", "-n", "1", "main"]);
     assert_eq!(parents.split(' ').nth(2), Some(head.as_str()));
 }
+
+// What a try's program leaves running in its group as it ends is stopped, and counted with the try in the work's
+// records before its round's end is: of the plan's first round and its first try. Under two seconds alone, most of it the
+// leftover ending on TERM; no other test follows a try's count from its carrier into the records.
+#[tokio::test]
+async fn what_a_trys_program_leaves_running_is_stopped_and_counted_with_the_try_before_its_round_ends() {
+    let fake = Fake {
+        plan_leaves_running: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.wait(|real| real.calls().len() == 1).await;
+    let plan = real.run_of(work, "plan");
+    real.until(|real| real.ended_rounds(work, plan)).await;
+    let kept = real.work(work);
+    let of = work::Left::Try {
+        run: plan,
+        round: 1,
+        attempt: 1,
+    };
+    let counted: Vec<(&work::Left, usize)> = (kept.left_behind.iter()).map(|l| (&l.of, l.processes)).collect();
+    assert_eq!(counted, [(&of, 1)]);
+    let returned = (kept.records.returned.iter())
+        .find(|r| r.run == plan)
+        .expect("the round ended");
+    assert!(kept.left_behind[0].at < returned.at, "counted after its round's end");
+    let left = std::fs::read_to_string(real.calls_dir().join("left_running")).expect("what the plan left");
+    let running = std::process::Command::new("kill")
+        .args(["-0", left.trim()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("kill runs")
+        .success();
+    let _ = std::process::Command::new("kill")
+        .args(["-s", "KILL", left.trim()])
+        .status();
+    assert!(!running, "what the plan's program left runs on after its round ended");
+}

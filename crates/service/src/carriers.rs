@@ -237,7 +237,9 @@ pub struct PingReply {
 }
 
 impl PingReply {
-    pub(crate) fn new(work: WorkNumber, line: String, session: u32, to: mpsc::UnboundedSender<Message>) -> Self {
+    /// The reply that says what came of the ping down this channel, as the loop makes it; whoever tests a carrier
+    /// makes one to read what the carrier says.
+    pub fn new(work: WorkNumber, line: String, session: u32, to: mpsc::UnboundedSender<Message>) -> Self {
         PingReply {
             work,
             line,
