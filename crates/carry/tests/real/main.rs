@@ -134,6 +134,9 @@ pub struct Fake {
     /// none, [`NO_SUCH_ENTRY`], until a round of it is told its return was sent back for that line; and whether the
     /// build rewrites the entry the plan names, [`GREETING_ENTRY`], committing it with its file.
     pub names_entries: bool,
+    /// Whether the build, once told its return was sent back for a change not committed, takes the change back and
+    /// returns nothing else, whatever else it was told: what it returned before is to stand for the rest.
+    pub build_mends_the_edit_and_nothing_else: bool,
 }
 
 /// The file of the design tree that holds the entry the fake's plan names, where it names entries.
@@ -180,6 +183,7 @@ impl Default for Fake {
             says_usage: false,
             tree_question: false,
             names_entries: false,
+            build_mends_the_edit_and_nothing_else: false,
         }
     }
 }
@@ -602,7 +606,12 @@ case "$first" in
         grep -q 'changes to tracked files that are not committed' "$log/$n.stdin" && sent_back=yes
         answered=no
         awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `build_questions`' && answered=yes
-        if [ '{tree_question}' = yes ] && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
+        if [ '{mends_only}' = yes ] && [ "$sent_back" = yes ] && [ ! -f "$log/mended" ]; then
+            # Told its return was sent back for a change not committed, it takes the change back, as every round of it
+            # does first, and returns nothing: its earlier return stands for what it wrote and dealt with.
+            touch "$log/mended"
+            dealt=''
+        elif [ '{tree_question}' = yes ] && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
             # Told that its change holds nothing of the owner's answer in the design tree, it writes the answer there.
             mkdir -p design
             echo 'The owner chose the first name.' > design/answered.md
@@ -724,6 +733,7 @@ fi
         tree_question = yes(fake.tree_question),
         tree_mark = fake.tree_question,
         names_entries = yes(fake.names_entries),
+        mends_only = yes(fake.build_mends_the_edit_and_nothing_else),
         entry = GREETING_ENTRY,
         no_such_entry = NO_SUCH_ENTRY,
         entry_file = GREETING_FILE,
