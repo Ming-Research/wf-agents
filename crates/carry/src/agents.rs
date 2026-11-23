@@ -2686,6 +2686,7 @@ mod tests {
             project: Some("example".to_string()),
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
         };
         let fork = Fork {
             work: WorkNumber(3),
@@ -3184,6 +3185,7 @@ mod tests {
             project: Some("example".to_string()),
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
         };
         let r2 = (flow.cells.iter())
             .find(|c| c.id.as_str() == "R2")
