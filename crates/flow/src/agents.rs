@@ -1,7 +1,7 @@
 //! What the engine says to every agent, whatever the flow, as it is written beside the flows: the project's files,
 //! settings and heavy commands (`project.toml`), and in `agents/` what a session begins with, what every agent is
 //! refused whatever its project, the rules for the agents, the engine's own words, the return and its fields, the
-//! tools, the message a cell is sent as it is entered (design document `data-and-context`, 51), and what the engine
+//! tools, the message a cell is sent as it is entered (design document `data-and-context`, 14), and what the engine
 //! writes as it works: into the blocks its acts write, and in the commits it makes. Every word an agent is sent that is
 //! not a flow's is in these files; the code holds none of them, only how they are put together. A field a file does
 //! not know is refused, and what cannot be read is said with the path of its file.
@@ -1289,7 +1289,7 @@ pub struct GivenKind {
 }
 
 /// `agents/message/results.toml`: what a round is told of the results of the calls it is given. In a text, `{name}` is
-/// a tool's name, `{input}` what it was run on, `{question}` a question as it was put, `{call}` a call's number.
+/// a tool's name, `{input}` what it was run on, `{call}` a call's number.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Results {
@@ -1298,7 +1298,6 @@ pub struct Results {
     pub tool: String,
     /// A tool run on nothing.
     pub tool_alone: String,
-    pub question: String,
     /// The owner's word at a limit.
     pub at_limit: String,
     /// A call the work does not hold.

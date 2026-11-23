@@ -2774,6 +2774,8 @@ mod tests {
                 name: name.to_string(),
                 what: *what,
                 at: work::Time(at),
+                taker: store::AccountTaker::Owner,
+                left_resets: None,
             })
             .collect()
     }

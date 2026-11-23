@@ -36,16 +36,12 @@
 // nothing again, and one that changed makes again only the cards that changed; a frame in which only the lights, the
 // pulses and the ages move draws only those, the cards standing in a group of their own that is drawn as it was.
 //
-// Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
-// every constant as they were. What changed: a card's second row draws the level the work's cell runs at, the works
-// page's strip of the work's cells where it drew the stages, and the lines the work changed; an ended item's one row,
-// the lines its work changed; what the new interface has nothing for
-// yet (an item new to the owner, messages unread) is read from the console's made-up data (`mock.ts`); the colours the
-// page's tokens came from are read from the tokens, so that the canvas follows light and dark; the canvas follows the
-// size of what holds it, besides the window's; the links dim with the items they join while an item is lit
-// (`DIM_LINKS`); and the way from each item whose work runs up to its root is lit, with a light running down it
-// (`RUN`), where a running card had a light going round its edge and a card that waits for the owner rings round
-// it.
+// A card's second row draws the level the work's cell runs at, the works page's strip of the work's cells, and the
+// lines the work changed; an ended item's one row, the lines its work changed. What the interface has nothing for yet
+// (an item new to the owner, messages unread) is read from the console's made-up data (`mock.ts`). The colours are read
+// from the page's tokens, so that the canvas follows light and dark; the canvas follows the size of what holds it,
+// besides the window's; the links dim with the items they join while an item is lit (`DIM_LINKS`); and the way from
+// each item whose work runs up to its root is lit, with a light running down it (`RUN`).
 
 import {
   Application,
@@ -484,8 +480,8 @@ const LIGHT = {
   /// What is new to the owner: the line inside a card's left edge, and its mark on the map.
   unseen: '#3673f5',
   accent: '#3673f5',
-  /// What joins an item to those under it: Primer's neutral muted, `#818b981f` in light and `#656c7633` in dark, as
-  /// the console on `old-main` read it, a little lighter.
+  /// What joins an item to those under it: Primer's neutral muted, `#818b981f` in light and `#656c7633` in dark, a
+  /// little lighter.
   other: '#818b98',
   otherAlpha: 0.85 * (0x1f / 255),
 };
@@ -1025,7 +1021,7 @@ type Styles = {
 /// The weight of strong words: the page's (`--weight-strong`).
 const STRONG = '600' as const;
 
-/// The faces of a node's words: Primer's stacks, which the console on `old-main` drew in, without the face Primer names
+/// The faces of a node's words: Primer's stacks, without the face Primer names
 /// first and the page never loaded. A canvas resolves a stack by its own rules (PixiJS quotes every name but the
 /// generic ones), so the page's own stacks (`--font`, `--mono`) could draw another face in some browsers.
 const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif';
