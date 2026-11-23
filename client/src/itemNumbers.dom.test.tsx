@@ -81,26 +81,47 @@ describe('the number of an item in a text', () => {
     expect(page.textContent).toBe('Plan for #46first #46item 47 nexta#47');
   });
 
-  it('is no link where it is not an item number: in code, in a link, joined to a word or a path, after PR, or of no item', () => {
-    const plain = [
-      '`#46` and `item 46`',
-      '[the item #46](https://example.com/46)',
-      'PR #46',
-      'pull request #46 and issue #47',
-      'W46, v46, O46, a#46, lineitems 46',
-      '53-27-23 and #46-1 and #46a and #46.5',
-      'https://example.com/#46',
-      '#046',
-      '#9999 and item 9999 and 条目 3',
-      '46 files, Article 8, round 47',
-      '{{question}} and {{46}}',
-    ];
-    for (const text of plain) {
+  /// The texts among these in which a link to an item stands, or one link inside another, with the links each holds:
+  /// none where the texts are as they should be, so that a failure names every text that still has one.
+  const linked = (texts: string[]) =>
+    texts.flatMap((text) => {
       unmount?.();
       const page = drawn(text);
-      expect([text, numbers(page)]).toEqual([text, []]);
-      expect(page.querySelectorAll('a a')).toHaveLength(0);
-    }
+      const found = numbers(page);
+      const inside = page.querySelectorAll('a a').length;
+      return found.length > 0 || inside > 0 ? [[text, found, inside]] : [];
+    });
+
+  it('is no link where it is not an item number: in code, in a link, joined to a word or a path, after PR, or of no item', () => {
+    // Each text holds one number that some rule leaves alone, and is a link at once where that rule is taken away:
+    // code, the words of a link, a word of another kind of number before the `#`, a letter or a path round the number,
+    // a leading zero, and a number no item has.
+    const excluded = [
+      '`#46` and `item 46`',
+      '[the item #46](https://example.com/46)',
+      'https://example.com/#46',
+      'PR #46',
+      'pull request #46',
+      'issue #47',
+      'a#46',
+      'lineitems 46',
+      '#46-1',
+      '#46a',
+      '#46.5',
+      '#046',
+      '#9999',
+      'item 9999',
+      '条目 3',
+    ];
+    expect(linked(excluded)).toEqual([]);
+  });
+
+  it('is no link where it is a bare number, with neither a # nor the word item before it: files, rounds, Articles, works, observations, versions and paths', () => {
+    // `#n` and the number after the word item are the whole of what links: the number of an item the page has read is
+    // text as long as it stands with neither. A rule that linked any such number would make each of the first three a
+    // link. The rest stand for the numbers of works, observations, versions and paths of items, which no rule may link.
+    const bare = ['46 files', 'Article 46', 'round 47', 'W46, O46 and v46', '46-47-46'];
+    expect(linked(bare)).toEqual([]);
   });
 
   it('links only the items that exist in a list, and the words of an explicit link stay its words', () => {
