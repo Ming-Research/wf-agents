@@ -41,8 +41,9 @@ pub struct Declared {
 /// found, each said with the projects' keys: a declaration that cannot be read from its project's main, a heavy command
 /// of it that names nothing or holds a `*` or a parenthesis, or that a lock command of the settings would allow whole
 /// ([`crate::permissions::heavy_faults`]), a variable it names for the agents' command line that the engine, the
-/// installation or the program owns ([`crate::cli::environment_faults`]), and two projects that name one repository,
-/// whose main, branches and merges they would share.
+/// installation or the program owns ([`crate::cli::environment_faults`]), a time limit of its workflows that is no time
+/// ([`crate::host::github::limit_faults`]), and two projects that name one repository, whose main, branches and merges
+/// they would share.
 pub fn declared(settings: &Settings, beside: &flow::agents::Agents) -> (BTreeMap<String, Declared>, Vec<String>) {
     let mut faults = Vec::new();
     let mut by_repository: BTreeMap<PathBuf, Vec<&str>> = BTreeMap::new();
@@ -70,6 +71,8 @@ pub fn declared(settings: &Settings, beside: &flow::agents::Agents) -> (BTreeMap
         let wrong = crate::permissions::heavy_faults(&beside.project, &settings.agents.permissions);
         faults.extend(wrong.into_iter().map(|fault| format!("projects.{name}: {fault}")));
         let wrong = crate::cli::environment_faults(&beside.project.environment, &settings.agents.env);
+        faults.extend(wrong.into_iter().map(|fault| format!("projects.{name}: {fault}")));
+        let wrong = (beside.project.ci.as_ref()).map_or_else(Vec::new, crate::host::github::limit_faults);
         faults.extend(wrong.into_iter().map(|fault| format!("projects.{name}: {fault}")));
         if project.github.is_none() {
             local_words(&mut beside);

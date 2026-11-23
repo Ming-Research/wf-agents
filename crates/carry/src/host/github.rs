@@ -47,6 +47,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 pub use api::{Api, Pull, State};
+pub use fast::limit_faults;
 pub use gh::{Gh, GhOffsite, UPLOAD_RATE};
 
 use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
@@ -613,14 +614,12 @@ impl<A: Api> Host for GitHub<A> {
                 None => return Ok(None),
             }
         }
-        let said = Some(said.join("\n\n"));
-        // The branch is kept until the run has ended and its result is read: a run the engine stopped waiting for is
-        // found again by the same call, and checks the commit out when it starts. One that could not be deleted is
-        // deleted as the work ends ([`Host::end`]).
-        if said.is_some() {
-            let _ = self.api.delete(&trying).await;
-        }
-        Ok(said.map(|said| match untracked.is_empty() {
+        let said = said.join("\n\n");
+        // The branch is kept until the run has ended and its result is read: a run the engine stopped waiting for
+        // returned above, and is found again by the same call, which checks the commit out when it starts. One that
+        // could not be deleted is deleted as the work ends ([`Host::end`]).
+        let _ = self.api.delete(&trying).await;
+        Ok(Some(match untracked.is_empty() {
             true => said,
             false => format!("{}\n\n{said}", fill(&words.untracked, &[("files", &untracked)])),
         }))

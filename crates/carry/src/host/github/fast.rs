@@ -153,6 +153,21 @@ fn judged<'a>(ran: &'a [Ran], tests: &'a [String]) -> Option<Vec<results::Row<'a
     concluded.then(|| results::rows(tests, run))
 }
 
+/// What is wrong with the time limits a project's declaration gives its workflows (`too_long` of `[ci.full]` and of
+/// `[ci.measure]`), each said with where it is written, so that a limit that is no time is refused as the engine starts
+/// and not by the first request that waits for a run, after its commit is pushed.
+pub fn limit_faults(ci: &Ci) -> Vec<String> {
+    let at = |table: &str, why: String| format!("{} [{table}]: too_long: {why}", flow::agents::DECLARATION);
+    let mut faults = Vec::new();
+    if let Err(why) = span_of(&ci.full.too_long) {
+        faults.push(at("ci.full", why));
+    }
+    if let Some(Err(why)) = ci.measure.as_ref().map(|measure| span_of(&measure.too_long)) {
+        faults.push(at("ci.measure", why));
+    }
+    faults
+}
+
 /// A time such as `90m`, `2h`, `30s` or `1d`; or why it is none.
 pub(super) fn span_of(text: &str) -> Result<Duration, String> {
     let text = text.trim();
