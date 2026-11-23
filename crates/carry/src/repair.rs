@@ -121,7 +121,7 @@ pub fn costs(data: &Path, rows: &Rows) -> Report {
         };
         for now in &seen {
             let row = now.row;
-            let name = format!("W{work} run {} round {}", row.run, row.round);
+            let name = format!("{} run {} round {}", WorkNumber(*work), row.run, row.round);
             if !now.kept {
                 list(&mut report, &name, "no stream is kept of it");
                 continue;
@@ -211,7 +211,7 @@ fn forks(data: &Path, rows: &Rows, report: &mut Report) {
             .push(fork);
     }
     for ((work, run, round), recorded) in &of_round {
-        let name = format!("W{work} run {run} round {round}");
+        let name = format!("{} run {run} round {round}", WorkNumber(*work));
         let base = kept::base(data, WorkNumber(*work), RunId(*run), *round);
         let stem = base
             .file_name()
