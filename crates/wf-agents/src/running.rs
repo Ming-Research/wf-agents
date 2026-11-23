@@ -692,8 +692,9 @@ mod tests {
         std::fs::write(lacking.join(flow::agents::DECLARATION), unheavy).unwrap();
         git(&lacking, &["add", "."]);
         git(&lacking, &[&who[..], &["commit", "-q", "-m", "Declared"][..]].concat());
-        // The same declaration naming, for the agents' command line, a variable the engine owns and one the agents'
-        // program reads itself.
+        // The same declaration naming, for the agents' command line, a variable the engine owns, one the agents'
+        // program reads itself and one the settings keep of the engine's environment.
+        settings.agents.env = vec!["LANGUAGE".to_string()];
         let unsafe_repo = dir.path().join("unsafe");
         std::fs::create_dir_all(unsafe_repo.join("flow")).unwrap();
         std::fs::create_dir_all(unsafe_repo.join("design")).unwrap();
@@ -706,7 +707,7 @@ mod tests {
             .expect("the declaration names its environment");
         let named = declared.replace(
             kept,
-            "PATH = \"/elsewhere\"\nANTHROPIC_BASE_URL = \"https://example.com\"\n",
+            "PATH = \"/elsewhere\"\nANTHROPIC_BASE_URL = \"https://example.com\"\nLANGUAGE = \"en\"\n",
         );
         std::fs::write(unsafe_repo.join(flow::agents::DECLARATION), named).unwrap();
         git(&unsafe_repo, &["add", "."]);
@@ -724,7 +725,7 @@ mod tests {
         let faults = start_faults(&settings, &beside, &[engineer()]);
         let cargo = "agents.permissions.locks: \"cargo\" would allow all of the heavy command \"cargo\" \
                      (flow/project.toml [heavy])";
-        assert_eq!(faults.len(), 9, "{faults:?}");
+        assert_eq!(faults.len(), 10, "{faults:?}");
         assert_eq!(
             faults[0],
             "agents.permissions.locks: \"git push\" falls under \"git push\", which every agent is refused \
@@ -756,6 +757,11 @@ mod tests {
         );
         assert_eq!(
             faults[8],
+            "projects.unsafe: flow/project.toml [environment]: LANGUAGE is one the installation's agents.env keeps of \
+             the engine's environment, which a declared value would override"
+        );
+        assert_eq!(
+            faults[9],
             "projects.unsafe: flow/project.toml [environment]: PATH is the engine's own, which it gives every round \
              itself"
         );
