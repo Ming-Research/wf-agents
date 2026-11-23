@@ -201,6 +201,73 @@ fn a_run_that_finished_waiting_for_a_block_loads_back_waiting_for_it() {
     assert_eq!(loaded, new);
 }
 
+// A question marked to go into the design tree is kept with its mark and loads back marked, one marked not to is kept
+// so, and one with no mark (the engine's, or asked before questions said it) loads back with none. Well under a second
+// alone, a store on disk; no other test keeps a question with a mark through the file.
+#[test]
+fn a_question_marked_for_the_design_tree_loads_back_marked_and_one_not_marked_with_none() {
+    let asked = |name: &str, tree: Option<bool>| engine::Question::Asked {
+        name: name.to_string(),
+        waits: true,
+        tree,
+        recommends: None,
+        ask: format!("Which way, {name}?"),
+        options: vec![engine::Way {
+            does: "the short way".to_string(),
+            follows: "less to read".to_string(),
+        }],
+        about: None,
+        reasons: BTreeMap::new(),
+    };
+    let mut new = of_the_new_form();
+    new.back.insert(
+        (RunId(1), 1),
+        Back::Returned {
+            dealt_with: vec![],
+            handed: vec![],
+            asks: vec![],
+            found: vec![],
+            said: work::Said {
+                questions: vec![
+                    asked("into_the_tree", Some(true)),
+                    asked("not_into_the_tree", Some(false)),
+                    asked("unmarked", None),
+                ],
+                observations: vec![],
+            },
+            engine: vec![],
+            waits_for: None,
+            read: vec![],
+        },
+    );
+    let db = Db::new();
+    let mut store = db.open();
+    first_work(&mut store);
+    let (_, work) = store
+        .add(&first("second", "2", &[]), "judged", Time(START), &Work::default())
+        .expect("the item is added");
+    store.save(work, &new).expect("the work is saved");
+    let loaded = db.open().load(work).expect("it loads");
+    let marks: Vec<(String, Option<bool>)> = match loaded.back.get(&(RunId(1), 1)) {
+        Some(Back::Returned { said, .. }) => (said.questions.iter())
+            .filter_map(|q| match q {
+                engine::Question::Asked { name, tree, .. } => Some((name.clone(), *tree)),
+                engine::Question::Withdrawn { .. } => None,
+            })
+            .collect(),
+        other => panic!("the return is not kept: {other:?}"),
+    };
+    assert_eq!(
+        marks,
+        [
+            ("into_the_tree".to_string(), Some(true)),
+            ("not_into_the_tree".to_string(), Some(false)),
+            ("unmarked".to_string(), None),
+        ]
+    );
+    assert_eq!(loaded, new);
+}
+
 #[test]
 fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_what_filled_their_sessions() {
     let new = of_the_new_form();

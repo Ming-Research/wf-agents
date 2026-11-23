@@ -487,6 +487,69 @@ mod tests {
     }
 
     #[test]
+    fn each_reason_an_item_is_not_changed_or_reopened_is_said_with_the_item_and_what_it_is_about() {
+        let item = ItemNumber(7);
+        let on = ItemNumber(3);
+        let n = |numbers: &[u64]| numbers.iter().map(|n| ItemNumber(*n)).collect::<Vec<_>>();
+        let cases: [(Unchangeable, &[&str]); 13] = [
+            (Unchangeable::Ended(End::Merged), &["#7 has merged", "takes no change"]),
+            (
+                Unchangeable::Ended(End::Cancelled),
+                &["#7 is cancelled", "reopen it first"],
+            ),
+            (
+                Unchangeable::Started,
+                &["work of #7 has started", "changes only until its work starts"],
+            ),
+            (
+                Unchangeable::Placed,
+                &["work of #7 has made its branch", "the branch was made from it"],
+            ),
+            (Unchangeable::Circle(vec![item]), &["#7 cannot depend on itself"]),
+            (
+                Unchangeable::Circle(vec![on, item]),
+                &[
+                    "#7 cannot depend on #3, which depends on it already",
+                    "#3 depends on #7",
+                ],
+            ),
+            (Unchangeable::NotDependent(on), &["#7 does not depend on #3"]),
+            (
+                Unchangeable::NotTagged("big".to_string()),
+                &["#7 does not carry the tag big"],
+            ),
+            (
+                Unchangeable::MergedDependants(n(&[4, 5])),
+                &["#4 and #5 merged depending on #7"],
+            ),
+            (
+                Unchangeable::StartedDependants(n(&[4])),
+                &["#4 depends on #7", "its work has started", "while it has not ended"],
+            ),
+            (
+                Unchangeable::StartedDependants(n(&[4, 5])),
+                &[
+                    "#4 and #5 depend on #7",
+                    "their works have started",
+                    "while they have not ended",
+                ],
+            ),
+            (
+                Unchangeable::NotCancelled,
+                &["#7 is not cancelled", "only a cancelled item is reopened"],
+            ),
+            (Unchangeable::LettingGo, &["cancel of #7 is still letting go"]),
+        ];
+        let mut all = BTreeSet::new();
+        for (why, parts) in cases {
+            let words = unchangeable_words(item, &why);
+            says(&words, parts);
+            all.insert(words);
+        }
+        assert_eq!(all.len(), 13, "two reasons are said alike: {all:?}");
+    }
+
+    #[test]
     fn what_stopped_the_driver_on_a_flow_version_is_said_with_the_work_the_version_and_the_cells_it_misreads() {
         let flow = || "judged".to_string();
         let words = |fault: driver::Fault| Fault::Driver(fault).to_string();
