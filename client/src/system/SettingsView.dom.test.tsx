@@ -170,7 +170,7 @@ describe('the Settings view', () => {
     const agents = fileOnly[1];
     expect([...agents.querySelectorAll('dt')].map((d) => d.textContent)).toEqual([
       'command',
-      'args',
+      'env',
       'work_budget_usd',
     ]);
     expect(page.textContent).toContain('"WF_GITHUB_TOKEN"');

@@ -501,10 +501,10 @@ struct Start {
 }
 
 /// What keeps the real carriers from carrying out the flows, every fault at once: what the acts need of a flow and of
-/// their words beside the flows; what every agent is refused whatever its project, beside the flows, and
-/// the program the installation names ([`carry::permissions::faults`]), the same for every project and said once; what the texts sent to the agents name
-/// and hold where it is the flows', the same for every project; and two projects in one repository, each said with the
-/// projects' keys. Of each project, what is wrong with its declaration on its main, with the files it names, its heavy
+/// their words beside the flows; what every agent is refused whatever its project, beside the flows, and the program
+/// the installation names ([`carry::permissions::faults`]), the same for every project and said once; what the texts
+/// sent to the agents name and hold where it is the flows', the same for every project; and two projects in one
+/// repository, each said with the projects' keys. Of each project, what is wrong with its declaration on its main, with the files it names, its heavy
 /// commands and the commands its host needs of it, is no fault of the engine's but holds that project alone
 /// ([`carry::projects::declared`]): each held project is listed with why.
 fn start(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Compiled]) -> Start {
@@ -722,8 +722,9 @@ mod tests {
     // A project whose declaration cannot be used is held, and every one is said at once with its project's key and why,
     // whatever else is wrong: the declaration main does not hold, one that names no heavy commands, variables it names
     // for the agents' command line that the engine, the settings or the agents' program own, and time limits of its
-    // workflows that are no times. None of it keeps the engine from starting, and the project that is fine is not held. Two projects that name one repository are a fault of the
-    // engine's, which their declarations do not cause, and keep it from starting.
+    // workflows that are no times. None of it keeps the engine from starting, and the project that is fine is not held.
+    // Two projects that name one repository are a fault of the engine's, which their declarations do not cause, and
+    // keep it from starting.
     #[test]
     fn a_project_whose_declaration_cannot_be_used_is_held_and_each_is_said_with_its_key_and_why() {
         let dir = tempfile::tempdir().expect("a directory");

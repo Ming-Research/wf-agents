@@ -286,8 +286,8 @@ pub fn keeping() -> Value {
 pub const SETTING_SOURCES: &str = "user";
 
 /// The arguments of the program that isolate it from what the owner's own tools and settings give, the same for every
-/// round: it reads only the settings files of [`SETTING_SOURCES`]; and it reads no MCP server's and no slash command's but those the engine gives. They are not what an
-/// agent may do, which is the flow's ([`Permissions`]).
+/// round: it reads only the settings files of [`SETTING_SOURCES`], and no MCP server's and no slash command's but
+/// those the engine gives. They are not what an agent may do, which is the flow's ([`Permissions`]).
 pub fn fixed_arguments() -> Vec<String> {
     [
         "--setting-sources",

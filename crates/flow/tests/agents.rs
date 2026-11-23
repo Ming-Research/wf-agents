@@ -924,11 +924,12 @@ fn a_time_whose_seconds_do_not_fit_is_refused_and_one_that_just_fits_is_read() {
     assert!(refused.contains("ci.fast.too_long"), "{refused}");
 }
 
-// A declaration that names lock commands, a key no declaration has since agents are allowed every shell command, is
-// refused, and so is a merge method or branch deletion of the wrong spelling or type, which would be taken for another.
-// Reference: the declaration's own table of keys (`Heavy`, `Merging`), and TOML's types. Milliseconds.
+// A declaration that names lock commands is refused, as no declaration has them since agents are allowed every shell
+// command and a refusal beats an allow; and so is a merge method or branch deletion of the wrong spelling or type, which
+// would be taken for another. Reference: the declaration's own table of keys (`Heavy`, `Merging`), and TOML's types.
+// Milliseconds.
 #[test]
-fn a_lock_command_a_misspelled_or_mistyped_merge_or_deletion_setting_is_refused_not_taken_for_none() {
+fn a_lock_command_or_a_misspelled_or_mistyped_merge_or_deletion_setting_is_refused_not_taken_for_none() {
     let text = declaration_text();
     let heavy = "commands = [\"cargo\", \"npm\"]";
     let pull = "\n[pull_request]\n";
