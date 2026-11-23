@@ -1536,32 +1536,66 @@ fn by_cell(lines: &BTreeSet<String>) -> String {
         .join("\n")
 }
 
-// A search over the engineer's flow, which the tool writes situations for, in both directions, as the test over the
-// small flow is: every state of a datum that a round stood in is one the tool writes, and every one it writes was
-// stood in by a round the search reached.
-#[test]
-fn every_state_of_a_datum_the_tool_writes_for_the_engineer_s_flow_is_one_a_round_of_the_search_stood_in() {
+/// Searches the engineer's flow for rounds of these cells that stand in each state of a datum the tool writes for them,
+/// and holds the tool to what the rounds the search carried stood in, in both directions, as the test over the small
+/// flow does: every state of a datum that a round stood in is one the tool writes, and every one it writes for these
+/// cells was stood in by a round.
+fn every_state_written_for(cells: &[&str], seed: u64) {
     let (written, after_read) = written(&support::engineer_sim());
     assert!(
         after_read > 0,
         "no situation of a session begun anew and another cell read in it"
     );
-    let (reached, log) = search(&written, 0);
-    let open: BTreeSet<String> = written.difference(&reached.real).cloned().collect();
+    let wanted: BTreeSet<String> = (written.iter())
+        .filter(|line| cells.iter().any(|c| line.starts_with(&format!("{c}: "))))
+        .cloned()
+        .collect();
+    let (reached, log) = search(&wanted, seed);
+    let open: BTreeSet<String> = wanted.difference(&reached.real).cloned().collect();
     let gaps: Vec<String> = (reached.real.difference(&written))
         .map(|line| format!("{line}\n    {}", reached.examples[line]))
         .collect();
     assert!(
         open.is_empty() && gaps.is_empty(),
         "{} states of a datum that rounds stood in, and the tool does not write:\n{}\n\n{} of the {} states the tool writes \
-         were stood in by no round:\n{}\n\nthe search: {}",
+         for {cells:?} were stood in by no round:\n{}\n\nthe search: {}",
         gaps.len(),
         gaps.join("\n"),
         open.len(),
-        written.len(),
+        wanted.len(),
         by_cell(&open),
         log.join("\n")
     );
+}
+
+#[test]
+fn every_state_of_a_datum_the_tool_writes_for_the_reading_cells_is_one_a_round_stood_in() {
+    every_state_written_for(&["R0", "R1", "R2"], 0);
+}
+
+#[test]
+fn every_state_of_a_datum_the_tool_writes_for_the_design_cells_is_one_a_round_stood_in() {
+    every_state_written_for(&["D1", "D2"], 1);
+}
+
+#[test]
+fn every_state_of_a_datum_the_tool_writes_for_the_plan_cells_is_one_a_round_stood_in() {
+    every_state_written_for(&["P1", "P2"], 2);
+}
+
+#[test]
+fn every_state_of_a_datum_the_tool_writes_for_the_implementation_is_one_a_round_stood_in() {
+    every_state_written_for(&["I1"], 3);
+}
+
+#[test]
+fn every_state_of_a_datum_the_tool_writes_for_the_first_tests_is_one_a_round_stood_in() {
+    every_state_written_for(&["T1", "T2"], 4);
+}
+
+#[test]
+fn every_state_of_a_datum_the_tool_writes_for_the_last_tests_is_one_a_round_stood_in() {
+    every_state_written_for(&["T3", "T4"], 5);
 }
 
 #[test]
