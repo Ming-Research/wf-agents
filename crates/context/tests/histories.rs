@@ -399,6 +399,28 @@ impl History {
         }
     }
 
+    /// What the work holds changes before its next round, as it does among the random steps: a person or the outside
+    /// writes, the owner reopens a line's session or speaks to a cell.
+    fn perturb(&mut self, reached: &mut Reached) {
+        match self.rng.below(4) {
+            0 | 1 => {
+                let block = self.scene.writes[self.rng.below(self.scene.writes.len())];
+                self.put(block);
+            }
+            2 => {
+                let line = self.scene.lines[self.rng.below(self.scene.lines.len())].clone();
+                self.sim.anew(&line, Why::Owner);
+                self.lines.insert(line, Held::default());
+                reached.reopened += 1;
+            }
+            _ => {
+                if self.scene.talks {
+                    self.speaks();
+                }
+            }
+        }
+    }
+
     /// The owner says a few words to a cell that takes them, or answers a question that stands unanswered. Says whether
     /// either was possible.
     fn speaks(&mut self) -> bool {
@@ -1388,69 +1410,118 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
     );
 }
 
-/// How many steps a branch of the search runs from a state it kept, and how many branches the search runs at most.
-const BRANCH_STEPS: usize = 40;
+/// How many histories go as deep into the flow as they can before the search branches, and how many steps each takes;
+/// how many branches the search runs at most, how many steps each takes, and how many states of the work at the entry
+/// of a round of each cell it keeps.
+const DEEPENING: u64 = 3;
+const DEEP_STEPS: usize = 260;
 const BRANCHES: usize = 40;
+const BRANCH_STEPS: usize = 30;
+const FRONTIER: usize = 6;
 
-/// Searches the engineer's flow for rounds that stand in the lines wanted: a branch is a history, begun anew or taken
-/// from a state an earlier branch kept because it reached a line none had, and run some steps with the driver's own
-/// random steps. The search goes on until every line wanted was reached or the branches are spent. Says what the rounds
-/// reached, and, every tenth branch, how many lines were still open.
+/// The state of a history as the round of a cell is to be carried, kept to branch from.
+type Frontier = BTreeMap<String, Vec<History>>;
+
+/// Keeps the history as it stands where a round of a cell not kept enough of is given and is not yet carried: the
+/// states a datum stands in at a round depend on what was written and what the session held before it, so that many
+/// ways of coming to a round of a cell are worth keeping.
+fn keep_at_the_round(frontier: &mut Frontier, history: &History, last: &mut Option<(RunId, usize)>, rng: &mut Rng) {
+    let Some(round) = history.sim.round() else {
+        return;
+    };
+    if *last == Some((round.run, round.number)) {
+        return;
+    }
+    *last = Some((round.run, round.number));
+    let kept = frontier.entry(round.cell.as_str().to_string()).or_default();
+    if kept.len() < FRONTIER {
+        kept.push(history.clone());
+    } else if rng.chance(15) {
+        let at = rng.below(kept.len());
+        kept[at] = history.clone();
+    }
+}
+
+/// Searches the engineer's flow for rounds that stand in the lines wanted. A few histories go as deep into the flow as
+/// they can, keeping the state of the work at the entry of each round they reach; then each branch takes one of those
+/// states for a cell that still has a line open (the deepest there is, where a cell was never reached), changes what
+/// the work holds before the round a few times, as the owner and the outside do, and runs on with the driver's own
+/// random steps, keeping the states at the rounds it reaches. It goes on until every line wanted was reached or the
+/// branches are spent. Says what the rounds reached, and, every tenth branch, how many lines were still open.
 fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
     let mut rng = Rng::new(seed);
     let mut reached = Reached::default();
-    let mut kept: Vec<History> = Vec::new();
+    let mut frontier: Frontier = BTreeMap::new();
     let mut log = Vec::new();
     let begun = std::time::Instant::now();
-    for branch in 0..BRANCHES {
-        if wanted.is_subset(&reached.real) {
-            break;
-        }
-        let from = seed.wrapping_mul(7_919).wrapping_add(branch as u64);
-        let mut history = if kept.is_empty() || rng.chance(10) {
-            let sim = support::engineer_sim();
-            let scene = Scene::engineer(&sim);
-            let mut history = History::of(sim, scene, from);
-            // Each goes some way into the flow before anything else happens, the next further than the last.
-            history.quiet = 12 * rng.below(12);
-            history.scene.passes = Some(60 + 10 * rng.below(5) as u64);
-            history
-        } else {
-            // A state kept lately more often than the others, and a few steps that only carry the work on.
-            let at = if rng.chance(50) {
-                kept.len() - 1 - rng.below(kept.len().min(8))
-            } else {
-                rng.below(kept.len())
-            };
-            let mut history = kept[at].clone();
-            history.rng = Rng::new(from);
-            history.quiet = 10 * rng.below(4);
-            history
-        };
-        let before = reached.real.len();
+    let sim = support::engineer_sim();
+    let order: Vec<String> = sim
+        .flow
+        .flow
+        .cells()
+        .iter()
+        .map(|c| c.id.as_str().to_string())
+        .collect();
+    let run = |history: &mut History, steps: usize, reached: &mut Reached, frontier: &mut Frontier, rng: &mut Rng| {
+        let mut last = None;
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            for _ in 0..BRANCH_STEPS {
+            for _ in 0..steps {
                 if history.ended() {
                     break;
                 }
-                history.step(&mut reached);
+                history.step(reached);
+                keep_at_the_round(frontier, history, &mut last, rng);
             }
         }));
         if let Err(e) = ran {
-            eprintln!("the branch {branch} of the search of seed {seed} failed");
+            eprintln!("a history of the search of seed {seed} failed");
             std::panic::resume_unwind(e);
         }
-        if reached.real.len() > before && !history.ended() {
-            kept.push(history);
+    };
+    for deep in 0..DEEPENING {
+        let sim = support::engineer_sim();
+        let scene = Scene::engineer(&sim);
+        let mut history = History::of(sim, scene, seed.wrapping_mul(7_919).wrapping_add(deep));
+        history.quiet = DEEP_STEPS;
+        history.scene.passes = Some(85 + 5 * deep);
+        run(&mut history, DEEP_STEPS, &mut reached, &mut frontier, &mut rng);
+    }
+    for branch in 0..BRANCHES {
+        let open: BTreeSet<&str> = (wanted.iter())
+            .filter(|line| !reached.real.contains(*line))
+            .filter_map(|line| line.split_once(": ").map(|(cell, _)| cell))
+            .collect();
+        if open.is_empty() {
+            break;
         }
+        // A cell with a line open and a state kept at one of its rounds; where there is none, the deepest cell there is.
+        let cells: Vec<&String> = (order.iter())
+            .filter(|c| open.contains(c.as_str()) && frontier.contains_key(*c))
+            .collect();
+        let cell = match cells.len() {
+            0 => (order.iter().rev().find(|c| frontier.contains_key(*c))).cloned(),
+            n => Some(cells[branch % n].clone()),
+        };
+        let Some(cell) = cell else {
+            break;
+        };
+        let states = &frontier[&cell];
+        let mut history = states[rng.below(states.len())].clone();
+        history.rng = Rng::new(seed.wrapping_mul(104_729).wrapping_add(branch as u64));
+        history.quiet = 0;
+        // What the work holds at the round changes some, before it is carried.
+        for _ in 0..rng.below(4) {
+            history.perturb(&mut reached);
+        }
+        run(&mut history, BRANCH_STEPS, &mut reached, &mut frontier, &mut rng);
         if branch % 10 == 9 {
             log.push(format!(
-                "after {} branches, {:?}: {} lines open, {} states kept, {} rounds",
+                "after {} branches, {:?}: {} lines open, {} rounds, states kept at the rounds of {}",
                 branch + 1,
                 begun.elapsed(),
                 wanted.difference(&reached.real).count(),
-                kept.len(),
-                reached.rounds
+                reached.rounds,
+                frontier.keys().cloned().collect::<Vec<_>>().join(" ")
             ));
         }
     }
