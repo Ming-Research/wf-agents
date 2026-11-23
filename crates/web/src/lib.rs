@@ -55,60 +55,6 @@ mod built {
     include!(concat!(env!("OUT_DIR"), "/page.rs"));
 }
 
-// The build script's own code, which the tests of the crate hold to what it should do: it is not part of the crate.
-#[cfg(test)]
-#[path = "../build_support/stamp.rs"]
-mod stamp;
-#[cfg(test)]
-#[path = "../build_support/tree.rs"]
-mod tree;
-
-#[cfg(test)]
-mod page_built_in {
-    use super::built;
-    use std::path::Path;
-
-    /// Every file under `dir` as its path from `root` and its bytes, found without the build script's code.
-    fn files(root: &Path, dir: &Path, found: &mut Vec<(String, Vec<u8>)>) {
-        for entry in std::fs::read_dir(dir).expect("the directory is read") {
-            let path = entry.expect("an entry").path();
-            if path.is_dir() {
-                files(root, &path, found);
-            } else {
-                let name = path
-                    .strip_prefix(root)
-                    .expect("under the root")
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                found.push((name, std::fs::read(&path).expect("the file is read")));
-            }
-        }
-    }
-
-    #[test]
-    fn the_page_built_in_is_the_page_on_disk() {
-        let dist = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../client/dist");
-        let mut on_disk = Vec::new();
-        files(&dist, &dist, &mut on_disk);
-        on_disk.retain(|(name, _)| name != "source.sha256");
-        on_disk.sort();
-        let mut carried: Vec<(String, Vec<u8>)> = built::FILES
-            .iter()
-            .map(|(name, bytes)| (name.to_string(), bytes.to_vec()))
-            .collect();
-        carried.sort();
-        assert!(!carried.is_empty(), "no file of the page is built in");
-        assert_eq!(
-            carried.iter().map(|(name, _)| name).collect::<Vec<_>>(),
-            on_disk.iter().map(|(name, _)| name).collect::<Vec<_>>(),
-            "the files built in are not the files of client/dist"
-        );
-        for ((name, carried), (_, disk)) in carried.iter().zip(&on_disk) {
-            assert!(carried == disk, "{name} built in is not as client/dist has it");
-        }
-    }
-}
-
 /// Reads a definition's files, or says why they cannot be read.
 pub type Read = Box<dyn Fn() -> Result<Source, String> + Send + Sync>;
 
@@ -312,5 +258,59 @@ fn content_type(name: &str) -> &'static str {
         Some("woff2") => "font/woff2",
         Some("txt") => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
+    }
+}
+
+// The build script's own code, which the tests of the crate hold to what it should do: it is not part of the crate.
+#[cfg(test)]
+#[path = "../build_support/stamp.rs"]
+mod stamp;
+#[cfg(test)]
+#[path = "../build_support/tree.rs"]
+mod tree;
+
+#[cfg(test)]
+mod page_built_in {
+    use super::built;
+    use std::path::Path;
+
+    /// Every file under `dir` as its path from `root` and its bytes, found without the build script's code.
+    fn files(root: &Path, dir: &Path, found: &mut Vec<(String, Vec<u8>)>) {
+        for entry in std::fs::read_dir(dir).expect("the directory is read") {
+            let path = entry.expect("an entry").path();
+            if path.is_dir() {
+                files(root, &path, found);
+            } else {
+                let name = path
+                    .strip_prefix(root)
+                    .expect("under the root")
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                found.push((name, std::fs::read(&path).expect("the file is read")));
+            }
+        }
+    }
+
+    #[test]
+    fn the_page_built_in_is_the_page_on_disk() {
+        let dist = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../client/dist");
+        let mut on_disk = Vec::new();
+        files(&dist, &dist, &mut on_disk);
+        on_disk.retain(|(name, _)| name != "source.sha256");
+        on_disk.sort();
+        let mut carried: Vec<(String, Vec<u8>)> = built::FILES
+            .iter()
+            .map(|(name, bytes)| (name.to_string(), bytes.to_vec()))
+            .collect();
+        carried.sort();
+        assert!(!carried.is_empty(), "no file of the page is built in");
+        assert_eq!(
+            carried.iter().map(|(name, _)| name).collect::<Vec<_>>(),
+            on_disk.iter().map(|(name, _)| name).collect::<Vec<_>>(),
+            "the files built in are not the files of client/dist"
+        );
+        for ((name, carried), (_, disk)) in carried.iter().zip(&on_disk) {
+            assert!(carried == disk, "{name} built in is not as client/dist has it");
+        }
     }
 }

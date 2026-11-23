@@ -417,11 +417,6 @@ fn script_levels() -> Levels {
     Levels::one("1", "The one level of an engine whose agents follow a script")
 }
 
-/// Holds the data directory for as long as the process runs: an exclusive lock of the system's on a file in it, taken
-/// without waiting (`flock` where the system is Unix). The system lets go of it when the file is closed, which it is
-/// when the process ends however it ends, killed or failed as much as stopped; a file made to say an engine runs, and
-/// taken away when it stops, would outlive a process that was killed and keep the next one out for nothing. The file
-/// is left in the directory: its lock, not the file, says that an engine runs.
 /// Holds the data directory, and only then takes the program's flows out into it: the files a running engine reads are
 /// never changed by one that is refused. Gives the hold and the directory of each flow named.
 fn take_program_flows(data: &Path, files: &[(&str, &[u8])], names: &[String]) -> Result<(File, Vec<PathBuf>), String> {
@@ -430,6 +425,11 @@ fn take_program_flows(data: &Path, files: &[(&str, &[u8])], names: &[String]) ->
     Ok((held, dirs))
 }
 
+/// Holds the data directory for as long as the process runs: an exclusive lock of the system's on a file in it, taken
+/// without waiting (`flock` where the system is Unix). The system lets go of it when the file is closed, which it is
+/// when the process ends however it ends, killed or failed as much as stopped; a file made to say an engine runs, and
+/// taken away when it stops, would outlive a process that was killed and keep the next one out for nothing. The file
+/// is left in the directory: its lock, not the file, says that an engine runs.
 fn hold(data: &Path) -> Result<File, String> {
     let path = data.join(HELD);
     let file = (OpenOptions::new().create(true).truncate(false).write(true).open(&path))

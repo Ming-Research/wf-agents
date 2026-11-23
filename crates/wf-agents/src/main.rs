@@ -1070,6 +1070,11 @@ fn page(dir: PathBuf, port: u16) -> ExitCode {
     })
 }
 
+// The build script's own code, which the tests of the program hold to what it should do: it is not part of the program.
+#[cfg(test)]
+#[path = "../build_support/commit.rs"]
+mod commit;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1077,10 +1082,7 @@ mod tests {
 
     #[test]
     fn the_version_says_the_commit_the_build_was_given_or_unknown() {
-        // The build script takes the first line of what it was given, trimmed.
-        let given = option_env!("WF_BUILD_COMMIT").unwrap_or_default();
-        let given = given.lines().next().unwrap_or_default().trim();
-        let commit = if given.is_empty() { "unknown" } else { given };
+        let commit = commit::commit(option_env!("WF_BUILD_COMMIT"));
         assert_eq!(VERSION, format!("{} ({commit})", env!("CARGO_PKG_VERSION")));
         assert_eq!(Cli::command().get_version(), Some(VERSION));
     }

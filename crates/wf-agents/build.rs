@@ -7,6 +7,8 @@
 
 use std::path::PathBuf;
 
+#[path = "build_support/commit.rs"]
+mod commit;
 #[path = "../web/build_support/tree.rs"]
 mod tree;
 
@@ -29,10 +31,10 @@ fn main() {
     if let Err(e) = std::fs::write(&out, code) {
         panic!("{}: {e}", out.display());
     }
-    let commit = std::env::var("WF_BUILD_COMMIT").unwrap_or_default();
-    let commit = commit.lines().next().unwrap_or_default().trim();
-    println!(
-        "cargo::rustc-env=WF_COMMIT={}",
-        if commit.is_empty() { "unknown" } else { commit }
-    );
+    let given = match std::env::var("WF_BUILD_COMMIT") {
+        Ok(given) => Some(given),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(e) => panic!("WF_BUILD_COMMIT: {e}"),
+    };
+    println!("cargo::rustc-env=WF_COMMIT={}", commit::commit(given.as_deref()));
 }
