@@ -3084,7 +3084,10 @@ mod tests {
         );
         // From a number on, those numbered less are left out.
         let from = pulls_said(&pulls, Some(2), 3 * hour);
-        assert!(from.contains("#2 ") && !from.contains("#1 "), "{from}");
+        assert!(
+            from.contains(" pull request 2 ") && !from.contains(" pull request 1 "),
+            "{from}"
+        );
     }
 
     // At most a hundred are said, and what is left out is said by project, with the command that gives it from its first.
