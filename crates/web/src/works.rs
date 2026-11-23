@@ -2769,7 +2769,7 @@ impl Spent {
                 Some(fresh) => (fresh, written, 0),
                 None => {
                     return Err(Broken(format!(
-                        "a call took {written} tokens written to the cache of the {} it sent and did not read from it",
+                        "a record says {written} tokens were written to the cache of the {} sent and not read from it",
                         took.uncached_tokens
                     )));
                 }
@@ -4480,6 +4480,44 @@ pub(crate) mod tests {
             ..Has::default()
         };
         compile(&source, &has).expect("the deliver flow compiles")
+    }
+
+    // What a round, a ping or a fork took is told in the kinds its record tells. Tokens a record does not tell apart
+    // are counted as neither sent fresh nor written to the cache; one that says it wrote more to the cache than it
+    // sent and did not read from it is refused, and not shown as nothing.
+    #[test]
+    fn a_record_tells_the_cache_written_from_the_sent_fresh_only_where_it_says_and_a_wrong_one_is_refused() {
+        let took = |uncached_tokens, cache_written_tokens| work::Spent {
+            usd_micros: 7,
+            uncached_tokens,
+            cache_written_tokens,
+            cached_tokens: 100,
+            output_tokens: 3,
+            ..Default::default()
+        };
+        let told = |spent: Spent| {
+            (
+                spent.input_tokens,
+                spent.cache_written_tokens,
+                spent.unsplit_tokens,
+                spent.cached_tokens,
+                spent.output_tokens,
+            )
+        };
+        let apart = Spent::of(&took(5_100, Some(5_000)), 40).expect("the record is sound");
+        assert_eq!(told(apart), (100, 5_000, 0, 100, 3));
+        assert_eq!((apart.usd_micros, apart.working_ms, apart.rounds), (7, 40, 1));
+        let not_apart = Spent::of(&took(5_100, None), 0).expect("the record is sound");
+        assert_eq!(told(not_apart), (0, 0, 5_100, 100, 3), "in neither of the two");
+        // Every token it sent and did not read from the cache was written to it.
+        let all_written = Spent::of(&took(5_000, Some(5_000)), 0).expect("the record is sound");
+        assert_eq!(told(all_written), (0, 5_000, 0, 100, 3));
+        assert_eq!(
+            Spent::of(&took(5_000, Some(5_001)), 0),
+            Err(Broken(
+                "a record says 5001 tokens were written to the cache of the 5000 sent and not read from it".to_string()
+            ))
+        );
     }
 
     // What a work spent beside its rounds is told by kind, each call counted as a round, and by when it ended: a ping and
