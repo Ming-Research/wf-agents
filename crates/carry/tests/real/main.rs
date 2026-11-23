@@ -539,7 +539,10 @@ takes_back() {{
     fi
 }}
 leaves() {{
-    if [ '{leaves_edit}' = yes ] && ! grep -q 'changes to tracked files that are not committed' "$log/$n.stdin"; then
+    # Where the build also mends the edit and nothing else, it leaves the edit only in a round that has the results of
+    # its calls: the rounds before, which ask a question or a call, are not what the test is about.
+    if [ '{leaves_edit}' = yes ] && ! grep -q 'changes to tracked files that are not committed' "$log/$n.stdin" \
+        && {{ [ '{mends_only}' = no ] || grep -q 'The results of what you asked for' "$log/$n.stdin"; }}; then
         echo "$n" >> greeting.txt
     fi
     if [ '{leaves_merge}' = yes ] && ! grep -q 'A merge is under way in the worktree and is not committed' "$log/$n.stdin"; then
@@ -606,9 +609,11 @@ case "$first" in
         grep -q 'changes to tracked files that are not committed' "$log/$n.stdin" && sent_back=yes
         answered=no
         awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `build_questions`' && answered=yes
-        if [ '{mends_only}' = yes ] && [ "$sent_back" = yes ] && [ ! -f "$log/mended" ]; then
-            # Told its return was sent back for a change not committed, it takes the change back, as every round of it
-            # does first, and returns nothing: its earlier return stands for what it wrote and dealt with.
+        if [ '{mends_only}' = yes ] && [ "$sent_back" = yes ] && [ ! -f "$log/mended" ] \
+            && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
+            # Told its return was sent back for a change not committed and for the answer not being in the tree, it takes
+            # the change back, as every round of it does first, and returns nothing: its earlier return stands for what
+            # it wrote and dealt with, and the answer is left for the round after.
             touch "$log/mended"
             dealt=''
         elif [ '{tree_question}' = yes ] && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
