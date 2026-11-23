@@ -1458,7 +1458,7 @@ fn every_state_of_a_datum_that_a_round_of_the_engineer_s_flow_stood_in_is_one_th
 
 /// How many steps a branch of the search runs from a state it kept, and how many branches the search runs at most.
 const BRANCH_STEPS: usize = 40;
-const BRANCHES: usize = 80;
+const BRANCHES: usize = 40;
 
 /// Searches the engineer's flow for rounds that stand in the lines wanted: a branch is a history, begun anew or taken
 /// from a state an earlier branch kept because it reached a line none had, and run some steps with the driver's own
@@ -1469,6 +1469,7 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
     let mut reached = Reached::default();
     let mut kept: Vec<History> = Vec::new();
     let mut log = Vec::new();
+    let begun = std::time::Instant::now();
     for branch in 0..BRANCHES {
         if wanted.is_subset(&reached.real) {
             break;
@@ -1512,8 +1513,9 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         }
         if branch % 10 == 9 {
             log.push(format!(
-                "after {} branches: {} lines open, {} states kept, {} rounds",
+                "after {} branches, {:?}: {} lines open, {} states kept, {} rounds",
                 branch + 1,
+                begun.elapsed(),
                 wanted.difference(&reached.real).count(),
                 kept.len(),
                 reached.rounds
