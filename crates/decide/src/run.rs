@@ -222,6 +222,10 @@ pub struct Told {
     /// of its asked before the run began: the round was entered for the owner turning to the cell meanwhile, answers
     /// and goes on waiting, and so is held to no block its cell must write (design document `data-and-context`, 36).
     pub waits: bool,
+    /// Whether the round was given the telling to hand in what it has now, for the owner turning to a cell before its
+    /// own, after it began: it may hand in none of what its cell must write, and nothing as dealt with (design document
+    /// `data-and-context`, 35). Whatever it does hand in is judged as any return is.
+    pub hurried: bool,
     /// Each question of the work, by its name, as the round's cell stands to it.
     pub questions: BTreeMap<String, Asked>,
 }
@@ -422,6 +426,11 @@ pub enum Unmet {
     /// work's change against main changes nothing in the project's design tree: as the engine found it, looking at the
     /// branch as the round ended.
     TreeUnchanged { name: String },
+    /// The return writes a block whose lines name entries of the design tree (`names_tree_entries` of its file), and
+    /// this line of it is not written as the project's `[tree_format]` refers to an entry, or names one that the tree
+    /// at the head of the work's branch does not hold: as the engine found it, looking at the branch as the round
+    /// ended.
+    NotAnEntry { line: String },
     /// The return deals with what an act of the engine's after its cell wrote, the block, and leaves new nothing that
     /// runs that act, neither by what it hands in, the work's head it committed among it, nor by a question that
     /// stands for the owner's answer, and nothing that runs it is new to it already ([`Answer`]): the act reads no
@@ -744,7 +753,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
         unmet.push(Unmet::AsksAndWorks);
     }
     // A question that waits stops the work at the cell, which may leave all that ran it for after the answer.
-    if calls == 0 && dealt_with.is_empty() && !told.ran_by.is_empty() && !waits {
+    if calls == 0 && dealt_with.is_empty() && !told.ran_by.is_empty() && !waits && !told.hurried {
         unmet.push(Unmet::DealtWithNothing);
     }
     // The one woken in a dialogue owes the next word (design document `data-and-context`, 41, 42): a maker woken by a
@@ -799,7 +808,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     let answers_alone = requires.words.is_some_and(|own| {
         dealt_with == std::slice::from_ref(own) && writes.iter().all(|w| w.block == *own) && questions.is_empty()
     });
-    if calls == 0 && !waits && !told.waits && !answers_alone {
+    if calls == 0 && !waits && !told.waits && !told.hurried && !answers_alone {
         for block in requires.must_write {
             if !writes.iter().any(|w| w.block == *block) && !misshapen(block) {
                 unmet.push(Unmet::NotHandedIn { block: block.clone() });

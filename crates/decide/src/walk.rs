@@ -8,9 +8,10 @@
 //! place where a work is. Each time a round ends or something else happens to the work, it walks the cells from the
 //! first, in their order: a cell whose condition is not met is skipped, what it wrote before still counting; at the
 //! first that has a run at rest the run goes on, unless it waits for something; a cell whose last runs asked for calls
-//! waits there until every result is in, and is then entered again, given them; at the first with a question it waits
-//! for standing unanswered, whether or not the cell applies now, the work waits for the owner's answer, the cell being
-//! entered meanwhile only for the owner turning to it and no later cell run (design document `data-and-context`, 32);
+//! waits there until every result is in, and is then entered again, given them; at the first that applies with a
+//! question it waits for standing unanswered, the work waits for the owner's answer, the cell being entered meanwhile
+//! only for the owner turning to it and no later cell run (design document `data-and-context`, 32); the question of a
+//! cell that is skipped holds nothing;
 //! at the first whose preconditions do not hold, or that something new runs and that has reached a limit, the work
 //! waits; the first that something new runs is otherwise entered, whether a cell before it or a cell after it wrote
 //! what is new (decision the-walk-goes-from-the-first-cell); the rest are passed. A work that waits only for what
@@ -18,7 +19,9 @@
 //! cell before where it stands was passed and every one after it is held, so no cell will write what it waits for, and
 //! it goes on only once a person or a source outside the work writes what runs a cell ([`Decision::Stalled`]). One
 //! round of a work is under way at a time: a round of a cell after one the owner turned to, by words or by an answer,
-//! is stopped, nothing else beginning until it has ended, and its cell runs again later. A work has ended when its last
+//! is told, once for each version, to hand in what it has now ([`Decision::Hurry`]), or, where it is an act of the
+//! engine's, which has nothing to hand in, or the last cell, whose finish ends the work, is stopped; nothing else begins until it has ended, and what it left
+//! undealt with is still new to its cell, which runs again later. A work has ended when its last
 //! cell has a record or its item is cancelled and not reopened since; a reopened work is walked from its records as any
 //! other, what its cancel abandoned leaving no record.
 //!
@@ -50,7 +53,8 @@ pub enum Decision {
     /// The work has ended.
     Ended(End),
     /// A round of this run is under way: nothing is decided until it ends, unless the work is cancelled or the owner
-    /// turns to a cell before it. The run may have been abandoned already, its round being stopped.
+    /// turns to a cell before it, which tells the round once to hand in what it has ([`Decision::Hurry`]). The run may
+    /// have been abandoned already, its round being stopped.
     Busy { cell: CellId, run: RunId },
     /// The work is paused, and what it would do next is run this cell, none of whose reasons is a change of a note a
     /// person made: that run waits for the work to be let on. A cell one of whose reasons is such a change runs as if
@@ -68,9 +72,25 @@ pub enum Decision {
     /// has its next round, which the pause of its work may hold back ([`hold`]). A run whose last round failed is at
     /// rest too, and its next round is that round again.
     GoOn { cell: CellId, run: RunId },
+    /// The round under way of this run is told to stop where it is and hand in what it has now, and the walk is taken
+    /// again: the owner turned to a cell before the run's, by this version of this block, and that cell is to run
+    /// first, once the round has ended. The run is not abandoned: what its round hands in is taken as any return is,
+    /// and what it leaves undealt with is still new to its cell. The engine records it ([`Hurried`]) and tells the
+    /// round once for a version.
+    ///
+    /// [`Hurried`]: crate::records::Hurried
+    Hurry {
+        cell: CellId,
+        run: RunId,
+        /// The cell before the run's that the owner turned to.
+        turned_to: CellId,
+        block: BlockId,
+        version: Seq,
+    },
     /// The run is abandoned, consuming nothing, and the walk is taken again: it is at rest and its cell no longer
-    /// applies, or its round under way is stopped for a cell before it that the owner turned to, or its work was
-    /// cancelled, when it may have a round under way, which is stopped.
+    /// applies, or its round under way is an act of the engine's, which cannot be told to hand in what it has, and is
+    /// stopped for a cell before it that the owner turned to, or its work was cancelled, when it may have a round under
+    /// way, which is stopped.
     Abandon {
         cell: CellId,
         run: RunId,
@@ -131,7 +151,9 @@ pub enum Abandoning {
     /// Its cell is skipped now, or is no longer in the flow.
     NoLongerApplies,
     /// The owner turned to this cell before it, by a new version of this block, and the cell is to run first: the
-    /// round under way is stopped, and its cell runs again later (design document `data-and-context`, 43, 35).
+    /// round under way, which cannot be told to hand in what it has, is stopped, and its cell runs again later (design
+    /// document `data-and-context`, 35). A round cannot be told where its cell is an act of the engine's, which has
+    /// nothing to hand in, or the flow's last, whose finish ends the work with no later run.
     Stopped { cell: CellId, block: BlockId },
 }
 
@@ -218,14 +240,30 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
             run: run.started.run,
         };
     }
-    // A round under way is stopped only for a cell before it that the owner turned to.
+    // A round under way is dealt with only for a cell before it that the owner turned to.
     if let Some(run) = walk.runs.values().find(|r| r.under_way()) {
-        if let Some((cell, block)) = walk.stopping(run, room) {
-            return Decision::Abandon {
-                cell: run.started.cell.clone(),
-                run: run.started.run,
-                because: Abandoning::Stopped { cell, block },
-            };
+        if let Some((turned_to, block, version)) = walk.stopping(run, room) {
+            // An agent's round is told to hand in what it has, and its cell runs again later. An act of the engine's
+            // has nothing to be told, and the last cell's finish ends the work, with no later run: each is stopped.
+            let tells = (walk.flow.place(&run.started.cell)).is_some_and(|i| i + 1 < cells.len() && cells[i].slot);
+            if !tells {
+                return Decision::Abandon {
+                    cell: run.started.cell.clone(),
+                    run: run.started.run,
+                    because: Abandoning::Stopped { cell: turned_to, block },
+                };
+            }
+            let told =
+                (records.hurried.iter()).any(|h| h.run == run.started.run && h.block == block && h.version == version);
+            if !told {
+                return Decision::Hurry {
+                    cell: run.started.cell.clone(),
+                    run: run.started.run,
+                    turned_to,
+                    block,
+                    version,
+                };
+            }
         }
         return Decision::Busy {
             cell: run.started.cell.clone(),
@@ -244,13 +282,8 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
         }
     }
     for (i, cell) in cells.iter().enumerate() {
+        // A cell that is skipped holds nothing, its questions included: nothing runs it to take the answer.
         if !walk.applies(i) {
-            // A question the cell waits for holds the work at its place all the same: no later cell runs while it
-            // stands unanswered (design document `data-and-context`, 32).
-            let held = walk.held(i);
-            if !held.is_empty() {
-                return walk.waiting(i, held);
-            }
             continue;
         }
         let wait = |on| walk.waiting(i, on);
@@ -383,6 +416,15 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
     let waits = flow
         .place(&r.started.cell)
         .is_some_and(|i| walk.owed(i).0.iter().any(|c| !given.contains(c)) || !began.held(i).is_empty());
+    // The round was given, after it began, a version of a block the owner writes to turn to a cell, which does not run
+    // its own cell: it was told to hand in what it has now.
+    let began_at = records.rounds.iter().filter(|x| x.run == run).map(|x| x.at).max();
+    let hurried = (records.put_in.iter()).any(|p| {
+        p.run == run
+            && Some(p.at) > began_at
+            && flow.interrupts(&p.block)
+            && !cell.is_some_and(|c| c.runs_on.contains(&p.block))
+    });
     let outputs = (cell.into_iter().flat_map(|c| &c.outputs))
         .map(|block| {
             let latest = walk.current(block);
@@ -411,6 +453,7 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
         woken_to_judge,
         outputs,
         waits,
+        hurried,
         questions,
     })
 }
@@ -443,6 +486,16 @@ pub fn reached(flow: &Flow, records: &Records, cells: &[CellId]) -> Option<CellI
 pub fn applies(flow: &Flow, records: &Records, cell: &CellId) -> bool {
     let walk = Walk::new(flow, records);
     flow.place(cell).is_some_and(|i| walk.applies(i))
+}
+
+/// Of each cell that does not apply now, the keys of its condition that do not hold, which keep it from applying; a
+/// cell that applies has none. All of them are worked out in one walk of the records.
+pub fn skipped(flow: &Flow, records: &Records) -> BTreeMap<CellId, Vec<Condition>> {
+    let walk = Walk::new(flow, records);
+    (flow.cells().iter().enumerate())
+        .map(|(i, cell)| (cell.id.clone(), walk.skipped_on(i)))
+        .filter(|(_, on)| !on.is_empty())
+        .collect()
 }
 
 /// The blocks that keep this key of the cell's preconditions from holding now, by the value each has: a write of any of
@@ -590,6 +643,7 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         .chain(records.finished.iter().map(|f| f.run))
         .chain(records.abandoned.iter().map(|a| a.run))
         .chain(records.put_in.iter().map(|d| d.run))
+        .chain(records.hurried.iter().map(|h| h.run))
         .chain(records.questions.iter().map(|q| q.run));
     for run in named {
         if !runs.contains(&run) {
@@ -633,6 +687,7 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         .chain(records.finished.iter().map(|e| e.at))
         .chain(records.abandoned.iter().map(|e| e.at))
         .chain(records.put_in.iter().map(|e| e.at))
+        .chain(records.hurried.iter().map(|e| e.at))
         .chain(records.written.iter().map(|e| e.at))
         .chain(records.questions.iter().map(|e| e.at))
         .chain(records.answers.iter().map(|e| e.at))
@@ -806,8 +861,11 @@ impl<'a> Walk<'a> {
     }
 
     /// The questions of the cell at this place that hold the work there, each the owner's answer to it waited for, in
-    /// the order of their names.
+    /// the order of their names. None of a cell that is skipped: a question holds the work only while its cell applies.
     fn held(&self, i: usize) -> Vec<Waited> {
+        if !self.applies(i) {
+            return Vec::new();
+        }
         let cell = &self.flow.cells()[i].id;
         (self.questions.iter())
             .filter(|(_, q)| &q.latest.cell == cell && q.holds())
@@ -820,6 +878,15 @@ impl<'a> Walk<'a> {
     /// Whether the condition of the cell at this place is met: every key of it holds; with none it always is.
     pub(crate) fn applies(&self, i: usize) -> bool {
         (self.flow.cells()[i].applies.iter()).all(|key| self.keeping(key, i).is_empty())
+    }
+
+    /// The keys of the condition of the cell at this place that do not hold now, in the order the cell names them: none
+    /// where the cell applies, and, where it does not, each of the keys that keep it from applying.
+    fn skipped_on(&self, i: usize) -> Vec<Condition> {
+        (self.flow.cells()[i].applies.iter())
+            .filter(|key| !self.keeping(key, i).is_empty())
+            .cloned()
+            .collect()
     }
 
     /// The blocks that keep one key of a condition or of the preconditions of the cell at this place from holding, by
@@ -1079,11 +1146,7 @@ impl<'a> Walk<'a> {
                 let why = if j >= i {
                     Unrun::Held
                 } else if !self.applies(j) {
-                    let on = (cell.applies.iter())
-                        .filter(|key| !self.keeping(key, j).is_empty())
-                        .cloned()
-                        .collect();
-                    Unrun::Skipped { on }
+                    Unrun::Skipped { on: self.skipped_on(j) }
                 } else {
                     Unrun::NothingNew
                 };
@@ -1238,10 +1301,11 @@ impl<'a> Walk<'a> {
     }
 
     /// The cell before the run's that the owner turned to and that is to run, with the block by which the owner turned
-    /// to it, where there is one: the round under way of the run is then stopped. Of the cells before the run's that
-    /// apply, the first to which something that [interrupts](Flow::interrupts) is new, whose preconditions hold, that
-    /// is at no limit, that the pause lets run, and that has no run at rest of its own.
-    fn stopping(&self, run: &RunView<'a>, room: Room) -> Option<(CellId, BlockId)> {
+    /// to it and its latest version, where there is one: the round under way of the run is then told to hand in what it
+    /// has. Of the cells before the run's that apply, the first to which something that
+    /// [interrupts](Flow::interrupts) is new, whose preconditions hold, that is at no limit, that the pause lets run,
+    /// and that has no run at rest of its own.
+    fn stopping(&self, run: &RunView<'a>, room: Room) -> Option<(CellId, BlockId, Seq)> {
         let place = self.flow.place(&run.started.cell)?;
         let paused = paused(self.records) || room.paused;
         (0..place).filter(|&j| self.applies(j)).find_map(|j| {
@@ -1257,7 +1321,13 @@ impl<'a> Walk<'a> {
             let held = !self.unmet(j).is_empty()
                 || self.at_limit(cell, &because).is_some()
                 || (paused && !self.for_a_note(j, &because, None));
-            (!held).then(|| (cell.id.clone(), block))
+            // The latest version of the block that the cell did not write itself: what the owner turned to it by.
+            let theirs = |v: &&Version<'a>| {
+                !v.by
+                    .is_some_and(|run| self.runs.get(&run).is_some_and(|r| r.started.cell == cell.id))
+            };
+            let version = self.versions(&block).iter().rev().find(theirs)?.at;
+            (!held).then(|| (cell.id.clone(), block, version))
         })
     }
 
