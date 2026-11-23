@@ -111,9 +111,9 @@ fn the_owner_is_asked_at_a_limit_during_a_pause() {
 }
 
 #[test]
-fn a_cell_that_waits_for_the_owners_answer_during_a_pause_is_entered_for_it_and_what_came_since_once_let_on() {
+fn a_cell_that_waits_for_a_calls_result_during_a_pause_is_entered_for_it_and_what_came_since_once_let_on() {
     let (mut w, write, first) = W::requested();
-    let call = calls_of(&w.returns(write, Came::asks(vec![question(Who::Owner)])))[0].0;
+    let call = calls_of(&w.returns(write, Came::asks(vec![tool("a")])))[0].0;
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,

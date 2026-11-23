@@ -71,8 +71,9 @@ function drawn(items: Items | null, on = true) {
 /// A wait in the engine's list.
 const wait = (key: string, why: string, ends: Wait['ends'] = { kind: 'resume' }): Wait => ({ key, why, ends });
 
-/// The engine's wait for the answer to a question put as a call.
-const question = (call: number, words = `Question ${call}?`): Wait => wait(`call-${call}`, words, { kind: 'reply', call });
+/// The engine's wait for the answer to a question of the work's own, which a number names here.
+const question = (n: number, words = `Question ${n}?`): Wait =>
+  wait(`answer-q${n}`, words, { kind: 'answer', question: `q${n}`, version: 4 });
 
 /// The fixtures' items, with the work of this item waiting on the owner for these, as the engine's list says.
 function withWaits(item: number, waits: Wait[]): Items {
@@ -82,7 +83,6 @@ function withWaits(item: number, waits: Wait[]): Items {
 
 /// Each kind the engine's list names, as it gives it.
 const KINDS: Wait[] = [
-  question(3, 'Which?'),
   wait('answer-scope', 'What of scope?', { kind: 'answer', question: 'scope', version: 4 }),
   wait('limit', "The cell's run had 2 returns sent back, which is its limit.", { kind: 'goOn', call: 4 }),
   wait('pause', 'The engine paused the work. A round failed.'),
@@ -126,7 +126,7 @@ describe("the browser's notifications", () => {
     draw(withWaits(142, [question(9, 'Keep the width per view?')]));
     expect(Told.made).toHaveLength(1);
     act(() => Told.made[0].onclick?.());
-    expect(window.location.hash).toBe('#/console/items/142/waits/call-9');
+    expect(window.location.hash).toBe('#/console/items/142/waits/answer-q9');
     expect(Told.made[0].closed).toBe(true);
   });
 

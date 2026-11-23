@@ -103,15 +103,6 @@ const wait = (key: string, why: string, ends: Wait['ends']): Wait => ({ key, why
 /// Each kind of thing the engine's list names, as the engine gives it with what the work does now.
 const OWNERS: [string, Now, Wait][] = [
   [
-    'a question put as a call',
-    {
-      kind: 'waits',
-      at: 'plan',
-      on: [{ kind: 'call', call: 9, who: 'owner', what: { kind: 'question', who: 'owner', question: 'Which?' } }],
-    },
-    wait('call-9', 'Which?', { kind: 'reply', call: 9 }),
-  ],
-  [
     'a run at its limit of returns',
     { kind: 'waits', at: 'plan', on: [{ kind: 'call', call: 4, who: 'owner', what: limit }] },
     wait('limit', "The cell's run had 2 returns sent back, which is its limit.", { kind: 'goOn', call: 4 }),
@@ -169,12 +160,8 @@ const NOT_OWNERS: [string, Now][] = [
     { kind: 'waits', at: 'M2', on: [{ kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' }] },
   ],
   [
-    'a question to another',
-    {
-      kind: 'waits',
-      at: 'plan',
-      on: [{ kind: 'call', call: 2, who: 'architect', what: { kind: 'question', who: 'architect', question: 'Where?' } }],
-    },
+    'a tool the engine runs',
+    { kind: 'waits', at: 'plan', on: [{ kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } }] },
   ],
 ];
 
@@ -290,12 +277,12 @@ describe("what waits for the owner, as the engine's one list names it", () => {
   });
 
   it("reads the list alone: a work that does what would wait on the owner, with nothing in the list, counts nothing", () => {
-    const [, paused] = OWNERS[3];
+    const [, paused, pause] = OWNERS.find(([what]) => what === 'a pause the engine made') as [string, Now, Wait];
     const summary = { ...base.work, now: paused, waits: [] };
     expect(waitsOnOwner(summary)).toBe(false);
     expect(asksOf(summary)).toBe(0);
     // In the list's column of states it stands after a work the list says waits for the owner.
-    const owner = { ...base.work, waits: [OWNERS[3][2]] };
+    const owner = { ...base.work, waits: [pause] };
     expect(byState([summary, owner])).toEqual([2, 1]);
     expect(standingOf(summary)).not.toBe('owner');
   });
@@ -319,8 +306,8 @@ describe("the work's state line", () => {
       keys: null,
     });
     expect(said({ kind: 'everything', at: 'plan', by: 'owner' })).toEqual({ word: 'Paused', cell: 'plan', keys: null });
-    expect(said(OWNERS[3][1], [OWNERS[3][2]])).toEqual({ word: 'Waiting for you', cell: 'plan', keys: null });
     expect(said(OWNERS[2][1], [OWNERS[2][2]])).toEqual({ word: 'Waiting for you', cell: 'plan', keys: null });
+    expect(said(OWNERS[1][1], [OWNERS[1][2]])).toEqual({ word: 'Waiting for you', cell: 'plan', keys: null });
     expect(said({ kind: 'waits', at: 'M2', on: [{ kind: 'turn', holder: 12, since: 0 }] })).toEqual({
       word: 'Waiting for W12',
       cell: 'M2',
@@ -360,7 +347,7 @@ describe('a stop that no one waits on', () => {
     expect(nowTone(summary(STALLED))).toBe(nowTone(summary(fault)));
     // In the list's column of states the two stand together, after what waits for the owner and before what runs.
     const running = summary({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 });
-    expect(byState([running, summary(STALLED), summary(fault), { ...base.work, waits: [OWNERS[3][2]] }])).toEqual([
+    expect(byState([running, summary(STALLED), summary(fault), { ...base.work, waits: [OWNERS[2][2]] }])).toEqual([
       4, 3, 2, 1,
     ]);
     expect(standingOf(summary(STALLED))).toBe('halted');
@@ -370,7 +357,7 @@ describe('a stop that no one waits on', () => {
 
 describe('the cards of what waits for the owner', () => {
   it("say the agents' command line's reason and what the owner does, each once, inside the card", () => {
-    const [, now, w] = OWNERS[7];
+    const [, now, w] = OWNERS[6];
     const container = draw(now, [w], undefined, none);
     const card = container.querySelector('[data-wait="agents"]');
     expect(card?.textContent).toBe(`The agents' command line cannot run. Not logged in.${MEND}`);
@@ -389,7 +376,7 @@ describe('the cards of what waits for the owner', () => {
       act(() => button.click());
     };
     const labels: (string | null | undefined)[] = [];
-    for (const i of [1, 2, 3]) {
+    for (const i of [0, 1, 2]) {
       const [, now, w] = OWNERS[i];
       const el = draw(now, [w], w.key, send);
       labels.push(el.querySelector(`[data-wait="${w.key}"] button`)?.textContent);
@@ -406,7 +393,7 @@ describe('the cards of what waits for the owner', () => {
   });
 
   it('say a question the merge waits for by what it asks and nothing more, as at its cell', async () => {
-    const [, now, w] = OWNERS[5];
+    const [, now, w] = OWNERS[4];
     const container = draw(now, [w], undefined, none);
     // A question is drawn once the texts that may point to it are read.
     await act(async () => undefined);
@@ -417,7 +404,7 @@ describe('the cards of what waits for the owner', () => {
   });
 
   it("set a reason's names and values in the monospace, as the engine marks them, and a ruling's values as keys", async () => {
-    const [, now, w] = OWNERS[6];
+    const [, now, w] = OWNERS[5];
     const container = draw(now, [w], undefined, none, { read: { flow: RULED, blocks: [SAID_NO] } });
     await act(async () => undefined);
     const card = container.querySelector('[data-wait="write-content"]') as HTMLElement;
@@ -455,7 +442,7 @@ describe('the cards of what waits for the owner', () => {
   it("draw a reason's marked names in the monospace and the rest as the plain text it is, a program's own words whole", () => {
     const said =
       'The engine paused the work. `pytest` failed in __init__: **kwargs is not a **mapping**.\n```\n# not a heading\n- not a list';
-    const container = draw(OWNERS[3][1], [wait('pause', said, { kind: 'resume' })], undefined, none);
+    const container = draw(OWNERS[2][1], [wait('pause', said, { kind: 'resume' })], undefined, none);
     const reason = container.querySelector('[data-wait="pause"] .cw-choice-q') as HTMLElement;
     expect([...reason.querySelectorAll('code')].map((c) => c.textContent)).toEqual(['pytest']);
     expect(reason.querySelector('strong, em, h1, h2, h3, h4, ul, ol, li, pre')).toBeNull();
@@ -471,7 +458,7 @@ describe('the cards of what waits for the owner', () => {
 
   it("let the engine's pause on from its card alone: the pause switch shows only the owner's own pause, and says so", () => {
     const pressed = (el: HTMLElement) => el.querySelector('.cw-acts [aria-pressed="true"], .cw-acts [aria-checked="true"]')?.textContent;
-    const [, now, w] = OWNERS[3];
+    const [, now, w] = OWNERS[2];
     const engine = draw(now, [w], undefined, none, { paused: 'engine' });
     expect(engine.querySelector('.cw-acts .switch')?.getAttribute('aria-label')).toBe('Your own pause of the work');
     expect(pressed(engine)).toBe('Start');
@@ -482,7 +469,7 @@ describe('the cards of what waits for the owner', () => {
 
   it('offer a ruling\'s values as options drawn as choices, the one that makes it hold picked, and write the one picked', async () => {
     const sent: Act[] = [];
-    const [, now, w] = OWNERS[6];
+    const [, now, w] = OWNERS[5];
     const container = draw(
       now,
       [w],

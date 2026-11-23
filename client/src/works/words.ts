@@ -379,14 +379,14 @@ export const waitCount = (n: number): string => `${n} ${waitCounted(n)}`;
 export const aheadCount = (n: number): string =>
   `${n} ${n === 1 ? 'question' : 'questions'} you may answer ahead`;
 
-/// Who gives what a work waits for that is not the owner's: the architect for a question put to them, the engine for a
-/// call it makes, a slot and the wait every work shares, the source outside the work, or else the cells, for a
+/// Who gives what a work waits for that is not the owner's: the engine for a call it makes, a slot and the wait every
+/// work shares, the source outside the work, or else the cells, for a
 /// precondition only they make hold, the source a work waits on, and the work that holds the project's turn. None for
 /// what waits on the owner, which the engine's list says.
 function whoGives(w: Waited): string | null {
   switch (w.kind) {
     case 'call':
-      return w.who === 'architect' ? 'the architect' : w.who === null ? 'the engine' : null;
+      return w.who === null ? 'the engine' : null;
     case 'precondition': {
       const sources = w.by.flatMap((m) => (m.kind === 'outside' ? [m.source] : []));
       const cells = w.by.flatMap((m) => (m.kind === 'cell' ? [m.cell] : []));

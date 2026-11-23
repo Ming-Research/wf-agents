@@ -100,10 +100,10 @@ export function fakeShown(count: number): Shown[] {
               : {
                   kind: 'waits',
                   at: 'implement',
-                  on: [{ kind: 'call', call: 1, who: 'owner', what: { kind: 'question', who: 'owner', question: '?' } }],
+                  on: [{ kind: 'call', call: 1, who: 'owner', what: { kind: 'atLimit', limit: { of: 'returns', sentBack: 2 } } }],
                 },
           paused: null,
-          waits: i.state === 'working' ? [] : [{ key: 'call-1', why: '?', ends: { kind: 'reply', call: 1 } }],
+          waits: i.state === 'working' ? [] : [{ key: 'limit', why: '?', ends: { kind: 'goOn', call: 1 } }],
           bar: 'mmmtt..mmm',
           sentBack: i.id % 13 === 0 ? 2 : 0,
           cells: cells.map(

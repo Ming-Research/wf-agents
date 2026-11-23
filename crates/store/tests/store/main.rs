@@ -319,6 +319,29 @@ impl Driver {
         panic!("calls are still to be made");
     }
 
+    /// The latest call is recorded as a question for the owner, as it was recorded when a return could ask one, with
+    /// the return that asked it. No return asks one now, and what was recorded of one is read as it was recorded.
+    fn recorded_as_a_question(&mut self) {
+        let question = Ask::Person {
+            who: Who::Owner,
+            question: "which way?".to_string(),
+        };
+        let called = self.work.records.called.last_mut().expect("a call");
+        called.on = Some(Who::Owner);
+        let (call, run) = (called.call, called.run);
+        self.work.calls.insert(call, engine::Call::Asked(question.clone()));
+        for ((of, _), back) in &mut self.work.back {
+            if *of == run
+                && let engine::Back::Returned { asks, .. } = back
+                && let Some(last) = asks.last_mut()
+            {
+                *last = question.clone();
+            }
+        }
+        // Saved and loaded back as it is.
+        self.on(Event::Look);
+    }
+
     /// Every call that is to be withdrawn is said to have its result: that it was withdrawn.
     fn withdraw(&mut self) {
         for e in pending(&self.flow, &self.work) {
@@ -379,15 +402,8 @@ fn tool(name: &str) -> Ask {
     }
 }
 
-fn question(who: Who) -> Ask {
-    Ask::Person {
-        who,
-        question: "which way?".to_string(),
-    }
-}
-
 /// A history that leaves an entry of every kind: writes by a person and the outside with values and without, runs
-/// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, a question asked and the
+/// finished, sent back and abandoned, calls for a tool and recorded as for a person, done and withdrawn, a question asked and the
 /// owner's answer to it, a run's limit of returns let go by the owner, a pause and a resume, a round that failed and
 /// the engine's pause for it, a cell let go, and a cancel with a run at rest at the owner's call.
 fn history(d: &mut Driver) {
@@ -428,8 +444,10 @@ fn history(d: &mut Driver) {
         d.end(wanting());
     }
     d.answer();
-    // A return that asks ends the run; the writer is entered again once both calls have their results.
-    d.end(Came::asks(vec![tool("a"), question(Who::Owner)]));
+    // A return that asks ends the run; the writer is entered again once both calls have their results. The second call
+    // is recorded as a question for the owner.
+    d.end(Came::asks(vec![tool("a"), tool("e")]));
+    d.recorded_as_a_question();
     // Two lines begin a new session.
     d.on(Event::Anew {
         line: "main".to_string(),
@@ -460,20 +478,22 @@ fn history(d: &mut Driver) {
     d.end(Came::asks(vec![tool("b"), tool("c")]));
     d.answer();
     d.end(hands_in(&[("text", None)]));
-    // The judge asks the architect during a pause: the call is made, and entering it again waits for the resume.
+    // The judge asks for a tool during a pause: the call is made, and entering it again waits for the resume.
     d.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
     });
-    d.end(Came::asks(vec![question(Who::Architect)]));
+    d.end(Came::asks(vec![tool("f")]));
     d.answer();
     d.on(Event::Resumed);
-    // The judge's round given the architect's answer fails, and the engine pauses the work; let on, the round is given
+    // The judge's round given the tool's result fails, and the engine pauses the work; let on, the round is given
     // again.
     d.fail("The agent's program could not start.");
     d.on(Event::Resumed);
-    // The judge asks the owner, and the writer runs again for a new request while the judge waits for the answer.
-    d.end(Came::asks(vec![question(Who::Owner)]));
+    // The judge asks for a call recorded as a question for the owner, and the writer runs again for a new request while
+    // the judge waits for the answer.
+    d.end(Came::asks(vec![tool("g")]));
+    d.recorded_as_a_question();
     d.wrote("request", Outsider::Person, None);
     d.end(hands_in(&[("text", None)]));
     d.wrote("checks", Outsider::Outside, Some("pass"));

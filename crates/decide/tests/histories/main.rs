@@ -969,8 +969,7 @@ impl History {
         let callers = |rng: &mut Rng| -> Vec<Option<Who>> {
             (0..1 + rng.below(2))
                 .map(|_| match rng.below(10) {
-                    0 | 1 => Some(Who::Owner),
-                    2 => Some(Who::Architect),
+                    0..=2 => Some(Who::Owner),
                     _ => None,
                 })
                 .collect()

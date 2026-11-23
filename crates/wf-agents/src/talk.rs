@@ -1820,7 +1820,6 @@ fn maker(maker: &Maker) -> String {
 fn person(person: Person) -> &'static str {
     match person {
         Person::Owner => "owner",
-        Person::Architect => "architect",
     }
 }
 

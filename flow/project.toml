@@ -43,7 +43,7 @@ paths = [
   ":(glob)client/**/testing.ts",
   ":(glob)client/**/fixtures.ts",
 ]
-expected = ["crates/carry/tests/fixtures/", "crates/flow/tests/laid_out/"]
+expected = ["crates/carry/tests/fixtures/", "crates/flow/tests/project/"]
 
 # The project's two workflows, which the engine runs by hand on main's file with a commit given. Each reports every test
 # as JUnit XML, named as an agent asks for it, in the artifact `test-results`.

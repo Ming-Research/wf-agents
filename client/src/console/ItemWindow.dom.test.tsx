@@ -263,19 +263,17 @@ describe('the panel of the item selected', () => {
     }
   });
 
-  it('says on the work\'s line what the work waits for and who gives it, and a question a cell asked at the plan\'s end', () => {
+  it("says on the work's line what the work waits for and who gives it, and a run at its limit as a card under the state line", () => {
     const el = draw(20, answered([]));
     const [, workLine] = lines(el);
     expect(workLine).toContain('Waiting for you implement Implement');
     expect(noKeys(el)).toBe(true);
-    const asked = el.querySelector('[data-wait="call-12"]') as HTMLElement;
-    expect(text(asked, '.cw-choice-q')).toEqual(['May a page keep its stream open while hidden?']);
-    // It holds the work: on the red tint, with no line to say so.
-    expect(asked.className).toBe('cw-choice cw-choice-holds');
-    // Its frame names the cell it belongs to, broken around the words as a fieldset's legend breaks it: the cell by
-    // its id, and the line that cell runs on after it.
-    expect(asked.tagName).toBe('FIELDSET');
-    expect(text(asked, '.cw-choice-by')).toEqual(['implement builder']);
+    const card = el.querySelector('[data-wait="limit"]') as HTMLElement;
+    expect(text(card, '.cw-choice-q')).toEqual(["The cell's run had 2 returns sent back, which is its limit."]);
+    // It holds the work: on the red tint, with no line to say so, and it is no question: it has no frame of a cell.
+    expect(card.className).toBe('cw-choice cw-choice-holds');
+    expect(card.tagName).toBe('DIV');
+    expect(card.querySelector('.cw-choice-by')).toBeNull();
   });
 
   it("says a message to the chosen cell's line, names the cell the engine says it reaches, and then the one it gave it to", async () => {
