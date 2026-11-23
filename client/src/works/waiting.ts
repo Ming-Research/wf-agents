@@ -37,7 +37,7 @@ export const drawnInBody = (w: Wait): boolean =>
 export function actOf(ends: Ends): Act | null {
   switch (ends.kind) {
     case 'goOn':
-      return { kind: 'result', call: ends.call, result: 'go on' };
+      return { kind: 'goOn', call: ends.call };
     case 'letGo':
       return { kind: 'letGo', cell: ends.cell };
     case 'resume':

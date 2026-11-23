@@ -1814,6 +1814,8 @@ pub enum Act {
     },
     /// Lets the cell go on at its limit.
     LetGo { cell: String },
+    /// Lets the run at its limit go on, as the engine's own result of this call.
+    GoOn { call: u64 },
     /// Pauses the work.
     Pause {},
     /// Lets the work on again.
@@ -1823,7 +1825,8 @@ pub enum Act {
         #[serde(default)]
         why: Option<String>,
     },
-    /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
+    /// Gives a call that waits for a person its result: a person's answer to a question put to them. A run at its
+    /// limit is let go on, which gives it no words.
     Result { call: u64, result: String },
     /// Answers a version of a question, the one the page shows, by its number among the versions of its cell's
     /// questions, taking an option, counted from one, and nothing else.
@@ -3060,6 +3063,7 @@ impl Act {
                 value,
             },
             Act::LetGo { cell } => service::Act::LetGo { cell: CellId(cell) },
+            Act::GoOn { call } => service::Act::GoOn { call: CallId(call) },
             Act::Pause {} => service::Act::Pause,
             Act::Resume {} => service::Act::Resume,
             Act::Cancel { why } => service::Act::Cancel { why },

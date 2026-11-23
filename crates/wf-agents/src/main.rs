@@ -67,6 +67,11 @@ enum Command {
         /// The port of the pages; 0 for any free one.
         #[arg(long, default_value_t = PORT)]
         port: u16,
+        /// Makes the data directory's store in it: given where it holds none, and refused where it holds one. Without
+        /// it a directory that holds no store is refused, so that a directory that is no data directory is never made
+        /// into one by being named; the directory itself, and git in it, are the owner's to make.
+        #[arg(long)]
+        new: bool,
     },
     /// Adds an item with its work, which is added paused: it begins nothing until it is let on with `wf-agents
     /// resume`.
@@ -326,7 +331,9 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
+    /// Gives a call that waits for a person its result: a person's answer to a question put to them. A run at its
+    /// limit is let go on with `wf-agents let-go --call`, and words to a cell are said with `wf-agents say`, which the
+    /// conversation keeps.
     Result {
         work: u64,
         call: u64,
@@ -391,10 +398,17 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Lets a cell that reached its limit go on.
+    /// Lets what reached its limit go on: with a cell, the cell, which runs again past its limit; with --call, the
+    /// run whose call at its limit waits for the owner, which the engine gives its own result, so that the run's next
+    /// round begins. `wf-agents show` of the work says which call waits.
     LetGo {
         work: u64,
-        cell: String,
+        /// The cell that reached its limit, by its id.
+        #[arg(conflicts_with = "call", required_unless_present = "call")]
+        cell: Option<String>,
+        /// The call at its limit that waits for the owner, by its number.
+        #[arg(long)]
+        call: Option<u64>,
         #[command(flatten)]
         at: At,
     },
@@ -518,12 +532,13 @@ fn main() -> ExitCode {
             script,
             settings,
             port,
+            new,
         } => {
             let carriers = match script {
                 Some(script) => running::With::Script(script),
                 None => running::With::Settings(settings.unwrap_or_else(|| data.join(carry::settings::FILE))),
             };
-            running::run(&data, &flows, carriers, port)
+            running::run(&data, &flows, carriers, port, new)
         }
         Command::Add {
             title,
@@ -673,7 +688,14 @@ fn main() -> ExitCode {
             talk::ask(at.port, Asked::Act(work, Act::Say { to, words }))
         }
         Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
-        Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
+        Command::LetGo { work, cell, call, at } => {
+            let act = match (cell, call) {
+                (_, Some(call)) => Act::GoOn { call },
+                (Some(cell), None) => Act::LetGo { cell },
+                (None, None) => unreachable!("the command line asks for a cell or a call"),
+            };
+            talk::ask(at.port, Asked::Act(work, act))
+        }
         Command::System { days, limit, at } => talk::ask(at.port, Asked::System { days, limit }),
     }
 }

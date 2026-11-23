@@ -1,7 +1,7 @@
 //! A work whose round fails, as the commands say it: paused by the engine with the reason, its cell's round failed;
 //! and, let on, it goes on to its merge.
 
-use crate::{Engine, Place, SCRIPT};
+use crate::{Engine, Place, SCRIPT, plain_line};
 
 const WHY: &str = "The agent's program could not start";
 
@@ -25,8 +25,8 @@ fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
     assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
     // The engine's pause and its reason, each a sentence.
     let paused =
-        format!("#1 \"Greet the user\" at level 1, project script, W1 on trial: paused at plan by the engine. {WHY}.");
-    engine.until(&["list"], |line| line == paused);
+        format!("#1 (project script) \"Greet the user\" at level 1, W1 on trial: paused at plan by the engine. {WHY}.");
+    engine.until(&["list"], |line| plain_line(line) == paused);
     let shown = engine.says(&["show", "1"]);
     assert!(
         shown.contains(&format!(
@@ -49,6 +49,6 @@ fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
 
     assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
     engine.until(&["list", "--all"], |line| {
-        line == "#1 \"Greet the user\" at level 1, project script, W1 on trial: merged"
+        plain_line(line) == "#1 (project script) \"Greet the user\" at level 1, W1 on trial: merged"
     });
 }

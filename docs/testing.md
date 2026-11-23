@@ -119,7 +119,7 @@ of each part.
     the real installation, served on a port of its own by the program of the change being judged, where every round
     follows a script.
 
-17. Only the program writes the store. A build starts the engine on an empty data directory with a script, adds the
+17. Only the program writes the store. A build starts the engine on an empty data directory (`--new`) with a script, adds the
     items, and brings each work to its state with the engine's own commands and its interface, each act at the state it
     waits for. A state written into the store by hand may be one no engine reaches, and the page would be judged on it.
 

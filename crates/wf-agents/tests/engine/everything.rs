@@ -1,7 +1,7 @@
 //! The owner's pause of everything from the command line: set and lifted, said with the slots by `list`, holding back a
 //! work the owner let on, which then goes on by itself once it is lifted.
 
-use crate::{Engine, Place, SCRIPT};
+use crate::{Engine, Place, SCRIPT, plain};
 
 #[test]
 fn everything_is_paused_and_let_on_again_from_the_command_line() {
@@ -32,15 +32,15 @@ fn everything_is_paused_and_let_on_again_from_the_command_line() {
         "Work 1 is let on, and held back by the pause of everything until `wf-agents resume --all`.\n"
     );
     assert_eq!(
-        engine.says(&["list"]),
+        plain(&engine.says(&["list"])),
         format!(
-            "{paused}; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: held back at plan by the \
+            "{paused}; 0 of 2 slots taken.\n#1 (project script) \"Greet the user\" at level 1, W1 on trial: held back at plan by the \
              pause of everything\n"
         )
     );
     assert!(engine.says(&["resume", "--all"]).starts_with("Works go on; "));
     engine.until(&["list"], |line| {
-        line.starts_with("#1 \"Greet the user\" at level 1, project script, W1 on trial: waits at plan")
+        line.starts_with("#1 (project script) \"Greet the user\" at level 1, W1 on trial: waits at plan")
     });
 }
 

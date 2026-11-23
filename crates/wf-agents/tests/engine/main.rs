@@ -73,8 +73,8 @@ pub fn run(data: &Path, script: &Path) -> Command {
     run_on(data, &trial(), script, 0)
 }
 
-/// `wf-agents run` on this flow and port.
-pub fn run_on(data: &Path, flow: &Path, script: &Path, port: u16) -> Command {
+/// `wf-agents run` on this flow and port, with no word of whether the data directory's store is made.
+pub fn run_plain_on(data: &Path, flow: &Path, script: &Path, port: u16) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wf-agents"));
     command
         .arg("run")
@@ -86,6 +86,34 @@ pub fn run_on(data: &Path, flow: &Path, script: &Path, port: u16) -> Command {
         .arg(script);
     command.args(["--port", &port.to_string()]);
     command
+}
+
+/// `wf-agents run` on this flow and port, making the data directory's store where it holds none.
+pub fn run_on(data: &Path, flow: &Path, script: &Path, port: u16) -> Command {
+    let mut command = run_plain_on(data, flow, script, port);
+    if !data.join("store.sqlite").exists() {
+        command.arg("--new");
+    }
+    command
+}
+
+/// A line of a list without what it ends with that changes from one run to the next: when something last happened to
+/// the work, which the list says by how long ago.
+pub fn plain_line(line: &str) -> &str {
+    if let Some(cut) = line.strip_suffix(" (nothing has happened yet)") {
+        return cut;
+    }
+    match line.rfind(" (last happened ") {
+        Some(at) if line.ends_with(" ago)") => &line[..at],
+        _ => line,
+    }
+}
+
+/// Every line of a text, as [`plain_line`] gives it.
+pub fn plain(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().map(plain_line).collect();
+    let end = if text.ends_with('\n') { "\n" } else { "" };
+    format!("{}{end}", lines.join("\n"))
 }
 
 /// A running engine, stopped when it is dropped.

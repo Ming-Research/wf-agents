@@ -1,6 +1,6 @@
 //! The commands that manage items, against a running engine.
 
-use crate::{Engine, Place, SCRIPT};
+use crate::{Engine, Place, SCRIPT, plain, plain_line};
 
 #[test]
 fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
@@ -22,8 +22,8 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
         "Added item 1 with its work 1, paused: let it on with `wf-agents resume 1`.\n"
     );
     assert_eq!(
-        engine.says(&["list"]),
-        "Works go on; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: paused at plan\n"
+        plain(&engine.says(&["list"])),
+        "Works go on; 0 of 2 slots taken.\n#1 (project script) \"Greet the user\" at level 1, W1 on trial: paused at plan\n"
     );
     assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
     let now = engine.until(&["show", "1"], |line| line.starts_with("Now: waits"));
@@ -55,7 +55,7 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
         "Call 2 of work 1 has its result.\n"
     );
     engine.until(&["list", "--all"], |line| {
-        line == "#1 \"Greet the user\" at level 1, project script, W1 on trial: merged"
+        plain_line(line) == "#1 (project script) \"Greet the user\" at level 1, W1 on trial: merged"
     });
     // What ended is left out of a list unless all are asked for, and counted.
     assert_eq!(
@@ -100,8 +100,8 @@ fn an_item_is_added_at_the_level_it_is_given_and_one_the_engine_lacks_is_refused
     // Added with no request, nothing runs its first cell, and only the review makes the merge's precondition hold: the
     // work is stalled, and shown as the pause it was added with holds it.
     assert_eq!(
-        engine.says(&["list"]),
-        "Works go on; 0 of 2 slots taken.\n#1 \"Greet the user\" at level 1, project script, W1 on trial: paused at merge\n"
+        plain(&engine.says(&["list"])),
+        "Works go on; 0 of 2 slots taken.\n#1 (project script) \"Greet the user\" at level 1, W1 on trial: paused at merge\n"
     );
     // An item is put at another level as it is added, and refused alike.
     assert_eq!(
@@ -155,10 +155,10 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
     // A precondition holds the work before its cell whether or not it is paused, and the items it depends on, not the
     // owner, can make it hold: it waits for those that have not merged.
     let waits = "waits at plan for the items it depends on to merge: #1";
-    let list = engine.says(&["list"]);
+    let list = plain(&engine.says(&["list"]));
     assert!(
         list.ends_with(&format!(
-            "#2 \"Say goodbye\" at level 1, project script, W2 on trial, after #1: {waits}\n"
+            "#2 (project script) \"Say goodbye\" at level 1, W2 on trial, after #1: {waits}\n"
         )),
         "{list}"
     );
@@ -179,7 +179,7 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
         "Work 2 is cancelled.\n"
     );
     engine.until(&["list", "--all"], |line| {
-        line == "#2 \"Say goodbye\" at level 1, project script, W2 on trial, after #1: cancelled"
+        plain_line(line) == "#2 (project script) \"Say goodbye\" at level 1, W2 on trial, after #1: cancelled"
     });
 
     assert_eq!(

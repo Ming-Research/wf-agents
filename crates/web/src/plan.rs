@@ -32,6 +32,9 @@ pub struct Row {
     pub work: u64,
     pub title: String,
     pub level: Option<String>,
+    /// The project it belongs to, by the name the installation's settings give it; none for an item added before
+    /// items had projects.
+    pub project: Option<String>,
     pub tags: Vec<String>,
     pub standing: Standing,
 }
@@ -101,6 +104,7 @@ impl Plan {
                 work: kept.head.number.0,
                 title: kept.item.title.clone(),
                 level: kept.item.level.clone(),
+                project: kept.item.project.clone(),
                 tags: kept.item.tags.clone(),
                 standing: Standing::of(&kept),
             };
@@ -342,6 +346,8 @@ pub struct Hits {
 pub struct Hit {
     pub item: u64,
     pub title: String,
+    /// The project the item belongs to; none for an item added before items had projects.
+    pub project: Option<String>,
     pub field: Field,
     /// The text around the first mention, the mention between « and », cut to about 80 characters, `…` where cut.
     pub snippet: String,
@@ -382,6 +388,7 @@ impl Hits {
                     let hit = Hit {
                         item,
                         title: kept.item.title.clone(),
+                        project: kept.item.project.clone(),
                         field,
                         snippet,
                         again,
@@ -487,6 +494,8 @@ pub struct PlanChanges {
 pub struct PlanLine {
     pub item: u64,
     pub title: String,
+    /// The project the item belongs to; none for an item added before items had projects.
+    pub project: Option<String>,
     pub time: u64,
     pub why: Option<String>,
     pub what: PlanChange,
@@ -615,6 +624,7 @@ impl PlanChanges {
             let line = |time: u64, why: Option<String>, what: PlanChange| PlanLine {
                 item: number,
                 title: kept.item.title.clone(),
+                project: kept.item.project.clone(),
                 time,
                 why,
                 what,

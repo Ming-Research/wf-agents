@@ -63,6 +63,20 @@ impl fmt::Display for Refusal {
                     call = call.0
                 )
             }
+            Refusal::AtItsLimit(call) => {
+                write!(
+                    f,
+                    "Call {call} is a run at its limit: it is let go on and takes no words, and words are said to its cell.",
+                    call = call.0
+                )
+            }
+            Refusal::NotAtItsLimit(call) => {
+                write!(
+                    f,
+                    "Call {call} is no run at its limit, which is all that is let go on.",
+                    call = call.0
+                )
+            }
             Refusal::NotKept(why) => f.write_str(&sentence(&format!("no account was added: {why}"))),
             Refusal::Closed(why) => f.write_str(&sentence(&format!("no account can be added or taken: {why}"))),
             Refusal::Gone => f.write_str("The engine is not running."),

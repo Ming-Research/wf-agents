@@ -89,6 +89,10 @@ pub const WAITED: &str = "The wait is over: the round is tried again.";
 /// everything may have changed.
 const CHANGES: usize = 256;
 
+/// The result the engine gives a run's call at its limit when the owner lets the run go on: the words the run's next
+/// round is told it had, which no person writes.
+pub const GO_ON: &str = "go on";
+
 /// The loop: the driver, and what carries out what it gives to be done.
 pub struct Service {
     driver: Driver,
@@ -213,6 +217,10 @@ pub enum Act {
     LetGo {
         cell: CellId,
     },
+    /// Lets the run that reached its limit go on, as the engine's own result of this call: [`GO_ON`].
+    GoOn {
+        call: CallId,
+    },
     Pause,
     Resume,
     /// Cancels the work's item, for this reason where one is given.
@@ -287,6 +295,10 @@ pub enum Refusal {
     Failed(Failed),
     /// The call is a tool's: the tool gives its result, not a person.
     NotAPersonsCall(CallId),
+    /// The call is a run at its limit: the owner lets it go on, and gives it no words.
+    AtItsLimit(CallId),
+    /// The call is no run at its limit, which is all the owner lets go on.
+    NotAtItsLimit(CallId),
     /// The token of an account to be added was not kept, for this reason, in words: no account was added.
     NotKept(String),
     /// No token can be kept or given, for this reason, as what keeps the tokens says ([`Tokens::closed`]): no account
@@ -749,6 +761,17 @@ impl Service {
                 value,
             },
             Act::LetGo { cell } => Event::LetGo { cell },
+            Act::GoOn { call } => {
+                let at_limit = (self.driver.work(work))
+                    .is_some_and(|kept| matches!(kept.work.calls.get(&call), Some(Call::AtLimit(_))));
+                if !at_limit {
+                    return Err(Refusal::NotAtItsLimit(call));
+                }
+                Event::Done {
+                    call,
+                    result: GO_ON.to_string(),
+                }
+            }
             Act::Pause => Event::Paused {
                 by: Pauser::Owner,
                 why: None,
@@ -788,6 +811,12 @@ impl Service {
                 });
                 if by_engine {
                     return Err(Refusal::NotAPersonsCall(call));
+                }
+                // A run at its limit is let go on, which the engine writes the result of; words to its cell are said.
+                let at_limit = (self.driver.work(work))
+                    .is_some_and(|kept| matches!(kept.work.calls.get(&call), Some(Call::AtLimit(_))));
+                if at_limit {
+                    return Err(Refusal::AtItsLimit(call));
                 }
                 Event::Done { call, result }
             }
