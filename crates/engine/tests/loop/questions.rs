@@ -533,6 +533,32 @@ fn a_question_the_cell_withdraws_lets_the_merge_begin() {
     assert_eq!(w.asked().map(|(value, _)| value), Some("answered".to_string()));
 }
 
+// The version that withdraws a question says so, and why, in the words the cell's questions are written in.
+#[test]
+fn a_question_the_cell_withdraws_is_written_in_its_questions_as_withdrawn_with_the_reason_it_gave() {
+    let (mut w, effects) = researched(vec![asked("which", false)]);
+    let (implementing, ..) = round(&effects);
+    w.on(wrote("request", Outsider::Person, true, None));
+    w.returns(implementing, hands_in(&[("code", None)]));
+    let research = (w.work.records.started.iter())
+        .rfind(|s| s.cell.as_str() == "research")
+        .expect("the research runs again")
+        .run;
+    let mut came = Came::works(vec!["request".into()], Vec::new());
+    came.said.questions = vec![Question::Withdrawn {
+        name: "which".to_string(),
+        why: "The request settles it.".to_string(),
+    }];
+    w.returns(research, came);
+    let last = (w.work.records.written.iter())
+        .rfind(|v| v.block.as_str() == "research_questions")
+        .expect("a version of the cell's questions");
+    let text = &w.work.contents[&(BlockId::from("research_questions"), last.at)];
+    for part in ["which", "withdrawn.", "Why: The request settles it."] {
+        assert!(text.contains(part), "{text:?} does not say {part:?}");
+    }
+}
+
 // The version that withdraws a question is a version of the cell's questions like the one it withdraws, with a number
 // of its own; no owner can answer it, there being nothing asked.
 #[test]
