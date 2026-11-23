@@ -465,6 +465,39 @@ fn a_question_the_cell_withdraws_lets_the_merge_begin() {
     assert_eq!(w.asked().map(|(value, _)| value), Some("answered".to_string()));
 }
 
+// The version that withdraws a question is a version of the cell's questions like the one it withdraws, with a number
+// of its own; no owner can answer it, there being nothing asked.
+#[test]
+fn an_answer_to_the_version_that_withdrew_a_question_is_refused() {
+    let (mut w, effects) = researched(vec![asked("which", false)]);
+    let (implementing, ..) = round(&effects);
+    w.on(wrote("request", Outsider::Person, true, None));
+    w.returns(implementing, hands_in(&[("code", None)]));
+    let research = (w.work.records.started.iter())
+        .rfind(|s| s.cell.as_str() == "research")
+        .expect("the research runs again")
+        .run;
+    let mut came = Came::works(vec!["request".into()], Vec::new());
+    came.said.questions = vec![Question::Withdrawn {
+        name: "which".to_string(),
+        why: "The request settles it.".to_string(),
+    }];
+    w.returns(research, came);
+    let version = w.version("which");
+    let answer = Event::Answer {
+        question: "which".to_string(),
+        version,
+        option: 1,
+    };
+    assert_eq!(
+        w.refused(answer),
+        Refused::NoSuchVersion {
+            question: "which".to_string(),
+            version
+        }
+    );
+}
+
 #[test]
 fn what_the_engine_asks_with_a_round_is_kept_in_the_questions_of_the_cell_the_flow_names_whatever_becomes_of_the_return()
  {
