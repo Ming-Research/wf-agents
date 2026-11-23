@@ -142,6 +142,30 @@ fn a_question_the_faults_name_is_left_out_and_one_they_do_not_stands_with_what_i
     assert_eq!(step(vec![before, works(&[], vec![])], &s), finish);
 }
 
+// A choice written with a value that stands with nothing but some blocks says the return must hold none of the cell's
+// questions, where it asked one: each of them is wrong, and the wait of one that waited goes with them.
+#[test]
+fn a_return_sent_back_for_holding_questions_beside_a_value_that_allows_none_gives_up_each_of_them() {
+    let s = Spec {
+        questions: Some("questions".into()),
+        ..must_write(&["verdict"])
+    };
+    let wrong = vec![Unmet::NothingBut {
+        block: "verdict".into(),
+        value: "no".to_string(),
+        besides: vec!["questions".into()],
+    }];
+    let before = told(
+        wrong,
+        asks_beside(&["request", "opinions"], vec![valued("verdict", "no")], true),
+    );
+    // The question stood and was waited for, the verdict not being owed; it is given up with the verdict, which is owed.
+    assert_eq!(
+        step(vec![before, works(&[], vec![])], &s),
+        send_back(vec![not_handed_in("verdict")])
+    );
+}
+
 #[test]
 fn nothing_is_carried_into_a_return_that_asks_for_calls_nor_out_of_one() {
     // Into: what the return before dealt with and wrote is not the call's.
@@ -173,7 +197,7 @@ fn the_reasons_for_the_protected_files_stand_and_a_file_said_again_has_the_later
         saying(&[("AGENTS.md", "one"), ("flow/cell.toml", "two")]),
     );
     let rounds = [before, saying(&[("AGENTS.md", "three")])];
-    let taken = together(&rounds).expect("a return came back");
+    let taken = together(&rounds, None).expect("a return came back");
     let expected: BTreeMap<String, String> = [("AGENTS.md", "three"), ("flow/cell.toml", "two")]
         .into_iter()
         .map(|(file, why)| (file.to_string(), why.to_string()))
@@ -183,25 +207,25 @@ fn the_reasons_for_the_protected_files_stand_and_a_file_said_again_has_the_later
 
 #[test]
 fn what_the_next_return_completes_is_what_the_last_was_sent_back_for_not_naming() {
-    assert_eq!(carried(&[]), Together::default());
+    assert_eq!(carried(&[], None), Together::default());
     let rounds = [told(
         vec![Unmet::NoValue {
             block: "verdict".into(),
         }],
         handed_in(vec![prose("plan"), prose("verdict")]),
     )];
-    let completes = carried(&rounds);
+    let completes = carried(&rounds, None);
     assert_eq!(completes.writes, [prose("plan")]);
     assert_eq!(
         completes.dealt_with,
         [BlockId::from("request"), BlockId::from("opinions")]
     );
     // The last return as it stands, not yet judged, is of the run taken together, with nothing left out.
-    let whole = together(&rounds).expect("a return came back");
+    let whole = together(&rounds, None).expect("a return came back");
     assert_eq!(whole.writes, [prose("plan"), prose("verdict")]);
     // A return that asked for calls leaves nothing to complete.
-    assert_eq!(carried(&[asks(2)]), Together::default());
+    assert_eq!(carried(&[asks(2)], None), Together::default());
     // A round that failed after the return leaves it as it was.
     let after = [rounds[0].clone(), failed_as(Failure::Flagged)];
-    assert_eq!(carried(&after), completes);
+    assert_eq!(carried(&after, None), completes);
 }

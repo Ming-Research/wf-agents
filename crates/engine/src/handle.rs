@@ -908,7 +908,7 @@ fn finish(
         }) => {
             // What the returns of the run come to taken together (`run::together`): each block it writes as the latest
             // return that wrote it did, and each question it asks as the latest return that asked it did.
-            let taken = run::together(&log.rounds).unwrap_or_default();
+            let taken = run::together(&log.rounds, questions_block(flow, work, run)).unwrap_or_default();
             questions = (taken.questions.iter())
                 .filter_map(|asked| work.asked_by(run, round, &asked.name).cloned())
                 .collect();
@@ -1072,7 +1072,13 @@ pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<Bloc
 /// carrier reads it to hold what the next return says to what the returns before it said too.
 pub fn carried(flow: &Compiled, work: &Work, run: RunId) -> run::Together {
     let told = told(&flow.flow, &work.records, run).unwrap_or_default();
-    run::carried(&log(flow, work, run, &told).rounds)
+    run::carried(&log(flow, work, run, &told).rounds, questions_block(flow, work, run))
+}
+
+/// The block the questions of the run's cell are written in, where it has its own.
+fn questions_block<'f>(flow: &'f Compiled, work: &Work, run: RunId) -> Option<&'f BlockId> {
+    let started = work.records.started.iter().find(|s| s.run == run)?;
+    asked::questions_of(flow, &started.cell)
 }
 
 /// The run so far, as the deciding code reads it. A return of the form before a return said what it dealt with reads

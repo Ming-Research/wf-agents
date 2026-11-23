@@ -540,11 +540,13 @@ impl Unmet {
 impl Together {
     /// What of this the faults it was sent back for do not name: the blocks and questions they name are left out, and
     /// what it found as it was read is the return's own.
-    fn carried(mut self, faults: &[Unmet]) -> Together {
+    fn carried(mut self, faults: &[Unmet], asked_in: Option<&BlockId>) -> Together {
         let wrong: Vec<&BlockId> = faults.iter().flat_map(Unmet::wrong_blocks).collect();
         self.writes.retain(|w| !wrong.contains(&&w.block));
+        // A fault that says the return must hold none of the cell's questions, `asked_in`, makes each of them wrong.
+        let all = asked_in.is_some_and(|block| wrong.contains(&block));
         let questions: Vec<&str> = faults.iter().filter_map(Unmet::wrong_question).collect();
-        self.questions.retain(|q| !questions.contains(&q.name.as_str()));
+        self.questions.retain(|q| !all && !questions.contains(&q.name.as_str()));
         self
     }
 
@@ -572,7 +574,7 @@ impl Together {
 /// What the returns of the rounds that came back come to taken together, with the faults the last of them was sent back
 /// for; none where none came back. A round that failed leaves what came before it as it was. Nothing is carried out of a
 /// return that asks for calls, nor into one: a return that asks for calls asks for nothing else.
-fn fold(rounds: &[Round]) -> Option<(Together, &[Unmet])> {
+fn fold<'r>(rounds: &'r [Round], asked_in: Option<&BlockId>) -> Option<(Together, &'r [Unmet])> {
     let mut last: Option<(Together, &[Unmet])> = None;
     for round in rounds {
         let Some(Return::Came {
@@ -599,7 +601,9 @@ fn fold(rounds: &[Round]) -> Option<(Together, &[Unmet])> {
             protected: protected.clone(),
         };
         let now = match last.take() {
-            Some((before, faults)) if before.calls == 0 && now.calls == 0 => before.carried(faults).completed_by(now),
+            Some((before, faults)) if before.calls == 0 && now.calls == 0 => {
+                before.carried(faults, asked_in).completed_by(now)
+            }
             _ => now,
         };
         last = Some((now, &round.sent_back));
@@ -607,16 +611,17 @@ fn fold(rounds: &[Round]) -> Option<(Together, &[Unmet])> {
     last
 }
 
-/// What the returns of the rounds that came back come to taken together; none where none did.
-pub fn together(rounds: &[Round]) -> Option<Together> {
-    fold(rounds).map(|(taken, _)| taken)
+/// What the returns of the rounds that came back come to taken together; none where none did. `asked_in` is the block
+/// the cell's questions are written in, where it has one.
+pub fn together(rounds: &[Round], asked_in: Option<&BlockId>) -> Option<Together> {
+    fold(rounds, asked_in).map(|(taken, _)| taken)
 }
 
 /// What the next return of the run completes: what the returns that came back come to taken together, but for what the
 /// faults the last of them was sent back for name; nothing where none came back, or the last asked for calls.
-pub fn carried(rounds: &[Round]) -> Together {
-    match fold(rounds) {
-        Some((taken, faults)) if taken.calls == 0 => taken.carried(faults),
+pub fn carried(rounds: &[Round], asked_in: Option<&BlockId>) -> Together {
+    match fold(rounds, asked_in) {
+        Some((taken, faults)) if taken.calls == 0 => taken.carried(faults, asked_in),
         _ => Together::default(),
     }
 }
@@ -688,7 +693,7 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
         Return::Came { .. } => {
             // What the run has returned, taken together: the last round's return, with what the returns sent back
             // before it did not name as wrong.
-            let taken = together(&log.rounds).unwrap_or_default();
+            let taken = together(&log.rounds, requires.questions).unwrap_or_default();
             let came = Came {
                 dealt_with: &taken.dealt_with,
                 writes: &taken.writes,

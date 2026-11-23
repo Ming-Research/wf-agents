@@ -503,8 +503,11 @@ fn words_to_an_earlier_cell_tell_the_round_under_way_to_hand_in_what_it_has_and_
             versions,
         });
     }
-    // It hands in what it has, and nothing more is asked of it: the deep research is entered for its words next.
-    sim.hands_in(&implement, &[("code", "abc", None)]);
+    // It hands in what it has, dealing with none of what ran its round, as it was told to: its own words, which it
+    // does not answer, stay new to it, and nothing more is asked of it now. The deep research is entered for its words
+    // next.
+    let came = Came::works(vec![], vec![handed("code", "abc", None)]);
+    sim.returns(&implement, came, 0);
     let finished = (sim.work.records.finished.iter()).any(|f| f.run == implement.run);
     assert!(finished, "the implementation's hand-in is taken, not sent back");
     let rethought = sim.round().expect("a round is given");
