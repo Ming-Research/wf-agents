@@ -9,6 +9,8 @@ Whoever plans the work learns what needs them through `wf-agents wait`, a call t
 ### decision only-a-sign-in-waits-on-the-owner
 When the agents' command line fails, only a cause no retry mends, like a refused sign-in or a program too old, waits on the owner, who is told what to do; the engine waits out any other cause itself.
 - rejected: an agent proposed counting every case of the agents' program not starting as waiting on the owner; the owner rejected it, because only a sign-in or a refusal cannot be mended without the owner.
+- rejected: an agent proposed counting a usage limit as waiting on the owner only where the engine cannot move; the owner rejected it, because the limit resets by itself, so the count would often point at what soon goes away, and this rule of only a cause no retry mends would change.
+- rejected: an agent proposed counting every usage limit that holds the rounds as waiting on the owner; the owner rejected it, because every weekly limit would raise the count even where the engine has moved, and the count would no longer match what he can do.
 
 ### decision no-line-says-the-merge-waits
 A question the owner is to answer shows only what it asks, and no line beside it says that the merge waits for it.

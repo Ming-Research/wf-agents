@@ -375,6 +375,66 @@ describe('the Settings view', () => {
     }
   });
 
+  it('lets the engine move to another account at a limit only as the owner switches it, off until then, and says it at once', async () => {
+    const s = settingsSource();
+    const page = draw(s.source, s.works);
+    await settle();
+    const row = page.querySelector('.account-moving') as HTMLElement;
+    expect(row.textContent).toContain('Move on at the limit');
+    const choice = (text: string) => button(row, text);
+    expect(choice('Off').getAttribute('aria-pressed')).toBe('true');
+    expect(choice('On').getAttribute('aria-pressed')).toBe('false');
+    expect(choice('On').title).toMatch(/^When the account in use is at its usage limit, the engine checks the other accounts/);
+    // Pressing the choice already pressed asks nothing.
+    act(() => choice('Off').click());
+    expect(s.asked).toEqual([]);
+    act(() => choice('On').click());
+    await settle();
+    expect(s.asked).toEqual([{ kind: 'setMovingOn', on: true }]);
+    expect(page.querySelector('.said')?.textContent).toBe('The engine moves to another account at a usage limit.');
+    // The engine's answer is what the switch shows: it is read again after the act.
+    s.accounts = { ...fixtureAccounts(), movingOn: true };
+    act(() => s.changed({ works: [], items: false, copies: false, accounts: true }));
+    await settle();
+    expect((page.querySelector('.account-moving') as HTMLElement).querySelector('[aria-pressed="true"]')?.textContent).toBe(
+      'On',
+    );
+    act(() => button(page.querySelector('.account-moving')!, 'Off').click());
+    await settle();
+    expect(s.asked[s.asked.length - 1]).toEqual({ kind: 'setMovingOn', on: false });
+  });
+
+  it("lists the engine's moves, newest first, only where there are any, each with the reset of the limit it left as the table says it", async () => {
+    const s = settingsSource();
+    const page = draw(s.source, s.works);
+    await settle();
+    const moves = () => [...page.querySelectorAll('table[aria-label="The engine\'s moves"] tbody tr')];
+    expect(moves()).toEqual([]);
+    expect(page.querySelector('table[aria-label="The engine\'s moves"]')).toBeNull();
+    const accounts = fixtureAccounts();
+    s.accounts = {
+      ...accounts,
+      movingOn: true,
+      moves: [
+        { at: accounts.now - 60_000, from: 'work', to: 'home', leftResets: accounts.now + 2 * 24 * 3_600_000 },
+        { at: accounts.now - 9 * 3_600_000, from: 'home', to: 'work', leftResets: accounts.now - 3_600_000 },
+        { at: accounts.now - 30 * 3_600_000, from: 'old', to: 'home', leftResets: null },
+      ],
+    };
+    act(() => s.changed({ works: [], items: false, copies: false, accounts: true }));
+    await settle();
+    const cells = moves().map((tr) => [...tr.children].map((td) => td.textContent));
+    expect(cells).toHaveLength(3);
+    expect(cells[0].slice(1)).toEqual([
+      'work',
+      'home',
+      expect.stringMatching(/^reached its usage limit, resets in (1d 23h|2d 0h) \(\d\d-\d\d \d\d:\d\d\)$/),
+    ]);
+    // A reset that has passed is said as the table says it, not as one to come.
+    expect(cells[1][3]).toMatch(/^reached its usage limit, reset \d\d-\d\d \d\d:\d\d$/);
+    expect(cells[2].slice(1)).toEqual(['old', 'home', 'reached its usage limit']);
+  });
+
   it('takes an account at once with Use, and asks once beside an account before removing it', async () => {
     const s = settingsSource();
     const page = draw(s.source);
