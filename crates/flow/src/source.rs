@@ -385,8 +385,8 @@ pub struct LineFile {
     /// leaves it out.
     #[serde(default)]
     pub tests_only: bool,
-    /// How many levels above its item's the line's rounds run at, none above the highest an item may be at; none
-    /// where it is left out.
+    /// How many levels above its item's the line's rounds run at, none above the highest level the installation lets
+    /// one round run at; none where it is left out.
     #[serde(default)]
     pub levels_above: u32,
     /// The flow's sets of rules for the agents that the system prompt of the line's session holds, each `rules/<name>.md`
@@ -409,8 +409,8 @@ pub struct LaidOutLineFile {
     /// leaves it out.
     #[serde(default)]
     pub tests_only: bool,
-    /// How many levels above its item's the line's rounds run at, none above the highest an item may be at; none
-    /// where it is left out.
+    /// How many levels above its item's the line's rounds run at, none above the highest level the installation lets
+    /// one round run at; none where it is left out.
     #[serde(default)]
     pub levels_above: u32,
     /// The sets of rules for the agents that the system prompt of the line's session holds, each by its name in
