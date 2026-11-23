@@ -121,6 +121,23 @@ fn a_script_is_told_everything_it_names_that_the_flow_lacks() {
     );
 }
 
+// An act of the engine takes no token of any kind, the ones written to the cache among them.
+#[test]
+fn an_act_of_the_engine_that_says_tokens_written_to_the_cache_is_told_it_takes_none() {
+    let script = Script::read(
+        r#"
+        [[flows.trial.rounds]]
+        cell = "merge"
+        took = { cache_written_tokens = 5 }
+        "#,
+    )
+    .unwrap();
+    assert_eq!(
+        script.check(&[trial()]),
+        ["flows.trial.rounds[0]: an act of the engine takes no cost and no tokens"]
+    );
+}
+
 #[test]
 fn the_engineers_script_fits_the_engineers_flow() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/scripts/engineer.toml");

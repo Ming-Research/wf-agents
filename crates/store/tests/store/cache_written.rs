@@ -161,3 +161,89 @@ fn a_file_made_before_the_tokens_written_to_the_cache_were_kept_apart_is_brought
         "the migrated file has other tables than a new one"
     );
 }
+
+/// A round of a file of version 26 of the work, with its tokens sent and not read from the cache, and one try of it in
+/// `measured` whose tokens sent fresh and written to the cache are these.
+fn round_of(file: &Connection, work: u64, run: u64, round: u64, uncached: u64, tries: &[(u64, u64, u64)]) {
+    file.execute(
+        "INSERT INTO spent (work, run, round, usd_micros, input_tokens, cached_tokens, output_tokens, context_tokens, \
+         compactions) VALUES (?1, ?2, ?3, 1, ?4, 0, 0, NULL, 0)",
+        rusqlite::params![work, run, round, uncached],
+    )
+    .expect("a round is kept");
+    for (attempt, fresh, written) in tries {
+        file.execute(
+            "INSERT INTO measured (work, at, run, round, attempt, input_tokens, cache_read_tokens, \
+             cache_written_tokens, thinking_tokens, turns, calls, first_read, first_context, added, given, before, \
+             received, crossed, priced) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, NULL, 1, 1, NULL, NULL, 0, 0, '{}', 1, 0, 0)",
+            rusqlite::params![work, 100 + attempt, run, round, attempt, fresh, written],
+        )
+        .expect("a try is kept");
+    }
+}
+
+// The tries of a round are those of its own work, run and round; the last of them is the one with the greatest attempt
+// number, whatever numbers come before it; a round that sent and wrote nothing is one that wrote none (0), and not one
+// that is not known.
+#[test]
+fn a_round_has_the_tokens_written_to_the_cache_of_its_own_tries_only() {
+    let db = Db::new();
+    {
+        let file = Connection::open(&db.path).expect("the database opens");
+        file.pragma_update(None, "foreign_keys", "OFF")
+            .expect("the foreign keys are let be");
+        file.execute_batch(SCHEMA_1).expect("the first schema is made");
+        file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+            .expect("its version is written");
+        store::migrate(&file, 1, 26).expect("the migrations run");
+        for work in [1, 2] {
+            file.execute(
+                "INSERT INTO items (number, title, added) VALUES (?1, 'kept', 1)",
+                [work],
+            )
+            .expect("an item is kept");
+            file.execute(
+                "INSERT INTO works (number, item, flow, added) VALUES (?1, ?1, 'engineer', 1)",
+                [work],
+            )
+            .expect("a work is kept");
+            file.execute(
+                "INSERT INTO started (work, at, run, cell, because) VALUES (?1, 2, 1, 'plan', '[]')",
+                [work],
+            )
+            .expect("a run is kept");
+        }
+        // The same run and round of two works, the tries of each adding up to its own round's tokens.
+        round_of(&file, 1, 1, 1, 500, &[(1, 100, 400)]);
+        round_of(&file, 2, 1, 1, 500, &[(1, 200, 300)]);
+        // A round whose tries are numbered 1 and 3, the last of them adding up and the first not.
+        round_of(&file, 1, 1, 2, 900, &[(1, 5, 5), (3, 400, 500)]);
+        // A round that sent and wrote nothing.
+        round_of(&file, 1, 1, 3, 0, &[(1, 0, 0)]);
+        // Two rounds of one run: the tries of the one are not the tries of the other.
+        round_of(&file, 2, 1, 2, 0, &[]);
+        round_of(&file, 2, 1, 3, 800, &[(1, 300, 500)]);
+    }
+    db.open();
+    let file = Connection::open(&db.path).expect("the database opens");
+    let mut query = file
+        .prepare("SELECT work, round, cache_written_tokens FROM spent ORDER BY work, run, round")
+        .expect("the rounds are read");
+    let told: Vec<(i64, i64, Option<i64>)> = query
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .expect("the rounds are read")
+        .collect::<Result<_, _>>()
+        .expect("the rounds are read");
+    assert_eq!(
+        told,
+        [
+            (1, 1, Some(400)),
+            (1, 2, Some(500)),
+            (1, 3, Some(0)),
+            (2, 1, Some(300)),
+            (2, 2, None),
+            (2, 3, Some(500))
+        ]
+    );
+}

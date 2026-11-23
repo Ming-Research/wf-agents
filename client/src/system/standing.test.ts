@@ -113,6 +113,17 @@ describe('what the span adds up to', () => {
     ).toEqual({ took: 3000, usdMicros: 2_000_000 });
     expect(summed([{ spent: spent(10) }, { spent: null }, { spent: spent(5) }]).usdMicros).toBe(15);
   });
+
+  it('sums every kind of token apart, the written to the cache and those not told apart too', () => {
+    const sum = summed([
+      { spent: { ...spent(10, 1, 100, 20, 300), outputTokens: 4 } },
+      { spent: null },
+      { spent: { ...spent(5, 2, 200, 40, 600), outputTokens: 8 } },
+    ]);
+    expect([sum.inputTokens, sum.cacheWrittenTokens, sum.unsplitTokens, sum.cachedTokens, sum.outputTokens]).toEqual([
+      3, 60, 900, 300, 12,
+    ]);
+  });
 });
 
 describe('the settings the page changes', () => {
