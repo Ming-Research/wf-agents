@@ -4529,4 +4529,108 @@ pub(crate) mod tests {
         assert_eq!(settled(true, true, true), CellState::Again);
         assert_eq!(settled(true, true, false), CellState::Done);
     }
+
+    // What a return was sent back for reaches the page as a kind of its own with the fields the page reads it by
+    // (`Unmet` of `client/src/works-api.ts`): the blocks and values that a dialogue or a gate names, the changes a
+    // round left, the answer marked `tree` that changed nothing of the tree. Milliseconds.
+    #[test]
+    fn each_reason_a_return_was_sent_back_reaches_the_page_as_its_kind_with_its_fields() {
+        use serde_json::json;
+        let block = |name: &str| BlockId::from(name);
+        let cases: Vec<(UnmetOf, serde_json::Value)> = vec![
+            (
+                UnmetOf::NothingBut {
+                    block: block("tree_ok"),
+                    value: "yes".to_string(),
+                    besides: vec![block("code"), block("plan")],
+                },
+                json!({"kind": "nothingBut", "block": "tree_ok", "value": "yes", "besides": ["code", "plan"]}),
+            ),
+            (
+                UnmetOf::WordOwed {
+                    name: block("review"),
+                    watched: vec![block("code")],
+                },
+                json!({"kind": "wordOwed", "name": "review", "watched": ["code"]}),
+            ),
+            (
+                UnmetOf::NoPoint {
+                    block: block("verdict"),
+                    value: "no".to_string(),
+                    name: block("review"),
+                },
+                json!({"kind": "noPoint", "block": "verdict", "value": "no", "name": "review"}),
+            ),
+            (
+                UnmetOf::NotWatched {
+                    name: "opinions".to_string(),
+                },
+                json!({"kind": "notWatched", "name": "opinions"}),
+            ),
+            (
+                UnmetOf::Uncommitted {
+                    changes: " M src/a.rs".to_string(),
+                },
+                json!({"kind": "uncommitted", "changes": " M src/a.rs"}),
+            ),
+            (
+                UnmetOf::Merging {
+                    changes: "the merge is under way".to_string(),
+                },
+                json!({"kind": "merging", "changes": "the merge is under way"}),
+            ),
+            (
+                UnmetOf::TreeUnchanged {
+                    name: "tree_question".to_string(),
+                },
+                json!({"kind": "treeUnchanged", "name": "tree_question"}),
+            ),
+            (
+                UnmetOf::NotAnEntry {
+                    line: "an entry".to_string(),
+                },
+                json!({"kind": "notAnEntry", "line": "an entry"}),
+            ),
+            (
+                UnmetOf::Unanswered { block: block("plan") },
+                json!({"kind": "unanswered", "block": "plan"}),
+            ),
+        ];
+        for (unmet, wire) in cases {
+            let Ok(page) = Unmet::of(&unmet, &Records::default()) else {
+                panic!("{unmet:?} does not reach the page");
+            };
+            assert_eq!(serde_json::to_value(&page).expect("it is JSON"), wire, "{unmet:?}");
+        }
+    }
+
+    // A session begun for a reason the engine no longer gives (the owner's asking, a size past the limit, another
+    // account) is still in the records of a work kept before, and is given to the page as that reason, with what it
+    // says: the page words it as it did.
+    #[test]
+    fn a_session_begun_for_a_reason_the_engine_no_longer_gives_is_still_given_as_that_reason() {
+        use serde_json::json;
+        let given = |why: Why| serde_json::to_value(SessionWhy::of(&why)).expect("it is JSON");
+        assert_eq!(given(Why::Owner), json!({"kind": "owner"}));
+        assert_eq!(
+            given(Why::Limit {
+                context: 612_000,
+                limit: 500_000
+            }),
+            json!({"kind": "limit", "context": 612_000, "limit": 500_000})
+        );
+        assert_eq!(
+            given(Why::Account {
+                was: Some("work".to_string())
+            }),
+            json!({"kind": "account"})
+        );
+        assert_eq!(given(Why::Account { was: None }), json!({"kind": "account"}));
+        assert_eq!(
+            given(Why::Model {
+                was: "claude-opus-4-1".to_string()
+            }),
+            json!({"kind": "model", "was": "claude-opus-4-1"})
+        );
+    }
 }
