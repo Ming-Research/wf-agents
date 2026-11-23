@@ -1,7 +1,5 @@
 /* The console: the canvas of the tree, and over its right the window with the item selected, which a work's page shows
-   too. Brought over from the console of the engine on `old-main` (`client/src/styles/console.css`), its Primer values
-   the page's tokens or, where the page has none, Primer's values as they were. Every value is a token
-   (styles/tokens.css), but for the console's own colours named below. */
+   too. Every value is a token (styles/tokens.css), but for the console's own colours named below. */
 
 .console {
   /* What is new to the owner: the page's accent's tint as a wash behind a strip; the canvas draws it so too. The window
