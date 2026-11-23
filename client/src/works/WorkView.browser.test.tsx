@@ -88,21 +88,29 @@ describe("a work's page opened on a round's address", () => {
     const body = host.querySelector('aside .drawer-body') as HTMLElement;
     const lit = host.querySelector('section.cw-fold-chosen') as HTMLElement;
     // The window has scrolled, and the section's middle lies in the part of it that is seen, inside the browser's view.
-    await expect
-      .poll(() => {
-        const seen = body.getBoundingClientRect();
-        const at = lit.getBoundingClientRect();
-        const middle = (at.top + at.bottom) / 2;
-        return (
-          body.scrollHeight > body.clientHeight &&
-          body.scrollTop > 0 &&
-          middle >= seen.top &&
-          middle <= seen.bottom &&
-          at.left >= Math.max(seen.left, 0) &&
-          at.right <= Math.min(seen.right, window.innerWidth)
-        );
-      })
-      .toBe(true);
+    // What the measure holds is told as it is when the test fails, with each element from the section up that scrolls.
+    const measure = () => {
+      const seen = body.getBoundingClientRect();
+      const at = lit.getBoundingClientRect();
+      const middle = (at.top + at.bottom) / 2;
+      const scrollers: string[] = [];
+      for (let e: HTMLElement | null = lit.parentElement; e !== null; e = e.parentElement) {
+        if (e.scrollHeight > e.clientHeight || e.scrollWidth > e.clientWidth) {
+          scrollers.push(`${e.tagName}.${e.className}:top ${e.scrollTop}/${e.scrollHeight - e.clientHeight}`);
+        }
+      }
+      return JSON.stringify({
+        tall: body.scrollHeight > body.clientHeight,
+        scrolled: body.scrollTop > 0,
+        centred: middle >= seen.top && middle <= seen.bottom,
+        across: at.left >= Math.max(seen.left, 0) && at.right <= Math.min(seen.right, window.innerWidth),
+        body: [seen.top, seen.bottom, seen.left, seen.right],
+        section: [at.top, at.bottom, at.left, at.right],
+        view: [window.innerWidth, window.innerHeight],
+        scrollers,
+      });
+    };
+    await expect.poll(measure).toMatch(/^\{"tall":true,"scrolled":true,"centred":true,"across":true,/);
     // Nothing else has been scrolled to it: not the page's frame nor the view over which the window floats (both are
     // hidden, which a section can still scroll) nor the document.
     for (const outer of [host.querySelector('.page'), host.querySelector('.view-body'), document.scrollingElement]) {
