@@ -970,7 +970,7 @@ fn a_setting_the_task_what_a_cell_does_for_a_datum_or_a_block_s_words_name_is_se
     let round = sim.round().expect("the build is entered");
     let entered = sim.enter(&round, false);
     let plan = format!(
-        "- `plan`, version {}: Say why in `owner.language` (Chinese).",
+        "- `plan`, version {} changed its meaning: Say why in `owner.language` (Chinese).",
         sim.number("plan")
     );
     for line in [
