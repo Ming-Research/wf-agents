@@ -2608,7 +2608,91 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
     if system.left_behind.len() > limit {
         lines.push(more(system.left_behind.len() - limit));
     }
+    for tests in &system.tests {
+        lines.extend(tests_said(tests, days, limit));
+    }
     lines.join("\n")
+}
+
+/// A time of a test or a job, in milliseconds or seconds.
+fn millis_said(ms: u64) -> String {
+    if ms < 1000 {
+        format!("{ms} ms")
+    } else {
+        format!("{:.1} s", ms as f64 / 1000.0)
+    }
+}
+
+/// What a project's merged checks say of how long its tests and jobs took, each list at most `limit` long, with how
+/// many more there are and how to see them.
+fn tests_said(tests: &web::system::TestTimes, days: u64, limit: usize) -> Vec<String> {
+    let project = tests.project.as_deref().unwrap_or("a project with no name");
+    let mut lines = vec![format!(
+        "Times of the tests and jobs of {project}, from its {} merged checks:",
+        tests.checks
+    )];
+    let more = |left: usize| {
+        format!(
+            "  And {left} more: wf-agents system --days {days} --limit {}",
+            limit + left
+        )
+    };
+    if tests.slowed.is_empty() {
+        lines.push("  No test took longer than its own history says in two merged checks in a row.".to_string());
+    } else {
+        lines.push("  Tests that took longer than their own history says in two merged checks in a row:".to_string());
+    }
+    for t in tests.slowed.iter().take(limit) {
+        lines.push(format!(
+            "    {} in {}: {} at {}, against a median of {} and a line of {}",
+            t.name,
+            t.unit,
+            millis_said(t.millis),
+            work_number(t.work),
+            millis_said(t.median),
+            millis_said(t.line)
+        ));
+    }
+    if tests.slowed.len() > limit {
+        lines.push(more(tests.slowed.len() - limit));
+    }
+    for g in &tests.grown {
+        lines.push(format!(
+            "  The CI grew: {} had a median of {} over the {} merged checks before the latest {} and {} over them ({} of \
+             them above the earlier median, {} needed); it stepped at the merge of {}.",
+            if g.of == driver::timed::TESTS { "the sum of the tests' times".to_string() } else { format!("the job {}", g.of) },
+            millis_said(g.before),
+            g.n,
+            g.n,
+            millis_said(g.after),
+            g.above,
+            g.needed,
+            work_number(g.work)
+        ));
+    }
+    lines.push("  The latest merges, the latest last, with what each check took and the tests it added:".to_string());
+    let skipped = tests.merges.len().saturating_sub(limit);
+    for m in tests.merges.iter().skip(skipped) {
+        let jobs: Vec<String> = (m.jobs.iter())
+            .map(|j| format!("{} {}", j.name, millis_said(j.millis)))
+            .collect();
+        lines.push(format!(
+            "    {}: jobs {}; the tests {}; {} tests added, {}",
+            work_number(m.work),
+            if jobs.is_empty() {
+                "none read".to_string()
+            } else {
+                jobs.join(", ")
+            },
+            millis_said(m.tests_millis),
+            m.added,
+            millis_said(m.added_millis)
+        ));
+    }
+    if skipped > 0 {
+        lines.push(more(skipped));
+    }
+    lines
 }
 
 /// What rounds took, as a clause.
@@ -3008,6 +3092,7 @@ mod tests {
             failed: Vec::new(),
             past: Vec::new(),
             under_way: Vec::new(),
+            tests: Vec::new(),
             left_behind: vec![
                 left(
                     300_000,
@@ -3767,6 +3852,7 @@ mod tests {
             failed: Vec::new(),
             past: (1..=12).map(past).collect(),
             under_way: Vec::new(),
+            tests: Vec::new(),
             left_behind: Vec::new(),
             stopping: None,
         };
@@ -3781,6 +3867,88 @@ mod tests {
         );
         assert_eq!(lines[12], "  And 2 more: wf-agents system --days 7 --limit 12");
         assert_eq!(lines[13], "Nothing is under way.");
+    }
+
+    // What a project's merged checks say of time is bounded as every list of the report is: the slowed tests and the
+    // latest merges each at most the limit, with how many more there are and how to see them; a series that grew is said
+    // with the merge it stepped at.
+    #[test]
+    fn the_times_of_a_projects_merged_checks_are_said_bounded_with_how_many_more_there_are() {
+        use web::system::{Grown, JobTime, MergeTimes, SlowedTest, TestTimes};
+        let tests = TestTimes {
+            project: Some("wf-agents".to_string()),
+            checks: 40,
+            slowed: (1..=7)
+                .map(|n| SlowedTest {
+                    work: n,
+                    unit: "carry".to_string(),
+                    name: format!("t{n}"),
+                    millis: 9_000,
+                    median: 3_000,
+                    line: 5_000,
+                })
+                .collect(),
+            grown: vec![Grown {
+                of: "tests".to_string(),
+                work: 33,
+                before: 100_000,
+                after: 130_000,
+                above: 18,
+                n: 19,
+                needed: 17,
+            }],
+            merges: (1..=8)
+                .map(|n| MergeTimes {
+                    work: n,
+                    jobs: vec![JobTime {
+                        name: "lint".to_string(),
+                        millis: 7_000,
+                    }],
+                    tests_millis: 100_000 + n * 10,
+                    added: 2,
+                    added_millis: 300,
+                })
+                .collect(),
+        };
+        let said = tests_said(&tests, 7, 3);
+        assert_eq!(said.len(), 12, "{said:#?}");
+        assert_eq!(
+            said[0],
+            "Times of the tests and jobs of wf-agents, from its 40 merged checks:"
+        );
+        assert_eq!(
+            said[2],
+            "    t1 in carry: 9.0 s at W1, against a median of 3.0 s and a line of 5.0 s"
+        );
+        assert_eq!(said[5], "  And 4 more: wf-agents system --days 7 --limit 7");
+        assert!(
+            said[6].starts_with("  The CI grew: the sum of the tests' times had a median of 100.0 s")
+                && said[6].ends_with("it stepped at the merge of W33."),
+            "{}",
+            said[6]
+        );
+        assert_eq!(
+            said[8],
+            "    W6: jobs lint 7.0 s; the tests 100.1 s; 2 tests added, 300 ms"
+        );
+        assert_eq!(
+            said[10],
+            "    W8: jobs lint 7.0 s; the tests 100.1 s; 2 tests added, 300 ms"
+        );
+        assert_eq!(said[11], "  And 5 more: wf-agents system --days 7 --limit 8");
+        let none = TestTimes {
+            slowed: Vec::new(),
+            grown: Vec::new(),
+            merges: Vec::new(),
+            ..tests
+        };
+        let said = tests_said(&none, 7, 3);
+        assert_eq!(said.len(), 3, "{said:#?}");
+        assert!(
+            said[1].starts_with("  No test took longer than its own history says"),
+            "{}",
+            said[1]
+        );
     }
 
     // A stop says each round under way it waits for, or would cut off, with how long it has taken and how much longer
@@ -3819,6 +3987,7 @@ mod tests {
                 round(1, 0, Some(Rest::Expected { ms: 120_000 })),
                 round(2, 540_000, Some(Rest::Expected { ms: 300_000 })),
             ],
+            tests: Vec::new(),
             left_behind: Vec::new(),
             stopping: None,
         };
@@ -3917,6 +4086,7 @@ mod tests {
                 ),
             ],
             under_way: Vec::new(),
+            tests: Vec::new(),
             left_behind: Vec::new(),
             stopping: None,
         };

@@ -856,6 +856,9 @@ pub struct ToolCall {
     pub item: Item,
     /// The work as it was kept when the call was handed out.
     pub kept: Arc<Work>,
+    /// For a call of the tool that runs the project's tests: how long one test may run before it is stopped, in
+    /// milliseconds, as the history of the project's merged checks says it (crate `driver`, module `timed`).
+    pub test_time: Option<f64>,
 }
 
 /// The way to say once that a round ended, or that it failed.
@@ -1009,6 +1012,14 @@ impl Hosting {
     pub fn pulled(&self, number: u64, url: String) {
         let event = Event::Pulled { number, url };
         // Where the loop has ended, the process is stopping: what is given again finds the pull request again.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
+    }
+
+    /// The host read a run of the project's CI, which this call or round asked for, and says how long its tests and
+    /// jobs took, or that it gives no time; said again for the same run, it is kept once.
+    pub fn timed(&self, reading: work::Reading) {
+        let event = Event::Timed { reading };
+        // Where the loop has ended, the process is stopping: what is given again reads the run again.
         let _ = self.to.send(Message::Happened { work: self.work, event });
     }
 

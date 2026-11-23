@@ -28,6 +28,7 @@ mod starting;
 mod stopped;
 mod stopping;
 mod stops;
+mod test_times;
 mod versions;
 
 use decide::{CallId, Decision, End, Outsider, Pauser, RunId, Waited, Who};

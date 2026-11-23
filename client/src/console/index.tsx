@@ -14,10 +14,10 @@
 // brings it out again. The window coming out over the item selected, or an item selected half under it or half off the
 // screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item go while the
 // tree has the keys, and slides the window in while it has them. Each time the interface says something happened, the
-// items are read again, at most one read at a time and one more after it, and drawn where they stand, the item selected
-// and the panel as they were; when the stream opens again after a cut, everything is. An item the address names is
-// selected once the tree shows it, as from a notification of a question it waits on. The page's shell mounts it lazily
-// (`lazy.tsx`).
+// items are read again, once for the whole page, as the bar's count and the list of works read them (works/source.ts),
+// at most one read at a time and one more after it, and drawn where they stand, the item selected and the panel as they
+// were; when the stream opens again after a cut, everything is. An item the address names is selected once the tree
+// shows it, as from a notification of a question it waits on. The page's shell mounts it lazily (`lazy.tsx`).
 //
 // The window slides over the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow
 // view's panel and a work's item on its page are in too).
@@ -30,7 +30,7 @@ import { Drawer } from '../parts';
 import { CHOICE_KEYS, useKeptFolds, useKeptTicks } from '../kept';
 import { WIDTH_KEYS } from '../sizes';
 import type { Items, WorkPage } from '../works-api';
-import { oneAtATime } from '../works/source';
+import { useItemsOf } from '../works/source';
 import { goalMock } from './mock';
 import { fakeShown } from './fake';
 import { Find } from './find';
@@ -63,8 +63,11 @@ export function ConsolePage({
   const panel = useRef<HTMLElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<SnapScene | null>(null);
-  const [data, setData] = useState<Items | undefined>(undefined);
-  const [failed, setFailed] = useState<string | null>(null);
+  // The items, read once for every part of the page that reads them from the same feed: on the interface, the bar's
+  // count and the list of works share this read.
+  const items = useItemsOf(source.items);
+  const data = items.value ?? undefined;
+  const failed = items.failed;
   const [undrawn, setUndrawn] = useState<string | null>(null);
   const [selected, setSelected] = useState<Shown | null>(null);
   // The panel: whether it is out, and whether its handle brought it out, which keeps it out once the item is let go.
@@ -85,31 +88,9 @@ export function ConsolePage({
     turnFoldNow.current = turnFold;
   }, [turnFold]);
 
-  // The items, read at first and again each time something happened, at most one read at a time.
+  // What happened, told to the reading of the work of the item selected.
   const heard = useRef<(h: Heard) => void>(() => undefined);
-  useEffect(() => {
-    let alive = true;
-    const reads = oneAtATime(() =>
-      source.loadItems().then(
-        (items) => {
-          if (!alive) return;
-          setData(items);
-          setFailed(null);
-        },
-        (e: unknown) => alive && setFailed(e instanceof Error ? e.message : String(e)),
-      ),
-    );
-    reads.ask();
-    const stop = source.changes((h) => {
-      if (h === 'everything' || h.items || h.works.length > 0) reads.ask();
-      heard.current(h);
-    });
-    return () => {
-      alive = false;
-      reads.stop();
-      stop();
-    };
-  }, [source]);
+  useEffect(() => source.changes((h) => heard.current(h)), [source]);
 
   useEffect(() => {
     const el = host.current;

@@ -350,7 +350,7 @@ mod tests {
         let pull = project
             .pull_request
             .expect("it declares how its pull requests are merged");
-        assert_eq!((pull.merge_method.as_str(), pull.delete_branch), ("squash", false));
+        assert_eq!((pull.merge_method.as_str(), pull.delete_branch), ("squash", true));
         let tests = project.tests.expect("it declares its tests");
         assert!(!tests.paths.is_empty() && !tests.expected.is_empty());
     }

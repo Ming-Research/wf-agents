@@ -175,6 +175,94 @@ fn each_workflow_the_engine_runs_takes_a_commit_and_a_call_and_names_its_run_by_
     );
 }
 
+// A test's stop comes from the engine: the line it gives as the input `test_stop`, in whole seconds, is put in a copy of
+// nextest's file, which the step runs nextest with; with none, nextest runs with the repository's file as it is, and
+// a value that is no whole number of seconds fails the step before any test runs. The step of each workflow that runs
+// nextest is run under bash with a `cargo` that says what it was given, and the copy it names is read as TOML, which
+// also holds the repository's file to carry no `[profile.ci]` table of its own, as the copy would then name it twice.
+// A few milliseconds under bash.
+#[test]
+fn the_stop_the_engine_gives_goes_into_a_copy_of_nextests_file_and_with_none_the_file_is_used_as_it_is() {
+    for file in ["ci.yml", "fast.yml"] {
+        let text = workflow(file);
+        let on = block(&text, "on");
+        let dispatch = under(&on, "workflow_dispatch");
+        let inputs = children(&under(&dispatch, "inputs")[1..]);
+        assert!(
+            inputs.iter().any(|i| i == "test_stop"),
+            "{file}: no input test_stop in {inputs:?}"
+        );
+    }
+    let ci: Vec<String> = (scripts(&workflow("ci.yml")).into_iter())
+        .map(|(_, script)| script)
+        .filter(|script| script.contains("cargo nextest run"))
+        .collect();
+    assert_eq!(ci.len(), 1, "scripts of ci.yml that run the tests: {}", ci.len());
+    for script in [ci[0].clone(), fast_script("filter=$(cat")] {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join("temp");
+        std::fs::create_dir_all(temp.join("names")).unwrap();
+        std::fs::write(temp.join("names/filter"), "test(=a)").unwrap();
+        std::fs::create_dir_all(dir.path().join(".config")).unwrap();
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.config/nextest.toml");
+        std::fs::copy(repository, dir.path().join(".config/nextest.toml")).unwrap();
+        let calls = dir.path().join("calls");
+        let cargo = dir.path().join("cargo.sh");
+        std::fs::write(&cargo, format!("cargo() {{ echo \"$*\" >> '{}'; }}\n", calls.display())).unwrap();
+        let run = |stop: &str| {
+            std::fs::write(&calls, "").unwrap();
+            let env = [
+                ("BASH_ENV", cargo.to_str().unwrap()),
+                ("PARTITION", "1"),
+                ("RUNNER_TEMP", temp.to_str().unwrap()),
+                ("TEST_STOP", stop),
+            ];
+            let (ok, said) = try_script(&script, dir.path(), &env);
+            (ok, said, read(&calls))
+        };
+        // The config file each call of nextest names.
+        let named = |calls: &str| -> Vec<String> {
+            calls
+                .lines()
+                .filter(|call| call.starts_with("nextest run"))
+                .map(|call| {
+                    let mut words = call.split_whitespace().skip_while(|w| *w != "--config-file");
+                    words.nth(1).expect("the call names a config file").to_string()
+                })
+                .collect()
+        };
+        let (ok, said, calls) = run("");
+        assert!(ok, "{said}");
+        assert!(!named(&calls).is_empty(), "nextest was run: {calls}");
+        assert!(
+            named(&calls).iter().all(|config| config == ".config/nextest.toml"),
+            "{calls}"
+        );
+        let (ok, said, calls) = run("12");
+        assert!(ok, "{said}");
+        assert!(!named(&calls).is_empty(), "nextest was run: {calls}");
+        for config in named(&calls) {
+            let config: toml::Table = read(&dir.path().join(&config)).parse().expect("the copy is TOML");
+            let profile = &config["profile"]["ci"];
+            assert_eq!(profile["slow-timeout"]["period"].as_str(), Some("12s"), "{config}");
+            assert_eq!(
+                profile["slow-timeout"]["terminate-after"].as_integer(),
+                Some(1),
+                "{config}"
+            );
+            assert_eq!(profile["junit"]["path"].as_str(), Some("junit.xml"), "{config}");
+        }
+        for wrong in ["twelve", "0", "1.5", "-3", "12 s"] {
+            let (ok, said, calls) = run(wrong);
+            assert!(
+                !ok && said.contains("test_stop is not a whole number of seconds"),
+                "{wrong}: {said}"
+            );
+            assert_eq!(calls, "", "{wrong}: no test runs");
+        }
+    }
+}
+
 // What a run uploads for the engine is JUnit, all of it in the one artifact `test-results`: the full workflow's jobs
 // each upload theirs in a file named by the job, nextest's of each third of the Rust tests and vitest's of the page,
 // and the job `check` makes them one; the fast workflow uploads its own.

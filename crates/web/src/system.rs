@@ -88,6 +88,10 @@ pub struct System {
     /// against its line, and an agent's round with the other lines it is judged by as it runs.
     #[serde(default)]
     pub under_way: Vec<UnderWay>,
+    /// What the merged checks of each project say of how long its tests and jobs took: the tests that got slower, the
+    /// CI series that grew, and the latest merges each with what its check took and what it added.
+    #[serde(default)]
+    pub tests: Vec<TestTimes>,
     /// The tries of the span whose program left processes running in its group as it ended, which were stopped, the
     /// latest first: what they did no one read, and what they took is counted nowhere.
     #[serde(default)]
@@ -144,6 +148,111 @@ pub fn rest_of_rounds(under_way: &[UnderWay]) -> Rest {
             UnderWay::Call { .. } => None,
         })
         .fold(Rest::Expected { ms: 0 }, Rest::latest)
+}
+
+/// What the merged checks of a project say of the time of its tests and jobs (crate `driver`, module `timed`): each
+/// work named is the one whose merge the thing was measured at.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestTimes {
+    pub project: Option<String>,
+    /// How many merged checks the project has: a judgment needs the installation's `history.samples` of them, and the
+    /// growth of the CI twice as many.
+    pub checks: usize,
+    /// The tests that took longer than their own history says in the latest merged check and in the one before.
+    pub slowed: Vec<SlowedTest>,
+    /// The series of the CI's times that grew.
+    pub grown: Vec<Grown>,
+    /// The latest merges, the earliest first.
+    pub merges: Vec<MergeTimes>,
+}
+
+/// A test that got slower.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlowedTest {
+    pub work: u64,
+    pub unit: String,
+    pub name: String,
+    pub millis: u64,
+    /// The median of its earlier times and the line they give, in milliseconds.
+    pub median: u64,
+    pub line: u64,
+}
+
+/// A series of the checks' times that grew: `of` is `tests`, the sum of the tests' times, or the name of a job.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Grown {
+    pub of: String,
+    /// The work whose merge the series stepped at.
+    pub work: u64,
+    /// The median of the `n` values before the latest `n`, and of the latest `n`, in milliseconds.
+    pub before: u64,
+    pub after: u64,
+    pub above: usize,
+    pub n: usize,
+    pub needed: usize,
+}
+
+/// What a merged check took: each job, the tests in all, and the tests it added to the check before it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeTimes {
+    pub work: u64,
+    pub jobs: Vec<JobTime>,
+    pub tests_millis: u64,
+    pub added: usize,
+    pub added_millis: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobTime {
+    pub name: String,
+    pub millis: u64,
+}
+
+impl TestTimes {
+    /// What the driver worked out of a project's merged checks, as the system says it.
+    fn of(tested: driver::timed::Tested) -> TestTimes {
+        TestTimes {
+            project: tested.project,
+            checks: tested.checks,
+            slowed: (tested.slowed.into_iter())
+                .map(|s| SlowedTest {
+                    work: s.work.0,
+                    unit: s.unit,
+                    name: s.name,
+                    millis: s.millis,
+                    median: s.median.round() as u64,
+                    line: s.line.round() as u64,
+                })
+                .collect(),
+            grown: (tested.growth.into_iter())
+                .map(|g| Grown {
+                    of: g.of,
+                    work: g.work.0,
+                    before: g.before.round() as u64,
+                    after: g.after.round() as u64,
+                    above: g.above,
+                    n: g.n,
+                    needed: g.needed,
+                })
+                .collect(),
+            merges: (tested.series.into_iter())
+                .map(|row| MergeTimes {
+                    work: row.work.0,
+                    jobs: (row.jobs.into_iter())
+                        .map(|(name, millis)| JobTime { name, millis })
+                        .collect(),
+                    tests_millis: row.tests_millis,
+                    added: row.added,
+                    added_millis: row.added_millis,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// A week: what its rounds took, and how many of each thing that is counted happened in it.
@@ -435,6 +544,7 @@ impl System {
             failed: Vec::new(),
             past: Vec::new(),
             under_way: Vec::new(),
+            tests: driver.tested().into_iter().map(TestTimes::of).collect(),
             left_behind: Vec::new(),
             stopping: None,
         };
