@@ -111,6 +111,27 @@ async fn a_session_not_found_is_begun_again_with_the_task_and_the_list() {
         lose_session: true,
         ..Fake::default()
     };
+    begun_again(fake).await;
+}
+
+// The command line says that the session is not found in a result, the one line it prints, as version 2.1.327 does,
+// and nothing on its standard error: the round's next try begins the session under the same id, records it as lost,
+// and the round succeeds, as where the command line says it on its standard error. Under a second alone in CI, as the
+// test above; no other test holds that form of the command line's refusal.
+#[tokio::test]
+async fn a_session_a_result_says_is_not_found_is_begun_again_with_the_task_and_the_list() {
+    let fake = Fake {
+        lose_session: true,
+        lose_in_result: true,
+        ..Fake::default()
+    };
+    begun_again(fake).await;
+}
+
+/// Runs a work with the fake, whose build's run entered for the check's result is told once that its session is not
+/// found, and checks that the round begins the session again under its id, told everything a run's first round is,
+/// records it once as lost, and that nothing failed.
+async fn begun_again(fake: Fake) {
     let mut real = Real::trial(fake);
     let work = real.add().await;
     real.act(work, Act::Resume);

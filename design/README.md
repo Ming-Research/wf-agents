@@ -28,7 +28,8 @@ words joined by hyphens, and no two entries in the tree have the same name. To r
 "principle <name>" or "decision <name>".
 
 An agent reads the whole constitution, then reads both directories from the top down to each concept its work changes
-or depends on.
+or depends on. Given the entries that bear on its work, it reads those first, and reads the directories only for the
+concepts they leave out.
 
 ## Principles
 

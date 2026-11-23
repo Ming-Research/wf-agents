@@ -109,10 +109,20 @@ pub(crate) struct With {
 
 /// Runs git in the directory as [`said`] does, with what is given beside its arguments.
 pub(crate) async fn said_with(dir: &Path, with: &With, args: &[&str]) -> Result<Said, String> {
-    let kept =
-        std::env::vars().filter(|(name, _)| crate::cli::KEPT.contains(&name.as_str()) || name.starts_with("LC_"));
+    let output = crate::process::output(command(dir, with, args), LIMIT).await?;
+    Ok(Said {
+        ok: output.status.success(),
+        code: output.status.code(),
+        out: String::from_utf8_lossy(&output.stdout).trim_end().to_string(),
+        err: String::from_utf8_lossy(&output.stderr).trim_end().to_string(),
+    })
+}
+
+/// The git command [`said_with`] runs in the directory: git by its path ([`crate::programs`]), given of the engine's
+/// environment only what [`said`] says.
+fn command(dir: &Path, with: &With, args: &[&str]) -> Command {
     let settings = (with.settings.iter()).flat_map(|setting| ["-c", setting.as_str()]);
-    let mut command = Command::new("git");
+    let mut command = crate::programs::command("git");
     command
         .arg("-C")
         .arg(dir)
@@ -120,17 +130,11 @@ pub(crate) async fn said_with(dir: &Path, with: &With, args: &[&str]) -> Result<
         .args(settings)
         .args(args)
         .env_clear()
-        .envs(kept)
+        .envs(crate::programs::kept().iter().cloned())
         .envs(with.env.iter().cloned())
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(std::process::Stdio::null());
-    let output = crate::process::output(command, LIMIT).await?;
-    Ok(Said {
-        ok: output.status.success(),
-        code: output.status.code(),
-        out: String::from_utf8_lossy(&output.stdout).trim_end().to_string(),
-        err: String::from_utf8_lossy(&output.stderr).trim_end().to_string(),
-    })
+    command
 }
 
 /// Runs git in the directory and gives its standard output; or says what failed, with what git said.
@@ -147,6 +151,81 @@ pub(crate) async fn git_with(dir: &Path, with: &With, args: &[&str]) -> Result<S
         let words = if said.err.is_empty() { said.out } else { said.err };
         Err(format!("git {} failed in {}: {words}", args.join(" "), dir.display()))
     }
+}
+
+/// The content of each of these files of the commit, in their order, as one run of `git cat-file --batch` in the
+/// directory reads them; none of one the commit does not hold. The paths are given on git's input, never as its
+/// arguments, so that no path is read as an option; one that holds a line break, which that input cannot carry, is
+/// refused.
+pub(crate) async fn blobs(dir: &Path, commit: &str, paths: &[&str]) -> Result<Vec<Option<Vec<u8>>>, String> {
+    use tokio::io::AsyncWriteExt;
+    if let Some(path) = paths.iter().find(|p| p.contains('\n')) {
+        return Err(format!(
+            "git cat-file cannot be given the path {path:?}, which holds a line break"
+        ));
+    }
+    let mut command = crate::programs::command("git");
+    command
+        .arg("-C")
+        .arg(dir)
+        .args(SAFE)
+        .args(["cat-file", "--batch"])
+        .env_clear()
+        .envs(crate::programs::kept().iter().cloned())
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = command.spawn().map_err(|e| format!("git cannot be run: {e}"))?;
+    let mut stdin = child.stdin.take().ok_or("git cat-file was given no input")?;
+    let input: String = paths.iter().map(|path| format!("{commit}:{path}\n")).collect();
+    // The input is written while the output is read: git answers each line as it reads it, and would wait for its
+    // output to be read while its input waits to be written. It is closed once written, so that git ends.
+    let writing = async move {
+        stdin
+            .write_all(input.as_bytes())
+            .await
+            .map_err(|e| format!("git cat-file: {e}"))?;
+        drop(stdin);
+        Ok::<(), String>(())
+    };
+    let (written, output) = tokio::join!(writing, async {
+        match tokio::time::timeout(LIMIT, child.wait_with_output()).await {
+            Ok(output) => output.map_err(|e| format!("git cat-file: {e}")),
+            Err(_) => Err(format!("git cat-file did not end within {} seconds", LIMIT.as_secs())),
+        }
+    });
+    written?;
+    let output = output?;
+    if !output.status.success() {
+        let said = String::from_utf8_lossy(&output.stderr).trim_end().to_string();
+        return Err(format!("git cat-file --batch failed in {}: {said}", dir.display()));
+    }
+    batch(&output.stdout, paths.len())
+}
+
+/// The objects a run of `git cat-file --batch` gave for this many lines of its input, in their order: each one's
+/// content after the line `<id> <type> <size>`, and none of one it said was missing.
+fn batch(out: &[u8], count: usize) -> Result<Vec<Option<Vec<u8>>>, String> {
+    let mut objects = Vec::with_capacity(count);
+    let mut rest = out;
+    for _ in 0..count {
+        let end = (rest.iter().position(|b| *b == b'\n')).ok_or("git cat-file --batch ended before its last object")?;
+        let header = String::from_utf8_lossy(&rest[..end]).into_owned();
+        rest = &rest[end + 1..];
+        if header.ends_with(" missing") || header.ends_with(" ambiguous") {
+            objects.push(None);
+            continue;
+        }
+        let size = (header.rsplit(' ').next())
+            .and_then(|size| size.parse::<usize>().ok())
+            .ok_or_else(|| format!("git cat-file --batch said {header:?}, which gives no size"))?;
+        let content = rest.get(..size).ok_or("git cat-file --batch ended within an object")?;
+        objects.push(Some(content.to_vec()));
+        rest = rest.get(size + 1..).unwrap_or_default();
+    }
+    Ok(objects)
 }
 
 /// The path as git is given it: the worktree's path must not be read against the repository's directory.

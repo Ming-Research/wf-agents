@@ -50,10 +50,10 @@ fn plan_takes(takes: &str) -> Source {
     edit(laid_out(), "cells/plan.toml", PLAN_TAKES, takes)
 }
 
-/// What the engine has for the twin, and besides the sources of the owner's answers and words and of a line's session.
+/// What the engine has for the twin, and besides the sources of the owner's answers and words.
 fn has_all() -> Has {
     let mut has = has();
-    for source in ["answer", "words", "session"] {
+    for source in ["answer", "words"] {
         has.sources.insert(source.to_string());
     }
     has
@@ -520,47 +520,6 @@ fn a_cell_that_asks_the_owner_asks_in_its_own_questions_watches_them_and_is_spok
     assert_eq!(
         faults_with(&silent, &has_all()),
         [at("cells/answer.toml", "outputs[1]", what)]
-    );
-}
-
-#[test]
-fn a_datum_each_line_has_its_own_of_is_watched_only_by_a_cell_of_that_line() {
-    let session = "name = \"{line}_session\"\nfrom = \"session\"\n";
-    let source = set(
-        plan_takes("watches = [\"request\", \"engineer_session\"]\nreads = [\"opinions\"]"),
-        "../data/of_a_line/session.toml",
-        session,
-    );
-    let source = edit(
-        source,
-        "cells/plan.toml",
-        "opinions = \"last_and_latest\"",
-        "opinions = \"last_and_latest\"\nengineer_session = \"latest\"",
-    );
-    let compiled = compiled_all(&source);
-    assert_eq!(runs_on(cell(&compiled, "plan")), ["request", "engineer_session"]);
-    let block = &compiled.blocks[&BlockId::from("engineer_session")];
-    assert_eq!(block.writers.outside.as_deref(), Some("session"));
-    // The judge is on the line of the review.
-    let source = edit(
-        source,
-        "cells/judge.toml",
-        "watches = [\"plan\"]",
-        "watches = [\"plan\", \"engineer_session\"]",
-    );
-    let source = edit(
-        source,
-        "cells/judge.toml",
-        "plan = \"last_and_latest\"",
-        "plan = \"last_and_latest\"\nengineer_session = \"latest\"",
-    );
-    let what = LineDataOfAnother {
-        block: "engineer_session".to_string(),
-        line: "engineer".to_string(),
-    };
-    assert_eq!(
-        faults_with(&source, &has_all()),
-        [at("cells/judge.toml", "watches[1]", what)]
     );
 }
 
