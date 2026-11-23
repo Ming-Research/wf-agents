@@ -3129,7 +3129,7 @@ mod tests {
         let mut usage = None;
         agents
             .inner
-            .ping(&ping(Some("work")), &mut usage)
+            .ping(&ping(Some("work")), &mut usage, &mut 0)
             .await
             .expect("the ping ends");
         assert_eq!(given().as_deref(), Some("sk-ant-oat01-work"));
@@ -3158,9 +3158,9 @@ mod tests {
             "{settings}"
         );
         std::fs::remove_file(data.join("token")).expect("taken away");
-        let (why, _) = (agents.inner.ping(&ping(None), &mut None).await).expect_err("no account");
+        let (why, _) = (agents.inner.ping(&ping(None), &mut None, &mut 0).await).expect_err("no account");
         assert_eq!(why, "No account is in use: choose one on the Settings view.");
-        let (why, _) = (agents.inner.ping(&ping(Some("gone")), &mut None).await).expect_err("no token");
+        let (why, _) = (agents.inner.ping(&ping(Some("gone")), &mut None, &mut 0).await).expect_err("no token");
         assert!(
             why.starts_with("the token of the account gone could not be read: "),
             "{why}"
@@ -3190,7 +3190,7 @@ mod tests {
         let _beside = other.lock().await;
         agents
             .inner
-            .ping(&ping("engineer"), &mut None)
+            .ping(&ping("engineer"), &mut None, &mut 0)
             .await
             .expect("a ping beside another line's round");
         agents
@@ -3201,7 +3201,8 @@ mod tests {
         // A round of the engineer's own line is under way: both are refused, the fork naming the line.
         let own = agents.inner.lock(fork.work, "engineer");
         let _round = own.lock().await;
-        let (why, _) = (agents.inner.ping(&ping("engineer"), &mut None).await).expect_err("a ping beside its round");
+        let (why, _) =
+            (agents.inner.ping(&ping("engineer"), &mut None, &mut 0).await).expect_err("a ping beside its round");
         assert!(why.contains("under way"), "{why}");
         let refused = agents.inner.fork(&fork).await.expect_err("a fork beside its round");
         assert!(refused.contains("line engineer"), "{refused}");

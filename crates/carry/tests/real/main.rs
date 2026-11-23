@@ -715,6 +715,11 @@ impl Rounds for Deaf {
     }
 
     fn stop(&self, _: Round, _: RoundReply) {}
+
+    // What the owner says to a round under way reaches it: only stops are dropped.
+    fn tell(&self, round: Round, told: engine::spoken::Telling) {
+        self.0.tell(round, told);
+    }
 }
 
 /// The loop with the real carriers of the settings, on an empty store or the one in the data directory, the calls of
