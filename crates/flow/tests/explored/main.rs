@@ -74,6 +74,7 @@ fn engineer() -> Compiled {
             "main",
             "start",
             "head",
+            "test_times",
             "tree",
             "words",
         ]),

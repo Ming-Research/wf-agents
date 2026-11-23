@@ -11,8 +11,10 @@
 //! session made under another account, so the line goes on in it, its next round writing its context to that account's
 //! cache (decision a-line-goes-on-in-its-session-under-another-account). Nor for the context its session holds: the
 //! agents' program compacts the session at the installation's own number, given it on every round's command line, and
-//! the line goes on in it (decision `a-session-is-compacted-at-the-installations-number`). A new session begins at
-//! once, and a round whose run ran in the session before is told what the run was doing.
+//! the line goes on in it (decision `a-session-is-compacted-at-the-installations-number`). A new session is recorded at
+//! once, as the next thing that happens to the work is taken; a round of the line under way then goes on in the session
+//! it began in, which its carrier decided from the work as kept as the round began, and the line's next round begins
+//! the new one, told what its run was doing where the run ran in the session before.
 //!
 //! Whatever the policy, a line a round of whose session the service's safety check flagged, the run guard stopped, or
 //! whose prompt was too long for the model, begins a new session, in which that round is tried again, so that none is

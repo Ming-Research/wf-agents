@@ -102,7 +102,7 @@ pub fn waits(
         && ended.is_none_or(|at| at.is_some_and(|at| pause.at > at))
     {
         let why = match &pause.why {
-            Some(why) => fill(&words.paused, &[("why", &sentence(why))]),
+            Some(reason) => fill(&words.paused, &[("reason", &sentence(reason))]),
             None => words.no_reason.clone(),
         };
         push(&mut waits, PAUSE.to_string(), why, Ends::Resume);
@@ -621,6 +621,23 @@ mod tests {
         assert_eq!(of(&work, &held), Vec::<Waiting>::new());
     }
 
+    // The reason is a whole sentence of the engine's words, the cause after a colon, so that the card reads whole
+    // whatever the cause begins with: a lower case word, a path or a quote.
+    #[test]
+    fn a_reason_with_its_cause_after_a_colon_is_said_whole_after_the_engines_own_sentence() {
+        for cause in [
+            "the command line's result holds no structured return",
+            "/tmp/a: not found",
+            "\"x\" is quoted",
+        ] {
+            let reason = format!("The round failed. The cause: {cause}.");
+            let mut work = Work::default();
+            paused(&mut work, Pauser::Engine, Some(&reason));
+            let waits = of(&work, &Decision::Paused { cell: "write".into() });
+            assert_eq!(waits[0].why, format!("The engine paused the work. {reason}"));
+        }
+    }
+
     #[test]
     fn the_pause_of_every_work_is_no_wait_of_a_works_own() {
         // The pause of everything is one thing, said and lifted where it is set: a work it holds waits on the owner
@@ -650,7 +667,7 @@ mod tests {
         assert_eq!(keys(&waits), [AGENTS]);
         assert_eq!(
             waits[0].why,
-            "The agents' command line cannot run. No account is in use: choose one on the Settings view."
+            "The agents' command line cannot run. The cause: No account is in use: choose one on the Settings view."
         );
         let mend = "Choose an account on the Settings view, add its token again, or install the command line. The \
                     engine lets the work go on once its check finds that the command line runs.";

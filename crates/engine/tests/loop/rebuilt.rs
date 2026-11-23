@@ -18,6 +18,7 @@ fn rebuilt(work: &Work) -> Work {
         ran: work.ran.clone(),
         observed: work.observed.clone(),
         measured: work.measured.clone(),
+        left_behind: work.left_behind.clone(),
         pinged: work.pinged.clone(),
         forked: work.forked.clone(),
         pulls: work.pulls.clone(),
@@ -26,6 +27,7 @@ fn rebuilt(work: &Work) -> Work {
         flows: work.flows.clone(),
         readings: work.readings.clone(),
         kept_time: work.kept_time.clone(),
+        timed: work.timed.clone(),
     }
 }
 

@@ -2,6 +2,7 @@
 // links to a work and to an item.
 
 import type { ReactNode } from 'react';
+import { itemName, workName } from '../works/words';
 
 /// A number that stands alone, with what it counts under it, and, small after the number, what more it says. Where it
 /// counts a list, pressing it unfolds the list under the numbers, and folds it again.
@@ -76,7 +77,7 @@ export function ViewTable({ heads, numbers = [], children, label }: {
 /// A work by its number, which opens it.
 export function WorkLink({ work }: { work: number }) {
   return (
-    <a href={`#/works/${work}`} className="link mono">{`W${work}`}</a>
+    <a href={`#/works/${work}`} className="link mono">{workName(work)}</a>
   );
 }
 
@@ -84,7 +85,7 @@ export function WorkLink({ work }: { work: number }) {
 export function ItemName({ item, title }: { item: number; title?: string }) {
   return (
     <span title={title}>
-      <span className="mono muted">#{item}</span>
+      <span className="mono muted">{itemName(item)}</span>
       {title !== undefined && <> {title}</>}
     </span>
   );

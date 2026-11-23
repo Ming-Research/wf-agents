@@ -29,7 +29,11 @@ A session going on through a move is given whole each datum the move renamed, an
 - rejected: an agent proposed telling the session each old name beside its new one; the owner rejected it, because that is a line of its own in every message, for what comes once a renumbering.
 
 ### decision why-you-are-run-tells-each-new-datum
-A message ends with "Why you are run": for each datum the cell watches that is new to it, its name, the version it last worked from, the latest, and what the cell does for it, the first time too.
+A message ends with "Why you are run": for each new datum the cell watches, its name, the version last worked from, the versions that changed its meaning, and what the cell does, the first time too.
+- replaced: Telling the version it last worked from and the latest was on main; the owner changed it, because when several versions come in at once the latest alone hid the one that changed the meaning, and the cell went by the latest.
+- rejected: an agent proposed telling only the versions that changed the meaning; the owner rejected it, because a datum sent whole shows only its latest version in its heading, so the cell would no longer learn which version it last worked from, or that it never had.
+- rejected: an agent proposed keeping the latest version beside the version last worked from and the versions that changed the meaning; the owner rejected it, because the cell went by the latest.
+- rejected: an agent proposed telling the version the engine consumed, which is never larger than a version that changed the meaning; the owner rejected it, because the message and the page would then name different versions as the one the cell last worked from.
 - rejected: an agent proposed putting what ran the cell first, with its versions, and then the data and the task; the owner rejected it, because the task says what the cell does, and then what ran it says what changed and what to do about it, in that order.
 - rejected: an agent proposed words of the engine's own for the design tree and the session, with general sentences in a cell's task; the owner rejected it, because words for named data would then be copied into every cell.
 - rejected: an agent proposed listing a datum the cell never dealt with, without saying what the cell does for it; the owner rejected it, because the cell then did not know how far to deal with each.
@@ -73,3 +77,7 @@ A datum a cell is given that has no version yet is left out of the message: no l
 ### decision the-situations-tool-derives-its-situations-by-rules
 `wf-agents flow situations` derives a cell's situations from the flow by rules, which tests hold to the rounds of works of the repository's own flows.
 - rejected: an agent proposed that the tool search, for each situation, a history that reaches it with the real context manager and write only those it reaches; the owner rejected it, because the tool stays fast, with no new mechanism and no change in what the crates depend on.
+
+### decision a-try-keeps-what-it-was-given
+Before its program starts, a try keeps what it runs on and what its message fills in a file beside it, and a later start records from there what the records lack.
+- rejected: an agent proposed having each try wait, before its program starts, until the store has kept what it fills; the owner rejected it, because every start would then wait on the engine, and with the agents on another machine every try would wait across machines.
