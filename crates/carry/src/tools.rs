@@ -697,13 +697,16 @@ mod tests {
     #[tokio::test]
     async fn the_local_host_says_it_gives_no_time_of_any_test_for_a_call_that_runs_the_check() {
         let repo = Repo::new("true");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let place = repo.place(WORK);
         let branch = Branch {
             work: WORK,
             title: "Greet the user",
             about: "",
             place: &place,
+            continues: None,
         };
         let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
         let reply = CallReply::new(WORK, CallId(7), to);
