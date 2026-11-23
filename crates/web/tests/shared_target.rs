@@ -48,7 +48,11 @@ fn checkout(base: &Path, name: &str, page: &str) -> PathBuf {
     put(
         package.join("src/main.rs"),
         "include!(concat!(env!(\"OUT_DIR\"), \"/page.rs\"));\n\
-         fn main() {\n    for (name, bytes) in FILES {\n        if *name == \"index.html\" {\n            \
+         fn main() {\n    \
+         if std::env::args().nth(1).as_deref() == Some(\"names\") {\n        \
+         let names: Vec<&str> = FILES.iter().map(|(name, _)| *name).collect();\n        \
+         println!(\"{}\", names.join(\",\"));\n        return;\n    }\n    \
+         for (name, bytes) in FILES {\n        if *name == \"index.html\" {\n            \
          print!(\"{}\", String::from_utf8_lossy(bytes));\n        }\n    }\n}\n",
     );
     put(root.join("client/src/page.ts"), "abc");
@@ -84,6 +88,15 @@ fn built(checkout: &Path, target: &Path) -> (String, String) {
         .output()
         .expect("the program runs");
     (String::from_utf8(ran.stdout).unwrap(), said)
+}
+
+/// The names of the files the program that was built last holds, which it says as the files of the page.
+fn files_built(target: &Path) -> String {
+    let ran = Command::new(target.join("debug/tiny"))
+        .arg("names")
+        .output()
+        .expect("the program runs");
+    String::from_utf8(ran.stdout).unwrap().trim_end().to_string()
 }
 
 /// Builds, and gives the page the program embeds.
@@ -148,12 +161,20 @@ fn the_check_that_nothing_compiled_again_sees_a_build_that_does() {
 
 #[test]
 fn a_page_built_again_is_the_page_the_next_build_embeds() {
+    // As `npm run build` leaves it: a file of another name, because the names of the assets hold their content's hash,
+    // and the page that names it.
     let base = tempfile::tempdir().unwrap();
     let target = base.path().join("target");
     let a = checkout(base.path(), "a", "the first page");
+    std::fs::create_dir_all(a.join("client/dist/assets")).unwrap();
+    std::fs::write(a.join("client/dist/assets/app-1.js"), "one").unwrap();
     assert_eq!(page_built(&a, &target), "the first page");
+    assert_eq!(files_built(&target), "assets/app-1.js,index.html");
+    std::fs::remove_file(a.join("client/dist/assets/app-1.js")).unwrap();
+    std::fs::write(a.join("client/dist/assets/app-2.js"), "two").unwrap();
     std::fs::write(a.join("client/dist/index.html"), "the second page").unwrap();
     assert_eq!(page_built(&a, &target), "the second page");
+    assert_eq!(files_built(&target), "assets/app-2.js,index.html");
 }
 
 #[test]
@@ -174,14 +195,19 @@ fn a_page_not_built_from_the_sources_at_hand_is_not_built_in() {
 }
 
 #[test]
-fn temporary_a_script_that_does_not_watch_the_page_keeps_the_page_it_embedded() {
+fn temporary_a_script_that_does_not_watch_the_page_fails_on_the_page_built_again() {
     let base = tempfile::tempdir().unwrap();
     let target = base.path().join("target");
     let a = checkout(base.path(), "a", "the first page");
     with_replaced(&a, "println!(\"cargo::rerun-if-changed=../../client/dist\");", "");
+    std::fs::create_dir_all(a.join("client/dist/assets")).unwrap();
+    std::fs::write(a.join("client/dist/assets/app-1.js"), "one").unwrap();
     assert_eq!(page_built(&a, &target), "the first page");
-    std::fs::write(a.join("client/dist/index.html"), "the second page").unwrap();
-    assert_eq!(page_built(&a, &target), "the first page");
+    std::fs::remove_file(a.join("client/dist/assets/app-1.js")).unwrap();
+    std::fs::write(a.join("client/dist/assets/app-2.js"), "two").unwrap();
+    let out = cargo_build(&a, &target);
+    assert!(!out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    eprintln!("{}", String::from_utf8_lossy(&out.stderr));
 }
 
 #[test]
