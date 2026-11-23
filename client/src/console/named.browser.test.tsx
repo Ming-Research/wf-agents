@@ -71,8 +71,9 @@ describe('the console page, moved by the address to an item of a kind the tree d
   it('draws the tree and selects nothing for an address that names no item', async () => {
     const page = opened(9999);
     try {
-      await expect.poll(() => document.querySelector('.console-shows label') !== null).toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      // The tree is drawn from the items read, in the effect that then looks for the item the address names among them:
+      // once items are drawn, the address has been looked for.
+      await expect.poll(() => (window as { consoleScene?: SnapScene }).consoleScene?.stats.items ?? 0).toBeGreaterThan(0);
       expect(page.title() ?? '').toBe('');
       expect(page.ticked('Done')).toBe(false);
       expect(page.ticked('Cancelled')).toBe(false);
