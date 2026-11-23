@@ -81,7 +81,6 @@ pub const REACHED: &[&str] = &[
     UNCHANGED_RUNS_NONE,
     CAUSES_CHECKED,
     WORKED_FROM_OWN,
-    WORKED_FROM_RULED,
     RESULTS_ENTERED,
     TURNED_TO_WHILE_WAITING,
     STOPS,
@@ -123,8 +122,6 @@ pub const NOTHING_CONSUMED: &str = "a run is stopped or abandoned and its cell c
 const UNCHANGED_RUNS_NONE: &str = "a version handed in as changing nothing in meaning runs no cell";
 const CAUSES_CHECKED: &str = "the reasons of a run as it starts";
 const WORKED_FROM_OWN: &str = "a run starts for a block whose latest version its cell last worked from is its own";
-const WORKED_FROM_RULED: &str =
-    "a run starts for a block whose latest version its cell last worked from is one the owner ruled on";
 const RESULTS_ENTERED: &str = "a cell is entered for the results of its calls";
 const TURNED_TO_WHILE_WAITING: &str = "a cell waiting for the results of its calls is entered for the owner's words";
 const STOPS: &str = "a round under way is stopped for the owner turning to a cell before it";
@@ -432,18 +429,20 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
     if given.iter().any(|r| matches!(r, Reason::Results { .. })) {
         v.count(RESULTS_ENTERED);
     }
-    // The version the cell last worked from is later than the one it consumed where the cell wrote one itself since, or
-    // the owner ruled on a point since: each must be reached, or the agreement of the walk's number with the reading's
-    // checks nothing.
+    // The version the cell last worked from is later than the one it consumed where the cell wrote one itself since: that
+    // must be reached, or the agreement of the walk's number with the reading's checks nothing there. No history reaches
+    // one the owner ruled on, which the walk's test of a cause and the context manager's test of the owner's ruling
+    // judge instead.
     for r in &given {
         let Reason::Changed { block, was, worked } = r else {
             continue;
         };
-        if worked > was {
-            let own = (reading.of(block).iter())
+        if worked > was
+            && (reading.of(block).iter())
                 .find(|x| Some(x.at) == *worked)
-                .is_some_and(|x| matches!(&x.by, Writer::Cell(c, _) if *c == s.cell));
-            v.count(if own { WORKED_FROM_OWN } else { WORKED_FROM_RULED });
+                .is_some_and(|x| matches!(&x.by, Writer::Cell(c, _) if *c == s.cell))
+        {
+            v.count(WORKED_FROM_OWN);
         }
     }
     let owed = reading.owed(&s.cell, s.at);
