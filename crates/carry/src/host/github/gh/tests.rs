@@ -320,11 +320,17 @@ fn the_requests_that_open_edit_ready_merge_and_close_a_pull_request_are_as_githu
         query.contains("markPullRequestReadyForReview(input: {pullRequestId: $id})"),
         "{query}"
     );
-    let (method, path, body) = merging("o/r", 12, "c0ffee", "squash", "Greet the user by name (#12)");
+    let title = "Greet the user by name (#12)";
+    let (method, path, body) = merging("o/r", 12, "c0ffee", "squash", title, "Item: 36\nWork: W12");
     assert_eq!((method, path.as_str()), ("PUT", "repos/o/r/pulls/12/merge"));
     assert_eq!(
         body,
-        json!({ "sha": "c0ffee", "merge_method": "squash", "commit_title": "Greet the user by name (#12)" })
+        json!({
+            "sha": "c0ffee",
+            "merge_method": "squash",
+            "commit_title": title,
+            "commit_message": "Item: 36\nWork: W12",
+        })
     );
     let [(said, at, comment), (close, pull, closed)] = closing("o/r", 12, "Its work ended without merging.");
     assert_eq!((said, at.as_str()), ("POST", "repos/o/r/issues/12/comments"));

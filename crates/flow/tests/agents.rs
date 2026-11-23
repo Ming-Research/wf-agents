@@ -217,6 +217,39 @@ fn a_field_a_file_does_not_know_is_refused_with_the_path_of_its_file() {
     assert!(refused.contains("colour"), "{refused}");
 }
 
+// Every commit of a work ends with these two lines, so that `git log --grep='^Item: 36$'` finds a work's commits.
+#[test]
+fn the_lines_every_commit_ends_with_name_their_numbers_after_a_blank_line() {
+    let commits = agents::read(&beside()).unwrap().commits;
+    assert_eq!(commits.lines(36, 12), ("Item: 36".to_string(), "Work: W12".to_string()));
+    assert_eq!(
+        commits.ending("Merge main at abc into the work's branch\n", 36, 12),
+        "Merge main at abc into the work's branch\n\nItem: 36\nWork: W12"
+    );
+}
+
+// A line with no place for its number would end every commit with a line that names nothing.
+#[test]
+fn a_line_every_commit_ends_with_that_names_no_number_is_refused_with_the_path_of_its_file() {
+    for (key, line, place) in [
+        ("item_line", "Item: {item}", "Item: none"),
+        ("work_line", "Work: W{work}", "Work: W{item}"),
+    ] {
+        let dir = copy(key);
+        let file = dir.join("agents/commits.toml");
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(text.contains(line), "{key}");
+        fs::write(&file, text.replace(line, place)).unwrap();
+        let refused = agents::read(&dir).unwrap_err();
+        let alone = agents::writes(&dir).unwrap_err();
+        fs::remove_dir_all(&dir).unwrap();
+        for said in [refused, alone] {
+            assert!(said.contains(&file.display().to_string()), "{said}");
+            assert!(said.contains(&format!("{key} does not name")), "{said}");
+        }
+    }
+}
+
 // A project that declares `[ci]` declares both workflows: `run_tests` runs only the fast one and the check before the
 // merge only the full ones, so a declaration with one of them leaves one of the two with nothing to run.
 #[test]

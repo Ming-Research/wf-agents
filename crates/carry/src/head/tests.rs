@@ -11,6 +11,12 @@ use crate::git::tests::{Repo, commit, run};
 
 const WORK: WorkNumber = WorkNumber(1);
 
+/// The item and the work whose commits these are.
+const WHOSE: crate::commit_lines::Whose = crate::commit_lines::Whose {
+    item: store::ItemNumber(36),
+    work: WORK,
+};
+
 /// The reference that holds main's head in the tests' repository, its own main branch.
 const MAIN: &str = "refs/heads/main";
 
@@ -75,7 +81,7 @@ async fn the_engines_merge_of_main_is_no_move_of_the_head() {
     let (repo, place, built) = built().await;
     for (file, round) in [("other.txt", 7), ("weather.txt", 8)] {
         commit(&repo.project.repo, file, "Good day.\n");
-        let caught = catch_up::take_in(&repo.project, &place, MAIN, RunId(round)).await;
+        let caught = catch_up::take_in(&repo.project, &place, MAIN, RunId(round), WHOSE).await;
         assert!(matches!(caught.outcome, Outcome::TookIn { .. }), "{caught:?}");
         assert_eq!(work_head(&place).await, built);
         assert_eq!(read(&place, MAIN, Some(&built)).await.unwrap(), None);
@@ -88,7 +94,7 @@ async fn the_engines_merge_of_main_is_no_move_of_the_head() {
 async fn an_amended_merge_of_the_engines_is_a_move_of_the_head() {
     let (repo, place, built) = built().await;
     commit(&repo.project.repo, "other.txt", "Good day.\n");
-    let caught = catch_up::take_in(&repo.project, &place, MAIN, RunId(7)).await;
+    let caught = catch_up::take_in(&repo.project, &place, MAIN, RunId(7), WHOSE).await;
     let Outcome::TookIn { merge, .. } = caught.outcome else {
         panic!("{caught:?}");
     };
@@ -141,7 +147,7 @@ async fn between_two_heads_the_round_is_given_what_the_work_itself_changed() {
     assert_eq!(command, format!("`git diff {first} {second}`"));
     // Main moves, is taken in, and the work commits again: what main brought is left out.
     commit(&repo.project.repo, "other.txt", "Good day.\n");
-    catch_up::take_in(&repo.project, &place, MAIN, RunId(7)).await;
+    catch_up::take_in(&repo.project, &place, MAIN, RunId(7), WHOSE).await;
     let third = commit(&place.dir, "weather.txt", "Sunny.\n");
     let command = between(&place.dir, MAIN, &second, &third).await.unwrap();
     let from = command

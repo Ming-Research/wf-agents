@@ -121,6 +121,7 @@ use work::{Back, Measures, RanOn, Spent, Why, Work};
 
 use crate::catch_up::{self, CaughtUp};
 use crate::cli::{self, Begin, Calls, Compacted, InSession, Words};
+use crate::commit_lines::{self, Whose};
 use crate::guard::{Crossing, Guard};
 use crate::held::{Failing, Held, Stop};
 use crate::permissions::{self, Permissions};
@@ -707,6 +708,14 @@ impl Inner {
                         (session, begin),
                         &token,
                         false,
+                        &commit_lines::environment(
+                            &self.data,
+                            &of.project.commits,
+                            Whose {
+                                item: round.item.number,
+                                work: round.work,
+                            },
+                        ),
                     );
                     // The stream is kept as it comes, so that what the agent is doing can be read while it does it; and
                     // the run guard judges each call as the stream tells it, halting the program at a signal past its
@@ -1004,7 +1013,8 @@ impl Inner {
     /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, which
     /// the program compacts at the installation's `sessions.compact_at`, given the program's directory and the token of
     /// the account it runs under; where `refusing` says so, with every use of a tool refused but the return's
-    /// ([`cli::refusing`]), as a keep-warm ping runs.
+    /// ([`cli::refusing`]), as a keep-warm ping runs; and with `lines` added to its environment, which give its git the
+    /// hook that ends each commit with the item and the work ([`commit_lines::environment`]).
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
@@ -1018,6 +1028,7 @@ impl Inner {
         (session, begin): (Uuid, Begin),
         token: &Token,
         refusing: bool,
+        lines: &[(String, String)],
     ) -> Command {
         let agents = &self.settings.agents;
         let mut command = crate::programs::command(&agents.command);
@@ -1046,6 +1057,7 @@ impl Inner {
                 token,
             ))
             .current_dir(dir);
+        command.envs(lines.iter().cloned());
         command
     }
 
@@ -1065,7 +1077,11 @@ impl Inner {
         if round.number != 1 {
             return Ok(None);
         }
-        let caught = catch_up::take_in(&of.project, place, &of.main, round.run).await;
+        let whose = Whose {
+            item: round.item.number,
+            work: round.work,
+        };
+        let caught = catch_up::take_in(&of.project, place, &of.main, round.run, whose).await;
         // The round is told only that main was not taken in; why is for whoever runs the engine.
         if let catch_up::Outcome::Failed { why } = &caught.outcome {
             eprintln!(
@@ -1508,6 +1524,7 @@ impl Inner {
             (session, Begin::Resume),
             &token,
             true,
+            &[],
         );
         // What the session cost before the ping: its rounds' and its earlier pings'.
         let before = cli::in_session(flow, work, line, run, number + 1).before;

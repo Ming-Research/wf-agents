@@ -1270,6 +1270,45 @@ pub struct Commits {
     pub merge: String,
     /// The name of a work's merge, where the work has written none.
     pub unnamed: String,
+    /// The line that names the item, which every commit of a work ends with: `{item}` its number.
+    pub item_line: String,
+    /// The line that names the work, which every commit of a work ends with: `{work}` its number.
+    pub work_line: String,
+}
+
+impl Commits {
+    /// The line that names the item and the line that names the work, with these numbers.
+    pub fn lines(&self, item: u64, work: u64) -> (String, String) {
+        (
+            fill(&self.item_line, &[("item", &item.to_string())]),
+            fill(&self.work_line, &[("work", &work.to_string())]),
+        )
+    }
+
+    /// The message with the two lines at its end, set apart from it by a blank line: what every commit the engine makes
+    /// ends with, as the hook gives the agents' commits the same.
+    pub fn ending(&self, message: &str, item: u64, work: u64) -> String {
+        let (item_line, work_line) = self.lines(item, work);
+        format!("{}\n\n{item_line}\n{work_line}", message.trim_end())
+    }
+
+    /// What is wrong with the two lines, as one sentence for each: each must name its number, or every commit would
+    /// end with a line that names nothing.
+    fn faults(&self) -> Vec<String> {
+        let mut faults = Vec::new();
+        for (key, line, place) in [
+            ("item_line", &self.item_line, "{item}"),
+            ("work_line", &self.work_line, "{work}"),
+        ] {
+            if !line.contains(place) {
+                faults.push(format!("{key} does not name {place}"));
+            }
+            if line.trim().is_empty() || line.contains('\n') {
+                faults.push(format!("{key} is not one line"));
+            }
+        }
+        faults
+    }
 }
 
 /// What the engine's acts write into the blocks their cells write: `agents/acts/<act>.toml`.
@@ -1575,8 +1614,18 @@ pub fn writes(root: &Path) -> Result<Writes, String> {
     let at = root.join(AGENTS_DIR);
     Ok(Writes {
         acts: acts(root)?,
-        commits: file(&at.join(COMMITS_FILE))?,
+        commits: commits(&at.join(COMMITS_FILE))?,
     })
+}
+
+/// `agents/commits.toml`, read, and refused where a line it gives names no number.
+fn commits(path: &Path) -> Result<Commits, String> {
+    let commits: Commits = file(path)?;
+    let faults = commits.faults();
+    if !faults.is_empty() {
+        return Err(format!("{}: {}", path.display(), faults.join("; ")));
+    }
+    Ok(commits)
 }
 
 /// The acts' words alone, read from the directory that holds the flows, as [`read`] reads them.

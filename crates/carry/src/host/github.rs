@@ -494,7 +494,8 @@ impl<A: Api> Host for GitHub<A> {
         // Titled as GitHub titles a squash by default, with the pull request's number, whatever the method.
         let title = format!("{} (#{})", self.title(branch), open.number);
         let method = &self.config.merge_method;
-        let commit = match self.api.merge(open.number, checked, method, &title).await {
+        let message = self.message(branch, &now, checked).await?;
+        let commit = match self.api.merge(open.number, checked, method, &title, &message).await {
             Ok(commit) => commit,
             // GitHub's own word that main moved as it was to merge.
             Err(failed) if failed.why.contains(BASE_MODIFIED) => {
@@ -732,6 +733,20 @@ impl<A: Api> GitHub<A> {
         let mut cut: String = title.chars().take(TITLE - 1).collect();
         cut.push('…');
         cut
+    }
+
+    /// The message under the title of the work's merge: what the work's own commits say, made [`neutral`] as what the
+    /// work writes is, and the lines that name its item and its work ([`crate::commit_lines::squashed`]); given, for the
+    /// repository's settings not to choose it, which would leave the lines out.
+    async fn message(&self, branch: &Branch<'_>, main: &str, checked: &str) -> Result<String, String> {
+        let messages = git::work_messages(&self.project.repo, main, checked).await?;
+        let tidy = |text: &str| neutral(text, &self.config.withheld);
+        Ok(crate::commit_lines::squashed(
+            &self.project.commits,
+            branch.whose(),
+            &messages,
+            &tidy,
+        ))
     }
 
     /// What the pull request of the work says of itself: what the work wrote of itself, as a block of plain text made

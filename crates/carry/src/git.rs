@@ -9,6 +9,7 @@ use store::WorkNumber;
 use tokio::process::Command;
 use uuid::Uuid;
 
+use crate::commit_lines::Whose;
 use crate::host::NotMerged;
 use crate::settings::Project;
 use flow::agents::{Commits, fill};
@@ -420,15 +421,16 @@ pub(crate) async fn untracked(dir: &Path) -> Result<String, String> {
 
 /// The words the check's merge of main into a work's branch is made with, as the project's `commits` says: a run's
 /// merge has words of its own, so that neither takes the other's for its own.
-fn taking_in(project: &Project, main: &str) -> String {
-    fill(&project.commits.check, &[("main", &project.main), ("head", main)])
+fn taking_in(project: &Project, main: &str, whose: Whose) -> String {
+    let words = fill(&project.commits.check, &[("main", &project.main), ("head", main)]);
+    whose.ending(&project.commits, &words)
 }
 
 /// Merges main's head into the branch checked out in the worktree, which merges it without a conflict, as a commit
 /// of the engine's, and gives the branch's head after it and whether the check made that commit; where the branch
 /// holds main's head already, its head as it is, so that a merge done before the engine stopped is not done again.
-pub(crate) async fn take_in(dir: &Path, main: &str, project: &Project) -> Result<(String, bool), String> {
-    let message = taking_in(project, main);
+pub(crate) async fn take_in(dir: &Path, main: &str, project: &Project, whose: Whose) -> Result<(String, bool), String> {
+    let message = taking_in(project, main, whose);
     let commits = &project.commits;
     if said(dir, &["merge-base", "--is-ancestor", main, "HEAD"]).await?.ok {
         // The check's own merge of this main, made by a check that stopped before it was recorded, is still its own.
@@ -439,23 +441,24 @@ pub(crate) async fn take_in(dir: &Path, main: &str, project: &Project) -> Result
 }
 
 /// The head of the branch checked out in the worktree and its first parent, where the head is the engine's merge of
-/// main's head at `main` made with these words, by the address `commits` gives; none where it is not. It says only
-/// that a run, or the check, made the merge before the engine stopped, which what the round is told of it rests on:
-/// whether a merge brings only main's code is known by its content alone (`crate::head`).
+/// main's head at `main` made with this message, whole and not its first line alone, by the address `commits` gives;
+/// none where it is not. It says only that a run, or the check, made the merge before the engine stopped, which what
+/// the round is told of it rests on: whether a merge brings only main's code is known by its content alone
+/// (`crate::head`).
 pub(crate) async fn merged_as(
     dir: &Path,
     main: &str,
     message: &str,
     commits: &Commits,
 ) -> Result<Option<(String, String)>, String> {
-    let head = git(dir, &["log", "-1", "--format=%H%x00%ae%x00%P%x00%s", "HEAD"]).await?;
-    let fields: Vec<&str> = head.split('\0').collect();
-    let [commit, email, parents, subject] = fields.as_slice() else {
+    let head = git(dir, &["log", "-1", "--format=%H%x00%ae%x00%P%x00%B", "HEAD"]).await?;
+    let fields: Vec<&str> = head.splitn(4, '\0').collect();
+    let [commit, email, parents, body] = fields.as_slice() else {
         return Ok(None);
     };
     let parents: Vec<&str> = parents.split(' ').collect();
     Ok(match parents.as_slice() {
-        [first, merged] if *email == commits.email && *merged == main && *subject == message => {
+        [first, merged] if *email == commits.email && *merged == main && body.trim_end() == message.trim_end() => {
             Some((commit.to_string(), first.to_string()))
         }
         _ => None,
@@ -533,13 +536,32 @@ pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Re
     }
 }
 
+/// The messages of the commits the head holds that `base` does not, oldest first, those that merge excluded: what a
+/// work's own commits say, which the squash that merges the work gathers.
+pub(crate) async fn work_messages(repo: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
+    let range = format!("{base}..{head}");
+    let log = git(repo, &["log", "--reverse", "--no-merges", "--format=%B%x00", &range]).await?;
+    Ok(log
+        .split('\0')
+        .map(|message| message.trim().to_string())
+        .filter(|message| !message.is_empty())
+        .collect())
+}
+
 /// Merges the work's branch into the main branch in the repository's own checkout, which must be on the main branch,
 /// hold no uncommitted change and no merge under way, by a commit named `name` in the words of the project's
-/// `commits`, and gives the head of the main branch after it: the merge commit, or, where the branch holds nothing the
-/// main branch does not, the head as it was. Where `checked` names the commit the check passed, the branch's head must
-/// be that commit, and it is what is merged. A merge is refused while the repository's own configuration names a
-/// program git could run ([`configuration`]), as every act is. Where the merge fails, the merge it began is taken back.
-pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option<&str>) -> Result<String, NotMerged> {
+/// `commits` and ending with the lines that name the item and the work, and gives the head of the main branch after
+/// it: the merge commit, or, where the branch holds nothing the main branch does not, the head as it was. Where
+/// `checked` names the commit the check passed, the branch's head must be that commit, and it is what is merged. A
+/// merge is refused while the repository's own configuration names a program git could run ([`configuration`]), as
+/// every act is. Where the merge fails, the merge it began is taken back.
+pub async fn merge(
+    project: &Project,
+    place: &Place,
+    name: &str,
+    whose: Whose,
+    checked: Option<&str>,
+) -> Result<String, NotMerged> {
     let repo = &project.repo;
     let on = git(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await?;
     if on != project.main {
@@ -595,7 +617,8 @@ pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option
         let main = git(repo, &["rev-parse", "HEAD"]).await?;
         return Err(NotMerged::Moved { main, checked: head });
     }
-    let message = fill(&project.commits.merge, &[("branch", &place.branch), ("name", name)]);
+    let words = fill(&project.commits.merge, &[("branch", &place.branch), ("name", name)]);
+    let message = whose.ending(&project.commits, &words);
     let args = ["merge", "--no-ff", "-m", &message, &head];
     if let Err(why) = git(repo, &args).await {
         if merging().await? {

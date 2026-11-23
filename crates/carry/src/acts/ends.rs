@@ -68,6 +68,7 @@ async fn started(repo: &Repo) {
     let place = repo.place(WORK);
     let branch = Branch {
         work: WORK,
+        item: store::ItemNumber(36),
         title: "Greet the user",
         about: "",
         place: &place,
@@ -157,6 +158,7 @@ async fn another(repo: &Repo) -> git::Place {
     let other = repo.place(WorkNumber(2));
     let branch = Branch {
         work: WorkNumber(2),
+        item: store::ItemNumber(36),
         title: "Say goodbye",
         about: "",
         place: &other,
