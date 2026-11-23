@@ -153,6 +153,12 @@ describe('the Settings view', () => {
     expect(box(page, 'agents.slots').value).toBe('3');
     expect(box(page, 'owner.language').value).toBe('Chinese');
     expect(box(page, 'items.highest_level').value).toBe('3');
+    // The highest level one round may run at, which the file leaves out, is a box all the same, with nothing picked.
+    expect(box(page, 'agents.highest_level').value).toBe('');
+    expect(box(page, 'agents.highest_level').querySelector('option')?.textContent).toBe('left out');
+    expect(box(page, 'agents.highest_level').closest('tr')?.lastElementChild?.textContent).toBe(
+      ' · left out of the file',
+    );
     const slots = box(page, 'agents.slots').closest('tr')!;
     expect(slots.lastElementChild?.textContent).toBe('2');
     const limit = box(page, 'sessions.compact_at').closest('tr')!;

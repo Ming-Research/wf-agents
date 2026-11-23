@@ -246,6 +246,10 @@ pub struct Agents {
     pub command: String,
     /// The levels of work, by name: an item's level chooses the model its agents' rounds are run with.
     pub levels: BTreeMap<String, Level>,
+    /// The highest level one round may run at, by its name among the levels: a round of a line that runs above its
+    /// item's level goes no higher. It is no lower than `items.highest_level`, so that a round of an item at its
+    /// highest level can run at it; with none, the top level.
+    pub highest_level: Option<String>,
     /// How many agents' rounds run at once.
     pub slots: usize,
     /// The names of the variables of the engine's environment the program is given beside those it is always given
@@ -333,8 +337,8 @@ pub struct Level {
 pub struct Items {
     /// The level an item is added at where it is given none, by its name among the levels.
     pub default_level: String,
-    /// The highest level an item may be at, by its name among the levels: an item above it is refused as it is added,
-    /// and no line runs above it; with none, the top level.
+    /// The highest level an item may be at, by its name among the levels: an item above it is refused as it is added;
+    /// with none, the top level. A round's own highest is `agents.highest_level`.
     pub highest_level: Option<String>,
     /// The most words an item's title may have, as `service::title_words` counts them: a Chinese character counts as a
     /// word. A title is held to it when it is made or changed; a title already there is not counted again. There is no
@@ -588,17 +592,27 @@ impl Settings {
             name: name.clone(),
             desc: level.desc.clone(),
         });
-        let made = Levels::new(levels, &items.default_level, items.highest_level.as_deref());
+        let made = Levels::new(
+            levels,
+            &items.default_level,
+            items.highest_level.as_deref(),
+            self.agents.highest_level.as_deref(),
+        );
         made.map(|levels| levels.with_title_max(items.title_max as usize))
             .map_err(|fault| match fault {
                 LevelsFault::None => "agents.levels: there is at least one level".to_string(),
                 LevelsFault::NoSuchDefault(name) => format!("items.default_level: there is no level {name:?}"),
-                LevelsFault::NoSuchHighest(name) => format!("items.highest_level: there is no level {name:?}"),
-                LevelsFault::DefaultAboveHighest { default, highest } => {
+                LevelsFault::NoSuchItemsHighest(name) => format!("items.highest_level: there is no level {name:?}"),
+                LevelsFault::NoSuchRoundsHighest(name) => format!("agents.highest_level: there is no level {name:?}"),
+                LevelsFault::DefaultAboveItemsHighest { default, highest } => {
                     format!(
                         "items.default_level: {default:?} is above {highest:?}, the highest level an item may be at"
                     )
                 }
+                LevelsFault::ItemsHighestAboveRounds { items, rounds } => format!(
+                    "items.highest_level: {items:?} is above {rounds:?}, the highest level one round may run at \
+                     (agents.highest_level): an item at it could not run at its own level"
+                ),
             })
     }
 
@@ -626,7 +640,7 @@ impl Settings {
     /// The level a round of this cell, for an item at this level, runs at, and that level's model; or why it cannot
     /// run, in words.
     fn model_of(&self, item_level: Option<&str>, cell: &CellSpec) -> Result<(String, String), String> {
-        let level = self.levels()?.of_round(item_level, cell.levels_above)?;
+        let level = self.levels()?.of_round(item_level, cell.levels_above)?.level;
         let model = (self.agents.levels.get(&level))
             .map(|level| level.model.clone())
             .ok_or_else(|| format!("agents.levels: there is no level {level:?}"))?;
@@ -879,13 +893,53 @@ mod tests {
         assert_eq!(raised.level, "2");
         assert_eq!(raised.model, "claude-sonnet-5-5");
         assert_eq!(raised.effort.as_deref(), Some("xhigh"));
-        // No line runs above the highest level an item may be at, and an item of no level is at the default.
-        assert_eq!(ran(Some("3"), &cell(1, None)).model, "claude-opus-5-5");
+        // No line runs above the highest level one round may run at, which the sample leaves above the highest an item
+        // may be at, and an item of no level is at the default.
+        assert_eq!(ran(Some("3"), &cell(1, None)).model, "claude-fable-5-1");
         assert_eq!(ran(None, &cell(0, None)).level, "2");
         let gone = settings
             .ran_on(Some("7"), &cell(0, None), profile, None)
             .expect_err("there is no level 7");
         assert!(gone.contains("7 is no level"), "{gone}");
+    }
+
+    #[test]
+    fn a_line_above_its_item_s_level_runs_up_to_the_highest_level_a_round_may_run_at() {
+        let profile = Path::new("/data/profile");
+        let ran = |text: &str, item: &str| {
+            let settings = Settings::read(text).unwrap();
+            settings
+                .ran_on(Some(item), &cell(1, None), profile, None)
+                .unwrap()
+                .level
+        };
+        // The sample: items at most at 3, rounds at most at 4: an item at 3 has a line one above run at 4.
+        assert_eq!(ran(SAMPLE, "3"), "4");
+        // The highest for rounds left out is the top level, as the sample says.
+        let open = SAMPLE.replace("highest_level = \"4\"\n", "");
+        assert_eq!(Settings::read(&open).unwrap().agents.highest_level, None);
+        assert_eq!(ran(&open, "3"), "4");
+        // Held at 3, the line of an item at 3 runs at 3, and an item below it still has its line one above.
+        let held = SAMPLE.replace("highest_level = \"4\"", "highest_level = \"3\"");
+        assert_eq!(ran(&held, "3"), "3");
+        assert_eq!(ran(&held, "2"), "3");
+    }
+
+    #[test]
+    fn a_highest_level_for_items_above_the_one_for_rounds_is_refused_naming_both_keys() {
+        let below = SAMPLE.replace("highest_level = \"4\"", "highest_level = \"2\"");
+        let refused = Settings::read(&below)
+            .and_then(|s| s.levels().map(|_| ()))
+            .expect_err("refused");
+        assert!(
+            refused.contains("items.highest_level") && refused.contains("agents.highest_level"),
+            "{refused}"
+        );
+        let none = SAMPLE.replace("highest_level = \"4\"", "highest_level = \"9\"");
+        let refused = Settings::read(&none)
+            .and_then(|s| s.levels().map(|_| ()))
+            .expect_err("refused");
+        assert_eq!(refused, "agents.highest_level: there is no level \"9\"");
     }
 
     #[test]

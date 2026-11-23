@@ -85,26 +85,294 @@ fn scripts(text: &str) -> Vec<(usize, String)> {
     out
 }
 
-// The full workflow keeps a job `check` that is red whenever the page, the lint or a job of the tests did not pass,
-// cancelled ones included, and that makes the JUnit of those jobs one artifact.
+// The full workflow keeps a job `check` that is red whenever `scope`, `tree` or a job of the code did not pass, cancelled
+// ones included, and that makes the JUnit of those jobs one artifact. The four jobs of the code need `scope` and do not
+// run where it says only the design tree changed, and none of them runs for a fork's pull request: `scope` and `tree`
+// run on GitHub's machines for a fork too, so the guard is on each job of the code.
 #[test]
 fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
     let text = workflow("ci.yml");
     let jobs = block(&text, "jobs");
     let names = children(&jobs);
-    for want in ["page", "lint", "test", "check"] {
+    for want in ["scope", "tree", "page", "page-tests", "lint", "test", "check"] {
         assert!(names.iter().any(|n| n == want), "no job {want} in {names:?}");
     }
     let check = under(&jobs, "check").join("\n");
-    assert!(check.contains("needs: [page, lint, test]"), "{check}");
+    assert!(
+        check.contains("needs: [scope, tree, page, page-tests, lint, test]"),
+        "{check}"
+    );
     assert!(check.contains("if: ${{ always() &&"), "{check}");
     assert!(check.contains(r#"[ "$r" = success ] || red=true"#), "{check}");
-    for (job, lines) in [("page", under(&jobs, "page")), ("check", under(&jobs, "check"))] {
+    for job in ["scope", "tree", "page", "check"] {
         assert!(
-            !lines.iter().any(|l| l.starts_with("    name:")),
+            !under(&jobs, job).iter().any(|l| l.starts_with("    name:")),
             "the job {job} is given another name, which the engine would not find"
         );
     }
+    let tests = under(&jobs, "page-tests");
+    assert!(tests.contains(&"    name: page tests"), "{tests:?}");
+    for job in ["page", "page-tests", "lint", "test"] {
+        let lines = under(&jobs, job);
+        let condition = lines
+            .iter()
+            .find(|l| l.starts_with("    if:"))
+            .copied()
+            .unwrap_or_default();
+        assert!(lines.contains(&"    needs: scope"), "{job} does not need scope");
+        assert!(
+            condition.contains("needs.scope.outputs.tree_only != 'true'"),
+            "{job} runs where only the design tree changed: {condition}"
+        );
+        assert!(
+            condition.contains("github.event.pull_request.head.repo.full_name == github.repository"),
+            "{job} runs for a fork's pull request: {condition}"
+        );
+    }
+    for job in ["scope", "tree"] {
+        let lines = under(&jobs, job);
+        assert!(
+            lines.iter().any(|l| l.trim() == "runs-on: ubuntu-24.04"),
+            "{job} is not on GitHub's machines"
+        );
+    }
+}
+
+// `scope` says only the design tree changed where GitHub lists at least one file of the change, fewer than the 300 it
+// stops at, and every file and every old path of a renamed file is under `design/`; where the answer is missing, not what
+// it should be, or lists a file outside, it says not, and every job runs. The script of the step that says it is run
+// under bash on made answers: a wrong "only the tree" skips the whole suite, and no other test reaches it. About twenty
+// milliseconds a case, which is the start of python.
+#[test]
+fn scope_says_only_the_design_tree_changed_only_where_every_file_listed_is_in_it() {
+    let text = workflow("ci.yml");
+    let found: Vec<String> = (scripts(&text).into_iter())
+        .map(|(_, script)| script)
+        .filter(|script| script.contains("tree_only="))
+        .collect();
+    assert_eq!(found.len(), 1, "scripts of ci.yml that say where only the tree changed");
+    let files = |names: &[&str]| {
+        let files: Vec<String> = names.iter().map(|n| format!(r#"{{"filename":"{n}"}}"#)).collect();
+        format!(r#"{{"files":[{}]}}"#, files.join(","))
+    };
+    let many = |count: usize| {
+        let names: Vec<String> = (0..count).map(|n| format!("design/a{n}.md")).collect();
+        files(&names.iter().map(String::as_str).collect::<Vec<_>>())
+    };
+    let renamed = r#"{"files":[{"filename":"design/moved.rs","previous_filename":"crates/carry/src/moved.rs","status":"renamed"}]}"#;
+    let renamed_within =
+        r#"{"files":[{"filename":"design/b.md","previous_filename":"design/a.md","status":"renamed"}]}"#;
+    let cases: [(&str, Option<String>, &str); 14] = [
+        ("one file of the tree", Some(files(&["design/decisions/a.md"])), "true"),
+        (
+            "several, one the check's own",
+            Some(files(&["design/README.md", "design/lint.py"])),
+            "true",
+        ),
+        (
+            "a file renamed within the tree",
+            Some(renamed_within.to_string()),
+            "true",
+        ),
+        ("299 files, all of the tree", Some(many(299)), "true"),
+        (
+            "a file of the code beside the tree's",
+            Some(files(&["design/a.md", "crates/carry/src/lib.rs"])),
+            "false",
+        ),
+        (
+            "a file whose name only begins like the tree's",
+            Some(files(&["design-notes/a.md"])),
+            "false",
+        ),
+        (
+            "a file renamed out of the code into the tree",
+            Some(renamed.to_string()),
+            "false",
+        ),
+        ("no file listed", Some(files(&[])), "false"),
+        ("300 files, which GitHub may have cut", Some(many(300)), "false"),
+        (
+            "no files key, as GitHub answers a request it refuses",
+            Some(r#"{"message":"Not Found"}"#.to_string()),
+            "false",
+        ),
+        ("files that are no list", Some(r#"{"files":null}"#.to_string()), "false"),
+        ("an entry with no name", Some(r#"{"files":[{}]}"#.to_string()), "false"),
+        ("an answer that is no JSON", Some("not json".to_string()), "false"),
+        ("no answer, the request having failed", None, "false"),
+    ];
+    for (case, answer, says) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        if let Some(answer) = answer {
+            std::fs::write(dir.path().join("compare.json"), answer).unwrap();
+        }
+        let out = dir.path().join("output");
+        let env = [
+            ("RUNNER_TEMP", dir.path().to_str().unwrap()),
+            ("GITHUB_OUTPUT", out.to_str().unwrap()),
+        ];
+        run_script(&found[0], dir.path(), &env);
+        assert_eq!(read(&out), format!("tree_only={says}\n"), "{case}");
+    }
+}
+
+// Where `scope` says only the design tree changed, `check` is red unless `scope` and `tree` passed, and a job of the code
+// that did not run is no fault; anywhere else a job of the code that was skipped, cancelled or failed makes it red. A
+// few milliseconds each, under bash, the `gh` that reads the failed jobs' logs stood in for.
+#[test]
+fn check_passes_a_run_of_only_the_design_tree_and_is_red_for_a_job_not_run_anywhere_else() {
+    let text = workflow("ci.yml");
+    let found: Vec<String> = (scripts(&text).into_iter())
+        .map(|(_, script)| script)
+        .filter(|script| script.contains("red=false"))
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "scripts of ci.yml that sum up the jobs: {}",
+        found.len()
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let gh = dir.path().join("gh.sh");
+    std::fs::write(&gh, "gh() { return 1; }\n").unwrap();
+    let run = |scope: &str, tree: &str, code: [&str; 4], tree_only: &str| {
+        let [page, tests, lint, test] = code;
+        let env = [
+            ("SCOPE", scope),
+            ("TREE", tree),
+            ("PAGE", page),
+            ("PAGE_TESTS", tests),
+            ("LINT", lint),
+            ("TEST", test),
+            ("TREE_ONLY", tree_only),
+            ("BASH_ENV", gh.to_str().unwrap()),
+            ("GITHUB_REPOSITORY", "owner/repository"),
+            ("GITHUB_RUN_ID", "1"),
+            ("GITHUB_RUN_ATTEMPT", "1"),
+            ("RUNNER_TEMP", dir.path().to_str().unwrap()),
+        ];
+        try_script(&found[0], dir.path(), &env).0
+    };
+    let ok = ["success"; 4];
+    let skipped = ["skipped"; 4];
+    assert!(run("success", "success", ok, "false"), "a run of the whole code passes");
+    assert!(
+        run("success", "success", skipped, "true"),
+        "a run of only the tree passes"
+    );
+    assert!(
+        !run("success", "success", skipped, "false"),
+        "jobs not run where the code changed"
+    );
+    assert!(
+        !run("success", "success", skipped, ""),
+        "jobs not run where `scope` said nothing"
+    );
+    assert!(!run("success", "failure", skipped, "true"), "the tree check failed");
+    assert!(
+        !run("success", "skipped", skipped, "true"),
+        "the tree check did not run"
+    );
+    assert!(!run("failure", "success", skipped, "true"), "`scope` failed");
+    assert!(!run("skipped", "success", skipped, ""), "`scope` did not run");
+    assert!(
+        !run(
+            "success",
+            "success",
+            ["success", "cancelled", "success", "success"],
+            "true"
+        ),
+        "a job of the code cancelled, though only the tree changed"
+    );
+    assert!(
+        !run(
+            "success",
+            "success",
+            ["success", "success", "failure", "success"],
+            "false"
+        ),
+        "a job of the code failed"
+    );
+}
+
+// The jobs `check` prints the logs of are chosen by the filter it gives `gh --jq`: reference is jq's own semantics, which
+// the filter is run through here, on made lists of the run's jobs, with a `gh` that applies the filter it is given to the
+// list and answers a log request with one line. Where only the design tree changed, a job of the code that was skipped
+// is not listed, and one that failed or has not ended is; anywhere else a skipped one is listed too. A job of another
+// name (`check` itself) is never listed. About fifteen milliseconds a case (bash and jq start); the stub of the test
+// before this one answers nothing, so the filter is read by no other test.
+#[test]
+fn check_lists_the_jobs_that_did_not_pass_and_leaves_out_those_not_run_for_a_change_of_only_the_tree() {
+    let text = workflow("ci.yml");
+    let found: Vec<String> = (scripts(&text).into_iter())
+        .map(|(_, script)| script)
+        .filter(|script| script.contains("red=false"))
+        .collect();
+    assert_eq!(found.len(), 1, "scripts of ci.yml that sum up the jobs");
+    let dir = tempfile::tempdir().unwrap();
+    let jobs = r#"{"jobs":[
+        {"id":1,"name":"scope","conclusion":"success"},
+        {"id":2,"name":"tree","conclusion":"success"},
+        {"id":3,"name":"page","conclusion":"skipped"},
+        {"id":4,"name":"page tests","conclusion":"skipped"},
+        {"id":5,"name":"lint","conclusion":"skipped"},
+        {"id":6,"name":"test 1 of 3","conclusion":"skipped"},
+        {"id":7,"name":"check","conclusion":null,"status":"in_progress"},
+        {"id":8,"name":"test 2 of 3","conclusion":"failure"},
+        {"id":9,"name":"test 3 of 3","conclusion":null,"status":"queued"}]}"#;
+    std::fs::write(dir.path().join("jobs.json"), jobs).unwrap();
+    let gh = dir.path().join("gh.sh");
+    std::fs::write(
+        &gh,
+        r#"gh() {
+  local filter="" a
+  while [ $# -gt 0 ]; do
+    if [ "$1" = --jq ]; then filter=$2; fi
+    a=$1; shift
+  done
+  if [ -n "$filter" ]; then jq -r "$filter" "$RUNNER_TEMP/jobs.json"; else echo "log line"; fi
+}
+"#,
+    )
+    .unwrap();
+    let run = |tree_only: &str, tree: &str, others: &str| {
+        let env = [
+            ("SCOPE", "success"),
+            ("TREE", tree),
+            ("PAGE", others),
+            ("PAGE_TESTS", others),
+            ("LINT", others),
+            ("TEST", "failure"),
+            ("TREE_ONLY", tree_only),
+            ("BASH_ENV", gh.to_str().unwrap()),
+            ("GITHUB_REPOSITORY", "owner/repository"),
+            ("GITHUB_RUN_ID", "1"),
+            ("GITHUB_RUN_ATTEMPT", "1"),
+            ("RUNNER_TEMP", dir.path().to_str().unwrap()),
+        ];
+        let (ok, said) = try_script(&found[0], dir.path(), &env);
+        assert!(!ok, "a run with a failed job ends red: {said}");
+        said.lines()
+            .find(|l| l.starts_with("Did not pass:"))
+            .unwrap_or_else(|| panic!("no line of the jobs that did not pass: {said}"))
+            .to_string()
+    };
+    assert_eq!(
+        run("true", "success", "skipped"),
+        "Did not pass: test 2 of 3, test 3 of 3.",
+        "only the tree changed: the skipped jobs of the code are left out"
+    );
+    assert_eq!(
+        run("false", "success", "skipped"),
+        "Did not pass: page, page tests, lint, test 1 of 3, test 2 of 3, test 3 of 3.",
+        "the code changed: a skipped job is one that did not pass"
+    );
+    assert_eq!(
+        run("", "success", "skipped"),
+        "Did not pass: page, page tests, lint, test 1 of 3, test 2 of 3, test 3 of 3.",
+        "`scope` said nothing"
+    );
 }
 
 // The full workflow runs when the engine asks for it by hand, and on each pull request into `main` that is neither a
@@ -130,15 +398,29 @@ fn the_full_workflow_runs_by_hand_and_on_the_pull_requests_of_neither_a_work_nor
     let work = format!("!startsWith(github.head_ref, '{}')", carry::git::BRANCH_PREFIX);
     // What each job's own `if` says is checked whole, not by its parts: the same parts joined by other operators run a
     // fork's code on the owner's machine or red a work's pull request, and nothing before the merge evaluates them.
+    // The jobs of the code also stay out of a run where only the design tree changed, as `scope` says.
     let guard = format!(
-        "if: ${{{{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && {work}) }}}}"
+        "if: ${{{{ needs.scope.outputs.tree_only != 'true' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && {work})) }}}}"
+    );
+    // `scope` and `tree` build nothing and run on GitHub's machines, so a fork's pull request gets them; a work's of this
+    // repository does not, as with `check`.
+    let light = format!(
+        "if: ${{{{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || {work} }}}}"
     );
     // `check` is skipped with the rest on a work's pull request of this repository, so that the run is not red there; on a
     // fork's, whatever its branch is called, it stays, red, since its jobs are skipped.
     let check = format!(
         "if: ${{{{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || {work}) }}}}"
     );
-    for (job, want) in [("page", &guard), ("lint", &guard), ("test", &guard), ("check", &check)] {
+    for (job, want) in [
+        ("scope", &light),
+        ("tree", &light),
+        ("page", &guard),
+        ("page-tests", &guard),
+        ("lint", &guard),
+        ("test", &guard),
+        ("check", &check),
+    ] {
         // The job's own condition stands at the job's indentation; those of its steps are deeper.
         let own: Vec<&str> = (under(&jobs, job).into_iter())
             .filter(|l| l.starts_with("    if:"))
@@ -264,15 +546,34 @@ fn the_stop_the_engine_gives_goes_into_a_copy_of_nextests_file_and_with_none_the
 }
 
 // What a run uploads for the engine is JUnit, all of it in the one artifact `test-results`: the full workflow's jobs
-// each upload theirs in a file named by the job, nextest's of each third of the Rust tests and vitest's of the page,
-// and the job `check` makes them one; the fast workflow uploads its own.
+// each upload theirs in a file named by the job, nextest's of each third of the Rust tests and vitest's of the page's
+// tests, and the job `check` makes them one; the fast workflow uploads its own. The job `tree` always uploads a file, so
+// that a run of only the design tree has results the engine reads.
 #[test]
 fn every_test_of_a_run_is_reported_as_junit_in_the_artifact_test_results() {
     let text = workflow("ci.yml");
     let jobs = block(&text, "jobs");
+    let tests = under(&jobs, "page-tests").join("\n");
+    assert!(
+        tests.contains("--reporter=junit") && tests.contains("page tests.xml"),
+        "{tests}"
+    );
+    assert!(tests.contains("name: junit-page-tests"), "{tests}");
+    assert!(tests.contains("JOB: page tests"), "{tests}");
     let page = under(&jobs, "page").join("\n");
-    assert!(page.contains("--reporter=junit") && page.contains("page.xml"), "{page}");
-    assert!(page.contains("name: junit-page"), "{page}");
+    assert!(
+        !page.contains("--reporter=junit") && !page.contains("npm test") && !page.contains("playwright"),
+        "the job page runs the page's tests: {page}"
+    );
+    assert!(
+        page.contains("name: junit-page") && page.contains("JOB: page"),
+        "{page}"
+    );
+    let tree = under(&jobs, "tree").join("\n");
+    assert!(
+        tree.contains("name: junit-tree") && tree.contains("JOB: tree"),
+        "{tree}"
+    );
     let test = under(&jobs, "test").join("\n");
     assert!(
         test.contains("name: test ${{ matrix.partition }} of 3")
@@ -281,7 +582,6 @@ fn every_test_of_a_run_is_reported_as_junit_in_the_artifact_test_results() {
             && test.contains("name: junit-${{ matrix.partition }}"),
         "{test}"
     );
-    assert!(page.contains("JOB: page"), "{page}");
     let check = under(&jobs, "check").join("\n");
     assert!(check.contains("actions/upload-artifact/merge@"), "{check}");
     assert!(
@@ -314,13 +614,19 @@ fn results_and_upload(text: &str, job: &str, artifact: &str) -> (String, String)
 // The file a job's step `Name the results` writes (`RESULTS`) is the file the job's upload takes. The upload ignores a
 // path that holds no file (`if-no-files-found: ignore`), so a job whose two places differ uploads nothing and is read as
 // one that reported nothing; and a job whose results stand where a run keeps nothing from an earlier one is the one
-// whose results are this run's: both jobs name theirs in the runner's temporary directory, which GitHub empties as each
+// whose results are this run's: each job names theirs in the runner's temporary directory, which GitHub empties as each
 // job begins (the variable `RUNNER_TEMP` of GitHub's documented default variables). The same reading of a text whose
 // step names the results somewhere else finds the two places differ. Under a millisecond.
 #[test]
 fn each_job_uploads_the_file_it_names_its_results_in_and_keeps_it_in_the_runners_temporary_directory() {
     let text = workflow("ci.yml");
-    for (job, artifact) in [("page", "junit-page"), ("test", "junit-${{ matrix.partition }}")] {
+    let uploads = [
+        ("tree", "junit-tree"),
+        ("page", "junit-page"),
+        ("page-tests", "junit-page-tests"),
+        ("test", "junit-${{ matrix.partition }}"),
+    ];
+    for (job, artifact) in uploads {
         let (results, path) = results_and_upload(&text, job, artifact);
         assert_eq!(results, path, "{job}: the file named is not the file uploaded");
         assert!(
@@ -330,8 +636,10 @@ fn each_job_uploads_the_file_it_names_its_results_in_and_keeps_it_in_the_runners
     }
     let elsewhere = text
         .replace("RESULTS: ${{ runner.temp }}/test", "RESULTS: target/nextest/ci/test")
+        .replace("RESULTS: ${{ runner.temp }}/tree.xml", "RESULTS: tree.xml")
+        .replace("RESULTS: ${{ runner.temp }}/page tests.xml", "RESULTS: page tests.xml")
         .replace("RESULTS: ${{ runner.temp }}/page.xml", "RESULTS: page.xml");
-    for (job, artifact) in [("page", "junit-page"), ("test", "junit-${{ matrix.partition }}")] {
+    for (job, artifact) in uploads {
         let (results, path) = results_and_upload(&elsewhere, job, artifact);
         assert_ne!(
             results, path,
@@ -638,18 +946,39 @@ fn check_reads_the_logs_of_the_other_jobs_with_the_escapes_that_colour_them() {
     assert!(reads[0].contains("gh api --allow-escape-sequences "), "{reads:?}");
 }
 
-/// The script of ci.yml that names the results of a job and says a step of it that failed: of the job of a third of
-/// the Rust tests, which moves nextest's results to their name, or of the page's, which vitest writes there.
-fn naming_script(moves: bool) -> String {
+/// The jobs of ci.yml that name their results, by what each does with them.
+#[derive(Clone, Copy, Debug)]
+enum Names {
+    /// A third of the Rust tests: nextest's results are moved to their name.
+    Moves,
+    /// The page's tests: vitest writes them there.
+    Writes,
+    /// The page's other checks: results only where a step failed.
+    Fails,
+    /// The design tree's checks: a suite of the job's name, with an error where a step failed.
+    Tree,
+}
+
+/// The script of ci.yml that names the results of a job of this kind and says a step of it that failed.
+fn naming_script(kind: Names) -> String {
     let found: Vec<String> = (scripts(&workflow("ci.yml")).into_iter())
         .map(|(_, script)| script)
-        .filter(|script| script.contains("of the job failed") && script.contains(r#"mv "$junit" "$RESULTS""#) == moves)
+        .filter(|script| script.contains("of the job failed"))
+        .filter(|script| {
+            let (moves, tree, tested) = (
+                script.contains(r#"mv "$junit" "$RESULTS""#),
+                script.contains(r#"<testsuite name="%s"/>"#),
+                script.contains("TESTED"),
+            );
+            match kind {
+                Names::Moves => moves,
+                Names::Tree => tree,
+                Names::Writes => tested && !moves,
+                Names::Fails => !moves && !tree && !tested,
+            }
+        })
         .collect();
-    assert_eq!(
-        found.len(),
-        1,
-        "scripts of ci.yml that name a job's results, moving them: {moves}"
-    );
+    assert_eq!(found.len(), 1, "scripts of ci.yml that name a job's results: {kind:?}");
     found.into_iter().next().expect("one")
 }
 
@@ -660,7 +989,7 @@ fn naming_script(moves: bool) -> String {
 // tells a job red for something else than its tests from one whose tests failed. Run under bash: a few milliseconds.
 #[test]
 fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_failed() {
-    let (test, page) = (naming_script(true), naming_script(false));
+    let (test, page) = (naming_script(Names::Moves), naming_script(Names::Writes));
     let junit =
         r#"<testsuites><testsuite name="carry"><testcase name="t"><failure/></testcase></testsuite></testsuites>"#;
     let steps = |failed: Option<&str>| {
@@ -737,27 +1066,104 @@ fn a_job_of_tests_names_its_results_by_itself_and_says_a_step_of_its_own_that_fa
         named.contains(&error("Build the page")) && !named.contains("left_by_an_earlier_run"),
         "{named}"
     );
-    // The page's job: its tests passed and its build after them failed, which is said in the file the tests wrote.
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("page.xml");
-    std::fs::write(
-        &file,
-        r#"<testsuites><testsuite name="src/a.test.ts"><testcase name="a"/></testsuite></testsuites>"#,
-    )
-    .unwrap();
-    let results = file.display().to_string();
-    let steps = "success Lint the page\nfailure Build the page".to_string();
-    let env = [
-        ("JOB", "page"),
-        ("RESULTS", results.as_str()),
-        ("TESTED", "success Test the page"),
-        ("STEPS", steps.as_str()),
-    ];
-    run_script(&page, dir.path(), &env);
-    let named = read(&file);
-    assert!(
-        named.contains(r#"<testcase name="a"/></testsuite><testsuite name="page"><error message="the step Build the page of the job failed"/></testsuite></testsuites>"#),
-        "{named}"
+    // The page's tests: the tests failed and vitest wrote their results, which is all the file holds; the tests step
+    // failed and wrote nothing, or a step before it failed, which is said in a file of the job's own.
+    let steps = |failed: Option<&str>| {
+        [
+            "Check out the commit",
+            "Install the page's dependencies",
+            "Chromium for the page's browser tests",
+        ]
+        .map(|step| format!("{} {step}", if failed == Some(step) { "failure" } else { "success" }))
+        .join("\n")
+    };
+    let vitest = r#"<testsuites><testsuite name="src/a.test.ts"><testcase name="a"><failure/></testcase></testsuite></testsuites>"#;
+    for (tested, written, failed, says) in [
+        ("failure Test the page", true, None, None),
+        ("failure Test the page", false, None, Some("Test the page")),
+        (
+            "skipped Test the page",
+            false,
+            Some("Chromium for the page's browser tests"),
+            Some("Chromium for the page's browser tests"),
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("page tests.xml");
+        if written {
+            std::fs::write(&file, vitest).unwrap();
+        }
+        let results = file.display().to_string();
+        let env = [
+            ("JOB", "page tests"),
+            ("RESULTS", results.as_str()),
+            ("TESTED", tested),
+            ("STEPS", &steps(failed)),
+        ];
+        run_script(&page, dir.path(), &env);
+        let named = read(&file);
+        assert_eq!(named.contains("<failure/>"), written, "{named}");
+        let error = says.map(|step| {
+            format!(r#"<testsuite name="page tests"><error message="the step {step} of the job failed"/></testsuite>"#)
+        });
+        assert_eq!(named.contains("<error"), error.is_some(), "{named}");
+        if let Some(error) = error {
+            assert!(named.contains(&error), "{named}");
+        }
+    }
+}
+
+// The jobs that run no tests of their own name their results by what they found. `page` writes results only where a
+// step of its own failed, which it says as a suite of its name with an error naming the step. `tree` always writes a
+// file, so that a run of only the design tree has results the engine reads: a suite of its name with no test in it where
+// its steps passed, and an error naming the first step that failed where one did, which the engine reads as a unit not
+// built and not as a test that failed, which it would run again by name. Run under bash: a few milliseconds.
+#[test]
+fn the_jobs_that_run_no_tests_say_a_step_that_failed_and_the_tree_job_always_has_results() {
+    let (page, tree) = (naming_script(Names::Fails), naming_script(Names::Tree));
+    let steps = |failed: Option<&str>| {
+        [
+            "Check out the commit",
+            "Check the design tree's forms",
+            "Test the design tree's check",
+        ]
+        .map(|step| format!("{} {step}", if failed == Some(step) { "failure" } else { "success" }))
+        .join("\n")
+    };
+    let named = |script: &str, job: &str, failed: Option<&str>| {
+        let dir = tempfile::tempdir().unwrap();
+        // The runner's temporary directory is there when a job begins, and holds nothing of an earlier run's.
+        let file = dir.path().join("temp").join(format!("{job}.xml"));
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let results = file.display().to_string();
+        let env = [("JOB", job), ("RESULTS", results.as_str()), ("STEPS", &steps(failed))];
+        run_script(script, dir.path(), &env);
+        file.exists().then(|| read(&file))
+    };
+    assert_eq!(
+        named(&tree, "tree", None).as_deref(),
+        Some("<testsuites><testsuite name=\"tree\"/></testsuites>\n"),
+        "the tree job's steps passed"
+    );
+    for failed in [
+        "Check out the commit",
+        "Check the design tree's forms",
+        "Test the design tree's check",
+    ] {
+        let error = format!(
+            "<testsuites><testsuite name=\"tree\"><error message=\"the step {failed} of the job failed\"/></testsuite></testsuites>\n"
+        );
+        assert_eq!(named(&tree, "tree", Some(failed)), Some(error.clone()), "{failed}");
+        assert_eq!(
+            named(&page, "page", Some(failed)),
+            Some(error.replace("\"tree\"", "\"page\"")),
+            "{failed}"
+        );
+    }
+    assert_eq!(
+        named(&page, "page", None),
+        None,
+        "the page's steps passed: nothing to say"
     );
 }
 
@@ -796,7 +1202,7 @@ fn a_build_of_the_tests_that_fails_leaves_no_results_of_an_earlier_run_to_be_upl
         ("TESTED", "failure Test"),
         ("STEPS", steps.as_str()),
     ];
-    run_script(&naming_script(true), dir.path(), &env);
+    run_script(&naming_script(Names::Moves), dir.path(), &env);
     let named = read(&results);
     assert!(
         named.contains(&format!(

@@ -957,6 +957,7 @@ impl Real {
                         (name.to_string(), level)
                     })
                     .into(),
+                highest_level: None,
                 slots: 2,
                 env: Vec::new(),
                 subagents: Default::default(),

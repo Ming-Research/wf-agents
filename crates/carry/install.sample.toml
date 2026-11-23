@@ -69,6 +69,10 @@ main = "main"
 command = "claude"
 # How many agents' rounds run at once; the others wait their turn.
 slots = 2
+# The highest level one round may run at: a round of a line that runs above its item's level goes no higher. It is no
+# lower than items.highest_level, so that a round of an item at its highest level can run at it. Left out, the top
+# level.
+highest_level = "4"
 # The program is given only these variables of the engine's environment: PATH, HOME, USER, LANG and LC_*, TMPDIR, TERM
 # and SHELL, and those named here, such as a proxy; none of them reaches a command an agent runs, which the program is
 # told to scrub of credentials. The program runs under no credential but the accounts added on the Settings view: a
@@ -114,8 +118,8 @@ model = "claude-fable-5-1"
 [items]
 # The level an item is added at where it is given none.
 default_level = "2"
-# The highest level an item may be at: an item above it is refused as it is added, and no line of the flow runs above
-# it. Left out, the top level.
+# The highest level an item may be at: an item above it is refused as it is added. A line of the flow may run a round
+# above it, up to agents.highest_level. Left out, the top level.
 highest_level = "3"
 # The most words an item's title may have, a Chinese character counting as a word: 20 allows 20 English words or 20
 # Chinese characters. A title is held to it when it is made or changed. There is no default.

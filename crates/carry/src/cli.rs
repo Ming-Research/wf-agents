@@ -1372,6 +1372,7 @@ mod tests {
         Agents {
             command: "claude".to_string(),
             levels: Default::default(),
+            highest_level: None,
             slots: 2,
             env: Vec::new(),
             subagents: Default::default(),
