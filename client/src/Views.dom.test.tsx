@@ -3,7 +3,7 @@ import './dom-setup';
 
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Definition } from './api';
 import { Views } from './App';
@@ -30,6 +30,7 @@ afterEach(() => {
   unmount = undefined;
   document.body.innerHTML = '';
   localStorage.clear();
+  vi.restoreAllMocks();
 });
 
 const source: Source = {
@@ -146,5 +147,40 @@ describe('the views', () => {
     await settle();
     expect(reads()).toBe(1);
     expect(plan()?.className).toContain('chosen');
+  });
+
+  it('chooses the round a link names again however the owner chose after it, and draws the work anew for none of them', async () => {
+    const first = fixtureWork(41).steps.find((x) => x.kind === 'run');
+    if (first?.kind !== 'run' || first.rounds.length < 2) throw new Error('the first run did not run twice');
+    const round = { view: 'work', work: 41, run: first.run, round: first.rounds[1].number } as const;
+    // The scrolls to a section that is lit as it is scrolled to, counted as they are made.
+    let scrolledToRound = 0;
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+      if (this.classList.contains('cw-fold-chosen')) scrolledToRound += 1;
+    });
+    const { container, go } = drawViews(round);
+    await settle();
+    expect(scrolledToRound).toBe(1);
+    const lit = () => shown(container).querySelectorAll('section.cw-fold-chosen').length;
+    const tab = () => shown(container).querySelector('aside [role="tab"][aria-selected="true"]')?.textContent;
+    expect(lit()).toBe(1);
+    const line = shown(container).querySelector('.view-line') as HTMLElement;
+    line.dataset.drawnFirst = 'yes';
+    // The owner chooses another row, which the address then says, and looks at another tab of the window.
+    go({ view: 'work', work: 41, run: 3 });
+    await settle();
+    expect(lit()).toBe(0);
+    expect(scrolledToRound).toBe(1);
+    act(() => {
+      [...shown(container).querySelectorAll<HTMLElement>('aside [role="tab"]')].find((t) => t.textContent === 'Usage')?.click();
+    });
+    expect(tab()).toBe('Usage');
+    // The same link followed again chooses its round, on the Step, in the work as it stood.
+    go(round);
+    await settle();
+    expect(lit()).toBe(1);
+    expect(scrolledToRound).toBe(2);
+    expect(tab()).toBe('Step');
+    expect((shown(container).querySelector('.view-line') as HTMLElement).dataset.drawnFirst).toBe('yes');
   });
 });
