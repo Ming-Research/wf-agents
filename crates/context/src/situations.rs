@@ -486,6 +486,16 @@ impl<'a> Reach<'a> {
         if entry == Entry::First && !compares {
             states.retain(|s| *s != Stands::HoldsLast);
         }
+        // The first run of a cell that watches the datum the work starts with was run by it, so that the cell worked
+        // from it: where it did not run the cell now, the session never holds it as one the cell never worked from.
+        let watches = self
+            .cell
+            .watches
+            .iter()
+            .any(|t| !t.is_group() && t.name == block.as_str());
+        if self.starts.contains(block) && watches && *class == Class::Rest && entry != Entry::First {
+            states.retain(|s| *s != Stands::HoldsNew);
+        }
         states
     }
 

@@ -253,9 +253,7 @@ impl History {
             self.carry(&round, reached);
         } else if let Some(call) = self.sim.calls().first() {
             self.sim.done(*call, "the rows");
-        } else if let Some(cell) = self.limit() {
-            self.sim.take(Event::LetGo { cell });
-        } else {
+        } else if !self.lets_go() {
             self.put("request");
         }
     }
@@ -272,18 +270,26 @@ impl History {
         }
     }
 
-    /// The cell the work waits at for the owner to let it go on, where it does.
-    fn limit(&self) -> Option<CellId> {
-        match decide(&self.sim.flow.flow, &self.sim.work.records) {
-            Decision::Wait { at, on }
-                if on
-                    .iter()
-                    .any(|w| matches!(w, Waited::Limit { .. } | Waited::Calls { .. })) =>
-            {
-                Some(at)
+    /// The owner does what the work waits for: lets a cell at its limit go on, or answers a call of a run that reached
+    /// the limit of its returns. Says whether the work waited for one.
+    fn lets_go(&mut self) -> bool {
+        let Decision::Wait { at, on } = decide(&self.sim.flow.flow, &self.sim.work.records) else {
+            return false;
+        };
+        for waited in on {
+            match waited {
+                Waited::Limit { .. } | Waited::Calls { .. } => {
+                    self.sim.take(Event::LetGo { cell: at });
+                    return true;
+                }
+                Waited::Call { call, on: Some(_) } => {
+                    self.sim.done(call, "Go on.");
+                    return true;
+                }
+                _ => {}
             }
-            _ => None,
         }
+        false
     }
 
     /// Carries every round the work gives, answers every call and lets every cell at its limit go on, until it rests.
@@ -293,9 +299,7 @@ impl History {
                 self.carry(&round, reached);
             } else if let Some(call) = self.sim.calls().first() {
                 self.sim.done(*call, "the rows");
-            } else if let Some(cell) = self.limit() {
-                self.sim.take(Event::LetGo { cell });
-            } else {
+            } else if !self.lets_go() {
                 return;
             }
         }
@@ -340,6 +344,8 @@ impl History {
             self.drain(reached);
         }
         // The build is run by a plan a person writes, and the request is written while its run is under way.
+        self.put("plan");
+        self.drain(reached);
         self.put("plan");
         self.put("request");
         self.forced = Some(vec![Forced::Wrong]);
