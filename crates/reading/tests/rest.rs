@@ -240,3 +240,32 @@ fn a_round_under_way_is_moving_at_the_cell_of_its_run() {
     w.start("first");
     assert_eq!(rest(&w), Rest::Moving { at: id("first") });
 }
+
+#[test]
+fn a_cancelled_work_with_nothing_open_has_ended() {
+    let mut w = World::with_gate(vec![cell("first", &["brief"], &["b0"])]);
+    w.person_writes("brief");
+    w.run("first", &[("b0", Matters)]);
+    w.cancel();
+    assert_eq!(rest(&w), Rest::Ended);
+    assert!(matches!(w.decide(), Decision::Ended(_)));
+}
+
+#[test]
+fn an_open_run_of_a_cell_that_no_longer_applies_is_moving_at_it_to_be_abandoned() {
+    let cells = vec![
+        cell("research", &["brief"], &["deep", "plan"]),
+        when("deep", "no", cell("implement", &["plan"], &["code"])),
+        cell("later", &["code"], &[]),
+    ];
+    let mut w = World::with_gate(cells);
+    w.person_writes("brief");
+    w.run("research", &[("deep", Value("no")), ("plan", Matters)]);
+    // The implementation's run is at rest, its round ended, when the brief is written again and the research now says
+    // a deeper look is needed: the cell is skipped, and its run is abandoned before anything else.
+    w.start("implement");
+    w.returns("implement");
+    w.person_writes("brief");
+    w.run("research", &[("deep", Value("yes")), ("plan", Matters)]);
+    assert_eq!(rest(&w), Rest::Moving { at: id("implement") });
+}
