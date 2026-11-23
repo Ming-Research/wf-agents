@@ -34,7 +34,7 @@ use context::message::{Values, kept};
 use context::text::as_written;
 use context::{Entered, Form, Piece, Situation, Stands};
 use decide::run::Unmet;
-use decide::{BlockId, CallId, CellId, RunId, Seq, Writer};
+use decide::{BlockId, CallId, CellId, Outsider, RunId, Seq, Who, Writer};
 use engine::{Ask, Back, Came, Fill, Given, Handed, Why};
 use flow::agents::Part;
 use flow::{CellSpec, InputKind, Listed};
@@ -86,8 +86,6 @@ struct Held {
     taken: Vec<(BlockId, Seq)>,
     /// How often each task was filled into it.
     tasks: BTreeMap<String, u32>,
-    /// The cells entered in it.
-    entered: BTreeSet<CellId>,
 }
 
 impl Held {
@@ -96,8 +94,7 @@ impl Held {
     }
 
     /// What a round that reached the model filled into it.
-    fn fill(&mut self, run: RunId, cell: &CellId, fills: &[Fill]) {
-        self.entered.insert(cell.clone());
+    fn fill(&mut self, run: RunId, fills: &[Fill]) {
         for fill in fills {
             match fill {
                 Fill::Whole { block, version } | Fill::Change { block, version, .. } => {
@@ -168,7 +165,7 @@ impl History {
     fn new(seed: u64) -> History {
         let mut sim = Sim::new();
         sim.takes_main = true;
-        History {
+        let mut history = History {
             sim,
             rng: Rng::new(seed),
             lines: BTreeMap::new(),
@@ -176,6 +173,26 @@ impl History {
             last: BTreeMap::new(),
             written: BTreeMap::new(),
             count: 0,
+        };
+        history.start();
+        history
+    }
+
+    /// The owner starts the work by writing what people write that runs the flow's first agent's cell, as the tool says
+    /// a work starts.
+    fn start(&mut self) {
+        let flow = &self.sim.flow;
+        let first = (flow.flow.cells().iter())
+            .filter_map(|c| flow.cells.iter().find(|s| s.id == c.id))
+            .find(|c| c.kind == flow::Kind::Agent)
+            .expect("an agent's cell");
+        let blocks: Vec<String> = (first.watches.iter())
+            .filter(|t| !t.is_group() && flow.blocks[&BlockId::from(t.name.as_str())].writers.people)
+            .map(|t| t.name.clone())
+            .collect();
+        for block in blocks {
+            let content = self.content(&block);
+            self.sim.writes(&block, &content);
         }
     }
 
@@ -208,9 +225,15 @@ impl History {
     fn step(&mut self, reached: &mut Reached) {
         let roll = self.rng.below(100);
         if roll < 14 {
-            let block = ["request", "notes", "tree", "plan", "opinions"][self.rng.below(5)];
+            let block = ["request", "notes", "tree", "plan", "opinions", "finish", "verdict"][self.rng.below(7)];
             let content = self.content(block);
-            self.sim.writes(block, &content);
+            match block {
+                "verdict" => {
+                    let value = ["yes", "no"][self.rng.below(2)];
+                    self.sim.wrote(block, value, Some(value), Outsider::Person);
+                }
+                _ => self.sim.writes(block, &content),
+            }
         } else if roll < 18 {
             let line = if self.rng.chance(50) { "engineer" } else { "reviewer" };
             self.sim.anew(line, Why::Owner);
@@ -272,10 +295,7 @@ impl History {
             // A round that failed after its program had its message, as at the usage limit, put it into its session;
             // one that failed before its program ran put nothing there.
             if self.rng.chance(50) {
-                self.lines
-                    .entry(line.clone())
-                    .or_default()
-                    .fill(round.run, &round.cell, &used.fills);
+                self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
                 self.sim.fails_as(round, decide::run::Failure::UsageLimit, true);
                 reached.wrote += 1;
             } else {
@@ -283,10 +303,7 @@ impl History {
             }
             return;
         }
-        self.lines
-            .entry(line.clone())
-            .or_default()
-            .fill(round.run, &round.cell, &used.fills);
+        self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
         let compactions = u32::from(self.rng.chance(10));
         let came = self.came(round);
         self.sim.returns(round, came, compactions);
@@ -312,9 +329,20 @@ impl History {
     /// otherwise each block the cell writes with a chance of seven in ten, those it must write every time.
     fn came(&mut self, round: &Round) -> Came {
         if self.rng.chance(10) {
-            let ask = Ask::Tool {
-                name: "query".to_string(),
-                input: format!("{{\"n\": {}}}", self.count),
+            // A tool run on something, a tool run on nothing, or a question for the owner.
+            let ask = match self.rng.below(4) {
+                0 | 1 => Ask::Tool {
+                    name: "query".to_string(),
+                    input: format!("{{\"n\": {}}}", self.count),
+                },
+                2 => Ask::Tool {
+                    name: "query".to_string(),
+                    input: String::new(),
+                },
+                _ => Ask::Person {
+                    who: Who::Owner,
+                    question: "Which way?".to_string(),
+                },
             };
             return Came::asks(vec![ask]);
         }
@@ -551,23 +579,6 @@ impl History {
         fills
     }
 
-    /// Which entry of its cell the round is, by the test's account of the session: the cell has been entered in it
-    /// (`later`); it worked from nothing (`first`); it worked before and the session holds nothing (`reopened`); or the
-    /// session holds what another cell was sent (`reopened_after_read`).
-    fn entry(&self, round: &Round, held: &Held) -> &'static str {
-        let cell = self.sim.cell(round);
-        let worked = self.worked.keys().any(|(c, _)| *c == cell.id);
-        if held.entered.contains(&cell.id) {
-            "later"
-        } else if !worked {
-            "first"
-        } else if held.versions.is_empty() && held.parts.is_empty() {
-            "reopened"
-        } else {
-            "reopened_after_read"
-        }
-    }
-
     fn check(&self, round: &Round, entered: &Entered, held: &Held, reached: &mut Reached) {
         let sim = &self.sim;
         let cell = sim.cell(round);
@@ -715,9 +726,7 @@ impl History {
             .collect();
         assert_eq!(entered.run.taken, taken, "what the last return handed in");
         assert_eq!(entered.situation.after_hand_in, !held.taken.is_empty());
-        reached
-            .real
-            .extend(stood(cell.id.as_str(), self.entry(round, held), &entered.situation));
+        reached.real.extend(stood(cell, &entered.situation));
         // What the page shows for the situation, its places open, is what the engine sends in it.
         let open = context::message(
             &sim.flow,
@@ -738,33 +747,47 @@ impl History {
     }
 }
 
-/// What an entry of the cell stood in, as lines each of one thing the tool writes a situation for, apart: what ran the
-/// cell and how the session stood with each datum; what the session held as the entry began; what else was given. A
-/// real round and a written situation are held to the same lines, each by its own, so that each datum's state is
-/// compared by the cell, the entry and what ran it, and a state of one datum is not asked of another.
-fn stood(cell: &str, entry: &str, s: &Situation) -> Vec<String> {
+/// What a situation of the cell says, as lines each of one thing the tool writes a situation for, apart: how the session
+/// stands with each datum, and whether the datum ran the cell; what the session holds as the entry begins; what else is
+/// given. A real round and a written situation are held to the same lines, so that the state of a datum is compared by
+/// the cell and whether it ran it, and a state of one datum is not asked of another. A situation does not say its entry:
+/// two entries that stand alike are one.
+fn stood(cell: &CellSpec, s: &Situation) -> Vec<String> {
+    let id = cell.id.as_str();
+    let ran = |block: &str| {
+        (cell.watches.iter()).any(|t| s.new.contains(&t.name) && t.blocks.iter().any(|b| b.as_str() == block))
+    };
     let mut lines: Vec<String> = (s.data.iter())
-        .map(|(block, stands)| format!("{cell} {entry} ran by {:?}: {block} {}", s.new, stands.name()))
+        .map(|(block, stands)| {
+            let ran = if ran(block) { "ran it" } else { "did not run it" };
+            format!("{id}: {block} {} and {ran}", stands.name())
+        })
         .collect();
     lines.push(format!(
-        "{cell} {entry} holds {:?}, after a hand-in: {}",
+        "{id}: the session holds {:?}, after a hand-in {}",
         s.holds, s.after_hand_in
     ));
-    lines.push(format!(
-        "{cell} {entry} given results {:?}, sent back {}, main {:?}",
-        s.results, s.sent_back, s.main
-    ));
+    lines.extend(
+        s.results
+            .iter()
+            .map(|key| format!("{id}: given the result of a call, {key}")),
+    );
+    lines.extend(s.sent_back.then(|| format!("{id}: given why a return was sent back")));
+    lines.extend(
+        s.main
+            .iter()
+            .map(|key| format!("{id}: given what came of taking main in, {key}")),
+    );
     lines
 }
 
-/// What the tool writes for every agent's cell of the flow, as the lines of [`stood`], by the entry each is named for.
+/// What the tool writes for every agent's cell of the flow, as the lines of [`stood`].
 fn written(sim: &Sim) -> BTreeSet<String> {
     let mut lines = BTreeSet::new();
     for cell in sim.flow.cells.iter().filter(|c| c.kind == flow::Kind::Agent) {
         let all = context::situations::situations(&sim.flow, &sim.words, cell, REOPENED, &support::compared());
         for named in all {
-            let entry = named.name.split('-').next().expect("an entry");
-            lines.extend(stood(cell.id.as_str(), entry, &named.situation));
+            lines.extend(stood(cell, &named.situation));
         }
     }
     lines

@@ -47,8 +47,20 @@ fn the_first_cell_of_a_line_is_entered_first_holding_nothing_and_run_by_all_the_
 fn a_cell_after_another_of_its_line_is_entered_first_after_its_hand_in_and_may_hold_what_it_read_or_wrote() {
     let all = of("build");
     let first: Vec<&Named> = all.iter().filter(|n| n.name.starts_with("first-")).collect();
-    // The plan, before the build on its line, writes a block.
-    assert!(first.iter().all(|n| n.situation.after_hand_in));
+    // The plan, before the build on its line, writes a block, and its return handed it in; or handed nothing in, or the
+    // session was begun anew and holds nothing.
+    let after = |n: &&&Named| !n.name.contains("-fresh-") && !n.name.contains("-after_nothing_handed_in-");
+    assert!(first.iter().filter(after).all(|n| n.situation.after_hand_in));
+    assert!(
+        first
+            .iter()
+            .any(|n| n.name.contains("-fresh-") && n.situation.holds.is_empty())
+    );
+    assert!(
+        first
+            .iter()
+            .any(|n| n.name.contains("-after_nothing_handed_in-") && !n.situation.after_hand_in)
+    );
     // The session may hold the request and the plan, which the plan read and wrote, as data the build never worked
     // from; never the code, which nothing before the build on its line reads or writes.
     let held = |block: &str| first.iter().any(|n| n.situation.data[block] == Stands::HoldsNew);
@@ -90,7 +102,7 @@ fn a_reopened_session_holds_nothing_and_a_return_that_asked_or_was_sent_back_han
 }
 
 #[test]
-fn a_datum_watched_that_did_not_run_the_cell_stands_as_nothing_new_to_it_does() {
+fn a_datum_watched_that_did_not_run_the_cell_stands_as_any_other_does() {
     let all = of("plan");
     let opinions = |name: &str| {
         let named = all
@@ -99,8 +111,39 @@ fn a_datum_watched_that_did_not_run_the_cell_stands_as_nothing_new_to_it_does() 
             .unwrap_or_else(|| panic!("no {name}"));
         named.situation.data["opinions"]
     };
-    assert_eq!(opinions("later-request-ran_holds_last-rest_lacks"), Stands::Holds);
+    // A version of it written while the run was under way is new to the cell, though it did not run it.
+    assert_eq!(opinions("later-request-ran_holds_last-rest_lacks"), Stands::Lacks);
     assert_eq!(opinions("reopened-request-ran_lacks-rest_lacks"), Stands::Lacks);
+    let later = all.iter().filter(|n| n.name.starts_with("later-request-"));
+    assert!(
+        later
+            .clone()
+            .any(|n| n.situation.data["opinions"] == Stands::HoldsLatest)
+    );
+    assert!(later.clone().any(|n| n.situation.data["opinions"] == Stands::Holds));
+}
+
+// A session begun anew, in which another cell of the line was entered, holds what that cell was sent and wrote: the
+// cell that ran before is entered in it, though its own message is not held (design document `data-and-context`).
+#[test]
+fn a_session_reopened_after_another_cell_of_its_line_was_read_in_it_holds_what_that_cell_was_sent() {
+    let all = of("build");
+    let after: Vec<&Named> = all
+        .iter()
+        .filter(|n| n.name.starts_with("reopened_after_read-"))
+        .collect();
+    assert!(!after.is_empty());
+    // The plan, before the build on its line, was given the request and wrote the plan: the session may hold them, as
+    // data the build worked from before or never; it holds nothing of the code, which neither the plan nor the close
+    // is given or writes.
+    let stands = |block: &str| after.iter().map(|n| n.situation.data[block]).collect::<Vec<_>>();
+    for state in [Stands::Lacks, Stands::HoldsNew, Stands::HoldsLatest, Stands::HoldsLast] {
+        assert!(stands("plan").contains(&state), "{state:?}");
+    }
+    assert!(!stands("code").contains(&Stands::HoldsNew));
+    // What it holds of the message is what it has in common with the cell read first, which its task is not.
+    assert!(after.iter().all(|n| !n.situation.holds.contains(&"task".to_string())));
+    assert!(after.iter().any(|n| !n.situation.holds.is_empty()));
 }
 
 #[test]

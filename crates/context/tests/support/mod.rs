@@ -301,25 +301,36 @@ impl Sim {
         self.enter_with(round, self.main(round), anew)
     }
 
-    /// What came of taking main in as the round's run started, where its cell takes main in: by the run's name, nothing
-    /// to take in, main taken in, or main in conflict.
+    /// What came of taking main in as the round's run started, where its cell takes main in: by the run's number, each
+    /// of the kinds in turn or nothing to take in.
     pub fn main(&self, round: &Given) -> Option<Main> {
         if !self.takes_main || !self.cell(round).takes_main {
             return None;
         }
         let name = "main".to_string();
-        match round.run.0 % 3 {
-            0 => None,
+        let main = format!("m{}", round.run.0);
+        let files = vec!["b.rs".to_string()];
+        match round.run.0 % 7 {
+            0 | 6 => None,
             1 => Some(Main::TookIn {
                 name,
-                main: format!("m{}", round.run.0),
+                main,
                 merge: format!("c{}", round.run.0),
             }),
-            _ => Some(Main::Conflict {
+            2 => Some(Main::Conflict { name, main, files }),
+            3 => Some(Main::Uncommitted {
                 name,
-                main: format!("m{}", round.run.0),
-                files: vec!["b.rs".to_string()],
+                main,
+                files,
+                merging: false,
             }),
+            4 => Some(Main::Uncommitted {
+                name,
+                main,
+                files,
+                merging: true,
+            }),
+            _ => Some(Main::Failed { name }),
         }
     }
 

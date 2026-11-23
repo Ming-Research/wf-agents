@@ -93,13 +93,17 @@ enum Class {
     Fired,
     /// A datum of a group that ran the cell, one of which is new.
     Grouped,
-    /// A datum never new to the cell.
+    /// A datum only the cell writes, so never new to it.
     Never,
     /// A block the cell writes that nothing else gives it.
     Output,
     /// Any other.
     Rest,
 }
+
+/// The result of a call the engine never gives a round: the engine's own wait before a round is tried again, which is no
+/// result, and a call the work does not hold.
+const UNREACHED: &str = "unknown";
 
 /// A set of what the cell watches that ran it, with the name that says it.
 struct Ran<'a> {
@@ -165,34 +169,48 @@ pub fn situations(
                 if states.is_empty() { vec![None] } else { states }
             };
             let frames = reach.frames(entry);
-            for new in states(&[Class::Fired, Class::Grouped], reach.newly(entry, true)) {
-                for rest in states(&[Class::Rest], reach.rest(entry, true, true)) {
-                    for frame in &frames {
-                        let mut name = vec![entry.name().to_string(), ran.name.clone()];
-                        name.extend(frame.after.clone());
-                        name.extend(new.map(|s| format!("ran_{}", s.name())));
-                        name.extend(rest.map(|s| format!("rest_{}", s.name())));
-                        let stands = (data.iter())
-                            .map(|(block, class)| {
-                                let allowed = reach.allowed(entry, block, class);
-                                let wanted = match class {
-                                    Class::Fired | Class::Grouped => new,
-                                    Class::Rest => rest,
-                                    Class::Never | Class::Output => allowed.first().copied(),
-                                };
-                                let instead = match allowed.contains(&Stands::Unwritten) {
-                                    true => Stands::Unwritten,
-                                    false => Stands::Lacks,
-                                };
-                                let stands = wanted.filter(|s| allowed.contains(s)).unwrap_or(instead);
-                                (block.to_string(), reach.unread(block, stands))
-                            })
-                            .collect();
-                        add(Named {
-                            name: name.join("-"),
-                            situation: reach.situation(frame, &ran, stands),
-                        });
+            let news = states(&[Class::Fired, Class::Grouped], reach.newly(entry, true));
+            let rests = states(&[Class::Rest], reach.rest(entry, true, true));
+            let pairs: Vec<(Option<Stands>, Option<Stands>)> = (news.iter())
+                .flat_map(|n| rests.iter().map(move |r| (*n, *r)))
+                .collect();
+            // A datum that stands in a state of its own goes through them as the situations go on, so that each is
+            // written with the cell: as many situations as the datum with most states needs.
+            let most = (data.iter())
+                .filter(|(_, c)| matches!(c, Class::Never | Class::Output))
+                .map(|(b, c)| reach.allowed(entry, b, c).len())
+                .max()
+                .unwrap_or(1);
+            for k in 0..pairs.len().max(most) {
+                let (new, rest) = pairs[k % pairs.len()];
+                for frame in &frames {
+                    let mut name = vec![entry.name().to_string(), ran.name.clone()];
+                    name.extend(frame.after.clone());
+                    name.extend(new.map(|s| format!("ran_{}", s.name())));
+                    name.extend(rest.map(|s| format!("rest_{}", s.name())));
+                    if k >= pairs.len() {
+                        name.push(format!("own_{}", k - pairs.len() + 1));
                     }
+                    let stands = (data.iter())
+                        .map(|(block, class)| {
+                            let allowed = reach.allowed(entry, block, class);
+                            let wanted = match class {
+                                Class::Fired | Class::Grouped => new,
+                                Class::Rest => rest,
+                                Class::Never | Class::Output => allowed.get(k % allowed.len().max(1)).copied(),
+                            };
+                            let instead = match allowed.contains(&Stands::Unwritten) {
+                                true => Stands::Unwritten,
+                                false => Stands::Lacks,
+                            };
+                            let stands = wanted.filter(|s| allowed.contains(s)).unwrap_or(instead);
+                            (block.to_string(), reach.unread(block, stands))
+                        })
+                        .collect();
+                    add(Named {
+                        name: name.join("-"),
+                        situation: reach.situation(frame, &ran, stands),
+                    });
                 }
             }
         }
@@ -241,7 +259,7 @@ pub fn combinations(
                 if groups.iter().all(|g| g.iter().any(|b| is_new(b))) {
                     ways += (grouped.iter())
                         .map(|b| {
-                            let new = reach.newly(entry, reach.holdable(entry, b)).len() as u128;
+                            let new = reach.allowed(entry, b, &Class::Fired).len() as u128;
                             let all = reach.allowed(entry, b, &Class::Rest).len() as u128;
                             if is_new(b) { new } else { all - new }
                         })
@@ -356,7 +374,7 @@ impl<'a> Reach<'a> {
     /// The states of a datum new to the cell, held from another cell of the line where it may be.
     fn newly(&self, entry: Entry, may_hold: bool) -> Vec<Stands> {
         match entry {
-            Entry::First if may_hold => vec![Stands::Lacks, Stands::HoldsNew],
+            Entry::First if may_hold => vec![Stands::Lacks, Stands::HoldsLast, Stands::HoldsNew],
             Entry::First | Entry::Reopened => vec![Stands::Lacks],
             Entry::Later => vec![Stands::Lacks, Stands::HoldsLast, Stands::HoldsLatest, Stands::HoldsNew],
             Entry::ReopenedAfterRead if may_hold => {
@@ -372,7 +390,9 @@ impl<'a> Reach<'a> {
         match entry {
             Entry::First => {
                 states.push(Stands::Lacks);
-                states.extend(may_hold.then_some(Stands::HoldsNew));
+                if may_hold {
+                    states.extend([Stands::HoldsLast, Stands::HoldsNew]);
+                }
             }
             Entry::Later => states.extend([
                 Stands::Lacks,
@@ -392,8 +412,22 @@ impl<'a> Reach<'a> {
         states
     }
 
-    /// The states the datum can stand in on the entry, in its class, the one it stands in most first.
+    /// The states the datum can stand in on the entry, in its class, the one it stands in most first. On a first entry,
+    /// a session that holds an earlier version of a datum whose versions the carrier compares, given `last_and_latest`,
+    /// is told what changed since, though the cell worked from none: that is the one datum that stands held as last
+    /// worked from.
     fn allowed(&self, entry: Entry, block: &BlockId, class: &Class) -> Vec<Stands> {
+        let mut states = self.allowed_in(entry, block, class);
+        let compares = self.compared.contains(block)
+            && (self.given.iter())
+                .any(|g| &g.block == block && g.kind == InputKind::LastAndLatest && g.list != Listed::Outputs);
+        if entry == Entry::First && !compares {
+            states.retain(|s| *s != Stands::HoldsLast);
+        }
+        states
+    }
+
+    fn allowed_in(&self, entry: Entry, block: &BlockId, class: &Class) -> Vec<Stands> {
         let unwritten = !self.certain.contains(block);
         if entry == Entry::First && !self.early(block) {
             return vec![Stands::Unwritten];
@@ -559,11 +593,6 @@ impl<'a> Reach<'a> {
                 classes.entry(block.clone()).or_insert(class);
             }
         }
-        let of_others = |b: &BlockId| {
-            (cell.watches.iter())
-                .filter(|t| !ran.iter().any(|r| r.name == t.name))
-                .any(|t| t.blocks.contains(b))
-        };
         let alone = |b: &BlockId| {
             flow.blocks.get(b).is_some_and(|d| {
                 let w = &d.writers;
@@ -572,11 +601,7 @@ impl<'a> Reach<'a> {
         };
         for block in given {
             if !classes.contains_key(block) {
-                let class = if of_others(block) || alone(block) {
-                    Class::Never
-                } else {
-                    Class::Rest
-                };
+                let class = if alone(block) { Class::Never } else { Class::Rest };
                 classes.insert(block.clone(), class);
             }
         }
@@ -591,38 +616,51 @@ impl<'a> Reach<'a> {
             .collect()
     }
 
-    /// What the session may hold as the entry begins, each way once.
+    /// What the session may hold as the entry begins, each way once, each with the part of the name that tells it
+    /// from the others.
     fn frames(&self, entry: Entry) -> Vec<Frame> {
-        let one = |(holds, after_hand_in)| {
-            vec![Frame {
-                holds,
-                after_hand_in,
-                after: None,
-            }]
+        let mut frames: Vec<Frame> = Vec::new();
+        let mut add = |holds: Vec<String>, after_hand_in: bool, after: Option<String>| {
+            if !frames
+                .iter()
+                .any(|f| f.holds == holds && f.after_hand_in == after_hand_in)
+            {
+                frames.push(Frame {
+                    holds,
+                    after_hand_in,
+                    after,
+                });
+            }
         };
         match entry {
-            Entry::First => one(self.after_the_line()),
-            Entry::Later => one((self.kept(), true)),
-            Entry::Reopened => one((Vec::new(), false)),
+            // The session goes on from the cell of the line before it, whose last return handed in blocks or did not;
+            // or holds nothing, as one begun anew or compacted during the round does.
+            Entry::First => {
+                let (alike, writes) = self.after_the_line();
+                add(alike.clone(), writes, None);
+                add(alike, false, Some("after_nothing_handed_in".to_string()));
+                add(Vec::new(), false, Some("fresh".to_string()));
+            }
+            Entry::Later => {
+                add(self.kept(), true, None);
+                // A cell that takes main in holds what came of it where its run's earlier round was sent it.
+                if self.cell.takes_main {
+                    let mut held = self.kept();
+                    held.push(Part::Main.name().to_string());
+                    add(held, true, Some("main_held".to_string()));
+                }
+            }
+            Entry::Reopened => add(Vec::new(), false, None),
             Entry::ReopenedAfterRead => {
-                let mut frames: Vec<Frame> = Vec::new();
                 for other in &self.others {
                     let (holds, after_hand_in) = self.after(other);
-                    if !frames
-                        .iter()
-                        .any(|f| f.holds == holds && f.after_hand_in == after_hand_in)
-                    {
-                        let after = Some(format!("after_{}", other.id.as_str().to_lowercase()));
-                        frames.push(Frame {
-                            holds,
-                            after_hand_in,
-                            after,
-                        });
-                    }
+                    let id = other.id.as_str().to_lowercase();
+                    add(holds.clone(), after_hand_in, Some(format!("after_{id}")));
+                    add(holds, false, Some(format!("after_{id}_nothing_handed_in")));
                 }
-                frames
             }
         }
+        frames
     }
 
     /// The situation of an entry run by what it watches of these, its data standing so, and nothing else given.
@@ -667,13 +705,13 @@ impl<'a> Reach<'a> {
     }
 
     /// The other things a round may be given, each alone, on a later entry run by the first of what the cell watches
-    /// that runs one.
+    /// that runs one; and, where a later entry holds what came of taking main in, a return that handed nothing in.
     fn besides(&self) -> Vec<Named> {
         let entry = Entry::Later;
         let Some(ran) = self.ran(entry).into_iter().next() else {
             return Vec::new();
         };
-        let data = (self.classes(&ran.watched).into_iter())
+        let data: BTreeMap<String, Stands> = (self.classes(&ran.watched).into_iter())
             .map(|(block, class)| {
                 let stands = match class {
                     Class::Fired | Class::Grouped => Stands::HoldsLast,
@@ -682,36 +720,45 @@ impl<'a> Reach<'a> {
                 (block.to_string(), stands)
             })
             .collect();
-        let base = self.situation(&self.frames(entry)[0], &ran, data);
-        let named = |what: String, situation: Situation| Named {
-            name: format!("{}-{}-{what}", entry.name(), ran.name),
-            situation,
-        };
         // A return that asked for calls, or was sent back, handed nothing in.
         let after_hand_in = false;
         let mut out = Vec::new();
-        for key in CALLS {
-            let results = vec![key.to_string()];
-            let situation = Situation {
-                results,
-                after_hand_in,
-                ..base.clone()
+        for (n, frame) in self.frames(entry).iter().enumerate() {
+            let base = self.situation(frame, &ran, data.clone());
+            let named = |what: String, situation: Situation| Named {
+                name: format!(
+                    "{}-{}-{}{what}",
+                    entry.name(),
+                    ran.name,
+                    frame.after.as_deref().map_or(String::new(), |a| format!("{a}-"))
+                ),
+                situation,
             };
-            out.push(named(format!("results_{key}"), situation));
-        }
-        let sent_back = Situation {
-            sent_back: true,
-            after_hand_in,
-            ..base.clone()
-        };
-        out.push(named("sent_back".into(), sent_back));
-        if self.cell.takes_main {
-            for key in MAIN {
-                let main = Some(key.to_string());
-                out.push(named(format!("main_{key}"), Situation { main, ..base.clone() }));
+            if n == 0 {
+                for key in CALLS.iter().filter(|key| **key != UNREACHED) {
+                    let results = vec![key.to_string()];
+                    let situation = Situation {
+                        results,
+                        after_hand_in,
+                        ..base.clone()
+                    };
+                    out.push(named(format!("results_{key}"), situation));
+                }
+                let sent_back = Situation {
+                    sent_back: true,
+                    after_hand_in,
+                    ..base.clone()
+                };
+                out.push(named("sent_back".into(), sent_back));
+                if self.cell.takes_main {
+                    for key in MAIN {
+                        let main = Some(key.to_string());
+                        out.push(named(format!("main_{key}"), Situation { main, ..base.clone() }));
+                    }
+                }
             }
+            out.push(named("nothing_handed_in".into(), Situation { after_hand_in, ..base }));
         }
-        out.push(named("nothing_handed_in".into(), Situation { after_hand_in, ..base }));
         out
     }
 }
