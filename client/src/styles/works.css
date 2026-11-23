@@ -440,6 +440,11 @@
   margin-top: var(--space-4);
 }
 
+/* A value recorded of a reason, such as the files git lists, keeps its line breaks. */
+.reasons .mono {
+  white-space: pre-wrap;
+}
+
 .call-input {
   overflow-wrap: anywhere;
 }

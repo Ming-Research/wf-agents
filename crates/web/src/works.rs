@@ -26,7 +26,7 @@
 //! not: making its view gives [`Broken`], saying what is missing.
 
 use context::Author;
-use decide::run::{Failure as FailureOf, Limit as LimitOf, Unmet as UnmetOf};
+use decide::run::{Failure as FailureOf, Limit as LimitOf, Recorded, Unmet as UnmetOf};
 use decide::{
     BlockId, CallId, Cause as CauseOf, CellId, Condition as Applies, Decision, End, Holder, Maker as MakerOf,
     Pauser as PauserOf, Records, RunId, Seq, Unrun as UnrunOf, VersionView, View, Waited as WaitedOf, Who,
@@ -1282,8 +1282,12 @@ pub struct Missed {
     /// The tokens its session held.
     pub held: u64,
     /// What comes before the session's messages in the prompt and differs from the call before, by name: the cause by
-    /// design; none where nothing does, and the miss is a fault of wf-agents.
+    /// design; none where nothing does, and the miss is a fault of wf-agents unless `unknown`.
     pub differs: Vec<String>,
+    /// Whether the records do not say why it missed: none of the parts differs by what they hold, and they do not hold
+    /// what both calls were given, or the first prompt is shorter than what the session held with no compaction
+    /// recorded.
+    pub unknown: bool,
 }
 
 /// The session of its line a round runs in.
@@ -1336,85 +1340,19 @@ pub enum Given {
     SentBack { unmet: Vec<Unmet> },
 }
 
-/// Why what came back does not meet what the flow requires.
+/// Why what came back does not meet what the flow requires: the key its words have in `[faults]` of
+/// `agents/return/sent_back.toml`, and what was recorded of it, each value under its name, as the file writes them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum Unmet {
-    /// The round asked for calls, and for none.
-    AsksNothing,
-    /// The block is not one the cell may write.
-    NotAnOutput { block: String },
-    /// The block was written before in the same return.
-    WrittenTwice { block: String },
-    /// The block is a choice, and was written with no value.
-    NoValue { block: String },
-    /// The block is a choice, and this is not one of its values.
-    NotAValue { block: String, value: String },
-    /// The block is no choice, and was written with a value.
-    NotAChoice { block: String },
-    /// The block is one the cell must hand in each time, and was not handed in.
-    NotHandedIn { block: String },
-    /// It writes the choice with the value, with which a return holds no other block its cell may write but those the
-    /// choice's file names, and holds these besides.
-    NothingBut {
-        block: String,
-        value: String,
-        besides: Vec<String>,
-    },
-    /// What came back could not be read as a return, for this reason.
-    Unreadable { why: String },
-    /// The block is named as dealt with, and it did not run the round.
-    NotRunBy { block: String },
-    /// The block is named twice as dealt with.
-    DealtWithTwice { block: String },
-    /// Something ran the round, and the return deals with none of it and asks for no call.
-    DealtWithNothing,
-    /// The block got this version, by its number, from another writer since the round was told of the one it writes
-    /// over.
-    WrittenOver { block: String, version: u64 },
-    /// The block is a choice, written as changing nothing in meaning with another value than it has.
-    ChoiceChanged { block: String },
-    /// The return asks for calls and also does the cell's work.
-    AsksAndWorks,
-    /// The return names as dealt with a name that is none of what its cell watches.
-    NotWatched { name: String },
-    /// The return asks for a tool its cell may not ask for.
-    NotATool { name: String },
-    /// The return names the block as written with its meaning unchanged, and does not write it.
-    UnchangedNotWritten { block: String },
-    /// A question it writes is not its cell's own: another cell's, or one the engine asked.
-    QuestionTaken { name: String },
-    /// It withdraws a question of which none of its cell's stands.
-    NoSuchQuestion { name: String },
-    /// It writes a question twice.
-    QuestionTwice { name: String },
-    /// A question it asks recommends none of its options.
-    NotAnOption { name: String },
-    /// It asks a question from a cell that no answer runs.
-    NotAnswerable { name: String },
-    /// It deals with its cell's own words, of this name, and writes no answer in them.
-    NotAnswered { name: String },
-    /// The work's branch changes this file the project protects, and nothing says why.
-    Unexplained { path: String },
-    /// The run of a line that changes only the project's tests changed this file, which is none of them.
-    NotATest { path: String },
-    /// A round that asks for no call ended with changes to tracked files that are not committed.
-    Uncommitted { changes: String },
-    /// A round that asks for no call ended with a merge begun in the worktree and not committed.
-    Merging { changes: String },
-    /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
-    /// change changes nothing in the design tree.
-    TreeUnchanged { name: String },
-    /// A line of a block that names entries of the design tree names none the tree on the work's branch holds.
-    NotAnEntry { line: String },
-    /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question with an
-    /// answer to come.
-    Unanswered { block: String },
-    /// It names as dealt with a dialogue it answers as the maker, and answers none of its points there, changes none of
-    /// what the other side watches and asks no question the work waits for.
-    WordOwed { name: String, watched: Vec<String> },
-    /// It writes a verdict with the value that does not pass, and no version of its dialogue.
-    NoPoint { block: String, value: String, name: String },
+pub struct Unmet {
+    pub key: String,
+    pub values: Vec<UnmetValue>,
+}
+
+/// A value recorded of a thing wrong with a return, under the name of its field.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnmetValue {
+    pub name: String,
+    pub value: String,
 }
 
 /// What came back at the end of a round.
@@ -3339,81 +3277,20 @@ impl Ask {
 
 impl Unmet {
     fn of(unmet: &UnmetOf, records: &Records) -> Result<Unmet, Broken> {
-        Ok(match unmet {
-            UnmetOf::AsksNothing => Unmet::AsksNothing,
-            UnmetOf::NotAnOutput { block } => Unmet::NotAnOutput {
-                block: block.to_string(),
-            },
-            UnmetOf::WrittenTwice { block } => Unmet::WrittenTwice {
-                block: block.to_string(),
-            },
-            UnmetOf::NoValue { block } => Unmet::NoValue {
-                block: block.to_string(),
-            },
-            UnmetOf::NotAValue { block, value } => Unmet::NotAValue {
-                block: block.to_string(),
-                value: value.clone(),
-            },
-            UnmetOf::NotAChoice { block } => Unmet::NotAChoice {
-                block: block.to_string(),
-            },
-            UnmetOf::Unreadable { why } => Unmet::Unreadable { why: why.clone() },
-            UnmetOf::NotHandedIn { block } => Unmet::NotHandedIn {
-                block: block.to_string(),
-            },
-            UnmetOf::NothingBut { block, value, besides } => Unmet::NothingBut {
-                block: block.to_string(),
-                value: value.clone(),
-                besides: besides.iter().map(BlockId::to_string).collect(),
-            },
-            UnmetOf::NotRunBy { block } => Unmet::NotRunBy {
-                block: block.to_string(),
-            },
-            UnmetOf::DealtWithTwice { block } => Unmet::DealtWithTwice {
-                block: block.to_string(),
-            },
-            UnmetOf::DealtWithNothing => Unmet::DealtWithNothing,
-            UnmetOf::WrittenOver { block, version } => Unmet::WrittenOver {
-                block: block.to_string(),
-                version: numbered(records, block, *version)?,
-            },
-            UnmetOf::ChoiceChanged { block } => Unmet::ChoiceChanged {
-                block: block.to_string(),
-            },
-            UnmetOf::AsksAndWorks => Unmet::AsksAndWorks,
-            UnmetOf::NotWatched { name } => Unmet::NotWatched { name: name.clone() },
-            UnmetOf::NotATool { name } => Unmet::NotATool { name: name.clone() },
-            UnmetOf::UnchangedNotWritten { block } => Unmet::UnchangedNotWritten {
-                block: block.to_string(),
-            },
-            UnmetOf::QuestionTaken { name } => Unmet::QuestionTaken { name: name.clone() },
-            UnmetOf::NoSuchQuestion { name } => Unmet::NoSuchQuestion { name: name.clone() },
-            UnmetOf::QuestionTwice { name } => Unmet::QuestionTwice { name: name.clone() },
-            UnmetOf::NotAnOption { name } => Unmet::NotAnOption { name: name.clone() },
-            UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
-            UnmetOf::NotAnswered { name } => Unmet::NotAnswered { name: name.clone() },
-            UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
-            UnmetOf::NotATest { path } => Unmet::NotATest { path: path.clone() },
-            UnmetOf::Uncommitted { changes } => Unmet::Uncommitted {
-                changes: changes.clone(),
-            },
-            UnmetOf::Merging { changes } => Unmet::Merging {
-                changes: changes.clone(),
-            },
-            UnmetOf::TreeUnchanged { name } => Unmet::TreeUnchanged { name: name.clone() },
-            UnmetOf::NotAnEntry { line } => Unmet::NotAnEntry { line: line.clone() },
-            UnmetOf::Unanswered { block } => Unmet::Unanswered {
-                block: block.to_string(),
-            },
-            UnmetOf::WordOwed { name, watched } => Unmet::WordOwed {
+        let mut values = Vec::new();
+        for (name, recorded) in unmet.values() {
+            let value = match recorded {
+                Recorded::Text(text) => text,
+                Recorded::Version { block, at } => numbered(records, &block, at)?.to_string(),
+            };
+            values.push(UnmetValue {
                 name: name.to_string(),
-                watched: watched.iter().map(BlockId::to_string).collect(),
-            },
-            UnmetOf::NoPoint { block, value, name } => Unmet::NoPoint {
-                block: block.to_string(),
-                value: value.clone(),
-                name: name.to_string(),
-            },
+                value,
+            });
+        }
+        Ok(Unmet {
+            key: unmet.key().to_string(),
+            values,
         })
     }
 }
@@ -3453,7 +3330,11 @@ fn in_detail(
                 .map(|m| Missed {
                     read: m.read,
                     held: m.held,
-                    differs: m.differs.clone(),
+                    differs: match &m.cause {
+                        driver::cache::Cause::Differs(parts) => parts.clone(),
+                        driver::cache::Cause::Unknown | driver::cache::Cause::Fault => Vec::new(),
+                    },
+                    unknown: m.cause == driver::cache::Cause::Unknown,
                 });
             round.session = line.map(|line| {
                 let on_line = |other: RunId| line_of(other) == Some(line);
@@ -4259,6 +4140,51 @@ pub(crate) mod tests {
         assert_eq!(named("write_questions", 9), the_run);
         assert_eq!(named("write_questions", 11), owner);
         assert_eq!(named("write_questions", 13), outside);
+    }
+
+    // What a return was sent back for is given as the key its words have in `sent_back.toml` and the values recorded,
+    // each under the name of the field that holds it: a recorded block stays `block` where the file's words name the
+    // datum or group the cell watches, and a version is the number it has among its datum's versions (decision
+    // a-sent-back-reason-is-shown-by-its-key).
+    #[test]
+    fn a_return_sent_back_is_given_by_its_key_and_the_values_recorded() {
+        let mut records = Records::default();
+        for at in [3, 5] {
+            records.written.push(Written {
+                block: "plan".into(),
+                by: Outsider::Person,
+                matters: true,
+                value: None,
+                empty: false,
+                said_to: None,
+                at: Seq(at),
+            });
+        }
+        let given = |unmet: UnmetOf| serde_json::to_value(Unmet::of(&unmet, &records).expect("the reason is given"));
+        let value = |name: &str, value: &str| serde_json::json!({ "name": name, "value": value });
+        assert_eq!(
+            given(UnmetOf::NotATest {
+                path: "src/lib.rs".into()
+            })
+            .expect("JSON"),
+            serde_json::json!({ "key": "not_a_test", "values": [value("path", "src/lib.rs")] }),
+        );
+        assert_eq!(
+            given(UnmetOf::NotRunBy { block: "plan".into() }).expect("JSON"),
+            serde_json::json!({ "key": "not_run_by", "values": [value("block", "plan")] }),
+        );
+        assert_eq!(
+            given(UnmetOf::WrittenOver {
+                block: "plan".into(),
+                version: Seq(5)
+            })
+            .expect("JSON"),
+            serde_json::json!({ "key": "written_over", "values": [value("block", "plan"), value("version", "2")] }),
+        );
+        assert_eq!(
+            given(UnmetOf::DealtWithNothing).expect("JSON"),
+            serde_json::json!({ "key": "dealt_with_nothing", "values": [] }),
+        );
     }
 
     // Acceptance 13: a work on no version kept no stretches as it ended and is decided by no flow, so its bar is drawn
