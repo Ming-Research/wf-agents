@@ -1398,10 +1398,11 @@ fn per_cell(lines: &BTreeSet<String>) -> String {
     format!("{cells:?}")
 }
 
-// Alone it runs about 50 s on CI (8 histories of up to 220 steps, about 40 ms a round, most of it the context manager
-// filling each round twice, as its session stands and in a new one). It catches what no other test does: a state of a
-// datum in a round of the repository's own flow that the tool's rules do not write. It cannot be smaller: a cell is
-// reached only after the cells before it, and each history reaches a few cells further than the one before.
+// Alone it ran 102 s on CI on 2026-11-23, under the 300 s the histories binaries are given (8 histories of up to 220
+// steps, about 40 ms a round, most of it the context manager filling each round twice, as its session stands and in a
+// new one). It catches what no other test does: a state of a datum in a round of the repository's own flow that the
+// tool's rules do not write. It cannot be smaller: a cell is reached only after the cells before it, and each history
+// reaches a few cells further than the one before.
 #[test]
 fn every_state_of_a_datum_that_a_round_of_the_engineer_s_flow_stood_in_is_one_the_tool_writes() {
     let mut reached = Reached::default();
@@ -1432,6 +1433,14 @@ fn every_state_of_a_datum_that_a_round_of_the_engineer_s_flow_stood_in_is_one_th
     );
     // A line of a round that the tool does not write is a gap in its rules. The other way, a line it writes that no round
     // stood in, is not held to: these histories reach only some of the flow's cells and of the states each datum has.
+    // How many there are is said, by cell, as the test runs.
+    let nothing: BTreeSet<String> = written.difference(&reached.real).cloned().collect();
+    eprintln!(
+        "{} of the {} states the tool writes were stood in by no round, by cell: {}",
+        nothing.len(),
+        written.len(),
+        per_cell(&nothing)
+    );
     let gaps: Vec<String> = (reached.real.difference(&written))
         .map(|line| format!("{line}\n    {}", reached.examples[line]))
         .collect();
