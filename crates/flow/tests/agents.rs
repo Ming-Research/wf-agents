@@ -179,6 +179,8 @@ fn what_the_engine_writes_as_it_works_is_read_alone_as_read_reads_it() {
     let writes = agents::writes(&beside()).unwrap();
     assert_eq!(writes.commits, read.commits);
     assert_eq!(writes.acts.start.text, read.acts.start.text);
+    assert_eq!(writes.acts.start.continued, read.acts.start.continued);
+    assert!(read.acts.start.continued.contains("{continues}"));
     assert_eq!(writes.acts.deliver.between, read.acts.deliver.between);
 }
 

@@ -288,7 +288,6 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<Said>, Vec<Str
             }
         }
     }
-    put(ret.clone(), "\n\n", told.every_time.trim_end());
     let listed: Vec<(&String, _)> = (told.listed.iter())
         .filter_map(|n| agents.fields.get(n).map(|f| (n, f)))
         .collect();
@@ -378,7 +377,7 @@ pub fn check(parts: &[Part], settings: &Settings, fills: impl Fn(&str) -> bool) 
 
 /// The flow's own texts that a message sends its agent cells, each with what of the flow it is: each agent cell's
 /// task, what it does when each datum it watches is new, and the words of each block, what it is and what a cell that
-/// writes it is told of writing it.
+/// writes it is told of writing it, and, where the cell hands in a block every time, besides.
 pub fn flow_texts(flow: &Compiled) -> Vec<Said> {
     let mut out = Vec::new();
     for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
@@ -411,6 +410,16 @@ pub fn flow_texts(flow: &Compiled) -> Vec<Said> {
         if let Some(words) = &block.words {
             out.push(Said {
                 source: format!("block {}, what its writer is told", name.as_str()),
+                text: words.clone(),
+                places: false,
+            });
+        }
+        if let Some(words) = &block.words_if_marked {
+            out.push(Said {
+                source: format!(
+                    "block {}, what its writer is told if it hands in a block every time",
+                    name.as_str()
+                ),
                 text: words.clone(),
                 places: false,
             });
@@ -589,6 +598,14 @@ pub fn as_written(pieces: &[Piece]) -> String {
             Piece::Slot { name } => format!("{{{name}}}"),
         })
         .collect()
+}
+
+/// The text in a fenced block, so that nothing it holds reads as the structure of the words around it, a heading or a
+/// list: the fence is longer than any run of backquotes in it, and at least three.
+pub fn fenced(text: &str) -> String {
+    let longest = (text.split(|c| c != '`')).map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(longest.max(2) + 1);
+    format!("{fence}\n{text}\n{fence}")
 }
 
 /// A text sent as written, or nothing where there is none.
