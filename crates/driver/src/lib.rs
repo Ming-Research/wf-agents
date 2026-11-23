@@ -25,12 +25,9 @@
 //! paused, is first let on with nothing of it started, or, reopened, is first let on since, so that the cell it runs,
 //! the work's start, is entered and makes the place the work is done in again.
 //!
-//! The driver writes one more kind of block of a work: a block of a flow whose source is [`SESSION`], which a cell
-//! reads that loads into a line's session what the line's other cells work from, each line its own. As a line of a work
-//! begins a new session, the driver records it and writes the block its cells read, so that the cell runs again before
-//! the line goes on; when a line begins one is the installation's [`Policy`], worked out of the work's records, and of
-//! what the carriers say a new session of the line would begin with, after each thing that happens and before the walk
-//! (module [`sessions`]).
+//! As a line of a work begins a new session, the driver records it, and the line goes on in it; when a line begins one
+//! is the installation's [`Policy`], worked out of the work's records, and of what the carriers say a new session of the
+//! line would begin with, after each thing that happens and before the walk (module [`sessions`]).
 //!
 //! What another source outside the works says of a project, such as the head of the project's main branch, the driver
 //! is told ([`Driver::outside`]), and writes into the block of that source of each work of that project's items that
@@ -136,7 +133,7 @@ use work::{KeptTime, Moment, Time, Work};
 
 pub use budget::Budget;
 pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
-pub use sessions::{Policy, SESSION, Warm};
+pub use sessions::{Policy, Warm};
 pub use usage::{LOOK_AFTER_MS, Said, Usage, Usages, Window};
 
 /// The source of the blocks the driver writes: whether the items the work's item depends on have merged or were
@@ -154,7 +151,7 @@ pub const MERGED: &str = "merged";
 pub const START: &str = "start";
 
 /// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
-/// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`], of [`engine::asked::ASKED`] or of
+/// the block: a block of [`DEPENDENCIES`], of [`START`], of [`engine::asked::ASKED`] or of
 /// [`engine::handed_in::HANDED_IN`], and each cell's own words and questions, which the sources of the owner's words
 /// and of the answers write and the cell writes too, gives in its `writes` each text the engine fills, so that none is
 /// written empty; and the words beside the flows ([`flow::waits_file`]) give every reason the engine says to the owner.
@@ -162,10 +159,8 @@ pub const START: &str = "start";
 pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
     use engine::handed_in::HANDED_IN;
-    let session: Vec<&str> = ["text"].into_iter().chain(work::Why::KINDS).collect();
-    let needs: [(&str, &[&str]); 5] = [
+    let needs: [(&str, &[&str]); 4] = [
         (DEPENDENCIES, &[MERGED, WAITING, "between"]),
-        (SESSION, &session),
         (START, &["text"]),
         (ASKED, &[ANSWERED, UNANSWERED, "between"]),
         (HANDED_IN, &["text"]),

@@ -633,10 +633,13 @@ pub enum What {
     VerdictWithoutDialogue {
         verdict: String,
     },
-    /// The cell watches or reads a datum of another line's own.
-    LineDataOfAnother {
+    /// The block names entries of the design tree, and no datum of the flow is the design tree.
+    EntriesWithoutTree {
         block: String,
-        line: String,
+    },
+    /// The cell is given a block that names entries of the design tree in another kind than its latest.
+    EntriesNotLatest {
+        block: String,
     },
     /// The flow names a cell for the engine to ask in that cannot change the work or cannot be spoken to.
     CannotBeAskedIn {
@@ -1033,7 +1036,8 @@ impl What {
             F::SpokenToAndAsksNothing { block } => What::SpokenToAndAsksNothing { block },
             F::VerdictOfDialogues { verdict, dialogues } => What::VerdictOfDialogues { verdict, dialogues },
             F::VerdictWithoutDialogue { verdict } => What::VerdictWithoutDialogue { verdict },
-            F::LineDataOfAnother { block, line } => What::LineDataOfAnother { block, line },
+            F::EntriesWithoutTree { block } => What::EntriesWithoutTree { block },
+            F::EntriesNotLatest { block } => What::EntriesNotLatest { block },
             F::CannotBeAskedIn { cell } => What::CannotBeAskedIn { cell },
             F::NeverNew {
                 watched,

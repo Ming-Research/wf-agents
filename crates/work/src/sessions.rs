@@ -129,56 +129,6 @@ impl Why {
     pub fn own_id(&self) -> bool {
         !matches!(self, Why::Lost | Why::Compacted)
     }
-
-    /// The names of its kinds, each the name of the words of it where the flow says what the engine writes of a new
-    /// session: [`Why::named`] gives a kind's name from here, by [`Why::kind`].
-    pub const KINDS: [&'static str; 10] = [
-        "limit",
-        "model",
-        "changed",
-        "account",
-        "owner",
-        "flagged",
-        "guarded",
-        "too_long",
-        "lost",
-        "compacted",
-    ];
-
-    /// Its kind's place among [`Why::KINDS`]. The match names every kind, so that a kind added to `Why` is given a
-    /// name there before the engine builds.
-    fn kind(&self) -> usize {
-        match self {
-            Why::Limit { .. } => 0,
-            Why::Model { .. } => 1,
-            Why::Changed { .. } => 2,
-            Why::Account { .. } => 3,
-            Why::Owner => 4,
-            Why::Flagged => 5,
-            Why::Guarded => 6,
-            Why::TooLong => 7,
-            Why::Lost => 8,
-            Why::Compacted => 9,
-        }
-    }
-
-    /// Its kind, by its name among [`Why::KINDS`], and the places the words of it fill in a run, each with its value.
-    pub fn named(&self) -> (&'static str, Vec<(&'static str, String)>) {
-        let places = match self {
-            Why::Limit { context, limit } => vec![("context", context.to_string()), ("limit", limit.to_string())],
-            Why::Model { was } => vec![("was", was.clone())],
-            // The context left is the owner's to read, from the record: the agents of the new session are not told it.
-            Why::Changed { .. }
-            | Why::Account { .. }
-            | Why::Owner
-            | Why::Flagged
-            | Why::Guarded
-            | Why::TooLong
-            | Why::Lost
-            | Why::Compacted => Vec::new(),
-        };
-        (Self::KINDS[self.kind()], places)
-    }
 }
 
 /// Where the round of this number of the run began; none where the records hold no such round.
@@ -265,24 +215,6 @@ mod tests {
     use decide::{Returned, Round};
 
     use super::*;
-
-    #[test]
-    fn each_kind_of_a_new_session_has_a_name_of_its_own_among_the_kinds() {
-        let every = [
-            Why::Limit { context: 2, limit: 1 },
-            Why::Model { was: "m".to_string() },
-            Why::Changed { context: Some(3) },
-            Why::Account { was: None },
-            Why::Owner,
-            Why::Flagged,
-            Why::Guarded,
-            Why::TooLong,
-            Why::Lost,
-            Why::Compacted,
-        ];
-        let names: Vec<&str> = every.iter().map(|w| w.named().0).collect();
-        assert_eq!(names, Why::KINDS);
-    }
 
     /// A work whose one run has rounds begun at these places, each ended after it with these tokens, and these
     /// sessions recorded.
