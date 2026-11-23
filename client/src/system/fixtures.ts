@@ -143,7 +143,7 @@ export function fixtureSettings(): SettingsPage {
       {
         name: 'sessions',
         leftOut: true,
-        keys: [{ key: 'context_limit', written: null, running: '500000', change: { kind: 'count' } }],
+        keys: [{ key: 'compact_at', written: null, running: '500000', change: { kind: 'count' } }],
       },
     ],
   };

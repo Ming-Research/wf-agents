@@ -121,7 +121,7 @@ describe('the settings the page changes', () => {
       ['agents.levels.2.model', 'claude-sonnet-5-5', null, false],
       ['agents.levels.3.model', 'claude-opus-5-5', null, false],
       ['items.highest_level', '3', null, false],
-      ['sessions.context_limit', '500000', '500000', true],
+      ['sessions.compact_at', '500000', '500000', true],
     ]);
     expect(unquoted('"a \\"b\\""')).toBe('a "b"');
     expect(unquoted("'c'")).toBe('c');
