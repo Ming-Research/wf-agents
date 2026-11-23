@@ -354,6 +354,103 @@ async fn the_tags_route_counts_observations() {
     );
 }
 
+// The tests below are the testing's own. Their references: the tag rule the owner chose for observations (the item
+// tags' rule: 1 to 40 characters, no whitespace, no comma), the title limit of the trial settings (20 words), and the
+// route's own contract in the module's header: a request that cannot be read or is refused makes nothing.
+#[tokio::test(start_paused = true)]
+async fn a_tag_added_with_an_observation_is_one_of_forty_characters_with_no_space_or_comma() {
+    let running = planned().await;
+    let router = &running.router;
+    let tagged = |tag: &str| {
+        let mut asked = architects("trial", "trial");
+        asked["tags"] = json!([tag]);
+        asked
+    };
+    let bad: [String; 6] = [
+        String::new(),
+        "x".repeat(41),
+        "标".repeat(41),
+        "a,b".to_string(),
+        "a b".to_string(),
+        "a\tb".to_string(),
+    ];
+    for bad in &bad {
+        let (status, body) = post(router, "/api/v1/observations", &tagged(bad)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad:?}: {body}");
+    }
+    assert_eq!(numbers(&running).await, [2, 1], "a refused observation was kept");
+    for good in ["x".repeat(40), "标".repeat(40)] {
+        let (status, body) = post(router, "/api/v1/observations", &tagged(&good)).await;
+        assert_eq!(status, StatusCode::OK, "{good:?}: {body}");
+    }
+    let listed = get_json(router, "/api/v1/observations").await;
+    assert_eq!(listed["observations"][0]["tags"], json!(["标".repeat(40)]));
+    assert_eq!(listed["observations"][1]["tags"], json!(["x".repeat(40)]));
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_reading_of_an_observation_stays_through_changes_and_a_batch_that_cannot_be_read_or_fit_makes_nothing() {
+    let running = planned().await;
+    let router = &running.router;
+    assert_eq!(
+        post(router, "/api/v1/observations", &architects("trial", "trial")).await,
+        (StatusCode::OK, json!({ "number": 3 }))
+    );
+    let (status, read) = post(router, "/api/v1/observations/3/read", &json!({})).await;
+    assert_eq!(status, StatusCode::OK);
+    let made = changing(
+        &running,
+        "Naming.",
+        json!([
+            { "kind": "title", "observation": 3, "title": "Renamed" },
+            { "kind": "untag", "observation": 3, "tag": "flow" },
+        ]),
+    )
+    .await;
+    assert_eq!(made, (StatusCode::OK, json!({ "changed": [true, true] })));
+    let listed = get_json(router, "/api/v1/observations").await;
+    assert_eq!(listed["observations"][0]["read"], read["read"]);
+    assert_eq!(listed["observations"][0]["title"], json!("Renamed"));
+    assert_eq!(listed["observations"][0]["tags"], json!(["tests"]));
+    // None of these makes anything: the first cannot be read as a change, the second names an observation that is no
+    // number, the third has a title past the words the settings allow, the fourth a title of no words, which the store
+    // refuses after the route has read it.
+    let good = json!({ "kind": "tag", "observation": 3, "tag": "late" });
+    let long = "a b c d e f g h i j k l m n o p q r s t u";
+    let asked = [
+        (
+            json!([good, { "kind": "title", "observation": 3 }]),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!([good, { "kind": "delete", "observation": -1 }]),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!([good, { "kind": "delete", "observation": 3, "extra": 1 }]),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!([good, { "kind": "title", "observation": 3, "title": long }]),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            json!([good, { "kind": "title", "observation": 3, "title": "  " }]),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ];
+    for (changes, expected) in asked {
+        let (status, body) = changing(&running, "Together.", changes.clone()).await;
+        assert_eq!(status, expected, "{changes}: {body}");
+    }
+    let listed = get_json(router, "/api/v1/observations").await;
+    assert_eq!(
+        listed["observations"][0]["tags"],
+        json!(["tests"]),
+        "a change of a refused batch was made"
+    );
+}
+
 /// The next event of the stream that says the observations changed, past those the loop says of its works.
 async fn observed(body: &mut Body) -> String {
     loop {

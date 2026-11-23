@@ -384,6 +384,66 @@ fn a_file_of_version_22_keeps_its_observations_and_their_readings_as_it_is_migra
     assert_eq!(observations.add(&added, Time(6000)), Ok(3));
 }
 
+// The migrated file's foreign keys must name the tables as they are now, which a table made anew under another name and
+// renamed can get wrong. The reference is SQLite's own `PRAGMA foreign_key_check` and its enforcement of the keys.
+#[test]
+fn a_migrated_file_has_sound_foreign_keys_and_takes_the_reading_and_the_changes_of_each_kind_of_observation() {
+    let mut d = Driver::new();
+    d.wrote("request", Outsider::Person, None);
+    d.end(Came {
+        said: super::observations::observing(&["Kept before."]),
+        ..hands_in(&[("text", None)])
+    });
+    let (old, _new) = kept_in(22, &d.work);
+    old.open();
+    let file = Connection::open(&old.path).expect("the database opens");
+    let broken: Vec<String> = {
+        let mut query = file.prepare("PRAGMA foreign_key_check").expect("the keys are checked");
+        let rows = query
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("the keys are checked");
+        rows.collect::<Result<_, _>>().expect("the keys are checked")
+    };
+    assert_eq!(broken, Vec::<String>::new(), "rows that name nothing");
+    let observations = store::Observations::open(&old.path).expect("the observations open");
+    let added = store::NewObservation {
+        text: "Added.".to_string(),
+        title: Some("Named".to_string()),
+        tags: vec!["flow".to_string()],
+        project: "one".to_string(),
+        reported_by: "one".to_string(),
+    };
+    assert_eq!(observations.add(&added, Time(6000)), Ok(2));
+    // Both are read by the owner, and both are changed, in the migrated file, with the keys enforced.
+    assert_eq!(observations.read(1, Time(7000)), Ok(Some(Time(7000))));
+    assert_eq!(observations.read(2, Time(7001)), Ok(Some(Time(7001))));
+    let changes = [
+        (1, store::ObservationChange::Titled("Kept".to_string())),
+        (1, store::ObservationChange::Tagged("tests".to_string())),
+        (2, store::ObservationChange::Untagged("flow".to_string())),
+    ];
+    assert_eq!(
+        observations.change("Sorting.", &changes, Time(8000)),
+        Ok(Ok(vec![true, true, true]))
+    );
+    let all = observations.all().expect("read");
+    let said: Vec<(u64, Option<String>, Vec<String>, Option<Time>)> =
+        (all.into_iter()).map(|o| (o.number, o.title, o.tags, o.read)).collect();
+    assert_eq!(
+        said,
+        [
+            (2, Some("Named".to_string()), Vec::new(), Some(Time(7001))),
+            (1, Some("Kept".to_string()), vec!["tests".to_string()], Some(Time(7000)))
+        ]
+    );
+    // A row of the migrated table that is neither a run's nor an architect's is refused by its check.
+    assert!(
+        file.execute("INSERT INTO observations (text) VALUES ('half')", [])
+            .is_err(),
+        "a row with a text and no project was taken"
+    );
+}
+
 /// A work as one kept at version 17 holds it, in which a version is empty where `empty` says so and holds words
 /// otherwise, and the same with `inverse` the other way round: the same places, blocks and writers, the two works
 /// differing only in which version holds nothing. A request a person wrote, the owner's main written by the outside

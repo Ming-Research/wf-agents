@@ -631,3 +631,227 @@ fn an_item_number_past_what_the_store_can_number_is_no_item() {
         );
     }
 }
+
+// The tests below are the testing's own. Their references: SQLite's documented transaction and foreign-key behaviour,
+// the tag rule the owner chose for observations (the one item tags have: 1 to 40 characters, no whitespace, no comma),
+// and the definition of a cancelled work in `db/schema.sql` (more `cancelled` rows than `reopened` rows).
+
+#[test]
+fn the_owner_reads_an_added_observation_once_and_the_reading_stays_through_a_change() {
+    let (db, _store, _) = with_an_item();
+    let observations = Observations::open(&db.path).expect("the observations open");
+    observations.add(&adding("Added."), Time(1)).expect("added");
+    observations.add(&adding("Other."), Time(2)).expect("added");
+    assert_eq!(observations.read(1, Time(50)), Ok(Some(Time(50))));
+    assert_eq!(observations.read(1, Time(60)), Ok(Some(Time(50))));
+    let titled = [(1, ObservationChange::Titled("Named".to_string()))];
+    assert_eq!(observations.change("Naming.", &titled, Time(70)), Ok(Ok(vec![true])));
+    let now: Vec<(u64, Option<Time>, Option<String>)> = (observations.all().expect("read").into_iter())
+        .map(|o| (o.number, o.read, o.title))
+        .collect();
+    assert_eq!(now, [(2, None, None), (1, Some(Time(50)), Some("Named".to_string()))]);
+    // The reading of a deleted observation is kept in the records, and the observation is listed no more.
+    let deleted = [(1, ObservationChange::Deleted)];
+    assert_eq!(observations.change("Gone.", &deleted, Time(80)), Ok(Ok(vec![true])));
+    let numbers: Vec<u64> = observations.all().expect("read").iter().map(|o| o.number).collect();
+    assert_eq!(numbers, [2]);
+    let reads: u64 = (Connection::open(&db.path).expect("the database opens"))
+        .query_row("SELECT count(*) FROM observations_read", [], |row| row.get(0))
+        .expect("the reads are counted");
+    assert_eq!(reads, 1);
+}
+
+#[test]
+fn changes_given_together_are_judged_in_the_order_given_each_against_those_before_it() {
+    let (db, _store, _) = with_an_item();
+    let observations = Observations::open(&db.path).expect("the observations open");
+    observations.add(&adding("One."), Time(1)).expect("added");
+    // A deletion before a title of the same batch: the title is judged against the observation as deleted.
+    let late = [
+        (1, ObservationChange::Deleted),
+        (1, ObservationChange::Titled("Late".to_string())),
+    ];
+    assert_eq!(
+        observations.change("Late.", &late, Time(2)),
+        Ok(Err(vec![NotMade {
+            at: 1,
+            observation: 1,
+            why: Refusal::Deleted
+        }]))
+    );
+    // Nothing was made, so it is not deleted.
+    assert_eq!(observations.all().expect("read").len(), 1);
+    assert_eq!(kept_changes(&db.path, 1), Vec::<(u64, String, String)>::new());
+    // A tag given and taken away in one batch is two changes, each made against what the one before left; a tag given
+    // twice is one change and a no change; a title given, changed and given again is three changes.
+    let made = [
+        (1, ObservationChange::Tagged("x".to_string())),
+        (1, ObservationChange::Untagged("x".to_string())),
+        (1, ObservationChange::Tagged("y".to_string())),
+        (1, ObservationChange::Tagged("y".to_string())),
+        (1, ObservationChange::Titled("A".to_string())),
+        (1, ObservationChange::Titled("B".to_string())),
+        (1, ObservationChange::Titled("A".to_string())),
+    ];
+    assert_eq!(
+        observations.change("Together.", &made, Time(3)),
+        Ok(Ok(vec![true, true, true, false, true, true, true]))
+    );
+    let now = &observations.all().expect("read")[0];
+    assert_eq!(
+        (now.tags.clone(), now.title.clone()),
+        (vec!["y".to_string()], Some("A".to_string()))
+    );
+    let kept: Vec<String> = kept_changes(&db.path, 1)
+        .into_iter()
+        .map(|(_, change, _)| change)
+        .collect();
+    assert_eq!(
+        kept,
+        [
+            "{\"Tagged\":\"x\"}",
+            "{\"Untagged\":\"x\"}",
+            "{\"Tagged\":\"y\"}",
+            "{\"Titled\":\"A\"}",
+            "{\"Titled\":\"B\"}",
+            "{\"Titled\":\"A\"}"
+        ]
+    );
+}
+
+#[test]
+fn an_observation_a_run_kept_takes_a_title_tags_and_a_deletion_as_an_added_one_does() {
+    let mut d = Driver::saved();
+    d.wrote("request", Outsider::Person, None);
+    d.end(handing_in(&[("text", None)], &["From the run.", "Also from the run."]));
+    let path = d.saving.as_ref().expect("saved").db.path.clone();
+    let observations = Observations::open(&path).expect("the observations open");
+    let changes = [
+        (1, ObservationChange::Titled("Named".to_string())),
+        (1, ObservationChange::Tagged("flow".to_string())),
+        (2, ObservationChange::Deleted),
+    ];
+    assert_eq!(
+        observations.change("Sorting.", &changes, Time(START + 9)),
+        Ok(Ok(vec![true, true, true]))
+    );
+    let all = observations.all().expect("read");
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].number, 1);
+    assert_eq!(all[0].text, "From the run.");
+    assert_eq!(all[0].title.as_deref(), Some("Named"));
+    assert_eq!(all[0].tags, ["flow"]);
+    assert!(all[0].round.is_some(), "it lost where the run kept it");
+    // A run that keeps another afterwards gives it the next number, past the deleted one, and the work saved again
+    // keeps nothing twice.
+    d.end(handing_in(
+        &[("opinions", None), ("verdict", Some("yes"))],
+        &["From the judge."],
+    ));
+    let s = d.saving.as_mut().expect("saved after each event");
+    s.store.save(s.work, &d.work).expect("the work is saved again");
+    let listed: Vec<(u64, String)> = (observations.all().expect("read").into_iter())
+        .map(|o| (o.number, o.text))
+        .collect();
+    assert_eq!(
+        listed,
+        [(3, "From the judge.".to_string()), (1, "From the run.".to_string())]
+    );
+}
+
+#[test]
+fn a_tag_of_forty_characters_of_any_script_is_carried_and_one_of_forty_one_or_with_a_space_or_a_comma_is_not() {
+    let (db, _store, _) = with_an_item();
+    let observations = Observations::open(&db.path).expect("the observations open");
+    observations.add(&adding("Text."), Time(1)).expect("added");
+    let tag = |tag: String| [(1, ObservationChange::Tagged(tag))];
+    // Forty Chinese characters are 120 bytes: a tag is measured in characters.
+    let wide = "标".repeat(40);
+    assert_eq!(
+        observations.change("Wide.", &tag(wide.clone()), Time(2)),
+        Ok(Ok(vec![true]))
+    );
+    assert_eq!(observations.all().expect("read")[0].tags, [wide]);
+    for bad in [
+        "标".repeat(41),
+        "x".repeat(41),
+        String::new(),
+        "a,b".to_string(),
+        "a\tb".to_string(),
+        "a\u{a0}b".to_string(),
+        " ".to_string(),
+    ] {
+        assert_eq!(
+            observations.change("Bad.", &tag(bad.clone()), Time(3)),
+            Ok(Err(vec![NotMade {
+                at: 0,
+                observation: 1,
+                why: Refusal::BadTag(bad.clone())
+            }])),
+            "{bad:?}"
+        );
+    }
+    assert_eq!(
+        observations.change("Edge.", &tag("x".repeat(40)), Time(4)),
+        Ok(Ok(vec![true]))
+    );
+}
+
+#[test]
+fn observations_added_from_connections_at_once_are_numbered_without_a_gap_or_a_repeat() {
+    let (db, _store, _) = with_an_item();
+    let path = db.path.clone();
+    let threads: Vec<_> = (0..4)
+        .map(|t| {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let observations = Observations::open(&path).expect("the observations open");
+                (0..8)
+                    .map(|i| {
+                        let mut new = adding(&format!("{t}-{i}"));
+                        new.tags = vec![format!("t{t}")];
+                        observations.add(&new, Time(1)).expect("added")
+                    })
+                    .collect::<Vec<u64>>()
+            })
+        })
+        .collect();
+    let mut numbers: Vec<u64> = threads
+        .into_iter()
+        .flat_map(|t| t.join().expect("the thread ends"))
+        .collect();
+    numbers.sort_unstable();
+    assert_eq!(numbers, (1..=32).collect::<Vec<u64>>());
+    let observations = Observations::open(&db.path).expect("the observations open");
+    let all = observations.all().expect("read");
+    assert_eq!(all.len(), 32);
+    // Each carries its own tag, which the one connection that added it gave.
+    assert!(
+        all.iter()
+            .all(|o| o.tags == [format!("t{}", o.text.split('-').next().unwrap())])
+    );
+}
+
+#[test]
+fn an_observation_taken_in_is_handled_only_while_its_work_is_cancelled_no_oftener_than_reopened() {
+    let (db, mut store, work) = with_an_item();
+    let observations = Observations::open(&db.path).expect("the observations open");
+    observations.add(&adding("Taken."), Time(1)).expect("added");
+    let taken = [(1, ObservationChange::TakenIn(ItemNumber(1)))];
+    assert_eq!(observations.change("Held.", &taken, Time(2)), Ok(Ok(vec![true])));
+    let handled = |observations: &Observations| observations.all().expect("read")[0].handled;
+    let mut d = Driver::new();
+    let mut says = Vec::new();
+    for event in [
+        Event::Cancelled { why: None },
+        Event::Reopened { why: "Wanted.".into() },
+        Event::Cancelled { why: None },
+        Event::Reopened { why: "Again.".into() },
+    ] {
+        d.on(event);
+        store.save(work, &d.work).expect("the work is saved");
+        says.push(handled(&observations));
+    }
+    // Cancelled once, reopened once, cancelled twice, reopened twice.
+    assert_eq!(says, [false, true, false, true]);
+}

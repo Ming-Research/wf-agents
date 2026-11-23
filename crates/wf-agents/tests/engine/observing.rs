@@ -154,3 +154,41 @@ fn an_architect_adds_observations_changes_them_and_finds_them_by_tag() {
     // The names in use are listed beside the items': a deleted observation's tags count for nothing.
     assert_eq!(engine.says(&["tags"]), "flow: 0 not handled of 1 observations\n");
 }
+
+// The reference is the help of the two commands: a change is
+// OBSERVATION:KIND[=VALUE], and the value is everything after the first `=`, so a title may hold colons and equal signs;
+// an observation's text may come from a file, as it is written.
+#[test]
+fn a_title_with_colons_and_equal_signs_and_a_text_from_a_file_are_kept_as_given() {
+    let place = Place::new(SCRIPT);
+    let engine = Engine::start(&place);
+    let file = place.dir.path().join("text.txt");
+    std::fs::write(&file, "First line.\nSecond line: with a colon.\n").expect("the text is written");
+    let added = engine.says(&[
+        "add-observation",
+        "--project",
+        "script",
+        "--reported-by",
+        "script",
+        "--file",
+        file.to_str().expect("the path is text"),
+    ]);
+    assert_eq!(added, "Added observation O1.\n");
+    assert_eq!(
+        engine.says(&["change-observations", "--why", "Naming.", "O1:title=Fix: a=b, c:d"]),
+        "O1 is titled \"Fix: a=b, c:d\".\n"
+    );
+    let said = engine.says(&["observations"]);
+    assert!(said.contains("title \"Fix: a=b, c:d\""), "{said}");
+    assert!(said.contains("  First line.\n  Second line: with a colon.\n"), "{said}");
+    // The same title again changes nothing, and says so.
+    assert_eq!(
+        engine.says(&["change-observations", "--why", "Again.", "1:title=Fix: a=b, c:d"]),
+        "O1 was titled \"Fix: a=b, c:d\" already.\n"
+    );
+    // A wrong one is refused before anything is asked of the engine, and nothing of the batch is made.
+    for wrong in ["1:merge=2", "O1:tag", "x:delete"] {
+        engine.refuses(&["change-observations", "--why", "Wrong.", "1:tag=flow", wrong]);
+    }
+    assert!(!engine.says(&["observations"]).contains("flow"));
+}
