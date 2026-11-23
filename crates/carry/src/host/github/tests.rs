@@ -80,6 +80,14 @@ fn ci() -> flow::agents::Ci {
     }
 }
 
+/// What the engine writes on a pull request, as the files of this repository's flows say it.
+fn words() -> flow::agents::PullRequest {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    flow::agents::read(&root)
+        .expect("what is written beside the flows is read")
+        .pull_request
+}
+
 /// How the tests' host judges the CI: the checks `lint` and `test`, and short waits.
 fn config(bare: &std::path::Path) -> Config {
     Config {
@@ -96,6 +104,7 @@ fn config(bare: &std::path::Path) -> Config {
         fast_poll: Duration::from_millis(10),
         token: None,
         withheld: Vec::new(),
+        words: words(),
         installation: INSTALLATION,
     }
 }
@@ -107,7 +116,7 @@ impl Hub {
         run(&repo.data, &["init", "-q", "--bare", "-b", "main", "github.git"]);
         run(&repo.project.repo, &["push", "-q", &bare.display().to_string(), "main"]);
         let mut config = config(&bare);
-        config.withheld = withheld(&repo.data, &repo.project.repo, None);
+        config.withheld = withheld(&repo.data, &repo.project.repo, None, &config.words.withheld);
         let host = GitHub::new(Fake::new(bare.clone()), repo.project.clone(), config);
         Hub {
             repo,
@@ -981,7 +990,7 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         INSTALLATION,
         |_| None,
         None,
-        (None, None),
+        (None, None, words()),
     );
     let refused = none.err().expect("refused");
     assert!(refused.contains("no WF_GITHUB_TOKEN"), "{refused}");
@@ -993,7 +1002,7 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         INSTALLATION,
         given,
         Some(ci()),
-        (None, None),
+        (None, None, words()),
     );
     let host = host.expect("made");
     let config = &host.config;

@@ -58,11 +58,15 @@ fn said() -> NoProject {
     }
 }
 
+/// Words, unlike the files' own, for the result of a call withdrawn.
+const WITHDRAWN: &str = "Dropped, no answer came.";
+
 /// The carriers of the one project `one`, and what reaches them.
 fn by_project<T: ?Sized>(reached: Arc<T>) -> ByProject<T> {
     ByProject {
         of: [("one".to_string(), reached)].into(),
         said: said(),
+        withdrawn: WITHDRAWN.to_string(),
     }
 }
 
@@ -240,7 +244,7 @@ fn a_call_of_an_item_of_no_project_named_is_answered_in_the_words_beside_the_flo
         [
             "Nothing was run: two is not named.",
             "Nothing was run: no project.",
-            service::WITHDRAWN
+            WITHDRAWN
         ]
     );
 }

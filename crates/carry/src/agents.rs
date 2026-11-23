@@ -147,6 +147,9 @@ struct Inner {
     installation: Uuid,
     /// Each project's, by its name, for the rounds of the works of its items.
     projects: BTreeMap<String, Of>,
+    /// What is said of a result of the agents' program that cannot be read, in the words beside the flows: the same for
+    /// every project, which a declaration does not change.
+    program: flow::agents::ProgramWords,
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
     /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
     clock: Arc<dyn Clock>,
@@ -315,11 +318,13 @@ impl Agents {
         tokens: Arc<dyn Tokens>,
         clock: Arc<dyn Clock>,
     ) -> Self {
+        let program = (projects.values().next()).map(|of| of.beside.cost.program.clone());
         Agents {
             inner: Arc::new(Inner {
                 settings,
                 data,
                 installation,
+                program: program.unwrap_or_default(),
                 projects,
                 held: Held::new(),
                 clock,
@@ -364,14 +369,21 @@ impl Rounds for Agents {
                 Ok(Carried::Failed(why, failure, said, spent)) => match inner.held.fail(key) {
                     // Where the round took the work over its budget, the work is paused for that whatever the kind.
                     Some(Failing::Fail(reply)) => {
-                        let resets = resets(failure, &why, &said, &*inner.clock);
+                        // Told by what the program reported where the round was carried, as its kind is.
+                        let resets = (failure == Failure::UsageLimit)
+                            .then_some(said.resets)
+                            .flatten()
+                            .map(work::Time);
                         match inner.to_wait(&round, &spent) {
                             Some(over) => {
-                                // The two reasons are joined in the project's words, as two reasons to wait are.
-                                let between = (crate::projects::of(&inner.projects, &round.item))
-                                    .map(|of| of.beside.cost.work.between.clone())
+                                // The two reasons are joined in the project's words, as two reasons to wait are, the
+                                // failure with its cause after a colon.
+                                let (between, failed) = (crate::projects::of(&inner.projects, &round.item))
+                                    .map(|of| (of.beside.cost.work.between.clone(), of.beside.cost.work.failed.clone()))
                                     .unwrap_or_default();
-                                let pause = format!("{}{between}{over}", flow::agents::sentence(&why));
+                                let cause = flow::agents::sentence(&why);
+                                let pause =
+                                    format!("{}{between}{over}", flow::agents::fill(&failed, &[("why", &cause)]));
                                 reply.failed_and_paused(failure, resets, why, spent, pause);
                             }
                             None => reply.failed_as(failure, resets, why, spent),
@@ -417,7 +429,7 @@ impl Rounds for Agents {
     }
 
     fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
-        kept::told(&self.inner.data, work, run, round)
+        kept::told(&self.inner.data, work, run, round, &self.inner.program)
     }
 
     fn system(&self, work: WorkNumber, line: &str, number: u32) -> Result<Option<String>, String> {
@@ -639,9 +651,10 @@ impl Inner {
             Begun::Anew(token, under) => {
                 // What the round is sent in the session as it stands, and in one that holds nothing: one begun under
                 // the round, or compacted during it.
+                let (written_work, written_item) = (round.work.to_string(), round.item.number.to_string());
                 let about = context::For {
-                    work: round.work.0,
-                    item: round.item.number.0,
+                    work: &written_work,
+                    item: &written_item,
                     title: &round.item.title,
                 };
                 // What changed in the branch's data, which git compares, from each earlier version to the latest: the
@@ -695,7 +708,7 @@ impl Inner {
                     let told = &entered.text;
                     keep_told(&base, n, &told_at, told).await?;
                     let (system, form) = begun_with()?;
-                    let before = self.before_messages(&on, round.account.as_deref(), &system, &form, &permissions);
+                    let before = before_messages(&on, round.account.as_deref(), &system, &form);
                     let command = self.command(
                         &dir,
                         &on,
@@ -819,7 +832,7 @@ impl Inner {
             Vec::new()
         });
         let had_result = stream.has_result();
-        let read = stream.read(begin, before).map(|mut read| {
+        let read = stream.read(begin, before, &of.beside.cost.program).map(|mut read| {
             read.spent.compactions = compactions;
             read
         });
@@ -833,33 +846,41 @@ impl Inner {
         // told by what the program's stream said of the service's errors, what it reported and what it took. A return
         // the stream holds is read however the program exited: the one the command line took, or the last attempt of
         // one it gave up on, after which it exits with an error.
-        let failed = |why: String, said: failure::Said, spent: Option<Spent>| {
-            let kind = failure::of(&why, &said, spent.as_ref());
-            Ok(Carried::Failed(why, kind, said, spent.unwrap_or_default()))
+        let failed = |why: String, report: &str, said: failure::Said, spent: Option<Spent>| {
+            Ok(failed_round(why, report, said, spent, &*self.clock))
         };
         let command = &self.settings.agents.command;
         let read = match (read, status) {
             (Ok(read), _) => read,
             (Err(no), Some(status)) if status.success() => {
-                return failed(no.why, no.said, no.spent);
+                return failed(no.why, &no.report, no.said, no.spent);
             }
             (Err(no), Some(status)) => {
-                let why = match had_result {
-                    true => no.why,
-                    false => process::tail(stderr.trim().as_bytes()),
+                let (why, report) = match had_result {
+                    true => (no.why, no.report),
+                    false => {
+                        let tail = process::tail(stderr.trim().as_bytes());
+                        (tail.clone(), tail)
+                    }
                 };
                 let ended = process::ended(&of.beside.cost.program, command, status, &why);
-                return failed(ended, no.said, no.spent);
+                return failed(ended, &report, no.said, no.spent);
             }
             // A try the engine that ended left, which printed no return to take: what its result said, where it printed
             // one, or that its engine ended before it saw it end, in the words beside the flows, which fails as a crash
             // does.
             (Err(no), None) => {
-                let why = match had_result {
-                    true => no.why,
-                    false => flow::agents::fill(&of.beside.cost.program.cut_off, &[("command", command.as_str())]),
+                let (why, report) = match had_result {
+                    true => (no.why, no.report),
+                    false => {
+                        let cut_off = &of.beside.cost.program.cut_off;
+                        (
+                            flow::agents::fill(cut_off, &[("command", command.as_str())]),
+                            String::new(),
+                        )
+                    }
                 };
-                return failed(why, no.said, no.spent);
+                return failed(why, &report, no.said, no.spent);
             }
         };
         match returns::came(&read.structured, flow, &round.cell, &of.beside) {
@@ -992,8 +1013,8 @@ impl Inner {
             Ok(looked) => looked,
             Err(why) => {
                 eprintln!(
-                    "work {}: the change under the protected paths could not be looked at: {why}",
-                    round.work.0
+                    "{}: the change under the protected paths could not be looked at: {why}",
+                    round.work
                 );
                 protected::Looked::default()
             }
@@ -1068,10 +1089,7 @@ impl Inner {
         let caught = catch_up::take_in(&of.project, place, &of.main, round.run).await;
         // The round is told only that main was not taken in; why is for whoever runs the engine.
         if let catch_up::Outcome::Failed { why } = &caught.outcome {
-            eprintln!(
-                "main could not be taken into the branch of work {}: {why}",
-                round.work.0
-            );
+            eprintln!("main could not be taken into the branch of {}: {why}", round.work);
         }
         let kept = serde_json::to_vec_pretty(&caught).map_err(|e| format!("{}: {e}", named()))?;
         // Written whole or not at all, so that a stop in the middle leaves no file the run's rounds cannot read.
@@ -1116,29 +1134,16 @@ impl Inner {
         let session = session::session(self.installation, round.work, line, number);
         let begun = |what| std::fs::read_to_string(system::kept_at(&self.data, session, what)).ok();
         let (system, form) = (begun(system::Begun::System), begun(system::Begun::Form));
-        let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
-        let refused = of.map(|of| permissions::refused_commands(&of.beside));
-        let permissions = Permissions::of(
-            round.cell.reads_only,
-            args,
-            refused.as_deref().unwrap_or_default(),
-            added,
-        );
         let mut before = match &on {
-            Some(on) => self.before_messages(
+            Some(on) => before_messages(
                 on,
                 account.as_deref(),
                 system.as_deref().unwrap_or_default(),
                 form.as_deref().unwrap_or_default(),
-                &permissions,
             ),
             None => BTreeMap::new(),
         };
-        for (part, there) in [
-            ("system", system.is_some()),
-            ("schema", form.is_some()),
-            ("tools", of.is_some()),
-        ] {
+        for (part, there) in [("system", system.is_some()), ("schema", form.is_some())] {
             if !there {
                 before.remove(part);
             }
@@ -1168,9 +1173,9 @@ impl Inner {
         let starts = stream.own.count > 0 || stream.priced().is_none();
         if !starts {
             eprintln!(
-                "work {}: the try {n} of the round {} of run {} kept no start of its calls: what they came to is not \
+                "{}: the try {n} of the round {} of run {} kept no start of its calls: what they came to is not \
                  recorded",
-                round.work.0, round.number, round.run.0
+                round.work, round.number, round.run.0
             );
         }
         let priced = !stream.has_result() && stream.priced().is_some();
@@ -1208,10 +1213,7 @@ impl Inner {
             Ok(Some(left)) => spent_of(round, round.cell.line.as_deref().unwrap_or_default(), left),
             Ok(None) => Spent::default(),
             Err(why) => {
-                eprintln!(
-                    "work {}: what the stopped round's try took was not read: {why}",
-                    round.work.0
-                );
+                eprintln!("{}: what the stopped round's try took was not read: {why}", round.work);
                 Spent::default()
             }
         }
@@ -1227,12 +1229,7 @@ impl Inner {
     /// hook gave. Once the round's program has ended, nothing is put: the words stay new to the cell, which runs again
     /// for them. What cannot be put is said on the standard error, and the words stay new to the cell all the same.
     async fn tell(&self, round: &Round, told: Telling) {
-        let failed = |why: String| {
-            eprintln!(
-                "work {}: what the owner said was not handed to its round: {why}",
-                round.work.0
-            )
-        };
+        let failed = |why: String| eprintln!("{}: what the owner said was not handed to its round: {why}", round.work);
         let said = match crate::projects::of(&self.projects, &round.item) {
             Ok(of) => said(&of.beside, &told),
             Err(why) => return failed(why),
@@ -1275,8 +1272,8 @@ impl Inner {
             Ok(true) => {}
             Ok(false) => given.extend(waiting),
             Err(why) => eprintln!(
-                "work {}: what waits for the round's hook could not be read: {why}",
-                round.work.0
+                "{}: what waits for the round's hook could not be read: {why}",
+                round.work
             ),
         }
         if !given.is_empty() {
@@ -1407,41 +1404,29 @@ fn chars_of(back: &Back) -> u64 {
     written.map_or(0, |text| text.chars().count() as u64)
 }
 
+/// What comes before a session's messages in the prompt of a call on this, under this account, with this system
+/// prompt and form of return, which the cache reads only where it is what the call before had: the model, the
+/// account, whose cache is its own, by its name, left out where there is none, and a digest each of the system
+/// prompt and the schema ([`work::Measures::before`]). What the program says it gave the model, its version, tools
+/// and agents, is added from its stream ([`measures`]); the effort is no part of it, a change of it alone having
+/// missed no cache (research/cache-miss-causes.md).
+fn before_messages(on: &RanOn, account: Option<&str>, system: &str, form: &str) -> BTreeMap<String, String> {
+    let mut before = BTreeMap::from([
+        ("model".to_string(), on.model.clone()),
+        ("system".to_string(), work::digest(system)),
+        ("schema".to_string(), work::digest(form)),
+    ]);
+    if let Some(account) = account {
+        before.insert("account".to_string(), account.to_string());
+    }
+    before
+}
+
 impl Inner {
     /// The lock of the line of the work, made where it has none.
     fn lock(&self, work: WorkNumber, line: &str) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.in_work.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         locks.entry((work, line.to_string())).or_default().clone()
-    }
-
-    /// What comes before a session's messages in the prompt of a call on this, under this account, with this system
-    /// prompt, form of return and permissions, which the cache reads only where it is what the call before had: the
-    /// model, the effort, the account, whose cache is its own, by its name, left out where there is none, and a digest
-    /// each of the system prompt, the schema and the tools the program is given ([`work::Measures::before`]).
-    fn before_messages(
-        &self,
-        on: &RanOn,
-        account: Option<&str>,
-        system: &str,
-        form: &str,
-        permissions: &Permissions,
-    ) -> BTreeMap<String, String> {
-        let tools: Vec<String> = (self.settings.agents.args.iter().cloned())
-            .chain(permissions.arguments())
-            .collect();
-        let mut before = BTreeMap::from([
-            ("model".to_string(), on.model.clone()),
-            ("system".to_string(), work::digest(system)),
-            ("schema".to_string(), work::digest(form)),
-            ("tools".to_string(), work::digest(&tools.join("\n"))),
-        ]);
-        if let Some(effort) = &on.effort {
-            before.insert("effort".to_string(), effort.clone());
-        }
-        if let Some(account) = account {
-            before.insert("account".to_string(), account.to_string());
-        }
-        before
     }
 
     /// Sends the session of the ping its keep-warm message, with the command line of the session's last round, which
@@ -1543,10 +1528,7 @@ impl Inner {
             let minutes = (left / 60_000).to_string();
             return Err((fill(&said.stopped, &[("minutes", &minutes)]), priced()));
         };
-        let spent = match cli::read(&lines, Begin::Resume, before) {
-            Ok(read) => read.spent,
-            Err(no) => no.spent.unwrap_or_else(priced),
-        };
+        let spent = cli::took(&lines, Begin::Resume, before).unwrap_or_else(priced);
         let spent = Spent {
             compactions: marks,
             ..spent
@@ -1638,8 +1620,8 @@ impl Inner {
         let line = (started.and_then(|s| line_of(&s.cell))).ok_or("The round's cell runs in no session.")?;
         let Ok(one) = self.lock(fork.work, &line).try_lock_owned() else {
             return Err(format!(
-                "A round or a ping of the line {line} of work {} is under way: ask the fork once it has ended.",
-                fork.work.0
+                "A round or a ping of the line {line} of {} is under way: ask the fork once it has ended.",
+                fork.work
             )
             .into());
         };
@@ -1714,7 +1696,7 @@ impl Inner {
         let token = account::token_of(&self.tokens, account.as_deref(), &of.beside.cost.check.no_account).await?;
         let place = git::place(&self.data, &git::tag(&self.installation), fork.work);
         if !place.dir.exists() && !fork.ended {
-            return Err(format!("Work {} has not ended, and its worktree is not there.", fork.work.0).into());
+            return Err(format!("{} has not ended, and its worktree is not there.", fork.work).into());
         }
         // What stands in for an ended work's worktree, which is let go, is a checkout
         // with no branch, taken away after: one made now, or one an earlier fork could not take away. The work's own
@@ -1925,18 +1907,21 @@ impl Inner {
             .find(|v| v["type"] == "result")
             .and_then(|v| v["result"].as_str().map(str::to_string))
             .unwrap_or_default();
-        let (answer, spent) = match cli::read(&lines, Begin::Resume, before) {
+        let of = crate::projects::of(&self.projects, &fork.item)?;
+        let (answer, spent) = match cli::read(&lines, Begin::Resume, before, &of.beside.cost.program) {
             Ok(read) => (Some(read.structured.to_string()), read.spent),
             // Neither a return nor words: why is what the stream and the program's end say.
             Err(no) if text.is_empty() => {
-                let mut why = no.why;
+                // What the stream says is a sentence of the words beside the flows, which ends in a stop: the program's
+                // end is joined to it after a semicolon and the whole is made a sentence once.
+                let mut why = no.why.trim_end_matches('.').to_string();
                 if !status.success() {
                     let end = process::tail(String::from_utf8_lossy(&stderr).trim().as_bytes());
                     let ended = process::ended(&of.beside.cost.program, &self.settings.agents.command, status, &end);
                     why = format!("{why}; {ended}");
                 }
                 return Err(ForkFailed {
-                    why: format!("The fork wrote no answer: {why}."),
+                    why: flow::agents::sentence(&format!("The fork wrote no answer: {why}")),
                     spent: no.spent.or_else(|| stream.priced()),
                 });
             }
@@ -2013,10 +1998,7 @@ async fn uncommitted_in(place: &git::Place) -> Result<Vec<Unmet>, String> {
 /// Takes away the checkout at the place a fork of the work ran in, saying where it cannot; one already gone is passed.
 async fn removed(project: &Project, place: &git::Place, work: WorkNumber) {
     if let Err(why) = git::remove(project, place).await {
-        eprintln!(
-            "The checkout work {} was forked in could not be taken away: {why}",
-            work.0
-        );
+        eprintln!("The checkout {work} was forked in could not be taken away: {why}");
     }
 }
 
@@ -2104,12 +2086,30 @@ fn let_run(work: &Work, run: RunId, number: usize, kind: Failure) -> bool {
 
 /// When the account's usage limit resets, where the failure is that limit and the program's stream or its report says
 /// when, the time now read by the clock.
-fn resets(failure: Failure, why: &str, said: &failure::Said, clock: &dyn Clock) -> Option<work::Time> {
+fn resets(failure: Failure, report: &str, said: &failure::Said, clock: &dyn Clock) -> Option<work::Time> {
     if failure != Failure::UsageLimit {
         return None;
     }
     let now = clock.now().ok()?;
-    failure::resets(why, said, now.0, &failure::zone_offset).map(work::Time)
+    failure::resets(report, said, now.0, &failure::zone_offset).map(work::Time)
+}
+
+/// A round that failed, with the reason in the engine's words, `why`, and what the program itself reported of it,
+/// `report`: the kind of the failure, and where that is the usage limit when it resets, are told by the report and by
+/// what the program's stream said in its fields, and by none of the engine's words. The time is kept in what the stream
+/// said (`resets`), as the failure's own.
+fn failed_round(
+    why: String,
+    report: &str,
+    mut said: failure::Said,
+    spent: Option<Spent>,
+    clock: &dyn Clock,
+) -> Carried {
+    let kind = failure::of(report, &said, spent.as_ref());
+    if kind == Failure::UsageLimit {
+        said.resets = resets(kind, report, &said, clock).map(|time| time.0);
+    }
+    Carried::Failed(why, kind, said, spent.unwrap_or_default())
 }
 
 /// How many compactions of the session the file of marks holds, a byte for each.
@@ -2219,8 +2219,8 @@ impl Keeping {
 }
 
 /// What a try's calls came to, as its stream told them, given a message of this many characters, with what came before
-/// the session's messages and the program's version as its stream told it, whether it went past the run guard's
-/// lines, and whether what it took is priced from its calls; none where its program printed nothing.
+/// the session's messages and the program's version, tools and agents as its stream told them, whether it went past the
+/// run guard's lines, and whether what it took is priced from its calls; none where its program printed nothing.
 fn measures(
     stream: &cli::Stream,
     given: u64,
@@ -2233,6 +2233,16 @@ fn measures(
     }
     if let Some(program) = &stream.program {
         before.insert("program".to_string(), program.clone());
+    }
+    // What the program says it gave the model, which it may change with the engine's arguments the same: the cache
+    // reads the tools before anything else in the prompt, in the order given.
+    for (part, names) in [
+        ("program_tools", &stream.program_tools),
+        ("program_agents", &stream.program_agents),
+    ] {
+        if let Some(names) = names {
+            before.insert(part.to_string(), work::digest(&names.join("\n")));
+        }
     }
     let calls = &stream.own;
     // The program's own count where it printed its result; what the stream told of the agent's calls where not, as of
@@ -2320,10 +2330,7 @@ fn guarded(
 fn spent_of(round: &Round, line: &str, left: Left) -> Spent {
     let InSession { begin, before, .. } = cli::in_session(&round.flow, &round.kept, line, round.run, round.number);
     let begin = if left.anew { Begin::New } else { begin };
-    let spent = match left.stream.read(begin, before) {
-        Ok(read) => read.spent,
-        Err(no) => no.spent.unwrap_or_default(),
-    };
+    let spent = left.stream.took(begin, before).unwrap_or_default();
     Spent {
         compactions: left.compactions,
         ..spent
@@ -2472,7 +2479,7 @@ mod tests {
             keep_told(&base, n, &at, said).await.unwrap();
         }
         assert_eq!(attempt(&base).await.0, 5, "each try is counted");
-        let read = kept::told(dir.path(), work, run, number).unwrap();
+        let read = kept::told(dir.path(), work, run, number, &Default::default()).unwrap();
         let messages: Vec<&str> = read.tries.iter().map(|t| t.message.as_str()).collect();
         assert_eq!(messages, told);
         #[cfg(unix)]
@@ -2949,7 +2956,7 @@ mod tests {
         // A work that has not ended, its worktree gone, is not forked in a directory made for it.
         std::fs::remove_dir_all(&place.dir).expect("removed");
         let refused = agents.inner.fork(&fork).await.expect_err("refused");
-        assert_eq!(refused.why, "Work 3 has not ended, and its worktree is not there.");
+        assert_eq!(refused.why, "W3 has not ended, and its worktree is not there.");
         assert!(!place.dir.exists());
         // A work that has ended, its worktree gone, is forked in a checkout of its kept branch at the worktree's place,
         // taken away after; the branch stays.
@@ -3045,6 +3052,32 @@ mod tests {
                 compactions: 0,
             })
         );
+    }
+
+    // A fork whose question's result holds no return and no words says why with the sentence of the words beside the
+    // flows, which ends in a stop: the reason is one sentence with one stop, not the sentence's stop and the fork's own.
+    // One fork of a stand-in program: a few tens of milliseconds.
+    #[tokio::test]
+    async fn a_fork_that_wrote_no_answer_says_why_in_one_sentence_with_one_stop() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let data = std::path::absolute(dir.path()).expect("absolute");
+        let (agents, _repo, fork) = forking(&data);
+        let no_return = r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.5,"usage":{"input_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9100,"output_tokens":20}}"#;
+        write_program(
+            &data,
+            &[
+                FORK_STREAM[0],
+                FIRST_CALL,
+                FORK_STREAM[3],
+                FORK_STREAM[4],
+                SECOND_CALL,
+                no_return,
+            ],
+        );
+        let failed = agents.inner.fork(&fork).await.expect_err("no answer");
+        assert!(failed.why.starts_with("The fork wrote no answer: "), "{}", failed.why);
+        assert!(failed.why.ends_with("structured return."), "{}", failed.why);
+        assert!(!failed.why.contains(".."), "{}", failed.why);
     }
 
     #[tokio::test]
@@ -3355,17 +3388,57 @@ mod tests {
     }
 
     // What comes before a session's messages names the account a call runs under, so that a miss after another is taken
-    // says it, and leaves it out where none is in use, as it leaves out an effort.
+    // says it, and leaves it out where none is in use. It holds neither the effort, which caused no miss, nor a digest
+    // of the engine's own arguments, the program's own report of its tools being kept in its place.
     #[test]
     fn what_comes_before_the_messages_names_the_account_and_leaves_it_out_where_there_is_none() {
-        let dir = tempfile::tempdir().unwrap();
-        let (agents, _) = given_round_of(dir.path(), Work::default(), Default::default());
-        let permissions = Permissions::of(false, &[], &[], &Default::default());
-        let under = (agents.inner).before_messages(&sonnet(), Some("work"), "system", "form", &permissions);
+        let under = before_messages(&sonnet(), Some("work"), "system", "form");
         assert_eq!(under.get("account").map(String::as_str), Some("work"));
-        let none = (agents.inner).before_messages(&sonnet(), None, "system", "form", &permissions);
+        let none = before_messages(&sonnet(), None, "system", "form");
         assert!(!none.contains_key("account"));
         assert_eq!(under.len(), none.len() + 1);
+        for part in ["effort", "tools"] {
+            assert!(!under.contains_key(part), "{part} is no part of what the engine says");
+        }
+    }
+
+    // What the program says it gave the model, from its first line, is kept in the try's measures under names of their
+    // own, in the order it gave it, so that a tool taken out of the list changes the digest, and an equal list does not.
+    // The shape of work 23 run 15: the program's list lost WebFetch with the engine's arguments unchanged.
+    #[test]
+    fn what_the_program_says_it_gave_the_model_is_kept_in_the_measures_before_the_messages() {
+        // The program's first partial message of a call of its own agent, which tells the call's prompt.
+        const CALL: &str = r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":2,"cache_read_input_tokens":90,"cache_creation_input_tokens":8}}},"parent_tool_use_id":null}"#;
+        let before_of = |init: serde_json::Value| {
+            let mut stream = cli::Stream::default();
+            stream.line(init.to_string().as_bytes());
+            stream.line(CALL.as_bytes());
+            measures(&stream, 10, BTreeMap::new(), false, false)
+                .expect("the stream holds a call")
+                .before
+        };
+        let init = |tools: &[&str], agents: &[&str]| {
+            serde_json::json!({
+                "type": "system", "subtype": "init", "claude_code_version": "2.1.327", "tools": tools, "agents": agents,
+            })
+        };
+        let with = before_of(init(&["Bash", "WebFetch", "Write"], &["claude", "Plan"]));
+        let same = before_of(init(&["Bash", "WebFetch", "Write"], &["claude", "Plan"]));
+        let without = before_of(init(&["Bash", "Write"], &["claude", "Plan", "web-fetch"]));
+        assert_eq!(with, same);
+        assert_ne!(with["program_tools"], without["program_tools"]);
+        assert_ne!(with["program_agents"], without["program_agents"]);
+        assert_eq!(with["program"], "2.1.327");
+        let reordered = before_of(init(&["WebFetch", "Bash", "Write"], &["claude", "Plan"]));
+        assert_ne!(
+            with["program_tools"], reordered["program_tools"],
+            "the order is part of the prompt"
+        );
+        // A first line that names no tools says none: the parts are left out, not made of an empty list.
+        let bare = before_of(serde_json::json!({
+            "type": "system", "subtype": "init", "claude_code_version": "2.1.327",
+        }));
+        assert!(!bare.contains_key("program_tools") && !bare.contains_key("program_agents"));
     }
 
     // What a work spent on forks counts against its budget as a keep-warm ping's spend does: a round that took a dollar
@@ -3805,6 +3878,44 @@ mod tests {
         .await;
         // The session's $0.03 in all, less the cent its line's earlier round cost; its call at its price is 800.
         assert_eq!(spent.usd_micros, 20_000);
+    }
+
+    // The kind of a failed round and when its usage limit resets are told by what the program reported, and no word of
+    // the engine's is read for either: a reason that says nothing of the limit gives both from the report alone, and a
+    // report that says no limit is no limit. Well under a millisecond; no other test holds the time a report gives.
+    #[test]
+    fn the_kind_of_a_failed_round_and_when_its_limit_resets_are_told_by_the_report_and_not_by_the_reason() {
+        struct At;
+        impl Clock for At {
+            fn now(&self) -> Result<work::Time, String> {
+                Ok(work::Time(1_792_958_400_000))
+            }
+        }
+        let reason = "The command line's result is an error.".to_string();
+        let said = failure::Said::default();
+        let limit = failed_round(
+            reason.clone(),
+            "Claude AI usage limit reached|1792962000",
+            said,
+            None,
+            &At,
+        );
+        let Carried::Failed(why, kind, said, _) = limit else {
+            panic!("a failed round")
+        };
+        assert_eq!((why.as_str(), kind), (reason.as_str(), Failure::UsageLimit));
+        assert_eq!(said.resets, Some(1_792_962_000_000));
+        let other = failed_round(
+            reason,
+            "API Error: 529 Overloaded resets 5pm",
+            failure::Said::default(),
+            None,
+            &At,
+        );
+        let Carried::Failed(_, kind, ..) = other else {
+            panic!("a failed round")
+        };
+        assert_ne!(kind, Failure::UsageLimit);
     }
 
     // A left try whose result says the account's usage limit refused it fails of that kind, which holds every work's

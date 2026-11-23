@@ -447,7 +447,7 @@ fn a_file_of_version_17_that_lacks_the_content_of_a_version_written_is_not_opene
             [written],
         )
         .expect("the content is lacking");
-        format!("the content of the version of request written at {written} of work 1 is missing")
+        format!("the content of the version of request written at {written} of W1 is missing")
     });
 }
 
@@ -459,7 +459,7 @@ fn a_file_of_version_17_that_lacks_the_content_of_a_version_a_run_wrote_is_not_o
             [finished],
         )
         .expect("the content is lacking");
-        format!("the content of the version of verdict written by run 1 at {finished} of work 1 is missing")
+        format!("the content of the version of verdict written by run 1 at {finished} of W1 is missing")
     });
 }
 
@@ -470,7 +470,7 @@ fn a_file_of_version_17_with_a_write_of_a_run_that_has_no_end_is_not_opened_and_
             .expect("the foreign keys are let be");
         file.execute("DELETE FROM finished WHERE run = 1", [])
             .expect("the run is lacking");
-        "by run 1 of work 1 has no finished run".to_string()
+        "by run 1 of W1 has no finished run".to_string()
     });
 }
 

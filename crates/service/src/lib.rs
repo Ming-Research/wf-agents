@@ -71,7 +71,7 @@ use work::{Ask, Call, RanOn, Time};
 pub use carriers::{
     Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, ForkFailed, Forked, Heard,
     Hosting, KeptTokens, Mark, Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round,
-    RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, WITHDRAWN, YEAR_MS,
+    RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, YEAR_MS,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use driver::{Along, Instead, Said, Under, Window};
@@ -81,9 +81,6 @@ pub use script::Script;
 pub use scripted::Scripted;
 pub use titles::{title_fits, title_words};
 pub use words::{no_one_words, record_fault_words, refused_words, store_fault_words};
-
-/// The result of a wait the engine made before a round that failed in passing is tried again, once its time has come.
-pub const WAITED: &str = "The wait is over: the round is tried again.";
 
 /// How many changes are kept for a listener that has not read them yet. One that falls further behind is told that
 /// everything may have changed.
@@ -451,7 +448,7 @@ impl Service {
                     let now = self.now()?;
                     let event = Event::Done {
                         call,
-                        result: WAITED.to_string(),
+                        result: self.carriers.calls.waited.clone(),
                     };
                     let todos = (self.driver.happened(now, work, event)).map_err(|failed| answer(work, failed))?;
                     self.hand(now, todos)?;
@@ -1016,7 +1013,7 @@ impl Service {
                 Some(Call::Asked(Ask::Person { .. }) | Call::AtLimit(_) | Call::Wait { .. }) => {
                     return Ok(Some(Event::Done {
                         call: *call,
-                        result: WITHDRAWN.to_string(),
+                        result: self.carriers.calls.withdrawn.clone(),
                     }));
                 }
                 None => return Err(stray(Missing::Call(*call))),
@@ -1424,13 +1421,10 @@ impl Handle {
                 let kept = driver.work(work)?;
                 let ran = (kept.work.ran.iter()).filter(|r| r.run == run).map(|r| r.round).max();
                 let Some(round) = round.or(ran) else {
-                    return Some(Err(format!("Work {} has no round of run {} that ran.", work.0, run.0)));
+                    return Some(Err(format!("{work} has no round of run {} that ran.", run.0)));
                 };
                 if !kept.work.ran.iter().any(|r| r.run == run && r.round == round) {
-                    return Some(Err(format!(
-                        "Work {} has no round {round} of run {} that ran.",
-                        work.0, run.0
-                    )));
+                    return Some(Err(format!("{work} has no round {round} of run {} that ran.", run.0)));
                 }
                 let ended = matches!(kept.decision(), decide::Decision::Ended(_));
                 let outline = match fork_outline(&kept) {
@@ -1634,8 +1628,8 @@ fn fork_event(run: RunId, round: usize, asked: &Result<Forked, ForkFailed>) -> O
 fn fork_outline(kept: &driver::Kept<'_>) -> Result<Arc<flow::Outline>, String> {
     let outline = kept.on.outline().ok_or_else(|| {
         format!(
-            "The version of the flow work {} ran on was not kept: which session its round ran in is not known.",
-            kept.head.number.0
+            "The version of the flow {} ran on was not kept: which session its round ran in is not known.",
+            kept.head.number
         )
     })?;
     Ok(Arc::new(outline.clone()))
@@ -1822,7 +1816,7 @@ mod tests {
         assert_eq!(
             fork_outline(&stored.kept(&none)),
             Err(
-                "The version of the flow work 1 ran on was not kept: which session its round ran in is not known."
+                "The version of the flow W1 ran on was not kept: which session its round ran in is not known."
                     .to_string()
             )
         );

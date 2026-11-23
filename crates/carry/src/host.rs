@@ -6,9 +6,10 @@
 //!
 //! - [`Local`]: the local repository is the host: its own main branch, the project's check command, and a merge in its
 //!   checkout; an agent's check runs the command on the worktree as it stands.
-//! - [`GitHub`]: the repository on GitHub is the host: its main branch, the CI of the work's pull request, and the
-//!   pull request's merge; an agent's `run_tests` runs the tests it names by the fast workflow, on the commit it names or
-//!   else the last commit of its work's branch, which the engine pushes to a branch of its own.
+//! - [`GitHub`]: the repository on GitHub is the host: its main branch, the full workflows the engine runs by hand on
+//!   the commit that its pull request merges, and that merge; an agent's `run_tests` runs the tests it names by the
+//!   fast workflow, on the commit it names or else the last commit of its work's branch, which the engine pushes to a
+//!   branch of its own.
 //! - `fake`: a host for the tests, which gives what it is told to.
 //!
 //! Each operation can be asked again after the engine started again, and finds what it did already rather than doing
@@ -48,7 +49,7 @@ pub struct Branch<'a> {
     pub about: &'a str,
     pub place: &'a Place,
     /// What the work's item continues, where it continues something: the host closes the pull request that was open
-    /// on it, once the work's own is open ([`SUPERSEDED`]).
+    /// on it, once the work's own is open, saying the address of its own (`superseded` of `agents/pull_request.toml`).
     pub continues: Option<&'a Continues>,
 }
 
@@ -240,10 +241,10 @@ pub trait Host: Send + Sync + 'static {
     ) -> impl Future<Output = Result<Option<String>, String>> + Send;
 
     /// Lets go of what the host holds for the work, which has ended with nothing of it under way: its pull request
-    /// where it did not merge, closed with a word that its work ended ([`CLOSED`]), and, merged or not, the branches
-    /// that calls of [`Host::run_tests`] left (`wf-try/<the work's branch>/…`), deleted after the pull request is
-    /// closed, whether or not that went well. What is gone, closed or merged already is left as it is, and the work's
-    /// own branch stays.
+    /// where it did not merge, closed with a word that its work ended, as the words beside the flows say it
+    /// (`agents/pull_request.toml`), and, merged or not, the branches that calls of [`Host::run_tests`] left
+    /// (`wf-try/<the work's branch>/…`), deleted after the pull request is closed, whether or not that went well. What
+    /// is gone, closed or merged already is left as it is, and the work's own branch stays.
     fn end(&self, branch: &Branch<'_>, merged: bool) -> impl Future<Output = Result<(), String>> + Send;
 
     /// Takes up again what the host held for a work that was cancelled and reopened, as the work makes its place
@@ -281,14 +282,6 @@ pub(crate) fn kept_main(project: &crate::settings::Project) -> String {
         Some(github) => github::kept_main(&github.remote, main),
     }
 }
-
-/// What the host says on the pull request of a work that ended without merging. It says not why: why is the owner's,
-/// in the owner's language, and on the owner's page.
-pub const CLOSED: &str = "Its work ended without merging.";
-
-/// What the host says on the pull request that a work continued on another, which the work's own pull request takes
-/// the place of, before the address of that one.
-pub const SUPERSEDED: &str = "Continued by the pull request";
 
 /// A host shared, as the acts and the tools share it.
 impl<H: Host> Host for Arc<H> {

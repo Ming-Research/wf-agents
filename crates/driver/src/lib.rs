@@ -208,6 +208,8 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
         ("paused.outside", &waits.paused.outside),
         ("paused.flagged_again", &waits.paused.flagged_again),
         ("paused.let_go", &waits.paused.let_go),
+        ("paused.failed", &waits.paused.failed),
+        ("paused.no_model", &waits.paused.no_model),
         ("owner.limit", &waits.owner.limit),
         ("owner.calls", &waits.owner.calls),
         ("owner.returns", &waits.owner.returns),
@@ -1240,10 +1242,14 @@ impl Driver {
         }
         // The round's own work is paused by its failure; every other that runs a round on the model is paused with it.
         if let Some((on, why)) = no_model {
-            let why = format!(
-                "the service has no model {}, which the level {} runs on, as a round of work {} found: {why}",
-                on.model, on.level, work.0
-            );
+            let (number, cause) = (work.to_string(), flow::agents::sentence(&why));
+            let found = [
+                ("model", on.model.as_str()),
+                ("level", on.level.as_str()),
+                ("work", number.as_str()),
+                ("why", cause.as_str()),
+            ];
+            let why = flow::agents::fill(&self.works[&work].flow.waits.paused.no_model, &found);
             let numbers: Vec<WorkNumber> = (self.works.iter())
                 .filter(|(number, held)| **number != work && runs_on(held, self.policy.as_ref(), &on.model))
                 .map(|(number, _)| *number)
@@ -2330,7 +2336,7 @@ impl Driver {
             (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES))?;
         let says = |name: &str| declared.writes.get(name).unwrap_or_default();
         let waited: Vec<String> = (self.waited_for(depends_on).into_iter())
-            .map(|on| on.0.to_string())
+            .map(|on| on.to_string())
             .collect();
         let (value, content) = if waited.is_empty() {
             (MERGED, says(MERGED).to_string())

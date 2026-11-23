@@ -8,10 +8,10 @@ of each part.
 
 ## The layers of the suite
 
-1. A test guards: it runs in CI at every change, the whole suite at every pull request and every push to main, and
-   fails on a fault of its kind from then on. What no test of the suite judges is judged otherwise: a cell's words on
-   real works (10), the page by the owner (16 to 21), what rounds cost in trials (22 to 32). A look guards nothing
-   until what it found is a test.
+1. A test guards: it runs in CI at every change, the whole suite at the check before each merge and on each pull
+   request that is not a work's, and fails on a fault of its kind from then on. What no test of the suite judges is
+   judged otherwise: a cell's words on real works (10), the page by the owner (16 to 21), what rounds cost in trials
+   (22 to 32). A look guards nothing until what it found is a test.
    How long each test and job of a merged check took is kept with its work, and a test's time and the CI's growth are
    judged by that history, not by a number set by hand (decision the-ci-grows-by-medians-of-its-merged-checks).
 

@@ -174,7 +174,7 @@ function held() {
 describe('the panel of the item selected', () => {
   it('heads with the number, the title and the project, and says where the item stands and what its work does', () => {
     const el = draw(12, answered([]));
-    expect(text(el, '.drawer-id')).toEqual(['12']);
+    expect(text(el, '.drawer-id')).toEqual(['#12']);
     expect(text(el, '.drawer-title')).toEqual(['Show the cost of a work']);
     expect(text(el, '.drawer-belongs')).toEqual(['wf-agents']);
     const [itemLine, workLine] = lines(el);
@@ -192,6 +192,10 @@ describe('the panel of the item selected', () => {
     expect(card.querySelector('.cw-choice-by')).toBe(null);
     expect(card.querySelector('button')?.title).toBe('Run the cell again past its limit');
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
+    // The work is named as the engine names one, by its link's words and its title.
+    const link = el.querySelector('.cw-item > .status-line a.link.mono') as HTMLElement;
+    expect(link.textContent).toBe('W12');
+    expect(link.title).toBe('Open W12');
   });
 
   it('says the items a work waits for once, on its line, as the engine gives them', () => {

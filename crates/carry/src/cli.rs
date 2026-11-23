@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use decide::RunId;
 use driver::Said;
 use flow::Compiled;
+use flow::agents::{ProgramWords, fill};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use service::Token;
@@ -484,7 +485,11 @@ pub struct Read {
 /// it, whatever was read.
 #[derive(Debug)]
 pub struct NoResult {
+    /// Why there is no return, as a sentence in the words beside the flows.
     pub why: String,
+    /// What the command line itself reported of it, in no word of the engine's: what the kind of the failure is told
+    /// by, so that changing the words beside the flows changes no kind.
+    pub report: String,
     pub spent: Option<Spent>,
     pub said: failure::Said,
 }
@@ -524,6 +529,12 @@ pub struct Stream {
     pub tools: Vec<(String, String, String)>,
     /// The program's version, where its first line told it.
     pub program: Option<String>,
+    /// The names of the tools the program says, in its first line, it gave the model, in the order it gave them; none
+    /// where the line did not say.
+    pub program_tools: Option<Vec<String>>,
+    /// The names of the agents the program says, in its first line, it gave the model, in the order it gave them;
+    /// none where the line did not say.
+    pub program_agents: Option<Vec<String>>,
     /// What the latest rate limit event that said anything of the usage of the account the program runs under said.
     usage: Option<Said>,
     /// How many rate limit events said anything of the usage.
@@ -562,6 +573,13 @@ impl Calls {
         }
         self.last = Some(whole);
     }
+}
+
+/// The names an array of the program's first line holds, in order; none where it is not an array of names.
+fn names(list: &Value) -> Option<Vec<String>> {
+    (list.as_array()?.iter())
+        .map(|name| name.as_str().map(str::to_string))
+        .collect()
 }
 
 /// How much of what a tool was used on is kept to say what the agent was doing, in characters.
@@ -614,6 +632,8 @@ impl Stream {
             Some("assistant") if v["parent_tool_use_id"].is_null() => self.used(&v),
             Some("system") if v["subtype"] == "init" => {
                 self.program = v["claude_code_version"].as_str().map(str::to_string);
+                self.program_tools = names(&v["tools"]);
+                self.program_agents = names(&v["agents"]);
             }
             _ => {}
         }
@@ -754,32 +774,45 @@ impl Stream {
         ))
     }
 
+    /// What the round took, as the stream says: what its result says where it printed one that can be read, else its
+    /// calls at their models' prices; none where it made none. For where the words of why there is no return are of no
+    /// use.
+    pub fn took(&self, begin: Begin, before: u64) -> Option<Spent> {
+        let result = (self.result.clone()).and_then(|result| serde_json::from_value::<Result>(result).ok());
+        match result {
+            Some(result) => Some(spent(&result, begin, before)),
+            None => self.priced(),
+        }
+    }
+
     /// Reads the stream, for a round that began its session or went on in it with the session having cost `before`:
     /// the return the command line took, or, where it gave up on the return or the agent stopped trying and the
     /// result holds none, its last attempt at it, rebuilt; or says why there is no return to take, with what the
     /// round took where the result could be read. A round that began its session cost the session's total; one that
     /// went on in it, that total less what the line's earlier rounds cost, or the whole total where that is less
-    /// (measured: the total is the whole session's, even where two lines take turns in one worktree).
-    pub fn read(self, begin: Begin, before: u64) -> std::result::Result<Read, NoResult> {
+    /// (measured: the total is the whole session's, even where two lines take turns in one worktree). What it says
+    /// of why there is none is in these words.
+    pub fn read(self, begin: Begin, before: u64, words: &ProgramWords) -> std::result::Result<Read, Box<NoResult>> {
         let fields = self.said;
         let priced = self.priced();
         let Some(result) = self.result else {
-            let why = "the command line's stream holds no result".to_string();
-            return Err(NoResult {
-                why,
+            return Err(Box::new(NoResult {
+                why: words.no_stream_result.clone(),
+                report: String::new(),
                 spent: priced,
                 said: fields,
-            });
+            }));
         };
         let result: Result = match serde_json::from_value(result) {
             Ok(result) => result,
             Err(e) => {
-                let why = format!("the command line's result cannot be read: {e}");
-                return Err(NoResult {
-                    why,
+                let report = e.to_string();
+                return Err(Box::new(NoResult {
+                    why: fill(&words.unreadable_result, &[("why", &report)]),
+                    report,
                     spent: priced,
                     said: fields,
-                });
+                }));
             }
         };
         let mut spent = spent(&result, begin, before);
@@ -795,72 +828,111 @@ impl Stream {
         if !result.is_error {
             // The agent may stop trying after the command line refused its attempts, and end its turn: its last
             // attempt is read as one the command line gave up on is.
-            let why = "the command line's result holds no structured return".to_string();
             let structured = match result.structured_output {
                 Some(structured) => Ok(structured),
-                None => last_attempt(self.attempts, &self.refusals, why),
+                None => last_attempt(
+                    self.attempts,
+                    &self.refusals,
+                    (words.no_return.clone(), String::new()),
+                    words,
+                ),
             };
             return match structured {
                 Ok(structured) => Ok(Read { structured, spent }),
-                Err(why) => Err(NoResult {
+                Err((why, report)) => Err(Box::new(NoResult {
                     why,
+                    report,
                     spent: Some(spent),
                     said: fields,
-                }),
+                })),
             };
         }
         // What it says goes back to the agent where the return is sent back: its quote of the attempt is left out.
         let said = result.said();
-        let why = match result.subtype.as_deref() {
-            Some(subtype) if subtype != "success" => {
-                format!("the command line's result is an error ({subtype}): {said}")
-            }
-            _ => format!("the command line's result is an error: {said}"),
+        let kind = result.subtype.as_deref().filter(|subtype| *subtype != "success");
+        let why = match kind {
+            Some(subtype) => fill(&words.error_kind, &[("subtype", subtype), ("said", &said)]),
+            None => fill(&words.error, &[("said", &said)]),
         };
+        // What the command line reported, the words that tell the kind of the failure: its kind and what it said.
+        let report = kind.into_iter().chain([said.as_str()]).collect::<Vec<_>>().join(": ");
         // The command line gave up on the return, having refused every attempt at it: the last is read as any return
         // is, by the engine's own reading, which sends it back where it cannot be read.
-        let why = if failure::gave_up(&why, &fields) {
-            match last_attempt(self.attempts, &self.refusals, why) {
+        let (why, report) = if failure::gave_up(&report, &fields) {
+            match last_attempt(self.attempts, &self.refusals, (why, report), words) {
                 Ok(structured) => return Ok(Read { structured, spent }),
-                Err(why) => why,
+                Err(unread) => unread,
             }
         } else {
-            why
+            (why, report)
         };
-        Err(NoResult {
+        Err(Box::new(NoResult {
             why,
+            report,
             spent: Some(spent),
             said: fields,
-        })
+        }))
     }
 }
 
 /// The last attempt at a return in the stream, read as any return is, by the engine's own reading, which sends it
-/// back where it cannot be read; or, as the reason there is none, `why` where the stream holds no attempt, and `why`
-/// with what is wrong with the attempt where it is no JSON, with what the command line said of it where `why` does
-/// not already end with that.
-fn last_attempt(attempts: Attempts, refusals: &[(String, String)], why: String) -> std::result::Result<Value, String> {
+/// back where it cannot be read; or, as the reason there is none and what the command line reported, the first of the
+/// pair where the stream holds no attempt, and that with what is wrong with the attempt where it is no JSON, with
+/// what the command line said of it where the reason does not already hold that.
+fn last_attempt(
+    attempts: Attempts,
+    refusals: &[(String, String)],
+    (why, report): (String, String),
+    words: &ProgramWords,
+) -> std::result::Result<Value, (String, String)> {
     let Some((id, raw)) = attempts.last() else {
-        return Err(why);
+        return Err((why, report));
     };
     serde_json::from_str::<Value>(&raw).map_err(|e| {
         let refused = (refusals.iter())
             .find(|(refused, _)| *refused == id)
             .map(|(_, said)| without_quote(said))
-            .filter(|said| !why.contains(said.as_str()))
-            .map(|said| format!(", and the command line said: {said}"))
-            .unwrap_or_default();
-        format!("{why}; its last attempt at the return is no JSON ({e}){refused}")
+            .filter(|said| !why.contains(said.as_str()));
+        let told = refused
+            .as_ref()
+            .map_or_else(String::new, |said| fill(&words.refused, &[("said", said)]));
+        let error = e.to_string();
+        // The reason before it is a whole sentence, whatever the command line ended what it said with.
+        let reason = flow::agents::sentence(&why);
+        let why = fill(
+            &words.last_attempt,
+            &[("reason", &reason), ("error", &error), ("refused", &told)],
+        );
+        let report = [report]
+            .into_iter()
+            .chain(refused)
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        (why, report.join("; "))
     })
 }
 
-/// Reads a whole stream, line by line, as [`Stream::read`] does.
-pub fn read(stream: &[u8], begin: Begin, before: u64) -> std::result::Result<Read, NoResult> {
+/// What a whole stream says the round took, as [`Stream::took`] does.
+pub fn took(stream: &[u8], begin: Begin, before: u64) -> Option<Spent> {
     let mut read = Stream::default();
     for line in stream.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
         read.line(line);
     }
-    read.read(begin, before)
+    read.took(begin, before)
+}
+
+/// Reads a whole stream, line by line, as [`Stream::read`] does.
+pub fn read(
+    stream: &[u8],
+    begin: Begin,
+    before: u64,
+    words: &ProgramWords,
+) -> std::result::Result<Read, Box<NoResult>> {
+    let mut read = Stream::default();
+    for line in stream.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
+        read.line(line);
+    }
+    read.read(begin, before, words)
 }
 
 /// The inputs the model gave the command line's tool for the return, each an attempt at a return, rebuilt whole from
@@ -1035,6 +1107,13 @@ mod tests {
         }
     }
 
+    /// The words beside the flows of this repository, which the sentences of a result are in.
+    fn program() -> ProgramWords {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+        beside.cost.program
+    }
+
     fn words() -> Words {
         Words {
             waiting: PathBuf::from("rounds/1/2-3.words.json"),
@@ -1092,7 +1171,7 @@ mod tests {
 
     #[test]
     fn the_stream_reads_to_its_return_and_what_it_took() {
-        let read = read(STREAM.as_bytes(), Begin::New, 0).expect("the fixture reads");
+        let read = read(STREAM.as_bytes(), Begin::New, 0, &program()).expect("the fixture reads");
         assert_eq!(
             read.spent,
             Spent {
@@ -1124,10 +1203,27 @@ mod tests {
             (4, 27_199 + 36_149, 8_950 + 140)
         );
         assert_eq!(stream.program.as_deref(), Some("2.1.323"));
+        // Its first line names the tools it gave the model, in order, and no agents.
+        let given: Vec<&str> = (stream.program_tools.iter().flatten()).map(String::as_str).collect();
+        assert_eq!(given, ["Bash", "Read", STRUCTURED_OUTPUT]);
+        assert_eq!(stream.program_agents, None);
         let tools: Vec<&str> = stream.tools.iter().map(|(_, tool, _)| tool.as_str()).collect();
         assert_eq!(tools, ["Bash", STRUCTURED_OUTPUT]);
         // The result says the cache writes apart from the fresh tokens and the reads, the thinking and the turns.
         assert_eq!(stream.printed(), Some((4, 63_348, 9_090, Some(153), 3)));
+    }
+
+    // A list of the first line that is not a list of names is no list: it says nothing, not a shorter list.
+    #[test]
+    fn a_list_of_the_first_line_that_holds_other_than_names_says_none() {
+        assert_eq!(
+            names(&json!(["Bash", "Read"])),
+            Some(vec!["Bash".to_string(), "Read".to_string()])
+        );
+        assert_eq!(names(&json!([])), Some(Vec::new()));
+        assert_eq!(names(&json!(["Bash", 7])), None);
+        assert_eq!(names(&json!("Bash")), None);
+        assert_eq!(names(&Value::Null), None);
     }
 
     #[test]
@@ -1159,7 +1255,7 @@ mod tests {
 
     #[test]
     fn the_last_attempt_of_a_return_the_command_line_gave_up_on_is_read() {
-        let read = read(GAVE_UP.as_bytes(), Begin::New, 0).expect("the last attempt is taken");
+        let read = read(GAVE_UP.as_bytes(), Begin::New, 0, &program()).expect("the last attempt is taken");
         assert_eq!(read.structured, json!({ "hands_in": [], "asks": "\"[]\"" }));
         assert_eq!(read.spent.usd_micros, 2108, "what the call cost");
         // An attempt that is JSON is whole in its message too, as the pieces rebuild it.
@@ -1189,7 +1285,7 @@ mod tests {
         lines.extend(attempt("so-1", &pieces, Some(first_refused)));
         lines.extend(attempt("so-2", &[&last[..20], &last[20..]], Some(last_refused)));
         lines.push(gave_up(last_refused));
-        let read = read(lines.join("\n").as_bytes(), Begin::New, 0).expect("the last attempt is taken");
+        let read = read(lines.join("\n").as_bytes(), Begin::New, 0, &program()).expect("the last attempt is taken");
         assert_eq!(read.structured, serde_json::from_str::<Value>(last).unwrap());
         assert_eq!(read.spent.usd_micros, 400_000, "what the call cost");
         assert_eq!(read.spent.output_tokens, 300);
@@ -1198,7 +1294,7 @@ mod tests {
         let mut only = vec![init];
         only.extend(attempt("so-1", &pieces, Some(first_refused)));
         only.push(gave_up(first_refused));
-        let read = super::read(only.join("\n").as_bytes(), Begin::New, 0).expect("it is taken");
+        let read = super::read(only.join("\n").as_bytes(), Begin::New, 0, &program()).expect("it is taken");
         assert_eq!(read.structured, serde_json::from_str::<Value>(&first).unwrap());
     }
 
@@ -1216,30 +1312,30 @@ mod tests {
             lines.extend(attempt(id, &[&attempted], Some(refused)));
         }
         lines.push(ended.clone());
-        let read = read(lines.join("\n").as_bytes(), Begin::New, 0).expect("the last attempt is taken");
+        let read = read(lines.join("\n").as_bytes(), Begin::New, 0, &program()).expect("the last attempt is taken");
         assert_eq!(read.structured, serde_json::from_str::<Value>(&attempted).unwrap());
         assert_eq!(read.spent.usd_micros, 400_000, "what the call cost");
 
         // No attempt in the stream: no return, as before; an attempt that is no JSON is none either, said as where the
         // command line gave up, and is no kind of failure the words tell, so the work still pauses.
-        let none = "the command line's result holds no structured return";
-        let no = super::read(ended.as_bytes(), Begin::New, 0).expect_err("no return");
+        let none = program().no_return;
+        let no = super::read(ended.as_bytes(), Begin::New, 0, &program()).expect_err("no return");
         assert_eq!(no.why, none);
         let mut cut = attempt("so-1", &[r#"{"outcome": "#], Some(refused));
         cut.push(ended);
-        let no = super::read(cut.join("\n").as_bytes(), Begin::New, 0).expect_err("no return");
+        let no = super::read(cut.join("\n").as_bytes(), Begin::New, 0, &program()).expect_err("no return");
         assert!(
             no.why
-                .starts_with(&format!("{none}; its last attempt at the return is no JSON (")),
+                .starts_with(&format!("{none} Its last attempt at the return is no JSON (")),
             "{}",
             no.why
         );
         assert!(
-            no.why.ends_with(&format!(", and the command line said: {refused}")),
+            no.why.ends_with(&format!(" The command line said: {refused}")),
             "{}",
             no.why
         );
-        assert_eq!(failure::of(&no.why, &no.said, no.spent.as_ref()), Failure::Other);
+        assert_eq!(failure::of(&no.report, &no.said, no.spent.as_ref()), Failure::Other);
     }
 
     #[test]
@@ -1256,9 +1352,9 @@ mod tests {
             Some(&format!("<tool_use_error>{said}</tool_use_error>")),
         );
         lines.push(gave_up(&said));
-        let no = read(lines.join("\n").as_bytes(), Begin::New, 0).expect_err("no JSON is no return");
+        let no = read(lines.join("\n").as_bytes(), Begin::New, 0, &program()).expect_err("no JSON is no return");
         assert!(
-            no.why.contains("its last attempt at the return is no JSON"),
+            no.why.contains("Its last attempt at the return is no JSON"),
             "{}",
             no.why
         );
@@ -1274,13 +1370,13 @@ mod tests {
             no.why
         );
         assert_eq!(
-            failure::of(&no.why, &no.said, no.spent.as_ref()),
+            failure::of(&no.report, &no.said, no.spent.as_ref()),
             Failure::Unread,
             "it is sent back"
         );
         assert_eq!(no.spent.map(|s| s.usd_micros), Some(400_000));
         // Given up on with no attempt in the stream, the result's own words say why, without the quote.
-        let no = read(gave_up(&said).as_bytes(), Begin::New, 0).expect_err("nothing to take");
+        let no = read(gave_up(&said).as_bytes(), Begin::New, 0, &program()).expect_err("nothing to take");
         assert!(
             no.why.contains("Failed to provide valid structured output"),
             "{}",
@@ -1294,15 +1390,56 @@ mod tests {
             "errors": ["Failed to provide valid structured output after 3 attempts"] })
             .to_string(),
         );
-        let no = read(lines.join("\n").as_bytes(), Begin::New, 0).expect_err("no JSON is no return");
+        let no = read(lines.join("\n").as_bytes(), Begin::New, 0, &program()).expect_err("no JSON is no return");
         assert!(
             no.why.ends_with(
-                "and the command line said: InputValidationError: StructuredOutput was called with \
+                "The command line said: InputValidationError: StructuredOutput was called with \
                               input that could not be parsed as JSON.\nYou sent (first 200 of 92 bytes)"
             ),
             "{}",
             no.why
         );
+    }
+
+    // What the command line reported tells the kind of a failure, and the words the engine says it in tell none: the
+    // sentences changed to hold the words of other kinds change no kind, as the files' words may be changed.
+    #[test]
+    fn the_kind_of_a_failure_is_told_by_what_the_command_line_reported_and_not_by_the_words_that_say_it() {
+        let loud = |text: &str| format!("You have hit your usage limit and are not logged in. {text}");
+        let ordinary = program();
+        let changed = ProgramWords {
+            no_stream_result: loud(&ordinary.no_stream_result),
+            unreadable_result: loud(&ordinary.unreadable_result),
+            no_return: loud(&ordinary.no_return),
+            error_kind: loud(&ordinary.error_kind),
+            error: loud(&ordinary.error),
+            last_attempt: loud(&ordinary.last_attempt),
+            ..ordinary.clone()
+        };
+        let ended =
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"My review.","total_cost_usd":0.4}"#;
+        let error = r#"{"type":"result","is_error":true,"result":"There's an issue with the selected model."}"#;
+        let giving_up = r#"{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"errors":["Failed to provide valid structured output after 3 attempts"]}"#;
+        let streams = [
+            (ended, Failure::Other),
+            (error, Failure::Other),
+            (giving_up, Failure::Unread),
+        ];
+        for (stream, kind) in streams {
+            for words in [&ordinary, &changed] {
+                let no = super::read(stream.as_bytes(), Begin::New, 0, words).expect_err("no return");
+                assert_eq!(
+                    failure::of(&no.report, &no.said, no.spent.as_ref()),
+                    kind,
+                    "{stream}: {}",
+                    no.why
+                );
+            }
+        }
+        // The sentence is the words', and is the only place they come in.
+        let no = super::read(ended.as_bytes(), Begin::New, 0, &changed).expect_err("no return");
+        assert!(no.why.starts_with("You have hit your usage limit"), "{}", no.why);
+        assert_eq!(no.report, "");
     }
 
     #[test]
@@ -1311,7 +1448,7 @@ mod tests {
         let error = r#"{"type":"result","subtype":"success","is_error":true,"result":"API Error: 529 Overloaded"}"#;
         lines.push(error.to_string());
         assert!(
-            read(lines.join("\n").as_bytes(), Begin::New, 0).is_err(),
+            read(lines.join("\n").as_bytes(), Begin::New, 0, &program()).is_err(),
             "a failure of another kind"
         );
         let mut stream = Stream::default();
@@ -1342,7 +1479,7 @@ mod tests {
             stream.line(line.as_bytes());
         }
         assert!(stream.answered());
-        let no = stream.read(Begin::New, 0).expect_err("no result");
+        let no = stream.read(Begin::New, 0, &program()).expect_err("no result");
         let spent = no.spent.expect("its calls are priced");
         assert_eq!(
             (spent.input_tokens, spent.cached_tokens, spent.output_tokens),
@@ -1372,23 +1509,26 @@ mod tests {
             "api_error": "usage_limit_reached", "terminal_reason": "api_error", "total_cost_usd": 9.62,
             "result": "You've hit your weekly limit · resets 11pm (America/Los_Angeles)" });
         let stream = [refused.to_string(), result.to_string()].join("\n");
-        let no = read(stream.as_bytes(), Begin::Resume, 9_620_000).expect_err("a refusal is not taken");
+        let no = read(stream.as_bytes(), Begin::Resume, 9_620_000, &program()).expect_err("a refusal is not taken");
         assert_eq!(no.said.kind(), Some(Failure::UsageLimit));
         assert_eq!(no.said.resets, Some(1_794_380_400_000));
-        assert_eq!(failure::of(&no.why, &no.said, no.spent.as_ref()), Failure::UsageLimit);
+        assert_eq!(
+            failure::of(&no.report, &no.said, no.spent.as_ref()),
+            Failure::UsageLimit
+        );
         // A stream cut off before its result says what it said all the same.
-        let cut = read(refused.to_string().as_bytes(), Begin::New, 0).expect_err("no result");
+        let cut = read(refused.to_string().as_bytes(), Begin::New, 0, &program()).expect_err("no result");
         assert_eq!((cut.spent, cut.said.kind()), (None, Some(Failure::UsageLimit)));
     }
 
     #[test]
     fn a_round_ended_with_the_context_of_its_last_call() {
         let two = r#"{"type":"result","is_error":false,"total_cost_usd":0.1,"structured_output":{},"usage":{"input_tokens":3,"output_tokens":9,"iterations":[{"input_tokens":1,"cache_read_input_tokens":100,"cache_creation_input_tokens":20},{"input_tokens":2,"cache_read_input_tokens":120,"cache_creation_input_tokens":30}]}}"#;
-        let read = super::read(two.as_bytes(), Begin::New, 0).expect("it reads");
+        let read = super::read(two.as_bytes(), Begin::New, 0, &program()).expect("it reads");
         assert_eq!(read.spent.context_tokens, Some(152), "the last call's prompt");
         let none = r#"{"type":"result","is_error":false,"total_cost_usd":0.1,"structured_output":{}}"#;
         assert_eq!(
-            super::read(none.as_bytes(), Begin::New, 0)
+            super::read(none.as_bytes(), Begin::New, 0, &program())
                 .unwrap()
                 .spent
                 .context_tokens,
@@ -1398,29 +1538,29 @@ mod tests {
 
     #[test]
     fn a_resumed_round_costs_what_the_session_cost_more() {
-        let read = read(STREAM.as_bytes(), Begin::Resume, 1000).expect("the fixture reads");
+        let read = read(STREAM.as_bytes(), Begin::Resume, 1000, &program()).expect("the fixture reads");
         assert_eq!(read.spent.usd_micros, 1614);
     }
 
     #[test]
     fn a_resumed_round_whose_session_cost_less_than_before_costs_the_whole_total() {
-        let read = read(STREAM.as_bytes(), Begin::Resume, 5000).expect("the fixture reads");
+        let read = read(STREAM.as_bytes(), Begin::Resume, 5000, &program()).expect("the fixture reads");
         assert_eq!(read.spent.usd_micros, 2614);
     }
 
     #[test]
     fn an_error_and_what_is_no_result_are_not_taken() {
         let error = r#"{"type":"result","is_error":true,"result":"There's an issue with the selected model."}"#;
-        let refused = read(error.as_bytes(), Begin::New, 0).expect_err("an error is not taken");
+        let refused = read(error.as_bytes(), Begin::New, 0, &program()).expect_err("an error is not taken");
         assert!(refused.why.contains("issue with the selected model"), "{}", refused.why);
-        let nothing = read(b"Error: something", Begin::New, 0).expect_err("what is no JSON is not taken");
+        let nothing = read(b"Error: something", Begin::New, 0, &program()).expect_err("what is no JSON is not taken");
         assert_eq!(nothing.spent, None, "what the round took is not known");
         let cut = STREAM.lines().take(5).collect::<Vec<_>>().join("\n");
-        let cut = read(cut.as_bytes(), Begin::New, 0).expect_err("a stream with no result is not taken");
+        let cut = read(cut.as_bytes(), Begin::New, 0, &program()).expect_err("a stream with no result is not taken");
         assert_eq!(cut.spent, None);
         let bare = r#"{"type":"result","is_error":false,"result":"hello","total_cost_usd":0.1}"#;
         assert!(
-            read(bare.as_bytes(), Begin::New, 0).is_err(),
+            read(bare.as_bytes(), Begin::New, 0, &program()).is_err(),
             "a result with no structured return"
         );
     }
@@ -1435,10 +1575,10 @@ mod tests {
             output_tokens: 20,
             ..Default::default()
         };
-        let refused = read(error.as_bytes(), Begin::Resume, 500_000).expect_err("an error is not taken");
+        let refused = read(error.as_bytes(), Begin::Resume, 500_000, &program()).expect_err("an error is not taken");
         assert_eq!(refused.spent, Some(spent));
         let bare = r#"{"type":"result","is_error":false,"total_cost_usd":0.8}"#;
-        let refused = read(bare.as_bytes(), Begin::New, 0).expect_err("no structured return is not taken");
+        let refused = read(bare.as_bytes(), Begin::New, 0, &program()).expect_err("no structured return is not taken");
         assert_eq!(refused.spent.map(|s| s.usd_micros), Some(800_000));
     }
 
@@ -1508,7 +1648,7 @@ mod tests {
         }
         assert_eq!(stream.results(), 2);
         let read = stream
-            .read(Begin::Resume, 5_000)
+            .read(Begin::Resume, 5_000, &program())
             .expect("the question's return is read");
         assert_eq!(read.structured, json!({ "answer": "yes" }));
         assert_eq!(
@@ -1550,8 +1690,9 @@ mod tests {
     #[test]
     fn a_fork_whose_question_made_no_attempt_is_not_read_as_the_opening_messages_return() {
         let lines = two_messages(None);
-        let no = read(lines.join("\n").as_bytes(), Begin::Resume, 0).expect_err("no return to the question");
-        assert_eq!(no.why, "the command line's result holds no structured return");
+        let no =
+            read(lines.join("\n").as_bytes(), Begin::Resume, 0, &program()).expect_err("no return to the question");
+        assert_eq!(no.why, program().no_return);
         // The tokens of both messages are what it took.
         assert_eq!(no.spent.map(|s| s.output_tokens), Some(5 + 8));
     }
@@ -1590,12 +1731,14 @@ mod tests {
     // milliseconds, in memory; a stream of the test's own making could not show that the real lines are read so.
     #[test]
     fn two_messages_of_the_real_stream_read_as_two_results_and_the_return_of_the_second() {
-        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0).expect("one message reads");
+        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0, &program()).expect("one message reads");
         let mut lines = real_message();
         lines.extend(second_message());
         let stream = feed(&lines);
         assert_eq!(stream.results(), 2);
-        let got = stream.read(Begin::Resume, 0).expect("the question's return is read");
+        let got = stream
+            .read(Begin::Resume, 0, &program())
+            .expect("the question's return is read");
         assert_eq!(got.structured, single.structured, "the return of the last message");
         // The tokens of both messages, and the total of the last result as the cost: the command line's total is its
         // whole call's.
@@ -1618,11 +1761,13 @@ mod tests {
         result.as_object_mut().expect("an object").remove("structured_output");
         first[at] = result.to_string();
         first.truncate(at + 1);
-        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0).expect("one message reads");
+        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0, &program()).expect("one message reads");
         first.extend(second_message());
         let stream = feed(&first);
         assert_eq!(stream.results(), 2);
-        let got = stream.read(Begin::Resume, 0).expect("the question's return is read");
+        let got = stream
+            .read(Begin::Resume, 0, &program())
+            .expect("the question's return is read");
         assert_eq!(got.structured, single.structured);
         assert_eq!(got.spent.output_tokens, 2 * single.spent.output_tokens);
     }
@@ -1633,7 +1778,7 @@ mod tests {
     // is still the second result, and the one read. A few milliseconds.
     #[test]
     fn a_first_message_the_program_answered_itself_does_not_stop_the_question_being_read() {
-        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0).expect("one message reads");
+        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0, &program()).expect("one message reads");
         let own = [
             r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Nothing to show."}]},"parent_tool_use_id":null}"#,
             r#"{"type":"result","subtype":"success","is_error":false,"result":"Nothing to show.","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}"#,
@@ -1643,7 +1788,9 @@ mod tests {
         lines.extend(second_message());
         let stream = feed(&lines);
         assert_eq!(stream.results(), 2);
-        let got = stream.read(Begin::Resume, 0).expect("the question's return is read");
+        let got = stream
+            .read(Begin::Resume, 0, &program())
+            .expect("the question's return is read");
         assert_eq!(got.structured, single.structured);
         assert_eq!(
             (got.spent.input_tokens, got.spent.cached_tokens, got.spent.output_tokens),
@@ -1665,8 +1812,10 @@ mod tests {
         lines.extend(second_message().into_iter().take(2));
         let stream = feed(&lines);
         assert_eq!(stream.results(), 1, "only the first message ended");
-        let no = stream.read(Begin::Resume, 0).expect_err("the question has no result");
-        assert_eq!(no.why, "the command line's stream holds no result");
+        let no = stream
+            .read(Begin::Resume, 0, &program())
+            .expect_err("the question has no result");
+        assert_eq!(no.why, program().no_stream_result);
         assert!(no.spent.is_some(), "the first message's calls were paid for");
     }
 
@@ -1689,8 +1838,10 @@ mod tests {
         lines.push(result.to_string());
         let stream = feed(&lines);
         assert_eq!(stream.results(), 2);
-        let no = stream.read(Begin::Resume, 0).expect_err("no return to the question");
-        assert_eq!(no.why, "the command line's result holds no structured return");
+        let no = stream
+            .read(Begin::Resume, 0, &program())
+            .expect_err("no return to the question");
+        assert_eq!(no.why, program().no_return);
     }
 
     #[test]
@@ -1702,7 +1853,7 @@ mod tests {
         assert!(stream.has_result());
         assert!(stream.answered());
         assert_eq!(stream.results(), 1);
-        let read = stream.read(Begin::New, 0).expect("the fixture reads");
+        let read = stream.read(Begin::New, 0, &program()).expect("the fixture reads");
         assert_eq!(read.structured["hands_in"][0]["content"], "BANANA");
     }
 

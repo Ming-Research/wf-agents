@@ -18,10 +18,16 @@ Each time the owner lets on a work the engine paused for its spending, it may sp
 - replaced: Words beside a work paused for its budget that said only how much it had spent over its budget was on main; the owner changed it, because they should say how much letting it run again adds.
 
 ### decision a-miss-is-told-from-the-records
-A round or a fork missed its session's cache if, while the cache was alive, its first call read under half of what the session held; a round's miss is expected or wf-agents' fault.
+A round or a fork missed its session's cache if, while it was alive, its first call read under half of what the session held; a round's miss is expected, wf-agents' fault or of unknown cause.
 - rejected: an agent proposed counting a miss in the cost figures a project's architect reads; the owner rejected it, because the project being run need not be wf-agents, and a miss is wf-agents' to fix, so it should come to him.
 - replaced: Saying a fork was not read from the cache when it read under 80% of the session was on main; the owner changed it, because the same thing was then defined in two places, a round's miss and a fork's.
 - rejected: an agent proposed one test for both at 80%; the owner rejected it, because more rounds would be judged as misses, and the history of works already run would be judged again.
+- replaced: Telling a miss nothing explained as wf-agents' fault, whatever the records held, was on main; the owner changed it, because a fault should always be worth looking into, and a round the records do not explain shows as not known.
+
+### decision a-compacted-session-is-no-miss
+A round with a compaction recorded whose first prompt is shorter than what its session held compacted it before its first call, and is no miss.
+- replaced: Counting such a round as a miss, a fault of wf-agents where nothing before the messages differed, was on main; the owner changed it, because after a compaction the cache has nothing of the session to read, and it is no fault of wf-agents.
+- rejected: an agent proposed listing it as an expected miss with the cause compaction; the owner rejected it, because the session it read was replaced by design, and the list should hold only what can be found a cause for; the compaction's cost stays in the round's compactions and cost.
 
 ### decision what-went-past-its-line-is-given-in-data-only
 What went past the line of its history (a round's cost or time, a call's time or result size) is given in the System data and by wf-agents system; the page draws none of it.
