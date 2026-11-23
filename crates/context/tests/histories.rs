@@ -45,7 +45,7 @@ use context::message::{Values, kept};
 use context::text::as_written;
 use context::{Entered, Form, Piece, Situation, Stands};
 use decide::run::Unmet;
-use decide::{BlockId, CallId, CellId, Decision, Outsider, RunId, Seq, Waited, Writer, decide};
+use decide::{BlockId, CallId, CellId, Condition, Decision, Outsider, RunId, Seq, Waited, Writer, decide};
 use engine::spoken::{self, To};
 use engine::{Ask, Back, Call, Came, Event, Fill, Given, Handed, Why};
 use flow::agents::Part;
@@ -1599,7 +1599,7 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
 /// How many runs the search makes at most, how many steps each takes after its quiet ones, how many of the first steps
 /// of a run begun from nothing only carry the work's rounds (up to), and how many states of the work at the entry of a
 /// round of a cell it keeps, each of a situation the round stood in that no other kept did.
-const RUNS: usize = 130;
+const RUNS: usize = 300;
 const RUN_STEPS: usize = 30;
 const QUIET_STEPS: usize = 150;
 const ARCHIVE: usize = 50;
@@ -1614,6 +1614,8 @@ struct Target {
     state: Option<String>,
     unwritten: bool,
     blocks: Vec<String>,
+    /// The value of each choice the cell's own condition names, which the cell runs on.
+    runs_on: Vec<(String, String)>,
 }
 
 impl Target {
@@ -1641,12 +1643,24 @@ impl Target {
             }
         }
         let state = datum.and_then(|_| rest.split(' ').nth(1)).map(str::to_string);
+        let runs_on = (sim.flow.flow.cells().iter())
+            .find(|c| c.id.as_str() == cell)
+            .map(|c| {
+                (c.applies.iter())
+                    .filter_map(|key| match key {
+                        Condition::Is { block, value } => Some((block.as_str().to_string(), value.clone())),
+                        Condition::Test(_) => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         Target {
             cell: cell.to_string(),
             datum: datum.map(str::to_string),
             state,
             unwritten: rest.contains(" unwritten and "),
             blocks,
+            runs_on,
         }
     }
 
@@ -1706,12 +1720,20 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
             std::panic::resume_unwind(e);
         }
     };
+    let mut tried: BTreeMap<&String, usize> = BTreeMap::new();
     for n in 0..RUNS {
         let open: Vec<&String> = wanted.iter().filter(|line| !reached.real.contains(*line)).collect();
         if open.is_empty() {
             break;
         }
-        let target = Target::of(&flow_of, open[rng.below(open.len())]);
+        // A line the fewest runs were steered at is the next one's, so that none is left to chance.
+        let fewest = open.iter().map(|line| tried.get(*line).copied().unwrap_or(0)).min();
+        let next: Vec<&&String> = (open.iter())
+            .filter(|line| Some(tried.get(**line).copied().unwrap_or(0)) == fewest)
+            .collect();
+        let line = *next[rng.below(next.len())];
+        *tried.entry(line).or_default() += 1;
+        let target = Target::of(&flow_of, line);
         // Where the run begins: a state kept at a round of the target's cell, or of the nearest cell before it that has
         // one, chosen by how near its situation is to the line, which the run then carries on to the cell; from nothing,
         // where none is kept and now and then.
@@ -1786,6 +1808,10 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         history.target = Some(target.clone());
         history.prefer.clear();
         history.force.clear();
+        // The cell runs where the choices its condition names have those values.
+        if rng.chance(85) {
+            history.force.extend(target.runs_on.iter().cloned());
+        }
         // A state of a datum unwritten is brought about by no return handing it in, and of the owner's talk with a cell, by
         // the owner not talking nor a cell asking.
         let quiet_owner = target.unwritten && target.talk() && rng.chance(85);
