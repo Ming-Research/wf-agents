@@ -129,9 +129,8 @@ impl Attention {
         // The work a line is of, with its item, and what it does now; with its view and what holds back its next
         // round, which what it waits on the owner for reads.
         let of_work = |work: WorkNumber| -> Result<(Of, Now, View, Option<Holder>), Broken> {
-            let kept = (driver.work(work)).ok_or_else(|| Broken(format!("there is no work {}", work.0)))?;
-            let view =
-                (driver.view_at(work, &at_once)).ok_or_else(|| Broken(format!("work {} has no view", work.0)))?;
+            let kept = (driver.work(work)).ok_or_else(|| Broken(format!("there is no work {work}")))?;
+            let view = (driver.view_at(work, &at_once)).ok_or_else(|| Broken(format!("{work} has no view")))?;
             let held = driver.held_at(work, &at_once);
             let of = Of {
                 work: work.0,
@@ -284,9 +283,9 @@ fn not_answered(refusal: &of::Refused) -> Response {
         of::Refused::NotOfTheseRecords { work } => fail(
             StatusCode::UNPROCESSABLE_ENTITY,
             format!(
-                "The mark is not of these records: it names work {} as it has never been. Give no mark to read what \
+                "The mark is not of these records: it names {} as it has never been. Give no mark to read what \
                  stands now.",
-                work.0
+                work
             ),
         ),
         of::Refused::Stopped(fault) => fail(
