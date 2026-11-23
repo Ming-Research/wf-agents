@@ -382,9 +382,9 @@ async fn a_commit_in_a_works_linked_worktree_ends_with_the_lines_where_the_data_
 }
 
 /// The text with each `#` and `@` broken as `neutral` breaks them, which is how the squash makes what an agent wrote fit
-/// to publish.
+/// to publish. The texts of these tests are far shorter than where `neutral` cuts, so its words for the cut are not said.
 fn published(text: &str) -> String {
-    crate::host::github::neutral(text, &[])
+    crate::host::github::neutral(text, &[], "")
 }
 
 // Reference: the contract of `neutral` ("no mention notifies anyone, no reference names an issue or a pull request" in
