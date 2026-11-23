@@ -182,7 +182,8 @@ pub struct Group {
 }
 
 /// What a work's page reads of the version of its flow the work runs on, as the outline kept of it has it (decision
-/// `a-works-past-is-drawn-from-its-outline`); of a work on no version kept, what its records name alone.
+/// `a-works-past-is-drawn-from-its-outline`); of a work on no version kept, what its records name, with its card read
+/// from the flow installed (decision `a-work-on-no-version-is-drawn-from-its-records`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutlineView {
@@ -195,8 +196,8 @@ pub struct OutlineView {
     /// The lines, each with its cells in the order of the walk.
     pub lines: Vec<OutlineLine>,
     pub groups: Vec<Group>,
-    /// What the item's card shows: the data the version names; of a work on no version kept, what people wrote for
-    /// it before its first run, in the order first written.
+    /// What the item's card shows: the data the version names; of a work on no version kept, each datum the card of
+    /// the flow installed names that the work has a version of, in the order that card names them.
     pub card: Vec<String>,
 }
 
@@ -237,9 +238,11 @@ pub struct OutlineLine {
 impl OutlineView {
     /// The outline of the version the work runs on, none where it runs on none kept, read with the work's records: a
     /// cell its runs name that the version has not, taken out since, as `came_from` gives it of the version it came
-    /// from, where one kept has it.
+    /// from, where one kept has it. `installed_card` is the card of the flow installed, which a work on none kept
+    /// shows.
     pub fn of(
         outline: Option<&flow::Outline>,
+        installed_card: &[decide::BlockId],
         records: &decide::Records,
         came_from: &dyn Fn(&decide::CellId) -> Option<flow::outline::OutlinedCell>,
     ) -> OutlineView {
@@ -261,14 +264,10 @@ impl OutlineView {
             words: None,
         };
         let Some(outline) = outline else {
-            let first = records.started.first().map(|s| s.at);
-            let mut card: Vec<String> = Vec::new();
-            for written in &records.written {
-                let before = first.is_none_or(|first| written.at < first);
-                if before && written.by == decide::Outsider::Person && !card.contains(&written.block.to_string()) {
-                    card.push(written.block.to_string());
-                }
-            }
+            let card = (installed_card.iter())
+                .filter(|block| records.place([*block], 1).is_some())
+                .map(ToString::to_string)
+                .collect();
             return OutlineView {
                 kept: false,
                 cells: ran.iter().map(bare).collect(),
@@ -633,10 +632,13 @@ pub enum What {
     VerdictWithoutDialogue {
         verdict: String,
     },
-    /// The cell watches or reads a datum of another line's own.
-    LineDataOfAnother {
+    /// The block names entries of the design tree, and no datum of the flow is the design tree.
+    EntriesWithoutTree {
         block: String,
-        line: String,
+    },
+    /// The cell is given a block that names entries of the design tree in another kind than its latest.
+    EntriesNotLatest {
+        block: String,
     },
     /// The flow names a cell for the engine to ask in that cannot change the work or cannot be spoken to.
     CannotBeAskedIn {
@@ -1033,7 +1035,8 @@ impl What {
             F::SpokenToAndAsksNothing { block } => What::SpokenToAndAsksNothing { block },
             F::VerdictOfDialogues { verdict, dialogues } => What::VerdictOfDialogues { verdict, dialogues },
             F::VerdictWithoutDialogue { verdict } => What::VerdictWithoutDialogue { verdict },
-            F::LineDataOfAnother { block, line } => What::LineDataOfAnother { block, line },
+            F::EntriesWithoutTree { block } => What::EntriesWithoutTree { block },
+            F::EntriesNotLatest { block } => What::EntriesNotLatest { block },
             F::CannotBeAskedIn { cell } => What::CannotBeAskedIn { cell },
             F::NeverNew {
                 watched,
@@ -1105,7 +1108,7 @@ impl What {
 
 #[cfg(test)]
 mod tests {
-    use decide::{Outsider, Records, RunId, Seq, Started, Written};
+    use decide::{BlockId, Finished, Outsider, Records, RunId, Seq, Started, Write, Written};
 
     use super::*;
 
@@ -1131,11 +1134,13 @@ mod tests {
         }
     }
 
-    // A work on no version kept is read from its records alone (decision a-works-past-is-drawn-from-its-outline): a
-    // cell for each id its runs name, in the order they first ran, with no title or line; its card what people wrote
-    // for it before its first run; no lines, groups or words; and it says so.
+    // A work on no version kept is read from its records (decision a-work-on-no-version-is-drawn-from-its-records): a
+    // cell for each id its runs name, in the order they first ran, with no title or line; no lines, groups or words;
+    // and it says so. Its card is each datum the card of the flow installed names that the work has a version of, in
+    // that card's order. Fails where a datum a run wrote after the first run is left out, where a datum the work has
+    // no version of is shown, or where the card follows the order of the writes.
     #[test]
-    fn a_work_on_no_version_kept_is_outlined_from_its_records_alone() {
+    fn a_work_on_no_version_kept_is_outlined_from_its_records_and_the_installed_card() {
         let records = Records {
             started: vec![
                 started(1, "S1", 3),
@@ -1144,14 +1149,26 @@ mod tests {
                 started(4, "R1", 9),
                 started(5, "M2", 11),
             ],
+            finished: vec![Finished {
+                run: RunId(2),
+                at: Seq(6),
+                writes: vec![Write {
+                    block: "plan_owner".into(),
+                    meaning_unchanged: false,
+                    value: None,
+                    empty: false,
+                }],
+                dealt_with: None,
+                waits_for: None,
+            }],
             written: vec![
                 written("background", Outsider::Person, 1),
                 written("main", Outsider::Outside, 2),
-                written("plan_owner", Outsider::Person, 8),
             ],
             ..Records::default()
         };
-        let outline = OutlineView::of(None, &records, &|_| None);
+        let installed = |card: &[&str]| -> Vec<BlockId> { card.iter().map(|&b| BlockId::from(b)).collect() };
+        let outline = OutlineView::of(None, &installed(&["background", "plan_owner"]), &records, &|_| None);
         assert!(!outline.kept);
         let ids: Vec<&str> = outline.cells.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, ["S1", "R1", "D4", "M2"]);
@@ -1161,8 +1178,13 @@ mod tests {
                 .iter()
                 .all(|c| c.title.is_none() && c.line.is_none() && c.words.is_none())
         );
-        assert_eq!(outline.card, ["background"]);
         assert!(outline.lines.is_empty() && outline.groups.is_empty());
+        assert_eq!(outline.card, ["background", "plan_owner"]);
+        let reversed = OutlineView::of(None, &installed(&["plan_owner", "background"]), &records, &|_| None);
+        assert_eq!(reversed.card, ["plan_owner", "background"]);
+        let unplanned = records.before(Seq(6));
+        let unplanned = OutlineView::of(None, &installed(&["background", "plan_owner"]), &unplanned, &|_| None);
+        assert_eq!(unplanned.card, ["background"]);
     }
 
     fn outlined(id: &str, title: &str, line: Option<&str>, agent: bool) -> flow::outline::OutlinedCell {
@@ -1203,7 +1225,7 @@ mod tests {
         };
         let came_from =
             |id: &decide::CellId| (id.as_str() == "T2@1").then(|| outlined("T2", "Review", Some("main"), true));
-        let view = OutlineView::of(Some(&outline), &records, &came_from);
+        let view = OutlineView::of(Some(&outline), &[], &records, &came_from);
         let drawn: Vec<(&str, Option<&str>, Option<&str>, bool)> = (view.cells.iter())
             .map(|c| (c.id.as_str(), c.title.as_deref(), c.line.as_deref(), c.agent))
             .collect();

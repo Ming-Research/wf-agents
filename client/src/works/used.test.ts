@@ -104,6 +104,16 @@ describe('what a work used', () => {
     expect(u.spent.workingMs).toBe(usageOf(work(), 0).spent.workingMs);
   });
 
+  it('counts its forks in what it spent, as its keep-warm pings, and not among its rounds', () => {
+    const page = work();
+    page.summary = { forked: { ...spent(0.3, 0), rounds: 3 } } as WorkPage['summary'];
+    const u = usageOf(page, 0);
+    expect([u.spent.usdMicros, u.spent.cachedTokens, u.spent.rounds]).toEqual([5_300_000, 1500, 4]);
+    expect(u.spent.workingMs).toBe(usageOf(work(), 0).spent.workingMs);
+    page.summary = { pinged: { ...spent(0.5, 0), rounds: 2 }, forked: { ...spent(0.3, 0), rounds: 3 } } as WorkPage['summary'];
+    expect(usageOf(page, 0).spent.usdMicros).toBe(5_800_000);
+  });
+
   it('cuts its time into the models, the tools, the engine and the stretches nothing ran in', () => {
     const u = usageOf(work(), 0);
     expect(u.time).toEqual({ model: 25 * MINUTE, tool: 5 * MINUTE, engine: 2 * MINUTE, idle: 20 * MINUTE });

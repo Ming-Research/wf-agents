@@ -1,6 +1,0 @@
-title = "Merge"
-kind = "engine"
-act = "merge"
-requires = { test = "content" }
-watches = ["code"]
-outputs = ["merged"]

@@ -1,6 +1,6 @@
 # What rounds cost
 
-How the engine judges what rounds, tool calls and works take, the size of a tool call's result included, where what went past its line is given, and how it tells that a round missed its cache.
+How the engine judges what rounds, tool calls and works take, the size of a tool call's result included, where what went past its line is given, and how it tells that a round or a fork missed its cache.
 
 ### decision a-line-comes-from-the-history-of-its-kind
 Every threshold line that a round, an act or a tool call is judged by is worked out from the history of its kind on the flow; where there are too few of them, nothing is judged.
@@ -18,8 +18,10 @@ Each time the owner lets on a work the engine paused for its spending, it may sp
 - replaced: Words beside a work paused for its budget that said only how much it had spent over its budget was on main; the owner changed it, because they should say how much letting it run again adds.
 
 ### decision a-miss-is-told-from-the-records
-A round missed its session's cache if, while the cache was alive, its first call read under half of what the session held: expected if what precedes the messages changed, else wf-agents' fault.
+A round or a fork missed its session's cache if, while the cache was alive, its first call read under half of what the session held; a round's miss is expected or wf-agents' fault.
 - rejected: an agent proposed counting a miss in the cost figures a project's architect reads; the owner rejected it, because the project being run need not be wf-agents, and a miss is wf-agents' to fix, so it should come to him.
+- replaced: Saying a fork was not read from the cache when it read under 80% of the session was on main; the owner changed it, because the same thing was then defined in two places, a round's miss and a fork's.
+- rejected: an agent proposed one test for both at 80%; the owner rejected it, because more rounds would be judged as misses, and the history of works already run would be judged again.
 
 ### decision what-went-past-its-line-is-given-in-data-only
 What went past the line of its history (a round's cost or time, a call's time or result size) is given in the System data and by wf-agents system; the page draws none of it.

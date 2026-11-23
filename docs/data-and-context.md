@@ -18,12 +18,11 @@ the owner's pauses, when a work is at its end.
    owner answers, speaks or rules; the owner lets the work on, first or after the item was reopened (`start`); the
    items the work depends on merge or are cancelled (`dependencies`); the branch the works merge into moves (`main`);
    the design tree of the project changes (`tree`); a cell's specification changes (design document
-   `changed-flow-walks-the-records`); a session is reopened (25). Each of these says that something happened
-   outside the work, and runs a cell only where a cell watches it. From a cell: what it hands in when a round of it
-   ends. The code a round commits is handed in by that round, read from the branch as it ends (`head`). Two data are
-   neither: `asked`, which the engine works out from the questions (33), and a cell's `handed_in`, which the engine
-   writes yes as the first run of the cell that deals with something finishes, so that a cell whose condition reads it
-   runs until it has handed in once.
+   `changed-flow-walks-the-records`). Each of these says that something happened outside the work, and runs a cell
+   only where a cell watches it. From a cell: what it hands in when a round of it ends. The code a round commits is
+   handed in by that round, read from the branch as it ends (`head`). Two data are neither: `asked`, which the engine
+   works out from the questions (33), and a cell's `handed_in`, which the engine writes yes as the first run of the
+   cell that deals with something finishes, so that a cell whose condition reads it runs until it has handed in once.
 
 3. The design tree's version is its commit with the id of the tree at it, and it has a new version whenever the tree
    changed, whoever changed it and wherever: on the branch the works merge into, or in the work itself.
@@ -45,7 +44,7 @@ the owner's pauses, when a work is at its end.
    Entering a cell means this: each round is one entering.
 
 7. Nothing else runs a cell (principle a-cell-knows-only-its-data). The engine knows nothing of sessions either: a
-   session that is reopened reaches it only as a new version of data (25), and it chooses as always.
+   session that is reopened runs no cell, and changes only what the next round in it is filled with (15).
 
 8. When the round ends, the versions of what it says it has dealt with are consumed, and are old to this cell from then
    on; what it did not deal with stays new, and the cell is entered again for it. A round that fails or is given up
@@ -130,7 +129,7 @@ new session lacks it.
     the code, is in the context of the session that read it and nowhere else, and the context manager cannot fill it
     in. Of the tree it fills in the version, the commit and the id of the tree, and what changed since the version the
     session read, as the files that changed, so that the agent reads those again; where the session has read none of
-    it, it says so.
+    it, it says so. The entries of the tree that a datum names are data, and are filled in as any datum is (25).
 
 24. `AGENTS.md` is not data. It is in the system prompt of every session (decision
     the-projects-files-as-the-work-has-them): no cell watches or reads it, and none runs because of it. A session that
@@ -140,20 +139,20 @@ new session lacks it.
     listed in the first message of every cell, and an agent copied it whole into what it dealt with and had its return
     sent back (judgment on how rare the case is, not measured).
 
-25. The design tree is read by the agent, which chooses what bears on the problem. A session that has not read the tree
-    for the work reads it in the first round of a cell that reads `tree` entered in it, before that round's own work
-    (23). On a line with a cell whose work is only that reading, as the engineer line has, that cell does it for the
-    cells after it, and so that it does it again in a session reopened it watches its line's `session`: data that
-    stand for the session of that line, with a new version each time the session is reopened. Only such a line has
-    them. The tree runs no cell: a changed tree is read where the line goes on, by the next cell that enters the
-    session (23), and not by running the reading again. No data stand for the reading itself. What the reading cell
-    finds for other cells it hands in as any cell does; run again for a new session alone, it finds nothing changed and
-    hands in nothing new, so that no cell runs because of it (9).
+25. The design tree is read by the agent, which chooses what bears on the problem. The cell that reads it for the work
+    at its start names in `tree_entries` each entry of the tree that bears on the item, one to a line, and the cell
+    that writes the plan names it again, whole, where the plan reaches further. A cell that reads `tree_entries` is
+    given, in place of the names, each entry named whole, under its file, as the tree's latest version on the branch
+    has it, and each name that version no longer holds said so; the project's `[tree_format]` says how an entry is
+    found and named. A return whose line names no entry of the tree at the head of the branch is sent back. From the
+    entries the agent reads further as the tree's rules say, for what they leave out. A session reopened is filled
+    with the entries as with any datum it lacks, and nothing reads the tree again for it; one of a work that has no
+    `tree_entries` yet has nothing to be given, and reads the tree for itself, as the rules say. The tree runs no cell:
+    a changed tree reaches the next cell that enters the session as the files that changed (23), and the entries
+    given before stay as the session took them.
 
 26. A session reopened while a round is under way is no case of its own. The round did not end and consumed nothing
-    (8). On a line that has `session`, it has a new version, and the engine takes the reading cell first and after it
-    the cell whose round did not end; on another line, the cell whose round did not end runs again, and reads the tree
-    first (25).
+    (8): the cell whose round did not end runs again, and is filled with all its data.
 
 ## Data that more than one cell may write
 
@@ -296,24 +295,24 @@ new session lacks it.
     `acceptance`; "change" the group of `code`, `title`, `decisions`, `evidence`, `tests` and `head`.
     A dialogue is named by the datum its two sides write. Every agent's cell reads every cell's questions and every
     cell's words (33, 35); each cell that may ask also watches its own questions and its own words (30, 35); a cell that
-    reads `tree` reads it first where its session has not (25). None of this is repeated in the table, and a blank
-    under "Runs where" is every work.
+    reads `tree_entries` is given the entries it names whole, and reads the tree further as its rules say (25). None of
+    this is repeated in the table, and a blank under "Runs where" is every work.
 
     | Cell | Runs where | Watches | Reads | Writes |
     |---|---|---|---|---|
     | S1 Start | the items it depends on merged or were cancelled | `start` | | `place` |
-    | R0 Understand the problem and the design tree | | `background`, `engineer_session` | `tree` | nothing |
-    | R1 Initial research | no deep research | `background`, `better_found`, `plan_review`, `tree_review`, `plan_doubts` | `tree` | `deep_needed` every time; with yes, `found` and nothing else; with no, plan, answers in its dialogues, questions |
-    | R2 Is there a better way | no deep research, and R2 has not handed in | plan, `better_found` | `background`, `tree` | a better way in `better_found`, where it finds one |
-    | D1 Deep research | deep research | `background`, `found`, `better_found`, `plan_review`, `tree_review`, `plan_doubts`, R1's questions | `tree` | plan, answers in its dialogues, questions |
-    | D2 Is there a better way | deep research, and D2 has not handed in | plan, `better_found` | `background`, `tree` | a better way in `better_found`, where it finds one |
-    | P1 Design review | | plan, `plan_review` | `background`, `found`, `tree` | `plan_ok` every time; points in `plan_review` where it fails |
-    | P2 Design tree review | | plan, `tree_review` | `background`, `tree` | `tree_ok` every time; points in `tree_review` where it fails |
-    | I1 Implement | `plan_ok` and `tree_ok` are yes | plan, `plan_doubts`, `review`, `test_review`, `design_review`, `testing`, `check` | `background`, `tree` | `code`, `title`, `decisions`, `evidence`, `acceptance`, `head` by its commits; answers in `review`, `test_review`, `design_review` and `testing`; doubts in `plan_doubts`; questions, which hold the engine's (34) |
-    | T1 Code review | | change, `review` | plan, `background`, `tree` | `review_ok` every time; points in `review` where it fails |
-    | T2 Test review | | change, `test_review` | plan, `background`, `tree` | `test_ok` and `needs_testing` every time; points in `test_review` where it fails |
-    | T3 Design tree review of the change | | change, `design_review` | plan, `background`, `tree` | `design_ok` every time; points in `design_review` where it fails |
-    | T4 Adversarial testing | `needs_testing` is yes | `needs_testing`, `acceptance`, `testing` | `code`, `evidence`, `plan_agent`, `background` | `tests`, `head` by its commits, `testing_ok` every time; points in `testing` where something stays red |
+    | R0 Understand the problem and the design tree | | `background` | `tree` | `tree_entries` every time |
+    | R1 Initial research | no deep research | `background`, `better_found`, `plan_review`, `tree_review`, `plan_doubts` | `tree`, `tree_entries` | `deep_needed` every time; with yes, `found` and nothing else; with no, plan, `tree_entries` where the plan reaches further, answers in its dialogues, questions |
+    | R2 Is there a better way | no deep research, and R2 has not handed in | plan, `better_found` | `background`, `tree`, `tree_entries` | a better way in `better_found`, where it finds one |
+    | D1 Deep research | deep research | `background`, `found`, `better_found`, `plan_review`, `tree_review`, `plan_doubts`, R1's questions | `tree`, `tree_entries` | plan, `tree_entries` where the plan reaches further, answers in its dialogues, questions |
+    | D2 Is there a better way | deep research, and D2 has not handed in | plan, `better_found` | `background`, `tree`, `tree_entries` | a better way in `better_found`, where it finds one |
+    | P1 Design review | | plan, `plan_review` | `background`, `found`, `tree`, `tree_entries` | `plan_ok` every time; points in `plan_review` where it fails |
+    | P2 Design tree review | | plan, `tree_review` | `background`, `tree`, `tree_entries` | `tree_ok` every time; points in `tree_review` where it fails |
+    | I1 Implement | `plan_ok` and `tree_ok` are yes | plan, `plan_doubts`, `review`, `test_review`, `design_review`, `testing`, `check` | `background`, `tree`, `tree_entries` | `code`, `title`, `decisions`, `evidence`, `acceptance`, `head` by its commits; answers in `review`, `test_review`, `design_review` and `testing`; doubts in `plan_doubts`; questions, which hold the engine's (34) |
+    | T1 Code review | | change, `review` | plan, `background`, `tree`, `tree_entries` | `review_ok` every time; points in `review` where it fails |
+    | T2 Test review | | change, `test_review` | plan, `background`, `tree`, `tree_entries` | `test_ok` and `needs_testing` every time; points in `test_review` where it fails |
+    | T3 Design tree review of the change | | change, `design_review` | plan, `background`, `tree`, `tree_entries` | `design_ok` every time; points in `design_review` where it fails |
+    | T4 Adversarial testing | `needs_testing` is yes | `needs_testing`, `acceptance`, `testing` | `code`, `evidence`, `plan_agent`, `background`, `tree`, `tree_entries` | `tests`, `head` by its commits, `testing_ok` every time; points in `testing` where something stays red |
     | M1 Check before the merge | no verdict stands at fail, `review_ok`, `test_ok` and `design_ok` are yes, and no question stands unanswered | `head`, `main`, `asked` | `code` | `checked`, `check` |
     | M2 Merge | `checked` is yes | `checked` | `title` | `merged` |
 

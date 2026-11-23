@@ -356,6 +356,9 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'treeUnchanged', name: 'placement' })).toBe(
       'it handed in the change, which changes nothing in the design tree, while placement, marked tree, has the owner\'s answer',
     );
+    expect(unmetWords({ kind: 'notAnEntry', line: 'decision no-such-entry' })).toBe(
+      'it named decision no-such-entry, which is no entry of the design tree on the work\'s branch',
+    );
     expect(unmetWords({ kind: 'wordOwed', name: 'review', watched: ['code', 'title'] })).toBe(
       'it dealt with review, woken by a point in it, and answered none of its points, changed none of code, title, and asked no question the work waits for',
     );

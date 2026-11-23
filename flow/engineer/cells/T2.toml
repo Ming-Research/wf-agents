@@ -27,7 +27,7 @@ return. Once you have said yes to `needs_testing`, keep it while the part of the
 there.
 '''
 watches = ["change", "test_review"]
-reads = ["plan", "background", "tree"]
+reads = ["plan", "background", "tree", "tree_entries"]
 outputs = ["test_review", "test_ok", "needs_testing"]
 must_write = ["test_ok", "needs_testing"]
 
@@ -43,6 +43,8 @@ test_review = """Look at what changed: accept each answer in `test_review` or sa
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
+# The entries of the design tree the plan was worked from, whole.
+tree_entries = "latest"
 test_review = "all"
 code = "last_and_latest"
 title = "latest"

@@ -1,6 +1,6 @@
 //! The guard of names: no code of the engine's and none of the page's names a particular cell, line, group or block of
 //! a flow (principle engine-knows-no-cell). It compiles every flow the repository defines, collects every name those
-//! flows give (each cell, line, group and block, a datum each cell or each line has its own of by its name as made),
+//! flows give (each cell, line, group and block, a datum each cell has its own of by its name as made),
 //! leaves out what the engine itself declares, read from its declarations (the sources, acts, tools and system parts of
 //! what it has, its data beside the flows and their values, every place the words beside the flows fill, the kinds its
 //! page's interface tags what it sends with, and the directories of the format), and fails where a source that is not a
@@ -27,7 +27,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use flow::{BLOCKS_DIR, CELLS_DIR, DATA_DIR, FLOW_FILE, LINES_DIR, OF_A_CELL, OF_A_LINE, RULES_DIR, TESTS_DIR};
+use flow::{BLOCKS_DIR, CELLS_DIR, DATA_DIR, FLOW_FILE, LINES_DIR, OF_A_CELL, RULES_DIR, TESTS_DIR};
 
 use super::has;
 
@@ -550,7 +550,7 @@ fn flow_names() -> BTreeSet<String> {
     let mut engines = places();
     engines.extend(interface_kinds());
     let format = [
-        CELLS_DIR, LINES_DIR, BLOCKS_DIR, TESTS_DIR, RULES_DIR, DATA_DIR, OF_A_CELL, OF_A_LINE,
+        CELLS_DIR, LINES_DIR, BLOCKS_DIR, TESTS_DIR, RULES_DIR, DATA_DIR, OF_A_CELL,
     ];
     let dirs = format.iter().filter_map(|d| Path::new(d).file_name());
     engines.extend(dirs.map(|d| d.to_string_lossy().into_owned()));

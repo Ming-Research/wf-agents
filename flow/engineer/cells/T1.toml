@@ -26,7 +26,7 @@ fixes nearly everything a review raises, so a wrong point makes good code worse.
 out of your return.
 '''
 watches = ["change", "review"]
-reads = ["plan", "background", "tree"]
+reads = ["plan", "background", "tree", "tree_entries"]
 outputs = ["review", "review_ok"]
 must_write = ["review_ok"]
 
@@ -42,6 +42,8 @@ review = """Look at what changed: accept each answer in `review` or say why not,
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
+# The entries of the design tree the plan was worked from, whole.
+tree_entries = "latest"
 review = "all"
 code = "last_and_latest"
 title = "latest"

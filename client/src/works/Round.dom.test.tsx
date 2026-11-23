@@ -298,4 +298,33 @@ describe('what a work used', () => {
     expect(gaps.length).toBeGreaterThan(0);
     for (const gap of gaps) expect(gap).toMatch(/^Not running: from .+, to .+, for \d+[smhd]/);
   });
+
+  // The forks of a work are listed after its totals, with their count and spend by the same keys as the rounds', where
+  // it asked any, and not otherwise. One page drawn three times in a few tens of milliseconds; the data test cannot see
+  // the line, which is the only place the owner reads the count of forks.
+  it('lists its forks after its totals where it asked any, and no line where it asked none', async () => {
+    const labels = async (forked: WorkPage['summary']['forked']) => {
+      const page = fixtureWork(41);
+      const drawn = drawWork({ ...page, summary: { ...page.summary, forked } }, sourceOf());
+      await settle();
+      const window = drawn.querySelector('aside') as HTMLElement;
+      await click(button(window, 'Usage'));
+      const panel = window.querySelector('.drawer-body') as HTMLElement;
+      return [...panel.querySelectorAll('.usage-totals .keys > span > span:first-child')].map((k) => k.textContent);
+    };
+    const spent = { usdMicros: 300_000, inputTokens: 10, cachedTokens: 20, outputTokens: 3, workingMs: 0, rounds: 2 };
+    const without = await labels(undefined);
+    expect(without).not.toContain('forks');
+    expect(await labels({ ...spent, rounds: 0 })).toEqual(without);
+    const withForks = await labels(spent);
+    expect(withForks.slice(0, without.length)).toEqual(without);
+    expect(withForks.slice(without.length)).toEqual([
+      'forks',
+      'usd_micros in dollars',
+      'input_tokens',
+      'cached_tokens',
+      'output_tokens',
+      'cached_tokens / (input_tokens + cached_tokens)',
+    ]);
+  });
 });

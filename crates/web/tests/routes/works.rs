@@ -71,6 +71,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "spent": spent(1),
                 // No ping of its sessions was sent.
                 "pinged": { "usdMicros": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 },
+                // No fork of a round's session was asked.
+                "forked": { "usdMicros": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 },
                 "last": asked,
                 // Its first round began as it was resumed, and an agent has run the whole of its time since.
                 "from": resumed,

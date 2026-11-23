@@ -1,6 +1,5 @@
 //! When a line of a work begins a new session, as the driver works it out of the work's records after each thing that
-//! happened and before the walk: so that a new session is recorded, and the cells it makes run again are run, before
-//! the line's next round is given.
+//! happened and before the walk: so that a new session is recorded before the line's next round is given.
 //!
 //! With the installation's [`Policy`], a line begins a new session at its next round when the model its session's
 //! rounds ran on, as the work's records say, is not the one its rounds run on now; or when what a new session of it
@@ -19,21 +18,17 @@
 //! whose prompt was too long for the model, begins a new session, in which that round is tried again, so that none is
 //! given the same context again.
 //!
-//! Nothing follows for a work that has ended. Without a policy, nothing more is worked out, and only what others record
-//! is followed: whatever records a new session, the driver then writes each of the work's [`SESSION`] blocks that a
-//! cell of the line reads, so that the cell runs again and what it reads is in the new session. A flow gives each line
-//! a block of its own, so that a new session of one line runs again only the cells of that line; a block that cells of
-//! several lines read is written for a new session of any of them. A line's first session, which begins with its first
-//! round, writes nothing: that cell runs then anyway.
+//! Nothing follows for a work that has ended, and without a policy only the new sessions after failed rounds do. A new
+//! session runs no cell: the next round in it is filled with all its cell's data, the entries of the design tree that
+//! the work was worked from among them (design document `data-and-context`, 15, 25).
 
 use std::collections::BTreeMap;
 
 use decide::run::Failure;
-use decide::{CellId, Decision, Outsider, RunId, decide};
+use decide::{CellId, Decision, RunId, decide};
 use engine::Event;
 use flow::CellSpec;
-use flow::agents::fill;
-use flow::{Compiled, Texts};
+use flow::Compiled;
 use store::{Item, WorkNumber};
 use work::sessions::{began_on, number_at, of_line, start};
 use work::{Back, Why, Work};
@@ -72,19 +67,14 @@ pub struct Warm {
     pub budget: Option<Budget>,
 }
 
-/// The source of the blocks the driver writes as a line begins a new session: each a block a cell reads that loads
-/// what the line's other cells work from into the session, a line's own where the flow gives each line one.
-pub const SESSION: &str = "session";
-
-/// What follows, from outside the work of this number, from the work as it now is: each new session the policy says a
-/// line begins, and the write of each [`SESSION`] block where a line that has a cell reading it began one since the
-/// block was last written.
+/// What follows, from outside the work of this number, from the work as it now is: each new session a line begins,
+/// after a round that failed so that it is tried again in another session, or as the policy says.
 pub fn follow(flow: &Compiled, number: WorkNumber, work: &Work, item: &Item, policy: Option<&Policy>) -> Vec<Event> {
     // Nothing more is written to a work that has ended, whose sessions will run no round.
     if matches!(decide(&flow.flow, &work.records), Decision::Ended(_)) {
         return Vec::new();
     }
-    let mut events: Vec<Event> = lines(flow)
+    lines(flow)
         .filter_map(|line| match tried_anew(flow, work, line) {
             Some(why) => Some(Event::Anew {
                 line: line.to_string(),
@@ -92,76 +82,7 @@ pub fn follow(flow: &Compiled, number: WorkNumber, work: &Work, item: &Item, pol
             }),
             None => policy.and_then(|policy| due(flow, number, work, item, line, policy)),
         })
-        .collect();
-    let mut writes = Vec::new();
-    for (block, declared) in (flow.blocks.iter()).filter(|(_, b)| b.writers.outside.as_deref() == Some(SESSION)) {
-        let read_on =
-            |line: &str| (declared.readers.cells.iter()).any(|cell| line_of_cell(flow, cell.as_str()) == Some(line));
-        // The latest new session of a line the block stands for: one about to be recorded, or else one recorded since
-        // the block was last written.
-        let coming = events.iter().rev().find_map(|event| match event {
-            Event::Anew { line, why } if read_on(line) => Some(said(why, line, &declared.writes)),
-            _ => None,
-        });
-        let written = (work.records.written.iter())
-            .filter(|w| w.block == *block && w.by == Outsider::Outside)
-            .map(|w| w.at)
-            .max();
-        let loads = |cell: &str| declared.readers.cells.iter().any(|c| c.as_str() == cell);
-        let recorded = (work.sessions.iter().rev())
-            .find(|s| read_on(&s.line) && !in_the_loader(flow, work, s, &loads))
-            .filter(|s| written.is_none_or(|w| w < s.at))
-            .map(|s| said(&s.why, &s.line, &declared.writes));
-        if let Some(content) = coming.or(recorded) {
-            writes.push(Event::Wrote {
-                block: block.clone(),
-                by: Outsider::Outside,
-                content,
-                matters: true,
-                value: None,
-            });
-        }
-    }
-    events.extend(writes);
-    events
-}
-
-/// Whether the session is a compaction during a round of a cell that loads the session: that cell's own compaction
-/// does not have it run again, as the limit ends no session at its round, or it would load again without end. The
-/// round a session was recorded in is the latest that began before it.
-fn in_the_loader(flow: &Compiled, work: &Work, session: &work::Session, loads: &dyn Fn(&str) -> bool) -> bool {
-    if session.why != Why::Compacted {
-        return false;
-    }
-    // The round of the session's line under way as it was compacted: one that began before and had not ended. A
-    // compaction that came while none was, as of a keep-warm ping, is in no round of the loading cell's.
-    let r = &work.records;
-    let mut counted: Vec<RunId> = Vec::new();
-    let mut under_way = None;
-    for round in &r.rounds {
-        counted.push(round.run);
-        let k = counted.iter().filter(|x| **x == round.run).count();
-        let ended = (r.returned.iter()).filter(|e| e.run == round.run).nth(k - 1);
-        let on_line = line_of_run(flow, work, round.run) == Some(session.line.as_str());
-        if on_line && round.at < session.at && ended.is_none_or(|e| e.at > session.at) {
-            under_way = Some(round.run);
-        }
-    }
-    let cell = under_way.and_then(|run| r.started.iter().find(|s| s.run == run));
-    cell.is_some_and(|started| loads(started.cell.as_str()))
-}
-
-/// What the block says of a new session of the line, in the words its definition gives (`writes`): `text`, with the
-/// line and the words of why it began one; of a compaction, which begins none, the words of `compacted` alone.
-fn said(why: &Why, line: &str, writes: &Texts) -> String {
-    let says = |name: &str| writes.get(name).unwrap_or_default();
-    let (kind, slots) = why.named();
-    if *why == Why::Compacted {
-        return fill(says(kind), &[("line", line)]);
-    }
-    let slots: Vec<(&str, &str)> = slots.iter().map(|(name, value)| (*name, value.as_str())).collect();
-    let why = fill(says(kind), &slots);
-    fill(says("text"), &[("line", line), ("why", &why)])
+        .collect()
 }
 
 /// The lines of the flow's cells, each once, in the order of the walk.
