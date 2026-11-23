@@ -679,6 +679,7 @@ fn rest_read(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision) {
             | Decision::GoOn { cell, .. }
             | Decision::Busy { cell, .. }
             | Decision::Paused { cell }
+            | Decision::Hurry { cell, .. }
             | Decision::Abandon { cell, .. },
         ) => at == cell,
         _ => false,

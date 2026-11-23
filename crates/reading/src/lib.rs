@@ -582,8 +582,7 @@ impl Reading<'_> {
     }
 
     /// Where the work stands ([`Rest`]), as the design tree says it: from the first cell in the order, a cell whose
-    /// condition does not hold is passed, but a question its cell waits for holds the work there all the same; where a
-    /// run of the cell is at rest, the work waits for its calls and its preconditions, and else the run goes on; else a
+    /// condition does not hold is passed, its questions holding nothing; where a run of the cell is at rest, the work waits for its calls and its preconditions, and else the run goes on; else a
     /// cell with a result to come or a question it waits for holds the work, the owner turning to it excepted; a
     /// precondition that does not hold holds the work at its cell, whether or not something new runs it; and a cell with
     /// something new runs, at its limit waiting for the owner. A work held at a precondition is stalled where each
@@ -627,10 +626,8 @@ impl Reading<'_> {
         }
         for (i, cell) in cells.iter().enumerate() {
             let waiting = || Rest::Waiting { at: cell.id.clone() };
+            // A cell that is skipped holds nothing, its questions included.
             if !self.applies(flow, i) {
-                if self.held(&cell.id, now) {
-                    return waiting();
-                }
                 continue;
             }
             // The calls with no result yet: a call for a person, the owner or the architect is waited for; one the

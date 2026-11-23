@@ -184,7 +184,7 @@ fn a_call_for_a_person_keeps_a_work_from_being_stalled_until_it_has_its_result()
 }
 
 #[test]
-fn a_question_that_waits_holds_the_work_waiting_whether_or_not_its_cell_applies() {
+fn a_question_that_waits_holds_the_work_waiting_until_it_is_answered() {
     let mut w = World::with_gate(vec![cell("ask", &["brief"], &["b0"]), cell("later", &["b0"], &[])]);
     w.person_writes("brief");
     w.run("ask", &[("b0", Matters)]);
@@ -192,6 +192,25 @@ fn a_question_that_waits_holds_the_work_waiting_whether_or_not_its_cell_applies(
     assert_eq!(rest(&w), Rest::Waiting { at: id("ask") });
     w.answers("which", at, 1);
     assert_ne!(rest(&w), Rest::Waiting { at: id("ask") });
+}
+
+#[test]
+fn a_question_that_waits_holds_nothing_once_its_cell_is_skipped() {
+    let cells = vec![
+        cell("research", &["brief"], &["deep", "plan"]),
+        when("deep", "no", cell("ask", &["plan"], &["b0"])),
+        cell("later", &["b0"], &[]),
+    ];
+    let mut w = World::with_gate(cells);
+    w.person_writes("brief");
+    w.run("research", &[("deep", Value("no")), ("plan", Matters)]);
+    w.run("ask", &[("b0", Matters)]);
+    w.questions("ask", "which", true);
+    assert_eq!(rest(&w), Rest::Waiting { at: id("ask") });
+    // The research now says a deeper look is needed: the cell is skipped, and nothing runs it to take the answer.
+    w.run("research", &[("deep", Value("yes")), ("plan", Matters)]);
+    assert_ne!(rest(&w), Rest::Waiting { at: id("ask") });
+    assert!(!matches!(w.decide(), Decision::Wait { at, .. } if at == id("ask")));
 }
 
 #[test]

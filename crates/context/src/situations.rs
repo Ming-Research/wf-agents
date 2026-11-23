@@ -747,6 +747,14 @@ impl<'a> Reach<'a> {
             .collect()
     }
 
+    /// These parts of the message the session holds, and what came of taking main in, in the order of the message.
+    fn with_main(&self, holds: &[String]) -> Vec<String> {
+        let all = self.kept(true);
+        all.into_iter()
+            .filter(|p| p == Part::Main.name() || holds.contains(p))
+            .collect()
+    }
+
     /// Whether the cell writes any block, so that a return of it can hand something in.
     fn writes(&self) -> bool {
         self.writes_of(self.cell)
@@ -780,8 +788,12 @@ impl<'a> Reach<'a> {
             Entry::First => {
                 let (alike, writes) = self.after_the_line();
                 add(alike.clone(), writes, None);
-                add(alike, false, Some("after_nothing_handed_in".to_string()));
+                add(alike.clone(), false, Some("after_nothing_handed_in".to_string()));
                 add(Vec::new(), false, Some("fresh".to_string()));
+                // The cell before it took main in too, and was sent what came of it.
+                if self.before.last().is_some_and(|b| b.takes_main) && self.cell.takes_main {
+                    add(self.with_main(&alike), writes, Some("after_main".to_string()));
+                }
             }
             Entry::Later => {
                 // The last return in the session may be that of a cell of the line entered since this one, or of this.
@@ -805,7 +817,13 @@ impl<'a> Reach<'a> {
                     let (holds, after_hand_in) = self.after(other);
                     let id = other.id.as_str().to_lowercase();
                     add(holds.clone(), after_hand_in, Some(format!("after_{id}")));
-                    add(holds, false, Some(format!("after_{id}_nothing_handed_in")));
+                    add(holds.clone(), false, Some(format!("after_{id}_nothing_handed_in")));
+                    // That cell took main in too, and was sent what came of it.
+                    if other.takes_main && self.cell.takes_main {
+                        let held = self.with_main(&holds);
+                        add(held.clone(), after_hand_in, Some(format!("after_{id}_main")));
+                        add(held, false, Some(format!("after_{id}_main_nothing_handed_in")));
+                    }
                 }
             }
         }
