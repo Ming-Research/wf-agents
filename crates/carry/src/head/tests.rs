@@ -17,7 +17,9 @@ const MAIN: &str = "refs/heads/main";
 /// A started work whose branch has a commit of its own, and that commit.
 async fn built() -> (Repo, Place, String) {
     let repo = Repo::new("true");
-    let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+    let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+        .await
+        .unwrap();
     let built = commit(&started.place.dir, "farewell.txt", "Bye.\n");
     (repo, started.place, built)
 }
@@ -56,7 +58,9 @@ fn resolve(place: &Place, file: &str, text: &str) {
 #[tokio::test]
 async fn a_branch_with_no_commit_of_its_own_makes_no_version_until_the_work_commits() {
     let repo = Repo::new("true");
-    let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+    let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+        .await
+        .unwrap();
     let place = started.place;
     assert_eq!(read(&place, MAIN, None).await.unwrap(), None);
     let built = commit(&place.dir, "farewell.txt", "Bye.\n");

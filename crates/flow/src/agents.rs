@@ -1295,6 +1295,8 @@ pub struct Acts {
 #[serde(deny_unknown_fields)]
 pub struct Start {
     pub text: String,
+    /// What it writes where the work's item continues a branch or a pull request.
+    pub continued: String,
 }
 
 /// `agents/acts/merge.toml`.

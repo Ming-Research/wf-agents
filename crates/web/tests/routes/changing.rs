@@ -5,7 +5,7 @@
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::{get_json, greeted, pass, post, running};
+use crate::{get_json, greeted, pass, post, running, running_placing};
 
 /// An item of the trial flow, held, depending on these.
 fn item(title: &str, on: Value) -> Value {
@@ -84,6 +84,99 @@ async fn an_item_not_begun_is_retitled_tagged_and_comes_to_depend_on_another_and
     let items = get_json(router, "/api/v1/items").await;
     assert_eq!(items["items"][1]["dependsOn"], json!([]));
     assert_eq!(items["items"][1]["tags"], json!([]));
+}
+
+/// An item of the flow `placing`, whose first cell starts a work, held.
+fn placing_item(title: &str) -> Value {
+    json!({
+        "title": title,
+        "dependsOn": [],
+        "project": "trial",
+        "flow": "placing",
+        "writes": [],
+    })
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_item_comes_to_continue_a_branch_or_a_pull_request_and_to_continue_nothing_again_and_its_history_says_why() {
+    let running = running_placing();
+    let router = &running.router;
+    assert_eq!(
+        post(router, "/api/v1/items", &placing_item("First")).await,
+        (StatusCode::OK, json!({ "item": 1, "work": 1 }))
+    );
+    let ask = |continues: Value| {
+        changes(
+            "Continue the old work",
+            json!([{ "kind": "continues", "item": 1, "continues": continues }]),
+        )
+    };
+    let changed = |changed: bool| (StatusCode::OK, json!({ "changed": [changed] }));
+    let branch = json!({ "kind": "branch", "name": "old-work" });
+    let pull = json!({ "kind": "pull", "number": 226 });
+    assert_eq!(post(router, CHANGES, &ask(branch.clone())).await, changed(true));
+    assert_eq!(get_json(router, "/api/v1/items").await["items"][0]["continues"], branch);
+    assert_eq!(post(router, CHANGES, &ask(branch.clone())).await, changed(false));
+    assert_eq!(post(router, CHANGES, &ask(pull.clone())).await, changed(true));
+    assert_eq!(get_json(router, "/api/v1/items").await["items"][0]["continues"], pull);
+    assert_eq!(post(router, CHANGES, &ask(Value::Null)).await, changed(true));
+    let items = get_json(router, "/api/v1/items").await;
+    let first = &items["items"][0];
+    assert!(first.get("continues").is_none(), "{first}");
+    let history = &first["history"];
+    assert!(history["first"].get("continues").is_none(), "{history}");
+    let made = history["changes"].as_array().unwrap();
+    assert_eq!(made.len(), 3);
+    for (change, continues) in made.iter().zip([branch, pull, Value::Null]) {
+        assert_eq!(change["what"], json!({ "kind": "continues", "continues": continues }));
+        assert_eq!(change["why"], "Continue the old work");
+    }
+    // The work's page gives the same history.
+    assert_eq!(get_json(router, "/api/v1/works/1").await["history"], *history);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_item_is_refused_continuing_what_no_branch_is_called_and_on_a_flow_that_starts_no_work() {
+    let placing = running_placing();
+    let router = &placing.router;
+    post(router, "/api/v1/items", &placing_item("First")).await;
+    let ask = |item: u64, continues: Value| {
+        changes(
+            "Continue the old work",
+            json!([{ "kind": "continues", "item": item, "continues": continues }]),
+        )
+    };
+    let (status, body) = post(router, CHANGES, &ask(1, json!({ "kind": "branch", "name": "-x" }))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("is no branch an item may continue"),
+        "{body}"
+    );
+    assert!(
+        get_json(router, "/api/v1/items").await["items"][0]
+            .get("continues")
+            .is_none()
+    );
+    // The trial flow has no cell that starts a work: nothing would read what the item continues.
+    let trial = running();
+    let router = &trial.router;
+    post(router, "/api/v1/items", &item("First", json!([]))).await;
+    let (status, body) = post(router, CHANGES, &ask(1, json!({ "kind": "pull", "number": 7 }))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("has no cell that starts a work"),
+        "{body}"
+    );
+    assert_eq!(
+        post(router, CHANGES, &ask(1, Value::Null)).await,
+        (StatusCode::OK, json!({ "changed": [false] }))
+    );
 }
 
 #[tokio::test(start_paused = true)]
