@@ -183,3 +183,6 @@ reports (`wf-agents wait`):
   of when to start, no dependency and no reason to join them; the later one's background says so.
 - An item not to start yet is added held, its background saying what it waits for, something whose coming can be
   seen: an item merged, or the owner's word.
+- An item that changes what the owner's page shows or how it looks is held until the owner and the architect have
+  talked through where it goes and what it shows: a work cannot find that in the code. Its first conclusions then go
+  under the background's reference, and the owner lets it on.
