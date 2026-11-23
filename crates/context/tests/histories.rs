@@ -172,8 +172,12 @@ struct Reached {
     /// The rounds of the last scripted history.
     trace: Vec<String>,
     /// For each agent's cell, the states of a history at the entry of a round of it, one for each situation it stood in.
-    archive: BTreeMap<String, Vec<(u64, History)>>,
+    archive: BTreeMap<String, Vec<Kept>>,
 }
+
+/// A state of a history kept at the entry of a round, with the number of the situation the round stood in and how each
+/// datum stood in it.
+type Kept = (u64, BTreeMap<String, Stands>, History);
 
 /// What a history of a flow does beside carrying its rounds.
 #[derive(Clone)]
@@ -1091,14 +1095,15 @@ impl History {
         format!("{situation:?}").hash(&mut hasher);
         let number = hasher.finish();
         let kept = reached.archive.entry(cell.to_string()).or_default();
-        if kept.iter().any(|(n, _)| *n == number) {
+        if kept.iter().any(|(n, ..)| *n == number) {
             return;
         }
+        let state = (number, situation.data.clone(), self.clone());
         match kept.len() < ARCHIVE {
-            true => kept.push((number, self.clone())),
+            true => kept.push(state),
             false => {
                 let at = (number % kept.len() as u64) as usize;
-                kept[at] = (number, self.clone());
+                kept[at] = state;
             }
         }
     }
@@ -1507,6 +1512,8 @@ const ARCHIVE: usize = 50;
 struct Target {
     cell: String,
     datum: Option<String>,
+    /// The state of the datum the line says.
+    state: Option<String>,
     unwritten: bool,
     blocks: Vec<String>,
 }
@@ -1526,12 +1533,37 @@ impl Target {
                 blocks.extend(watched.blocks.iter().map(|b| b.as_str().to_string()));
             }
         }
+        let state = datum.and_then(|_| rest.split(' ').nth(1)).map(str::to_string);
         Target {
             cell: cell.to_string(),
             datum: datum.map(str::to_string),
+            state,
             unwritten: rest.contains(" unwritten and "),
             blocks,
         }
+    }
+
+    /// How near a state of a history, as it stands in its situation, is to what the line says, nought where it is none:
+    /// of a datum to be unwritten, it is unwritten; of one to be held, it is held in some way; of one to be lacking,
+    /// it is unwritten or lacking.
+    fn nearness(&self, data: &BTreeMap<String, Stands>) -> u32 {
+        let stands = self.datum.as_ref().and_then(|datum| data.get(datum));
+        match (self.state.as_deref(), stands) {
+            (Some("unwritten"), Some(Stands::Unwritten)) => 8,
+            (Some("unwritten"), _) => 0,
+            (Some("lacks"), Some(Stands::Unwritten | Stands::Lacks)) => 4,
+            (Some(state), Some(Stands::Holds | Stands::HoldsLast | Stands::HoldsLatest | Stands::HoldsNew))
+                if state.starts_with("holds") =>
+            {
+                4
+            }
+            _ => 1,
+        }
+    }
+
+    /// Whether the datum is one of the owner's talk with a cell, which the owner not talking leaves unwritten.
+    fn talk(&self) -> bool {
+        (self.datum.as_ref()).is_some_and(|d| d.ends_with("_questions") || d.ends_with("_words"))
     }
 }
 
@@ -1567,7 +1599,6 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
             std::panic::resume_unwind(e);
         }
     };
-    let has = |reached: &Reached, cell: &str| reached.archive.get(cell).is_some_and(|kept| !kept.is_empty());
     for n in 0..RUNS {
         let open: Vec<&String> = wanted.iter().filter(|line| !reached.real.contains(*line)).collect();
         if open.is_empty() {
@@ -1575,16 +1606,33 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         }
         let target = Target::of(&flow_of, open[rng.below(open.len())]);
         // Where the run begins: a state kept at a round of the target's cell, or of the nearest cell before it that has
-        // one, which the run then carries on to the cell; from nothing, where none is kept and now and then.
+        // one, chosen by how near its situation is to the line, which the run then carries on to the cell; from nothing,
+        // where none is kept and now and then.
         let at = order.iter().position(|c| *c == target.cell).unwrap_or(0);
-        let own = has(&reached, &target.cell) && rng.chance(90);
-        let source = match own {
-            true => Some(target.cell.as_str()),
-            false => (0..=at).rev().map(|i| order[i].as_str()).find(|c| has(&reached, c)),
+        let near = |cell: &str, reached: &Reached| -> Vec<(usize, u32)> {
+            (reached.archive.get(cell).into_iter().flatten().enumerate())
+                .map(|(i, (_, data, _))| (i, target.nearness(data)))
+                .filter(|(_, n)| *n > 0)
+                .collect()
         };
-        let from = source.filter(|_| rng.chance(92)).map(|cell| {
-            let kept = &reached.archive[cell];
-            (kept[rng.below(kept.len())].1.clone(), cell == target.cell)
+        let first = if rng.chance(90) { at } else { at.saturating_sub(1) };
+        let source = (0..=first)
+            .rev()
+            .map(|i| order[i].as_str())
+            .map(|cell| (cell, near(cell, &reached)))
+            .find(|(_, states)| !states.is_empty());
+        let from = source.filter(|_| rng.chance(92)).map(|(cell, states)| {
+            let total: u32 = states.iter().map(|(_, n)| n).sum();
+            let mut pick = rng.below(total as usize) as u32;
+            let mut chosen = states[0].0;
+            for (i, n) in &states {
+                if pick < *n {
+                    chosen = *i;
+                    break;
+                }
+                pick -= n;
+            }
+            (reached.archive[cell][chosen].2.clone(), cell == target.cell)
         });
         let mut history = match from {
             Some((mut history, at_target)) => {
@@ -1608,13 +1656,21 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         history.scene.reopens = [2, 4, 10][rng.below(3)];
         history.scene.speaks = [6, 20, 40][rng.below(3)];
         history.prefer.clear();
-        // A state of a datum unwritten is brought about by no return handing it in.
+        // A state of a datum unwritten is brought about by no return handing it in, and of the owner's talk with a cell, by
+        // the owner not talking nor a cell asking.
+        let quiet_owner = target.unwritten && target.talk() && rng.chance(85);
         if let Some(datum) = target.datum.as_ref().filter(|_| target.unwritten && rng.chance(85)) {
             history.prefer.insert(datum.clone(), 0);
         }
+        if quiet_owner {
+            history.asks = 0;
+            history.scene.speaks = 0;
+        }
         // What the work holds at the round changes some, before it is carried.
         for _ in 0..1 + rng.below(3) {
-            history.perturb(&mut reached, &target);
+            if !quiet_owner {
+                history.perturb(&mut reached, &target);
+            }
         }
         let steps = history.quiet + RUN_STEPS;
         run(&mut history, steps, &mut reached);
