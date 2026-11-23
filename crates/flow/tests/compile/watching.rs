@@ -591,11 +591,11 @@ fn the_item_s_card_shows_data_of_the_flow_in_the_order_it_names_them() {
     assert_eq!(faults(&unknown), [at(FLOW_FILE, "card[1]", what)]);
 }
 
-// A datum each cell or each line has its own of is named by what its file writes, which holds `{cell}` or `{line}`: a
-// file that writes no name, or one that holds neither, would make the same datum for every cell, so it is refused in its
-// own file, saying which placeholder it lacks.
+// A datum each cell has its own of is named by what its file writes, which holds `{cell}`: a file that writes no name,
+// or one that holds no `{cell}`, would make the same datum for every cell, so it is refused in its own file, saying
+// which placeholder it lacks.
 #[test]
-fn the_name_a_file_of_a_datum_of_a_cell_s_or_a_line_s_own_writes_holds_what_stands_for_whose_own_it_is() {
+fn the_name_a_file_of_a_datum_of_a_cell_s_own_writes_holds_what_stands_for_whose_own_it_is() {
     let questions = "../data/of_a_cell/questions.toml";
     for text in ["from = \"answer\"\n", "name = \"questions\"\nfrom = \"answer\"\n"] {
         let what = MissingPlaceholder {
@@ -608,13 +608,6 @@ fn the_name_a_file_of_a_datum_of_a_cell_s_or_a_line_s_own_writes_holds_what_stan
             "{text}"
         );
     }
-    let session = "../data/of_a_line/session.toml";
-    let what = MissingPlaceholder {
-        placeholder: "{line}".to_string(),
-    };
-    // `{cell}` is no stand-in for a line.
-    let source = set(laid_out(), session, "name = \"{cell}_session\"\nfrom = \"session\"\n");
-    assert_eq!(faults_with(&source, &has_all()), [at(session, "name", what)]);
 }
 
 // Two files that write one name make one datum twice: the second, by the order of the paths, is refused naming the first.
