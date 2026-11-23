@@ -1610,7 +1610,7 @@ fn fork_events(run: RunId, round: usize, asked: &Result<Forked, ForkFailed>) -> 
         Ok(forked) => (Some(forked.spent), forked.left),
         Err(failed) => (failed.spent, failed.left),
     };
-    let left = (left > 0).then(|| Event::LeftBehind {
+    let left = (left > 0).then_some(Event::LeftBehind {
         of: work::Left::Fork { run, round },
         processes: left,
     });
@@ -1699,14 +1699,14 @@ mod tests {
             },
             processes,
         };
-        assert_eq!(fork_events(RunId(7), 1, &Ok(forked(0))), [took.clone()]);
+        assert_eq!(fork_events(RunId(7), 1, &Ok(forked(0))), std::slice::from_ref(&took));
         assert_eq!(fork_events(RunId(7), 1, &Ok(forked(2))), [left(2), took.clone()]);
         let failed = |left| ForkFailed {
             why: "The fork wrote no answer.".to_string(),
             spent: Some(spent),
             left,
         };
-        assert_eq!(fork_events(RunId(7), 1, &Err(failed(0))), [took.clone()]);
+        assert_eq!(fork_events(RunId(7), 1, &Err(failed(0))), std::slice::from_ref(&took));
         assert_eq!(fork_events(RunId(7), 1, &Err(failed(1))), [left(1), took]);
         let refused = ForkFailed::from("No account is in use.");
         assert!(fork_events(RunId(7), 1, &Err(refused)).is_empty());
