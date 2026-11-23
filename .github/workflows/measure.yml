@@ -1,0 +1,158 @@
+name: measure
+
+# The project's measure workflow (`ci.measure` of flow/project.toml): what an agent's `run_tests` waits for when it names
+# measurements. It times each measurement named in three checkouts within one run: the code the work's change began from
+# (`base`), a second checkout of the same commit (`twin`, the control: its time over the base's is this run's own noise)
+# and the code measured (`candidate`, the commit the engine gives). A pair is one timing of each of the three, in an
+# order that rotates from pair to pair, so that no side always runs first. A measurement is the file `measure/<name>` of
+# the candidate, run with bash in the root of each of the three checkouts, so that the same script times each side.
+#
+# It reports, as JUnit XML in the artifact `test-results`, which the engine reads (crates/carry/src/host/github/
+# results.rs): a testsuite for each side (`base`, `twin`, `candidate`) with a testcase named as the measurement for each
+# timing, its `time` the wall-clock seconds; and a testsuite `median base`, `median twin` and `median candidate` with
+# the median of each side's timings. The engine gives each as a line, and draws no conclusion: the engineer does, by the
+# rules it works under. A `time` holds seconds and nothing else.
+#
+# One measurement runs on the machine at a time: the runners of the machine share a home, and each run holds a lock
+# in it while it times, so that two measurements never disturb each other. Any other job of the machine's runners can
+# still overlap one, which the twin's time over the base's shows. The wait for the lock counts in the job's time limit,
+# which is `ci.measure.too_long`.
+#
+# It runs only by hand, which only someone who may write to the repository can ask for, and always on the main branch's
+# file, never on a work's own copy, as the fast workflow does. The run's name holds the value only the request that
+# asked for it knows (`call`), by which the engine finds it.
+run-name: measure ${{ inputs.call }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The commit to time, pushed to a branch of the repository already
+        required: true
+      base:
+        description: The commit to time it against, the one the work's change began from
+        required: true
+      call:
+        description: A value only the request that asks for this run knows, which the run's name holds
+        required: true
+      measure:
+        description: The measurements to time, each name followed by a line break
+        required: true
+
+permissions:
+  contents: read
+
+# No concurrency group: each run is a request an agent waits for, which another request must not cancel; the lock below
+# makes them take turns.
+
+jobs:
+  measure:
+    runs-on: [self-hosted, 14900k]
+    # Equal to ci.measure.too_long (flow/project.toml); the wait for the lock counts in it.
+    timeout-minutes: 30
+    env:
+      # How many pairs of timings of each measurement.
+      PAIRS: '5'
+      COMMIT: ${{ inputs.commit }}
+      BASE: ${{ inputs.base }}
+      MEASURE: ${{ inputs.measure }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          # The base is a commit of main, and the commit a branch of its own.
+          fetch-depth: 0
+          # No later step pushes, so the token is not left in the checkout, which the runner keeps.
+          persist-credentials: false
+      - name: Time the measurements
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/measurement"
+          rm -rf "$out"
+          mkdir -p "$out/times" "$out/xml"
+          candidate="$GITHUB_WORKSPACE"
+          # The names, one a line: each a file of the candidate's `measure/`, named by letters, digits, `_` and `-`.
+          names=()
+          while IFS= read -r line; do
+            n=$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' <<< "$line")
+            [ -n "$n" ] || continue
+            [[ $n =~ ^[A-Za-z0-9_-]+$ ]] || { echo "::error::$n is not the name of a measurement: letters, digits, _ and - only"; exit 1; }
+            [ -f "$candidate/measure/$n" ] || { echo "::error::no measurement is named $n: the commit has no file measure/$n"; exit 1; }
+            names+=("$n")
+          done <<< "$MEASURE"
+          [ ${#names[@]} -gt 0 ] || { echo "::error::no measurement is named"; exit 1; }
+          echo "${#names[@]}" > "$out/count"
+          git rev-parse --verify --quiet "$BASE^{commit}" > /dev/null || { echo "::error::$BASE is no commit of this repository"; exit 1; }
+          git worktree add --detach -q "$RUNNER_TEMP/base" "$BASE"
+          git worktree add --detach -q "$RUNNER_TEMP/twin" "$BASE"
+          printf 'base %s\ncandidate %s\npairs %s\nrunner %s, %s processors\n' "$BASE" "$COMMIT" "$PAIRS" "$(uname -srm)" "$(nproc)"
+          # One measurement at a time on the machine, held to the end of this step.
+          exec 9> "$HOME/.wf-agents-measure.lock"
+          flock 9
+          dir_of() { case "$1" in base) echo "$RUNNER_TEMP/base" ;; twin) echo "$RUNNER_TEMP/twin" ;; *) echo "$candidate" ;; esac; }
+          # Runs a measurement in the checkout of a side, and leaves its wall-clock seconds in $elapsed.
+          elapsed=0
+          time_in() {
+            local start end
+            start=$(date +%s.%N)
+            if ! (cd "$(dir_of "$2")" && bash "$candidate/measure/$1") > "$out/command.log" 2>&1; then
+              echo "::error::the measurement $1 failed in the $2 checkout; the end of its output follows"
+              tail -n 50 "$out/command.log"
+              return 1
+            fi
+            end=$(date +%s.%N)
+            elapsed=$(awk -v a="$start" -v b="$end" 'BEGIN { printf "%.6f", b - a }')
+          }
+          sides=(base twin candidate)
+          for n in "${names[@]}"; do
+            for side in "${sides[@]}"; do : > "$out/times/$n.$side"; done
+            for ((i = 1; i <= PAIRS; i++)); do
+              for ((k = 0; k < 3; k++)); do
+                side=${sides[$(((i - 1 + k) % 3))]}
+                time_in "$n" "$side"
+                echo "$elapsed" >> "$out/times/$n.$side"
+              done
+            done
+          done
+          median() { sort -g "$1" | awk '{ a[NR] = $1 } END { if (NR % 2) printf "%.6f\n", a[(NR + 1) / 2]; else printf "%.6f\n", (a[NR / 2] + a[NR / 2 + 1]) / 2 }'; }
+          {
+            echo '<testsuites>'
+            for side in "${sides[@]}"; do
+              echo "  <testsuite name=\"$side\">"
+              for n in "${names[@]}"; do
+                while read -r t; do echo "    <testcase name=\"$n\" time=\"$t\"/>"; done < "$out/times/$n.$side"
+              done
+              echo '  </testsuite>'
+            done
+            for side in "${sides[@]}"; do
+              echo "  <testsuite name=\"median $side\">"
+              for n in "${names[@]}"; do echo "    <testcase name=\"$n\" time=\"$(median "$out/times/$n.$side")\"/>"; done
+              echo '  </testsuite>'
+            done
+            echo '</testsuites>'
+          } > "$out/xml/measure.xml"
+          cat "$out/xml/measure.xml"
+      - name: The results are whole
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/measurement"
+          file="$out/xml/measure.xml"
+          # A testcase for each timing of each name on each side, and one median for each; every time above zero.
+          names=$(cat "$out/count")
+          expected=$((names * (3 * PAIRS + 3)))
+          found=$(grep -c '<testcase ' "$file")
+          [ "$found" -eq "$expected" ] || { echo "::error::$found timings for $names measurements, not $expected"; exit 1; }
+          ! grep -E 'time="(0\.0+|-[0-9.]+|)"' "$file" || { echo "::error::a timing is not above zero"; exit 1; }
+      - name: Take the checkouts of the base away
+        if: ${{ always() }}
+        run: |
+          git worktree remove --force "$RUNNER_TEMP/base" || true
+          git worktree remove --force "$RUNNER_TEMP/twin" || true
+          git worktree prune
+      # What became of the timings, for the engine to read, whatever became of the steps before.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: test-results
+          path: ${{ runner.temp }}/measurement/xml
+          if-no-files-found: ignore

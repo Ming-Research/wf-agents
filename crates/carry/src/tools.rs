@@ -376,8 +376,8 @@ async fn run_tests(
     host.run_tests(branch, named, asking, stop).await.map_err(could_not)
 }
 
-/// A request of `run_tests`: the tests and the checks it names, each list left out where it names none, and the commit
-/// to run them on, left out for the last commit of the work's branch.
+/// A request of `run_tests`: the tests, the checks and the measurements it names, each list left out where it names none,
+/// and the commit to run them on, left out for the last commit of the work's branch.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
@@ -385,6 +385,8 @@ struct Request {
     tests: Vec<String>,
     #[serde(default)]
     checks: Vec<String>,
+    #[serde(default)]
+    measure: Vec<String>,
     #[serde(default)]
     commit: Option<String>,
 }
@@ -405,11 +407,25 @@ fn asked(input: &str) -> Result<Named, String> {
         }
         taken
     };
+    let measure = once(request.measure);
+    // A measurement is named, never written as a command: a name is data to the workflow that times it (principle
+    // agent-writing-is-data), so none holds a character a shell would treat specially.
+    if let Some(wrong) = measure.iter().find(|name| !name.chars().all(measurement_character)) {
+        return Err(format!(
+            "the measurement {wrong:?} holds a character that is none of a letter, a digit, and `_-./:`"
+        ));
+    }
     Ok(Named {
         tests: once(request.tests),
         checks: once(request.checks),
+        measure,
         commit: (request.commit.map(|c| c.trim().to_string())).filter(|c| !c.is_empty()),
     })
+}
+
+/// Whether a character may be in the name of a measurement.
+fn measurement_character(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':')
 }
 
 #[cfg(test)]
@@ -898,6 +914,7 @@ mod tests {
                 ],
                 checks: vec!["lint".to_string()],
                 commit: Some("HEAD~1".to_string()),
+                ..Named::default()
             }
         );
         for whole in ["", "  ", "{}", r#"{"tests": [], "checks": [], "commit": " "}"#] {
@@ -910,6 +927,23 @@ mod tests {
             "tools::tests::a",
         ] {
             assert!(asked(wrong).is_err(), "{wrong:?}");
+        }
+    }
+
+    // The measurements a request names are names, each once and trimmed, and a name is data: one that holds a character a
+    // shell would treat specially, or white space inside it, is refused saying which, and nothing is named. Well under
+    // a millisecond alone; no other test holds what a measurement's name may hold.
+    #[test]
+    fn a_request_names_measurements_each_once_and_none_that_a_shell_would_read_as_more_than_a_name() {
+        let named = asked(r#"{"measure": ["design-lint", " design-lint ", "", "a/b.c:d_e"]}"#).expect("read");
+        assert_eq!(named.measure, ["design-lint", "a/b.c:d_e"]);
+        assert!(named.tests.is_empty() && named.checks.is_empty() && !named.is_empty());
+        for wrong in [
+            "a b", "a;b", "$HOME", "a`b`", "a\"b", "a'b", "a|b", "a&b", "a>b", "(a)", "a*",
+        ] {
+            let input = serde_json::json!({ "measure": [wrong] }).to_string();
+            let said = asked(&input).expect_err(wrong);
+            assert!(said.contains(&format!("{wrong:?}")), "{wrong}: {said}");
         }
     }
 
@@ -939,7 +973,7 @@ mod tests {
         let named = Named {
             tests: vec!["a".to_string()],
             checks: vec!["lint".to_string()],
-            commit: None,
+            ..Named::default()
         };
         assert_eq!(
             host.asked(),
@@ -974,6 +1008,28 @@ mod tests {
             said,
             "Nothing was run: the check runs on your worktree as it is, so no commit can be named. Ask again with none."
         );
+    }
+
+    // Where the check is the project's command, it runs the tests alone: a measurement named is refused and nothing is
+    // run, and the local words, which say what the tool does there, name no measurement. Milliseconds alone, as the
+    // test beside it; the one test of the local host's refusal of a measurement.
+    #[tokio::test]
+    async fn a_measurement_named_where_the_check_runs_the_tests_alone_is_refused_and_the_command_is_not_run() {
+        let repo = Repo::new("echo all is well");
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
+        let said = answered_with(&repo, RUN_TESTS, r#"{"tests": ["a"], "measure": ["design-lint"]}"#, &[]).await;
+        assert_eq!(
+            said,
+            "Nothing was run: the check runs the project's tests alone, so no measurement can be named."
+        );
+        let text = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../flow/agents/tools/run_tests.toml"
+        ));
+        let tool: flow::agents::Tool = toml::from_str(text).expect("the file of run_tests reads");
+        assert!(!tool.words_local.expect("words for the local host").contains("measure"));
     }
 
     #[tokio::test]

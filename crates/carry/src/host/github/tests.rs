@@ -77,6 +77,7 @@ fn ci() -> flow::agents::Ci {
             test_stop_input: "test_stop".to_string(),
             results: "test-results".to_string(),
         },
+        measure: None,
     }
 }
 

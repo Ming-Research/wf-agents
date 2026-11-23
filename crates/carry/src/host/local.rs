@@ -149,6 +149,10 @@ impl Host for Local {
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
         let words = self.words()?;
+        // The command runs the project's tests alone, so a measurement named is none that could be run.
+        if !named.measure.is_empty() {
+            return Ok(Some(words.no_measure.clone()));
+        }
         // The command runs on the worktree as it is, so a commit named is no commit that could be run.
         if named.commit.is_some() {
             return Ok(Some(words.no_commit.clone()));

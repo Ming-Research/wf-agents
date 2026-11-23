@@ -623,4 +623,38 @@ AssertionError: expected 1 to be 2 // Object.is equality
         assert_eq!(got[4].matched[0].ended.as_deref(), Some("failure"));
         assert_eq!(run.unbuilt[0].unit, "config::probe_broken");
     }
+
+    // The timings of a measurement, as the measure workflow writes them: a testcase named as the measurement for each timing
+    // in a testsuite named for what was timed, and the workflow's median of each side in a testsuite of its own. Each
+    // is read with its unit and its time, in the order of the file, and a name asked for has every one of them.
+    // Milliseconds alone; the one test that the reader gives the suites the measure workflow writes.
+    #[test]
+    fn the_timings_of_a_measurement_are_read_with_what_was_timed_and_in_the_order_written() {
+        let xml = r#"<testsuites>
+  <testsuite name="base"><testcase name="design-lint" time="0.50"/><testcase name="design-lint" time="0.52"/></testsuite>
+  <testsuite name="candidate"><testcase name="design-lint" time="0.40"/></testsuite>
+  <testsuite name="median base"><testcase name="design-lint" time="0.51"/></testsuite>
+  <testsuite name="base"><testcase name="other" time="1.00"/></testsuite>
+</testsuites>"#;
+        let run = read(&[file("measure.xml", xml)]).unwrap();
+        let named = names(&["design-lint", "missing"]);
+        let got = rows(&named, &run);
+        let timed: Vec<(&str, Option<&str>)> = got[0]
+            .matched
+            .iter()
+            .map(|c| (c.test.unit.as_str(), c.time.as_deref()))
+            .collect();
+        assert_eq!(
+            timed,
+            [
+                ("base", Some("0.50")),
+                ("base", Some("0.52")),
+                ("candidate", Some("0.40")),
+                ("median base", Some("0.51")),
+            ]
+        );
+        assert_eq!(got[0].became, Became::Passed);
+        assert_eq!(got[1].became, Became::NotRun);
+        assert_eq!(run.reported, ["measure"]);
+    }
 }

@@ -26,6 +26,11 @@ Every agent is refused pushing and the agents' own program, which the files besi
 - replaced: Refusing every agent pushing alone was on main; the owner changed it, because an agent that ran the agents' program itself spent where no work's record or budget counts it.
 - rejected: an agent proposed dropping the agents' rule against heavy work on this machine once their permissions refuse it; the owner rejected it, because an agent may still try to run it locally for convenience, so the rule says it briefly and the permissions refuse it too.
 
+### decision a-toolchains-variables-are-the-projects
+A project's declaration names the variables its toolchain reads (`[environment]`), given every round of its works after the engine's own; naming one the engine or the program owns is refused.
+- replaced: The engine setting `RUSTUP_AUTO_INSTALL` to 0 for every round of every project was on main; the owner changed it, because a toolchain's variable written in the engine is a toolchain's word in the engine (Article 1).
+- replaced: Leaving the variable unset was on main; the owner changed it, because then a round does not download hundreds of megabytes unseen, and a missing toolchain is an error the agent sees.
+
 ### decision lock-commands-under-heavy-ones
 On a line that writes, the commands that update a lock file, which the installation's settings name, may run even though a heavy command covers them.
 - replaced: The engine's tool `lock_update`, run for an agent under settings of its own, was on main; the owner changed it, because an agent works in its own worktree, where updating its own dependencies harms nothing, and only the host's processor needs guarding.

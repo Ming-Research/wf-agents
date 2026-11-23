@@ -1,0 +1,4 @@
+# The measurement `design-lint`: how long the check of the design tree's files takes, as it runs on the checkout this
+# script is run in (`measure/` of the measure workflow, `.github/workflows/measure.yml`).
+set -euo pipefail
+python3 design/lint.py > /dev/null
