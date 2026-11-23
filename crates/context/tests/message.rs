@@ -460,6 +460,90 @@ fn a_round_after_its_return_was_sent_back_is_sent_why() {
     assert!(anew.text.contains("## Sent back"), "{}", anew.text);
 }
 
+// Each thing a return is sent back for, as one sample of it and the key its words have in `[faults]` of
+// `agents/return/sent_back.toml`, written here by hand. The one list makes `reasons()`, the samples, and `written()`, a
+// match with no wildcard over `Unmet`: a reason added to `Unmet` does not compile until it is listed here with its key.
+macro_rules! reasons {
+    ($($variant:ident $({ $($field:ident: $value:expr),* })? => $key:literal,)*) => {
+        fn reasons() -> Vec<Unmet> {
+            vec![$(Unmet::$variant $({ $($field: $value),* })?),*]
+        }
+
+        fn written(unmet: &Unmet) -> &'static str {
+            match unmet {
+                $(Unmet::$variant $({ $($field: _),* })? => $key),*
+            }
+        }
+    };
+}
+
+reasons! {
+    AsksNothing => "asks_nothing",
+    NotAnOutput { block: BlockId::from("b") } => "not_an_output",
+    WrittenTwice { block: BlockId::from("b") } => "written_twice",
+    NoValue { block: BlockId::from("b") } => "no_value",
+    NotAValue { block: BlockId::from("b"), value: "v".into() } => "not_a_value",
+    NotAChoice { block: BlockId::from("b") } => "not_a_choice",
+    NotHandedIn { block: BlockId::from("b") } => "not_handed_in",
+    NothingBut { block: BlockId::from("b"), value: "v".into(), besides: vec![] } => "nothing_but",
+    Unreadable { why: "x".into() } => "unreadable",
+    NotRunBy { block: BlockId::from("b") } => "not_run_by",
+    DealtWithTwice { block: BlockId::from("b") } => "dealt_with_twice",
+    DealtWithNothing => "dealt_with_nothing",
+    WrittenOver { block: BlockId::from("b"), version: Seq(1) } => "written_over",
+    ChoiceChanged { block: BlockId::from("b") } => "choice_changed",
+    AsksAndWorks => "asks_and_works",
+    NotWatched { name: "x".into() } => "not_watched",
+    NotATool { name: "x".into() } => "not_a_tool",
+    UnchangedNotWritten { block: BlockId::from("b") } => "unchanged_not_written",
+    QuestionTaken { name: "x".into() } => "question_taken",
+    NoSuchQuestion { name: "x".into() } => "no_such_question",
+    QuestionTwice { name: "x".into() } => "question_twice",
+    NotAnOption { name: "x".into() } => "not_an_option",
+    NotAnswerable { name: "x".into() } => "not_answerable",
+    NotAnswered { name: "x".into() } => "not_answered",
+    Unexplained { path: "x".into() } => "unexplained",
+    NotATest { path: "x".into() } => "not_a_test",
+    Uncommitted { changes: "x".into() } => "uncommitted",
+    Merging { changes: "x".into() } => "merging",
+    TreeUnchanged { name: "x".into() } => "tree_unchanged",
+    NotAnEntry { line: "x".into() } => "not_an_entry",
+    Unanswered { block: BlockId::from("b") } => "unanswered",
+    WordOwed { name: BlockId::from("b"), watched: vec![] } => "word_owed",
+    NoPoint { block: BlockId::from("b"), value: "v".into(), name: BlockId::from("b") } => "no_point",
+}
+
+// Each reason a return is sent back for has the key its words have in `[faults]` of the file, which the owner's page
+// shows beside the values recorded of it, and the file has no key that is no reason's: a key given to the wrong
+// reason, a reason with none and a key of the file no reason has each fail (decision
+// a-sent-back-reason-is-shown-by-its-key).
+#[test]
+fn each_reason_for_sending_a_return_back_has_its_key_in_the_file_and_its_words_there() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let agents = flow::agents::read(&root).expect("what is written beside the flows is read");
+    let mut listed: Vec<&str> = Vec::new();
+    for unmet in &reasons() {
+        let key = written(unmet);
+        assert_eq!(unmet.key(), key);
+        assert!(
+            agents.sent_back.faults.text(key).is_some_and(|words| !words.is_empty()),
+            "`{key}` has no words in `[faults]`"
+        );
+        listed.push(key);
+    }
+    let file_text = std::fs::read_to_string(root.join("agents/return/sent_back.toml")).expect("the file is read");
+    let in_faults = file_text.lines().skip_while(|line| *line != "[faults]").skip(1);
+    let mut file: Vec<&str> = (in_faults.take_while(|line| !line.starts_with('[')))
+        .filter_map(|line| line.split_once(" = ").map(|(key, _)| key))
+        .collect();
+    listed.sort_unstable();
+    file.sort_unstable();
+    assert_eq!(
+        listed, file,
+        "the keys of `[faults]` are those of the reasons, each once"
+    );
+}
+
 // A return the engine found leaving files the project protects changed with nothing to say why is sent back naming
 // each, in the words of the files beside the flows.
 #[test]
