@@ -698,7 +698,7 @@ mod tests {
     fn settings() -> Settings {
         let project: Project = toml::from_str(
             "tree = \"design/\"\n[files]\n[project]\nresearch = \"research/\"\ntest_names = \"By its own name.\"\n\
-             [heavy]\ncommands = []\n",
+             [heavy]\ncommands = []\n[environment]\n",
         )
         .unwrap();
         let names = Installation {

@@ -84,6 +84,15 @@ pub struct Fake {
     /// How many seconds the build's first call sleeps once it has said, as its stream begins, that it took its message
     /// in, made one call to the model and committed a file of the design tree, before it answers.
     pub build_sleeps_once_committed: u32,
+    /// How many seconds the build's first call sleeps once it has said, as its stream begins, that it took its message
+    /// in, made one call to the model, and had its hook give it what the owner said to it, as the hook the command line
+    /// was given for each use of a tool does, before it answers.
+    pub build_hears_once_begun: u32,
+    /// Whether the plan's first call starts a process that runs on in its group, its output sent elsewhere, before it
+    /// answers and ends, writing the process's number in `left_running` beside the calls.
+    pub plan_leaves_running: bool,
+    /// How the process the plan's first call leaves running behaves, where it leaves one.
+    pub plan_leftover: Leftover,
     /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
     /// says no call.
     pub context: Option<u64>,
@@ -144,6 +153,17 @@ pub const NO_SUCH_ENTRY: &str = "decision greet-with-a-song";
 /// How much of the account's week every call that says its usage says is used.
 pub const USED: f64 = 0.04;
 
+/// How a process the fake leaves running in its group behaves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Leftover {
+    /// Its output sent elsewhere, it ends on TERM.
+    Quiet,
+    /// It holds the program's standard output open, and ends on TERM.
+    KeepsOutput,
+    /// Its output sent elsewhere, it ignores TERM.
+    IgnoresTerm,
+}
+
 impl Default for Fake {
     fn default() -> Self {
         Fake {
@@ -160,6 +180,9 @@ impl Default for Fake {
             plan_sleeps_once_returned: 0,
             plan_sleeps_once_it_wrote_its_return: 0,
             build_sleeps_once_committed: 0,
+            build_hears_once_begun: 0,
+            plan_leaves_running: false,
+            plan_leftover: Leftover::Quiet,
             context: None,
             compacts: false,
             refuses_first: false,
@@ -471,6 +494,7 @@ printf '%s\n' "$@" > "$log/$n.args"
 printf '%s' "${{CLAUDE_CODE_OAUTH_TOKEN:-}}" > "$log/$n.token"
 printf '%s' "${{CLAUDE_CONFIG_DIR:-}}" > "$log/$n.profile"
 printf '%s' "${{CLAUDE_CODE_SUBPROCESS_ENV_SCRUB:-}}" > "$log/$n.scrub"
+printf '%s' "${{RUSTUP_AUTO_INSTALL-unset}}" > "$log/$n.rustup"
 prev=''
 for arg in "$@"; do
     [ "$prev" = --json-schema ] && printf '%s' "$arg" > "$log/$n.schema"
@@ -546,6 +570,17 @@ leaves() {{
 }}
 case "$first" in
     Plan)
+        if [ '{leaves_running}' = yes ] && [ ! -f "$log/left_running" ]; then
+            case '{leftover}' in
+                # It writes where the program's standard output goes, as a command a script starts with `&` does,
+                # for twenty seconds.
+                keeps) sleep 20 2>/dev/null & ;;
+                # It ignores TERM, which `exec` keeps for the sleep it becomes.
+                deaf) (trap '' TERM; exec sleep 30) >/dev/null 2>&1 & ;;
+                *) sleep 30 >/dev/null 2>&1 & ;;
+            esac
+            echo $! > "$log/left_running"
+        fi
         if [ '{sleeps}' != 0 ] && [ ! -f "$log/slept" ]; then
             touch "$log/slept"
             sleep '{sleeps}'
@@ -580,6 +615,17 @@ case "$first" in
         fi ;;
     Build)
         takes_back
+        if [ '{hears_sleeps}' != 0 ] && [ ! -f "$log/heard" ]; then
+            touch "$log/heard"
+            printf '%s\n' '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}'
+            printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
+            # What the hook for each use of a tool moves and prints: the file of what the owner said, which the
+            # command line's settings name.
+            waiting=$(grep -A1 -x -- --settings "$log/$n.args" | tail -n 1 | sed -n "s/.*if \[ -e '\([^']*\)' \].*/\1/p")
+            while [ ! -e "$waiting" ]; do sleep 0.1; done
+            mv "$waiting" "${{waiting%words.json}}given.1.json"
+            sleep '{hears_sleeps}'
+        fi
         if [ '{committed_sleeps}' != 0 ] && [ ! -f "$log/committed" ]; then
             touch "$log/committed"
             printf '%s\n' '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}'
@@ -697,6 +743,13 @@ fi
         returned_sleeps = fake.plan_sleeps_once_returned,
         wrote_sleeps = fake.plan_sleeps_once_it_wrote_its_return,
         committed_sleeps = fake.build_sleeps_once_committed,
+        hears_sleeps = fake.build_hears_once_begun,
+        leaves_running = yes(fake.plan_leaves_running),
+        leftover = match fake.plan_leftover {
+            Leftover::Quiet => "quiet",
+            Leftover::KeepsOutput => "keeps",
+            Leftover::IgnoresTerm => "deaf",
+        },
         cost = fake.cost,
         compacts = yes(fake.compacts),
         refuses = yes(fake.refuses_first),
@@ -743,6 +796,11 @@ impl Rounds for Deaf {
     }
 
     fn stop(&self, _: Round, _: RoundReply) {}
+
+    // What the owner says to a round under way reaches it: only stops are dropped.
+    fn tell(&self, round: Round, told: engine::spoken::Telling) {
+        self.0.tell(round, told);
+    }
 }
 
 /// The loop with the real carriers of the settings, on an empty store or the one in the data directory, the calls of
@@ -790,13 +848,24 @@ pub fn made_repository(repo: &Path) {
         .join("../../")
         .join(flow::agents::DECLARATION);
     std::fs::create_dir_all(repo.join("flow")).unwrap();
-    std::fs::copy(declaration, repo.join(flow::agents::DECLARATION)).expect("the declaration is copied");
+    // The variable the repository's declaration gives every round's command line is given another value here, so that
+    // a round that is given the value the declaration names is told from one given a value the engine wrote itself.
+    let text = std::fs::read_to_string(declaration).expect("the declaration is read");
+    let declared = text.replace(
+        "RUSTUP_AUTO_INSTALL = \"0\"",
+        &format!("RUSTUP_AUTO_INSTALL = \"{DECLARED_VARIABLE}\""),
+    );
+    assert_ne!(declared, text, "the declaration names RUSTUP_AUTO_INSTALL");
+    std::fs::write(repo.join(flow::agents::DECLARATION), declared).expect("the declaration is written");
     git_in(repo, &["add", "."]);
     git_in(repo, &["commit", "-q", "-m", "Greet"]);
     std::fs::write(repo.join("design/readme.md"), "The tree.\n").unwrap();
     git_in(repo, &["add", "design/readme.md"]);
     git_in(repo, &["commit", "-q", "-m", "Design"]);
 }
+
+/// The value the test repository's declaration gives `RUSTUP_AUTO_INSTALL`, which is no value the engine gives it.
+pub const DECLARED_VARIABLE: &str = "declared-in-the-test-repository";
 
 /// The project's guide, constitution and tree rules, by their paths in the test repository, which `project.toml`
 /// beside the repository's flows names, with their texts.

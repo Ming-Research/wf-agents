@@ -4,6 +4,7 @@
 
 mod support;
 
+use context::message::NewVersions;
 use context::text::as_written;
 use context::{Entered, Main, Stands, Values};
 use decide::Outsider;
@@ -13,12 +14,19 @@ use engine::{Ask, Came, Event, Fill, Why};
 use support::{Sim, carry, changed};
 
 /// What ran a round, as it is told last: each datum it watches that is new to it, with the version the cell last
-/// consumed where it consumed one, and the latest (design document `data-and-context`, 11).
-fn ran_by(new: &[(&str, Option<u64>, u64)]) -> String {
+/// consumed where it consumed one, and each version new to it that changed its meaning (design document
+/// `data-and-context`, 11).
+fn ran_by(new: &[(&str, Option<u64>, &[u64])]) -> String {
     let each: String = (new.iter())
-        .map(|(datum, last, latest)| match last {
-            Some(last) => format!("\n- `{datum}`, new since version {last}, now version {latest}"),
-            None => format!("\n- `{datum}`, version {latest}"),
+        .map(|(datum, last, changed)| {
+            let since = last.map_or(String::new(), |last| format!(", new since version {last}"));
+            let numbers: Vec<String> = changed.iter().map(u64::to_string).collect();
+            let changed = match changed.len() {
+                0 => String::new(),
+                1 => format!(", version {} changed its meaning", numbers[0]),
+                _ => format!(", versions {} changed their meaning", numbers.join(", ")),
+            };
+            format!("\n- `{datum}`{since}{changed}")
         })
         .collect();
     format!("## Why you are run\n{each}\n\nName in `dealt_with` each of these you have dealt with.")
@@ -64,10 +72,19 @@ const CODE: &str = "fn greet() {\n    say(\"hello\");\n}\n\nfn say(what: &str) {
 
 /// The work as far as the review's first round: the plan, the build and the review each entered once.
 fn reviewed() -> Sim {
+    reviewed_then(None)
+}
+
+/// The work as far as the review's first round, as [`reviewed`] has it, the line beginning a new session as the review's
+/// round ends, before the plan's round begins again.
+fn reviewed_then(anew: Option<&str>) -> Sim {
     let mut sim = Sim::new();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     carry(&mut sim, &[("code", CODE, None)]);
+    if let Some(line) = anew {
+        sim.anew_before_the_next_round(line, Why::Owner);
+    }
     carry(
         &mut sim,
         &[("opinions", "Name the error.", None), ("verdict", "no", Some("no"))],
@@ -91,7 +108,7 @@ fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_it
         ),
         outputs.clone(),
         "Write the plan for the request.".to_string(),
-        ran_by(&[("request", None, 1)]),
+        ran_by(&[("request", None, &[1])]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(
@@ -155,7 +172,7 @@ fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_a_line_
         format!("## `plan`, version {plan}, written on the line `engineer`, in this session already"),
         outputs.clone(),
         "Build what the plan says.".to_string(),
-        ran_by(&[("plan", None, plan)]),
+        ran_by(&[("plan", None, &[plan])]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(
@@ -190,7 +207,7 @@ fn a_cell_of_another_line_is_sent_whole_what_its_session_lacks() {
         ),
         outputs.clone(),
         "Review the code.".to_string(),
-        ran_by(&[("code", None, code)]),
+        ran_by(&[("code", None, &[code])]),
     ]);
     assert_eq!(entered.text, expected);
     let (code, plan) = (sim.version("code"), sim.version("plan"));
@@ -211,7 +228,7 @@ fn a_cell_entered_again_is_sent_what_is_new_and_its_task_by_its_held_line() {
             fence("Name the error.")
         ),
         "As given before in this session.".to_string(),
-        ran_by(&[("opinions", None, opinions)]),
+        ran_by(&[("opinions", None, &[opinions])]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(entered.fills, [whole("opinions", sim.version("opinions"))]);
@@ -232,7 +249,7 @@ fn a_datum_the_session_holds_that_is_new_to_the_cell_is_sent_its_held_line() {
             "## `plan`, version {plan}, written on the line `engineer`, in this session already; last worked from {first}"
         ),
         "As given before in this session.".to_string(),
-        ran_by(&[("plan", Some(first), plan)]),
+        ran_by(&[("plan", Some(first), &[plan])]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(entered.fills, []);
@@ -258,9 +275,61 @@ fn a_datum_s_second_version_is_told_as_version_2_whatever_was_written_between_it
     let held = "## `plan`, version 2, written on the line `engineer`, in this session already; last worked from 1";
     assert!(text.contains(held), "{text}");
     assert!(
-        text.contains("\n- `plan`, new since version 1, now version 2"),
+        text.contains("\n- `plan`, new since version 1, version 2 changed its meaning"),
         "{text}"
     );
+}
+
+// The line of a datum new to the cell says the version the cell last consumed where it consumed one, and each version
+// new to it that changed its meaning, joined, as the words beside the flows say them; where none did it says no more
+// (design document `data-and-context`, 11). The same message is built from the numbers the cell is told, each way they
+// can stand.
+#[test]
+fn a_datum_s_line_names_each_version_that_changed_the_meaning_and_no_clause_where_none_did() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    let round = sim.round().expect("the plan is entered");
+    let entered = sim.enter(&round, false);
+    let told = |last: Option<u64>, changed: &[u64]| {
+        let mut run = entered.run.clone();
+        let new = NewVersions {
+            last,
+            changed: changed.to_vec(),
+        };
+        run.new.insert("request".to_string(), new);
+        let cell = sim.cell(&round);
+        let sent = context::message(&sim.flow, &sim.words, cell, &entered.situation, Values::Run(&run));
+        context::message::text(&sent)
+    };
+    let after = "\n\nName in `dealt_with` each of these you have dealt with.\n";
+    let cases: [(Option<u64>, &[u64], &str); 5] = [
+        (None, &[1], "\n- `request`, version 1 changed its meaning"),
+        (
+            None,
+            &[1, 3, 4],
+            "\n- `request`, versions 1, 3, 4 changed their meaning",
+        ),
+        (
+            Some(2),
+            &[3],
+            "\n- `request`, new since version 2, version 3 changed its meaning",
+        ),
+        (
+            Some(2),
+            &[3, 5],
+            "\n- `request`, new since version 2, versions 3, 5 changed their meaning",
+        ),
+        (Some(2), &[], "\n- `request`, new since version 2"),
+    ];
+    for (last, changed, line) in cases {
+        let text = told(last, changed);
+        assert!(
+            text.ends_with(&format!("{line}{after}")),
+            "{last:?} {changed:?}: {text}"
+        );
+    }
+    let text = told(None, &[]);
+    assert!(text.ends_with(&format!("\n- `request`{after}")), "{text}");
 }
 
 #[test]
@@ -352,8 +421,7 @@ fn what_changed_since_the_version_the_session_holds_is_sent_as_a_change_that_reb
 
 #[test]
 fn a_session_reopened_is_filled_from_the_top_and_holds_no_return() {
-    let mut sim = reviewed();
-    sim.anew("engineer", Why::Owner);
+    let sim = reviewed_then(Some("engineer"));
     let round = sim.round().expect("the plan is entered again");
     let entered = sim.enter(&round, false);
     let blocks: Vec<&str> = (entered.fills.iter())
@@ -725,8 +793,8 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
 fn a_round_whose_session_lacks_the_latest_of_what_its_cell_writes_is_given_it_after_its_data() {
     let mut sim = reviewed();
     carry(&mut sim, &[("plan", "Greet by name, and say why.", None)]);
+    sim.anew_before_the_next_round("reviewer", Why::Owner);
     carry(&mut sim, &[("code", CODE, None)]);
-    sim.anew("reviewer", Why::Owner);
     let round = sim.round().expect("the review is entered again");
     assert_eq!(sim.cell(&round).id.as_str(), "review");
     let entered = sim.enter(&round, false);
@@ -768,11 +836,11 @@ fn a_datum_given_last_and_latest_whose_session_holds_its_latest_and_not_the_vers
     let first = sim.version("code");
     carry(&mut sim, &[("plan", "Greet by name, and say why.", None)]);
     let changed = CODE.replace("print(what)", "print(what, \"!\")");
-    carry(&mut sim, &[("code", &changed, None)]);
     // The reviewer's line begins a new session, which the review's next round fills with the latest code; its return
     // is sent back, and the round after it runs in that session, which holds the latest and not the version the
     // review last worked from.
-    sim.anew("reviewer", Why::Owner);
+    sim.anew_before_the_next_round("reviewer", Why::Owner);
+    carry(&mut sim, &[("code", &changed, None)]);
     carry(&mut sim, &[("opinions", "Name it.", None)]);
     let round = sim.round().expect("the review's round after it was sent back");
     let entered = sim.enter(&round, false);
@@ -910,7 +978,7 @@ fn a_setting_the_task_what_a_cell_does_for_a_datum_or_a_block_s_words_name_is_se
     let round = sim.round().expect("the build is entered");
     let entered = sim.enter(&round, false);
     let plan = format!(
-        "- `plan`, version {}: Say why in `owner.language` (Chinese).",
+        "- `plan`, version {} changed its meaning: Say why in `owner.language` (Chinese).",
         sim.number("plan")
     );
     for line in [

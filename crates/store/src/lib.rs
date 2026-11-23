@@ -60,7 +60,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 26;
+pub const SCHEMA_VERSION: u32 = 28;
 
 /// A step of the store after a migration's SQL.
 type Step = fn(&Connection) -> Result<(), Fault>;
@@ -156,6 +156,12 @@ const MIGRATIONS: &[Migration] = &[
     Migration::sql(include_str!(
         "../../../db/migrations/202611231000-let-an-item-continue-a-branch-or-pull-request.sql"
     )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231230-keep-what-the-programs-run-for-works-left-running.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231231-keep-the-engine-s-stops.sql"
+    )),
 ];
 
 // The migrations bring a database of every earlier version to this one.
@@ -206,6 +212,25 @@ pub enum AccountAct {
     Removed,
     /// Taken as the one the agents run under.
     Taken,
+}
+
+/// The engine asked to stop, or started again after a stop, at this time: what the store keeps of it, every one in
+/// order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StopRecord {
+    pub what: StopAct,
+    pub at: Time,
+}
+
+/// What a stop of the engine came to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum StopAct {
+    /// Asked to stop once what is under way has ended: from then no round of any work begins.
+    Asked,
+    /// Asked to stop at once, cutting off what is under way.
+    Now,
+    /// Started again after a stop, which no longer stands.
+    Over,
 }
 
 /// The items and the works, kept in one SQLite database.
@@ -339,6 +364,13 @@ pub trait Storage {
 
     /// Keeps that an account was added, removed or taken. Whether it may be is not the store's to judge.
     fn keep_account(&mut self, record: &AccountRecord) -> Result<(), Fault>;
+
+    /// Every stop of the engine asked for, and every start after one, in the order they were kept; none in a store
+    /// that never kept one.
+    fn stops(&self) -> Result<Vec<StopRecord>, Fault>;
+
+    /// Keeps that the engine was asked to stop, or started again after a stop.
+    fn keep_stop(&mut self, record: &StopRecord) -> Result<(), Fault>;
 }
 
 impl Store {
@@ -576,6 +608,29 @@ impl Storage for Store {
         (self.db).execute(
             "INSERT INTO accounts (name, what, time, taker, left_resets) VALUES (?1, ?2, ?3, ?4, ?5)",
             rusqlite::params![record.name, what, record.at.0, taker, record.left_resets.map(|t| t.0)],
+        )?;
+        Ok(())
+    }
+
+    fn stops(&self) -> Result<Vec<StopRecord>, Fault> {
+        let mut query = (self.db).prepare("SELECT what, time FROM stops ORDER BY n")?;
+        let rows = query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?)))?;
+        let mut records = Vec::new();
+        for row in rows {
+            let (what, time) = row?;
+            records.push(StopRecord {
+                what: tables::from_name("stops", what)?,
+                at: Time(time),
+            });
+        }
+        Ok(records)
+    }
+
+    fn keep_stop(&mut self, record: &StopRecord) -> Result<(), Fault> {
+        let what = tables::name("stops", &record.what)?;
+        (self.db).execute(
+            "INSERT INTO stops (what, time) VALUES (?1, ?2)",
+            rusqlite::params![what, record.at.0],
         )?;
         Ok(())
     }

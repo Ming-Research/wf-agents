@@ -147,6 +147,19 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
         ]
     );
     assert_eq!(read.message.parts[8].does.as_deref(), Some(": {do}"));
+    // What the line of a datum new to the cell says of its versions: the one last consumed, and each that changed its
+    // meaning, one or several.
+    let new = &read.message.parts[8];
+    assert_eq!(new.since.as_deref(), Some(", new since version {last}"));
+    assert_eq!(
+        new.changed_one.as_deref(),
+        Some(", version {changed} changed its meaning")
+    );
+    assert_eq!(
+        new.changed_many.as_deref(),
+        Some(", versions {changed} changed their meaning")
+    );
+    assert_eq!(new.between.as_deref(), Some(", "));
     assert_eq!(read.message.parts[0].between.as_deref(), Some(", "));
     assert_eq!(read.message.compacted, "Compacted: the round again.");
     assert_eq!(read.results.none, "(none)");
@@ -219,6 +232,33 @@ fn a_field_a_file_does_not_know_is_refused_with_the_path_of_its_file() {
     assert!(refused.contains("colour"), "{refused}");
 }
 
+// A declaration names the variables its toolchain reads, none where it needs none, as it names its heavy commands: one
+// that leaves `[environment]` out is refused with the path of its file, rather than taken to need none; one that names
+// them is read. Well under a millisecond alone, and no other test holds that the table is required.
+#[test]
+fn a_declaration_that_lacks_its_environment_is_refused_with_the_path_of_its_file() {
+    let dir = copy("environment");
+    let project = dir.join("project.toml");
+    let text = fs::read_to_string(&project).unwrap();
+    let (before, _) = text
+        .split_once("\n[environment]\n")
+        .expect("the fixture names its environment");
+    fs::write(&project, before).unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    assert!(refused.contains(&project.display().to_string()), "{refused}");
+    assert!(refused.contains("missing field `environment`"), "{refused}");
+    fs::write(&project, format!("{before}\n[environment]\n")).unwrap();
+    let none = agents::read(&dir).unwrap();
+    assert!(none.project.environment.is_empty());
+    fs::write(&project, text).unwrap();
+    let read = agents::read(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        read.project.environment.get("RUSTUP_AUTO_INSTALL").map(String::as_str),
+        Some("0")
+    );
+}
+
 // A project that declares `[ci]` declares both workflows: `run_tests` runs only the fast one and the check before the
 // merge only the full ones, so a declaration with one of them leaves one of the two with nothing to run.
 #[test]
@@ -243,6 +283,46 @@ fn a_declaration_of_ci_that_lacks_one_of_its_two_workflows_is_refused_with_the_p
         (ci.fast.workflow.as_str(), ci.full.workflows.as_slice()),
         ("fast.yml", &["ci.yml".to_string()][..])
     );
+}
+
+// A project that measures declares a measure workflow beside the fast and the full one, which it must still have: one that
+// declares none is read with none, one that declares it is read with the names of the inputs the engine gives it, and one
+// that does not say how long a run may take, or declares it with no other workflow, is refused. Well under a millisecond
+// alone; no other test holds the measure workflow's declaration.
+#[test]
+fn a_declaration_may_name_a_measure_workflow_which_says_how_long_a_run_may_take() {
+    let dir = copy("measure");
+    let project = dir.join("project.toml");
+    let text = fs::read_to_string(&project).unwrap();
+    let fast = "\n[ci.fast]\nworkflow = \"fast.yml\"\nrunner = \"github\"\n";
+    let full = "\n[ci.full]\nworkflows = [\"ci.yml\"]\nrunner = \"github\"\ntoo_long = \"2h\"\n";
+    let measure = "\n[ci.measure]\nworkflow = \"measure.yml\"\nrunner = \"14900k\"\ntoo_long = \"30m\"\n";
+    fs::write(&project, format!("{text}{fast}{full}")).unwrap();
+    assert_eq!(agents::read(&dir).unwrap().project.ci.expect("both").measure, None);
+    fs::write(&project, format!("{text}{fast}{full}{measure}")).unwrap();
+    let declared = agents::read(&dir).unwrap().project.ci.expect("all three").measure;
+    let text_of = |s: &str| s.to_string();
+    assert_eq!(
+        declared,
+        Some(agents::CiMeasure {
+            workflow: text_of("measure.yml"),
+            runner: text_of("14900k"),
+            too_long: text_of("30m"),
+            commit_input: text_of("commit"),
+            base_input: text_of("base"),
+            call_input: text_of("call"),
+            measure_input: text_of("measure"),
+            results: text_of("test-results"),
+        })
+    );
+    let lacking = "\n[ci.measure]\nworkflow = \"measure.yml\"\nrunner = \"14900k\"\n";
+    fs::write(&project, format!("{text}{fast}{full}{lacking}")).unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    assert!(refused.contains("missing field `too_long`"), "{refused}");
+    fs::write(&project, format!("{text}{measure}")).unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    assert!(refused.contains("missing field `fast`"), "{refused}");
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 // How an entry of the design tree is found is the project's: a `[tree_format]` that names no kind, or whose heading or

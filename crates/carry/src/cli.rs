@@ -20,13 +20,14 @@
 //! output. Version 2.1.327 says the second in the `errors` of a result with `is_error` set instead, which is the one
 //! line it prints, and exits with 1.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use decide::RunId;
+use decide::{BlockId, RunId, Seq};
 use driver::Said;
 use flow::Compiled;
 use flow::agents::{ProgramWords, fill};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use service::Token;
 use uuid::Uuid;
@@ -90,13 +91,24 @@ impl Compacted {
 /// use of a tool moves that file aside, as the first `<given>.<n>.json` there is none of, and prints it, which the
 /// program adds to the session. The hook needs nothing but the shell and these files, so that what runs the agents
 /// may be apart from the engine. After the program's own tool for the return the hook gives nothing: the round has
-/// made its return, and words given then would be taken as delivered and never read.
+/// made its return, and words given then would be taken as delivered and never read. Which versions of the owner's
+/// words each file holds is kept beside them, in a file the program never reads, by the digest of what the file says
+/// ([`Words::given`]): whoever reads what the hook gave, the process of the engine that put the words or one after it,
+/// reads it there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Words {
     /// The file the words wait in, as the hook prints them.
     pub waiting: PathBuf,
     /// Where the words the hook gave are moved, without the number and the extension.
     pub given: PathBuf,
+}
+
+/// Something put for the hook to give and not taken back, as the versions file keeps it: the digest of what the hook is
+/// to print ([`work::digest`]), and the versions of the owner's words it says.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Put {
+    digest: String,
+    versions: Vec<(BlockId, Seq)>,
 }
 
 impl Words {
@@ -112,53 +124,126 @@ impl Words {
         )
     }
 
-    /// Puts what is said where the hook reads it, as the hook is to print it: what the program adds to the session
-    /// after a use of a tool. What waits there still is taken back first and given before it, so that one file holds
-    /// everything said: a rename either takes it back whole or finds that the hook has moved it. Gives whether it took
-    /// back what waited there, the hook not having given it. One writer puts at a time.
-    pub async fn put(&self, said: &str) -> std::result::Result<bool, String> {
-        let named = |path: &Path, e: std::io::Error| format!("{}: {e}", path.display());
-        let taking = self.waiting.with_extension("json.taking");
-        let mut context = String::new();
-        let took_back = match tokio::fs::rename(&self.waiting, &taking).await {
-            Ok(()) => {
-                let bytes = tokio::fs::read(&taking).await.map_err(|e| named(&taking, e))?;
-                let waited: Value = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", taking.display()))?;
-                if let Some(text) = waited["hookSpecificOutput"]["additionalContext"].as_str() {
-                    context.push_str(text);
-                    context.push_str("\n\n");
-                }
-                tokio::fs::remove_file(&taking).await.map_err(|e| named(&taking, e))?;
-                true
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-            Err(e) => return Err(named(&self.waiting, e)),
-        };
-        context.push_str(said);
-        let output = json!({ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": context } });
-        // Written whole beside it and renamed into place, so that the hook never moves a file half written.
-        let part = self.waiting.with_extension("json.part");
-        tokio::fs::write(&part, output.to_string())
-            .await
-            .map_err(|e| named(&part, e))?;
-        tokio::fs::rename(&part, &self.waiting)
-            .await
-            .map_err(|e| named(&self.waiting, e))?;
-        Ok(took_back)
+    /// Where what was put is kept with its versions, in the order it was put: beside what the hook gave.
+    fn versions(&self) -> PathBuf {
+        self.given.with_extension("said.json")
     }
 
-    /// Takes back what waits for the hook, once the program has ended and its hook runs no more: gives whether
-    /// something waited there, which the hook never gave.
-    pub async fn take_back(&self) -> std::result::Result<bool, String> {
+    /// Where the hook moved what it gave the `n`th time, the first being one.
+    fn given_at(&self, n: usize) -> PathBuf {
+        let mut at = self.given.clone().into_os_string();
+        at.push(format!(".{n}.json"));
+        PathBuf::from(at)
+    }
+
+    /// What was put and not taken back, in the order it was put; nothing where nothing was.
+    async fn puts(&self) -> std::result::Result<Vec<Put>, String> {
+        let at = self.versions();
+        match tokio::fs::read(&at).await {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", at.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(e) => Err(format!("{}: {e}", at.display())),
+        }
+    }
+
+    /// Keeps what was put, whole or not at all.
+    async fn keep(&self, puts: &[Put]) -> std::result::Result<(), String> {
+        let at = self.versions();
+        let named = |path: &Path, e: std::io::Error| format!("{}: {e}", path.display());
+        let bytes = serde_json::to_vec(puts).map_err(|e| format!("{}: {e}", at.display()))?;
+        let part = at.with_extension("json.part");
+        tokio::fs::write(&part, bytes).await.map_err(|e| named(&part, e))?;
+        tokio::fs::rename(&part, &at).await.map_err(|e| named(&at, e))
+    }
+
+    /// Takes what waits for the hook from where it waits, the hook not having moved it, and gives what it says; none
+    /// where nothing waits. A rename either takes it whole or finds that the hook has moved it.
+    async fn take(&self) -> std::result::Result<Option<String>, String> {
         let taking = self.waiting.with_extension("json.taking");
         match tokio::fs::rename(&self.waiting, &taking).await {
-            Ok(()) => tokio::fs::remove_file(&taking)
-                .await
-                .map(|()| true)
-                .map_err(|e| format!("{}: {e}", taking.display())),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Ok(()) => {
+                let text =
+                    (tokio::fs::read_to_string(&taking).await).map_err(|e| format!("{}: {e}", taking.display()))?;
+                (tokio::fs::remove_file(&taking).await).map_err(|e| format!("{}: {e}", taking.display()))?;
+                Ok(Some(text))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(format!("{}: {e}", self.waiting.display())),
         }
+    }
+
+    /// Puts what is said, which says these versions of the owner's words, where the hook reads it, as the hook is to
+    /// print it: what the program adds to the session after a use of a tool. What waits there still is taken back first
+    /// and given before it, with its versions, so that one file holds everything said. The versions are kept before
+    /// the file is put, so that whatever the hook gives has them. One writer puts at a time.
+    pub async fn put(&self, said: &str, versions: &[(BlockId, Seq)]) -> std::result::Result<(), String> {
+        let named = |path: &Path, e: std::io::Error| format!("{}: {e}", path.display());
+        let mut puts = self.puts().await?;
+        let mut context = String::new();
+        let mut with = Vec::new();
+        if let Some(waited) = self.take().await? {
+            let value: Value = serde_json::from_str(&waited).map_err(|e| format!("{}: {e}", self.waiting.display()))?;
+            if let Some(text) = value["hookSpecificOutput"]["additionalContext"].as_str() {
+                context.push_str(text);
+                context.push_str("\n\n");
+            }
+            let digest = work::digest(&waited);
+            if let Some(at) = puts.iter().rposition(|put| put.digest == digest) {
+                with = puts.remove(at).versions;
+            }
+        }
+        context.push_str(said);
+        let output = json!({ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": context } });
+        let output = output.to_string();
+        with.extend_from_slice(versions);
+        puts.push(Put {
+            digest: work::digest(&output),
+            versions: with,
+        });
+        self.keep(&puts).await?;
+        // Written whole beside it and renamed into place, so that the hook never moves a file half written.
+        let part = self.waiting.with_extension("json.part");
+        tokio::fs::write(&part, output).await.map_err(|e| named(&part, e))?;
+        tokio::fs::rename(&part, &self.waiting)
+            .await
+            .map_err(|e| named(&self.waiting, e))
+    }
+
+    /// Takes back what waits for the hook, once the program has ended and its hook runs no more, as a process of the
+    /// engine that ended may have left it: gives whether something waited there, which the hook never gave, and whose
+    /// versions stay new.
+    pub async fn take_back(&self) -> std::result::Result<bool, String> {
+        let Some(waited) = self.take().await? else {
+            return Ok(false);
+        };
+        let mut puts = self.puts().await?;
+        let digest = work::digest(&waited);
+        if let Some(at) = puts.iter().rposition(|put| put.digest == digest) {
+            puts.remove(at);
+            self.keep(&puts).await?;
+        }
+        Ok(true)
+    }
+
+    /// What the hook gave, in the order it gave it: the versions each file it moved says, as they were put. A file
+    /// whose versions were not kept, as one given before they were, is given apart, its words not known to be given.
+    pub async fn given(&self) -> std::result::Result<(Vec<(BlockId, Seq)>, Vec<PathBuf>), String> {
+        let mut puts = self.puts().await?;
+        let (mut versions, mut unknown) = (Vec::new(), Vec::new());
+        for n in 1.. {
+            let at = self.given_at(n);
+            let text = match tokio::fs::read_to_string(&at).await {
+                Ok(text) => text,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+                Err(e) => return Err(format!("{}: {e}", at.display())),
+            };
+            let digest = work::digest(&text);
+            match puts.iter().position(|put| put.digest == digest) {
+                Some(put) => versions.extend(puts.remove(put).versions),
+                None => unknown.push(at),
+            }
+        }
+        Ok((versions, unknown))
     }
 }
 
@@ -339,25 +424,30 @@ pub const PERMISSION_ADVICE: &str =
 /// subagent left in the background has the command line ask for the return before it is back; the service checks each
 /// tool's input as JSON before it streams it, since inputs it did not check came cut off; the
 /// command line asks the model again three times, not five, for a return that does not fit its form, each try writing
-/// the whole return again; rustup installs no Rust toolchain that a command an agent may run asks for and the
-/// machine lacks: the command fails instead of downloading it, which would write beyond the worktree; and no command an
-/// agent runs is given the token of the account the round runs under ([`SCRUB`]).
-pub const ENVIRONMENT: [(&str, &str); 5] = [
+/// the whole return again; and no command an agent runs is given the token of the account the round runs under
+/// ([`SCRUB`]). What a project's toolchain reads is the project's, which its declaration names (`[environment]`).
+pub const ENVIRONMENT: [(&str, &str); 4] = [
     ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
     ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
     ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
-    ("RUSTUP_AUTO_INSTALL", "0"),
     (SCRUB, "1"),
 ];
 
+/// The prefixes of the variables the agents' program reads itself, such as the account's token and the program's
+/// directory of settings, its endpoint and its model: a project's declaration names none of them, since each would
+/// change a round while the records name what the engine chose. Prefixes, not names, since the program's variables are
+/// never all listed.
+pub const PROGRAM: [&str; 2] = ["CLAUDE_", "ANTHROPIC_"];
+
 /// The environment a command of the program's is given, in place of the engine's own: of the engine's variables,
-/// those [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`]; the program's
-/// directory of settings and sessions, the engine's `profile`; and the token of the account the command runs under,
-/// which is given nowhere else.
+/// those [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`]; the variables the
+/// project's declaration names, `declared`; the program's directory of settings and sessions, the engine's `profile`;
+/// and the token of the account the command runs under, which is given nowhere else.
 pub fn environment(
     agents: &Agents,
     profile: &Path,
     engine: impl IntoIterator<Item = (String, String)>,
+    declared: &BTreeMap<String, String>,
     token: &Token,
 ) -> Vec<(String, String)> {
     let kept =
@@ -365,12 +455,51 @@ pub fn environment(
     let mut env: Vec<(String, String)> = engine.into_iter().filter(|(name, _)| kept(name)).collect();
     env.sort();
     env.extend(ENVIRONMENT.map(|(name, value)| (name.to_string(), value.to_string())));
+    env.extend(declared.iter().map(|(name, value)| (name.clone(), value.clone())));
     env.push((
         crate::account::VARIABLE.to_string(),
         profile.to_string_lossy().into_owned(),
     ));
     env.push((crate::account::TOKEN.to_string(), token.secret().to_string()));
     env
+}
+
+/// What is wrong with the variables a project's declaration names for every round's command line, each said with where
+/// it is written: a name that is no name of a variable; one the engine owns, which it keeps of its environment, sets
+/// itself or gives the program; one the installation's settings name to keep (`agents.env`: `named`), which a declared
+/// value would silently override; one the agents' program reads itself ([`PROGRAM`]); and a value that holds a NUL, which
+/// ends a string of a process's environment, so that no program can be started with it. Any other value is none.
+pub fn environment_faults(declared: &BTreeMap<String, String>, named: &[String]) -> Vec<String> {
+    let at = format!("{} [environment]", flow::agents::DECLARATION);
+    let mut faults = Vec::new();
+    for (name, value) in declared {
+        if value.contains('\0') {
+            faults.push(format!(
+                "{at}: {name} holds a NUL in its value, with which no program can be started"
+            ));
+        }
+        let shell = name.starts_with(|c: char| c == '_' || c.is_ascii_alphabetic())
+            && name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric());
+        if !shell {
+            faults.push(format!("{at}: {name:?} is no name of a variable"));
+        } else if KEPT.contains(&name.as_str())
+            || name.starts_with("LC_")
+            || ENVIRONMENT.iter().any(|(own, _)| own == name)
+        {
+            faults.push(format!(
+                "{at}: {name} is the engine's own, which it gives every round itself"
+            ));
+        } else if named.contains(name) {
+            faults.push(format!(
+                "{at}: {name} is one the installation's agents.env keeps of the engine's environment, which a declared value would override"
+            ));
+        } else if PROGRAM.iter().any(|prefix| name.starts_with(prefix)) {
+            faults.push(format!(
+                "{at}: {name} is read by the agents' program itself, which it would change in a round beside what the records name"
+            ));
+        }
+    }
+    faults
 }
 
 /// The session a round runs in, as the records say: which of its line's sessions, whether the round begins it, and
@@ -2107,7 +2236,7 @@ mod tests {
         };
         assert_eq!(after(&words, "Bash", dir.path()), "", "nothing waits");
 
-        words.put("Use the name \"Ann\".").await.expect("put");
+        words.put("Use the name \"Ann\".", &[]).await.expect("put");
         // Not after the tool for the return: the round has made it.
         assert_eq!(after(&words, STRUCTURED_OUTPUT, dir.path()), "");
         assert!(words.waiting.exists());
@@ -2126,37 +2255,59 @@ mod tests {
         assert_eq!(after(&words, "Read", dir.path()), "", "given once");
 
         // Said twice before a tool, given once, together; the next delivery is kept beside the first.
-        words.put("First.").await.expect("put");
-        words.put("Second.").await.expect("put");
+        words.put("First.", &[]).await.expect("put");
+        words.put("Second.", &[]).await.expect("put");
         let given: Value = serde_json::from_str(&after(&words, "Edit", dir.path())).expect("the hook's JSON");
         assert_eq!(given["hookSpecificOutput"]["additionalContext"], "First.\n\nSecond.");
         assert!(rounds.join("2-3.given.2.json").is_file());
         assert!(first.is_file());
-        let left: Vec<_> = std::fs::read_dir(&rounds)
+        let mut left: Vec<_> = std::fs::read_dir(&rounds)
             .unwrap()
-            .map(|e| e.unwrap().file_name())
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(left.len(), 2, "nothing else is left: {left:?}");
+        left.sort();
+        let kept = ["2-3.given.1.json", "2-3.given.2.json", "2-3.said.json"];
+        assert_eq!(left, kept, "nothing else is left");
     }
 
+    // The versions of what the hook gave are read back from the files alone, as a process of the engine after the one
+    // that put the words reads them: words taken back as more are put keep their versions with the new, what was taken
+    // back once the program ended stays new, and a file the hook gave with no versions kept is told apart. Well under a
+    // second alone; no other test reads the versions back.
     #[tokio::test]
-    async fn what_waits_for_the_hook_is_told_apart_from_what_the_hook_gave() {
+    async fn words_taken_back_and_put_again_keep_both_versions() {
         let dir = tempfile::tempdir().unwrap();
         let words = Words {
             waiting: dir.path().join("1-1.words.json"),
             given: dir.path().join("1-1.given"),
         };
-        assert_eq!(words.put("First.").await, Ok(false), "nothing waited");
-        assert_eq!(
-            words.put("Second.").await,
-            Ok(true),
-            "the first waited, the hook not having given it"
-        );
+        let version = |n: u64| (BlockId("build_words".to_string()), Seq(n));
+        assert_eq!(words.given().await, Ok((Vec::new(), Vec::new())), "nothing was given");
+        words.put("First.", &[version(3)]).await.expect("put");
+        words.put("Second.", &[version(5)]).await.expect("put");
         assert_ne!(after(&words, "Bash", dir.path()), "");
-        assert_eq!(words.put("Third.").await, Ok(false), "the hook gave the first two");
+        words.put("Third.", &[version(7)]).await.expect("put");
         assert_eq!(words.take_back().await, Ok(true), "the third waited");
         assert!(!words.waiting.exists(), "taken back, for no hook to give");
         assert_eq!(words.take_back().await, Ok(false), "nothing waits");
+        let read_again = Words {
+            waiting: words.waiting.clone(),
+            given: words.given.clone(),
+        };
+        assert_eq!(
+            read_again.given().await,
+            Ok((vec![version(3), version(5)], Vec::new())),
+            "the first two, given together"
+        );
+
+        std::fs::write(dir.path().join("1-1.given.2.json"), "{}").unwrap();
+        let (given, unknown) = read_again.given().await.expect("read");
+        assert_eq!(given, [version(3), version(5)]);
+        assert_eq!(
+            unknown,
+            [dir.path().join("1-1.given.2.json")],
+            "given with no versions kept"
+        );
     }
 
     #[test]
@@ -2255,8 +2406,9 @@ mod tests {
         .map(|(n, v)| (n.to_string(), v.to_string()));
         let token = Token::new("sk-ant-oat01-secret".to_string());
         let profile = Path::new("/data/profile");
+        let none = BTreeMap::new();
         assert_eq!(
-            environment(&agents(), profile, engine, &token),
+            environment(&agents(), profile, engine, &none, &token),
             [
                 ("HOME", "/home/someone"),
                 ("LC_ALL", "C"),
@@ -2264,7 +2416,6 @@ mod tests {
                 ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
                 ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
                 ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
-                ("RUSTUP_AUTO_INSTALL", "0"),
                 ("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "1"),
                 ("CLAUDE_CONFIG_DIR", "/data/profile"),
                 ("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-secret"),
@@ -2275,7 +2426,7 @@ mod tests {
         let mut configured = agents();
         configured.env = vec!["LANGUAGE".to_string()];
         let engine = [("LANGUAGE", "en"), ("OTHER", "x")].map(|(n, v)| (n.to_string(), v.to_string()));
-        let given = environment(&configured, profile, engine, &token);
+        let given = environment(&configured, profile, engine, &none, &token);
         assert!(given.contains(&("LANGUAGE".to_string(), "en".to_string())), "named");
         assert!(!given.iter().any(|(n, _)| n == "OTHER"));
         assert_eq!(
@@ -2283,5 +2434,76 @@ mod tests {
             1,
             "the token given once"
         );
+    }
+
+    // What the project's declaration names comes after the carrier's own, and before the program's directory and the
+    // token, which stay last and are given once. Well under a millisecond alone; no other test holds the order of the
+    // environment a declaration adds to.
+    #[test]
+    fn the_variables_a_declaration_names_come_after_the_carriers_own_and_before_the_token() {
+        let token = Token::new("sk-ant-oat01-secret".to_string());
+        let declared = BTreeMap::from([("RUSTUP_AUTO_INSTALL".to_string(), "0".to_string())]);
+        let given = environment(&agents(), Path::new("/data/profile"), [], &declared, &token);
+        let names: Vec<&str> = given.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS",
+                "CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING",
+                "MAX_STRUCTURED_OUTPUT_RETRIES",
+                "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+                "RUSTUP_AUTO_INSTALL",
+                "CLAUDE_CONFIG_DIR",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+            ]
+        );
+        assert!(given.contains(&("RUSTUP_AUTO_INSTALL".to_string(), "0".to_string())));
+    }
+
+    // A declaration may name no variable the engine owns, none the installation keeps by name, none the agents' program
+    // reads itself, and none that is no name of a variable. Well under a millisecond alone; no other test holds what a
+    // declaration may name for the command line, one case for each rule.
+    #[test]
+    fn a_declaration_names_no_variable_of_the_engines_own() {
+        let faults = |name: &str, named: &[&str]| {
+            let declared = BTreeMap::from([(name.to_string(), "1".to_string())]);
+            let named: Vec<String> = named.iter().map(|n| n.to_string()).collect();
+            environment_faults(&declared, &named)
+        };
+        assert_eq!(faults("RUSTUP_AUTO_INSTALL", &[]), Vec::<String>::new());
+        assert_eq!(faults("RUSTUP_AUTO_INSTALL", &["LANGUAGE"]), Vec::<String>::new());
+        for own in [
+            "PATH",
+            "LC_ALL",
+            "MAX_STRUCTURED_OUTPUT_RETRIES",
+            "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+        ] {
+            assert_eq!(
+                faults(own, &[]),
+                [format!(
+                    "flow/project.toml [environment]: {own} is the engine's own, which it gives every round itself"
+                )],
+                "{own}"
+            );
+        }
+        let kept = faults("LANGUAGE", &["LANGUAGE"]);
+        assert_eq!(kept.len(), 1);
+        assert!(
+            kept[0].contains("LANGUAGE") && kept[0].contains("agents.env"),
+            "{kept:?}"
+        );
+        for program in ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"] {
+            let said = faults(program, &[]);
+            assert_eq!(said.len(), 1, "{program}");
+            assert!(
+                said[0].contains(program) && said[0].contains("agents' program"),
+                "{said:?}"
+            );
+        }
+        for wrong in ["1BAD", "A-B", ""] {
+            let said = faults(wrong, &[]);
+            assert_eq!(said.len(), 1, "{wrong:?}");
+            assert!(said[0].contains("no name of a variable"), "{said:?}");
+        }
     }
 }
