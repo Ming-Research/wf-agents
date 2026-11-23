@@ -312,6 +312,7 @@ describe('the flowchart of the engineer flow', () => {
     expect(context.map((t) => `${t.block} ${t.kind} ${t.watched ? 'watches' : 'reads'}`)).toEqual([
       'background latest reads',
       'tree lastAndLatest reads',
+      'tree_entries latest reads',
       'plan_owner lastAndLatest watches',
       'plan_agent lastAndLatest watches',
       'acceptance lastAndLatest watches',

@@ -6,7 +6,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex};
 
-use decide::BlockId;
 use driver::{Budget, Policy};
 use driver::{FirstWrite, Found, NewItem};
 use engine::RanOn;
@@ -91,8 +90,7 @@ const ACCOUNT: &str = "work";
 /// Two lines: the engineer's, which `load` begins and `build` goes on in, and the review's, which `look` begins and
 /// `review` goes on in.
 fn two_lines() -> Compiled {
-    let flow = format!(
-        r#"
+    let flow = r#"
         name = "sessions"
         order = ["load", "build", "look", "review", "merge"]
         [limits]
@@ -110,7 +108,7 @@ fn two_lines() -> Compiled {
         [blocks.merged]
         shown = true
     "#
-    );
+    .to_string();
     let cell = |line: &str, watches: &str, outputs: &str| {
         // Each datum it watches given as it last worked from it and as it is now.
         let kinds: Vec<String> = (watches.split('"').skip(1).step_by(2))
@@ -148,8 +146,7 @@ fn two_lines() -> Compiled {
 /// engineer's, `look`, which comes before `build`, the review's, and runs on the owner's remarks, so that it runs while
 /// the build waits on a tool's result; `review` is the review's after `build`.
 fn remarks() -> Compiled {
-    let flow = format!(
-        r#"
+    let flow = r#"
         name = "sessions"
         order = ["load", "look", "build", "review", "merge"]
         [limits]
@@ -169,7 +166,7 @@ fn remarks() -> Compiled {
         [blocks.merged]
         shown = true
     "#
-    );
+    .to_string();
     let cell = |line: &str, watches: &str, outputs: &str| {
         // Each datum it watches given as it last worked from it and as it is now.
         let kinds: Vec<String> = (watches.split('"').skip(1).step_by(2))
@@ -484,15 +481,6 @@ impl S {
     fn sessions(&self) -> Vec<(String, Why)> {
         (self.kept().sessions.iter())
             .map(|s: &Session| (s.line.clone(), s.why.clone()))
-            .collect()
-    }
-
-    /// The versions of the block, as their content.
-    fn versions_of(&self, block: &str) -> Vec<String> {
-        let block = BlockId::from(block);
-        (self.kept().records.written.iter())
-            .filter(|w| w.block == block)
-            .map(|w| self.kept().contents[&(block.clone(), w.at)].clone())
             .collect()
     }
 
