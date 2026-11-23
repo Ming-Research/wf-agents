@@ -31,7 +31,7 @@ import { CONSOLE_MARKS } from './help';
 import type { Heard } from './source';
 import { ConsolePage } from './index';
 import type { Shown, ShownWork } from './items';
-import { DOT_AT, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, SnapScene, themed, UNFOLD_MS } from './snap';
+import { DOT_AT, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, RUN, SnapScene, themed, UNFOLD_MS } from './snap';
 
 const WIDTH = 1000;
 const HEIGHT = 640;
@@ -337,6 +337,32 @@ describe('the tree in columns', () => {
     move(50, line);
     scene.step();
     expect(scene.stats.redraws).toBe(redraws + 1);
+  });
+
+  it('moves only the light down a way from frame to frame, what stands of the way built once where it stands, and again where it moves', () => {
+    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    settle(scene);
+    scene.step();
+    const builds = scene.stats.wayBuilds;
+    // The light runs down the way into item 2 frame after frame, a whole run and the dark after it, burning at each
+    // card's end as it passes: the way's line, glow and strands, and the lights at rest at the cards' ends, are not
+    // built again.
+    for (let k = 0; k < (RUN.beat + RUN.dark) / 50 + 2; k += 1) {
+      scene.step(50);
+      expect(scene.litWays().map((w) => w.id)).toEqual([2]);
+    }
+    expect(scene.stats.wayBuilds).toBe(builds);
+    // Moved sideways, the way is built again where it now stands.
+    wheel(100, 0);
+    scene.step();
+    expect(scene.stats.wayBuilds).toBe(builds + 1);
+    expect(scene.litWays().map((w) => w.id)).toEqual([2]);
+    // A knob that changes a number the ways are drawn by has them built again at the next frame.
+    const wide = RUN.far;
+    RUN.far = wide + 1;
+    scene.step();
+    RUN.far = wide;
+    expect(scene.stats.wayBuilds).toBe(builds + 2);
   });
 
   it("draws each item on the map in the colour of its card's state: running, in a call, for the owner, halted, paused, not begun, done or cancelled", () => {

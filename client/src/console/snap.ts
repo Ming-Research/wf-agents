@@ -45,7 +45,18 @@
 // (`RUN`), where a running card had a light going round its edge and a card that waits for the owner rings round
 // it.
 
-import { Application, BitmapText, BlurFilter, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
+import {
+  Application,
+  BitmapText,
+  BlurFilter,
+  Container,
+  FillGradient,
+  Graphics,
+  Matrix,
+  RenderTexture,
+  Sprite,
+  TextStyle,
+} from 'pixi.js';
 
 import { accentNow, onAccent, turning } from '../accent';
 import { LINES_LOOKS, levelLook, levelWords } from '../marks';
@@ -268,6 +279,8 @@ const CHOSEN_BLUR = 9;
 /// The room a soft light's blur is drawn in past its fill, in strengths of the blur: wide enough that the blur fades
 /// out before its edge. It is also as far as the light reaches past its fill.
 const BLUR_ROOM = 4;
+/// The step in pixels by which a texture a kept glow is laid on is made larger than the glow ([`SnapScene.bake`]).
+const TEXTURE_STEP = 128;
 
 /// The blur of a soft light round an item, this strong, with its room: set after the filter is made, which sets its
 /// own from its strength, too narrow for the blur to fade out in.
@@ -288,6 +301,59 @@ function litLayer(): Lit {
     line: new Graphics(),
     near: new Graphics({ filters: [nearBlur] }),
     far: new Graphics({ filters: [farBlur] }),
+    nearBlur,
+    farBlur,
+  };
+}
+
+/// What a light is drawn on: its line, and its glow close in and further out.
+type Strokes = Pick<Lit, 'line' | 'near' | 'far'>;
+
+/// A part of the lights that stand still, kept until what it lights moves ([`draw`]): its line, drawn sharp, and its
+/// glow close in and further out, blurred once onto a texture of its own as large as the glow reaches (`source`),
+/// which `glow` draws where it stands.
+type Rest = Strokes & { source: Container; glow: Sprite; texture: RenderTexture | null };
+
+/// Lights that stand still, in parts each kept by its key ([`Rest`]): the parts' lines among `lines`, and their glows
+/// among `glows`, each laid where the lights it keeps are and blurred as a layer of light's glow is ([`Lit`]).
+type Kept = { parts: Map<number, Rest>; lines: Container; glows: Container; nearBlur: BlurFilter; farBlur: BlurFilter };
+
+function keptLayer(): Kept {
+  return {
+    parts: new Map(),
+    lines: new Container(),
+    glows: new Container(),
+    nearBlur: softBlur(RUN.nearBlur),
+    farBlur: softBlur(RUN.farBlur),
+  };
+}
+
+/// A lit way's own lights ([`draw`]): what stands of it, its line, glow and strands, kept while the way stands; and
+/// over that the light running down it, drawn anew at each frame, and only while the light is on it (`lit`). Where
+/// the light is on none of the ways that begin at the same place across the page as this one, `place`, the glow kept
+/// of all of them is drawn instead of theirs ([`Kept`]).
+type WayLights = { rest: Strokes; light: Strokes; lit: boolean; place: number };
+
+/// The lit ways, each way's own lights by the item it goes into ([`WayLights`]): their lines among `lines`, and their
+/// glow further out and close in among `far` and `near`, each blurred as one, as a layer of light's is ([`Lit`]). Each
+/// way's light lies just over what stands of it, as when both were drawn on one layer.
+type Ways = {
+  parts: Map<number, WayLights>;
+  lines: Container;
+  near: Container;
+  far: Container;
+  nearBlur: BlurFilter;
+  farBlur: BlurFilter;
+};
+
+function waysLayer(): Ways {
+  const nearBlur = softBlur(RUN.nearBlur);
+  const farBlur = softBlur(RUN.farBlur);
+  return {
+    parts: new Map(),
+    lines: new Container(),
+    near: new Container({ filters: [nearBlur] }),
+    far: new Container({ filters: [farBlur] }),
     nearBlur,
     farBlur,
   };
@@ -667,8 +733,13 @@ export type Stats = {
   p95Ms: number;
   /// How many cards the last tree shown made, the others kept from the tree before.
   made: number;
-  /// How many frames have drawn the still parts of the tree again ([`draw`]).
+  /// How many frames have drawn the still parts of the tree again ([`draw`]), and for what, each frame counted for each
+  /// thing that asked: `tree`, `pointer`, `select`, `view`, `shown`, `start`, `turns`, `moved`, `size` or `easing`.
   redraws: number;
+  redrawn: Record<string, number>;
+  /// How many frames have built again what stands of the lit ways: their lines, glow and strands, and the lights at
+  /// rest where they meet the cards and at the dots of folds ([`draw`]).
+  wayBuilds: number;
 };
 
 /// The colour a part `k` of the way from `a` to `b`, both `#rrggbb`.
@@ -971,16 +1042,28 @@ type Column = {
 };
 
 export class SnapScene {
-  stats: Stats = { items: 0, drawn: 0, fps: 0, meanMs: 0, p95Ms: 0, made: 0, redraws: 0 };
+  stats: Stats = { items: 0, drawn: 0, fps: 0, meanMs: 0, p95Ms: 0, made: 0, redraws: 0, redrawn: {}, wayBuilds: 0 };
   private app = new Application();
   private world = new Container();
   /// The funnels from each item to the items under it; and the ribbons of the items lit.
   private links = new Graphics();
-  /// The lit ways from the items whose work runs up to their roots, drawn anew each frame over the funnels; and what
-  /// of them is drawn over the cards instead: the spark where a way meets a card, and a card's edge as a light crosses
-  /// it, which the cards, drawn over the ways, would else hide. Each is lines and their glow ([`Lit`]).
-  private runLines = litLayer();
+  /// The lit ways from the items whose work runs up to their roots, over the funnels, each way's line, glow and
+  /// strands built once where it stands and kept while it stands, and the light running down it drawn anew each frame
+  /// ([`Ways`]); and the glow of the ways that begin at each place across the page, kept and laid as it is while the
+  /// light is on none of them ([`Kept`]), so that only the glow of the ways the light is on is blurred at each
+  /// frame. What of them is drawn over the cards instead: the spark where a way meets a card, and a card's edge as
+  /// a light crosses it, which the cards, drawn over the ways, would else hide, in lines and their glow ([`Lit`]); and
+  /// the lights at rest where the ways meet the cards and at the dots of folds, kept for each place across the page the
+  /// light comes to ([`Kept`]), so that where it burns, that place alone is drawn as it burns and the others stand as
+  /// they were laid.
+  private ways = waysLayer();
+  private waysAtRest = keptLayer();
   private runEdges = litLayer();
+  private endsAtRest = keptLayer();
+  /// The numbers the lit ways were last built by ([`RUN`]), which the page's knobs may change while it runs; and the
+  /// strength of each fold's dot as it was last built.
+  private runNumbers = '';
+  private dotsBuilt: number[] = [];
   /// Whether what they draw is added to the ground, as the theme has it ([`adding`]).
   private adds = false;
   /// The soft lights behind the item selected and the item under the pointer, drawn anew each frame where they stand,
@@ -1051,14 +1134,16 @@ export class SnapScene {
   private cardCache = new Map<string, CardMade[]>();
   private stripScale = 1;
   private themed = 0;
-  /// Whether the still parts of the tree are drawn again at the next frame, as something that changes them asks
-  /// ([`draw`]), and whether something they draw was still easing at the last; the items drawn and their views, the
-  /// size of the screen they were drawn at, and the ways' curves, kept while they stand.
-  private staticDirty = true;
+  /// What asks for the still parts of the tree to be drawn again at the next frame, by what it is ([`mark`], [`draw`]),
+  /// and whether something they draw was still easing at the last; the items drawn and their views, the size of the
+  /// screen they were drawn at, and the ways' curves, kept while they stand.
+  private dirty = new Set<string>(['start']);
   private easing = true;
   private drawnList: number[] = [];
   private nowShown = new Set<Container>();
   private drawnSize: [number, number] = [0, 0];
+  private drawnLeft = Number.NaN;
+  private drawnCols: number[] = [];
   private wayCache = new Map<number, { way: Way; len: number; dist: number }>();
   private waysDrawn: LitWay[] = [];
   /// For each item, whether a work goes on on it or under it: the edges of the cards above a work are lit.
@@ -1172,19 +1257,24 @@ export class SnapScene {
     root.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     media.addEventListener('change', this.retheme);
     this.themes = { media, root, accent: onAccent(this.retheme) };
+    // What stands still of the lights lies under what moves of them, its glow under their glow and its lines under
+    // their lines.
     this.world.addChild(
       this.links,
       this.foldLight,
       this.dots,
-      this.runLines.far,
-      this.runLines.near,
-      this.runLines.line,
+      this.waysAtRest.glows,
+      this.ways.far,
+      this.ways.near,
+      this.ways.lines,
       this.hoverGlow,
       this.chosenGlow,
       this.glowGround,
       this.layer,
+      this.endsAtRest.glows,
       this.runEdges.far,
       this.runEdges.near,
+      this.endsAtRest.lines,
       this.runEdges.line,
       this.marks,
     );
@@ -1198,7 +1288,7 @@ export class SnapScene {
     canvas.addEventListener('wheel', this.wheel, { passive: false });
     canvas.addEventListener('pointermove', this.hover);
     canvas.addEventListener('pointerleave', () => {
-      this.staticDirty = true;
+      this.mark('pointer');
       this.hovered = -1;
       this.pointer = null;
     });
@@ -1217,7 +1307,7 @@ export class SnapScene {
   setShown(shown: boolean): void {
     if (!this.ready) return;
     if (shown) {
-      this.staticDirty = true;
+      this.mark('shown');
       this.app.queueResize();
       this.app.ticker.start();
     } else this.app.ticker.stop();
@@ -1231,7 +1321,14 @@ export class SnapScene {
     this.themes?.root.disconnect();
     this.themes?.media.removeEventListener('change', this.retheme);
     this.themes?.accent();
-    if (this.ready) this.app.destroy(true, { children: true, texture: true });
+    if (this.ready) {
+      // The lights kept go first, each with its texture, which the application does not hold.
+      for (const kept of [this.waysAtRest, this.endsAtRest]) {
+        for (const key of [...kept.parts.keys()]) this.dropPart(kept, key);
+      }
+      this.waysAtRest.lines.destroy();
+      this.app.destroy(true, { children: true, texture: true });
+    }
   }
 
   /// Takes the theme's colours, and draws the tree again in them where it stands.
@@ -1279,7 +1376,7 @@ export class SnapScene {
       return;
     }
     this.drawnKey = key;
-    this.staticDirty = true;
+    this.mark('tree');
     const old = this.tree;
     const before = this.columns.map((c, d) => {
       if (old === null || old.columns[d].length === 0) return null;
@@ -2105,29 +2202,44 @@ export class SnapScene {
   private lighting() {
     this.adds = adding();
     const how = this.adds ? 'add' : 'normal';
-    for (const lit of [this.runLines, this.runEdges]) {
-      lit.line.blendMode = how;
-      // A layer blurred is laid on the page by its blur, which takes the blend from its filter and not its own.
+    // A layer blurred is laid on the page by its blur, which takes the blend from its filter and not its own; each
+    // line in a group of lines is laid as the group is.
+    for (const lit of [this.ways, this.waysAtRest, this.runEdges, this.endsAtRest]) {
       lit.nearBlur.blendMode = how;
       lit.farBlur.blendMode = how;
     }
+    this.ways.lines.blendMode = how;
+    this.runEdges.line.blendMode = how;
+    this.endsAtRest.lines.blendMode = how;
+    // The glow kept is laid on its texture by its blur, as a layer's is laid on the page, and the texture on the page
+    // as that blur would lay it.
+    this.waysAtRest.glows.blendMode = how;
+    this.endsAtRest.glows.blendMode = how;
   }
 
   /// Lays a light over the cards as a way's line is laid, with its glow: the line itself, and the glow close round it
-  /// and further out, so that the light reaches past the line it lies along and falls away with the distance from it.
-  /// `lay` draws that line on the layer it is given, once for the line and once for each glow; `wide` is the part of a
-  /// way's widths they take, and `alpha` the strength of all of them. The glow is fainter where the page is light, as
-  /// a way's is ([`RUN.inkRest`]).
-  private coats(lay: (g: Graphics) => void, colour: number, core: number, alpha: number, wide: number, nose = false) {
+  /// and further out, so that the light reaches past the line it lies along and falls away with the distance from it,
+  /// each on its own of `to`. `lay` draws that line on the layer it is given, once for the line and once for each
+  /// glow; `wide` is the part of a way's widths they take, and `alpha` the strength of all of them. The glow is fainter
+  /// where the page is light, as a way's is ([`RUN.inkRest`]).
+  private coats(
+    to: Strokes,
+    lay: (g: Graphics) => void,
+    colour: number,
+    core: number,
+    alpha: number,
+    wide: number,
+    nose = false,
+  ) {
     const coat = (g: Graphics, width: number, strength: number, paint: number) => {
       lay(g);
       const cap = nose ? 'round' : 'butt';
       g.stroke({ color: paint, width: width * wide, alpha: alpha * strength, cap });
     };
     const rest = this.adds ? 1 : RUN.inkRest;
-    coat(this.runEdges.far, RUN.far, RUN.farAlpha * rest, colour);
-    coat(this.runEdges.near, RUN.near, RUN.nearAlpha * rest, colour);
-    coat(this.runEdges.line, this.lineWidth, RUN.lineAlpha, core);
+    coat(to.far, RUN.far, RUN.farAlpha * rest, colour);
+    coat(to.near, RUN.near, RUN.nearAlpha * rest, colour);
+    coat(to.line, this.lineWidth, RUN.lineAlpha, core);
   }
 
   /// The line a spark is drawn in: white where the page is dark, the hottest of the light; where it is light, the
@@ -2138,8 +2250,9 @@ export class SnapScene {
 
   /// A way's line turning into a card's edge at `(x, y)`, up and down it, from where it leaves the way through where it
   /// bends ([`turnOf`]): lit as the spark there is, at `strength`, `burn` from 0 to 1 as the light goes through it.
-  /// Each way turns in along its own curve, however many ways meet the card there.
+  /// Each way turns in along its own curve, however many ways meet the card there. It is drawn on `to`.
   private turnIn(
+    to: Strokes,
     x: number,
     y: number,
     turn: { from: [number, number]; bend: [number, number] },
@@ -2152,14 +2265,15 @@ export class SnapScene {
     const lay = (g: Graphics) => {
       for (const side of [-1, 1]) g.moveTo(fx, fy).quadraticCurveTo(bx, by, x, y + side * RUN.fillet);
     };
-    this.coats(lay, tint(glintOf(burn)), this.flareLine(line), strength * burn, RUN.portWide);
+    this.coats(to, lay, tint(glintOf(burn)), this.flareLine(line), strength * burn, RUN.portWide);
   }
 
   /// The light where a way meets a card, at `(x, y)` on the card's edge, `half` its height, at `strength`, `burn` from
   /// 0 to 1 as the light goes through it: it lies along the edge the way meets, burning brighter as the light comes and
   /// fading out as it goes each way along it, in the light's colour as it goes through (`tint`). Along the way itself
-  /// the way's own line carries it, and the way's turn into the edge ([`turnIn`]).
+  /// the way's own line carries it, and the way's turn into the edge ([`turnIn`]). It is drawn on `to`.
   private spark(
+    to: Strokes,
     x: number,
     y: number,
     half: number,
@@ -2179,12 +2293,12 @@ export class SnapScene {
       const lay = (g: Graphics) => {
         for (const side of [-1, 1]) g.moveTo(x, y + side * near).lineTo(x, y + side * far);
       };
-      this.coats(lay, tint(going), core, strength * burn * fade, RUN.portWide);
+      this.coats(to, lay, tint(going), core, strength * burn * fade, RUN.portWide);
       // The glint is laid only where the page is light: where it is dark the line under it is the light's own near
       // white already, and a glint over it would only burn the card's end out.
       if (going > 0 && !this.adds) {
-        lay(this.runEdges.line);
-        this.runEdges.line.stroke({
+        lay(to.line);
+        to.line.stroke({
           color: glint,
           width: RUN.lightLine * RUN.portWide * this.glint,
           alpha: strength * going * fade * RUN.lightAlpha,
@@ -2199,9 +2313,9 @@ export class SnapScene {
       const glow = strength * burn * RUN.spotGlow;
       const tall = RUN.spotTall;
       const out = { color: tint(going), alpha: Math.min(1, glow / 2) };
-      this.runEdges.far.ellipse(x, y, wide * 3, wide * 3 * tall).fill(out);
-      this.runEdges.near.ellipse(x, y, wide * 1.5, wide * 1.5 * tall).fill({ color: white, alpha: Math.min(1, glow) });
-      this.runEdges.line.ellipse(x, y, wide, wide * Math.min(2, tall)).fill({ color: white, alpha: strength * burn });
+      to.far.ellipse(x, y, wide * 3, wide * 3 * tall).fill(out);
+      to.near.ellipse(x, y, wide * 1.5, wide * 1.5 * tall).fill({ color: white, alpha: Math.min(1, glow) });
+      to.line.ellipse(x, y, wide, wide * Math.min(2, tall)).fill({ color: white, alpha: strength * burn });
     }
   }
 
@@ -2228,7 +2342,7 @@ export class SnapScene {
         if (from <= 0) g.moveTo(x, y - half).lineTo(x, y + half);
         if (to >= NODE_W) g.moveTo(x + NODE_W, y - half).lineTo(x + NODE_W, y + half);
       };
-      this.coats(lay, tint(bright), line, strength * bright, RUN.edgeWide, nose);
+      this.coats(this.runEdges, lay, tint(bright), line, strength * bright, RUN.edgeWide, nose);
       // The glint within that line, as on a way, and only where the page is light: where it is dark the line under it
       // is the light's own near white already.
       if (!this.adds) {
@@ -2343,10 +2457,17 @@ export class SnapScene {
   /// Draws `frames` frames in which nothing but the lights moves, waiting for the GPU each, after one that draws the
   /// still parts; gives the time of each frame in milliseconds, and how many of the frames drew the still parts again,
   /// which is none while nothing else moves.
-  benchStill(frames: number): { meanMs: number; p95Ms: number; maxMs: number; redrawn: number } {
+  benchStill(frames: number): {
+    meanMs: number;
+    p95Ms: number;
+    maxMs: number;
+    redrawn: number;
+    why: Record<string, number>;
+  } {
     const gl = (this.app.renderer as unknown as { gl?: WebGLRenderingContext }).gl;
     this.tick();
     const before = this.stats.redraws;
+    const whyBefore = { ...this.stats.redrawn };
     const times: number[] = [];
     for (let k = 0; k < frames; k += 1) {
       const t0 = performance.now();
@@ -2355,7 +2476,38 @@ export class SnapScene {
       gl?.finish();
       times.push(performance.now() - t0);
     }
-    return { ...timesOf(times), redrawn: this.stats.redraws - before };
+    const why = Object.fromEntries(
+      Object.entries(this.stats.redrawn).flatMap(([k, n]) => {
+        const more = n - (whyBefore[k] ?? 0);
+        return more > 0 ? [[k, more]] : [];
+      }),
+    );
+    return { ...timesOf(times), redrawn: this.stats.redraws - before, why };
+  }
+
+  /// Draws `frames` frames of the lights alone, the cards and every other still part hidden, waiting for the GPU each,
+  /// after one that draws what stands; gives the time of each frame in milliseconds, and how many of them built what
+  /// stands of the lit ways again, which is none while nothing else moves.
+  benchLights(frames: number): { meanMs: number; p95Ms: number; maxMs: number; rebuilt: number } {
+    const gl = (this.app.renderer as unknown as { gl?: WebGLRenderingContext }).gl;
+    this.tick();
+    const still = [this.layer, this.links, this.foldLight, this.dots, this.hoverGlow, this.chosenGlow, this.glowGround];
+    const hidden = [...still, this.marks, this.edges, this.map];
+    const shown = hidden.map((c) => c.visible);
+    for (const c of hidden) c.visible = false;
+    const before = this.stats.wayBuilds;
+    const times: number[] = [];
+    for (let k = 0; k < frames; k += 1) {
+      const t0 = performance.now();
+      this.tick();
+      this.app.renderer.render(this.app.stage);
+      gl?.finish();
+      times.push(performance.now() - t0);
+    }
+    hidden.forEach((c, k) => {
+      c.visible = shown[k];
+    });
+    return { ...timesOf(times), rebuilt: this.stats.wayBuilds - before };
   }
 
   /// Shows the tree shown `times` times more, each time as a new read of the items gives it, a copy that draws the
@@ -2497,7 +2649,7 @@ export class SnapScene {
   };
 
   private hover = (e: PointerEvent) => {
-    this.staticDirty = true;
+    this.mark('pointer');
     const r = this.app.canvas.getBoundingClientRect();
     const d = Math.floor((e.clientX - r.left - this.left + (PITCH - NODE_W) / 2) / PITCH);
     this.hovered = d >= 0 && d < this.columns.length ? d : -1;
@@ -2545,7 +2697,7 @@ export class SnapScene {
   };
 
   private up = (e: PointerEvent) => {
-    this.staticDirty = true;
+    this.mark('pointer');
     this.dragging = null;
     const d = this.down;
     this.down = null;
@@ -2575,7 +2727,7 @@ export class SnapScene {
   /// column is not wholly within the room, the columns moved sideways only until it is, a little in from the side it
   /// was out at. An item already in view stays where it is.
   reveal(id: number, room: number): void {
-    this.staticDirty = true;
+    this.mark('view');
     const t = this.tree;
     const i = this.real.get(id);
     if (t === null || i === undefined) return;
@@ -2614,9 +2766,14 @@ export class SnapScene {
     return this.selected;
   }
 
+  /// Asks for the still parts of the tree to be drawn again at the next frame, for `why`.
+  private mark(why: string) {
+    this.dirty.add(why);
+  }
+
   /// Selects the item numbered `id`, or none.
   select(id: number | null): void {
-    this.staticDirty = true;
+    this.mark('select');
     // An item folds hide is selected once the folds over it are opened and it is drawn.
     if (id !== null && !this.real.has(id) && this.unfoldTo(id)) return;
     this.selected = id !== null && this.real.has(id) ? id : null;
@@ -2654,7 +2811,6 @@ export class SnapScene {
     // it is taken; the others after it, out from it each way.
     if (this.turns.size > 0) this.shape();
     const was = this.columns.map((c) => c.at);
-    const leftWas = this.left;
     // Whether anything the still parts draw is still easing at this frame, which draws them again at the next.
     let easing = false;
     this.columns.forEach((c, d) => {
@@ -2696,14 +2852,27 @@ export class SnapScene {
     // the dots, the edges and the map, are drawn again only where something they draw changed: a new tree, the
     // pointer, a selection, the columns moving, a fold turning, the screen's size, or what was still easing at the last
     // frame. Else they stand as they were drawn, and only the lights, the pulses and the ages are drawn.
-    const redraw =
-      this.staticDirty ||
-      this.easing ||
-      this.turns.size > 0 ||
-      this.left !== leftWas ||
-      this.columns.some((c, d) => c.at !== was[d]) ||
-      width !== this.drawnSize[0] ||
-      height !== this.drawnSize[1];
+    // Moved since the last frame: by the glide of this frame, or by a pan or a scroll between the two.
+    const shifted =
+      this.left !== this.drawnLeft ||
+      this.columns.length !== this.drawnCols.length ||
+      this.columns.some((c, d) => c.at !== this.drawnCols[d]);
+    const sized = width !== this.drawnSize[0] || height !== this.drawnSize[1];
+    const why = [...this.dirty];
+    if (this.turns.size > 0) why.push('turns');
+    if (shifted) why.push('moved');
+    if (sized) why.push('size');
+    if (this.easing) why.push('easing');
+    const redraw = why.length > 0;
+    for (const w of why) this.stats.redrawn[w] = (this.stats.redrawn[w] ?? 0) + 1;
+    // Where the ways stand anew: a new tree, the theme, a fold turning, the columns moved, the screen's size, or the
+    // numbers the ways are drawn by changed by a knob. Their curves are worked out again, and what stands of them
+    // built again.
+    const anew = ['start', 'tree', 'shown'].some((w) => this.dirty.has(w));
+    const numbers = Object.values(RUN).join();
+    const tuned = numbers !== this.runNumbers;
+    this.runNumbers = numbers;
+    const placed = anew || this.turns.size > 0 || shifted || sized || tuned;
     // While a fold turns, what is under it is drawn in towards its dot, or grows back out of it: where a point of an
     // item `k` is drawn, and how large the item is.
     const m = this.turns.size === 0 ? null : this.movedNow(t, x, y);
@@ -2850,11 +3019,40 @@ export class SnapScene {
     // strength and the others dim with the items they join; each eases to its strength as the items do, so that none
     // jumps as the light moves or goes out.
     const shining = new Set([...focus, ...chosen]);
+    // Where a way's strength eases, or a dot's changes, what stands of the ways is built again at it. A root's dot is
+    // as strong as the ways from it are lit; another's as the way into its item.
+    let strengthened = false;
     for (const [i, to] of wayAims(this.runWays, t.parent, shining)) {
-      this.runStrength.set(i, eased(this.runStrength.get(i) ?? to, to, step));
+      const had = this.runStrength.get(i);
+      const now = eased(had ?? to, to, step);
+      if (now !== had) strengthened = true;
+      this.runStrength.set(i, now);
     }
-    for (const lit of [this.runLines, this.runEdges]) {
-      for (const g of [lit.line, lit.near, lit.far]) g.clear();
+    const dotStrength = (k: number) =>
+      t.parent[k] >= 0
+        ? (this.runStrength.get(k) ?? 1)
+        : shining.size === 0 || shining.has(k)
+          ? 1
+          : linksStrength(this.dim);
+    const dotsNow = this.litDots.map(dotStrength);
+    if (dotsNow.length !== this.dotsBuilt.length || dotsNow.some((v, n) => v !== this.dotsBuilt[n])) {
+      strengthened = true;
+    }
+    const restAgain = placed || strengthened;
+    const stroked = (to: Strokes) => [to.line, to.near, to.far];
+    if (restAgain) {
+      this.dotsBuilt = dotsNow;
+      for (const part of this.ways.parts.values()) for (const g of stroked(part.rest)) g.clear();
+      for (const kept of [this.waysAtRest, this.endsAtRest]) {
+        for (const part of kept.parts.values()) for (const g of stroked(part)) g.clear();
+      }
+    }
+    for (const part of this.ways.parts.values()) {
+      if (part.lit) for (const g of stroked(part.light)) g.clear();
+      part.lit = false;
+    }
+    for (const g of stroked(this.runEdges)) g.clear();
+    for (const lit of [this.ways, this.waysAtRest, this.runEdges, this.endsAtRest]) {
       blurTo(lit.nearBlur, RUN.nearBlur);
       blurTo(lit.farBlur, RUN.farBlur);
     }
@@ -2876,7 +3074,7 @@ export class SnapScene {
     const glintWide = this.glint;
     // Each way's curve, how far it goes across the page, and how far across from the left side of the roots' cards
     // it begins ([`RUN.light`]).
-    const ways = redraw ? new Map<number, { way: Way; len: number; dist: number }>() : this.wayCache;
+    const ways = placed ? new Map<number, { way: Way; len: number; dist: number }>() : this.wayCache;
     this.wayCache = ways;
     // Where the way into item `i` begins, at the middle of its parent's right edge, and ends, at the middle of its own
     // left edge, each where its card is drawn: so that under a turning fold the way grows out of the dot or draws in
@@ -2918,6 +3116,11 @@ export class SnapScene {
     const crossed = new Set<number>();
     const sparked = new Set<number>();
     this.waysDrawn = [];
+    // The ways drawn, in the order they are drawn in; and the lights where the ways meet the cards and at the dots of
+    // folds, each with the place across the page the light comes to it at, how it burns now, and how it is
+    // laid on what it is drawn on as it burns ([`sparkAt`]). They are drawn once the ways are.
+    const wayOrder: number[] = [];
+    const meets: { place: number; burn: number; lay: (to: Strokes, burn: number) => void }[] = [];
     for (const [i, strength] of this.runStrength) {
       const p = t.parent[i];
       const d = t.depth[i];
@@ -2934,20 +3137,28 @@ export class SnapScene {
         this.alongWay(g, way, from, to);
         g.stroke({ color: paint, width: w, alpha: strength * alpha, cap: end ? 'round' : 'butt' });
       };
-      const shine = this.runLines;
+      const lights = this.wayLights(i);
+      wayOrder.push(i);
+      lights.place = Math.round(dist);
+      const [still, shine] = [lights.rest, lights.light];
       // The way itself, as a wire of light: its glow further out and close in, then the line, drawn in lengths each
       // at the width of its own middle so that it is thinner where it meets the cards. The glow is fainter where the
-      // page is light ([`RUN.inkRest`]).
-      lit(shine.far, 0, curve, RUN.far, RUN.farAlpha * rest, tint(0), true);
-      lit(shine.near, 0, curve, RUN.near, RUN.nearAlpha * rest, tint(0), true);
-      for (let n = 0; n < RUN.wide; n += 1) {
-        const thick = lineWide * thickAt((n + 0.5) / RUN.wide);
-        lit(shine.line, (curve * n) / RUN.wide, (curve * (n + 1)) / RUN.wide, thick, lineAlpha, lineColour);
+      // page is light ([`RUN.inkRest`]). Built only where the ways stand anew, and kept; the glow both as the way's
+      // own and among the glow kept of the ways that begin where it does.
+      if (restAgain) {
+        const kept = this.partOf(this.waysAtRest, lights.place);
+        for (const g of [still.far, kept.far]) lit(g, 0, curve, RUN.far, RUN.farAlpha * rest, tint(0), true);
+        for (const g of [still.near, kept.near]) lit(g, 0, curve, RUN.near, RUN.nearAlpha * rest, tint(0), true);
+        for (let n = 0; n < RUN.wide; n += 1) {
+          const thick = lineWide * thickAt((n + 0.5) / RUN.wide);
+          lit(still.line, (curve * n) / RUN.wide, (curve * (n + 1)) / RUN.wide, thick, lineAlpha, lineColour);
+        }
       }
       // The light running down the way: the same line, brighter and wider where the light is, as a wire is where the
       // current is in it. It is a drop drawn out along the way, its head round and widest, thinning away behind it;
       // the head is round only where it stands on this way, and not where the way cuts the light short.
       const drop = lightOn(dist, len, head);
+      if (drop.length > 0) lights.lit = true;
       drop.forEach(({ from, to, bright }, n) => {
         const nose = n === drop.length - 1 && to < len - NEAR;
         const thick = RUN.lightLine * (RUN.ends + (1 - RUN.ends) * bright) * glintWide;
@@ -2961,15 +3172,15 @@ export class SnapScene {
       // the line at its own distance, and both gather into it at the way's ends ([`gatherAt`]).
       for (let s = 0; s < RUN.strands; s += 1) {
         const { side, own } = strandOf(s);
-        const strand = (from: number, to: number, by: number, bright: number, colour: number) => {
-          this.alongWay(shine.line, way, from, to, (at) => side * by * gatherAt(at / curve));
+        const strand = (g: Graphics, from: number, to: number, by: number, bright: number, colour: number) => {
+          this.alongWay(g, way, from, to, (at) => side * by * gatherAt(at / curve));
           const alpha = strength * RUN.strandAlpha * own * bright * rest;
-          shine.line.stroke({ color: colour, width: RUN.strand, alpha, cap: 'butt' });
+          g.stroke({ color: colour, width: RUN.strand, alpha, cap: 'butt' });
         };
-        strand(0, curve, RUN.spreadRest, RUN.strandRest, tint(0));
+        if (restAgain) strand(still.line, 0, curve, RUN.spreadRest, RUN.strandRest, tint(0));
         for (const { from, to, bright } of drop) {
           const comes = Math.min(1, (1 - bright + 1 / RUN.lightPieces) / Math.max(RUN.strandIn, 1e-6));
-          strand(on(from), on(to), RUN.spread, bright * comes, tint(bright));
+          strand(shine.line, on(from), on(to), RUN.spread, bright * comes, tint(bright));
         }
       }
       // The spark at both ends of the way, which burns up as the light's head goes through it; and the edge of the
@@ -2981,17 +3192,35 @@ export class SnapScene {
       // A card drawn smaller under a turning fold has its ends lit at its size, and its edge crossed by no light
       // until it is drawn whole.
       const [out, into] = [sparkAt(dist, head), sparkAt(dist + len, head)];
-      this.turnIn(px, py, turns[0], tint, lineColour, strength, out);
-      this.turnIn(cx, iy, turns[1], tint, lineColour, strength, into);
+      meets.push(
+        {
+          place: dist,
+          burn: out,
+          lay: (to, burn) => this.turnIn(to, px, py, turns[0], tint, lineColour, strength, burn),
+        },
+        {
+          place: dist + len,
+          burn: into,
+          lay: (to, burn) => this.turnIn(to, cx, iy, turns[1], tint, lineColour, strength, burn),
+        },
+      );
       if (!sparked.has(p * 2)) {
         sparked.add(p * 2);
         const ph = (high(this.base[p]) / 2) * size(p);
-        this.spark(px, py, ph, tint, lineColour, glintColour, strength, out);
+        meets.push({
+          place: dist,
+          burn: out,
+          lay: (to, burn) => this.spark(to, px, py, ph, tint, lineColour, glintColour, strength, burn),
+        });
       }
       if (!sparked.has(i * 2 + 1)) {
         sparked.add(i * 2 + 1);
         const ih = (high(this.base[i]) / 2) * size(i);
-        this.spark(cx, iy, ih, tint, lineColour, glintColour, strength, into);
+        meets.push({
+          place: dist + len,
+          burn: into,
+          lay: (to, burn) => this.spark(to, cx, iy, ih, tint, lineColour, glintColour, strength, burn),
+        });
       }
       if (t.parent[p] < 0 && !crossed.has(p)) {
         crossed.add(p);
@@ -3016,11 +3245,7 @@ export class SnapScene {
       if (ness <= 0 || x(d) > width || x(d) + NODE_W + DOT_AT + DOT_R < 0 || ky < -ROW || ky > height + ROW) continue;
       dotted.add(k);
       const root = t.parent[k] < 0;
-      const strength = root
-        ? shining.size === 0 || shining.has(k)
-          ? 1
-          : linksStrength(this.dim)
-        : (this.runStrength.get(k) ?? 1);
+      const strength = dotStrength(k);
       if (root && !crossed.has(k)) {
         crossed.add(k);
         this.across(x(d), ky, half(d, t.rank[k]), lightOn(0, NODE_W, head), tint, lineColour, glintColour, strength);
@@ -3028,15 +3253,69 @@ export class SnapScene {
       const [ex, ey] = at(k, x(d) + NODE_W, ky);
       const [dx, dy] = at(k, x(d) + NODE_W + DOT_AT, ky);
       const r = DOT_R * size(k) * ness;
-      const burn = sparkAt(dotFrom(k), head);
-      const glow = strength * rest * burn;
-      this.runEdges.line
-        .moveTo(ex, ey)
-        .lineTo(dx, dy)
-        .stroke({ color: lineColour, width: lineWide, alpha: strength * ness * lineAlpha });
-      this.runEdges.far.circle(dx, dy, r * 3).fill({ color: tint(burn), alpha: glow * RUN.farAlpha });
-      this.runEdges.near.circle(dx, dy, r * 1.8).fill({ color: tint(burn), alpha: glow * RUN.nearAlpha });
-      this.runEdges.line.circle(dx, dy, r).fill({ color: lineColour, alpha: strength * lineAlpha });
+      const lay = (to: Strokes, burn: number) => {
+        const glow = strength * rest * burn;
+        to.line
+          .moveTo(ex, ey)
+          .lineTo(dx, dy)
+          .stroke({ color: lineColour, width: lineWide, alpha: strength * ness * lineAlpha });
+        to.far.circle(dx, dy, r * 3).fill({ color: tint(burn), alpha: glow * RUN.farAlpha });
+        to.near.circle(dx, dy, r * 1.8).fill({ color: tint(burn), alpha: glow * RUN.nearAlpha });
+        to.line.circle(dx, dy, r).fill({ color: lineColour, alpha: strength * lineAlpha });
+      };
+      meets.push({ place: dotFrom(k), burn: sparkAt(dotFrom(k), head), lay });
+    }
+    // Each place the light comes to stands at rest until the light is near it, and burns while it is: at rest its
+    // lights are those kept, laid once as they rest; burning, all of them there are drawn as they burn at this frame,
+    // and what is kept of them there is hidden until they rest again. The places are told apart to the pixel.
+    const burning = new Set(meets.filter((m) => m.burn > RUN.portRest).map((m) => Math.round(m.place)));
+    const built = new Set<number>();
+    for (const { place, burn, lay } of meets) {
+      const key = Math.round(place);
+      if (restAgain) {
+        lay(this.partOf(this.endsAtRest, key), RUN.portRest);
+        built.add(key);
+      }
+      if (burning.has(key)) lay(this.runEdges, burn);
+    }
+    for (const [key, part] of this.endsAtRest.parts) {
+      if (restAgain && !built.has(key)) this.dropPart(this.endsAtRest, key);
+      else part.line.visible = part.glow.visible = !burning.has(key);
+    }
+    // The ways that begin at the same place across the page are lit together, as the light comes to that place: while
+    // it is on any of them, the glow of each is drawn and blurred at each frame with the light's on it, and the glow
+    // kept of them is hidden; while it is on none, only that kept is drawn. A layer drawn empty is hidden too, as the
+    // blur would else reach out to take it in.
+    const drawnLights = wayOrder.map((i) => this.wayLights(i));
+    const litPlaces = new Set(drawnLights.flatMap((w) => (w.lit ? [w.place] : [])));
+    for (const w of drawnLights) {
+      w.rest.far.visible = w.rest.near.visible = litPlaces.has(w.place);
+      for (const g of stroked(w.light)) g.visible = w.lit;
+    }
+    const placesDrawn = new Set(drawnLights.map((w) => w.place));
+    for (const [key, part] of this.waysAtRest.parts) {
+      if (restAgain && !placesDrawn.has(key)) this.dropPart(this.waysAtRest, key);
+      else part.glow.visible = !litPlaces.has(key);
+    }
+    if (restAgain) {
+      // The ways not drawn are let go, and those drawn laid in the order they were, each way's light over what stands
+      // of it.
+      const drawnWays = new Set(wayOrder);
+      for (const [i, part] of this.ways.parts) {
+        if (drawnWays.has(i)) continue;
+        for (const g of [...stroked(part.rest), ...stroked(part.light)]) g.destroy();
+        this.ways.parts.delete(i);
+      }
+      for (const i of wayOrder) {
+        const { rest, light } = this.wayLights(i);
+        this.ways.far.addChild(rest.far, light.far);
+        this.ways.near.addChild(rest.near, light.near);
+        this.ways.lines.addChild(rest.line, light.line);
+      }
+      for (const kept of [this.waysAtRest, this.endsAtRest]) {
+        for (const part of kept.parts.values()) this.bake(part, width, height);
+      }
+      this.stats.wayBuilds += 1;
     }
     // The lights round the item under the pointer and those above it, and behind it, each easing in and out.
     const ease = (lights: Map<number, number>, on: Set<number>) => {
@@ -3154,6 +3433,97 @@ export class SnapScene {
       this.age(i);
     }
     this.easing = easing;
-    this.staticDirty = false;
+    this.dirty.clear();
+    this.drawnLeft = this.left;
+    this.drawnCols = this.columns.map((c) => c.at);
+  }
+
+  /// The lights of the way into item `i`, made empty where there are none yet ([`WayLights`]).
+  private wayLights(i: number): WayLights {
+    const had = this.ways.parts.get(i);
+    if (had !== undefined) return had;
+    const strokes = (): Strokes => ({ line: new Graphics(), near: new Graphics(), far: new Graphics() });
+    const part: WayLights = { rest: strokes(), light: strokes(), lit: false, place: 0 };
+    for (const to of [part.rest, part.light]) {
+      this.ways.far.addChild(to.far);
+      this.ways.near.addChild(to.near);
+      this.ways.lines.addChild(to.line);
+    }
+    this.ways.parts.set(i, part);
+    return part;
+  }
+
+  /// The part of the lights `kept` kept by `key`, made empty where there is none yet ([`Kept`]).
+  private partOf(kept: Kept, key: number): Rest {
+    const had = kept.parts.get(key);
+    if (had !== undefined) return had;
+    const near = new Graphics({ filters: [kept.nearBlur] });
+    const far = new Graphics({ filters: [kept.farBlur] });
+    const source = new Container();
+    source.addChild(far, near);
+    const part: Rest = { line: new Graphics(), near, far, source, glow: new Sprite(), texture: null };
+    kept.lines.addChild(part.line);
+    kept.glows.addChild(part.glow);
+    kept.parts.set(key, part);
+    return part;
+  }
+
+  /// Lets go of the part of the lights `kept` kept by `key`, with its texture.
+  private dropPart(kept: Kept, key: number) {
+    const part = kept.parts.get(key);
+    if (part === undefined) return;
+    kept.parts.delete(key);
+    part.line.destroy();
+    part.glow.destroy();
+    part.source.destroy({ children: true });
+    part.texture?.destroy(true);
+  }
+
+  /// Lays `part`'s glow, blurred as a layer of light's is, on a texture of its own, which its sprite draws where it
+  /// stands until the part is built again ([`draw`]): the glow's blur laid once, and not at every frame. The texture
+  /// takes what the glow covers and the room its blur reaches past that, within the screen, as far as a glow drawn on
+  /// the page is blurred; a part with no glow draws none.
+  private bake(part: Rest, width: number, height: number) {
+    const room = BLUR_ROOM * Math.max(RUN.nearBlur, RUN.farBlur);
+    // What the glow covers, of each of its layers that has anything on it.
+    const b = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    for (const { bounds } of [part.far, part.near]) {
+      if (bounds.width <= 0 || bounds.height <= 0) continue;
+      b.minX = Math.min(b.minX, bounds.minX);
+      b.minY = Math.min(b.minY, bounds.minY);
+      b.maxX = Math.max(b.maxX, bounds.maxX);
+      b.maxY = Math.max(b.maxY, bounds.maxY);
+    }
+    const [x0, y0] = [Math.max(0, Math.floor(b.minX - room)), Math.max(0, Math.floor(b.minY - room))];
+    const [x1, y1] = [Math.min(width, Math.ceil(b.maxX + room)), Math.min(height, Math.ceil(b.maxY + room))];
+    const shows = x1 > x0 && y1 > y0;
+    part.glow.renderable = shows;
+    if (!shows) return;
+    // A texture is kept while the glow fits in it with less than two steps to spare each way, so that a glow moving
+    // across the edge of the screen, its size changing at every frame, does not make one at every frame.
+    const [w, h] = [x1 - x0, y1 - y0];
+    const resolution = this.app.renderer.resolution;
+    const fits = (has: number, needs: number) => has >= needs && has - needs < 2 * TEXTURE_STEP;
+    let texture = part.texture;
+    if (
+      texture === null ||
+      !fits(texture.width, w) ||
+      !fits(texture.height, h) ||
+      texture.source.resolution !== resolution
+    ) {
+      texture?.destroy(true);
+      const step = (n: number) => Math.ceil(n / TEXTURE_STEP) * TEXTURE_STEP;
+      texture = RenderTexture.create({ width: step(w), height: step(h), resolution });
+      part.texture = texture;
+      part.glow.texture = texture;
+    }
+    part.glow.position.set(x0, y0);
+    this.app.renderer.render({
+      container: part.source,
+      target: texture,
+      clear: true,
+      clearColor: [0, 0, 0, 0],
+      transform: new Matrix().translate(-x0, -y0),
+    });
   }
 }
