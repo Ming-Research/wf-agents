@@ -461,47 +461,12 @@ export interface Block {
   versions: Version[];
 }
 
-export type Unmet =
-  | { kind: 'asksNothing' }
-  | { kind: 'notAnOutput'; block: string }
-  | { kind: 'writtenTwice'; block: string }
-  | { kind: 'noValue'; block: string }
-  | { kind: 'notAValue'; block: string; value: string }
-  | { kind: 'notAChoice'; block: string }
-  | { kind: 'notHandedIn'; block: string }
-  /// It hands in a choice with a value that stands with nothing but some blocks, and these besides.
-  | { kind: 'nothingBut'; block: string; value: string; besides: string[] }
-  | { kind: 'unreadable'; why: string }
-  | { kind: 'notRunBy'; block: string }
-  | { kind: 'dealtWithTwice'; block: string }
-  | { kind: 'dealtWithNothing' }
-  | { kind: 'writtenOver'; block: string; version: number }
-  | { kind: 'choiceChanged'; block: string }
-  | { kind: 'asksAndWorks' }
-  | { kind: 'notWatched'; name: string }
-  | { kind: 'notATool'; name: string }
-  | { kind: 'unchangedNotWritten'; block: string }
-  | { kind: 'questionTaken'; name: string }
-  | { kind: 'noSuchQuestion'; name: string }
-  | { kind: 'questionTwice'; name: string }
-  | { kind: 'notAnOption'; name: string }
-  | { kind: 'notAnswerable'; name: string }
-  | { kind: 'notAnswered'; name: string }
-  | { kind: 'unexplained'; path: string }
-  | { kind: 'notATest'; path: string }
-  | { kind: 'uncommitted'; changes: string }
-  | { kind: 'merging'; changes: string }
-  /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
-  /// change changes nothing in the design tree.
-  | { kind: 'treeUnchanged'; name: string }
-  /// A line of a block that names entries of the design tree names none the tree on the work's branch holds.
-  | { kind: 'notAnEntry'; line: string }
-  | { kind: 'unanswered'; block: string }
-  /// It names as dealt with a dialogue it holds as the maker, woken by a point in it, and answers none of its points
-  /// there, changes none of what the other side watches and asks no question the work waits for.
-  | { kind: 'wordOwed'; name: string; watched: string[] }
-  /// It hands in a verdict with the value that does not pass, and no version of its dialogue.
-  | { kind: 'noPoint'; block: string; value: string; name: string };
+/// Why what came back does not meet what the flow requires: the key its words have in `[faults]` of
+/// `agents/return/sent_back.toml`, and what was recorded of it, each value under the name of its field.
+export interface Unmet {
+  key: string;
+  values: { name: string; value: string }[];
+}
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.
@@ -580,11 +545,13 @@ export type Scope = 'cell' | 'flow' | 'tool' | 'works' | 'line';
 
 /// How a round missed its session's prompt cache: it went on in its session within the cache's lifetime, and its first
 /// call read less than half of what the session held from the cache. `differs` names what comes before the session's
-/// messages and differs from the call before, the cause by design; none where nothing does, a fault of wf-agents.
+/// messages and differs from the call before, the cause by design; none where nothing does, a fault of wf-agents,
+/// unless `unknown`: the records do not say why it missed.
 export interface Missed {
   read: number;
   held: number;
   differs: string[];
+  unknown: boolean;
 }
 
 /// The session of its line a round runs in: which of the line's sessions, as the records count them, the line's first
