@@ -65,15 +65,16 @@ fn a_directory_that_holds_no_store_is_refused_without_new_and_nothing_is_made_in
     }
 }
 
-// The store is made where the engine is told the directory is new, and a directory that holds one is run in as it is:
-// told it is new, the engine refuses, so that a named directory is never taken for another's.
+// Told that a directory is new where it holds a store, the engine refuses before it makes anything: it reads only
+// whether the store's file is there, so an empty file stands for the store and no engine is started. That `--new` makes
+// the store is shown by the first start of every other test of the engine, which gives it where the directory holds none
+// (`run_on`), and that a directory with a store is run in without it by every start after the first.
 #[test]
-fn new_makes_the_store_and_a_directory_that_holds_one_is_refused_new() {
+fn a_directory_that_holds_a_store_is_refused_new_and_nothing_is_made_in_it() {
     let place = Place::new(SCRIPT);
-    let engine = Engine::start_with(run_on(&place.data(), &trial(), &place.script(), 0));
-    assert!(place.data().join("store.sqlite").exists());
-    drop(engine);
-    let out = run_plain_on(&place.data(), &trial(), &place.script(), 0)
+    let data = place.data();
+    std::fs::write(data.join("store.sqlite"), "").unwrap();
+    let out = run_plain_on(&data, &trial(), &place.script(), 0)
         .arg("--new")
         .output()
         .expect("the command runs");
@@ -82,16 +83,15 @@ fn new_makes_the_store_and_a_directory_that_holds_one_is_refused_new() {
         String::from_utf8_lossy(&out.stderr),
         format!(
             "{}: the data directory holds a store already: start the engine without --new\n",
-            place.data().display()
+            data.display()
         )
     );
-    // Without it, the engine starts on the store as it was.
-    drop(Engine::start_with(run_plain_on(
-        &place.data(),
-        &trial(),
-        &place.script(),
+    assert!(!data.join("engine.lock").exists());
+    assert_eq!(
+        std::fs::metadata(data.join("store.sqlite")).unwrap().len(),
         0,
-    )));
+        "the store's file is left as it was"
+    );
 }
 
 #[test]

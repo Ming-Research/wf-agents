@@ -797,6 +797,62 @@ fn the_owners_pause_that_waited_for_items_is_a_line_once_each_has_ended_and_neve
     assert_eq!(over(&since(&h, None)), vec![], "let on, its pause waits for nothing");
 }
 
+// A pause that is over is given again to the same mark after the driver is opened again, and those past the most lines
+// of an answer come at the next mark, each work once: the line is read from the records, and the mark counts the records.
+#[test]
+fn a_pause_that_is_over_is_given_again_to_the_same_mark_after_a_restart_and_those_past_the_most_come_at_the_next() {
+    let mut h = H::new();
+    let (a, _) = h.add(new_item("a", &[], "plain"));
+    let waiting: Vec<WorkNumber> = (0..LINES + 2)
+        .map(|i| {
+            let (_, work) = h.add(new_item(&format!("item {i}"), &[], "plain"));
+            h.on(
+                work,
+                Event::Paused {
+                    by: Pauser::Owner,
+                    why: None,
+                    waits_for: vec![a.0],
+                },
+            );
+            work
+        })
+        .collect();
+    let mark = since(&h, None).mark;
+    h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
+    let works = |attention: &Attention| -> Vec<WorkNumber> {
+        over(attention)
+            .into_iter()
+            .filter_map(|heed| match heed {
+                Heed::PauseOver { work, .. } => Some(work),
+                _ => None,
+            })
+            .collect()
+    };
+    let first = since(&h, Some(&mark));
+    // The cancelled item may be a line of its own beside the pauses that waited for it.
+    assert_eq!(first.lines.len(), LINES);
+    assert!(first.left_out >= 2, "{}", first.left_out);
+    h.restart();
+    let again = since(&h, Some(&mark));
+    assert_eq!(
+        works(&again),
+        works(&first),
+        "the same mark gives the same lines after a restart"
+    );
+    assert_eq!(again.left_out, first.left_out);
+    assert_eq!(again.mark, first.mark);
+    let rest = since(&h, Some(&first.mark));
+    assert_eq!(rest.left_out, 0);
+    let mut every: Vec<WorkNumber> = works(&first);
+    every.extend(works(&rest));
+    every.sort();
+    assert_eq!(
+        every, waiting,
+        "each work is given once, those past the most at the next mark"
+    );
+    assert_eq!(over(&since(&h, Some(&rest.mark))), vec![]);
+}
+
 // A pause for items that have ended already is over as it is made: it is a line at once, as is a pause that names none
 // but is given again, which is no line.
 #[test]
