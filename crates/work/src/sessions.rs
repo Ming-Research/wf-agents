@@ -62,6 +62,9 @@ pub enum Left {
     Call { call: CallId },
     /// A keep-warm ping of the session of this number of the line, its sessions counted from none.
     Ping { line: String, session: u32 },
+    /// A fork of the session of the round of this number of the run, the first being one, as [`crate::Forked`] names
+    /// the round it was asked of.
+    Fork { run: RunId, round: usize },
 }
 
 /// What a try of an agent's round ran on, as its carrier chose it as the try began: the level, the model of that

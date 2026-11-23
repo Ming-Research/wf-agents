@@ -1,4 +1,4 @@
--- From version 24 of the schema to version 25: the engine is stopped by being asked to, once what is under way has
+-- From version 25 of the schema to version 26: the engine is stopped by being asked to, once what is under way has
 -- ended or at once, and that is kept, with its start after it. A database kept before has no row, which says no stop
 -- stands. The version's one row is replaced last.
 CREATE TABLE stops (
@@ -6,4 +6,4 @@ CREATE TABLE stops (
     what TEXT NOT NULL CHECK (what IN ('Asked', 'Now', 'Over')),
     time INTEGER NOT NULL
 );
-UPDATE schema_version SET version = 25;
+UPDATE schema_version SET version = 26;

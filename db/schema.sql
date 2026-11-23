@@ -18,7 +18,9 @@ CREATE TABLE schema_version (
 -- An item: a thing to be done, as it was added. Its number is given by the store, counting from one, one sequence
 -- across the projects. Its level is the name of the level of the installation it was given as it was added; null for
 -- an item kept before items had levels. Its project is the name the installation's settings give the project it
--- belongs to, whose repository its works run in; null for an item kept before items had projects.
+-- belongs to, whose repository its works run in; null for an item kept before items had projects. What happened to an
+-- item is in `item_changes`; its one work is in `works`, whose records are the tables keyed by `work`, a block's content
+-- in `contents`; why its work was cancelled is in `cancelled`.
 CREATE TABLE items (
     number INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
@@ -511,7 +513,8 @@ CREATE TABLE measured (
 -- they took is counted nowhere else. `of` says which program (JSON: `kind` and its fields): a try of a round of a run
 -- (`try`, with `run`, `round` and `attempt`, the round's first being one and the try's first in its round being one),
 -- the project's check run by a round of an act (`act`, with `run` and `round`) or for a call of a tool (`call`, with
--- `call`), or a keep-warm ping of the session of a line (`ping`, with `line` and `session`).
+-- `call`), a keep-warm ping of the session of a line (`ping`, with `line` and `session`), or a fork of the session of a
+-- round of a run (`fork`, with `run` and `round`, the first being one).
 CREATE TABLE left_behind (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
@@ -535,6 +538,20 @@ CREATE TABLE pinged (
     context_tokens INTEGER,
     compactions INTEGER NOT NULL,
     failed TEXT, -- Hidden from agents.
+    PRIMARY KEY (work, at)
+);
+
+-- A fork of a round's session asked a question, whether it answered or not: the run and the round whose session it was
+-- forked from, and what it took.
+CREATE TABLE forked (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    run INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    usd_micros INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    cached_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
     PRIMARY KEY (work, at)
 );
 

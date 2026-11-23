@@ -15,7 +15,8 @@ use crate::event::{Effect, Event, Gate, Hold, Refused};
 use crate::handed_in;
 use crate::spoken;
 use work::{
-    Ask, Back, Call, Filled, Given, Left, LeftBehind, Measured, Moment, Pinged, Pulled, Ran, Session, Time, Work,
+    Ask, Back, Call, Filled, Forked, Given, Left, LeftBehind, Measured, Moment, Pinged, Pulled, Ran, Session, Time,
+    Work,
 };
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
@@ -295,6 +296,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
         | Event::Filled { .. }
         | Event::Measured { .. }
         | Event::LeftBehind { .. }
+        | Event::Forked { .. }
         | Event::Pulled { .. }
         | Event::NotReleased { .. }
         | Event::Released) => {
@@ -653,9 +655,34 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                     }
                 }
                 Left::Ping { .. } => {}
+                // A round that began, as a fork's cost is kept: a fork is asked of a round that ran, under way or not.
+                Left::Fork { run, round } => {
+                    if *round == 0 || *round > began(work, *run) {
+                        return Err(Refused::NoSuchRound {
+                            run: *run,
+                            round: *round,
+                        });
+                    }
+                }
             }
             let at = work.tick();
             work.left_behind.push(LeftBehind { at, of, processes });
+        }
+        Event::Forked { run, round, spent } => {
+            // A round that began, at the place its run's entry says; a work that has ended has its fork's cost too.
+            if round == 0 || round > began(work, run) {
+                return Err(Refused::NoSuchRound { run, round });
+            }
+            let at = work.tick();
+            work.forked.push(Forked {
+                at,
+                run,
+                round,
+                usd_micros: spent.usd_micros,
+                input_tokens: spent.input_tokens,
+                cached_tokens: spent.cached_tokens,
+                output_tokens: spent.output_tokens,
+            });
         }
         Event::Pulled { number, url } => {
             // Found again at each check, the same pull request is kept once.

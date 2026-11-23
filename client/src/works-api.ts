@@ -239,6 +239,8 @@ export interface Summary {
   spent: Spent;
   /// What the keep-warm pings of its sessions took, each counted as a round. Absent from an engine that keeps none.
   pinged?: Spent;
+  /// What the forks of its rounds' sessions took, each counted as a round. Absent from an engine that keeps none.
+  forked?: Spent;
   /// When something last happened to it.
   last: number | null;
   /// When its first round began; none before it has one. Absent from an engine that does not give it yet.

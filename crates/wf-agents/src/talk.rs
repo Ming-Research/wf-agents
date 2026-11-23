@@ -2228,6 +2228,7 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                 format!("the check of call {call} of the tool {tool} by run {run} of {cell}")
             }
             LeftOf::Ping { line, session } => format!("a keep-warm ping of session {session} of the line {line}"),
+            LeftOf::Fork { cell, run, round } => format!("a fork of round {round} of run {run} of {cell}"),
         };
         lines.push(format!(
             "  W{} of #{}, {of}, ended {}: {} {}",
@@ -2303,6 +2304,7 @@ mod tests {
                 cells: Vec::new(),
                 spent: Spent::default(),
                 pinged: Spent::default(),
+                forked: Spent::default(),
                 last: None,
                 from: None,
                 bar: String::new(),
@@ -2408,7 +2410,7 @@ mod tests {
     }
 
     // The system view lists what each program run for a work left running and had stopped, the latest first, saying
-    // which program it was: a try of a round, the check of an act's round or of a call, or a keep-warm ping.
+    // which program it was: a try of a round, the check of an act's round or of a call, a keep-warm ping or a fork.
     // Microseconds.
     #[test]
     fn the_system_says_which_program_left_processes_running_and_how_many() {
@@ -2436,6 +2438,15 @@ mod tests {
             past: Vec::new(),
             under_way: Vec::new(),
             left_behind: vec![
+                left(
+                    300_000,
+                    LeftOf::Fork {
+                        cell: "I1".to_string(),
+                        run: 7,
+                        round: 1,
+                    },
+                    2,
+                ),
                 left(
                     240_000,
                     LeftOf::Ping {
@@ -2479,8 +2490,9 @@ mod tests {
         let said = system_said(&system, 7, 10);
         assert!(
             said.ends_with(
-                "Left running by a program as it ended, and stopped, the latest first:\n  W4 of #9, a keep-warm ping of \
-                 session 2 of the line engineer, ended 1970-01-01 00:04 UTC: 1 process\n  W4 of #9, the check of call 3 \
+                "Left running by a program as it ended, and stopped, the latest first:\n  W4 of #9, a fork of round 1 \
+                 of run 7 of I1, ended 1970-01-01 00:05 UTC: 2 processes\n  W4 of #9, a keep-warm ping of session 2 of \
+                 the line engineer, ended 1970-01-01 00:04 UTC: 1 process\n  W4 of #9, the check of call 3 \
                  of the tool run_tests by run 7 of I1, ended 1970-01-01 00:03 UTC: 2 processes\n  W4 of #9, the check of \
                  round 1 of run 8 of M1, ended 1970-01-01 00:02 UTC: 3 processes\n  W4 of #9, try 1 of round 2 of run 7 \
                  of I1, ended 1970-01-01 00:01 UTC: 1 process"
@@ -3226,12 +3238,9 @@ mod tests {
 /// the file the words name.
 const FORK_FIELD: usize = 4_000;
 
-/// The share of what the session held below which a fork is said not to have been read from the cache.
-const READ_ENOUGH: u64 = 80;
-
 /// What a fork answered, in words: each field of its return that holds something, by its key, each cut at
 /// [`FORK_FIELD`] characters, saying where it is kept whole; else what its program said; then what it cost, the share
-/// of the session its first request read from the cache, said plainly where under [`READ_ENOUGH`] percent; where the
+/// of the session its first request read from the cache, said plainly where it missed it ([`driver::cache::missed`]); where the
 /// session went on past the round asked of, that the fork began at that round's end; and where the account the session
 /// ran under was removed, or it ran under none, that the fork ran under the account in use instead.
 pub fn forked_said(page: &ForkPage) -> String {
@@ -3272,7 +3281,7 @@ pub fn forked_said(page: &ForkPage) -> String {
         _ => None,
     };
     match (share, page.expired) {
-        (Some((share, read, held)), _) if share >= READ_ENOUGH => out.push_str(&format!(
+        (Some((share, read, held)), _) if !driver::cache::missed(read, held) => out.push_str(&format!(
             "Its first request read {share}% of the session from the cache ({read} of the {held} tokens it held).\n"
         )),
         (Some((share, read, held)), Some(minutes)) => out.push_str(&format!(
@@ -3281,7 +3290,7 @@ pub fn forked_said(page: &ForkPage) -> String {
         )),
         (Some((share, read, held)), None) => out.push_str(&format!(
             "Its first request read only {share}% of the session from the cache ({read} of the {held} tokens it held), \
-             under {READ_ENOUGH}%: the fork did not begin as the session did, and was not read from the cache.\n"
+             under half: the fork did not begin as the session did, and was not read from the cache.\n"
         )),
         (None, _) => out.push_str("What its first request read from the cache, or what the session held, is not known.\n"),
     }
@@ -3374,9 +3383,23 @@ mod fork_tests {
             ..page()
         };
         assert!(forked_said(&under).contains(
-            "read only 30% of the session from the cache (3000 of the 10000 tokens it held), under 80%: the fork did \
+            "read only 30% of the session from the cache (3000 of the 10000 tokens it held), under half: the fork did \
              not begin as the session did, and was not read from the cache."
         ));
+        // The one test of a miss, a round's and a fork's: under half. A fork that read 60% read the session, and one
+        // that read 40% did not.
+        let said = |read| {
+            forked_said(&ForkPage {
+                read: Some(read),
+                ..page()
+            })
+        };
+        assert!(said(6_000).contains("Its first request read 60% of the session from the cache"));
+        assert!(said(4_000).contains("Its first request read only 40% of the session from the cache"));
+        assert!(
+            said(5_000).contains("Its first request read 50% of the session from the cache"),
+            "half is not under"
+        );
         let expired = ForkPage {
             read: Some(0),
             expired: Some(42),

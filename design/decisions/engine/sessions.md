@@ -59,3 +59,8 @@ A line begins a new session at its next round, as for a change of model, when th
 ### decision a-fork-keeps-the-sessions-tools
 A fork of a round's session runs through the engine on the session's whole command line, including its system prompt, form of return and tools, with a hook refusing every tool but the return.
 - rejected: an agent proposed forking sessions by hand, on a command line it typed itself without the session's form of return; the owner rejected it, because a fork must carry what its session began with: one such fork read nothing from the cache and cost $13.83.
+
+### decision a-fork-begins-with-a-message-every-fork-of-the-round-shares
+A fork is sent a fixed first message, the same for every fork of the round, and then its question, so that the first fork writes the session's history to the cache and later forks read it.
+- rejected: an agent proposed making a base fork when the cache has let the session go, which later questions fork from; the owner rejected it, because it needs the base fork's session id kept and a judgement whether its cache is alive, one more state (data: `research/fork-cache-shared-history.md`).
+- rejected: an agent proposed a keep-warm ping in the session itself before the fork; the owner rejected it, because it helps only a fork at the session's end, not one at an earlier round's end, and writes one more round into the real session (data: `research/fork-cache-shared-history.md`).

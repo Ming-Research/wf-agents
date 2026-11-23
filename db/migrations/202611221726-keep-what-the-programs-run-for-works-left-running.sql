@@ -1,4 +1,4 @@
--- From version 23 of the schema to version 24: the processes a program the engine ran for a work left running in its
+-- From version 24 of the schema to version 25: the processes a program the engine ran for a work left running in its
 -- group as it ended, which its carrier stopped, are counted. A program that ended before left none that was counted.
 CREATE TABLE left_behind (
     work INTEGER NOT NULL REFERENCES works (number),
@@ -7,4 +7,4 @@ CREATE TABLE left_behind (
     processes INTEGER NOT NULL CHECK (processes > 0),
     PRIMARY KEY (work, at)
 );
-UPDATE schema_version SET version = 24;
+UPDATE schema_version SET version = 25;

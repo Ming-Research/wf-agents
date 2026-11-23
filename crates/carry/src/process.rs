@@ -109,7 +109,7 @@ async fn run_with(
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let program = command.as_std().get_program().to_string_lossy().into_owned();
+    let program = crate::programs::named(command.as_std().get_program());
     let mut child = command
         .spawn()
         .map_err(|e| format!("{program} cannot be started: {e}"))?;
@@ -459,7 +459,7 @@ async fn signal(group: u32, name: &str) {
 pub(crate) fn shell(command: &str, dir: &std::path::Path, named: &[String]) -> Command {
     let kept =
         |name: &str| crate::cli::KEPT.contains(&name) || name.starts_with("LC_") || named.iter().any(|n| n == name);
-    let mut shell = Command::new("sh");
+    let mut shell = crate::programs::command("sh");
     shell
         .arg("-c")
         .arg("exec 2>&1; eval \"$1\"")
@@ -467,14 +467,18 @@ pub(crate) fn shell(command: &str, dir: &std::path::Path, named: &[String]) -> C
         .arg(command)
         .current_dir(dir)
         .env_clear()
-        .envs(std::env::vars().filter(|(name, _)| kept(name)));
+        .envs(
+            (crate::programs::engine().iter())
+                .filter(|(name, _)| kept(name))
+                .cloned(),
+        );
     shell
 }
 
 /// Runs the program to its end and gives what it printed; or, where it does not end within the limit, kills it and
 /// says so: a program the engine waits for, a network call above all, must not hold the engine for ever.
 pub(crate) async fn output(mut command: Command, limit: Duration) -> Result<std::process::Output, String> {
-    let program = command.as_std().get_program().to_string_lossy().into_owned();
+    let program = crate::programs::named(command.as_std().get_program());
     command.kill_on_drop(true);
     match tokio::time::timeout(limit, command.output()).await {
         Ok(output) => output.map_err(|e| format!("{program} cannot be run: {e}")),
@@ -1018,6 +1022,17 @@ mod tests {
         quick.args(["-c", "echo done"]);
         let ended = output(quick, Duration::from_secs(10)).await.expect("it ends");
         assert_eq!(String::from_utf8_lossy(&ended.stdout), "done\n");
+    }
+
+    // A shell given an environment of its own is started by its path, so that the standard library starts it with
+    // `posix_spawn`, not `fork`. It builds a command and starts nothing.
+    #[test]
+    fn a_shell_command_is_started_by_the_path_of_sh() {
+        let shell = shell("true", Path::new("/"), &[]);
+        let program = Path::new(shell.as_std().get_program());
+        assert!(program.is_absolute(), "{}", program.display());
+        assert_eq!(program.file_name(), Some(std::ffi::OsStr::new("sh")));
+        assert_eq!(crate::programs::named(program.as_os_str()), "sh");
     }
 
     #[test]
