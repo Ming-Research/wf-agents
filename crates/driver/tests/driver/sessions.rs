@@ -1439,6 +1439,23 @@ fn a_round_that_went_on_in_its_session_within_the_caches_life_and_read_less_than
     );
 }
 
+// The cache is asked about when the round's first call was made, and not about when the round began, which is where its
+// session is decided: a round that began within the cache's life and whose first try came after it, as when the carrier
+// took main in for long before the program ran, wrote the session again by design. Runs in memory in milliseconds; the
+// one test that sets the two times apart, which every other test of a miss leaves a second apart.
+#[test]
+fn a_round_whose_first_try_came_after_the_caches_life_is_no_miss_though_it_began_within_it() {
+    let mut s = S::with(warm("opus"), None);
+    measured(&mut s, 0, "a");
+    s.hands_in(1_000, true);
+    // The build begins as the load ends, in the session the load began, and reads a tenth of it.
+    measured(&mut s, 100, "a");
+    s.clock += 2 * 3_600_000;
+    s.asks(1_000);
+    let misses = s.driver.misses(s.work);
+    assert!(misses.is_empty(), "{misses:?}");
+}
+
 #[test]
 fn a_miss_after_what_comes_before_the_messages_changed_is_expected_and_a_hit_is_no_miss() {
     let mut s = S::with(warm("opus"), None);
