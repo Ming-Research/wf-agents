@@ -3092,14 +3092,16 @@ mod tests {
     const SECOND_CALL: &str = r#"{"type":"assistant","message":{"id":"m2","model":"claude-sonnet-5-5","usage":{"input_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9100,"output_tokens":20}},"parent_tool_use_id":null}"#;
 
     // A fork whose program ended with the first message answered and the question not is no answer, which the first
-    // message's return is not taken for, and it says what the call it made cost, for the work to keep. The stand-in
-    // program, one fork: a few tens of milliseconds.
+    // message's return is not taken for, and it says what the call it made cost, and how many processes its program
+    // left running, which were stopped, for the work to keep. The stand-in program, one fork: a few tens of
+    // milliseconds, the leftover's ending on TERM a few more.
     #[tokio::test]
     async fn a_fork_whose_program_ended_one_message_is_not_answered_and_gives_what_it_cost() {
         let dir = tempfile::tempdir().expect("a directory");
         let data = std::path::absolute(dir.path()).expect("absolute");
         let (agents, _repo, fork) = forking(&data);
         write_program(&data, &[FORK_STREAM[0], FIRST_CALL, FORK_STREAM[3]]);
+        std::fs::write(data.join("leave"), "").expect("written");
         let failed = agents
             .inner
             .fork(&fork)
@@ -3116,10 +3118,12 @@ mod tests {
         );
         assert!(spent.usd_micros > 0);
         assert!(failed.to_string().contains(" It cost $"), "{failed}");
+        assert_eq!(failed.left, 1, "what the fork's program left is counted");
     }
 
     // A fork that ran and made no return says what it cost: the program's total less what the session cost before,
-    // and the tokens of both messages. One fork of a stand-in program: a few tens of milliseconds.
+    // and the tokens of both messages; and how many processes its program left running, which were stopped. One fork
+    // of a stand-in program: a few tens of milliseconds, the leftover's ending on TERM a few more.
     #[tokio::test]
     async fn a_fork_that_ran_and_gave_no_answer_gives_what_it_cost() {
         let dir = tempfile::tempdir().expect("a directory");
@@ -3137,6 +3141,7 @@ mod tests {
                 error,
             ],
         );
+        std::fs::write(data.join("leave"), "").expect("written");
         let failed = agents.inner.fork(&fork).await.expect_err("no answer");
         assert!(failed.why.starts_with("The fork wrote no answer: "), "{}", failed.why);
         assert_eq!(
@@ -3150,6 +3155,7 @@ mod tests {
                 compactions: 0,
             })
         );
+        assert_eq!(failed.left, 1, "what the fork's program left is counted");
     }
 
     #[tokio::test]
