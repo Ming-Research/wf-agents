@@ -2192,7 +2192,7 @@ impl Summary {
                 })
                 .collect(),
         };
-        let (level, cell_level, raise, held) = levels_of(levels, kept.item.level.as_deref(), kept.flow, &now);
+        let (level, cell_level, raise, capped) = levels_of(levels, kept.item.level.as_deref(), kept.flow, &now);
         let pull = (work.pulls.last()).map(|pulled| Pull {
             number: pulled.number,
             url: pulled.url.clone(),
@@ -2226,7 +2226,7 @@ impl Summary {
             level,
             cell_level,
             raise,
-            held,
+            held: capped,
             pull,
             // What git says of it is worked out off the loop, after this ([`Summary::saw`]).
             changed: None,

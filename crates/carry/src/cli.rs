@@ -1024,6 +1024,7 @@ mod tests {
         Agents {
             command: "claude".to_string(),
             levels: Default::default(),
+            highest_level: None,
             slots: 2,
             args: vec!["--strict-mcp-config".to_string()],
             env: Vec::new(),
