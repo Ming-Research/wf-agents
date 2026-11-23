@@ -143,7 +143,7 @@ export function fixtureSettings(): SettingsPage {
       {
         name: 'sessions',
         leftOut: true,
-        keys: [{ key: 'context_limit', written: null, running: '500000', change: { kind: 'count' } }],
+        keys: [{ key: 'compact_at', written: null, running: '500000', change: { kind: 'count' } }],
       },
     ],
   };
@@ -201,6 +201,8 @@ export function fixtureAccounts(): AccountsPage {
       account('old', 350),
     ],
     inUse: 'work',
+    movingOn: false,
+    moves: [],
     command: 'claude setup-token',
     closed: null,
   };
