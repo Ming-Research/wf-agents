@@ -142,3 +142,21 @@ async fn only_a_run_at_its_limit_is_let_go_on_by_its_call() {
         Err(Refusal::Failed(Failed::NoSuchWork(WorkNumber(9))))
     );
 }
+
+/// Reference: the records' own rule that a call has its result once (the `done` table of the store schema: "A call has
+/// its result"), and the line of `Act::GoOn` that only a call at its limit is let go on. A second let-go of the same
+/// call, and one of a call there is none of, add no result and no `done` to the records.
+#[tokio::test(start_paused = true)]
+async fn a_run_let_go_on_is_not_let_go_on_a_second_time_and_a_call_there_is_none_of_is_refused() {
+    let (mut trial, work, call) = at_its_limit().await;
+    trial.act(work, Act::GoOn { call }).unwrap();
+    let done = trial.work(work).records.done.len();
+    assert!(trial.act(work, Act::GoOn { call }).is_err());
+    let nowhere = CallId(9999);
+    assert_eq!(
+        trial.act(work, Act::GoOn { call: nowhere }),
+        Err(Refusal::NotAtItsLimit(nowhere))
+    );
+    assert_eq!(trial.work(work).records.done.len(), done);
+    assert_eq!(trial.work(work).results[&call], GO_ON);
+}
