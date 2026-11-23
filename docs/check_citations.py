@@ -8,10 +8,13 @@ design, `documents` where it names several, as ``documents `a`, 4, and `b`, 32 t
 document changes, a citation that is left behind names nothing, and the agent that reads it is led wrong. A "design
 statement" is no citation any document can answer, and is reported too.
 
-What is read is what its syntax says is prose and not data: the comments of `.rs`, `.ts` and `.tsx` files (from `//`)
-and of `.toml` and `.py` files (from `#`), whether they stand on a line of their own or after code, and the text of
-`.md` files. A string a program holds, whatever its lines, is not read, nor is any file of another kind. Consecutive
-lines that hold a comment are read as one text, so that a citation broken over two lines is found.
+What is read is prose and not data: the comments of `.rs`, `.ts` and `.tsx` files (from `//`) and of `.toml` and `.py`
+files (from `#`), and the text of `.md` files. A line is read by itself, with no state kept from the lines before it: a
+line that begins with the mark is a comment, and where code comes first, a mark after whitespace and outside the
+quotes of the line begins one (an apostrophe quotes outside Rust, where it is also a lifetime). A mark after a
+regular expression that holds one quote is not seen; a comment on a line of its own is. So a line that looks like a comment inside a string of many lines is read as one, and
+a mark inside a string of one line is not. No other kind of file is read. Consecutive lines that hold a comment are
+read as one text, so that a citation broken over two lines is found.
 
 Run it with `python3 docs/check_citations.py` from any directory, or give it the root of a tree as an argument. It
 prints each fault as `file:line: what`, and exits with 1 if there is one.
@@ -43,56 +46,21 @@ def paragraphs(root: Path, name: str):
     return {int(m.group(1)) for m in re.finditer(r"^(\d+)\. ", text, re.MULTILINE)}
 
 
-def comments(text: str, suffix: str):
-    """The comments of a program as {line number: text}, each from its mark to the end of its line, where the mark
-    stands outside every string: a string may run over many lines, and a raw one holds anything."""
-    mark = COMMENT_MARKS[suffix]
-    rust = suffix == ".rs"
-    found = {}
-    line = 1
-    i = 0
-    n = len(text)
-    while i < n:
-        c = text[i]
-        if c == "\n":
-            line += 1
-            i += 1
-        elif text.startswith(mark, i):
-            end = text.find("\n", i)
-            end = n if end < 0 else end
-            found[line] = text[i + len(mark) : end]
-            i = end
-        elif rust and c == "r" and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")) and re.match(r'r#*"', text[i:]):
-            hashes = len(re.match(r"r(#*)", text[i:]).group(1))
-            close = text.find('"' + "#" * hashes, i + 2 + hashes)
-            close = n if close < 0 else close + 1 + hashes
-            line += text.count("\n", i, close)
-            i = close
-        elif rust and c == "'":
-            if text.startswith("\\", i + 1):
-                end = text.find("'", i + 3)
-                i = n if end < 0 else end + 1
-            elif text[i + 2 : i + 3] == "'":
-                i += 3
-            else:
-                i += 1
-        elif c in "\"'`" and not (rust and c != '"'):
-            quote = c * 3 if suffix in (".py", ".toml") and text.startswith(c * 3, i) else c
-            i += len(quote)
-            while i < n and not text.startswith(quote, i):
-                if text[i] == "\n":
-                    if len(quote) == 1 and suffix in (".py", ".toml") and c != "`":
-                        break
-                    line += 1
-                elif text[i] == "\\" and not (suffix == ".toml" and c == "'"):
-                    i += 1
-                    if i < n and text[i] == "\n":
-                        line += 1
-                i += 1
-            i += len(quote) if i < n and text.startswith(quote, i) else 0
-        else:
-            i += 1
-    return found
+def comment_of(line: str, mark: str, apostrophes: bool):
+    """The comment of a line: all of it where it begins with the mark, else what follows a mark that stands after
+    whitespace and outside the quotes of the line, none where there is none. Each line is read by itself, so that
+    nothing read before it can put it out of step."""
+    stripped = line.strip()
+    if stripped.startswith(mark):
+        return stripped[len(mark) :]
+    bare = re.sub(r"'\\?.'", "", line)
+    bare = bare.replace('\\"', "").replace("\\`", "")
+    for m in re.finditer(r"\s" + re.escape(mark), bare):
+        before = bare[: m.start()]
+        quoted = before.count('"') % 2 or before.count("`") % 2 or (apostrophes and before.count("'") % 2)
+        if not quoted:
+            return bare[m.start() + 1 + len(mark) :]
+    return None
 
 
 def texts(path: Path):
@@ -113,10 +81,10 @@ def texts(path: Path):
                 group = []
     elif suffix in COMMENT_MARKS:
         mark = COMMENT_MARKS[suffix]
-        found = comments(source, suffix)
-        for number in range(1, source.count("\n") + 2):
-            if number in found:
-                group.append((number, found[number].lstrip(mark[0] + "!").strip()))
+        for number, line in enumerate(source.split("\n"), 1):
+            comment = comment_of(line, mark, suffix != ".rs")
+            if comment is not None:
+                group.append((number, comment.lstrip(mark[0] + "!").strip()))
             elif group:
                 yield group
                 group = []

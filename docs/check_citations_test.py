@@ -97,14 +97,29 @@ class CheckCitations(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(sorted((f, n) for f, n, _ in found), [("a.rs", 1), ("b.toml", 1)])
 
-    def test_a_string_over_many_lines_and_a_raw_string_hide_what_stands_in_them(self):
+    def test_what_comes_before_a_line_cannot_put_it_out_of_step(self):
+        # A regular expression with a quote, a text with an apostrophe in JSX and a raw byte string, each before a comment
+        # on a line of its own that cites a paragraph the document does not have.
         found, code = run(
             {
-                "a.rs": 'const A: &str = r#"\n// (document `page`, 9)\n"#;\nconst B: &str = "\n// (document `page`, 9)\n";\nconst C: char = \'"\';\n// (document `page`, 7)\n',
-                "b.py": 'TEXT = """\n# (document `page`, 9)\n"""\n# (document `page`, 6)\n',
+                "a.ts": 'const a = /["`]+/g;\n// (document `page`, 7)\nconst b = /`/;\n// (document `page`, 8)\n',
+                "b.tsx": "const c = <p>it's here</p>;\n// (document `page`, 9)\n",
+                "c.rs": 'const D: &[u8] = br#"a " b"#;\n// (document `page`, 6)\nlet e = r#"x"#; // (document `page`, 5)\n',
             }
         )
-        self.assertEqual(sorted((f, n) for f, n, _ in found), [("a.rs", 8), ("b.py", 4)])
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            sorted((f, n) for f, n, _ in found), [("a.ts", 2), ("a.ts", 4), ("b.tsx", 2), ("c.rs", 2), ("c.rs", 3)]
+        )
+
+    def test_a_mark_inside_a_string_of_one_line_is_not_a_comment_whatever_quotes_it_is_in(self):
+        found, code = run(
+            {
+                "a.py": "A = '# (document `page`, 9)'\nB = \"# (document `page`, 9)\"\n",
+                "b.ts": "const a = `x // (document `page`, 9)`;\nconst b = 'y // (document `page`, 9)';\n",
+            }
+        )
+        self.assertEqual((found, code), ([], 0))
 
     def test_the_design_of_the_owners_page_is_a_citation_of_the_document_the_owners_page(self):
         found, _ = run(
