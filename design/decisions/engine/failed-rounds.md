@@ -24,7 +24,7 @@ While the agents' wait lasts, the engine checks the outside under the account in
 - rejected: an agent proposed trying a service's error again after half a minute, then twice as long each time, pausing after two tries; the owner rejected it, because an overload should be tried again soon, then less and less often, never more than five minutes apart.
 
 ### decision the-acts-host-is-tried-by-a-look
-While the host the acts use cannot be reached, the engine checks it every half minute, and every act goes on once a check reaches it; no act is sent to test it.
+While the host the acts use cannot be reached, the engine checks it every half minute, and once a check reaches it one act goes first; no act is sent only to test it.
 - rejected: an agent proposed checking a lost network after a minute, then twice as long each time, up to fifteen minutes; the owner rejected it, because the engine can keep watching the network itself, checking at least every half minute.
 
 ### decision an-unread-return-is-sent-back
@@ -34,3 +34,8 @@ A return that could not be read is sent back to the agent in its session, like a
 ### decision a-flagged-round-begins-a-new-session
 A flagged round is retried in a new session of its line, but not one under way as an older store opens (decision a-round-takes-the-session-its-line-was-in-as-it-began); a second flag pauses its work.
 - replaced: Treating a flagged round as a passing failure and trying it again after a wait was on main; the owner changed it, because a round flagged again and again would then be tried again forever.
+
+### decision one-goes-first-after-a-wait
+Once a check finds the outside well, or a look reaches the acts' host, one held round goes first, of the work that met the wait first; the rest begin once it comes back or is answered.
+- replaced: Letting every held round begin at once was on main; the owner changed it, because while the network came and went, every work failed again at the same time and each failure counted toward its pause.
+- rejected: an agent proposed slots for the engine's acts, as the agents' rounds have; the owner rejected it, because they would hold the acts back at all times, add a number for the owner to set, and still let as many fail together as there are slots.

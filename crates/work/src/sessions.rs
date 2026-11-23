@@ -9,7 +9,7 @@
 //! What each try of a round ran on is recorded as the try begins ([`RanOn`]), so that what a session was begun on is
 //! the records' too ([`began_on`]).
 
-use decide::{RunId, Seq};
+use decide::{CallId, RunId, Seq};
 use serde::{Deserialize, Serialize};
 
 use crate::{Spent, Work};
@@ -36,6 +36,36 @@ pub struct Ran {
     /// before tries were recorded has no record, so the records are not counted to find a try's.
     pub attempt: usize,
     pub on: RanOn,
+}
+
+/// A program the engine ran for the work ended by itself and left processes running in its process group, which its
+/// carrier stopped before it gave the program's end (decision `what-a-program-leaves-is-stopped`): which program, and
+/// how many it stopped. No one read what they would have printed, and what they took is counted nowhere else.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LeftBehind {
+    /// The place of the entry in the order of what happened to the work.
+    pub at: Seq,
+    pub of: Left,
+    /// How many processes were stopped: one or more.
+    pub processes: usize,
+}
+
+/// What a program that left processes running was run for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Left {
+    /// A try of an agent's round: the round's number in its run and the try's in its round, the first of each being
+    /// one, as [`Ran`] numbers them.
+    Try { run: RunId, round: usize, attempt: usize },
+    /// The project's check, run by a round of an engine's act, its number in its run, the first being one.
+    Act { run: RunId, round: usize },
+    /// The project's check, run for a call of a tool.
+    Call { call: CallId },
+    /// A keep-warm ping of the session of this number of the line, its sessions counted from none.
+    Ping { line: String, session: u32 },
+    /// A fork of the session of the round of this number of the run, the first being one, as [`crate::Forked`] names
+    /// the round it was asked of.
+    Fork { run: RunId, round: usize },
 }
 
 /// What a try of an agent's round ran on, as its carrier chose it as the try began: the level, the model of that
