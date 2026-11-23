@@ -76,7 +76,8 @@ command = "claude"
 # How many agents' rounds run at once; the others wait their turn.
 slots = 2
 # The highest level one round may run at: a round of a line that runs above its item's level goes no higher. It is no
-# lower than items.highest_level, so that a round of an item at its highest level can run at it. Left out, the top level.
+# lower than items.highest_level, so that a round of an item at its highest level can run at it. Left out, the top
+# level.
 highest_level = "4"
 # What the program is given on every round after what the engine gives it. No permission mode is given here: the program
 # starts in default mode whatever it is given (the engine sets CLAUDE_CODE_SUBPROCESS_ENV_SCRUB), so `--permission-mode`

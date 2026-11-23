@@ -1,9 +1,10 @@
 // The Settings view: the installation's settings as their file writes them, key by key. First what the page changes
 // (the language the owner reads, each level's model, the highest level an item may be at and the highest one round may
-// run at, the context past which a line begins a new session, and how many rounds run at once), each as a box, and the accounts the agents run under,
-// which are the engine's own state and change at once; then what only the file changes, table by table, each key with
-// its value as written. Beside a value the engine runs at another, which it does until it starts again, since it reads
-// the file as it starts, is the value it runs with; but the slots, which a save gives the engine at once.
+// run at, the context past which a line begins a new session, and how many rounds run at once), each as a box, and the
+// accounts the agents run under, which are the engine's own state and change at once; then what only the file changes,
+// table by table, each key with its value as written. Beside a value the engine runs at another, which it does until it
+// starts again, since it reads the file as it starts, is the value it runs with; but the slots, which a save gives the
+// engine at once.
 // Save, the one action the view is for, writes what changed into the file, its comments and layout kept, and commits
 // it where the file's directory keeps it in git; what the engine would refuse is refused before anything is written,
 // in the engine's words. What the owner typed and did not save is kept in the browser, key by key, through a reload, a

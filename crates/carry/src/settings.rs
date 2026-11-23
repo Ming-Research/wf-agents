@@ -350,8 +350,8 @@ pub struct Agents {
     /// The levels of work, by name: an item's level chooses the model its agents' rounds are run with.
     pub levels: BTreeMap<String, Level>,
     /// The highest level one round may run at, by its name among the levels: a round of a line that runs above its
-    /// item's level goes no higher. It is no lower than `items.highest_level`, so that a round of an item at its highest
-    /// level can run at it; with none, the top level.
+    /// item's level goes no higher. It is no lower than `items.highest_level`, so that a round of an item at its
+    /// highest level can run at it; with none, the top level.
     pub highest_level: Option<String>,
     /// How many agents' rounds run at once.
     pub slots: usize,
