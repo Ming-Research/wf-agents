@@ -53,7 +53,7 @@ pub enum LevelsFault {
 
 /// The level a round runs at, and how far it was raised.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Round {
+pub struct RoundLevel {
     /// The level it runs at.
     pub level: String,
     /// How many levels above its item's it runs at: the line's raise, less what the highest level one round may run at
@@ -174,14 +174,14 @@ impl Levels {
     /// An item that has no level runs at the default: no level can be given to one whose level was never kept without
     /// guessing. Refused, in words, where the item's level is not one of the levels, or is above the highest an item
     /// may be at: such an item is not run at another level, which would spend at a model nobody chose for it.
-    pub fn of_round(&self, item: Option<&str>, above: u32) -> Result<Round, String> {
+    pub fn of_round(&self, item: Option<&str>, above: u32) -> Result<RoundLevel, String> {
         let at = match item {
             None => self.default,
             Some(level) => self.at(level).map_err(|why| format!("the item's level: {why}"))?,
         };
         let wanted = at.saturating_add(usize::try_from(above).unwrap_or(usize::MAX));
         let ran = wanted.min(self.rounds_highest);
-        Ok(Round {
+        Ok(RoundLevel {
             level: self.levels[ran].name.clone(),
             raised: u32::try_from(ran - at).unwrap_or(u32::MAX),
             asks: above,

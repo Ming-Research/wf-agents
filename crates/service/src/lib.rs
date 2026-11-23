@@ -75,7 +75,7 @@ pub use carriers::{
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use driver::{Along, Instead, Said, Under, Window};
-pub use levels::{Level, Levels, LevelsFault, Round};
+pub use levels::{Level, Levels, LevelsFault};
 pub use projects::Projects;
 pub use script::Script;
 pub use scripted::Scripted;
