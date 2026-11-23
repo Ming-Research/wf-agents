@@ -124,7 +124,7 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     for part in [
         "## Your task\n\nBuild",
         "## What this cell returns",
-        "answered: option 1, the first name",
+        "answered:\n- option 1, the first name",
     ] {
         assert!(second.stdin.contains(part), "{part} is missing from:\n{}", second.stdin);
     }
