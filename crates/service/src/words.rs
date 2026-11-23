@@ -413,3 +413,26 @@ fn sentence(clause: &str) -> String {
         None => String::new(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_change_of_what_an_item_continues_is_refused_once_its_work_made_its_branch_and_says_so() {
+        let refused = NotMade {
+            at: 0,
+            item: ItemNumber(3),
+            why: driver::changes::Refused::Unchangeable(Unchangeable::Placed),
+        };
+        let failed = Failed::NotChanged {
+            asked: 1,
+            refused: vec![refused],
+        };
+        assert_eq!(
+            failed_words(&failed),
+            "the work of #3 has made its branch, and what an item continues changes only until its work's branch is \
+             made: the branch was made from it"
+        );
+    }
+}

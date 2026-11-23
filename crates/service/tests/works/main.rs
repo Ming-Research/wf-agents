@@ -10,6 +10,7 @@
 mod accounts;
 mod acts;
 mod cancelling;
+mod continuing;
 mod contract;
 mod dependencies;
 mod failing;
