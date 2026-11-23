@@ -60,7 +60,7 @@ async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run_and
             "at": "build",
             "on": [{
                 "kind": "call",
-                "call": 5,
+                "call": 4,
                 "who": null,
                 "what": { "kind": "tool", "name": "ci", "input": "the work's branch" },
                 "made": made,
@@ -108,7 +108,7 @@ async fn a_stretch_of_the_bar_nothing_ran_in_says_what_the_work_waited_for() {
     let running = running();
     let router = &running.router;
     greeted(router).await;
-    // The plan's question waits for the owner half a minute; answered, the plan's next round begins, and the work is
+    // The plan's run waits at its limit for the owner half a minute; let go on, its next round begins, and the work is
     // paused under it, which holds the build half a minute more.
     pass(30_000).await;
     let answer = json!({ "kind": "result", "call": 2, "result": "Yes." });
@@ -128,6 +128,6 @@ async fn a_stretch_of_the_bar_nothing_ran_in_says_what_the_work_waited_for() {
         .unwrap()
         .to_string();
     assert_eq!(bar.chars().count(), 96, "{bar}");
-    // A model's round, the wait for the owner's answer, the plan's next round, the pause, and the build's round.
+    // A model's rounds, the wait for the owner, the plan's next round, the pause, and the build's round.
     assert_eq!(runs_of(&bar), "mompm", "{bar}");
 }

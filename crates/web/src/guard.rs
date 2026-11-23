@@ -8,8 +8,6 @@
 //! its port, when it has an Origin that is not the engine's own, when it asks the interface and the browser says
 //! another site made it, and when it is a POST that is not JSON: a page of another site cannot send JSON without the
 //! browser first asking the engine's leave, which the engine never gives.
-//!
-//! Brought over from the old engine's server (`crates/web/src/lib.rs` on `old-main`, from commit `078fe280`).
 
 use std::sync::Arc;
 

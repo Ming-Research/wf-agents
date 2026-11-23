@@ -17,7 +17,7 @@ When a round fails for a cause outside all works and the same for all of them, t
 - rejected: an agent proposed trying no round once the agents' program could not run, until the owner pressed a button to go on; the owner rejected it, because the engine can find out by itself that the outside works again, and every work then goes on without anyone pressing anything.
 
 ### decision the-engine-checks-the-outside-itself
-While the agents' wait lasts, the engine checks the outside with no round and in no work's session: half a minute after the round that met it, then twice as long each time, up to five minutes.
+While the agents' wait lasts, the engine checks the outside under the account in use, with no round, half a minute after the round that met it, then twice as long each time, up to five minutes.
 - replaced: Starting the agents' command line again and again while the network was down was on main; the owner changed it, because each try wrote the round's whole input into its session again, 27 copies in one outage.
 - rejected: an agent proposed trying a round again every half minute, or less and less often up to every half hour; the owner rejected it, because every try writes the round's whole message into its session again, three tries making three copies, whether signed out or out of usage.
 - rejected: an agent proposed checking only the sign-in, with the program's own command for it; the owner rejected it, because the sign-in is not all that fails: the service may go down, and the network may be lost.

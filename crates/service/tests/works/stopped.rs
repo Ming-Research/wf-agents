@@ -74,6 +74,14 @@ impl Storage for Failing {
         self.store.keep_warm(warm, at)
     }
 
+    fn moving_on(&self) -> Result<bool, store::Fault> {
+        self.store.moving_on()
+    }
+
+    fn set_moving_on(&mut self, moving: bool, at: Time) -> Result<(), store::Fault> {
+        self.store.set_moving_on(moving, at)
+    }
+
     fn accounts(&self) -> Result<Vec<store::AccountRecord>, store::Fault> {
         self.store.accounts()
     }

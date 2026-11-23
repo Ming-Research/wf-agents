@@ -14,6 +14,7 @@ const outage = (o: Partial<Outage>): Outage => ({
   checked: null,
   until: { kind: 'checked', at: 0 },
   holds: true,
+  mayMove: false,
   ...o,
 });
 
@@ -67,6 +68,14 @@ describe('the words of a round that failed and of the waits that follow', () => 
     expect(held('offline')).toMatch(/\. No agent's round begins until the service is reached again\.$/);
     expect(held('unavailable')).toMatch(/\. No agent's round begins until the service answers again\.$/);
     expect(held('other')).toMatch(/\. No agent's round begins until the cause is gone\.$/);
+    // A usage limit ends as well where the engine may move to another account, and says so only then.
+    expect(held('usageLimit')).toMatch(/\. No agent's round begins until the limit resets\.$/);
+    expect(outageWords(outage({ mayMove: true }))).toMatch(
+      /\. No agent's round begins until the limit resets or the engine moves to another account\.$/,
+    );
+    expect(outageWords(outage({ failure: 'offline', mayMove: true }))).toMatch(
+      /\. No agent's round begins until the service is reached again\.$/,
+    );
     const host = outage({ service: 'host', failure: 'offline', until: { kind: 'looked', at: 0 } });
     expect(outageWords(host)).toMatch(/No act of the engine's begins until it is reached again\.$/);
   });

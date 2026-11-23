@@ -15,7 +15,7 @@ use driver::{Found, Until, Wake};
 use super::*;
 
 /// The round of the work under way fails for a cause of this kind, its usage limit resetting at `resets`.
-fn fails(h: &mut H, work: WorkNumber, failure: Failure, resets: Option<Time>) -> Vec<Todo> {
+pub(super) fn fails(h: &mut H, work: WorkNumber, failure: Failure, resets: Option<Time>) -> Vec<Todo> {
     let (run, ..) = h.round(work);
     let spent = h.spent();
     let event = Event::Failed {
@@ -29,7 +29,7 @@ fn fails(h: &mut H, work: WorkNumber, failure: Failure, resets: Option<Time>) ->
 }
 
 /// Two works of the plain flow, let on, each with its writer's first round under way.
-fn two() -> (H, WorkNumber, WorkNumber) {
+pub(super) fn two() -> (H, WorkNumber, WorkNumber) {
     let mut h = H::new();
     let (_, a) = h.add(new_item("a", &[], "plain"));
     let (_, b) = h.add(new_item("b", &[], "plain"));
@@ -39,7 +39,7 @@ fn two() -> (H, WorkNumber, WorkNumber) {
 }
 
 /// The rounds of agents' cells given among these.
-fn agents_rounds(todos: &[Todo]) -> Vec<(WorkNumber, String, usize)> {
+pub(super) fn agents_rounds(todos: &[Todo]) -> Vec<(WorkNumber, String, usize)> {
     (todos.iter())
         .filter_map(|t| match &t.effect {
             Effect::Round { cell, number, .. } if cell.as_str() != "merge" => Some((t.work, cell.to_string(), *number)),
@@ -49,7 +49,7 @@ fn agents_rounds(todos: &[Todo]) -> Vec<(WorkNumber, String, usize)> {
 }
 
 /// What a check finds down, of this kind.
-fn down(failure: Failure) -> Found {
+pub(super) fn down(failure: Failure) -> Found {
     Found::Down {
         failure,
         why: format!("the check found: {failure:?}"),
@@ -160,6 +160,7 @@ fn at_a_usage_limit_whose_reset_was_said_the_outside_is_checked_at_the_reset_and
         Some(Wake {
             at: resets,
             check: true,
+            candidate: None,
             look_at_host: false
         })
     );
@@ -255,6 +256,7 @@ fn an_act_that_fails_for_want_of_its_hosts_network_holds_the_acts_alone_until_a_
         Some(Wake {
             at,
             check: false,
+            candidate: None,
             look_at_host: true
         })
     );
@@ -269,6 +271,7 @@ fn an_act_that_fails_for_want_of_its_hosts_network_holds_the_acts_alone_until_a_
         Some(Wake {
             at: Time(at.0 + PROBE),
             check: false,
+            candidate: None,
             look_at_host: true
         })
     );

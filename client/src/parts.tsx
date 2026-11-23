@@ -321,8 +321,6 @@ function keptWindow(key: string): number {
 /// which the browser keeps under `widthKey`. It floats over the view, which keeps its whole width under it. When it
 /// comes and goes besides the tab is its view's to say (`open`); `label` names it, and `hide` and `show` say what the
 /// tab does.
-///
-/// Brought over from the console of the engine on `old-main` (`client/src/console/Drawer.tsx`).
 export function Drawer({
   open,
   onToggle,

@@ -353,11 +353,25 @@ CREATE TABLE stops (
 -- under (`what`: `Added`, `Removed` or `Taken`), by the name the owner gave it, at `time`, `n` counting from one. Its
 -- token is kept outside the store, under the name. The account in use is the latest taken that was not removed since;
 -- with none, the agents run on the sign-in of their directory. It is the installation's, not a work's, and it is the
--- engine's own state and no setting, so that a change takes effect at once.
+-- engine's own state and no setting, so that a change takes effect at once. `taker` says who took the account, the
+-- owner or the engine, which takes one only at a usage limit where the owner has switched that on; `left_resets` is,
+-- for an account the engine took, when the usage limit of the account it left resets, where that was said.
 CREATE TABLE accounts (
     n INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     what TEXT NOT NULL CHECK (what IN ('Added', 'Removed', 'Taken')),
+    time INTEGER NOT NULL,
+    taker TEXT NOT NULL DEFAULT 'Owner' CHECK (taker IN ('Owner', 'Engine')),
+    left_resets INTEGER
+);
+
+-- The engine's moving to another account at the usage limit of the one in use was switched on (1) or off (0), as the
+-- owner switched it on the page, at `time`, `n` counting from one: the latest row says whether it may now, and none
+-- that it may not, which is how an installation whose owner never switched it stands. It is the installation's, not a
+-- work's, and it is the engine's own state and no setting, so that a switch takes effect at once.
+CREATE TABLE moving_on (
+    n INTEGER PRIMARY KEY,
+    moving INTEGER NOT NULL CHECK (moving IN (0, 1)),
     time INTEGER NOT NULL
 );
 

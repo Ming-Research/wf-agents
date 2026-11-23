@@ -407,6 +407,23 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 why: None,
             });
         }
+        // A call for a person to answer is one no agent can make: the engine has no one to give it to. The carrier that
+        // returned it cannot go on, and only a person mends that, so the round fails as any other of its kind does.
+        Event::Returned { run, came, spent } if came.asks.iter().any(|ask| matches!(ask, Ask::Person { .. })) => {
+            let why = "the carrier returned a call for a person to answer, which the engine does not make".to_string();
+            return take(
+                flow,
+                work,
+                Event::Failed {
+                    run,
+                    why,
+                    failure: Failure::Other,
+                    resets: None,
+                    spent,
+                },
+                effects,
+            );
+        }
         Event::Returned { run, came, spent } => {
             if began(work, run) == ended(work, run) {
                 return Err(Refused::NoRoundUnderWay(run));
@@ -916,10 +933,10 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At<'_>, effects: &mut 
 /// Takes the run's return, which met everything the flow requires: the calls it asks for are made, and the run
 /// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish, of the
 /// cell's words its answer in them ([`spoken::entry`]), and then the questions it asks, asks anew or withdraws, each a
-/// version of its own and of its cell's questions. A return of the form
-/// before a return that asks ended its run made all its calls at once as it was taken, and its run rested at them,
-/// unless the owner's word at the limit of calls was asked for first: such a run finishes making none again, or all it
-/// asked for where it made none, and its cell is owed those it made. The run keeps, as it finishes, the observations
+/// version of its own and of its cell's questions. A run kept from before a return that asks ended its run made all
+/// its calls at once as it was taken, and rested at them, unless the owner's word at the limit of calls was asked for
+/// first: such a run finishes making none again, or all it asked for where it made none, and its cell is owed those it
+/// made. The run keeps, as it finishes, the observations
 /// its returns said that it keeps (crate `work`, module `observations`). A run that dealt with something writes that
 /// its cell has handed its work in, where the cell has a datum of that ([`handed_in`]).
 fn finish(
@@ -960,12 +977,10 @@ fn finish(
         }
         Some(Back::Failed { .. }) | None => (Vec::new(), Vec::new()),
     };
+    // `take` refuses a return that asks for a person, so each call asked for here is of a tool, which the engine makes
+    // itself.
     for ask in asks {
-        let on = match &ask {
-            Ask::Person { who, .. } => Some(who.clone()),
-            Ask::Tool { .. } => None,
-        };
-        call(work, run, on, Call::Asked(ask), effects);
+        call(work, run, None, Call::Asked(ask), effects);
     }
     let at = work.tick();
     for h in handed {

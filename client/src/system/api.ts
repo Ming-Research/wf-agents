@@ -272,6 +272,15 @@ export interface UsageWindow {
   allowed: boolean;
 }
 
+/// A move the engine made: at this time it took the account `to`, which the agents ran under in place of the account
+/// `from`, whose usage limit it left; `leftResets` is when that limit resets, where it was said.
+export interface AccountMove {
+  at: number;
+  from: string | null;
+  to: string;
+  leftResets: number | null;
+}
+
 export interface AccountsPage {
   /// The time now, by the engine's clock.
   now: number;
@@ -279,6 +288,10 @@ export interface AccountsPage {
   accounts: Account[];
   /// The account the agents run under; none where none is in use, and no agent's round runs.
   inUse: string | null;
+  /// Whether the owner has let the engine move to another account at the usage limit of the one in use.
+  movingOn: boolean;
+  /// The latest moves the engine made at a usage limit, newest first.
+  moves: AccountMove[];
   /// The command that makes a token.
   command: string;
   /// Why no account can be added now, as where what keeps the tokens is missing; none where one can.
@@ -290,11 +303,12 @@ export interface Looking {
   looking: string[];
 }
 
-/// What the owner does to an account.
+/// What the owner does to an account, or lets the engine do at a usage limit.
 export type AccountAsked =
   | { kind: 'add'; name: string; token: string }
   | { kind: 'take'; name: string }
-  | { kind: 'remove'; name: string };
+  | { kind: 'remove'; name: string }
+  | { kind: 'setMovingOn'; on: boolean };
 
 /// What came of it: of an account added, whether its token is at its usage limit and when that resets; of one removed,
 /// why its token could not be let go of, where it could not.
@@ -350,7 +364,7 @@ export const FIXTURES: SystemSource = {
   loadAccounts: async () => (await import('./fixtures')).fixtureAccounts(),
   account: async (asked) => {
     // The token is logged nowhere.
-    console.info('settings/accounts', asked.kind, asked.name);
+    console.info('settings/accounts', asked.kind);
     return { atLimit: false, resets: null, notLetGo: null };
   },
   look: async () => ({ looking: [] }),
