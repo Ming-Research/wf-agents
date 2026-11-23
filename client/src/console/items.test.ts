@@ -268,15 +268,15 @@ describe('the search of the items', () => {
   it('writes each item by its path in the tree, from its root down, as the tree places it', () => {
     const paths = itemPaths(data);
     const words = [1, 2, 3, 4, 5, 65].map((n) => pathWords(paths.get(n) ?? []));
-    expect(words).toEqual(['#1', '1-2', '1-3', '1-2-4', '#5', '#65']);
+    expect(words).toEqual(['1', '1-2', '1-3', '1-2-4', '5', '65']);
   });
 
   it('finds an item by its number, with or without #, and as the number is typed, the items whose number begins so', () => {
-    expect(found('65')).toEqual(['#65']);
-    expect(found('#65')).toEqual(['#65']);
+    expect(found('65')).toEqual(['65']);
+    expect(found('#65')).toEqual(['65']);
     expect(found(' 3 ')).toEqual(['1-3']);
-    expect(found('6')).toEqual(['#65']);
-    expect(found('1')).toEqual(['#1']);
+    expect(found('6')).toEqual(['65']);
+    expect(found('1')).toEqual(['1']);
   });
 
   it('finds the item a path from its root names, and the items under it, in the order of the tree', () => {
@@ -302,11 +302,11 @@ describe('the search of the items', () => {
     expect(paths('26-2')).toEqual(['26-27', '26-27-30', '26-28', '26-29']);
     expect(paths('26-28')).toEqual(['26-28']);
     expect(paths('26-27-3')).toEqual(['26-27-30']);
-    expect(paths('2')).toEqual(['#26', '26-27', '26-28', '26-29']);
+    expect(paths('2')).toEqual(['26', '26-27', '26-28', '26-29']);
   });
 
   it('finds the items whose title holds what is typed, in any case and as Chinese is typed, open, done or cancelled', () => {
-    expect(found('find')).toEqual(['#1', '#5']);
+    expect(found('find')).toEqual(['1', '5']);
     expect(found('LEGEND')).toEqual(['1-2']);
     expect(found('搜索')).toEqual(['1-3']);
     expect(found('nowhere')).toEqual([]);

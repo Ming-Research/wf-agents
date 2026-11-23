@@ -1165,7 +1165,7 @@ describe('the console page', () => {
     );
     // By a part of the title, in any case, over every item, done or not.
     await userEvent.fill(field(), 'FOLD');
-    await expect.poll(found).toEqual(['#26', '26-27', '26-27-30', '26-27-31']);
+    await expect.poll(found).toEqual(['26', '26-27', '26-27-30', '26-27-31']);
     // Escape empties the field and gives the keys back.
     await userEvent.keyboard('{Escape}');
     expect(field().value).toBe('');
