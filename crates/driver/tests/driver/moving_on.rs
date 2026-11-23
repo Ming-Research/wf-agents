@@ -308,6 +308,78 @@ fn nothing_moves_while_everything_is_paused_and_the_account_found_well_is_taken_
     assert_eq!(h.d().moves().len(), 1);
 }
 
+// An account found well in one wait is not taken in a later wait that the rounds met after the first ended: a check
+// speaks of the wait it was taken in ([`driver::Driver::tick`]), and the account is checked again in the second.
+#[test]
+fn an_account_found_well_in_an_earlier_wait_is_not_taken_in_a_later_one() {
+    let (mut h, a, _) = under(&["first", "second"]);
+    let first_resets = Time(h.clock + HOUR);
+    fails(&mut h, a, Failure::UsageLimit, Some(first_resets));
+    // Found well while the switch is off: kept, and taken by nobody.
+    let at = Time(h.clock + 1);
+    assert_eq!(h.tick_candidate(at, "second", Found::Well), vec![]);
+    // The first's own check at its reset finds it well: the wait is over and the round is handed out again.
+    let todos = h.tick(first_resets, Some(Found::Well));
+    assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
+    h.ran_under(a, "first");
+    let second_resets = Time(h.clock + 5 * HOUR);
+    fails(&mut h, a, Failure::UsageLimit, Some(second_resets));
+    let outage = h.d().outage().expect("a new wait stands");
+    assert!(outage.holds());
+    // Switched on, the account is checked in this wait, and not taken for what was found in the one before.
+    let todos = h.set_moving_on(true);
+    assert_eq!(agents_rounds(&todos), vec![]);
+    assert_eq!(h.d().accounts().in_use(), Some("first"));
+    assert_eq!(h.d().moves(), vec![]);
+    assert_eq!(asked(&h), Some((outage.met, "second".to_string())));
+}
+
+// An account the owner removes after a check found it well is not moved to, and the next account is checked: the
+// engine moves only to the accounts the owner lists.
+#[test]
+fn an_account_removed_after_it_was_found_well_is_not_taken() {
+    let (mut h, a, _) = under(&["first", "second", "third"]);
+    let resets = Time(h.clock + 3 * HOUR);
+    fails(&mut h, a, Failure::UsageLimit, Some(resets));
+    let at = Time(h.clock + 1);
+    h.tick_candidate(at, "second", Found::Well);
+    h.remove_account("second");
+    let todos = h.set_moving_on(true);
+    assert_eq!(agents_rounds(&todos), vec![]);
+    assert_eq!(h.d().accounts().in_use(), Some("first"));
+    assert_eq!(h.d().moves(), vec![]);
+    let outage = h.d().outage().expect("the wait stands");
+    assert!(outage.may_move);
+    assert_eq!(asked(&h), Some((outage.met, "third".to_string())));
+}
+
+// What the move records of the account left is the reset the wait last said of it: where the account's own check at
+// its first reset found its limit standing until a later time, that later time.
+#[test]
+fn the_move_records_the_latest_reset_the_wait_said_of_the_account_it_left() {
+    let (mut h, a, _) = under(&["first", "second"]);
+    h.set_moving_on(true);
+    let first_resets = Time(h.clock + HOUR);
+    fails(&mut h, a, Failure::UsageLimit, Some(first_resets));
+    // The candidate is asked for at once; take the first's own check before it is answered.
+    let later = Time(first_resets.0 + 4 * HOUR);
+    h.tick(
+        first_resets,
+        Some(Found::Down {
+            failure: Failure::UsageLimit,
+            why: "You've hit your limit".to_string(),
+            resets: Some(later),
+        }),
+    );
+    let wake = h.d().wake().expect("a check is asked for");
+    assert_eq!(wake.candidate.as_deref(), Some("second"));
+    let todos = h.tick_candidate(Time(wake.at.0.max(first_resets.0 + 1)), "second", Found::Well);
+    assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
+    let moves = h.d().moves();
+    assert_eq!(moves.len(), 1);
+    assert_eq!(moves[0].left_resets, Some(later));
+}
+
 // A usage limit that holds the rounds, the engine moving on or not, is no wait on the owner: it is the engine's to wait
 // out or move off.
 #[test]
