@@ -121,6 +121,15 @@ async fn a_round_whose_program_took_its_message_in_before_its_engine_ended_fails
         next.contains(TASK_HELD),
         "the next round was told the whole message again:\n{next}"
     );
+    // The round after it costs what its own result says, $0.01, not that less what the cut-off round was priced at: the
+    // program's own count of the session began again with the program.
+    real.until(|real| real.work(work).spent.contains_key(&(plan, 2))).await;
+    let kept = real.work(work);
+    assert_eq!(kept.spent[&(plan, 2)].usd_micros, 10_000);
+    assert_eq!(
+        kept.spent[&(plan, 1)].usd_micros + kept.spent[&(plan, 2)].usd_micros,
+        800 + 10_000
+    );
 }
 
 // A round whose program took its message in before its engine ended, and printed no return, fails as one whose program
@@ -343,6 +352,15 @@ async fn a_return_written_before_its_engine_ended_with_no_result_is_not_taken_an
     assert!(
         next.contains(TASK_HELD),
         "the next round was told the whole message again:\n{next}"
+    );
+    // The round after it costs what its own result says, $0.01, not that less what the cut-off round was priced at: the
+    // program's own count of the session began again with the program.
+    real.until(|real| real.work(work).spent.contains_key(&(plan, 2))).await;
+    let kept = real.work(work);
+    assert_eq!(kept.spent[&(plan, 2)].usd_micros, 10_000);
+    assert_eq!(
+        kept.spent[&(plan, 1)].usd_micros + kept.spent[&(plan, 2)].usd_micros,
+        800 + 10_000
     );
 }
 

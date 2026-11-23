@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use carry::cli::{Begin, read};
+use carry::cli::read;
 use serde_json::{Value, json};
 
 /// A partial message of the agent's own, as the command line writes it.
@@ -56,7 +56,7 @@ fn the_reason_a_return_gave_up_on_is_read_as_sentences_whether_or_not_the_progra
         );
         let mut lines = broken_attempt(refused);
         lines.push(gave_up(&said));
-        let no = read(lines.join("\n").as_bytes(), Begin::New, 0, &program).expect_err("it is no return");
+        let no = read(lines.join("\n").as_bytes(), &program).expect_err("it is no return");
         let (before, after) = no
             .why
             .split_once(" Its last attempt at the return is no JSON")

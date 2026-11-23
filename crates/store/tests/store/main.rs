@@ -11,6 +11,7 @@ mod items;
 mod observations;
 mod only_added;
 mod opening;
+mod repair;
 mod round_trip;
 mod versions;
 
