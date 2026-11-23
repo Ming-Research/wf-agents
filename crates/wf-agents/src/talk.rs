@@ -2320,12 +2320,12 @@ mod tests {
             may_move: true,
         });
         let moves = "The engine also checks the other accounts and moves every work to the first one it finds well.";
-        let said = list(&waiting, &Listing::default());
+        let said = list(&waiting, &Listing::default(), 0);
         let first = said.lines().next().unwrap_or_default();
         assert_eq!(first.matches(moves).count(), 1, "{first}");
         assert!(first.contains("once it is well. The engine also checks"), "{first}");
         waiting.outage.as_mut().unwrap().may_move = false;
-        let said = list(&waiting, &Listing::default());
+        let said = list(&waiting, &Listing::default(), 0);
         assert!(!said.contains(moves), "{said}");
     }
 

@@ -58,7 +58,7 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
          wf-agents list --all\n"
     );
     assert_eq!(
-        engine.refuses(&["result", "1", "2", "No."]),
+        engine.refuses(&["let-go", "1", "--call", "2"]),
         "Call 2 has its result already.\n"
     );
     // A work that merged is not cancelled, and is not said to be.
