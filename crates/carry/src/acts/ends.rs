@@ -488,12 +488,20 @@ async fn a_head_moved_since_the_check_fails_the_merge_in_passing_and_is_written_
     let main = run(&repo.project.repo, &["rev-parse", "main"]);
     let after = commit(&place.dir, "weather.txt", "Sunny.\n");
     let acts = acts(&repo, Fake::new(&main));
+    // The work holds the turn, as after a check that passed: what lets it go is the merge's failure alone.
+    acts.inner.turn().holder = Some((WORK, Some(std::time::Instant::now())));
     let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
     let teller = RoundReply::new(WORK, RunId(5), to).teller();
     let merged = acts.inner.act(&merging(&checked), &teller, &mut Stop::never()).await;
     let Err(failed) = merged else {
         panic!("the merge went on over a head the check did not pass");
     };
+    // It gives up the turn, as the review comes first and may take long.
+    assert_eq!(
+        acts.inner.turn().holder,
+        None,
+        "the merge keeps no turn over a moved head"
+    );
     let said = fill(&super::words().merge.unreviewed, &[("head", &after)]);
     assert_eq!(failed, Failed::passing(said));
     assert_eq!(written_from_outside(&mut told), [("head".to_string(), after.clone())]);
@@ -569,16 +577,116 @@ async fn a_merge_that_cannot_read_the_works_branch_fails_its_round_as_the_check_
     // The branch is gone, as where a person deleted it.
     run(&repo.project.repo, &["update-ref", "-d", &place.reference()]);
     let acts = acts(&repo, Fake::new(&main));
+    // The work holds the turn, as after a check that passed: what lets it go is the merge's failure alone.
+    acts.inner.turn().holder = Some((WORK, Some(std::time::Instant::now())));
     let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
     let teller = RoundReply::new(WORK, RunId(5), to).teller();
     let merged = acts.inner.act(&round, &teller, &mut Stop::never()).await;
     let Err(failed) = merged else {
         panic!("the merge went on over a branch it could not read");
     };
+    assert_eq!(
+        acts.inner.turn().holder,
+        None,
+        "the merge keeps no turn over a branch it could not read"
+    );
     assert!(failed.why.contains(&place.reference()), "{failed:?}");
     assert_eq!(written_from_outside(&mut told), Vec::new());
     assert!(
         !(acts.inner.host.asked().iter()).any(|a| matches!(a, Asked::Merge(_))),
         "the host is asked to merge nothing"
     );
+}
+
+// A merge that cannot read what the work's latest check found fails its round and lets the merge's turn go, as it does
+// for a head that moved or a branch it cannot read: holding it, the work would keep every other work's check from
+// running. Well under a second alone: a repository on disk and the fake host; no other test holds the merge to a check
+// it cannot read.
+#[tokio::test]
+async fn a_merge_that_cannot_read_the_checks_result_fails_and_keeps_no_turn() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let place = repo.place(WORK);
+    let head = run(&repo.project.repo, &["rev-parse", &place.reference()]);
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    // The work's head as the merge reads it, and no check that passed it.
+    let round = merging(&head);
+    let acts = acts(&repo, Fake::new(&main));
+    acts.inner.turn().holder = Some((WORK, Some(std::time::Instant::now())));
+    let (to, _told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(5), to).teller();
+    let merged = acts.inner.act(&round, &teller, &mut Stop::never()).await;
+    assert!(merged.is_err(), "the merge went on with no check it could read");
+    assert!(
+        !(acts.inner.host.asked().iter()).any(|a| matches!(a, Asked::Merge(_))),
+        "the host is asked to merge nothing"
+    );
+    assert_eq!(acts.inner.turn().holder, None, "the merge keeps no turn");
+}
+
+// A merge refused for a moved main keeps the work's turn, for its check on main's new head, as after a check that
+// passed; one that merges lets it go. Well under a second alone: a repository on disk and the fake host; no other test
+// holds a refused or a made merge to the turn.
+#[tokio::test]
+async fn a_merge_refused_for_a_moved_main_keeps_the_turn_and_one_made_lets_it_go() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let place = repo.place(WORK);
+    let checked = run(&repo.project.repo, &["rev-parse", &place.reference()]);
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let round = merging_checked(&checked);
+    let moved = NotMerged::Moved {
+        main: "beef".to_string(),
+        checked: checked.clone(),
+    };
+    let refusing = acts(&repo, Fake::new(&main).refuses(moved));
+    let (to, _told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(5), to).teller();
+    let refused = refusing.inner.act(&round, &teller, &mut Stop::never()).await;
+    assert!(refused.is_err(), "refused for main having moved");
+    let holder = (refusing.inner.turn().holder).map(|(work, passed)| (work, passed.is_some()));
+    assert_eq!(
+        holder,
+        Some((WORK, true)),
+        "the work keeps its turn, as after a check that passed"
+    );
+    // Merged, the work lets the turn go.
+    let merging = acts(&repo, Fake::new(&main));
+    merging.inner.turn().holder = Some((WORK, Some(std::time::Instant::now())));
+    let (to, _told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(5), to).teller();
+    let merged = merging.inner.act(&round, &teller, &mut Stop::never()).await;
+    assert!(merged.is_ok(), "{:?}", merged.as_ref().err());
+    assert_eq!(merging.inner.turn().holder, None, "a merge made lets the turn go");
+}
+
+// A merge waits for the work's turn and asks the host to merge only once it has it: the work whose check passed may
+// have lost the turn since, paused or past its time. Well under a second alone: a repository on disk and the fake
+// host; no other test holds the merge to the turn.
+#[tokio::test]
+async fn a_merge_takes_the_turn_before_it_merges() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let place = repo.place(WORK);
+    let checked = run(&repo.project.repo, &["rev-parse", &place.reference()]);
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let round = merging_checked(&checked);
+    let waiting = acts(&repo, Fake::new(&main));
+    let other = WorkNumber(2);
+    waiting.inner.turn().holder = Some((other, None));
+    let (to, _told) = tokio::sync::mpsc::unbounded_channel();
+    let teller = RoundReply::new(WORK, RunId(5), to).teller();
+    // Once the merge waits for the turn, nothing is merged; then the other work lets the turn go.
+    let letting_go = async {
+        while !waiting.inner.turn().waiting.contains(&WORK) {
+            tokio::task::yield_now().await;
+        }
+        let asked = waiting.inner.host.asked();
+        assert!(!asked.iter().any(|a| matches!(a, Asked::Merge(_))), "{asked:?}");
+        waiting.inner.end_turn(other);
+    };
+    let mut stop = Stop::never();
+    let (merged, ()) = tokio::join!(waiting.inner.act(&round, &teller, &mut stop), letting_go);
+    assert!(merged.is_ok(), "{:?}", merged.as_ref().err());
+    assert_eq!(waiting.inner.host.asked().last(), Some(&Asked::Merge(Some(checked))));
 }
