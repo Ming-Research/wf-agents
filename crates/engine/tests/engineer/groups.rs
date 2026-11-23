@@ -43,7 +43,7 @@ fn blocks(names: &[&str]) -> Option<Vec<BlockId>> {
 fn planned() -> W {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
-    w.hands_in("R0", &[], Vec::new());
+    w.hands_in("R0", &[("tree_entries", None)], Vec::new());
     w.hands_in(
         "R1",
         &[

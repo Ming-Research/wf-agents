@@ -83,6 +83,7 @@ fn spec() -> Spec {
                 ("verdict".into(), standing(5, Some("yes"))),
             ]),
             waits: false,
+            hurried: false,
             questions: BTreeMap::new(),
         },
         answered_by: BTreeMap::new(),
