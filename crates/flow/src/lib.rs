@@ -27,12 +27,12 @@ pub mod source;
 pub mod system;
 
 pub use compile::{
-    ANSWER, Block, CellSpec, Compiled, EveryAgent, Fault, FaultKind, Given, Has, Limits, Line, Readers, Shape, TURNING,
-    Taken, WORDS, Watched, Writers, compile,
+    ANSWER, Block, CellSpec, Compiled, EveryAgent, Fault, FaultKind, Given, Has, Limits, Line, Readers, Shape, TREE,
+    TURNING, Taken, WORDS, Watched, Writers, compile,
 };
 pub use decide::{Test, TestKind};
 pub use outline::{Outline, Renumbering, reading};
 pub use source::{
     BLOCKS_DIR, CELLS_DIR, ChangedBy, DATA_DIR, Effort, FLOW_FILE, InputKind, Keys, Kind, LINES_DIR, Listed, OF_A_CELL,
-    OF_A_LINE, OWNER, RULES_DIR, Source, TESTS_DIR, Task, Texts, WHEN_TEST, read, rules_file, waits_file,
+    OWNER, RULES_DIR, Source, TESTS_DIR, Task, Texts, WHEN_TEST, read, rules_file, waits_file,
 };
