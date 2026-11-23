@@ -585,8 +585,9 @@ fn handed(block: &BlockId, cell: &str, matters: bool, value: Option<String>) -> 
 /// What the round of the run of the cell at this place returns that hands in these blocks. An agent's return names as
 /// dealt with each thing its round was told ran it, as its agent is told them (crate `context`), and is read as the
 /// agents' rounds read a return (`CellSpec::dealt_with`), a group by its own name; an act of the engine's
-/// names none, and deals with everything that ran its round.
-fn hands_in(d: &Driver, run: RunId, i: usize, writes: Vec<Handed>) -> Came {
+/// names none, and deals with everything that ran its round. Where that is the cell's own words, which the owner wrote,
+/// it answers them in the words, as the run's check requires of a return that names them.
+fn hands_in(d: &Driver, run: RunId, i: usize, mut writes: Vec<Handed>) -> Came {
     let spec = &d.flow.cells[i];
     if spec.kind == Kind::Engine {
         return Came::hands_in(writes);
@@ -595,6 +596,12 @@ fn hands_in(d: &Driver, run: RunId, i: usize, writes: Vec<Handed>) -> Came {
     let names: Vec<String> = spec.ran(&told.ran_by).map(|t| t.name.clone()).collect();
     let (dealt_with, none) = spec.dealt_with(&names);
     assert!(none.is_empty(), "{} watches none of {none:?}", spec.id);
+    if let Some(own) = spoken::words_of(&d.flow, &spec.id)
+        && dealt_with.contains(own)
+        && !writes.iter().any(|h| &h.block == own)
+    {
+        writes.push(handed(own, spec.id.as_str(), true, None));
+    }
     Came::works(dealt_with, writes)
 }
 
