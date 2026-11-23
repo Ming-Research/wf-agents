@@ -1,4 +1,4 @@
-//! The paths the project protects (`project.toml`, `[protected]`), as a work's change touches them (principle
+//! The paths the project protects (`[protected]` of its declaration), as a work's change touches them (principle
 //! `protected-files-are-the-owners`): the work says why each such change is needed, or takes it back, and the change
 //! waits at the merge for the owner's yes.
 //!

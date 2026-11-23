@@ -84,14 +84,20 @@ pub use tools::{QUERY, Querying, RUN_TESTS};
 
 /// The carriers of these settings, keeping what they keep in the data directory: the installation's id, the works'
 /// worktrees, and what each round was told and returned. The agents' rounds are told, and given the form of return,
-/// as what is written beside the flows says, with the declaration of the project of the work's item in place of the
-/// one beside them, and their system prompts are made from it ([`system`]).
+/// as what is written beside the flows says, and their system prompts are made from it with the declaration of the
+/// project of the work's item ([`system`]). A project whose declaration cannot be used is held, and its works are
+/// carried out in no way but a failed round that says why ([`projects::declared`]).
 ///
 /// Each project's acts and tools are carried out on the host its settings say: GitHub where they have a table for it,
 /// with the engine's token from its environment, and its local repository where they have none. The tokens of the
 /// accounts the agents run under are kept in the login keychain ([`keychain`]).
-pub fn carriers(settings: Settings, data: &Path, beside: flow::agents::Agents) -> Result<Carriers, String> {
-    carry(settings, data, beside).map(|(carriers, _)| carriers)
+pub fn carriers(
+    settings: Settings,
+    data: &Path,
+    beside: flow::agents::Agents,
+    flows: &[flow::Compiled],
+) -> Result<Carriers, String> {
+    carry(settings, data, beside, flows).map(|(carriers, _)| carriers)
 }
 
 /// The carriers [`carriers`] gives, the tokens of the accounts kept by what is given here in place of the login
@@ -100,9 +106,10 @@ pub fn carriers_keeping(
     settings: Settings,
     data: &Path,
     beside: flow::agents::Agents,
+    flows: &[flow::Compiled],
     tokens: Arc<dyn service::Tokens>,
 ) -> Result<Carriers, String> {
-    carry_keeping(settings, data, beside, Some(tokens)).map(|(carriers, _)| carriers)
+    carry_keeping(settings, data, beside, flows, Some(tokens)).map(|(carriers, _)| carriers)
 }
 
 /// The watch of main of a project's acts, with the project's name and the name of its main branch.
@@ -119,8 +126,9 @@ pub fn carry(
     settings: Settings,
     data: &Path,
     beside: flow::agents::Agents,
+    flows: &[flow::Compiled],
 ) -> Result<(Carriers, Vec<ProjectWatch>), String> {
-    carry_keeping(settings, data, beside, None)
+    carry_keeping(settings, data, beside, flows, None)
 }
 
 /// The carriers and the watches [`carry`] gives, the tokens of the accounts kept by what is given, or, with none, in
@@ -130,6 +138,7 @@ fn carry_keeping(
     settings: Settings,
     data: &Path,
     beside: flow::agents::Agents,
+    flows: &[flow::Compiled],
     tokens: Option<Arc<dyn service::Tokens>>,
 ) -> Result<(Carriers, Vec<ProjectWatch>), String> {
     let words = beside.acts.clone();
@@ -159,25 +168,39 @@ fn carry_keeping(
     let (mut acts, mut tools, mut watches, mut of) = (BTreeMap::new(), BTreeMap::new(), Vec::new(), BTreeMap::new());
     // The network reaches a project's host on GitHub, one look for every such project, and no network a local one.
     let mut host_look: Option<Arc<dyn service::Network>> = None;
-    let (declared, faults) = projects::declared(&settings, &beside);
+    let (declared, faults) = projects::declared(&settings, &beside, flows);
     if !faults.is_empty() {
         return Err(faults.join("; "));
     }
     for (name, declared) in declared {
+        // A project held for its declaration carries nothing out: its works fail with why, each round.
+        let declared = match declared {
+            Ok(declared) => declared,
+            Err(why) => {
+                acts.insert(name.clone(), Err(why.clone()));
+                tools.insert(name.clone(), Err(why.clone()));
+                of.insert(name, Err(why));
+                continue;
+            }
+        };
+        let declaration = declared.declaration;
         let mut project = declared.settings;
         project.commits = beside.commits.clone();
         let beside = declared.beside;
-        project.tree = beside.project.tree.clone();
+        project.tree = declaration.tree.clone();
         let tool = beside.tools.get(tools::RUN_TESTS).cloned();
         let said = tools::Said::of(&beside).map_err(|why| format!("projects.{name}: {why}"))?;
         // The check before the merge holds a change to what the project protects until the owner lets it merge.
         let protecting = acts::Protecting {
-            paths: beside.project.protected.paths.clone(),
+            paths: declaration.protected.paths.clone(),
             words: Some(beside.asks.protected.clone()),
         };
         let (rounds, answers, watch, main) = match &project.github {
             None => {
-                let host = host::Local::new(project.clone())
+                let check = (declaration.local.as_ref())
+                    .map(|local| local.check.clone())
+                    .ok_or_else(|| format!("projects.{name}: {} has no [local] check", flow::agents::DECLARATION))?;
+                let host = host::Local::new(project.clone(), check)
                     .giving(settings.agents.env.clone())
                     .saying(tool.as_ref());
                 on(
@@ -192,10 +215,13 @@ fn carry_keeping(
             }
             Some(github) => {
                 let env = |name: &str| std::env::var(name).ok();
-                let ci = beside.project.ci.clone();
+                let ci = declaration.ci.clone();
+                let merging = (declaration.pull_request.as_ref())
+                    .ok_or_else(|| format!("projects.{name}: {} has no [pull_request]", flow::agents::DECLARATION))?;
                 let hosting = (tool.clone(), Some(words.check.clone()), beside.pull_request.clone());
-                let host = host::GitHub::from_settings(github, &project, &data, installation, env, ci, hosting)
-                    .map_err(|why| format!("projects.{name}: {why}"))?;
+                let host =
+                    host::GitHub::from_settings(github, &project, &data, installation, env, (ci, merging), hosting)
+                        .map_err(|why| format!("projects.{name}: {why}"))?;
                 let look = (host_look.get_or_insert_with(|| Arc::new(failure::LookAt(host::github::LOOK.to_string()))))
                     .clone();
                 on(
@@ -209,14 +235,14 @@ fn carry_keeping(
                 )
             }
         };
-        acts.insert(name.clone(), rounds);
-        tools.insert(name.clone(), answers);
+        acts.insert(name.clone(), Ok(rounds));
+        tools.insert(name.clone(), Ok(answers));
         watches.push(ProjectWatch {
             project: name.clone(),
             main: project.main.clone(),
             watch,
         });
-        of.insert(name, agents::Of::new(&settings, project, beside, main));
+        of.insert(name, Ok(agents::Of::new(&settings, project, beside, declaration, main)));
     }
     let slots = settings.agents.slots;
     let outside = outside::Check::of(&settings, &beside.cost, tokens.clone(), &profile)?;
@@ -304,18 +330,26 @@ mod tests {
     }
 
     #[test]
-    fn the_project_declares_its_two_workflows_and_where_its_tests_are() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
-        let project = flow::agents::read(&root)
-            .expect("what is written beside the flows is read")
-            .project;
+    fn the_project_declares_its_two_workflows_how_it_merges_and_where_its_tests_are() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let beside = flow::agents::read(&root.join("flow")).expect("what is written beside the flows is read");
+        let text = std::fs::read_to_string(root.join(flow::agents::DECLARATION)).expect("the declaration is read");
+        let project = flow::agents::Declaration::read(&text, flow::agents::DECLARATION, &beside)
+            .expect("the repository's own declaration is one");
         let ci = project.ci.expect("it declares its workflows");
-        assert_eq!(ci.fast.workflow, "fast.yml");
+        assert_eq!(
+            (ci.fast.workflow.as_str(), ci.fast.too_long.as_str()),
+            ("fast.yml", "2h")
+        );
         let full = ci.full;
         assert_eq!(
             (full.workflows.as_slice(), full.too_long.as_str()),
             (&["ci.yml".to_string()][..], "2h")
         );
+        let pull = project
+            .pull_request
+            .expect("it declares how its pull requests are merged");
+        assert_eq!((pull.merge_method.as_str(), pull.delete_branch), ("squash", false));
         let tests = project.tests.expect("it declares its tests");
         assert!(!tests.paths.is_empty() && !tests.expected.is_empty());
     }

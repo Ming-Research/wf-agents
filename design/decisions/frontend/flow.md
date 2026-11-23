@@ -97,6 +97,10 @@ An agent cell's panel lists in one column what its agent is sent, numbered in th
 - rejected: an agent proposed laying out the panel in two columns, what goes in and what comes out, in blocks with a look of their own; the owner rejected it, because the window is narrow and the whole page has one look.
 - replaced: A picker for how the cell is entered, showing the message each case would send, was on main; the owner changed it, because that is a test's job, and picking on the page changed nothing.
 
+### decision a-cells-panel-says-what-it-did-not-check-without-a-declaration
+Where the page reads no declaration of the project, a cell's panel says in a part of its own that it did not check the project's setting names and files, and why.
+- replaced: The page checking the project's setting names and files against a declaration beside the flows was on main; the owner changed it, because no declaration stands beside the flows now, and names left unchecked must not look checked.
+
 ### decision the-form-is-drawn-as-a-tree
 A cell's panel draws each of the three parts of a return's form as a tree in one column; a press folds a node, and where a node holds one of several, each is in a box with an `or` line between.
 - rejected: an agent proposed two columns, made-up names for the alternatives, a legend, and lines down each opened node; the owner rejected it, because a box with an `or` line shows the alternatives plainly, as the old system did, and the lines were an eyesore.

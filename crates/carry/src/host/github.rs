@@ -48,7 +48,6 @@ use store::Continues;
 use uuid::Uuid;
 
 pub use api::{Api, Pull, State};
-pub use fast::limit_faults;
 pub use gh::{Gh, GhOffsite, UPLOAD_RATE};
 
 use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict, continuing};
@@ -79,8 +78,6 @@ pub struct Config {
     pub remote: String,
     /// How long a workflow's run may be unlisted or queued before the CI is taken never to have started.
     pub start: Duration,
-    /// How long the CI may take before it is given up.
-    pub timeout: Duration,
     /// How a pull request is merged: `squash`, `merge` or `rebase`.
     pub merge_method: String,
     /// Whether the work's branch on GitHub is deleted once it is merged.
@@ -114,7 +111,6 @@ impl std::fmt::Debug for Config {
             .field("url", &self.url)
             .field("remote", &self.remote)
             .field("start", &self.start)
-            .field("timeout", &self.timeout)
             .field("merge_method", &self.merge_method)
             .field("delete_branch", &self.delete_branch)
             .field("ci", &self.ci)
@@ -142,16 +138,17 @@ const TOKEN: &str = "WF_AGENTS_GITHUB_TOKEN";
 const GITHUB: &str = "github.com";
 
 impl GitHub<Gh> {
-    /// GitHub as the installation's settings and the project's declaration say, for the installation of this id,
-    /// reached with `gh` and the engine's token, which `env` gives from the engine's environment; `gh` keeps its
-    /// configuration in the data directory, which is an absolute path. Says why where the token is not there.
+    /// GitHub as the installation's settings and the project's declaration say (its workflows `ci` and how its pull
+    /// requests are merged, `merging`), for the installation of this id, reached with `gh` and the engine's token, which
+    /// `env` gives from the engine's environment; `gh` keeps its configuration in the data directory, which is an
+    /// absolute path. Says why where the token is not there.
     pub fn from_settings(
         github: &settings::GitHub,
         project: &Project,
         data: &Path,
         installation: Uuid,
         env: impl Fn(&str) -> Option<String>,
-        ci: Option<flow::agents::Ci>,
+        (ci, merging): (Option<flow::agents::Ci>, &flow::agents::Merging),
         (tool, check, words): (
             Option<flow::agents::Tool>,
             Option<flow::agents::Check>,
@@ -170,9 +167,8 @@ impl GitHub<Gh> {
             url: github.url(),
             remote: github.remote.clone(),
             start: Duration::from_secs(github.start_minutes * 60),
-            timeout: Duration::from_secs(github.timeout_minutes * 60),
-            merge_method: github.merge_method.clone(),
-            delete_branch: github.delete_branch,
+            merge_method: merging.merge_method.clone(),
+            delete_branch: merging.delete_branch,
             ci,
             runners: github.runners.clone(),
             tool,

@@ -4,11 +4,21 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use flow::InputKind;
-use flow::agents::{self, OfTheLine, OfTheReturn, Only, Part, SessionPart, ToldAs};
+use flow::agents::{self, Declaration, OfTheLine, OfTheReturn, Only, Part, SessionPart, ToldAs};
 
 /// The directory of the tests' flows, beside which the files are.
 fn beside() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/project")
+}
+
+/// The text of the declaration of the tests' project.
+fn declaration_text() -> String {
+    fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/declaration/wf-agents.toml")).unwrap()
+}
+
+/// A declaration as the engine reads a project's: from its text, against the files beside the tests' flows.
+fn declared(text: &str) -> Result<Declaration, String> {
+    Declaration::read(text, "main:wf-agents.toml", &agents::read(&beside()).unwrap())
 }
 
 /// A copy of the files beside the flows, in a directory of the test's own, which the test may change.
@@ -35,10 +45,7 @@ fn copy(name: &str) -> PathBuf {
 fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows() {
     let read = agents::read(&beside()).unwrap();
     assert_eq!(read.root, beside());
-    assert_eq!(read.project.files["guide"].path, "AGENTS.md");
-    assert_eq!(read.project.files["constitution"].path, "design/constitution.md");
     assert_eq!(read.installation.names, ["owner.language"]);
-    assert_eq!(read.project.project["research"], "research/");
 
     let parts: Vec<String> = (read.session.parts.iter())
         .map(|part| match part {
@@ -97,7 +104,6 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
         read.sent_back.faults.not_answerable,
         "`{name}` cannot be answered here."
     );
-    assert_eq!(read.project.protected.paths, ["AGENTS.md", "flow/"]);
     assert_eq!(read.asks.protected.name, "protected_files");
     assert_eq!(read.asks.protected.options.len(), 2);
     assert_eq!(
@@ -187,6 +193,70 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
 }
 
 #[test]
+fn a_project_declares_its_files_settings_protection_and_heavy_commands_in_its_own_file() {
+    let declaration = declared(&declaration_text()).unwrap();
+    assert_eq!(declaration.files["guide"].path, "AGENTS.md");
+    assert_eq!(declaration.files["constitution"].path, "design/constitution.md");
+    assert_eq!(declaration.project["research"], "research/");
+    assert_eq!(declaration.protected.paths, ["AGENTS.md", "flow/"]);
+    assert_eq!(declaration.heavy.commands, ["cargo", "npm"]);
+    assert!(declaration.heavy.locks.is_empty() && declaration.heavy.locks_except.is_empty());
+    assert!(declaration.local.is_none() && declaration.pull_request.is_none() && declaration.ci.is_none());
+}
+
+// What the installation held of a project is the project's now: the lock commands, the command that checks it where
+// its repository is the host, and how its pull requests are merged where GitHub is.
+#[test]
+fn what_the_installation_once_held_of_a_project_is_read_from_its_declaration() {
+    let text = declaration_text().replace(
+        "commands = [\"cargo\", \"npm\"]",
+        "commands = [\"cargo\", \"npm\"]\nlocks = [\"cargo update\"]\nlocks_except = [\"cargo update *--git*\"]",
+    );
+    let declaration = declared(&format!(
+        "{text}\n[local]\ncheck = \"./test.sh\"\n\n[pull_request]\nmerge_method = \"rebase\"\ndelete_branch = true\n"
+    ))
+    .unwrap();
+    assert_eq!(declaration.heavy.locks, ["cargo update"]);
+    assert_eq!(declaration.heavy.locks_except, ["cargo update *--git*"]);
+    assert_eq!(declaration.local.expect("the check").check, "./test.sh");
+    let pull = declaration.pull_request.expect("how it merges");
+    assert_eq!((pull.merge_method.as_str(), pull.delete_branch), ("rebase", true));
+}
+
+// A merge method the host does not take, a check that names no command, a key the declaration does not know and a
+// declaration that lacks its heavy commands are refused, each said with where the declaration was read.
+#[test]
+fn a_declaration_that_the_host_could_not_use_is_refused_with_where_it_was_read() {
+    let text = declaration_text();
+    for (what, wrong, said) in [
+        (
+            "merge method",
+            format!("{text}\n[pull_request]\nmerge_method = \"fast\"\ndelete_branch = false\n"),
+            "pull_request.merge_method: one of squash, merge, rebase, not \"fast\"",
+        ),
+        (
+            "check",
+            format!("{text}\n[local]\ncheck = \" \"\n"),
+            "local.check: names a command",
+        ),
+        (
+            "unknown key",
+            format!("{text}\n[pull_request]\nmerge_method = \"squash\"\ndelete_branch = false\nlabel = \"x\"\n"),
+            "unknown field `label`",
+        ),
+        (
+            "heavy",
+            text.replace("\n[heavy]\ncommands = [\"cargo\", \"npm\"]\n", ""),
+            "missing field `heavy`",
+        ),
+    ] {
+        let refused = declared(&wrong).expect_err(what);
+        assert!(refused.starts_with("main:wf-agents.toml: "), "{what}: {refused}");
+        assert!(refused.contains(said), "{what}: {refused}");
+    }
+}
+
+#[test]
 fn what_the_engine_writes_as_it_works_is_read_alone_as_read_reads_it() {
     let read = agents::read(&beside()).unwrap();
     let writes = agents::writes(&beside()).unwrap();
@@ -233,55 +303,68 @@ fn a_field_a_file_does_not_know_is_refused_with_the_path_of_its_file() {
 }
 
 // A declaration names the variables its toolchain reads, none where it needs none, as it names its heavy commands: one
-// that leaves `[environment]` out is refused with the path of its file, rather than taken to need none; one that names
+// that leaves `[environment]` out is refused with where it was read, rather than taken to need none; one that names
 // them is read. Well under a millisecond alone, and no other test holds that the table is required.
 #[test]
-fn a_declaration_that_lacks_its_environment_is_refused_with_the_path_of_its_file() {
-    let dir = copy("environment");
-    let project = dir.join("project.toml");
-    let text = fs::read_to_string(&project).unwrap();
+fn a_declaration_that_lacks_its_environment_is_refused_with_where_it_was_read() {
+    let text = declaration_text();
     let (before, _) = text
         .split_once("\n[environment]\n")
         .expect("the fixture names its environment");
-    fs::write(&project, before).unwrap();
-    let refused = agents::read(&dir).unwrap_err();
-    assert!(refused.contains(&project.display().to_string()), "{refused}");
+    let refused = declared(before).unwrap_err();
+    assert!(refused.starts_with("main:wf-agents.toml: "), "{refused}");
     assert!(refused.contains("missing field `environment`"), "{refused}");
-    fs::write(&project, format!("{before}\n[environment]\n")).unwrap();
-    let none = agents::read(&dir).unwrap();
-    assert!(none.project.environment.is_empty());
-    fs::write(&project, text).unwrap();
-    let read = agents::read(&dir).unwrap();
-    fs::remove_dir_all(&dir).unwrap();
+    let none = declared(&format!("{before}\n[environment]\n")).unwrap();
+    assert!(none.environment.is_empty());
+    let read = declared(&text).unwrap();
     assert_eq!(
-        read.project.environment.get("RUSTUP_AUTO_INSTALL").map(String::as_str),
+        read.environment.get("RUSTUP_AUTO_INSTALL").map(String::as_str),
         Some("0")
     );
 }
 
-// A project that declares `[ci]` declares both workflows: `run_tests` runs only the fast one and the check before the
-// merge only the full ones, so a declaration with one of them leaves one of the two with nothing to run.
+// A time a declaration gives, as a workflow's limit, is read in seconds, minutes, hours or days. It moved here from the
+// host of GitHub, where the declaration's limit is read now by the one function that reads it for both the fast and
+// the full workflows.
 #[test]
-fn a_declaration_of_ci_that_lacks_one_of_its_two_workflows_is_refused_with_the_path_of_its_file() {
-    let dir = copy("ci");
-    let project = dir.join("project.toml");
-    let text = fs::read_to_string(&project).unwrap();
-    let fast = "\n[ci.fast]\nworkflow = \"fast.yml\"\nrunner = \"github\"\n";
+fn a_time_is_read_in_seconds_minutes_hours_or_days() {
+    use std::time::Duration;
+    assert_eq!(agents::span("30s").unwrap(), Duration::from_secs(30));
+    assert_eq!(agents::span("90m").unwrap(), Duration::from_secs(5400));
+    assert_eq!(agents::span("2h").unwrap(), Duration::from_secs(7200));
+    assert_eq!(agents::span("1d").unwrap(), Duration::from_secs(86_400));
+    for wrong in ["", "h", "2", "2 weeks", "-1h"] {
+        assert!(agents::span(wrong).is_err(), "{wrong:?}");
+    }
+}
+
+// A project that declares `[ci]` declares both workflows: `run_tests` runs only the fast one and the check before the
+// merge only the full ones, so a declaration with one of them leaves one of the two with nothing to run; and each has
+// the time it may take.
+#[test]
+fn a_declaration_of_ci_that_lacks_one_of_its_two_workflows_or_a_time_limit_is_refused_with_where_it_was_read() {
+    let text = declaration_text();
+    let fast = "\n[ci.fast]\nworkflow = \"fast.yml\"\nrunner = \"github\"\ntoo_long = \"2h\"\n";
     let full = "\n[ci.full]\nworkflows = [\"ci.yml\"]\nrunner = \"github\"\ntoo_long = \"2h\"\n";
-    fs::write(&project, format!("{text}{fast}")).unwrap();
-    let refused = agents::read(&dir).unwrap_err();
-    assert!(refused.contains(&project.display().to_string()), "{refused}");
+    let refused = declared(&format!("{text}{fast}")).unwrap_err();
+    assert!(refused.starts_with("main:wf-agents.toml: "), "{refused}");
     assert!(refused.contains("missing field `full`"), "{refused}");
-    fs::write(&project, format!("{text}{full}")).unwrap();
-    let refused = agents::read(&dir).unwrap_err();
+    let refused = declared(&format!("{text}{full}")).unwrap_err();
     assert!(refused.contains("missing field `fast`"), "{refused}");
-    fs::write(&project, format!("{text}{fast}{full}")).unwrap();
-    let read = agents::read(&dir).unwrap();
-    fs::remove_dir_all(&dir).unwrap();
-    let ci = read.project.ci.expect("it declares both");
+    let unlimited = fast.replace("too_long = \"2h\"\n", "");
+    let refused = declared(&format!("{text}{unlimited}{full}")).unwrap_err();
+    assert!(refused.contains("missing field `too_long`"), "{refused}");
+    let ci = declared(&format!("{text}{fast}{full}"))
+        .unwrap()
+        .ci
+        .expect("it declares both");
     assert_eq!(
-        (ci.fast.workflow.as_str(), ci.full.workflows.as_slice()),
-        ("fast.yml", &["ci.yml".to_string()][..])
+        (
+            ci.fast.workflow.as_str(),
+            ci.fast.too_long.as_str(),
+            ci.full.workflows.as_slice()
+        ),
+        ("fast.yml", "2h", &["ci.yml".to_string()][..])
     );
 }
 
@@ -291,19 +374,26 @@ fn a_declaration_of_ci_that_lacks_one_of_its_two_workflows_is_refused_with_the_p
 // alone; no other test holds the measure workflow's declaration.
 #[test]
 fn a_declaration_may_name_a_measure_workflow_which_says_how_long_a_run_may_take() {
-    let dir = copy("measure");
-    let project = dir.join("project.toml");
-    let text = fs::read_to_string(&project).unwrap();
-    let fast = "\n[ci.fast]\nworkflow = \"fast.yml\"\nrunner = \"github\"\n";
+    let text = declaration_text();
+    let fast = "\n[ci.fast]\nworkflow = \"fast.yml\"\nrunner = \"github\"\ntoo_long = \"2h\"\n";
     let full = "\n[ci.full]\nworkflows = [\"ci.yml\"]\nrunner = \"github\"\ntoo_long = \"2h\"\n";
     let measure = "\n[ci.measure]\nworkflow = \"measure.yml\"\nrunner = \"14900k\"\ntoo_long = \"30m\"\n";
-    fs::write(&project, format!("{text}{fast}{full}")).unwrap();
-    assert_eq!(agents::read(&dir).unwrap().project.ci.expect("both").measure, None);
-    fs::write(&project, format!("{text}{fast}{full}{measure}")).unwrap();
-    let declared = agents::read(&dir).unwrap().project.ci.expect("all three").measure;
+    assert_eq!(
+        declared(&format!("{text}{fast}{full}"))
+            .unwrap()
+            .ci
+            .expect("both")
+            .measure,
+        None
+    );
+    let named = declared(&format!("{text}{fast}{full}{measure}"))
+        .unwrap()
+        .ci
+        .expect("all three")
+        .measure;
     let text_of = |s: &str| s.to_string();
     assert_eq!(
-        declared,
+        named,
         Some(agents::CiMeasure {
             workflow: text_of("measure.yml"),
             runner: text_of("14900k"),
@@ -316,27 +406,24 @@ fn a_declaration_may_name_a_measure_workflow_which_says_how_long_a_run_may_take(
         })
     );
     let lacking = "\n[ci.measure]\nworkflow = \"measure.yml\"\nrunner = \"14900k\"\n";
-    fs::write(&project, format!("{text}{fast}{full}{lacking}")).unwrap();
-    let refused = agents::read(&dir).unwrap_err();
+    let refused = declared(&format!("{text}{fast}{full}{lacking}")).unwrap_err();
     assert!(refused.contains("missing field `too_long`"), "{refused}");
-    fs::write(&project, format!("{text}{measure}")).unwrap();
-    let refused = agents::read(&dir).unwrap_err();
+    let refused = declared(&format!("{text}{measure}")).unwrap_err();
     assert!(refused.contains("missing field `fast`"), "{refused}");
-    fs::remove_dir_all(&dir).unwrap();
+    let unreadable = measure.replace("30m", "soon");
+    let refused = declared(&format!("{text}{fast}{full}{unreadable}")).unwrap_err();
+    assert!(refused.contains("ci.measure.too_long"), "{refused}");
 }
 
 // How an entry of the design tree is found is the project's: a `[tree_format]` that names no kind, or whose heading or
 // reference lacks the place of the kind or of the name, could find no entry, and is refused as the declaration is
-// read, beside the flows or on the project's main, with where it was read; one that holds both is taken as written.
+// read, with where it was read; one that holds both is taken as written.
 #[test]
 fn a_format_of_the_tree_that_could_find_no_entry_is_refused_as_the_declaration_is_read_with_where_it_was_read() {
-    let dir = copy("tree-format");
-    let project = dir.join("project.toml");
-    let text = fs::read_to_string(&project).unwrap();
+    let text = declaration_text();
     let wrong = "\n[tree_format]\nkinds = []\nheading = \"## {kind}\"\nreference = \"{name}\"\n";
-    fs::write(&project, format!("{text}{wrong}")).unwrap();
-    let refused = agents::read(&dir).unwrap_err();
-    assert!(refused.contains(&project.display().to_string()), "{refused}");
+    let refused = declared(&format!("{text}{wrong}")).unwrap_err();
+    assert!(refused.starts_with("main:wf-agents.toml: "), "{refused}");
     for fault in [
         "tree_format.kinds names no kind",
         "tree_format.heading must hold {name}",
@@ -345,20 +432,17 @@ fn a_format_of_the_tree_that_could_find_no_entry_is_refused_as_the_declaration_i
         assert!(refused.contains(fault), "{fault} is not in: {refused}");
     }
     let empty = "\n[tree_format]\nkinds = [{ kind = \"rule\", dir = \"\" }]\nheading = \"## {kind}: {name}\"\nreference = \"{kind} {name}\"\n";
-    let declared = agents::read(&beside())
-        .unwrap()
-        .declared(&format!("{text}{empty}"), "main:flow/project.toml");
-    let refused = declared.expect_err("a kind with no directory is refused");
-    assert!(refused.starts_with("main:flow/project.toml: "), "{refused}");
+    let refused = declared(&format!("{text}{empty}")).expect_err("a kind with no directory is refused");
+    assert!(refused.starts_with("main:wf-agents.toml: "), "{refused}");
     assert!(
         refused.contains("tree_format.kinds[0] must give a kind and a directory"),
         "{refused}"
     );
     let right = "\n[tree_format]\nkinds = [{ kind = \"rule\", dir = \"rules/\" }]\nheading = \"## {kind}: {name}\"\nreference = \"{kind} {name}\"\n";
-    fs::write(&project, format!("{text}{right}")).unwrap();
-    let read = agents::read(&dir).unwrap();
-    fs::remove_dir_all(&dir).unwrap();
-    let format = read.project.tree_format.expect("the format is read");
+    let format = declared(&format!("{text}{right}"))
+        .unwrap()
+        .tree_format
+        .expect("the format is read");
     assert_eq!(format.heading_of("## rule: keep-it  "), Some(("rule", "keep-it")));
     assert_eq!(format.heading_of("### rule: keep-it"), None);
     assert_eq!(format.referred("  rule keep-it "), Some(("rule", "keep-it")));
@@ -410,7 +494,7 @@ fn a_file_that_is_named_and_not_there_is_refused_with_its_path() {
 }
 
 #[test]
-fn a_file_of_the_project_the_session_names_is_one_project_toml_has() {
+fn a_file_of_the_project_the_session_names_is_one_its_declaration_has() {
     let dir = copy("project");
     let session = dir.join("agents/session.toml");
     let text = fs::read_to_string(&session).unwrap();
@@ -419,10 +503,12 @@ fn a_file_of_the_project_the_session_names_is_one_project_toml_has() {
         text.replace("{ project = \"constitution\" }", "{ project = \"charter\" }"),
     )
     .unwrap();
-    let refused = agents::read(&dir).unwrap_err();
+    let read = agents::read(&dir).expect("the files beside the flows do not know the project's files");
     fs::remove_dir_all(&dir).unwrap();
+    let refused = Declaration::read(&declaration_text(), "main:wf-agents.toml", &read).unwrap_err();
+    assert!(refused.starts_with("main:wf-agents.toml: "), "{refused}");
+    assert!(refused.contains("has no file charter"), "{refused}");
     assert!(refused.contains(&session.display().to_string()), "{refused}");
-    assert!(refused.contains("charter"), "{refused}");
 }
 
 #[test]
@@ -751,4 +837,110 @@ fn the_first_message_of_a_fork_in_the_repositorys_flow_is_not_blank() {
     let read = agents::read(&root).expect("the files beside the repository's flows are read");
     let first = &read.cost.fork.first;
     assert!(!first.trim().is_empty(), "a blank message is sent first");
+}
+
+// A time is the seconds its number and its unit make, as arithmetic gives them. A number of days, hours or minutes whose
+// seconds do not fit in 64 bits is no time the engine can wait for: it is refused, where it would stop the engine with
+// an overflow (a debug build) or wrap to a short time (a release build). A project's declaration is written by agents,
+// and one that cannot be used holds its project; it never stops the engine. Reference: u64::MAX is 18446744073709551615,
+// and 213503982334602 days, 5124095576030432 hours and 307445734561825861 minutes each make more seconds than that;
+// the next lower number of each makes fewer. Milliseconds.
+#[test]
+fn a_time_whose_seconds_do_not_fit_is_refused_and_one_that_just_fits_is_read() {
+    use std::time::Duration;
+    assert_eq!(
+        agents::span("213503982334601d").unwrap(),
+        Duration::from_secs(213_503_982_334_601 * 86_400)
+    );
+    assert_eq!(
+        agents::span("5124095576030431h").unwrap(),
+        Duration::from_secs(5_124_095_576_030_431 * 3600)
+    );
+    assert_eq!(
+        agents::span("307445734561825860m").unwrap(),
+        Duration::from_secs(307_445_734_561_825_860 * 60)
+    );
+    for wrong in [
+        "213503982334602d",
+        "5124095576030432h",
+        "307445734561825861m",
+        "18446744073709551616s",
+    ] {
+        assert!(agents::span(wrong).is_err(), "{wrong:?} is no time");
+    }
+    // Through the declaration: the fast workflow's limit that is none is refused with its key, and one that is a time
+    // is read.
+    let text = declaration_text();
+    let ci = |fast: &str| {
+        format!(
+            "{text}\n[ci.fast]\nworkflow = \"fast.yml\"\nrunner = \"github\"\ntoo_long = \"{fast}\"\n\n[ci.full]\n\
+             workflows = [\"ci.yml\"]\nrunner = \"github\"\ntoo_long = \"2h\"\n"
+        )
+    };
+    assert!(declared(&ci("2h")).is_ok());
+    let refused = declared(&ci("213503982334602d")).unwrap_err();
+    assert!(refused.contains("ci.fast.too_long"), "{refused}");
+}
+
+// A declaration whose lock commands are misspelled, or are not a list, is refused, where a declaration that leaves them
+// out names none: a misspelled key taken for none would leave an agent that writes unable to update a lock file with no
+// word of why, and a merge method or branch deletion of the wrong spelling or type would be taken for another. Reference:
+// the declaration's own table of keys (`Heavy`, `Merging`), and TOML's types. Milliseconds.
+#[test]
+fn a_misspelled_or_mistyped_lock_merge_or_deletion_setting_is_refused_not_taken_for_none() {
+    let text = declaration_text();
+    let heavy = "commands = [\"cargo\", \"npm\"]";
+    let pull = "\n[pull_request]\n";
+    for (what, wrong, said) in [
+        (
+            "misspelled locks",
+            text.replace(heavy, &format!("{heavy}\nlock = [\"cargo update\"]")),
+            "unknown field `lock`",
+        ),
+        (
+            "misspelled locks_except",
+            text.replace(heavy, &format!("{heavy}\nlock_except = [\"cargo update *\"]")),
+            "unknown field `lock_except`",
+        ),
+        (
+            "locks a string",
+            text.replace(heavy, &format!("{heavy}\nlocks = \"cargo update\"")),
+            "invalid type",
+        ),
+        (
+            "locks_except a string",
+            text.replace(heavy, &format!("{heavy}\nlocks_except = \"cargo update *\"")),
+            "invalid type",
+        ),
+        (
+            "merge method of another case",
+            format!("{text}{pull}merge_method = \"Squash\"\ndelete_branch = false\n"),
+            "pull_request.merge_method: one of squash, merge, rebase, not \"Squash\"",
+        ),
+        (
+            "merge method empty",
+            format!("{text}{pull}merge_method = \"\"\ndelete_branch = false\n"),
+            "pull_request.merge_method: one of squash, merge, rebase, not \"\"",
+        ),
+        (
+            "deletion a string",
+            format!("{text}{pull}merge_method = \"squash\"\ndelete_branch = \"false\"\n"),
+            "invalid type",
+        ),
+        (
+            "deletion left out",
+            format!("{text}{pull}merge_method = \"squash\"\n"),
+            "missing field `delete_branch`",
+        ),
+        (
+            "merge method left out",
+            format!("{text}{pull}delete_branch = false\n"),
+            "missing field `merge_method`",
+        ),
+        ("check left out", format!("{text}\n[local]\n"), "missing field `check`"),
+    ] {
+        let refused = declared(&wrong).expect_err(what);
+        assert!(refused.starts_with("main:wf-agents.toml: "), "{what}: {refused}");
+        assert!(refused.contains(said), "{what}: {refused}");
+    }
 }

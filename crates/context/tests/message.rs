@@ -965,7 +965,7 @@ fn a_version_that_says_what_an_earlier_one_said_is_new_and_sent_and_no_repeat() 
 fn a_setting_the_task_what_a_cell_does_for_a_datum_or_a_block_s_words_name_is_sent_with_its_value_beside_it() {
     let mut sim = Sim::new();
     let language = |key: &str| (key == "owner.language").then(|| "Chinese".to_string());
-    sim.named = flow::system::Settings::of(&sim.words.project, &sim.words.installation, language);
+    sim.named = flow::system::Settings::of(None, &sim.words.installation, language);
     let code = sim.flow.blocks.get_mut(&BlockId::from("code")).expect("the code");
     code.what = Some("The code, its comments in `owner.language`.".to_string());
     let build = (sim.flow.cells.iter_mut())
