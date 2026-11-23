@@ -4,6 +4,7 @@
 
 mod support;
 
+use context::message::NewVersions;
 use context::text::as_written;
 use context::{Entered, Main, Stands, Values};
 use decide::Outsider;
@@ -213,6 +214,58 @@ fn a_datum_s_second_version_is_told_as_version_2_whatever_was_written_between_it
         text.contains("\n- `plan`, new since version 1, version 2 changed its meaning"),
         "{text}"
     );
+}
+
+// The line of a datum new to the cell says the version the cell last consumed where it consumed one, and each version
+// new to it that changed its meaning, joined, as the words beside the flows say them; where none did it says no more
+// (design document `data-and-context`, 11). The same message is built from the numbers the cell is told, each way they
+// can stand.
+#[test]
+fn a_datum_s_line_names_each_version_that_changed_the_meaning_and_no_clause_where_none_did() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    let round = sim.round().expect("the plan is entered");
+    let entered = sim.enter(&round, false);
+    let told = |last: Option<u64>, changed: &[u64]| {
+        let mut run = entered.run.clone();
+        let new = NewVersions {
+            last,
+            changed: changed.to_vec(),
+        };
+        run.new.insert("request".to_string(), new);
+        let cell = sim.cell(&round);
+        let sent = context::message(&sim.flow, &sim.words, cell, &entered.situation, Values::Run(&run));
+        context::message::text(&sent)
+    };
+    let after = "\n\nName in `dealt_with` each of these you have dealt with.\n";
+    let cases: [(Option<u64>, &[u64], &str); 5] = [
+        (None, &[1], "\n- `request`, version 1 changed its meaning"),
+        (
+            None,
+            &[1, 3, 4],
+            "\n- `request`, versions 1, 3, 4 changed their meaning",
+        ),
+        (
+            Some(2),
+            &[3],
+            "\n- `request`, new since version 2, version 3 changed its meaning",
+        ),
+        (
+            Some(2),
+            &[3, 5],
+            "\n- `request`, new since version 2, versions 3, 5 changed their meaning",
+        ),
+        (Some(2), &[], "\n- `request`, new since version 2"),
+    ];
+    for (last, changed, line) in cases {
+        let text = told(last, changed);
+        assert!(
+            text.ends_with(&format!("{line}{after}")),
+            "{last:?} {changed:?}: {text}"
+        );
+    }
+    let text = told(None, &[]);
+    assert!(text.ends_with(&format!("\n- `request`{after}")), "{text}");
 }
 
 #[test]
