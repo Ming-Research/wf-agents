@@ -6,9 +6,10 @@
 //!
 //! - [`Local`]: the local repository is the host: its own main branch, the project's check command, and a merge in its
 //!   checkout; an agent's check runs the command on the worktree as it stands.
-//! - [`GitHub`]: the repository on GitHub is the host: its main branch, the CI of the work's pull request, and the
-//!   pull request's merge; an agent's `run_tests` runs the tests it names by the fast workflow, on the commit it names or
-//!   else the last commit of its work's branch, which the engine pushes to a branch of its own.
+//! - [`GitHub`]: the repository on GitHub is the host: its main branch, the full workflows the engine runs by hand on
+//!   the commit that its pull request merges, and that merge; an agent's `run_tests` runs the tests it names by the
+//!   fast workflow, on the commit it names or else the last commit of its work's branch, which the engine pushes to a
+//!   branch of its own.
 //! - `fake`: a host for the tests, which gives what it is told to.
 //!
 //! Each operation can be asked again after the engine started again, and finds what it did already rather than doing

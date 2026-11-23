@@ -7,7 +7,9 @@ name: ci
 # the engine asks it for. The engine dispatches it by hand on main's file, with the commit to test and a value only its
 # request knows, which the run's name holds, and judges the run by the jobs' conclusions and
 # by the JUnit of every test in the artifact `test-results`: nextest's of each third of the Rust tests and vitest's of
-# the page's, each in a file named by its job. It runs on each pull request into `main` and on each push to `main` as well.
+# the page's, each in a file named by its job. It runs on each pull request into `main` as well, except one from the
+# branch of a work of the engine (`work-…`), whose result the engine does not read: it reads the run it asked for. It
+# does not run on a push to `main`, which nothing reads.
 # What an agent names to `run_tests` while it works, the fast CI runs instead (fast.yml).
 #
 # Its jobs run on the owner's own machine (the runners labelled 14900k, eight of them, which fast.yml uses too), whose
@@ -15,7 +17,8 @@ name: ci
 # dependencies stay between runs, and only what changed is built again. Only `check`, which builds nothing and takes
 # seconds, runs on GitHub's machines. A pull request from a fork runs none of the jobs that run on the owner's machine,
 # since the repository is public and its code would run there: the run is red, with those jobs skipped, until one who
-# may write to the repository pushes the branch itself.
+# may write to the repository pushes the branch itself. A pull request from a work's branch runs none of the jobs, and
+# its run is skipped as a whole.
 run-name: ${{ inputs.call && format('ci {0}', inputs.call) || '' }}
 
 on:
@@ -30,26 +33,24 @@ on:
   pull_request:
     branches:
       - main
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
 
-# A newer push to the same pull request makes the older run pointless; `main` keeps every run, and so does every run an
-# engine asked for by hand, which a merge waits for.
+# A newer push to the same pull request makes the older run pointless; every run an engine asked for by hand is kept,
+# and a merge waits for it.
 concurrency:
   group: ci-${{ github.event_name == 'workflow_dispatch' && inputs.call || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   # The owner's page (client/): checked and tested on its own, so that what is wrong with it shows without waiting for
   # the Rust build.
   page:
     runs-on: [self-hosted, 14900k]
-    # Not for a fork's pull request: its code must not run on the owner's machine.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    # Not for a fork's pull request: its code must not run on the owner's machine; nor for a work's branch, whose run
+    # the engine asks for by hand.
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'work-')) }}
     timeout-minutes: 10
     defaults:
       run:
@@ -58,7 +59,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         id: checkout
         with:
-          # The commit an engine's request gives; for a pull request or a push, empty, which is the commit of the event.
+          # The commit an engine's request gives; for a pull request, empty, which is the commit of the event.
           ref: ${{ inputs.commit }}
           # No later step pushes, so the token is not left in the checkout.
           persist-credentials: false
@@ -140,8 +141,9 @@ jobs:
   # The Rust format, the form of the design tree's files and clippy with warnings as errors, beside the tests.
   lint:
     runs-on: [self-hosted, 14900k]
-    # Not for a fork's pull request: its code must not run on the owner's machine.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    # Not for a fork's pull request: its code must not run on the owner's machine; nor for a work's branch, whose run
+    # the engine asks for by hand.
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'work-')) }}
     timeout-minutes: 15
     env:
       CARGO_TERM_COLOR: always
@@ -149,7 +151,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The commit an engine's request gives; for a pull request or a push, empty, which is the commit of the event.
+          # The commit an engine's request gives; for a pull request, empty, which is the commit of the event.
           ref: ${{ inputs.commit }}
           # No later step pushes, so the token is not left in the checkout.
           persist-credentials: false
@@ -160,7 +162,7 @@ jobs:
       - run: |
           rustc --version
           [ "$(node --version)" = v24.21.0 ]
-      # Formatting first: it needs no build, so a misformatted push fails in seconds.
+      # Formatting first: it needs no build, so a misformatted commit fails in seconds.
       - name: Format
         run: cargo fmt --all --check
       # The design tree's files against the forms of design/README.md: it needs no build either.
@@ -207,8 +209,9 @@ jobs:
   test:
     name: test ${{ matrix.partition }} of 3
     runs-on: [self-hosted, 14900k]
-    # Not for a fork's pull request: its code must not run on the owner's machine.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    # Not for a fork's pull request: its code must not run on the owner's machine; nor for a work's branch, whose run
+    # the engine asks for by hand.
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'work-')) }}
     timeout-minutes: 15
     strategy:
       # Every job runs to its end, so that a red run shows every test that fails.
@@ -222,7 +225,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         id: checkout
         with:
-          # The commit an engine's request gives; for a pull request or a push, empty, which is the commit of the event.
+          # The commit an engine's request gives; for a pull request, empty, which is the commit of the event.
           ref: ${{ inputs.commit }}
           # No later step pushes, so the token is not left in the checkout.
           persist-credentials: false
@@ -329,7 +332,9 @@ jobs:
   # run on GitHub.
   check:
     needs: [page, lint, test]
-    if: always()
+    # Not for a work's branch of this repository, whose run is skipped as a whole: a pull request from a fork still gets
+    # it, red, whatever its branch is called.
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || !startsWith(github.head_ref, 'work-')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
