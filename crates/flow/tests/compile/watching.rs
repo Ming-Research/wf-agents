@@ -645,6 +645,17 @@ fn the_item_s_card_shows_data_of_the_flow_in_the_order_it_names_them() {
         block: "nowhere".to_string(),
     };
     assert_eq!(faults(&unknown), [at(FLOW_FILE, "card[1]", what)]);
+    // A datum named twice is refused at its second naming.
+    let twice = edit(
+        laid_out(),
+        FLOW_FILE,
+        "data = [\"request\", \"main\"]",
+        "data = [\"request\", \"main\"]\ncard = [\"request\", \"plan\", \"request\"]",
+    );
+    let what = Twice {
+        name: "request".to_string(),
+    };
+    assert_eq!(faults(&twice), [at(FLOW_FILE, "card[2]", what)]);
 }
 
 // A datum each cell has its own of is named by what its file writes, which holds `{cell}`: a file that writes no name,
