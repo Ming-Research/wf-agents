@@ -80,6 +80,42 @@ class CheckCitations(unittest.TestCase):
         found, _ = run({"a.md": "A text (document `flow-notes`,\n\n9) and another (document `page`, 2).\n"})
         self.assertEqual(found, [])
 
+    def test_a_plural_names_several_documents_and_each_is_checked_with_its_own_paragraphs(self):
+        found, _ = run({"a.rs": "//! A text (design documents `flow-notes`, 3, and\n//! `page`, 2 to 5): more.\n"})
+        self.assertEqual(sorted(re.search(r"paragraph (\d+) of document `(\S+)`", t).groups() for _, _, t in found), [("5", "page")])
+        found, _ = run({"a.rs": "// Two (documents `flow-notes`, 9 and `page`, 1).\n"})
+        self.assertEqual(len(found), 1)
+        self.assertIn("paragraph 9 of document `flow-notes`", found[0][2])
+
+    def test_a_comment_after_code_is_read_and_a_comment_mark_in_a_string_is_not(self):
+        found, code = run(
+            {
+                "a.rs": 'let a = 1; // (design document `flow-notes`, 7)\nlet b = "// (document `page`, 9)"; // (document `page`, 2)\n',
+                "b.toml": 'key = "x" # (design document `page`, 8)\nother = "# (document `page`, 9)"\n',
+            }
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(sorted((f, n) for f, n, _ in found), [("a.rs", 1), ("b.toml", 1)])
+
+    def test_a_string_over_many_lines_and_a_raw_string_hide_what_stands_in_them(self):
+        found, code = run(
+            {
+                "a.rs": 'const A: &str = r#"\n// (document `page`, 9)\n"#;\nconst B: &str = "\n// (document `page`, 9)\n";\nconst C: char = \'"\';\n// (document `page`, 7)\n',
+                "b.py": 'TEXT = """\n# (document `page`, 9)\n"""\n# (document `page`, 6)\n',
+            }
+        )
+        self.assertEqual(sorted((f, n) for f, n, _ in found), [("a.rs", 8), ("b.py", 4)])
+
+    def test_the_design_of_the_owners_page_is_a_citation_of_the_document_the_owners_page(self):
+        found, _ = run(
+            {
+                "docs/the-owners-page.md": "# The page\n\n1. One.\n",
+                "a.tsx": "// See the design of the owner's page, 1, and the design of the owner's page, 99.\n",
+            }
+        )
+        self.assertEqual(len(found), 1)
+        self.assertIn("paragraph 99 of document `the-owners-page`", found[0][2])
+
     def test_the_directories_of_dependencies_and_builds_are_not_read(self):
         found, code = run({"client/node_modules/x/a.ts": "// (document `flow-notes`, 9)\n", "target/a.rs": "// (document `gone`, 1)\n"})
         self.assertEqual((found, code), ([], 0))
