@@ -153,12 +153,14 @@ describe('the views', () => {
     const first = fixtureWork(41).steps.find((x) => x.kind === 'run');
     if (first?.kind !== 'run' || first.rounds.length < 2) throw new Error('the first run did not run twice');
     const round = { view: 'work', work: 41, run: first.run, round: first.rounds[1].number } as const;
-    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView');
-    const scrolledToRound = () =>
-      scrolled.mock.contexts.filter((c) => c instanceof Element && c.classList.contains('cw-fold-chosen')).length;
+    // The scrolls to a section that is lit as it is scrolled to, counted as they are made.
+    let scrolledToRound = 0;
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+      if (this.classList.contains('cw-fold-chosen')) scrolledToRound += 1;
+    });
     const { container, go } = drawViews(round);
     await settle();
-    expect(scrolledToRound()).toBe(1);
+    expect(scrolledToRound).toBe(1);
     const lit = () => shown(container).querySelectorAll('section.cw-fold-chosen').length;
     const tab = () => shown(container).querySelector('aside [role="tab"][aria-selected="true"]')?.textContent;
     expect(lit()).toBe(1);
@@ -168,7 +170,7 @@ describe('the views', () => {
     go({ view: 'work', work: 41, run: 3 });
     await settle();
     expect(lit()).toBe(0);
-    expect(scrolledToRound()).toBe(1);
+    expect(scrolledToRound).toBe(1);
     act(() => {
       [...shown(container).querySelectorAll<HTMLElement>('aside [role="tab"]')].find((t) => t.textContent === 'Usage')?.click();
     });
@@ -177,7 +179,7 @@ describe('the views', () => {
     go(round);
     await settle();
     expect(lit()).toBe(1);
-    expect(scrolledToRound()).toBe(2);
+    expect(scrolledToRound).toBe(2);
     expect(tab()).toBe('Step');
     expect((shown(container).querySelector('.view-line') as HTMLElement).dataset.drawnFirst).toBe('yes');
   });
