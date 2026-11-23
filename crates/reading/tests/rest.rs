@@ -269,3 +269,23 @@ fn an_open_run_of_a_cell_that_no_longer_applies_is_moving_at_it_to_be_abandoned(
     w.run("research", &[("deep", Value("yes")), ("plan", Matters)]);
     assert_eq!(rest(&w), Rest::Moving { at: id("implement") });
 }
+
+#[test]
+fn a_cell_at_its_limit_of_ways_round_waits_for_the_owner_and_moves_once_let_go() {
+    let cells = vec![
+        cell("implement", &["plan", "opinions"], &["code"]),
+        cell("review", &["code"], &["opinions"]),
+    ];
+    let mut w = World::with_gate(cells);
+    w.person_writes("plan");
+    w.run("implement", &[("code", Matters)]);
+    // The review sends the code back three times, as many as the cell's limit, and a fourth opinion has the cell wait.
+    for _ in 0..3 {
+        w.run("review", &[("opinions", Matters)]);
+        w.run("implement", &[("code", Matters)]);
+    }
+    w.run("review", &[("opinions", Matters)]);
+    assert_eq!(rest(&w), Rest::Waiting { at: id("implement") });
+    w.let_go("implement");
+    assert_eq!(rest(&w), Rest::Moving { at: id("implement") });
+}
