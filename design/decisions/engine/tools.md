@@ -53,7 +53,7 @@ No cell of a flow runs the tests a cell asks for: they stay a call within that c
 - rejected: an agent proposed a cell of the engine that runs the tests each cell asks for, with the request and the result as data; the owner rejected it, because it was there only to show a cell's CI run on the page, and a row for each tool on the chart shows that just as well.
 
 ### decision every-project-meets-one-contract-for-its-tests
-Every project meets one contract for its tests: JUnit results, one name to ask a test by, and, with `[ci]`, a fast and a full workflow taking a commit, a call and a test's stop, and one to measure if it has.
+Every project meets one contract for its tests: JUnit results, one name for a test, and, with `[ci]`, a fast and a full workflow (taking a commit, a call and a test's stop), and a measure one if any.
 - rejected: an agent proposed that each project describe its own CI (its workflows, and how they are dispatched, read and name their tests) and the engine run it as described; the owner rejected it, because the projects are all his, and any of them can be changed to one general, reasonable design.
 - replaced: Matching a named test to a log's tests by its whole name, a `::` ending or its binary's name was on main; the owner changed it, because the name the results give a test is the name an agent asks for it by and the name the fast workflow filters by.
 - replaced: The fast workflow running lint besides the named tests was on main; the owner changed it, because a fast run should only build and run the tests needed, and everything else goes to the full workflows, run once at the end.
