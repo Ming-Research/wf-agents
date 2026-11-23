@@ -28,6 +28,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Drawer } from '../parts';
 import { CHOICE_KEYS, useKeptFolds, useKeptTicks } from '../kept';
+import { replaceHash } from '../route';
 import { WIDTH_KEYS } from '../sizes';
 import type { Items, WorkPage } from '../works-api';
 import { oneAtATime } from '../works/source';
@@ -127,8 +128,7 @@ export function ConsolePage({
           // a-views-choices-are-kept-in-the-browser); an address of one of its waits stands while it is selected.
           if (activeNow.current) {
             const at = id === null ? '#/console' : `#/console/items/${id}`;
-            const hash = window.location.hash;
-            if (hash !== at && !(id !== null && hash.startsWith(`${at}/waits/`))) window.location.replace(at);
+            if (!(id !== null && window.location.hash.startsWith(`${at}/waits/`))) replaceHash(at);
           }
           setWin((w) => {
             if (id !== null) return w.open ? w : { open: true, byHand: false };

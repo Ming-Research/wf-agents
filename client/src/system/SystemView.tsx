@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { CHOICE_KEYS, write } from '../kept';
-import { Coded, PanelPart, Switch } from '../parts';
+import { Coded, PanelPart, RoundLink, Switch } from '../parts';
 import { hashOf, type Period } from '../route';
 import type { Copies, Engine, Item, Items, Spent } from '../works-api';
 import { NowLine } from '../works/marks';
@@ -256,7 +256,7 @@ function RunningRow({ item }: { item: Item }) {
   return (
     <tr>
       <td>
-        <WorkLink work={item.work.number} />
+        <RoundLink work={item.work.number} run={now.run} round={now.round} />
       </td>
       <td className="view-cell-wide">
         <ItemName item={item.number} title={item.title} />
@@ -525,7 +525,7 @@ function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
             <tr key={`${r.work}/${r.run}/${r.round}`}>
               <td title={fullTime(r.began)}>{clock(r.began)}</td>
               <td>
-                <WorkLink work={r.work} />
+                <RoundLink work={r.work} run={r.run} round={r.round} />
               </td>
               <td className="view-cell-wide">
                 <ItemName item={r.item} title={items.get(r.item)?.title} />
@@ -547,7 +547,7 @@ function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
               <tr key={`${f.work}/${f.run}/${f.round}`}>
                 <td title={fullTime(f.ended)}>{clock(f.ended)}</td>
                 <td>
-                  <WorkLink work={f.work} />
+                  <RoundLink work={f.work} run={f.run} round={f.round} />
                 </td>
                 <td className="view-cell-wide">
                   <ItemName item={f.item} title={items.get(f.item)?.title} />

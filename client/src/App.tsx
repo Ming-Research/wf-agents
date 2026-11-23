@@ -21,7 +21,7 @@ import { useNotifications } from './notify';
 import { ObservationsView } from './observations/ObservationsView';
 import { Bar, Drawer, Panel, Switch } from './parts';
 import { CHOICE_KEYS, read, useKept, write } from './kept';
-import { type Route, hashOf, periodOf, tabOf, useRoute } from './route';
+import { type Route, hashOf, periodOf, replaceHash, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
 import { WIDTH_KEYS } from './sizes';
 import { BlockPanel, CellPanel, EveryAgentPanel, Faults, GroupPanel, LinePanel, TestPanel, ToolPanel } from './Side';
@@ -38,7 +38,7 @@ export function App() {
   // and the address is brought to say so.
   const onFlow = opensOnFlow(serves, window.location.hash);
   useEffect(() => {
-    if (onFlow) window.location.replace('#/flow');
+    if (onFlow) replaceHash('#/flow');
   }, [onFlow]);
   const route: Route = onFlow ? { view: 'flow' } : named;
   return (
@@ -68,7 +68,12 @@ export function Views({
   const [seen, setSeen] = useState<ReadonlySet<Route['view']>>(() => new Set([route.view]));
   if (!seen.has(route.view)) setSeen(new Set([...seen, route.view]));
   const [lastWork, setLastWork] = useState(route.view === 'work' ? route : null);
-  if (route.view === 'work' && (lastWork?.work !== route.work || lastWork.run !== route.run)) setLastWork(route);
+  if (
+    route.view === 'work' &&
+    (lastWork?.work !== route.work || lastWork.run !== route.run || lastWork.round !== route.round)
+  ) {
+    setLastWork(route);
+  }
   const [period, setPeriod] = useState(periodOf(route));
   if (route.view === 'system' && periodOf(route) !== period) setPeriod(periodOf(route));
   const kept = (view: Route['view']) => serves === 'all' && seen.has(view);
@@ -99,9 +104,10 @@ export function Views({
       {serves === 'all' && lastWork !== null && (
         <div className="view" hidden={route.view !== 'work'}>
           <WorkView
-            key={`${lastWork.work}/${lastWork.run ?? ''}`}
+            key={lastWork.work}
             work={lastWork.work}
             run={lastWork.run}
+            round={lastWork.round}
             active={route.view === 'work'}
           />
         </div>

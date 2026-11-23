@@ -1,6 +1,6 @@
 // The observations: what agents came across beyond their works, each a text of a return its run kept as it finished,
 // the newest first. A row is the text, cut to three lines and whole on pointing at it, with where it came from on the line
-// under it: its number, the work's run and round, which opens the work with that run chosen, the cell, the item and
+// under it: its number, the work, which opens it with the run and round chosen, the cell, the item and
 // when it was kept. One the owner has not read is marked, and has the button that marks it read; one read is muted and
 // says when. The list is read again on each change of a work, since a run that finishes keeps the observations of its
 // return, and whenever the stream of changes opens again; a read that fails keeps the list as it was and says so.
@@ -15,7 +15,7 @@ import {
   loadObservations,
   readObservation,
 } from '../observations-api';
-import { Attr, Button } from '../parts';
+import { Attr, Button, RoundLink } from '../parts';
 import { useChanges, useReading } from '../works/source';
 import { clock, fullTime } from '../works/words';
 
@@ -136,9 +136,7 @@ function Row({ o, sending, onMarkRead }: { o: Observation; sending: boolean; onM
         </p>
         <p className="observation-facts">
           <span className="mono">O{o.number}</span>
-          <a className="link mono" href={`#/works/${o.work}/runs/${o.run}`} title="Open the work with this run chosen">
-            W{o.work}
-          </a>
+          <RoundLink work={o.work} run={o.run} round={o.round} />
           <Attr name="cell" value={o.cell} />
           <span className="observation-item" title={o.title}>
             <span className="mono">#{o.item}</span> {o.title}

@@ -147,4 +147,31 @@ describe('the views', () => {
     expect(reads()).toBe(1);
     expect(plan()?.className).toContain('chosen');
   });
+
+  it('chooses the round a link names again however the owner chose after it, and draws the work anew for none of them', async () => {
+    const first = fixtureWork(41).steps.find((x) => x.kind === 'run');
+    if (first?.kind !== 'run' || first.rounds.length < 2) throw new Error('the first run did not run twice');
+    const round = { view: 'work', work: 41, run: first.run, round: first.rounds[1].number } as const;
+    const { container, go } = drawViews(round);
+    await settle();
+    const lit = () => shown(container).querySelectorAll('section.cw-fold-chosen').length;
+    const tab = () => shown(container).querySelector('aside [role="tab"][aria-selected="true"]')?.textContent;
+    expect(lit()).toBe(1);
+    const line = shown(container).querySelector('.view-line') as HTMLElement;
+    line.dataset.drawnFirst = 'yes';
+    // The owner chooses another row, which the address then says, and looks at another tab of the window.
+    go({ view: 'work', work: 41, run: 3 });
+    await settle();
+    expect(lit()).toBe(0);
+    act(() => {
+      [...shown(container).querySelectorAll<HTMLElement>('aside [role="tab"]')].find((t) => t.textContent === 'Usage')?.click();
+    });
+    expect(tab()).toBe('Usage');
+    // The same link followed again chooses its round, on the Step, in the work as it stood.
+    go(round);
+    await settle();
+    expect(lit()).toBe(1);
+    expect(tab()).toBe('Step');
+    expect((shown(container).querySelector('.view-line') as HTMLElement).dataset.drawnFirst).toBe('yes');
+  });
 });

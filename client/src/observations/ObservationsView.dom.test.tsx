@@ -103,9 +103,10 @@ describe('the observations', () => {
     expect(page.querySelector('.legend')?.textContent?.trim()).toBe('unread');
     const two = row(page, 2) as HTMLElement;
     expect(two.querySelector('.observation-text')?.textContent).toBe('The greeting has no test of an empty name.');
-    // Its source opens its work with its run chosen.
+    // Its source opens its work with its run and its round chosen.
     const source = two.querySelector('a.link');
-    expect(source?.getAttribute('href')).toBe('#/works/1/runs/7');
+    expect(source?.getAttribute('href')).toBe('#/works/1/runs/7/rounds/1');
+    expect(source?.getAttribute('title')).toBe('Open the work with this round chosen');
     expect(source?.textContent).toBe('W1');
     const facts = two.querySelector('.observation-facts')?.textContent ?? '';
     expect(facts).toContain('O2');
