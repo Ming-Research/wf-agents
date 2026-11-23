@@ -196,3 +196,62 @@ fn a_run_kept_resting_at_the_owners_word_at_the_old_limit_of_calls_makes_what_it
     assert_eq!(start_of(&w, again).0, because);
     let _ = request;
 }
+
+/// The judged flow with the work's head as a block the branch's source writes, which the judge watches in place of the
+/// writer's text: what a round commits to the branch is read as that block.
+fn committed() -> (W, RunId) {
+    let mut source = judged_source();
+    source.flow = source.flow.replacen(
+        "[blocks.text]",
+        "[blocks.text]\n        [blocks.head]\n        outside = \"head\"",
+        1,
+    );
+    let judge = source.cells.get_mut("judge").expect("the judged flow has the judge");
+    *judge = judge
+        .replacen("watches = [\"text\"]", "watches = [\"head\"]", 1)
+        .replacen("text = \"last_and_latest\"", "head = \"last_and_latest\"", 1);
+    let mut w = W {
+        flow: compile(&source, &has(&["main", "head"])).expect("the definition compiles"),
+        work: Work::default(),
+        clock: START,
+    };
+    let (effects, _) = w.person_writes("request");
+    let (write, ..) = round(&effects);
+    (w, write)
+}
+
+// What a round that asks for calls committed is not handed in with that return: no cell that watches it is run for it
+// while the results are out, and the run entered for the results reads it with what that run commits and hands it in
+// (decision a-version-read-at-a-rounds-end-is-that-rounds). Here the writer's commit is the head the judge watches.
+#[test]
+fn what_a_round_that_asks_for_calls_committed_is_handed_in_by_the_run_entered_for_the_results() {
+    let (mut w, write) = committed();
+    let asking = Came {
+        read: vec![handed("head", None)],
+        ..Came::asks(vec![tool("run_tests")])
+    };
+    let effects = w.returns(write, asking);
+    let calls: Vec<CallId> = calls_of(&effects).iter().map(|(c, ..)| *c).collect();
+    let finished = w.work.records.finished.last().expect("the run finished");
+    assert_eq!((finished.run, finished.writes.clone()), (write, vec![]));
+    assert_eq!(
+        w.work.records.started.len(),
+        1,
+        "the judge is not run for what the writer committed"
+    );
+    // The results are in: the writer is entered for them, and still the judge has nothing new.
+    let effects = w.done(calls[0]);
+    let (again, cell, ..) = round(&effects);
+    assert_eq!(cell, "write");
+    assert_eq!(w.work.records.started.len(), 2);
+    // The run entered for the results reads the commit, and hands it in as it finishes.
+    let commits = Came {
+        read: vec![handed("head", None)],
+        ..Came::hands_in(vec![])
+    };
+    let effects = w.returns(again, commits);
+    assert_eq!(round(&effects).1, "judge");
+    let finished = w.work.records.finished.last().expect("the run finished");
+    assert_eq!((finished.run, finished.writes.len()), (again, 1));
+    assert_eq!(finished.writes[0].block, BlockId::from("head"));
+}

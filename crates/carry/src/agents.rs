@@ -80,8 +80,11 @@
 //! nothing is taken in again for the run. The branch's data, its design tree and the work's head, are read after that,
 //! in the round that took main in, and after the round's program ended, where they may have changed
 //! ([`branch`](crate::branch)): what is read as main is taken in is the outside's, put into the round; what is read as
-//! the round ends is what it committed, handed in with its return, where its line may change the work, and the
-//! outside's where it only reads.
+//! the round ends is what it committed, handed in with its return, where its line may change the work and the return
+//! does the cell's work (a round that asks for calls hands in none of it, and its commit is read by the round that ends
+//! the cell's work), and the outside's where it only reads, but while a cell that may change the work waits for the
+//! results of calls no read takes the head or the design tree, whichever round or act reads, but the one that ends that
+//! cell's work.
 //!
 //! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, at the
 //! effort its cell sets, under the account it was handed out with (`Settings::ran_on`); a round whose item's level the
@@ -622,7 +625,7 @@ impl Inner {
             tree: of.project.tree.clone(),
             main: of.main.clone(),
         };
-        let mut looking = branch::Looking::of(flow, work, read_with.clone());
+        let mut looking = branch::Looking::of(flow, work, read_with.clone(), Some(round.run));
         if main.is_some() && round.number == 1 {
             looking.tell(&place, teller, true).await;
         }
@@ -846,11 +849,14 @@ impl Inner {
                 ran
             }
         };
-        // What the round committed is handed in with its return, where its line may change the work; a change found at
-        // the end of a round that only reads is none of its own, and the outside's. A round that fails hands in
+        // What the round committed is handed in with its return, where its line may change the work and the return asks
+        // for no call: the run decides that as it takes the return ([`decide::run::next`]), the head being read here
+        // whatever the return asks for, since the check of a line that changes only tests reads it. A change found
+        // at the end of a round that only reads is none of its own, and the outside's. A round that fails hands in
         // nothing: what it committed is read at the end of the round that takes it up. The version of the work's head
         // the run began on is the latest the records keep, what an earlier round of the run committed being handed in
-        // by none.
+        // by none. While another cell that may change the work waits for the results of its calls, the branch is read
+        // by none of the round's ends: what it holds is that cell's, handed in by the run entered for its results.
         let began = looking.head().map(str::to_string);
         let committed = if round.cell.reads_only {
             looking.tell(&place, teller, false).await;
@@ -922,19 +928,39 @@ impl Inner {
             Ok(reading) => {
                 let mut came = reading.came;
                 came.read = committed;
-                let looked = self.protected(round, &place, of, reading.protected.as_ref()).await;
+                // What the returns of the run sent back before this one, which it completes, said and was not told was
+                // wrong, which the look at the protected paths and the tree check hold what it says to as well as what
+                // it says itself (`decide::run::carried`). A return that asks for calls completes nothing.
+                let carried = if came.asks.is_empty() {
+                    engine::carried(flow, work, round.run)
+                } else {
+                    Default::default()
+                };
+                let mut said_why = reading.protected.clone();
+                if let Some(said) = said_why.as_mut() {
+                    for (path, why) in &carried.protected {
+                        said.entry(path.clone()).or_insert_with(|| why.clone());
+                    }
+                }
+                let looked = self.protected(round, &place, of, said_why.as_ref()).await;
                 came.engine.extend(looked.asks);
                 let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });
                 came.found.extend(unexplained);
                 // A return that writes a block handed in only with the owner's answers in the design tree is held to
                 // each question marked `tree` that has an answer, while the work's change leaves the tree as main has
-                // it. A look that cannot be made fails the round, as the look at the tests does, rather than take the
-                // change as holding them.
-                let with_the_tree =
-                    (came.writes.iter()).any(|h| (flow.blocks.get(&h.block)).is_some_and(|b| b.answers_in_the_tree));
+                // it; so is one completed by a return before it that wrote it. A look that cannot be made fails the
+                // round, as the look at the tests does, rather than take the change as holding them.
+                let tree_block =
+                    |block: &decide::BlockId| flow.blocks.get(block).is_some_and(|b| b.answers_in_the_tree);
+                let with_the_tree = (came.writes.iter()).any(|h| tree_block(&h.block))
+                    || (carried.writes.iter()).any(|w| tree_block(&w.block));
                 if with_the_tree {
                     let (project, tree) = (&of.project, of.project.tree.as_str());
-                    match crate::tree::unwritten(project, &place, &of.main, tree, &round.kept, &came.said).await {
+                    let rewritten: Vec<String> = (came.said.questions.iter())
+                        .map(|q| q.name().to_string())
+                        .chain(carried.questions.iter().map(|q| q.name.clone()))
+                        .collect();
+                    match crate::tree::unwritten(project, &place, &of.main, tree, &round.kept, &rewritten).await {
                         Ok(names) => (came.found).extend(names.into_iter().map(|name| Unmet::TreeUnchanged { name })),
                         Err(why) => {
                             return Ok(Carried::Failed(

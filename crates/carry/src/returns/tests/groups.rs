@@ -161,22 +161,38 @@ fn a_return_that_names_the_group_once_deals_with_each_of_its_blocks_that_ran_its
 }
 
 #[test]
-fn a_return_that_names_the_group_where_none_of_its_blocks_ran_its_round_is_sent_back() {
+fn a_return_that_names_the_group_where_none_of_its_blocks_ran_its_round_is_taken_for_what_did_run_it() {
     let mut w = W::new();
     let run = w.written(&["write_words"]);
-    let unmet = vec![Unmet::NotRunBy { block: "brief".into() }];
-    assert_eq!(w.returns(run, &["write_words", "brief"]), Some(unmet));
+    assert_eq!(w.returns(run, &["write_words", "brief"]), None);
+    assert_eq!(w.dealt_with(run), Some(vec!["write_words".into()]));
 }
 
 #[test]
-fn a_return_that_names_a_block_of_the_group_is_sent_back_for_naming_nothing_the_cell_watches() {
+fn a_return_that_names_only_the_group_where_none_of_its_blocks_ran_its_round_deals_with_nothing() {
+    let mut w = W::new();
+    let run = w.written(&["write_words"]);
+    assert_eq!(w.returns(run, &["brief"]), Some(vec![Unmet::DealtWithNothing]));
+}
+
+// A block of the group is a name the cell is given, so naming it is not sent back: it is dealt with alone, and the
+// group's other block that ran the round stays new and runs the cell again.
+#[test]
+fn a_return_that_names_a_block_of_the_group_deals_with_that_block_alone() {
+    let mut w = W::new();
+    let run = w.written(&["request", "notes"]);
+    assert_eq!(w.returns(run, &["notes"]), None);
+    assert_eq!(w.dealt_with(run), Some(vec!["notes".into()]));
+    assert_eq!(w.runs().len(), 2, "`request` is still new to `write`: {:?}", w.runs());
+}
+
+// A block the cell writes and is not given as something that ran it is no name it is given.
+#[test]
+fn a_return_that_names_what_the_cell_is_not_given_is_sent_back_whatever_ran_its_round() {
     let mut w = W::new();
     let run = w.written(&["notes"]);
-    let unmet = vec![
-        Unmet::NotWatched {
-            name: "notes".to_string(),
-        },
-        Unmet::DealtWithNothing,
-    ];
-    assert_eq!(w.returns(run, &["notes"]), Some(unmet));
+    let unmet = vec![Unmet::NotWatched {
+        name: "plan".to_string(),
+    }];
+    assert_eq!(w.returns(run, &["notes", "plan"]), Some(unmet));
 }

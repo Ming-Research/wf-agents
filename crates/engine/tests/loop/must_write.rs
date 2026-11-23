@@ -64,20 +64,47 @@ fn a_hand_in_that_lacks_a_block_its_cell_must_write_is_sent_back_in_the_same_run
     );
 }
 
+// What the return handed in and was not told was wrong stands, so the next gives only what was lacking, and the run
+// finishes with the blocks of both, each with the content of the return that handed it in
+// (decision a-sent-back-return-is-completed-by-what-is-missing).
 #[test]
-fn a_hand_in_sent_back_for_what_it_lacks_is_taken_once_handed_in_again_with_it() {
+fn a_hand_in_sent_back_for_what_it_lacks_is_completed_by_the_next_that_gives_only_that() {
     let (mut w, judge) = judging();
     w.returns(judge, hands_in(&[("opinions", None)]));
-    // The judge gives its verdict and no opinion: the writer has nothing to run for, and the merge waits for the owner.
-    assert_eq!(w.returns(judge, hands_in(&[("verdict", Some("no"))])), vec![]);
-    let written: Vec<_> = (w.work.records.finished.iter())
+    // The judge gives only its verdict: its opinions stand, and the writer has them to run for.
+    let effects = w.returns(judge, hands_in(&[("verdict", Some("no"))]));
+    assert_eq!(round(&effects).1, "write");
+    let finished = (w.work.records.finished.iter())
         .find(|f| f.run == judge)
-        .expect("the judge's run finished")
-        .writes
-        .iter()
+        .expect("the judge's run finished");
+    let written: Vec<_> = (finished.writes.iter())
         .map(|write| (write.block.clone(), write.value.clone()))
         .collect();
-    assert_eq!(written, vec![("verdict".into(), Some("no".to_string()))]);
+    let expected = vec![("opinions".into(), None), ("verdict".into(), Some("no".to_string()))];
+    assert_eq!(written, expected);
+    for block in ["opinions", "verdict"] {
+        let content = w.work.contents.get(&(block.into(), finished.at));
+        assert_eq!(content, Some(&format!("the {block}")), "{block}");
+    }
+}
+
+#[test]
+fn the_observations_of_each_return_of_a_run_are_kept_once() {
+    let (mut w, judge) = judging();
+    let saying = |text: &str, came: Came| Came {
+        said: work::Said {
+            observations: vec![text.to_string()],
+            ..Default::default()
+        },
+        ..came
+    };
+    w.returns(judge, saying("one", hands_in(&[("opinions", None)])));
+    w.returns(judge, saying("two", hands_in(&[("verdict", Some("no"))])));
+    let kept = work::observations::kept(&w.work, judge);
+    assert_eq!(
+        kept.iter().map(|o| (o.round, o.n)).collect::<Vec<_>>(),
+        [(1, 1), (2, 1)]
+    );
 }
 
 #[test]
