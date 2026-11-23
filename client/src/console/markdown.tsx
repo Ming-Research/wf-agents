@@ -1,6 +1,6 @@
 // A passage of Markdown as the item window shows it, drawn with the page's own parts by a parser of its own (decision
 // the-page-draws-markdown-itself): headings, each a small heading whatever its level (principle
-// an-agents-heading-is-small); paragraphs; lists, every one numbered (the design of the owner's page, 14), each item
+// an-agents-heading-is-small); paragraphs; lists, every one numbered (decision every-list-is-drawn-numbered), each item
 // holding blocks of its own; quotes; tables, in the page's table; rules; and blocks of code between fences, a change of
 // files among them drawn as the text it changes (`diff.tsx`), a diagram drawn (`diagram.tsx`), and the words of one in
 // a language the page knows coloured by their kind (`code.tsx`). In a line: `code`, **strong**, *stressed* and

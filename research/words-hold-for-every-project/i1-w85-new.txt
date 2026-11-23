@@ -1,0 +1,7 @@
+The plan you wrote is to be built next, and the words for the plan and for its implementation are now the ones below. Use no tool. Answer in your return, in English and briefly: (1) how the plan's verification part reads under the words for the plan block, and whether you would change anything in your plan; (2) the first thing the implementation makes, and the first thing it runs; (3) for (1) and (2), the sentence of the words below you went by, quoted.
+
+Words for the plan block:
+The plan for the implementation: what changes where, and how each part is verified, by tests that are red before the change and green after it, wherever a test can show the change. Each claim the plan rests on is marked verified, with where it was checked, or inferred, with how to confirm it.
+
+Words for the implementation:
+Where a test can show what the change is for, start from one that is red on the code before the change: use the research's test where it left one. Run each test you add or extend both on the change and on the code before it. A test that you remove, skip or weaken needs a technical reason. Where the cost per operation or request can change, measure what could get slower as well as what the change is for.
