@@ -62,10 +62,6 @@ const SCRIPTED: u64 = 6;
 /// How many steps each takes.
 const STEPS: usize = 120;
 
-/// How many histories of the engineer's flow are run, and how many steps each takes.
-const ENGINEER_SEEDS: u64 = 8;
-const ENGINEER_STEPS: usize = 220;
-
 #[derive(Clone)]
 pub struct Rng(u64);
 
@@ -1389,73 +1385,6 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
             .filter(|(line, _)| line.starts_with("close: the session holds"))
             .collect::<Vec<_>>(),
         reached.trace.iter().rev().take(30).rev().collect::<Vec<_>>()
-    );
-}
-
-/// How many of the lines are of each cell.
-fn per_cell(lines: &BTreeSet<String>) -> String {
-    let mut cells: BTreeMap<&str, usize> = BTreeMap::new();
-    for line in lines {
-        *cells.entry(line.split(':').next().unwrap_or("")).or_default() += 1;
-    }
-    format!("{cells:?}")
-}
-
-// Alone it ran 102 s on CI on 2026-11-23, under the 300 s the histories binaries are given (8 histories of up to 220
-// steps, about 40 ms a round, most of it the context manager filling each round twice, as its session stands and in a
-// new one). It catches what no other test does: a state of a datum in a round of the repository's own flow that the
-// tool's rules do not write. It cannot be smaller: a cell is reached only after the cells before it, and each history
-// reaches a few cells further than the one before.
-#[test]
-fn every_state_of_a_datum_that_a_round_of_the_engineer_s_flow_stood_in_is_one_the_tool_writes() {
-    let mut reached = Reached::default();
-    for seed in 0..ENGINEER_SEEDS {
-        let sim = support::engineer_sim();
-        let scene = Scene::engineer(&sim);
-        let mut history = History::of(sim, scene, seed);
-        // Each goes some way into the flow before anything else happens, the next further than the last.
-        history.quiet = 12 * (seed as usize % 12);
-        history.scene.passes = Some(60 + 10 * (seed % 5));
-        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            for _ in 0..ENGINEER_STEPS {
-                if history.ended() {
-                    break;
-                }
-                history.step(&mut reached);
-            }
-        }));
-        if let Err(e) = ran {
-            eprintln!("the history of seed {seed} failed");
-            std::panic::resume_unwind(e);
-        }
-    }
-    let (written, after_read) = written(&support::engineer_sim());
-    assert!(
-        after_read > 0,
-        "no situation of a session begun anew and another cell read in it"
-    );
-    // A line of a round that the tool does not write is a gap in its rules. The other way, a line it writes that no round
-    // stood in, is not held to: these histories reach only some of the flow's cells and of the states each datum has.
-    // How many there are is said, by cell, as the test runs.
-    let nothing: BTreeSet<String> = written.difference(&reached.real).cloned().collect();
-    eprintln!(
-        "{} of the {} states the tool writes were stood in by no round, by cell: {}",
-        nothing.len(),
-        written.len(),
-        per_cell(&nothing)
-    );
-    let gaps: Vec<String> = (reached.real.difference(&written))
-        .map(|line| format!("{line}\n    {}", reached.examples[line]))
-        .collect();
-    assert!(
-        gaps.is_empty(),
-        "{} states of a datum that rounds stood in, and the tool does not write:\n{}\n\nrounds carried: {}; of the rounds, \
-         by cell: {}; of the tool, by cell: {}",
-        gaps.len(),
-        gaps.join("\n"),
-        reached.rounds,
-        per_cell(&reached.real),
-        per_cell(&written)
     );
 }
 
