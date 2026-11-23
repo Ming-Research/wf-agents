@@ -51,12 +51,12 @@ describe('the stream of changes', () => {
     const { streams, heard } = opened();
     streams[0].open();
     expect(heard).toEqual([]);
-    streams[0].send(JSON.stringify({ works: [3], items: false, copies: false, accounts: false }));
-    expect(heard).toEqual([{ works: [3], items: false, copies: false, accounts: false }]);
+    streams[0].send(JSON.stringify({ works: [3], items: false, copies: false, accounts: false, observations: false }));
+    expect(heard).toEqual([{ works: [3], items: false, copies: false, accounts: false, observations: false }]);
     // The browser opens it again by itself, and what happened meanwhile was not heard.
     streams[0].cut(false);
     streams[0].open();
-    expect(heard).toEqual([{ works: [3], items: false, copies: false, accounts: false }, 'everything']);
+    expect(heard).toEqual([{ works: [3], items: false, copies: false, accounts: false, observations: false }, 'everything']);
     expect(streams).toHaveLength(1);
   });
 

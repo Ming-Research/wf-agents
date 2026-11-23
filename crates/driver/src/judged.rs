@@ -72,6 +72,35 @@ pub struct Round {
     /// For an agent's round under way, every line it is judged by as it runs, the run guard's among them, its cost's
     /// among the rounds on the model its try runs on; none for any other round.
     pub lines: Option<Lines>,
+    /// For a round under way, how much longer it is expected to take ([`rest`]); none for a round that ended.
+    pub rest: Option<Rest>,
+}
+
+/// How much longer a round under way is expected to take, by the rounds of its history that took longer than it has so
+/// far: the median of what each of them had left at that point; or that it has taken longer than every one of them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Rest {
+    /// About this many milliseconds more.
+    Expected(f64),
+    /// It has taken longer than any round of its history.
+    Longer,
+}
+
+/// The rest of a round under way that has taken `so_far` milliseconds: from the times of its cell's rounds, `own`, where
+/// at least `least` of them took longer, else from the times of every round its kind is judged among, `any`, where any
+/// of them took longer, else from its cell's again. Each list is sorted, the smallest first.
+fn rest(own: &[f64], any: &[f64], so_far: f64, least: usize) -> Rest {
+    let left = |sorted: &[f64]| -> Vec<f64> {
+        let longer = sorted.partition_point(|v| *v <= so_far);
+        sorted[longer..].iter().map(|took| took - so_far).collect()
+    };
+    let own = left(own);
+    let from = if own.len() >= least.max(1) {
+        own
+    } else {
+        Some(left(any)).filter(|any| !any.is_empty()).unwrap_or(own)
+    };
+    crate::history::median(&from).map_or(Rest::Longer, Rest::Expected)
 }
 
 /// A call of a tool against the lines of its history.
@@ -439,13 +468,18 @@ impl<'a> History<'a> {
                 cell,
                 act: true,
                 time,
+                under_way,
                 ..
             } => {
-                if let Some(line) = judged_sorted(of(self.acts.get(cell)), none, least, Scope::Cell, Scope::Cell) {
-                    let judged = Round {
-                        time: Some(Against { value: time, line }),
-                        ..Round::default()
-                    };
+                // An act is judged among the rounds of its own cell alone.
+                let own = of(self.acts.get(cell));
+                let judged = Round {
+                    time: (judged_sorted(own, none, least, Scope::Cell, Scope::Cell))
+                        .map(|line| Against { value: time, line }),
+                    rest: under_way.then(|| rest(own, own, time, least)),
+                    ..Round::default()
+                };
+                if judged != Round::default() {
                     out.rounds.insert((one.work, run, number), judged);
                 }
             }
@@ -475,6 +509,7 @@ impl<'a> History<'a> {
                     cost: (cost.zip(cost_line)).map(|(value, line)| Against { value, line }),
                     time: time_line.map(|line| Against { value: time, line }),
                     lines: under_way.then(|| Lines::of_refs(&self.agents, cell, model.unwrap_or_default(), least)),
+                    rest: under_way.then(|| rest(of(self.time_of_cell.get(cell)), &self.time, time, least)),
                 };
                 if judged != Round::default() {
                     out.rounds.insert((one.work, run, number), judged);
@@ -507,5 +542,42 @@ fn remove(sorted: &mut Vec<f64>, value: f64) {
     let at = sorted.partition_point(|v| v.total_cmp(&value).is_lt());
     if sorted.get(at).is_some_and(|v| v.total_cmp(&value).is_eq()) {
         sorted.remove(at);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A round under way is expected to take what the rounds of its history that took longer had left at the point it
+    // has reached, the median of those: of its cell's where at least as many as the settings say took longer, else of
+    // every round its kind is judged among, and past every one of them it is longer than any before. A round that took
+    // just as long as this one has so far is not longer. Fails where the median is taken of the whole history, of what
+    // the rounds took rather than what they had left, or of the cell's too few. Microseconds; the one test of the rest.
+    #[test]
+    fn a_round_s_rest_is_the_median_of_what_the_longer_rounds_had_left() {
+        let own = [1000.0, 2000.0, 3000.0, 5000.0, 9000.0];
+        let any = [1000.0, 2000.0, 2500.0, 4000.0, 6000.0, 8000.0, 12_000.0];
+        assert_eq!(
+            rest(&own, &any, 2000.0, 3),
+            Rest::Expected(3000.0),
+            "of the cell's 1000, 3000 and 7000 left"
+        );
+        assert_eq!(
+            rest(&own, &any, 2000.0, 4),
+            Rest::Expected(4000.0),
+            "of the flow's 500, 2000, 4000, 6000 and 10000 left, the cell's three longer being too few"
+        );
+        assert_eq!(
+            rest(&own, &any, 10_000.0, 3),
+            Rest::Expected(2000.0),
+            "of the one longer round of the flow"
+        );
+        assert_eq!(
+            rest(&own, &any, 12_000.0, 3),
+            Rest::Longer,
+            "as long as the longest is not longer"
+        );
+        assert_eq!(rest(&[], &[], 0.0, 3), Rest::Longer, "with no history");
     }
 }

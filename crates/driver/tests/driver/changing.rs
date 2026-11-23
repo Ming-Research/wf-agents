@@ -332,7 +332,7 @@ fn an_item_reopened_is_waited_for_again_by_those_that_depend_on_it_and_have_not_
     let kept = h.d().work(wb).expect("the work is there");
     assert_eq!(
         dependencies_text(kept.flow, kept.work).as_deref(),
-        Some("Waits for the items 1 to merge.")
+        Some("Waits for the items #1 to merge.")
     );
     assert_eq!(h.let_on(wb), vec![]);
     assert_eq!(h.decision(wb), waits_for_dependencies("draft"));

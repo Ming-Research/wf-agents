@@ -27,7 +27,7 @@ import {
   tokensWords,
   waitCounted,
 } from '../works/words';
-import { type RanOn, type System, useSystemSource } from './api';
+import { type RanOn, type Rest, type System, type UnderWay, useSystemSource } from './api';
 import { copiesTone, copiesWords } from './copies';
 import { ItemName, Tile, Tiles, ViewTable, WorkLink } from './parts';
 import {
@@ -135,7 +135,13 @@ export function SystemView({ period }: { period: Period }) {
         {items.value === null ? (
           <p className="message muted">Reading the system</p>
         ) : (
-          <NowPart items={items.value} engine={engine.value} copies={copies.value} copiesFailed={copies.failed} />
+          <NowPart
+            items={items.value}
+            engine={engine.value}
+            copies={copies.value}
+            copiesFailed={copies.failed}
+            system={span.value}
+          />
         )}
         {span.value === null ? (
           span.failed === null && <p className="message muted">Reading the span</p>
@@ -152,12 +158,15 @@ export function SystemView({ period }: { period: Period }) {
 }
 
 /// Whether the owner needs to step in: the engine, the wait every work shares, the copies; the works by where they
-/// stand, each count unfolding its works; and the rounds under way.
-function NowPart({ items, engine, copies, copiesFailed }: {
+/// stand, each count unfolding its works; and the rounds under way. While a stop of the engine stands, the engine says
+/// when it is expected to end, and each round under way how much longer it is expected to take, as the span read last
+/// gives them.
+function NowPart({ items, engine, copies, copiesFailed, system }: {
   items: Items;
   engine: Engine | null;
   copies: Copies | null;
   copiesFailed: string | null;
+  system: System | null;
 }) {
   const [open, setOpen] = useState<Standing | null>(null);
   // The works whose round is under way are in the list of the rounds under way, not among the numbers.
@@ -169,6 +178,15 @@ function NowPart({ items, engine, copies, copiesFailed }: {
   // The wait every work shares, said only where it holds a work.
   const shared = items.outage ? outageWords(items.outage) : null;
   const opened = by.find((b) => b.standing === open);
+  const stopping = engine?.stopping ?? null;
+  // When the engine is expected to end: once the last of the rounds under way has.
+  const last = system?.stopping?.rest ?? null;
+  const ends =
+    last === null
+      ? ''
+      : last.kind === 'expected'
+        ? `, expected in about ${duration(last.ms)}`
+        : ', one of them having taken longer than any round of its cell before';
   return (
     <PanelPart label="Now">
       <dl className="pairs view-pairs">
@@ -176,9 +194,11 @@ function NowPart({ items, engine, copies, copiesFailed }: {
         <dd>
           {engine === null
             ? 'not given'
-            : engine.paused === null
-              ? 'Every work goes on'
-              : `Every work paused since ${clock(engine.paused.since)}, by the ${engine.paused.by}: no work begins a round but to answer a note`}
+            : stopping !== null
+              ? `Stopping since ${clock(stopping.since)}${stopping.atOnce ? ', at once' : ''}: no round begins, and the engine ends once the rounds under way have ended${ends}`
+              : engine.paused === null
+                ? 'Every work goes on'
+                : `Every work paused since ${clock(engine.paused.since)}, by the ${engine.paused.by}: no work begins a round but to answer a note`}
         </dd>
         <dt title="Rounds of agents under way, of how many may be at once: agents.slots">Slots</dt>
         <dd>{engine === null ? 'not given' : `${engine.taken} taken of ${engine.slots}`}</dd>
@@ -240,9 +260,9 @@ function NowPart({ items, engine, copies, copiesFailed }: {
       {running.length === 0 ? (
         <p className="muted">No round is under way</p>
       ) : (
-        <ViewTable heads={['Work', 'Item', 'Cell', 'Since']}>
+        <ViewTable heads={stopping === null ? ['Work', 'Item', 'Cell', 'Since'] : ['Work', 'Item', 'Cell', 'Since', 'To go']}>
           {running.map((item) => (
-            <RunningRow key={item.work.number} item={item} />
+            <RunningRow key={item.work.number} item={item} rests={stopping === null ? null : (system?.underWay ?? [])} />
           ))}
         </ViewTable>
       )}
@@ -250,9 +270,13 @@ function NowPart({ items, engine, copies, copiesFailed }: {
   );
 }
 
-function RunningRow({ item }: { item: Item }) {
+/// A round under way, with how much longer it is expected to take where `rests` gives what is under way.
+function RunningRow({ item, rests }: { item: Item; rests: UnderWay[] | null }) {
   const now = item.work.now;
   if (now.kind !== 'round') return null;
+  const rest = rests?.find(
+    (u) => u.kind === 'round' && u.work === item.work.number && u.run === now.run && u.round === now.round,
+  );
   return (
     <tr>
       <td>
@@ -263,8 +287,18 @@ function RunningRow({ item }: { item: Item }) {
       </td>
       <td className="mono">{now.cell}</td>
       <td title={fullTime(now.since)}>{clock(now.since)}</td>
+      {rests !== null && (
+        <td title="How much longer the round is expected to take: the median of what the rounds of its cell that took longer had left at this point">
+          {rest?.kind === 'round' && rest.rest ? restWords(rest.rest) : 'not known'}
+        </td>
+      )}
     </tr>
   );
+}
+
+/// How much longer something under way is expected to take, in words.
+function restWords(rest: Rest): string {
+  return rest.kind === 'expected' ? `about ${duration(rest.ms)}` : 'longer than any before';
 }
 
 /// How the copies stand, and when the newest was taken and kept off the machine, and the last that failed.

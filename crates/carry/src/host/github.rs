@@ -16,8 +16,10 @@
 //! An agent's `run_tests` runs the tests and checks it names by the fast workflow (the module `fast`), on the commit it
 //! names or else the last commit of its work's branch, which is pushed to a branch of its own for the call and deleted
 //! once the run's result is read; the work's own branch and its pull request are the check's. Where no commit is
-//! named, what the worktree holds that is not committed is said, and nothing is pushed. A request that names neither a
-//! test nor a check runs nothing.
+//! named, what the worktree holds that is not committed is said, and nothing is pushed. The measurements it names are
+//! timed by the project's measure workflow, once, on that commit and on the one the work's change began from, after the
+//! fast workflow where tests or checks are named too; a workflow the project cannot run is refused before anything is
+//! pushed. A request that names no test, no check and no measurement runs nothing.
 //!
 //! - `api`: what is asked of GitHub besides pushing and fetching, and `gh`, which asks it with the `gh` command line.
 //! - `output`: what a test said, as a reader wants it.
@@ -48,10 +50,11 @@ use uuid::Uuid;
 pub use api::{Api, Pull, State};
 pub use gh::{Gh, GhOffsite, UPLOAD_RATE};
 
-use super::{Asking, Branch, Failed, Host, Named, NotMerged, SUPERSEDED, Verdict, continuing};
+use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict, continuing};
 use crate::git::{self, With};
 use crate::held::Stop;
 use crate::settings::{self, Project};
+use fast::Role;
 
 /// How often GitHub is asked how a run of a workflow goes: a run takes from half a minute to some minutes, and is waited
 /// for while an agent or the check before a merge waits, so it is seen done within a few seconds, for a call a time.
@@ -75,13 +78,11 @@ pub struct Config {
     pub remote: String,
     /// How long a workflow's run may be unlisted or queued before the CI is taken never to have started.
     pub start: Duration,
-    /// How long the CI may take before it is given up.
-    pub timeout: Duration,
     /// How a pull request is merged: `squash`, `merge` or `rebase`.
     pub merge_method: String,
     /// Whether the work's branch on GitHub is deleted once it is merged.
     pub delete_branch: bool,
-    /// The project's two workflows, as its declaration gives them; none where it declares none.
+    /// The project's workflows, as its declaration gives them; none where it declares none.
     pub ci: Option<flow::agents::Ci>,
     /// The runners this installation has, by the name a workflow of the project's declaration gives them.
     pub runners: Vec<String>,
@@ -96,7 +97,9 @@ pub struct Config {
     pub token: Option<String>,
     /// The paths of this machine that nothing the engine publishes on GitHub names: the data directory, the project's
     /// local repository and the home directory, each said by what it is instead.
-    pub withheld: Vec<(String, &'static str)>,
+    pub withheld: Vec<(String, String)>,
+    /// What the engine writes on a work's pull request, from its file beside the flows.
+    pub words: flow::agents::PullRequest,
     /// The installation's id, in whose namespace the value that finds a run of a workflow is worked out.
     pub installation: Uuid,
 }
@@ -108,7 +111,6 @@ impl std::fmt::Debug for Config {
             .field("url", &self.url)
             .field("remote", &self.remote)
             .field("start", &self.start)
-            .field("timeout", &self.timeout)
             .field("merge_method", &self.merge_method)
             .field("delete_branch", &self.delete_branch)
             .field("ci", &self.ci)
@@ -116,6 +118,7 @@ impl std::fmt::Debug for Config {
             .field("fast_poll", &self.fast_poll)
             .field("token", &self.token.as_ref().map(|_| "(given)"))
             .field("withheld", &self.withheld)
+            .field("words", &self.words)
             .field("installation", &self.installation)
             .finish()
     }
@@ -135,17 +138,22 @@ const TOKEN: &str = "WF_AGENTS_GITHUB_TOKEN";
 const GITHUB: &str = "github.com";
 
 impl GitHub<Gh> {
-    /// GitHub as the installation's settings and the project's declaration say, for the installation of this id,
-    /// reached with `gh` and the engine's token, which `env` gives from the engine's environment; `gh` keeps its
-    /// configuration in the data directory, which is an absolute path. Says why where the token is not there.
+    /// GitHub as the installation's settings and the project's declaration say (its workflows `ci` and how its pull
+    /// requests are merged, `merging`), for the installation of this id, reached with `gh` and the engine's token, which
+    /// `env` gives from the engine's environment; `gh` keeps its configuration in the data directory, which is an
+    /// absolute path. Says why where the token is not there.
     pub fn from_settings(
         github: &settings::GitHub,
         project: &Project,
         data: &Path,
         installation: Uuid,
         env: impl Fn(&str) -> Option<String>,
-        ci: Option<flow::agents::Ci>,
-        (tool, check): (Option<flow::agents::Tool>, Option<flow::agents::Check>),
+        (ci, merging): (Option<flow::agents::Ci>, &flow::agents::Merging),
+        (tool, check, words): (
+            Option<flow::agents::Tool>,
+            Option<flow::agents::Check>,
+            flow::agents::PullRequest,
+        ),
     ) -> Result<GitHub<Gh>, String> {
         let token = (env(&github.token_env).filter(|token| !token.is_empty())).ok_or_else(|| {
             format!(
@@ -159,16 +167,16 @@ impl GitHub<Gh> {
             url: github.url(),
             remote: github.remote.clone(),
             start: Duration::from_secs(github.start_minutes * 60),
-            timeout: Duration::from_secs(github.timeout_minutes * 60),
-            merge_method: github.merge_method.clone(),
-            delete_branch: github.delete_branch,
+            merge_method: merging.merge_method.clone(),
+            delete_branch: merging.delete_branch,
             ci,
             runners: github.runners.clone(),
             tool,
             check,
             fast_poll: FAST_POLL,
             token: Some(token.clone()),
-            withheld: withheld(data, &project.repo, env("HOME")),
+            withheld: withheld(data, &project.repo, env("HOME"), &words.withheld),
+            words,
             installation,
         };
         let gh = Gh::new(&github.gh, &github.repository, &token, &dir);
@@ -372,10 +380,10 @@ impl<A: Api> GitHub<A> {
         }
     }
 
-    /// Closes the open pull request into main that the work continued, now that its own is open, saying the address
-    /// of its own ([`SUPERSEDED`]). A pull request that is closed or merged, goes into another branch, or is a work's
-    /// own (its branch is named as a work's is) is left as it is. Done at every check while the old one is open, so
-    /// that a stop between opening the new one and closing the old is finished by the next.
+    /// Closes the open pull request into main that the work continued, now that its own is open, saying the address of
+    /// its own (`superseded` of `agents/pull_request.toml`). A pull request that is closed or merged, goes into another
+    /// branch, or is a work's own (its branch is named as a work's is) is left as it is. Done at every check while the
+    /// old one is open, so that a stop between opening the new one and closing the old is finished by the next.
     async fn supersede(&self, branch: &Branch<'_>, own: &Pull) -> Result<(), Failed> {
         let Some(continues) = branch.continues else {
             return Ok(());
@@ -384,7 +392,7 @@ impl<A: Api> GitHub<A> {
             Continues::Pull(number) => self.api.pull(*number).await?.into_iter().collect(),
             Continues::Branch(name) => self.api.pulls(name).await?,
         };
-        let comment = format!("{SUPERSEDED} {}", own.url);
+        let comment = fill(&self.config.words.superseded, &[("url", &own.url)]);
         for old in before.iter().filter(|p| {
             p.state == State::Open
                 && p.base == self.project.main
@@ -451,7 +459,7 @@ impl<A: Api> GitHub<A> {
     async fn close_pulls(&self, branch: &Branch<'_>) -> Result<(), String> {
         let pulls = self.api.pulls(&branch.place.branch).await?;
         for open in (pulls.iter()).filter(|p| p.state == State::Open && p.base == self.project.main) {
-            (self.api.close(open.number, super::CLOSED).await)
+            (self.api.close(open.number, &self.config.words.closed).await)
                 .map_err(|why| format!("GitHub did not close the pull request {}: {why}", open.url))?;
         }
         Ok(())
@@ -601,7 +609,11 @@ impl<A: Api> Host for GitHub<A> {
             })?;
         }
         // Titled as GitHub titles a squash by default, with the pull request's number, whatever the method.
-        let title = format!("{} (#{})", self.title(branch), open.number);
+        let number = open.number.to_string();
+        let title = fill(
+            &self.config.words.merged,
+            &[("name", &self.title(branch)), ("number", &number)],
+        );
         let method = &self.config.merge_method;
         let commit = match self.api.merge(open.number, checked, method, &title).await {
             Ok(commit) => commit,
@@ -647,9 +659,23 @@ impl<A: Api> Host for GitHub<A> {
         if named.is_empty() {
             return Ok(Some(words.none_named.clone()));
         }
-        let role = match self.role(self.config.ci.as_ref(), named)? {
-            Ok(role) => role,
-            Err(refused) => return Ok(Some(refused)),
+        // Each workflow the request needs is asked for before anything is pushed, so that one the project cannot run
+        // keeps the others from being run either: the fast workflow for the tests and checks named, the measure
+        // workflow for the measurements.
+        let ci = self.config.ci.as_ref();
+        let fast = match named.tests.is_empty() && named.checks.is_empty() {
+            true => None,
+            false => match self.role(ci, named)? {
+                Ok(role) => Some(role),
+                Err(refused) => return Ok(Some(refused)),
+            },
+        };
+        let measure = match named.measure.is_empty() {
+            true => None,
+            false => match self.measure_role(ci)? {
+                Ok(measure) => Some(measure),
+                Err(refused) => return Ok(Some(refused)),
+            },
         };
         let repo = &self.project.repo;
         let (commit, untracked) = match &named.commit {
@@ -677,7 +703,8 @@ impl<A: Api> Host for GitHub<A> {
             }
         };
         // The commit is pushed to a branch of its own for this call, never to the work's branch, which the check before
-        // the merge pushes: a push there would make GitHub run the full workflows on the pull request each time.
+        // the merge pushes: a commit named only to be run, such as one that shows a new test red on the code before the
+        // change, must not land on the work's branch.
         let trying = trial_branch(branch, asking);
         self.push_to(&commit, &format!("refs/heads/{trying}"), false).await?;
         let request = fast::Request {
@@ -685,14 +712,32 @@ impl<A: Api> Host for GitHub<A> {
             commit: &commit,
             asking,
         };
-        let said = self.run_role(role, request, named, stop).await?;
-        // The branch is kept until the run has ended and its result is read: a run the engine stopped waiting for is
-        // found again by the same call, and checks the commit out when it starts. One that could not be deleted is
-        // deleted as the work ends ([`Host::end`]).
-        if said.is_some() {
-            let _ = self.api.delete(&trying).await;
+        // The fast workflow first, then the measure workflow, which times the commit against the one the work's change
+        // began from: the newest commit main and the work's commit have in common, a commit of main's, so that what is
+        // timed is the change alone and not what other works merged into main since.
+        let mut said: Vec<String> = Vec::new();
+        if let Some(role) = fast {
+            match self.run_role(role, request, named, stop).await? {
+                Some(one) => said.push(one),
+                None => return Ok(None),
+            }
         }
-        Ok(said.map(|said| match untracked.is_empty() {
+        if let Some(measure) = measure {
+            let base = git::git(repo, &["merge-base", &self.kept_main(), &commit]).await?;
+            match self
+                .run_role(Role::Measure(measure, &base), request, named, stop)
+                .await?
+            {
+                Some(one) => said.push(one),
+                None => return Ok(None),
+            }
+        }
+        let said = said.join("\n\n");
+        // The branch is kept until the run has ended and its result is read: a run the engine stopped waiting for
+        // returned above, and is found again by the same call, which checks the commit out when it starts. One that
+        // could not be deleted is deleted as the work ends ([`Host::end`]).
+        let _ = self.api.delete(&trying).await;
+        Ok(Some(match untracked.is_empty() {
             true => said,
             false => format!("{}\n\n{said}", fill(&words.untracked, &[("files", &untracked)])),
         }))
@@ -778,14 +823,15 @@ const UNSEEN: char = '\u{200B}';
 /// issue or a pull request, and no closing word closes one, each broken by an unseen space after its first character
 /// (`@`, `#`, the word's first letter); every path withheld is said as what it is; and the text is cut to [`ABOUT`]
 /// characters, saying so. GitHub's own reading of a fenced block is not relied on for any of it.
-pub(crate) fn neutral(text: &str, withheld: &[(String, &'static str)]) -> String {
+pub(crate) fn neutral(text: &str, withheld: &[(String, String)], cut: &str) -> String {
     let mut text = text.to_string();
     for (path, said) in withheld {
-        text = text.replace(path.as_str(), said);
+        text = text.replace(path.as_str(), said.as_str());
     }
     if text.chars().count() > ABOUT {
         text = text.chars().take(ABOUT).collect();
-        text.push_str("\n(cut: the whole is on the engine's page)");
+        text.push('\n');
+        text.push_str(cut);
     }
     let mut out = String::with_capacity(text.len() + 16);
     let mut word = String::new();
@@ -834,7 +880,7 @@ impl<A: Api> GitHub<A> {
     /// The title of the work's pull request: the name of its merge, made [`neutral`] as what the work writes is, cut
     /// to [`TITLE`] characters, saying so.
     fn title(&self, branch: &Branch<'_>) -> String {
-        let title = neutral(branch.title.trim(), &self.config.withheld);
+        let title = neutral(branch.title.trim(), &self.config.withheld, &self.config.words.cut);
         if title.chars().count() <= TITLE {
             return title;
         }
@@ -846,33 +892,32 @@ impl<A: Api> GitHub<A> {
     /// What the pull request of the work says of itself: what the work wrote of itself, as a block of plain text made
     /// [`neutral`], then what the pull request is. A person's edit of the body is written over at the next check.
     fn body(&self, branch: &Branch<'_>) -> String {
-        let about = neutral(branch.about.trim(), &self.config.withheld);
-        let what = format!(
-            "This pull request carries work {} of wf-agents.\n\nThe engine pushes here each commit of the work's \
-             branch that it checks, and reads the CI of that commit. It merges the pull request once the check passed \
-             on the commit it merges and the work's flow lets it go. What was decided in the work, and why, is on the \
-             engine's page for the work. The text above is written over at each check.\n",
-            branch.work.0
-        );
+        let words = &self.config.words;
+        let about = neutral(branch.about.trim(), &self.config.withheld, &words.cut);
+        let work = branch.work.to_string();
+        let what = fill(&words.body, &[("work", &work)]);
         if about.is_empty() {
             return what;
         }
         let fence = fence(&about);
-        format!("What the work's agents wrote of the change:\n\n{fence}text\n{about}\n{fence}\n\n---\n\n{what}")
+        let block = format!("{fence}text\n{about}\n{fence}");
+        format!("{}{what}", fill(&words.about, &[("about", &block)]))
     }
 }
 
 /// The paths nothing published names, each with what is said in its place: the longest first, so that one inside
 /// another is said as the one it is in.
-pub(crate) fn withheld(data: &Path, repo: &Path, home: Option<String>) -> Vec<(String, &'static str)> {
+pub(crate) fn withheld(
+    data: &Path,
+    repo: &Path,
+    home: Option<String>,
+    said: &flow::agents::Withheld,
+) -> Vec<(String, String)> {
     let mut withheld = vec![
-        (data.display().to_string(), "<the data directory>"),
-        (repo.display().to_string(), "<the repository>"),
+        (data.display().to_string(), said.data.clone()),
+        (repo.display().to_string(), said.repository.clone()),
     ];
-    withheld.extend(
-        home.filter(|home| home.len() > 1)
-            .map(|home| (home, "<the home directory>")),
-    );
+    withheld.extend(home.filter(|home| home.len() > 1).map(|home| (home, said.home.clone())));
     withheld.sort_by_key(|(path, _)| std::cmp::Reverse(path.len()));
     withheld
 }

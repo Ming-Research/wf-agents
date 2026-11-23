@@ -10,6 +10,7 @@ import { type Definition, type Flow, type Given, type Installed, load } from './
 import { Chart, type Chosen, MATRIX_MARKS } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type BarItems, Engine, useBarItems } from './Engine';
+import { ItemTitlesProvider } from './itemNumbers';
 import { aheadCount, waitingCount } from './works/waiting';
 import { aheadCount as aheadWords, waitCount } from './works/words';
 import { LazyFlowChart } from './graph/lazy';
@@ -220,7 +221,8 @@ export function Shell({ route, serves = 'all', children }: {
           </>
         }
       />
-      {children}
+      {/* The items the bar reads give every view the titles for the numbers of items in its texts. */}
+      <ItemTitlesProvider items={bar.items}>{children}</ItemTitlesProvider>
     </div>
   );
 }
@@ -382,6 +384,7 @@ export function FlowPage({ definition, given, active = true }: {
         sent={given?.state === 'compiled' ? given.cells[cell.id] : undefined}
         act={given?.state === 'compiled' ? given.acts[cell.id] : undefined}
         unknown={given?.state === 'compiled' ? given.unknown : undefined}
+        unchecked={given?.state === 'compiled' ? given.unchecked : null}
         onChoose={choose}
       />
     );

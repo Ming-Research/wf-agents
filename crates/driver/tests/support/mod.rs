@@ -49,6 +49,16 @@ pub fn has() -> Has {
     }
 }
 
+/// The words the engine says to the owner, as the files beside the repository's flows have them: what a flow compiled
+/// without them says in their places is nothing, as the engine refuses to start on.
+pub fn beside() -> BTreeMap<String, String> {
+    [(
+        flow::waits_file(),
+        include_str!("../../../../flow/agents/waits.toml").to_string(),
+    )]
+    .into()
+}
+
 /// A flow compiled from the text of its files, beside it the words the engine says to the owner, as beside the
 /// repository's flows.
 pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
@@ -57,11 +67,7 @@ pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
         cells: (cells.iter())
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
-        files: [(
-            flow::waits_file(),
-            include_str!("../../../../flow/agents/waits.toml").to_string(),
-        )]
-        .into(),
+        files: beside(),
         ..Default::default()
     };
     compile(&source, &has()).expect("the definition compiles")
@@ -529,6 +535,14 @@ impl Storage for Failing {
 
     fn keep_account(&mut self, record: &store::AccountRecord) -> Result<(), store::Fault> {
         self.store.keep_account(record)
+    }
+
+    fn stops(&self) -> Result<Vec<store::StopRecord>, store::Fault> {
+        self.store.stops()
+    }
+
+    fn keep_stop(&mut self, record: &store::StopRecord) -> Result<(), store::Fault> {
+        self.store.keep_stop(record)
     }
 
     fn keep_flow(&mut self, kept: &store::KeptFlow) -> Result<(), store::Fault> {
@@ -1127,7 +1141,8 @@ impl H {
             };
             assert!(
                 self.kept_as_pending(todo),
-                "given as the driver opened before the store holds that it is to be done: {todo:?}"
+                "given as the driver opened before the store holds that it is to be done: {todo:?}; the store holds {:?}",
+                self.kept_pending(todo.work)
             );
         }
         self.outstanding = todos.clone();
@@ -1137,16 +1152,21 @@ impl H {
         todos
     }
 
-    /// Whether the store holds that the todo is to be done: it is pending of the work as the store keeps it.
-    fn kept_as_pending(&self, todo: &Todo) -> bool {
-        let kept = self.reader.load(todo.work).expect("the work loads");
+    /// What the store holds as to be done for the work: what is pending of the work as the store keeps it.
+    fn kept_pending(&self, work: WorkNumber) -> Vec<Effect> {
+        let kept = self.reader.load(work).expect("the work loads");
         let head = (self.reader.works().expect("the works are read").into_iter())
-            .find(|head| head.number == todo.work)
+            .find(|head| head.number == work)
             .expect("the work is kept");
         let flow = (self.flows.iter())
             .find(|f| f.name == head.flow)
             .expect("the work's flow");
-        engine::pending(flow, &kept).contains(&todo.effect)
+        engine::pending(flow, &kept)
+    }
+
+    /// Whether the store holds that the todo is to be done.
+    fn kept_as_pending(&self, todo: &Todo) -> bool {
+        self.kept_pending(todo.work).contains(&todo.effect)
     }
 
     /// What the event answers is answered: the round it ends, or the call it gives the result of.
@@ -1251,7 +1271,8 @@ impl H {
             }
             assert!(
                 self.kept_as_pending(todo),
-                "given before the store holds that it is to be done: {todo:?}"
+                "given before the store holds that it is to be done: {todo:?}; the store holds {:?}",
+                self.kept_pending(todo.work)
             );
             self.outstanding.push(todo.clone());
         }

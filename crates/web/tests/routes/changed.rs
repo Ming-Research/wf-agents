@@ -216,11 +216,11 @@ async fn each_file_a_work_changed_and_the_diff_of_one_are_given_and_what_there_i
     let none = StatusCode::NOT_FOUND;
     assert_eq!(
         refused(router, "/api/v1/works/1/changes/diff?path=src%2Fb.rs").await,
-        (none, "Work 1 changed no file src/b.rs.".to_string())
+        (none, "W1 changed no file src/b.rs.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/9/changes").await,
-        (none, "There is no work 9.".to_string())
+        (none, "There is no work W9.".to_string())
     );
     let (status, words) = refused(router, "/api/v1/works/1/changes/diff").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -232,7 +232,7 @@ async fn each_file_a_work_changed_and_the_diff_of_one_are_given_and_what_there_i
         refused(&scripted.router, "/api/v1/works/1/changes").await,
         (
             none,
-            "Work 1 has no change to tell yet: its branch is not made.".to_string()
+            "W1 has no change to tell yet: its branch is not made.".to_string()
         )
     );
     let summary = get_json(&scripted.router, "/api/v1/works/1").await["summary"].clone();

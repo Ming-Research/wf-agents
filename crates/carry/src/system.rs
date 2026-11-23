@@ -11,12 +11,13 @@
 //! session only as a new one (principle one-form-of-return-for-a-session). So a line begins a new session at its next
 //! round where its session began with another system prompt or form than a new one would begin with now, or where a
 //! new one cannot be made ([`changed`]; decision `a-changed-system-prompt-or-form-begins-a-new-session`). A file of
-//! the project is never read through a symbolic link ([`read_within`]). The engine fills three places of the texts
+//! the project is never read through a symbolic link ([`read_within`]). The engine fills four places of the texts
 //! ([`Filling`]): `{your_line}`, what the line may do in the worktree
 //! ([`Permissions::told`](crate::permissions::Permissions::told)); `{store}`, what the engine's records
-//! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks an agent may name to
-//! `run_tests`, in the words its file gives for how the installation runs the project's CI. Each setting the texts name, but in a file of the project, is given with
-//! its value beside it: the project's from its `project.toml`, and the installation's that `agents/installation.toml`
+//! hold, as [`crate::store`] gives it; `{named_checks}`, the checks an agent may name to
+//! `run_tests`, in the words its file gives for how the installation runs the project's CI; and `{measure}`, what that
+//! tool says of naming measurements, where the project declares a workflow that times them. Each setting the texts name, but in a file of the project, is given with
+//! its value beside it: the project's from its declaration, and the installation's that `agents/installation.toml`
 //! names, from these settings ([`named`]); so is each setting a message names, in the cell's task, in what the cell
 //! does when a datum it watches is new, and in the words of what the cell returns (crate `context`), with these
 //! settings.
@@ -29,7 +30,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use flow::agents::Agents;
+use flow::agents::{Agents, Declaration};
 use flow::{Compiled, Kind};
 use uuid::Uuid;
 
@@ -126,6 +127,8 @@ pub struct Filling {
     pub named: flow::system::Settings,
     /// What fills `{named_checks}`; none where no tool's file gives words for how the installation runs its CI.
     pub named_checks: Option<String>,
+    /// What fills `{measure}`; none where no tool's file gives words for it.
+    pub measure: Option<String>,
     /// What fills `{store}`: what the schema's comments say of the store where the settings open it to the agents, and
     /// the tool's file's words that it is not open where they do not ([`crate::store`]).
     pub store: String,
@@ -134,14 +137,18 @@ pub struct Filling {
 /// The place of a tool's words that says which checks an agent may name.
 const NAMED_CHECKS: &str = "named_checks";
 
+/// The place of a tool's words that says an agent may name measurements, where the project has a workflow that times them.
+const MEASURE: &str = "measure";
+
 /// What the engine puts into the texts, as these settings and the files beside the flows say. `{named_checks}` is
 /// filled with the words its tool's file gives for how the installation runs the project's CI, as the host takes a
 /// check named: by the project's fast workflow alone (`ci.fast` of its declaration), and only one it runs by name
 /// (`checks`), each between backticks for `{checks}` in `named`, or `none_named` where it runs none by name; where the
-/// project declares no workflows, nothing is run, `whole`.
-pub fn filling(settings: &Settings, beside: &Agents) -> Filling {
+/// project declares no workflows, nothing is run, `whole`. `{measure}` is filled with `declared` of its tool's file's words
+/// where the project declares a measure workflow (`ci.measure`), and with `none` where it does not.
+pub fn filling(settings: &Settings, beside: &Agents, declaration: &Declaration) -> Filling {
     let ways = beside.tools.values().find_map(|tool| tool.places.get(NAMED_CHECKS));
-    let fast = beside.project.ci.as_ref().map(|ci| &ci.fast);
+    let fast = declaration.ci.as_ref().map(|ci| &ci.fast);
     let named_checks = ways.and_then(|ways| match fast {
         Some(fast) if !fast.checks.is_empty() => {
             let checks: Vec<String> = fast.checks.iter().map(|c| format!("`{c}`")).collect();
@@ -150,30 +157,36 @@ pub fn filling(settings: &Settings, beside: &Agents) -> Filling {
         Some(_) => ways.get("none_named").cloned(),
         None => ways.get("whole").cloned(),
     });
+    let measures = declaration.ci.as_ref().is_some_and(|ci| ci.measure.is_some());
+    let measure = (beside.tools.values())
+        .find_map(|tool| tool.places.get(MEASURE))
+        .and_then(|ways| ways.get(if measures { "declared" } else { "none" }).cloned());
     // Settings that cannot open the store are refused as the carriers are made, before any prompt is.
     let store = crate::store(settings, beside).unwrap_or_default();
     Filling {
-        named: named(settings, beside),
+        named: named(settings, beside, declaration),
         named_checks,
+        measure,
         store,
     }
 }
 
 /// What fills each place of the texts the engine fills, by its name, for a line whose agents are told `your_line` of
 /// what they may do in the worktree: `your_line`, that; `store`, what the engine's records hold, as `filling` has it;
-/// `named_checks`, as `filling` has it. None for any other.
+/// `named_checks` and `measure`, as `filling` has them. None for any other.
 fn filled(name: &str, your_line: &str, filling: &Filling) -> Option<String> {
     match name {
         "your_line" => Some(your_line.to_string()),
         "store" => Some(filling.store.clone()),
         NAMED_CHECKS => filling.named_checks.clone(),
+        MEASURE => filling.measure.clone(),
         _ => None,
     }
 }
 
 /// The settings the texts beside the flows may name, the installation's each with the value these settings give it.
-pub fn named(settings: &Settings, beside: &Agents) -> flow::system::Settings {
-    flow::system::Settings::of(&beside.project, &beside.installation, |key| settings.value(key))
+pub fn named(settings: &Settings, beside: &Agents, declaration: &Declaration) -> flow::system::Settings {
+    flow::system::Settings::of(Some(declaration), &beside.installation, |key| settings.value(key))
 }
 
 /// The system prompt of the session of the cell's line, for a line whose agents are told `your_line` of what they may
@@ -181,6 +194,7 @@ pub fn named(settings: &Settings, beside: &Agents) -> flow::system::Settings {
 /// be made.
 pub(crate) fn of_line(
     beside: &Agents,
+    declaration: &Declaration,
     filling: &Filling,
     flow: &Compiled,
     cell: &flow::CellSpec,
@@ -189,26 +203,42 @@ pub(crate) fn of_line(
 ) -> Result<String, String> {
     let read =
         |path: &str| (read(path).map(Some)).map_err(|e| format!("{path} cannot be read in the work's worktree: {e}"));
-    let parts = flow::system::parts(beside, flow, cell, read).map_err(|wrong| wrong.join("; "))?;
+    let parts = flow::system::parts(beside, Some(declaration), flow, cell, read).map_err(|wrong| wrong.join("; "))?;
     let fill = |name: &str| filled(name, your_line, filling);
     flow::system::prompt(&parts, &filling.named, fill).map_err(|wrong| wrong.join("; "))
 }
 
+/// What is wrong with the texts the flow's agents are sent, told apart by whose it is: the flow's, which is the same for
+/// every project and keeps the engine from starting, and a project's, which its declaration causes and holds that
+/// project alone.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Faults {
+    pub of_flow: Vec<String>,
+    pub of_project: Vec<String>,
+}
+
 /// What is wrong with the texts the flow's agents are sent that is known before any session begins, every fault at
 /// once, each once, with the flow and the file or the thing of the flow that holds the text: of each line's system
-/// prompt, a set of rules or a tool that nothing beside the flows defines, a place the engine does not fill (a file of
-/// the project standing as empty under its heading), and a setting named that has no value; a line that changes only
-/// the project's tests, of a project whose declaration names no paths of its tests or of a flow with no block of the
-/// work's head; and a setting named with no value in a cell's task, in what the cell does when a datum it watches is
-/// new, in the words of a block, or in the words of what a cell returns (`[outputs]` of `agents/return/return.toml`).
-pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<String> {
-    let filling = filling(settings, beside);
+/// prompt, a set of rules or a tool that nothing beside the flows defines, and a place the engine does not fill (a file
+/// of the project standing as empty under its heading), which are the flow's; a setting named that has no value, which
+/// is the project's where it is one of its own (`project.<name>`) and the flow's where it is the installation's; a line
+/// that changes only the project's tests, of a project whose declaration names no paths of its tests, which is the
+/// project's, or of a flow with no block of the work's head, which is the flow's; and a setting named with no value in
+/// a cell's task, in what the cell does when a datum it watches is new, in the words of a block, or in the words of
+/// what a cell returns (`[outputs]` of `agents/return/return.toml`).
+pub fn faults(settings: &Settings, beside: &Agents, declaration: &Declaration, flow: &Compiled) -> Faults {
+    let filling = filling(settings, beside, declaration);
     let named = &filling.named;
-    let mut faults: Vec<String> = Vec::new();
-    let mut add = |what: String| {
+    let mut faults = Faults::default();
+    let mut add = |what: String, project: bool| {
         let fault = format!("flow {}: {what}", flow.name);
-        if !faults.contains(&fault) {
-            faults.push(fault);
+        let into = if project {
+            &mut faults.of_project
+        } else {
+            &mut faults.of_flow
+        };
+        if !into.contains(&fault) {
+            into.push(fault);
         }
     };
     // The prompt is the same for every cell of a line: its first cell stands for it.
@@ -220,26 +250,46 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
         }
         lines.push(line);
         let given = |_: &str| Ok(Some(String::new()));
-        let (parts, wrong) = flow::system::made(beside, flow, cell, given);
+        let (parts, wrong) = flow::system::made(beside, Some(declaration), flow, cell, given);
         let fills = |name: &str| filled(name, "", &filling).is_some();
         for what in wrong.into_iter().chain(flow::system::check(&parts, named, fills)) {
-            add(format!("the system prompt of the line {line}: {what}"));
+            let project = flow::system::lacks_project_setting(&what);
+            add(format!("the system prompt of the line {line}: {what}"), project);
         }
         // Its agents are told the paths of the tests and held to them, from the version of the work's head its run
         // began on: with no paths neither can be done, and with no head nothing says where the run began.
-        if cell.tests_only && crate::tests_only::paths(&beside.project).is_empty() {
-            add(format!(
-                "the line {line} changes only the project's tests, and project.toml names none in [tests] paths"
-            ));
+        if cell.tests_only && crate::tests_only::paths(declaration).is_empty() {
+            add(
+                format!(
+                    "the line {line} changes only the project's tests, and {} names none in [tests] paths",
+                    flow::agents::DECLARATION
+                ),
+                true,
+            );
         }
         let has_head = (flow.blocks.values()).any(|b| b.writers.outside.as_deref() == Some(crate::head::HEAD));
         if cell.tests_only && !has_head {
-            add(format!(
-                "the line {line} changes only the project's tests, and the flow has no block of the work's head (`{}`), \
-                 from which what its run changed is read",
-                crate::head::HEAD
-            ));
+            add(
+                format!(
+                    "the line {line} changes only the project's tests, and the flow has no block of the work's head (`{}`), \
+                     from which what its run changed is read",
+                    crate::head::HEAD
+                ),
+                false,
+            );
         }
+    }
+    // The words name how a measurement is named, as the project's own setting says: a project with a measure workflow
+    // that gives none would send its agents the bare name of a setting.
+    let measures = declaration.ci.as_ref().is_some_and(|ci| ci.measure.is_some());
+    if measures && !declaration.project.contains_key("measure_names") {
+        add(
+            format!(
+                "{}: declares [ci.measure] and gives no `measure_names` in [project], which the words of run_tests name",
+                flow::agents::DECLARATION
+            ),
+            true,
+        );
     }
     // The flow's texts a message sends, and the words of what a cell returns, which a message gives each setting they
     // name with its value as the system prompt does.
@@ -261,10 +311,10 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
     });
     for said in flow::system::flow_texts(flow).into_iter().chain(words) {
         for name in named.named_in(&said.text).err().unwrap_or_default() {
-            add(format!(
-                "{}: names the setting `{name}`, which has no value",
-                said.source
-            ));
+            add(
+                format!("{}: names the setting `{name}`, which has no value", said.source),
+                name.starts_with(flow::system::PROJECT_SETTINGS),
+            );
         }
     }
     faults
@@ -274,7 +324,7 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
 /// in its order, on main where works branch from, as the host last gave it: one not named by a path within the
 /// repository, one main does not hold as a file, or one a symbolic link on main leads to, the file or a directory above
 /// it. A work's worktree is made from main, so its sessions would find none, or read through the link.
-pub fn project_files(project: &Project, beside: &Agents) -> Vec<String> {
+pub fn project_files(project: &Project, beside: &Agents, declaration: &Declaration) -> Vec<String> {
     let repo = &project.repo;
     let main = crate::host::kept_main(project);
     let git = |args: &[&str]| {
@@ -289,7 +339,8 @@ pub fn project_files(project: &Project, beside: &Agents) -> Vec<String> {
         Ok(_) => {
             return vec![format!(
                 "{main}, main's head where works branch from, is not in the project's repository: the files \
-                 project.toml names are not looked for there"
+                 {} names are not looked for there",
+                flow::agents::DECLARATION
             )];
         }
         Err(e) => return vec![format!("git could not be run to look for main's head, {main}: {e}")],
@@ -299,14 +350,15 @@ pub fn project_files(project: &Project, beside: &Agents) -> Vec<String> {
         let Some(name) = part.file() else {
             continue;
         };
-        let Some(file) = beside.project.files.get(name) else {
+        let Some(file) = declaration.files.get(name) else {
             continue;
         };
         let path = &file.path;
         let within = (Path::new(path).components()).all(|c| matches!(c, Component::Normal(_)));
         if path.is_empty() || !within {
             wrong.push(format!(
-                "project.toml: the file {name} is named by its path within the repository, not {path:?}"
+                "{}: the file {name} is named by its path within the repository, not {path:?}",
+                flow::agents::DECLARATION
             ));
             continue;
         }
@@ -319,11 +371,17 @@ pub fn project_files(project: &Project, beside: &Agents) -> Vec<String> {
                 Ok(listed) if listed.status.success() => String::from_utf8_lossy(&listed.stdout).into_owned(),
                 Ok(listed) => {
                     let said = String::from_utf8_lossy(&listed.stderr).trim().to_string();
-                    wrong.push(format!("project.toml: git could not look for {path} on {main}: {said}"));
+                    wrong.push(format!(
+                        "{}: git could not look for {path} on {main}: {said}",
+                        flow::agents::DECLARATION
+                    ));
                     break;
                 }
                 Err(e) => {
-                    wrong.push(format!("project.toml: git could not be run to look for {path}: {e}"));
+                    wrong.push(format!(
+                        "{}: git could not be run to look for {path}: {e}",
+                        flow::agents::DECLARATION
+                    ));
                     break;
                 }
             };
@@ -339,7 +397,7 @@ pub fn project_files(project: &Project, beside: &Agents) -> Vec<String> {
                 "040000" if !last => continue,
                 _ => format!("the file {name}, {path}, is not a file on main, {main}"),
             };
-            wrong.push(format!("project.toml: {fault}"));
+            wrong.push(format!("{}: {fault}", flow::agents::DECLARATION));
             break;
         }
     }

@@ -16,6 +16,9 @@ use flow::agents::{Commits, fill};
 /// The directory in the data directory that holds the works' worktrees.
 pub const WORKTREES: &str = "worktrees";
 
+/// What every work's branch name begins with. The full CI workflow reads it to leave a work's pull request alone.
+pub const BRANCH_PREFIX: &str = "work-";
+
 /// Where a work is done: its branch and its worktree, both named by the work's number and by the installation, so
 /// that an installation with a new data directory never takes up a branch another left.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,7 +55,7 @@ pub fn tag(installation: &Uuid) -> String {
 pub fn place(data: &Path, tag: &str, work: WorkNumber) -> Place {
     let name = format!("{}-{tag}", work.0);
     Place {
-        branch: format!("work-{name}"),
+        branch: format!("{BRANCH_PREFIX}{name}"),
         dir: data.join(WORKTREES).join(name),
     }
 }
