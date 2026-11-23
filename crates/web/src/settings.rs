@@ -6,8 +6,9 @@
 //!   words ([`Saved`]).
 //! - `GET /api/v1/settings/accounts`: the accounts the agents' program may run under, each with what the service last
 //!   said of its usage, the one in use, and the command that makes a token ([`AccountsPage`]). Reading spends nothing.
-//! - `POST /api/v1/settings/accounts`: the owner adds, takes or removes an account ([`AccountAsked`]), through the
-//!   engine's loop, answered with what came of it ([`AccountDone`]).
+//! - `POST /api/v1/settings/accounts`: the owner adds, takes or removes an account, or lets the engine move to another
+//!   account at a usage limit or does not ([`AccountAsked`]), through the engine's loop, answered with what came of it
+//!   ([`AccountDone`]).
 //! - `POST /api/v1/settings/accounts/look`: the owner opens the accounts: the engine looks under each whose usage it last
 //!   heard of long enough ago, off the loop, and answers at once with the names it looks under ([`Looking`]); the
 //!   accounts are said changed as each look ends (crate `driver`, module `usage`).
@@ -161,10 +162,28 @@ pub struct AccountsPage {
     pub accounts: Vec<Account>,
     /// The account the agents run under, by its name; none where none is in use, and no agent's round runs.
     pub in_use: Option<String>,
+    /// Whether the owner has let the engine move to another account at the usage limit of the one in use.
+    pub moving_on: bool,
+    /// The latest moves the engine made at a usage limit, newest first, at most [`MOVES_SHOWN`].
+    pub moves: Vec<AccountMove>,
     /// The command the owner runs, signed in to an account in the browser, to make a token of it.
     pub command: String,
     /// Why no account can be added now, as where what keeps the tokens is missing; none where one can.
     pub closed: Option<String>,
+}
+
+/// How many of the engine's latest moves the accounts show: a bound on what the owner reads, chosen by judgment.
+pub const MOVES_SHOWN: usize = 5;
+
+/// A move the engine made: at this time it took the account `to`, which the agents ran under in place of the account
+/// `from`, whose usage limit it left; `left_resets` is when that limit resets, where it was said.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountMove {
+    pub at: u64,
+    pub from: Option<String>,
+    pub to: String,
+    pub left_resets: Option<u64>,
 }
 
 /// An account added.
@@ -230,13 +249,24 @@ pub struct AccountLimit {
 }
 
 /// What the owner does to an account: adds one under a name with its token, takes one as the one the agents run under,
-/// or removes one.
+/// or removes one; or lets the engine move to another account at a usage limit, or does not.
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum AccountAsked {
-    Add { name: String, token: String },
-    Take { name: String },
-    Remove { name: String },
+    Add {
+        name: String,
+        token: String,
+    },
+    Take {
+        name: String,
+    },
+    Remove {
+        name: String,
+    },
+    /// Lets the engine move to another account at a usage limit, or does not.
+    SetMovingOn {
+        on: bool,
+    },
 }
 
 /// What came of an act on an account: of one added, whether its token met its usage limit as it was checked, and when
@@ -345,9 +375,26 @@ async fn accounts(State(at): State<Accounted>) -> Response {
         let accounts = driver.accounts();
         let in_use = accounts.in_use().map(str::to_string);
         let usage = driver.usage().clone();
-        (now, accounts.live(), in_use, driver.limits(), usage)
+        let moves: Vec<AccountMove> = (driver.moves().into_iter())
+            .take(MOVES_SHOWN)
+            .map(|moved| AccountMove {
+                at: moved.at.0,
+                from: moved.from,
+                to: moved.to,
+                left_resets: moved.left_resets.map(|at| at.0),
+            })
+            .collect();
+        (
+            now,
+            accounts.live(),
+            in_use,
+            driver.limits(),
+            usage,
+            driver.moving_on(),
+            moves,
+        )
     });
-    let (now, live, in_use, limits, usage) = match read.await {
+    let (now, live, in_use, limits, usage, moving_on, moves) = match read.await {
         Ok(read) => read,
         Err(refusal) => return refused(&refusal),
     };
@@ -369,6 +416,8 @@ async fn accounts(State(at): State<Accounted>) -> Response {
         now: now.0,
         accounts,
         in_use,
+        moving_on,
+        moves,
         command,
         closed,
     })
@@ -433,6 +482,7 @@ async fn account(State(at): State<Accounted>, body: Bytes) -> Response {
             })
         }
         AccountAsked::Take { name } => (at.handle.take_account(name).await).map(|()| AccountDone::default()),
+        AccountAsked::SetMovingOn { on } => (at.handle.set_moving_on(on).await).map(|()| AccountDone::default()),
         AccountAsked::Remove { name } => (at.handle.remove_account(name).await).map(|left| AccountDone {
             not_let_go: left,
             ..AccountDone::default()

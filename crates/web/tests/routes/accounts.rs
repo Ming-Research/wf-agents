@@ -15,7 +15,7 @@ use decide::run::Failure;
 use driver::{Found, LOOK_AFTER_MS, Said, Window};
 use serde_json::{Value, json};
 use service::{Heard, KeptTokens, Outside, Scripted, Service, Token, Tokens, TokioClock, YEAR_MS};
-use store::Store;
+use store::{AccountAct, AccountRecord, AccountTaker, Storage, Store};
 use web::settings::Install;
 
 use crate::{START, get_json, post, post_text, trial_flow, trial_has, trial_script};
@@ -113,8 +113,16 @@ fn serving(tokens: Arc<KeptTokens>) -> (Router, tempfile::TempDir) {
 
 /// The routes [`serving`] gives, with the outside, which counts its checks.
 fn serving_counted(tokens: Arc<KeptTokens>) -> (Router, tempfile::TempDir, Arc<ByToken>) {
+    serving_holding(tokens, &[])
+}
+
+/// The routes [`serving`] gives, over a store that holds these records of accounts already.
+fn serving_holding(tokens: Arc<KeptTokens>, records: &[AccountRecord]) -> (Router, tempfile::TempDir, Arc<ByToken>) {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let mut store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    for record in records {
+        store.keep_account(record).unwrap();
+    }
     let mut carriers = Scripted::new(trial_script()).carriers();
     let kept: Arc<dyn Tokens> = tokens;
     let by_token = Arc::new(ByToken::default());
@@ -411,4 +419,79 @@ async fn each_account_shows_the_services_latest_word_on_its_usage_and_an_opening
             "{name} looked under"
         );
     }
+}
+
+// Whether the engine may move to another account at a usage limit is off until the owner switches it on, which the page
+// reads back at once; switched off again it says so; and a switching that says neither way is refused.
+#[tokio::test(start_paused = true)]
+async fn the_engine_does_not_move_between_accounts_until_the_owner_switches_it_on_and_the_page_says_it() {
+    let (router, _dir) = serving(Arc::new(KeptTokens::new()));
+    let page = get_json(&router, PATH).await;
+    assert_eq!((&page["movingOn"], &page["moves"]), (&json!(false), &json!([])));
+    let on = json!({ "kind": "setMovingOn", "on": true });
+    assert_eq!(post(&router, PATH, &on).await, (StatusCode::OK, nothing()));
+    assert_eq!(get_json(&router, PATH).await["movingOn"], true);
+    let off = json!({ "kind": "setMovingOn", "on": false });
+    assert_eq!(post(&router, PATH, &off).await, (StatusCode::OK, nothing()));
+    assert_eq!(get_json(&router, PATH).await["movingOn"], false);
+    let (status, _) = post(&router, PATH, &json!({ "kind": "setMovingOn" })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+// The page lists the engine's latest moves, at most five, newest first, each with the account it left and when that
+// account's limit resets, where that was said; the owner's own takes are no moves.
+#[tokio::test(start_paused = true)]
+async fn the_page_lists_the_latest_five_moves_of_the_engine_newest_first_each_with_the_account_it_left() {
+    let hour = 3_600_000;
+    let record = |name: &str, what, taker, left_resets: Option<u64>, at: u64| AccountRecord {
+        name: name.to_string(),
+        what,
+        at: work::Time(START + at),
+        taker,
+        left_resets: left_resets.map(|t| work::Time(START + t)),
+    };
+    let mut records = vec![
+        record("work", AccountAct::Added, AccountTaker::Owner, None, 0),
+        record("home", AccountAct::Added, AccountTaker::Owner, None, 1),
+        record("work", AccountAct::Taken, AccountTaker::Owner, None, 2),
+    ];
+    for i in 0..7u64 {
+        let to = if i % 2 == 0 { "home" } else { "work" };
+        let left = (i % 3 != 0).then_some((i + 1) * hour);
+        records.push(record(
+            to,
+            AccountAct::Taken,
+            AccountTaker::Engine,
+            left,
+            1_000 * (i + 10),
+        ));
+    }
+    let (router, _dir, _) = serving_holding(Arc::new(KeptTokens::new()), &records);
+    let page = get_json(&router, PATH).await;
+    let moves = page["moves"].as_array().expect("the moves");
+    assert_eq!(moves.len(), 5, "{page}");
+    let shown: Vec<(String, Option<String>, Value)> = moves
+        .iter()
+        .map(|m| {
+            (
+                m["to"].as_str().unwrap().to_string(),
+                m["from"].as_str().map(str::to_string),
+                m["leftResets"].clone(),
+            )
+        })
+        .collect();
+    // The newest, the seventh, took the home from the work, whose reset the check did not say; the one before took the
+    // work from the home, whose reset was said.
+    assert_eq!(shown[0], ("home".to_string(), Some("work".to_string()), json!(null)));
+    assert_eq!(
+        shown[1],
+        ("work".to_string(), Some("home".to_string()), json!(START + 6 * hour))
+    );
+    assert_eq!(moves[0]["at"], json!(START + 16_000));
+    assert_eq!(
+        moves[4]["at"],
+        json!(START + 12_000),
+        "the fifth newest, the third taken"
+    );
+    assert_eq!(page["inUse"], "home");
 }

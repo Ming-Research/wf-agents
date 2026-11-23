@@ -8,7 +8,7 @@
 //! handed out all the same, and fails as its token cannot be given. A try of a round records the account it ran under
 //! by its name, apart from the directory of the program's settings it ran with; a try kept before accounts were, none.
 
-use store::{AccountAct, AccountRecord};
+use store::{AccountAct, AccountRecord, AccountTaker};
 use work::Time;
 
 /// The accounts, as the records the store keeps of them say.
@@ -30,6 +30,25 @@ pub enum Instead {
 pub struct Live {
     pub name: String,
     pub added: Time,
+}
+
+/// A move the engine made at a usage limit: when it took an account, which account it was running the agents under
+/// before, which it took, and when the usage limit of the account it left resets, where that was said.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Moved {
+    pub at: Time,
+    pub from: Option<String>,
+    pub to: String,
+    pub left_resets: Option<Time>,
+}
+
+/// The account the agents run under as of these records: the latest taken that has not been removed since.
+fn in_use_of(records: &[AccountRecord]) -> Option<&str> {
+    let removed_after =
+        |name: &str, i: usize| (records[i + 1..].iter()).any(|r| r.name == name && r.what == AccountAct::Removed);
+    (records.iter().enumerate().rev())
+        .find(|(i, r)| r.what == AccountAct::Taken && !removed_after(&r.name, *i))
+        .map(|(_, r)| r.name.as_str())
 }
 
 /// Why a name is no account's name, in words; none where it is one: small letters, digits and dashes, beginning with a
@@ -72,12 +91,20 @@ impl Accounts {
     /// The account the agents run under: the latest taken that has not been removed since; none where none is, and no
     /// agent's call can be made.
     pub fn in_use(&self) -> Option<&str> {
-        let removed_after = |name: &str, i: usize| {
-            (self.records[i + 1..].iter()).any(|r| r.name == name && r.what == AccountAct::Removed)
-        };
+        in_use_of(&self.records)
+    }
+
+    /// The accounts the engine took, newest first, each with the account that was in use before it was taken.
+    pub fn moves(&self) -> Vec<Moved> {
         (self.records.iter().enumerate().rev())
-            .find(|(i, r)| r.what == AccountAct::Taken && !removed_after(&r.name, *i))
-            .map(|(_, r)| r.name.as_str())
+            .filter(|(_, r)| r.what == AccountAct::Taken && r.taker == AccountTaker::Engine)
+            .map(|(i, r)| Moved {
+                at: r.at,
+                from: in_use_of(&self.records[..i]).map(str::to_string),
+                to: r.name.clone(),
+                left_resets: r.left_resets,
+            })
+            .collect()
     }
 
     /// The accounts added and not removed since, in the order they were added.
@@ -145,6 +172,8 @@ mod tests {
             name: name.to_string(),
             what,
             at: Time(at),
+            taker: store::AccountTaker::Owner,
+            left_resets: None,
         }
     }
 
@@ -168,6 +197,45 @@ mod tests {
         let names: Vec<(String, Time)> = (accounts.live().into_iter()).map(|l| (l.name, l.added)).collect();
         assert_eq!(names, [("home".to_string(), Time(7))]);
         assert_eq!(accounts.taken_at(), Some(Time(4)));
+    }
+
+    #[test]
+    fn the_moves_are_the_accounts_the_engine_took_newest_first_each_with_the_account_it_left() {
+        let mut accounts = Accounts::default();
+        let by_engine = |name: &str, at: u64, left_resets: Option<u64>| AccountRecord {
+            name: name.to_string(),
+            what: AccountAct::Taken,
+            at: Time(at),
+            taker: AccountTaker::Engine,
+            left_resets: left_resets.map(Time),
+        };
+        accounts.push(record("work", AccountAct::Added, 1));
+        accounts.push(record("home", AccountAct::Added, 2));
+        accounts.push(record("work", AccountAct::Taken, 3));
+        assert_eq!(accounts.moves(), vec![], "the owner's takes are no moves");
+        accounts.push(by_engine("home", 4, Some(40)));
+        accounts.push(record("work", AccountAct::Taken, 5));
+        accounts.push(by_engine("home", 6, None));
+        assert_eq!(
+            accounts.moves(),
+            vec![
+                Moved {
+                    at: Time(6),
+                    from: Some("work".to_string()),
+                    to: "home".to_string(),
+                    left_resets: None,
+                },
+                Moved {
+                    at: Time(4),
+                    from: Some("work".to_string()),
+                    to: "home".to_string(),
+                    left_resets: Some(Time(40)),
+                },
+            ]
+        );
+        // An account left that was removed since is still the one the move left.
+        accounts.push(record("work", AccountAct::Removed, 7));
+        assert_eq!(accounts.moves()[0].from.as_deref(), Some("work"));
     }
 
     #[test]

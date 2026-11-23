@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 52);
+    assert_eq!(tables.len(), 53);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -249,7 +249,7 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
     work.records.questions.clear();
     work.records.answers.clear();
     work.pulls.clear();
-    // Nor how long the tests and jobs of a run of the CI took, which version 25 keeps.
+    // Nor how long the tests and jobs of a run of the CI took, which version 26 keeps.
     work.timed.clear();
     // Its tries recorded the directory of the program's settings as their account, which version 21 keeps apart.
     for ran in &mut work.ran {
@@ -481,7 +481,7 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
     let mut d = Driver::new();
     history(&mut d);
     let mut work = d.work;
-    // A file of version 20 kept no times of the runs of the CI, which version 25 keeps.
+    // A file of version 20 kept no times of the runs of the CI, which version 26 keeps.
     work.timed.clear();
     for ran in &mut work.ran {
         ran.on.account = None;
@@ -523,6 +523,46 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
     );
     assert_eq!(store.load(WorkNumber(1)), Ok(work));
     assert_eq!(store.accounts(), Ok(Vec::new()));
+}
+
+// An account taken before the engine could take one was the owner's, and no reset of a limit it left was said; the
+// engine may not move to another account until it is switched on.
+#[test]
+fn a_file_of_version_24_is_migrated_keeping_its_accounts_as_the_owners_with_no_reset_and_moving_on_off() {
+    let db = Db::new();
+    {
+        let file = Connection::open(&db.path).expect("the database opens");
+        file.execute_batch(SCHEMA_1).expect("the first schema is made");
+        file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+            .expect("its version is written");
+        store::migrate(&file, 1, 24).expect("the migrations run");
+        assert_eq!(versions(&db.path), [24]);
+        for (name, what, time) in [("work", "Added", 1), ("home", "Added", 2), ("home", "Taken", 3)] {
+            file.execute(
+                "INSERT INTO accounts (name, what, time) VALUES (?1, ?2, ?3)",
+                rusqlite::params![name, what, time],
+            )
+            .expect("an account is kept");
+        }
+    }
+    let new = Db::new();
+    new.open();
+    let store = db.open();
+    assert_eq!(versions(&db.path), [SCHEMA_VERSION]);
+    let records = store.accounts().expect("the accounts are read");
+    assert_eq!(records.len(), 3);
+    assert!(
+        records
+            .iter()
+            .all(|r| r.taker == store::AccountTaker::Owner && r.left_resets.is_none()),
+        "{records:?}"
+    );
+    assert_eq!(store.moving_on(), Ok(false));
+    assert_eq!(
+        columns(&db.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
 }
 
 #[test]
