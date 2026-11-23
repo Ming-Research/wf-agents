@@ -457,6 +457,9 @@ impl History {
         self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
         let compactions = u32::from(self.rng.chance(10));
         let came = self.came(round);
+        if self.forced.is_some() {
+            eprintln!("  {} round {} came {:?}", round.cell, round.number, came);
+        }
         self.sim.returns(round, came, compactions);
         if compactions > 0 {
             self.lines.insert(line.clone(), Held::default());
