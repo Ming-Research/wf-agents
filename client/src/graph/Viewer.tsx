@@ -5,10 +5,8 @@
 // goes nowhere. What floats over the drawing, such as its map, stays where it is as the drawing moves under it, and is
 // told the view each time it changes.
 //
-// Brought over from the chart of `old-main` (`client/src/graph/Viewer.tsx`), where a click that did not drag was handed
-// to the chart as the element under the pointer, the pointer being held by the viewer from the press: here the pointer
-// is held only once a press becomes a drag, so that a click reaches the button under it and the keyboard presses the
-// same buttons; and nothing floats over the viewer's side, the panel being docked beside it.
+// The pointer is held by the viewer only once a press becomes a drag, so that a click reaches the button under it and
+// the keyboard presses the same buttons; nothing floats over the viewer's side, the panel being docked beside it.
 
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useRef } from 'react';
 
