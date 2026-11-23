@@ -513,7 +513,7 @@ pub fn render(facts: &Facts, texts: &Texts) -> String {
                     &slots_ref(&slots),
                 ));
             }
-            if new_count > new.len() {
+            if *new_count > new.len() {
                 let left = new_count - new.len();
                 let listed: u64 = new.iter().map(|t| t.millis).sum();
                 lines.push(fill(
@@ -574,7 +574,7 @@ fn test_slots(t: &Listed) -> Vec<(&'static str, String)> {
     ]
 }
 
-fn slots_ref(slots: &[(&'static str, String)]) -> Vec<(&'static str, &str)> {
+fn slots_ref<'a>(slots: &'a [(&'static str, String)]) -> Vec<(&'static str, &'a str)> {
     slots.iter().map(|(name, value)| (*name, value.as_str())).collect()
 }
 

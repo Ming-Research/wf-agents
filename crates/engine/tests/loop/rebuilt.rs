@@ -26,6 +26,7 @@ fn rebuilt(work: &Work) -> Work {
         flows: work.flows.clone(),
         readings: work.readings.clone(),
         kept_time: work.kept_time.clone(),
+        timed: work.timed.clone(),
     }
 }
 
