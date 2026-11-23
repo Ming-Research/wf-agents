@@ -68,4 +68,5 @@ A fork is sent a fixed first message, the same for every fork of the round, and 
 ### decision a-round-takes-the-session-its-line-was-in-as-it-began
 A round runs in the session its line was in as it began; one recorded later, even on opening an older store, is the next round's, so a flagged round of such a store is retried in its own session.
 - replaced: Running a round under way as an older store opened, for a flag no session followed, in the session that flag began was on main; the owner changed it, because a round's session would then follow from when its first try was recorded, not where the round began: a case handled apart.
+- rejected: an agent proposed counting a session of a flagged, guarded or too-long failure for a round that began before it; the owner rejected it, because a round's session would then follow from why a session began, not from where the round began: a case handled apart.
 - rejected: an agent proposed no longer beginning a session on opening for a failed round of an older store that no session follows; the owner rejected it, because that store's works would then need handling by hand before each restart.
