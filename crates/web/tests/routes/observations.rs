@@ -1,11 +1,16 @@
-//! `GET /api/v1/observations` and `POST /api/v1/observations/{number}/read`: the observations of the returns the
-//! engine took, the newest first, each unread until the owner reads it.
+//! The routes of the observations: the observations of the returns the engine took, the newest first, each unread
+//! until the owner reads it; those an architect adds, with their projects, titles and tags; the changes made to them,
+//! all or none, each with its reason; and the count of each tag.
 
-use axum::http::StatusCode;
+use std::time::Duration;
+
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
 use serde_json::{Value, json};
 use store::Store;
+use tower::ServiceExt;
 
-use crate::{Running, START, get_json, pass, post, running_scripted};
+use crate::{Running, START, get_json, next, pass, post, running_scripted};
 
 /// The trial flow's script with the plan's first round handing in its plan and saying two observations.
 const SCRIPT: &str = r#"
@@ -36,20 +41,57 @@ async fn planned() -> Running {
     running
 }
 
-/// An observation of the plan's first round, as the route gives it.
+/// An observation of the plan's first round, as the route gives it: of and reported by the project of its item.
 fn of_the_plan(number: u64, text: &str, read: Value) -> Value {
     json!({
         "number": number,
         "text": text,
-        "work": 1,
-        "item": 1,
-        "title": "Greet the user",
-        "cell": "plan",
-        "run": 1,
-        "round": 1,
+        "title": null,
+        "tags": [],
+        "project": "trial",
+        "reportedBy": "trial",
+        "round": {
+            "work": 1,
+            "item": 1,
+            "itemTitle": "Greet the user",
+            "cell": "plan",
+            "run": 1,
+            "round": 1,
+        },
         "kept": START + 1200,
         "read": read,
+        "takenInBy": null,
+        "handled": false,
     })
+}
+
+/// An observation an architect adds, of this project and reported by that one.
+fn architects(project: &str, reported_by: &str) -> Value {
+    json!({
+        "text": "The merge cell names no tests.",
+        "title": "Name the tests of the merge cell",
+        "tags": ["flow", "tests"],
+        "project": project,
+        "reportedBy": reported_by,
+    })
+}
+
+/// The answer to a POST of changes of observations for this reason.
+async fn changing(running: &Running, why: &str, changes: Value) -> (StatusCode, Value) {
+    post(
+        &running.router,
+        "/api/v1/observations/changes",
+        &json!({ "why": why, "changes": changes }),
+    )
+    .await
+}
+
+/// The numbers of the observations the route lists, the newest first.
+async fn numbers(running: &Running) -> Vec<u64> {
+    let page = get_json(&running.router, "/api/v1/observations").await;
+    (page["observations"].as_array().unwrap().iter())
+        .map(|o| o["number"].as_u64().unwrap())
+        .collect()
 }
 
 #[tokio::test(start_paused = true)]
@@ -121,4 +163,363 @@ async fn a_number_past_what_the_store_can_number_names_no_observation() {
         .map(|o| &o["read"])
         .collect();
     assert_eq!(read, [&Value::Null, &Value::Null]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn adding_an_observation_checks_both_projects_and_the_title_length() {
+    let running = planned().await;
+    let router = &running.router;
+    // One of the project `trial`, reported by `other`, is kept after the two the plan's return kept, with no round.
+    assert_eq!(
+        post(router, "/api/v1/observations", &architects("trial", "other")).await,
+        (StatusCode::OK, json!({ "number": 3 }))
+    );
+    let listed = get_json(router, "/api/v1/observations").await;
+    assert_eq!(
+        listed["observations"][0],
+        json!({
+            "number": 3,
+            "text": "The merge cell names no tests.",
+            "title": "Name the tests of the merge cell",
+            "tags": ["flow", "tests"],
+            "project": "trial",
+            "reportedBy": "other",
+            "round": null,
+            "kept": START + 3000,
+            "read": null,
+            "takenInBy": null,
+            "handled": false,
+        })
+    );
+    // Each of these is refused for its own reason, and nothing is kept.
+    let mut untitled = architects("trial", "trial");
+    untitled["title"] = json!("a b c d e f g h i j k l m n o p q r s t u");
+    let mut blank = architects("trial", "trial");
+    blank["text"] = json!("  ");
+    let mut tagged = architects("trial", "trial");
+    tagged["tags"] = json!(["two words"]);
+    let refused = [
+        (architects("nowhere", "trial"), "nowhere"),
+        (architects("trial", "nowhere"), "nowhere"),
+        (untitled, "21 words"),
+        (blank, "says nothing"),
+        (tagged, "two words"),
+    ];
+    for (asked, said) in refused {
+        let (status, body) = post(router, "/api/v1/observations", &asked).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{asked}");
+        let error = body["error"].as_str().expect("an error");
+        assert!(error.contains(said), "{error:?} lacks {said:?}");
+    }
+    let (status, _) = post(router, "/api/v1/observations", &json!({ "text": "No project." })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(numbers(&running).await, [3, 2, 1]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn changes_are_refused_whole_with_every_reason() {
+    let running = planned().await;
+    // An item of the other project, which does not take in an observation of the first.
+    let other = json!({
+        "title": "Another project's item",
+        "dependsOn": [],
+        "project": "other",
+        "flow": "trial",
+        "writes": [{ "block": "request", "content": "Please.", "value": null }],
+    });
+    assert_eq!(post(&running.router, "/api/v1/items", &other).await.0, StatusCode::OK);
+    let refused = changing(
+        &running,
+        "Tidying.",
+        json!([
+            { "kind": "title", "observation": 1, "title": "A good title" },
+            { "kind": "tag", "observation": 99, "tag": "flow" },
+            { "kind": "tag", "observation": 2, "tag": "two words" },
+            { "kind": "takenIn", "observation": 1, "item": 7 },
+            { "kind": "takenIn", "observation": 1, "item": 2 },
+        ]),
+    )
+    .await;
+    assert_eq!(refused.0, StatusCode::UNPROCESSABLE_ENTITY);
+    let error = refused.1["error"].as_str().expect("an error");
+    for said in [
+        "Change 2 (O99): there is no such observation",
+        "change 3 (O2): \"two words\" is no tag",
+        "change 4 (O1): there is no item #7",
+        "change 5 (O1): #2 is of another project than the observation",
+        "none of the changes was made",
+    ] {
+        assert!(error.contains(said), "{error:?} lacks {said:?}");
+    }
+    assert!(!error.contains("change 1"), "{error:?} refuses the good change");
+    // The first, which was good, was not made.
+    let listed = get_json(&running.router, "/api/v1/observations").await;
+    assert_eq!(listed["observations"][1]["title"], Value::Null);
+    // A change that leaves an observation as it is changes nothing, and is not refused.
+    let made = changing(
+        &running,
+        "Titling.",
+        json!([
+            { "kind": "title", "observation": 1, "title": "A good title" },
+            { "kind": "title", "observation": 1, "title": "A good title" },
+        ]),
+    )
+    .await;
+    assert_eq!(made, (StatusCode::OK, json!({ "changed": [true, false] })));
+    // Without a reason, with no change, or with an unreadable one, nothing is asked.
+    for body in [
+        json!({ "why": " ", "changes": [{ "kind": "delete", "observation": 1 }] }),
+        json!({ "why": "Why.", "changes": [] }),
+    ] {
+        let (status, _) = post(&running.router, "/api/v1/observations/changes", &body).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    }
+    let (status, _) = post(
+        &running.router,
+        "/api/v1/observations/changes",
+        &json!({ "why": "Why.", "changes": [{ "kind": "merge", "observation": 1 }] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_list_gives_title_tags_projects_round_and_handled_and_leaves_out_a_deleted_one() {
+    let running = planned().await;
+    let router = &running.router;
+    let made = changing(
+        &running,
+        "Sorting what the plan found.",
+        json!([
+            { "kind": "title", "observation": 1, "title": "Test the greeting" },
+            { "kind": "tag", "observation": 1, "tag": "tests" },
+            { "kind": "takenIn", "observation": 1, "item": 1 },
+            { "kind": "delete", "observation": 2 },
+        ]),
+    )
+    .await;
+    assert_eq!(made, (StatusCode::OK, json!({ "changed": [true, true, true, true] })));
+    // The item that takes it in has merged by now: an item takes an observation in whatever it is doing.
+    let mut expected = of_the_plan(1, "The greeting has no test.", Value::Null);
+    expected["title"] = json!("Test the greeting");
+    expected["tags"] = json!(["tests"]);
+    expected["takenInBy"] = json!(1);
+    expected["handled"] = json!(true);
+    assert_eq!(
+        get_json(router, "/api/v1/observations").await,
+        json!({ "observations": [expected] })
+    );
+    // A deleted observation takes no change.
+    let again = changing(
+        &running,
+        "Again.",
+        json!([{ "kind": "tag", "observation": 2, "tag": "flow" }]),
+    )
+    .await;
+    assert_eq!(again.0, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(again.1["error"].as_str().unwrap().contains("deleted"), "{again:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_tags_route_counts_observations() {
+    let running = planned().await;
+    let router = &running.router;
+    assert_eq!(
+        get_json(router, "/api/v1/observations/tags").await,
+        json!({ "tags": [] })
+    );
+    assert_eq!(
+        post(router, "/api/v1/observations", &architects("trial", "trial"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let made = changing(
+        &running,
+        "Sorting.",
+        json!([
+            { "kind": "tag", "observation": 1, "tag": "tests" },
+            { "kind": "takenIn", "observation": 1, "item": 1 },
+        ]),
+    )
+    .await;
+    assert_eq!(made.0, StatusCode::OK, "{made:?}");
+    // `tests` is carried by O1, which is handled, and by O3, which is not; `flow` only by O3.
+    assert_eq!(
+        get_json(router, "/api/v1/observations/tags").await,
+        json!({ "tags": [
+            { "tag": "flow", "carrying": 1, "unhandled": 1 },
+            { "tag": "tests", "carrying": 2, "unhandled": 1 },
+        ] })
+    );
+}
+
+// The tests below are the testing's own. Their references: the tag rule the owner chose for observations (the item
+// tags' rule: 1 to 40 characters, no whitespace, no comma), the title limit of the trial settings (20 words), and the
+// route's own contract in the module's header: a request that cannot be read or is refused makes nothing.
+#[tokio::test(start_paused = true)]
+async fn a_tag_added_with_an_observation_is_one_of_forty_characters_with_no_space_or_comma() {
+    let running = planned().await;
+    let router = &running.router;
+    let tagged = |tag: &str| {
+        let mut asked = architects("trial", "trial");
+        asked["tags"] = json!([tag]);
+        asked
+    };
+    let bad: [String; 6] = [
+        String::new(),
+        "x".repeat(41),
+        "标".repeat(41),
+        "a,b".to_string(),
+        "a b".to_string(),
+        "a\tb".to_string(),
+    ];
+    for bad in &bad {
+        let (status, body) = post(router, "/api/v1/observations", &tagged(bad)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad:?}: {body}");
+    }
+    assert_eq!(numbers(&running).await, [2, 1], "a refused observation was kept");
+    for good in ["x".repeat(40), "标".repeat(40)] {
+        let (status, body) = post(router, "/api/v1/observations", &tagged(&good)).await;
+        assert_eq!(status, StatusCode::OK, "{good:?}: {body}");
+    }
+    let listed = get_json(router, "/api/v1/observations").await;
+    assert_eq!(listed["observations"][0]["tags"], json!(["标".repeat(40)]));
+    assert_eq!(listed["observations"][1]["tags"], json!(["x".repeat(40)]));
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_reading_of_an_observation_stays_through_changes_and_a_batch_that_cannot_be_read_or_fit_makes_nothing() {
+    let running = planned().await;
+    let router = &running.router;
+    assert_eq!(
+        post(router, "/api/v1/observations", &architects("trial", "trial")).await,
+        (StatusCode::OK, json!({ "number": 3 }))
+    );
+    let (status, read) = post(router, "/api/v1/observations/3/read", &json!({})).await;
+    assert_eq!(status, StatusCode::OK);
+    let made = changing(
+        &running,
+        "Naming.",
+        json!([
+            { "kind": "title", "observation": 3, "title": "Renamed" },
+            { "kind": "untag", "observation": 3, "tag": "flow" },
+        ]),
+    )
+    .await;
+    assert_eq!(made, (StatusCode::OK, json!({ "changed": [true, true] })));
+    let listed = get_json(router, "/api/v1/observations").await;
+    assert_eq!(listed["observations"][0]["read"], read["read"]);
+    assert_eq!(listed["observations"][0]["title"], json!("Renamed"));
+    assert_eq!(listed["observations"][0]["tags"], json!(["tests"]));
+    // None of these makes anything. Three cannot be read (400): the first is a title change with no title, the second
+    // names an observation by a number below zero, the third has a field the route does not know. Two are refused
+    // (422): the fourth has a title past the words the settings allow, the fifth a title of no words, which the store
+    // refuses after the route has read it.
+    let good = json!({ "kind": "tag", "observation": 3, "tag": "late" });
+    let long = "a b c d e f g h i j k l m n o p q r s t u";
+    let asked = [
+        (
+            json!([good, { "kind": "title", "observation": 3 }]),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!([good, { "kind": "delete", "observation": -1 }]),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!([good, { "kind": "delete", "observation": 3, "extra": 1 }]),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!([good, { "kind": "title", "observation": 3, "title": long }]),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            json!([good, { "kind": "title", "observation": 3, "title": "  " }]),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ];
+    for (changes, expected) in asked {
+        let (status, body) = changing(&running, "Together.", changes.clone()).await;
+        assert_eq!(status, expected, "{changes}: {body}");
+    }
+    let listed = get_json(router, "/api/v1/observations").await;
+    assert_eq!(
+        listed["observations"][0]["tags"],
+        json!(["tests"]),
+        "a change of a refused batch was made"
+    );
+}
+
+/// The next event of the stream that says the observations changed, past those the loop says of its works.
+async fn observed(body: &mut Body) -> String {
+    loop {
+        let event = next(body).await;
+        if event.contains("\"observations\":true") {
+            return event;
+        }
+    }
+}
+
+/// The next event that says the observations changed: one that does not come within ten seconds of the paused clock
+/// fails the test at once, as a stream that is silent would otherwise be read for ever.
+async fn told(body: &mut Body) -> String {
+    (tokio::time::timeout(Duration::from_secs(10), observed(body)).await)
+        .expect("the stream says that the observations changed")
+}
+
+/// What the stream says when the observations changed and nothing else did.
+const OBSERVATIONS_CHANGED: &str =
+    "data: {\"works\":[],\"items\":false,\"copies\":false,\"accounts\":false,\"observations\":true}\n\n";
+
+#[tokio::test(start_paused = true)]
+async fn the_stream_says_that_the_observations_changed_after_one_is_added_or_changed_and_not_after_a_refusal_or_no_change()
+ {
+    let running = planned().await;
+    let router = &running.router;
+    let request = Request::builder().uri("/api/v1/changes").body(Body::empty()).unwrap();
+    let mut body = router.clone().oneshot(request).await.unwrap().into_body();
+    // As it opens it says that everything may have changed, the observations too.
+    told(&mut body).await;
+
+    let title = |title: &str| json!([{ "kind": "title", "observation": 1, "title": title }]);
+    assert_eq!(
+        post(router, "/api/v1/observations", &architects("trial", "trial"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(told(&mut body).await, OBSERVATIONS_CHANGED);
+    assert_eq!(
+        changing(&running, "Titling.", title("A good title")).await,
+        (StatusCode::OK, json!({ "changed": [true] }))
+    );
+    assert_eq!(told(&mut body).await, OBSERVATIONS_CHANGED);
+
+    // The same title again changes nothing, and what is refused is not made: the stream says nothing of any of them.
+    assert_eq!(
+        changing(&running, "Again.", title("A good title")).await,
+        (StatusCode::OK, json!({ "changed": [false] }))
+    );
+    let missing = json!([{ "kind": "tag", "observation": 99, "tag": "flow" }]);
+    assert_eq!(
+        changing(&running, "Missing.", missing).await.0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        post(router, "/api/v1/observations", &architects("nowhere", "trial"))
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let quiet = tokio::time::timeout(Duration::from_secs(10), observed(&mut body)).await;
+    assert!(quiet.is_err(), "the stream said {quiet:?}");
+
+    // The stream is still open: a change that changes something says so.
+    assert_eq!(
+        changing(&running, "Retitling.", title("Another title")).await,
+        (StatusCode::OK, json!({ "changed": [true] }))
+    );
+    assert_eq!(told(&mut body).await, OBSERVATIONS_CHANGED);
 }

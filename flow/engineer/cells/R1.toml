@@ -6,20 +6,20 @@ kind = "agent"
 line = "engineer"
 effort = "high"
 task = '''
-Research how to do what the item asks with code. Read the design tree as its rules say, beyond `tree_entries`, for what
-the research reaches. Where the plan reaches entries that `tree_entries` does not name, hand in `tree_entries` again,
-the whole list. Check that what the item says is true, where it can be seen. For a fault it reports, see the fault
-happen, for example on the page in a real browser or in the program on its own data, and find its root cause. A cause
-read from the code, or a test in a stand-in such as a simulated page, has not seen it. For something it asks for, check
+Research how to do what the item asks. Read the design tree as its rules say, beyond `tree_entries`, for what the
+research reaches. Where the plan reaches entries that `tree_entries` does not name, hand in `tree_entries` again, the
+whole list. Check that what the item says is true, where it can be seen. For a fault it reports, see the fault happen
+where it really shows, such as in the program on its own data, and find its root cause. A cause read from the code, or a
+test in a stand-in, such as a mock or a simulation of where it shows, has not seen it. For something it asks for, check
 that it is not there already. If it is still not true after looking as far as the tools reach, ask the owner how to go
 on, in a question that waits. Commit a test with the project's tests, and anything else you make in
 `project.research`. If the design itself is at fault, say so.
 
-Decide `deep_needed`. If yes, write only `found`, and ask no questions. If no, write the plan (`plan_owner`,
-`plan_agent` and `acceptance`) and no `found`. Research every approach that could work. When the design tree's rules
-say a choice is the owner's, ask about it in a question of its own: what to do, with each approach as an option and
-what it gains and costs. If the solution conflicts with the design tree, ask instead of bending the solution.
-Before handing in, ask yourself where the plan is most likely wrong, and check that point.
+Decide `deep_needed`. If it is yes, hand it in with `found` alone as soon as you see it, and research no further. If no,
+write the plan (`plan_owner`, `plan_agent` and `acceptance`) and no `found`. Research every approach that could work.
+When the design tree's rules say a choice is the owner's, ask about it in a question of its own: what to do, with each
+approach as an option and what it gains and costs. If the solution conflicts with the design tree, ask instead of
+bending the solution. Before handing in, ask yourself where the plan is most likely wrong, and check that point.
 '''
 when = { deep_needed = "no" }
 watches = [

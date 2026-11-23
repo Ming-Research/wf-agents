@@ -23,8 +23,9 @@ pub fn trial() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow")
 }
 
-/// A script for the trial flow whose rounds and tools take a few milliseconds: the plan asks the owner, the build
-/// asks for the CI, and the review is content at once.
+/// A script for the trial flow whose rounds and tools take a few milliseconds: the plan's first three rounds are sent
+/// back, so that its run reaches its limit of returns and waits for the owner, the build asks for the CI, and the review
+/// is content at once.
 pub const SCRIPT: &str = r#"
 [took]
 ms = 20
@@ -35,7 +36,17 @@ ms = 20
 
 [[flows.trial.rounds]]
 cell = "plan"
-asks = [{ question = "Should the greeting name the user?" }]
+asks = []
+
+[[flows.trial.rounds]]
+cell = "plan"
+round = 2
+asks = []
+
+[[flows.trial.rounds]]
+cell = "plan"
+round = 3
+asks = []
 
 [[flows.trial.rounds]]
 cell = "build"
@@ -128,6 +139,18 @@ impl Engine {
             child,
             port,
             _output: output,
+        }
+    }
+
+    /// Waits for the engine to end by itself, as a stop ends it, and gives how it ended; fails after ten seconds.
+    pub fn ended(&mut self) -> std::process::ExitStatus {
+        let start = Instant::now();
+        loop {
+            if let Some(status) = self.child.try_wait().expect("the engine is waited for") {
+                return status;
+            }
+            assert!(start.elapsed() < Duration::from_secs(10), "the engine did not end");
+            std::thread::sleep(Duration::from_millis(20));
         }
     }
 

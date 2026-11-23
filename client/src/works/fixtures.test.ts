@@ -12,7 +12,6 @@ describe('the fixtures', () => {
     expect(fixtureItems().items.map((i) => i.work.item)).toEqual(fixtureItems().items.map((i) => i.number));
     const nows = works.map((w) => w.now);
     expect(nows.some((n) => n.kind === 'round')).toBe(true);
-    expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'call' && w.what.kind === 'question'))).toBe(true);
     expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'call' && w.what.kind === 'atLimit'))).toBe(true);
     expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'limit'))).toBe(true);
     expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'precondition'))).toBe(true);
@@ -32,6 +31,8 @@ describe('the fixtures', () => {
     expect(told[0].tries[0].back.kind).toBe('returned');
     expect(all.some((r) => r.rounds.some((d) => d.given.kind === 'sentBack'))).toBe(true);
     expect(all.some((r) => r.calls.some((c) => c.what.kind === 'tool' && c.done !== null))).toBe(true);
+    // A question for a person, which only a work recorded before the engine stopped making them holds, is still read.
+    expect(all.some((r) => r.calls.some((c) => c.what.kind === 'question'))).toBe(true);
     expect(all.some((r) => r.end?.kind === 'abandoned')).toBe(true);
     expect(all.filter((r) => r.cell === 'implement' && isWayRound(r))).toHaveLength(2);
     expect(page.steps.some((s) => s.kind === 'wrote' && s.by.kind === 'outside')).toBe(true);

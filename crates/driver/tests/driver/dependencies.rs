@@ -300,8 +300,8 @@ fn the_blocks_text_says_which_items_are_still_waited_for_and_a_cancelled_one_is_
     assert_eq!(
         versions_of(&h, wc),
         [
-            version(WAITING, "Waits for the items 1, 2 to merge."),
-            version(WAITING, "Waits for the items 2 to merge."),
+            version(WAITING, "Waits for the items #1, #2 to merge."),
+            version(WAITING, "Waits for the items #2 to merge."),
             version(MERGED, "Every item this one depends on has merged."),
         ]
     );
@@ -321,8 +321,8 @@ fn a_cancelled_dependency_is_waited_for_no_more_beside_one_still_going() {
     assert_eq!(
         versions_of(&h, wc),
         [
-            version(WAITING, "Waits for the items 1, 2 to merge."),
-            version(WAITING, "Waits for the items 2 to merge."),
+            version(WAITING, "Waits for the items #1, #2 to merge."),
+            version(WAITING, "Waits for the items #2 to merge."),
         ]
     );
     assert_eq!(h.let_on(wc), vec![]);

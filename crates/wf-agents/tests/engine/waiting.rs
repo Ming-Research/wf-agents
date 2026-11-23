@@ -12,7 +12,7 @@ fn split(said: &str) -> (&str, &str) {
 }
 
 #[test]
-fn wait_gives_the_question_once_it_is_asked_then_nothing_from_its_mark_then_the_merge() {
+fn wait_gives_the_owners_call_once_the_plan_reaches_its_limit_then_nothing_from_its_mark_then_the_merge() {
     let place = Place::new(SCRIPT);
     let engine = Engine::start(&place);
     assert_eq!(
@@ -31,12 +31,12 @@ fn wait_gives_the_question_once_it_is_asked_then_nothing_from_its_mark_then_the_
         "request=Greet the user, please.",
     ]);
     engine.says(&["resume", "1"]);
-    // With no time to wait, it waits until the plan has asked.
+    // With no time to wait, it waits until the plan's run has reached its limit of returns.
     let said = engine.says(&["wait"]);
     let (lines, mark) = split(&said);
     assert!(
-        lines.starts_with("Item 1 \"Greet the user\", work 1: waits for the owner at plan for ")
-            && lines.ends_with(": Should the greeting name the user?"),
+        lines.starts_with("Item #1 \"Greet the user\", work W1: waits for the owner at plan for ")
+            && lines.ends_with(": The cell's run had 2 returns sent back, its limit."),
         "{said}"
     );
     assert_eq!(lines.lines().count(), 1, "{said}");
@@ -48,7 +48,7 @@ fn wait_gives_the_question_once_it_is_asked_then_nothing_from_its_mark_then_the_
     let said = engine.says(&["wait", "--since", mark]);
     let (lines, _) = split(&said);
     assert!(
-        lines.starts_with("Item 1 \"Greet the user\", work 1: merged, ") && lines.ends_with(" ago."),
+        lines.starts_with("Item #1 \"Greet the user\", work W1: merged, ") && lines.ends_with(" ago."),
         "{said}"
     );
 }

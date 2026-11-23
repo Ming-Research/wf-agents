@@ -245,8 +245,8 @@ fn samples() -> usize {
 /// A minute, in milliseconds.
 const MINUTE: u64 = 60_000;
 
-/// A project whose works are done: a local git repository, its main branch, the command that checks it, and where it is
-/// hosted.
+/// A project whose works are done, as this machine has it: a local git repository, its main branch, and where it is
+/// hosted. What is the project's own, such as the command that checks it, is in its declaration.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
@@ -254,8 +254,6 @@ pub struct Project {
     pub repo: PathBuf,
     /// The name of the main branch.
     pub main: String,
-    /// A shell command run in a work's worktree; its exit with 0 means the work passes.
-    pub check: String,
     /// The keys of the repository's own configuration that could make git run a program and that the acts are to let
     /// be, each a whole key or a beginning followed by `*`: `filter.lfs.*` for a repository that needs Git LFS.
     #[serde(default)]
@@ -268,13 +266,13 @@ pub struct Project {
     #[serde(skip)]
     pub commits: flow::agents::Commits,
     /// The directory of the repository that holds the project's design tree: not in the settings, but in the
-    /// project's declaration, `flow/project.toml` on its main, put here as the carriers are made.
+    /// project's declaration, `wf-agents.toml` on its main, put here as the carriers are made.
     #[serde(skip)]
     pub tree: String,
 }
 
-/// The project's repository on GitHub: the works' branches are pushed there, checked by its CI through a pull request
-/// each, and merged by GitHub.
+/// The project's repository on GitHub: the works' branches are pushed there, checked by its CI, which the engine runs
+/// by hand on the commit to merge, and merged by GitHub through a pull request each.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GitHub {
@@ -290,16 +288,6 @@ pub struct GitHub {
     /// the engine cancels the run it asked for, and the check fails its round in passing, or the agents' tool says so.
     #[serde(default = "start_minutes")]
     pub start_minutes: u64,
-    /// How many minutes a run of the fast workflow may take: one not complete by then is cancelled, and said as what
-    /// it found. The full workflows take the time the project's declaration gives them.
-    #[serde(default = "timeout_minutes")]
-    pub timeout_minutes: u64,
-    /// How a pull request is merged: `squash`, `merge` or `rebase`.
-    #[serde(default = "squash")]
-    pub merge_method: String,
-    /// Whether a work's branch on GitHub is deleted once it is merged.
-    #[serde(default)]
-    pub delete_branch: bool,
     /// The `gh` command line, or a path to it.
     #[serde(default = "gh")]
     pub gh: String,
@@ -326,20 +314,9 @@ fn start_minutes() -> u64 {
     10
 }
 
-fn timeout_minutes() -> u64 {
-    120
-}
-
-fn squash() -> String {
-    "squash".to_string()
-}
-
 fn gh() -> String {
     "gh".to_string()
 }
-
-/// The ways a pull request may be merged.
-const MERGE_METHODS: [&str; 3] = ["squash", "merge", "rebase"];
 
 /// How the agents are run.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -355,10 +332,6 @@ pub struct Agents {
     /// permissions and its session.
     #[serde(default)]
     pub args: Vec<String>,
-    /// The commands that update a lock file, which the agents of a line that writes may run though a heavy command
-    /// covers them, and the uses of them refused all the same.
-    #[serde(default)]
-    pub permissions: PermissionsAdded,
     /// The names of the variables of the engine's environment the program is given beside those it is always given
     /// (`PATH`, `HOME`, `USER`, `LANG` and `LC_*`, `TMPDIR`, `TERM`, `SHELL`). The carrier's own variables are refused,
     /// and so is a credential the program takes above an account's token, an API key among them: the program runs
@@ -394,7 +367,7 @@ fn user() -> String {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Subagents {
-    /// How many at most in one round; 3 where none is given, as the engine on `old-main` had it.
+    /// How many at most in one round; 3 where none is given.
     #[serde(default = "most_subagents")]
     pub most: u32,
 }
@@ -407,22 +380,6 @@ impl Default for Subagents {
 
 fn most_subagents() -> u32 {
     3
-}
-
-/// What an installation lets its agents run beside what they are refused (`permissions`): the commands that update its
-/// projects' lock files, though a heavy command covers them, with the uses of them that would build, run or install
-/// after all. What the agents are refused is not the installation's: what every agent is refused whatever its project
-/// is beside the flows, and a project's heavy commands are its declaration's.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct PermissionsAdded {
-    /// Commands that update a lock file and build, run and install nothing, each a command with the start of its
-    /// arguments: the agents of a line that writes may run them, though a heavy command covers them.
-    #[serde(default)]
-    pub locks: Vec<String>,
-    /// Uses of the lock commands refused all the same, each a command whose arguments may hold `*` for any text.
-    #[serde(default)]
-    pub locks_except: Vec<String>,
 }
 
 /// The program's flags, as its own help lists them (claude 2.1.321), that take no value: the only ones `agents.args`
@@ -526,26 +483,6 @@ impl Agents {
                  which an agent may write"
             ));
         }
-        let added = &self.permissions;
-        for (key, list) in [("locks", &added.locks), ("locks_except", &added.locks_except)] {
-            if list.iter().any(|c| c.trim().is_empty()) {
-                wrong.push(format!("agents.permissions.{key}: each entry names a command"));
-            }
-            // A parenthesis would end the rule the entry is written into and begin another; a `*` in a command
-            // that is allowed or refused from its start on would stand for any text.
-            let star = key != "locks_except";
-            if let Some(c) = list
-                .iter()
-                .find(|c| c.contains(['(', ')']) || (star && c.contains('*')))
-            {
-                let what = if star {
-                    "a `*` or a parenthesis"
-                } else {
-                    "a parenthesis"
-                };
-                wrong.push(format!("agents.permissions.{key}: {c:?} holds {what}"));
-            }
-        }
         // The carrier's own variables are given by the carrier alone, and a credential the program takes above the
         // token by none (decision no-default-credential).
         let own = [crate::account::TOKEN, crate::account::VARIABLE, crate::cli::SCRUB];
@@ -561,8 +498,8 @@ impl Agents {
                  view"
             ));
         }
-        // What every agent is refused, and the heavy commands of each project's declaration, are held to the lock
-        // commands as the engine starts, beside the flows and the declarations it reads (`permissions::faults`,
+        // What every agent is refused, and the heavy and lock commands of each project's declaration, are held to
+        // each other as the engine starts, beside the flows and the declarations it reads (`permissions::faults`,
         // `permissions::heavy_faults`).
         wrong
     }
@@ -599,7 +536,7 @@ const BEFORE_BRANCHES: &str = "github.runs_on_before_branches: this setting was 
 
 /// What the settings are told where they name `github.fast`, which the project declares now.
 const FAST_MOVED: &str = "github.fast: the fast workflow is the project's, not the installation's: it is declared in the \
-     project's flow/project.toml as [ci.fast] (workflow, runner, the inputs, results, and `checks` for named_checks), \
+     project's wf-agents.toml as [ci.fast] (workflow, runner, the inputs, results, and `checks` for named_checks), \
      and its separators are gone, for a test's name is the one its results give it; delete the table, and name in \
      github.runners the runners this installation has";
 
@@ -610,7 +547,7 @@ const LOG_GONE: &str = "github.log: the engine reads no log by a project's patte
 
 /// What the settings are told where they name `github.checks`, which the project's full workflows are now.
 const CHECKS_MOVED: &str = "github.checks: the checks that count are the jobs of the project's full workflows, declared in \
-     the project's flow/project.toml as [ci.full] (workflows, runner, too_long), which the check before a merge runs \
+     the project's wf-agents.toml as [ci.full] (workflows, runner, too_long), which the check before a merge runs \
      on the commit to merge; delete the line";
 
 /// What the settings are told where they hold `[project]` or `[github]`, the tables of the one project an installation
@@ -624,12 +561,6 @@ const ONE_MODEL: &str = "agents.model: rounds no longer run on one model: each i
      its model. Take out agents.model; add a table [agents.levels.<name>] with desc and model for each level, and a \
      table [items] with default_level, the level an item is added at where it is given none, and, if you like, \
      highest_level. install.sample.toml shows them.";
-
-/// What the settings are told where they name `agents.permissions.heavy`, where an installation once added heavy
-/// commands.
-const HEAVY_MOVED: &str = "agents.permissions.heavy: the heavy commands are a project's, not the installation's: each \
-     project declares its own in its flow/project.toml as [heavy] (commands), and what every agent is refused whatever \
-     its project is in agents/refused.toml beside the flows; take heavy out of agents.permissions.";
 
 /// What the settings are told where they name `sessions.keep_warm` or `sessions.warm_while_paused`, the keys that once
 /// said whether the sessions of works that wait are kept warm, `{key}` the one they hold.
@@ -666,17 +597,9 @@ impl GitHub {
                 self.repository
             ));
         }
-        if self.start_minutes == 0 || self.timeout_minutes < self.start_minutes {
+        if self.start_minutes == 0 {
             wrong.push(format!(
-                "projects.{project}.github.start_minutes, projects.{project}.github.timeout_minutes: the CI is \
-                     given at least a minute to start, and no less time to end"
-            ));
-        }
-        if !MERGE_METHODS.contains(&self.merge_method.as_str()) {
-            wrong.push(format!(
-                "projects.{project}.github.merge_method: one of {}, not {:?}",
-                MERGE_METHODS.join(", "),
-                self.merge_method
+                "projects.{project}.github.start_minutes: the CI is given at least a minute to start"
             ));
         }
         if self.runners.iter().any(|r| r.trim().is_empty()) {
@@ -722,10 +645,6 @@ impl Settings {
         }
         if agents.is_some_and(|agents| agents.contains_key("config_dir")) {
             return Err(CONFIG_DIR_MOVED.to_string());
-        }
-        let permissions = agents.and_then(|a| a.get("permissions")).and_then(|p| p.as_table());
-        if permissions.is_some_and(|permissions| permissions.contains_key("heavy")) {
-            return Err(HEAVY_MOVED.to_string());
         }
         let sessions = table
             .as_ref()
@@ -851,22 +770,6 @@ impl Settings {
     pub fn load(path: &Path) -> Result<Settings, String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
         Settings::read(&text).map_err(|why| format!("{}: {why}", path.display()))
-    }
-
-    /// What the owner is to be told of the settings as the engine starts, each a sentence: where what they would do is
-    /// not done.
-    pub fn warnings(&self) -> Vec<String> {
-        let mut warned = Vec::new();
-        // The engine knows no lock command and no line of a project's tools of its own: where the settings name none,
-        // what they would do is not done, and that is said rather than left unseen.
-        if self.agents.permissions.locks.is_empty() {
-            warned.push(
-                "agents.permissions.locks: no command that updates a lock file is named, so an agent that writes may \
-                 update none."
-                    .to_string(),
-            );
-        }
-        warned
     }
 
     /// The levels items are given, as these settings name them; or what is wrong with them, in words with their keys.
@@ -1110,17 +1013,6 @@ mod tests {
         );
     }
 
-    // The settings that name no lock command are said as the engine starts: the engine knows none of its own.
-    #[test]
-    fn the_owner_is_told_when_no_lock_command_is_named() {
-        let mut settings = Settings::read(SAMPLE).unwrap();
-        assert!(settings.warnings().is_empty());
-        settings.agents.permissions.locks.clear();
-        let warned = settings.warnings();
-        assert_eq!(warned.len(), 1, "{warned:?}");
-        assert!(warned[0].starts_with("agents.permissions.locks:"), "{}", warned[0]);
-    }
-
     #[test]
     fn the_samples_levels_read_with_their_default_and_highest() {
         let settings = Settings::read(SAMPLE).expect("the sample reads");
@@ -1302,28 +1194,38 @@ mod tests {
         assert!(refused.contains("slot"), "{refused}");
     }
 
-    // The sample's lock commands are read, and an entry that names no command is refused. The heavy commands an
-    // installation once added are told where they went: each project's declaration, and the files beside the flows.
+    // What is a project's own is in its declaration, not in the installation's settings: each key the settings once held
+    // of it is refused, by its name, as any key the settings do not know is.
     #[test]
-    fn the_samples_permissions_read_and_the_heavy_commands_are_told_where_they_went() {
-        let added = Settings::read(SAMPLE).expect("it reads").agents.permissions;
-        assert_eq!(added.locks, ["uv lock"]);
-        assert_eq!(added.locks_except, ["uv lock *--script*"]);
-        let none = SAMPLE.replace("permissions = {", "# permissions = {");
-        assert_eq!(
-            Settings::read(&none).unwrap().agents.permissions,
-            PermissionsAdded::default()
-        );
-        let empty = SAMPLE.replace("permissions = {", "permissions = { locks = [\" \"] } #");
-        let refused = Settings::read(&empty).expect_err("refused");
-        assert!(
-            refused.contains("agents.permissions.locks: each entry names a command"),
-            "{refused}"
-        );
-        let heavy = SAMPLE.replace("permissions = { locks", "permissions = { heavy = [\"uv\"], locks");
-        assert_eq!(Settings::read(&heavy), Err(HEAVY_MOVED.to_string()));
-        let table = SAMPLE.replace("permissions = {", "# permissions = {") + "\n[agents.permissions]\nheavy = []\n";
-        assert_eq!(Settings::read(&table), Err(HEAVY_MOVED.to_string()));
+    fn what_is_a_projects_own_is_refused_in_the_installation_by_its_name() {
+        let on_github = on_github();
+        let at = |text: &str, from: &str, line: &str| text.replacen(from, &format!("{from}\n{line}"), 1);
+        for (key, text) in [
+            ("check", at(SAMPLE, "main = \"main\"", "check = \"./test.sh\"")),
+            (
+                "permissions",
+                at(
+                    SAMPLE,
+                    "command = \"claude\"",
+                    "permissions = { locks = [\"uv lock\"] }",
+                ),
+            ),
+            (
+                "merge_method",
+                at(&on_github, "repository = \"owner/name\"", "merge_method = \"squash\""),
+            ),
+            (
+                "delete_branch",
+                at(&on_github, "repository = \"owner/name\"", "delete_branch = false"),
+            ),
+            (
+                "timeout_minutes",
+                at(&on_github, "repository = \"owner/name\"", "timeout_minutes = 120"),
+            ),
+        ] {
+            let refused = Settings::read(&text).expect_err(key);
+            assert!(refused.contains(&format!("unknown field `{key}`")), "{key}: {refused}");
+        }
     }
 
     #[test]
@@ -1408,28 +1310,6 @@ mod tests {
         assert!(Settings::read(&user).is_ok());
     }
 
-    #[test]
-    fn an_added_command_is_read_as_one_rule() {
-        let with = |permissions: &str| SAMPLE.replace("permissions = {", &format!("permissions = {permissions} #"));
-        for (permissions, says) in [
-            ("{ locks = [\"cargo *\"] }", "locks: \"cargo *\" holds a `*`"),
-            (
-                "{ locks = [\"cargo update) Bash(cargo test\"] }",
-                "holds a `*` or a parenthesis",
-            ),
-            (
-                "{ locks_except = [\"uv lock (x)\"] }",
-                "locks_except: \"uv lock (x)\" holds a parenthesis",
-            ),
-        ] {
-            let refused = Settings::read(&with(permissions)).expect_err(permissions);
-            assert!(refused.contains(says), "{permissions}: {refused}");
-        }
-        // An exception with `*` is what the list is for.
-        let fine = with("{ locks = [\"uv lock\"], locks_except = [\"uv lock *--script*\"] }");
-        assert!(Settings::read(&fine).is_ok());
-    }
-
     /// The sample with its table for GitHub written in.
     fn on_github() -> String {
         let table = (SAMPLE.lines())
@@ -1456,28 +1336,20 @@ mod tests {
         assert_eq!(github.url(), "https://github.com/owner/name.git");
         assert_eq!(github.remote, "origin");
         assert_eq!(github.token_env, "WF_GITHUB_TOKEN");
-        assert_eq!((github.start_minutes, github.timeout_minutes), (10, 120));
-        assert_eq!(github.merge_method, "squash");
-        assert!(!github.delete_branch);
+        assert_eq!(github.start_minutes, 10);
         assert_eq!(github.gh, "gh");
     }
 
     #[test]
     fn what_github_cannot_be_given_is_refused_all_at_once() {
         let text = (on_github().replace("repository = \"owner/name\"", "repository = \"name\""))
-            .replace("merge_method = \"squash\"", "merge_method = \"fast-forward\"")
             .replace("# env = [\"HTTPS_PROXY\"]", "env = [\"WF_GITHUB_TOKEN\"]");
         let refused = Settings::read(&text).expect_err("refused");
-        assert_eq!(refused.lines().count(), 3, "{refused}");
+        assert_eq!(refused.lines().count(), 2, "{refused}");
         assert!(refused.contains("projects.example.github.repository"), "{refused}");
-        assert!(refused.contains("projects.example.github.merge_method"), "{refused}");
         assert!(refused.contains("agents.env: WF_GITHUB_TOKEN"), "{refused}");
-        let unknown = on_github().replace("delete_branch = false", "delete_branches = false");
-        assert!(
-            Settings::read(&unknown)
-                .expect_err("refused")
-                .contains("delete_branches")
-        );
+        let unknown = on_github().replace("remote = \"origin\"", "remotes = \"origin\"");
+        assert!(Settings::read(&unknown).expect_err("refused").contains("remotes"));
     }
 
     /// The sample with its table for the copies written in.
@@ -1592,7 +1464,7 @@ mod tests {
 
     /// The sample with a second project, `other`, in a repository of its own on GitHub.
     fn two_projects() -> String {
-        let other = "[projects.other]\nrepo = \"/path/to/the/other\"\nmain = \"trunk\"\ncheck = \"true\"\n\n\
+        let other = "[projects.other]\nrepo = \"/path/to/the/other\"\nmain = \"trunk\"\n\n\
                      [projects.other.github]\nrepository = \"owner/other\"\nrunners = [\"github\", \"14900k\"]\n";
         format!("{SAMPLE}\n{other}")
     }
@@ -1690,7 +1562,7 @@ mod tests {
         assert!(refused.contains("the repository of the project other"), "{refused}");
     }
 
-    // The subagents an agent may start are three where the settings give none, as on `old-main`, or as they say.
+    // The subagents an agent may start are three where the settings give none, or as they say.
     #[test]
     fn the_subagents_are_three_where_the_settings_give_none() {
         let settings = Settings::read(SAMPLE).unwrap();

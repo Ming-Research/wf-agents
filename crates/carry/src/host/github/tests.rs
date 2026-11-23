@@ -1,11 +1,14 @@
 //! The GitHub host against a fake of GitHub: a bare repository on disk and pull requests and checks in memory.
 //!
+//! - `continued`: where a work that continues a branch or a pull request starts, and the pull request it takes the
+//!   place of.
 //! - `ends`: the pull request's text and draft, the checks that hold no work, main red, and the end of a work.
 //! - `again`: a check or a call of `run_tests` given again after the engine started again, which finds the runs it
 //!   asked for.
 //! - `red`: a check whose full workflows failed tests alone, which are run again on the commit and on main's head.
 
 mod again;
+mod continued;
 mod ends;
 mod red;
 
@@ -61,8 +64,10 @@ fn ci() -> flow::agents::Ci {
             call_input: "call".to_string(),
             tests_input: "tests".to_string(),
             checks_input: "checks".to_string(),
+            test_stop_input: "test_stop".to_string(),
             checks: vec!["lint".to_string()],
             results: "test-results".to_string(),
+            too_long: "2s".to_string(),
         },
         full: CiFull {
             workflows: vec!["ci.yml".to_string()],
@@ -70,9 +75,28 @@ fn ci() -> flow::agents::Ci {
             too_long: "1m".to_string(),
             commit_input: "commit".to_string(),
             call_input: "call".to_string(),
+            test_stop_input: "test_stop".to_string(),
             results: "test-results".to_string(),
         },
+        measure: None,
     }
+}
+
+/// How the tests' project merges a pull request: not as the host's tests do, so that what reaches the host is seen to
+/// come from the declaration.
+fn merging() -> flow::agents::Merging {
+    flow::agents::Merging {
+        merge_method: "rebase".to_string(),
+        delete_branch: true,
+    }
+}
+
+/// What the engine writes on a pull request, as the files of this repository's flows say it.
+fn words() -> flow::agents::PullRequest {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    flow::agents::read(&root)
+        .expect("what is written beside the flows is read")
+        .pull_request
 }
 
 /// How the tests' host judges the CI: the checks `lint` and `test`, and short waits.
@@ -81,7 +105,6 @@ fn config(bare: &std::path::Path) -> Config {
         url: bare.display().to_string(),
         remote: "origin".to_string(),
         start: Duration::from_millis(300),
-        timeout: Duration::from_secs(2),
         merge_method: "squash".to_string(),
         delete_branch: false,
         ci: Some(ci()),
@@ -91,6 +114,7 @@ fn config(bare: &std::path::Path) -> Config {
         fast_poll: Duration::from_millis(10),
         token: None,
         withheld: Vec::new(),
+        words: words(),
         installation: INSTALLATION,
     }
 }
@@ -102,7 +126,7 @@ impl Hub {
         run(&repo.data, &["init", "-q", "--bare", "-b", "main", "github.git"]);
         run(&repo.project.repo, &["push", "-q", &bare.display().to_string(), "main"]);
         let mut config = config(&bare);
-        config.withheld = withheld(&repo.data, &repo.project.repo, None);
+        config.withheld = withheld(&repo.data, &repo.project.repo, None, &config.words.withheld);
         let host = GitHub::new(Fake::new(bare.clone()), repo.project.clone(), config);
         Hub {
             repo,
@@ -233,6 +257,7 @@ fn branch(place: &Place) -> Branch<'_> {
         title: "Greet the user",
         about: "Greets the user by name.",
         place,
+        continues: None,
     }
 }
 
@@ -974,8 +999,8 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         &repo.data,
         INSTALLATION,
         |_| None,
-        None,
-        (None, None),
+        (None, &merging()),
+        (None, None, words()),
     );
     let refused = none.err().expect("refused");
     assert!(refused.contains("no WF_GITHUB_TOKEN"), "{refused}");
@@ -986,15 +1011,17 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         &repo.data,
         INSTALLATION,
         given,
-        Some(ci()),
-        (None, None),
+        (Some(ci()), &merging()),
+        (None, None, words()),
     );
     let host = host.expect("made");
     let config = &host.config;
     assert_eq!(config.url, "https://github.com/owner/name.git");
+    assert_eq!(config.start, Duration::from_secs(600));
     assert_eq!(
-        (config.start, config.timeout),
-        (Duration::from_secs(600), Duration::from_secs(7200))
+        (config.merge_method.as_str(), config.delete_branch),
+        ("rebase", true),
+        "how a pull request is merged is the project's declaration"
     );
     assert_eq!(
         config.runners,

@@ -10,6 +10,7 @@ import {
   duration,
   isOpen,
   isWayRound,
+  itemName,
   itemsWords,
   nowTone,
   nowWords,
@@ -23,10 +24,10 @@ import {
   stateWords,
   stoppedAt,
   tokens,
-  unmetWords,
   waitCount,
   waitCounted,
   waitedWords,
+  workName,
 } from './words';
 
 const precondition: Waited = {
@@ -34,6 +35,12 @@ const precondition: Waited = {
   test: 'approved',
   words: 'The owner approved the merge',
   by: [{ kind: 'owner' }],
+};
+const sentBackTwice: Waited = {
+  kind: 'call',
+  call: 4,
+  who: 'owner',
+  what: { kind: 'atLimit', limit: { of: 'returns', sentBack: 2 } },
 };
 const question: Waited = {
   kind: 'call',
@@ -50,6 +57,15 @@ const limit: Wait = {
   why: 'The cell ran 3 times in a row for what a cell after it wrote, which is its limit.',
   ends: { kind: 'letGo', cell: 'merge' },
 };
+
+describe("a work's number and an item's, as the engine writes them", () => {
+  it('writes a work as W and its number, an item as # and its number, and a holder of the turn as a work', () => {
+    expect(workName(43)).toBe('W43');
+    expect(itemName(79)).toBe('#79');
+    const turn: Waited = { kind: 'turn', holder: 7, since: 0 };
+    expect(waitedWords(turn)).toContain('W7');
+  });
+});
 
 describe('what a work does now, in words', () => {
   it('names every state by the one catalogue: the word first, then the cell, then why', () => {
@@ -87,10 +103,16 @@ describe('what a work does now, in words', () => {
       why: '`verdict` keeps `verdict = yes` from holding.',
       ends: { kind: 'write', block: 'verdict', value: 'yes' },
     };
-    const asked: Wait = { key: 'call-4', why: 'Show the cached tokens apart?', ends: { kind: 'reply', call: 4 } };
-    expect(nowWords(doing({ kind: 'waits', at: 'merge', on: [precondition, question] }, [asked, ruling, pause]))).toBe(
-      'Waiting for you · merge · Show the cached tokens apart? verdict keeps verdict = yes from holding. The engine ' +
-        'paused the work. The agent could not start.',
+    const sentBackLimit: Wait = {
+      key: 'limit',
+      why: "The cell's run had 2 returns sent back, which is its limit.",
+      ends: { kind: 'goOn', call: 4 },
+    };
+    expect(
+      nowWords(doing({ kind: 'waits', at: 'merge', on: [precondition, sentBackTwice] }, [sentBackLimit, ruling, pause])),
+    ).toBe(
+      "Waiting for you · merge · The cell's run had 2 returns sent back, which is its limit. verdict keeps verdict = " +
+        'yes from holding. The engine paused the work. The agent could not start.',
     );
     // A question the merge waits for is said by what it asks, each once.
     const merge = (name: string, ask: string): Wait => ({
@@ -128,17 +150,6 @@ describe('what a work does now, in words', () => {
       cell: 'plan',
     });
     expect(stateOf(doing({ kind: 'fault', words: 'x' }))).toEqual({ tone: 'failed', word: STATE.halted, cell: null });
-    const architect: Waited = {
-      kind: 'call',
-      call: 3,
-      who: 'architect',
-      what: { kind: 'question', who: 'architect', question: 'Which table?' },
-    };
-    expect(stateOf(doing({ kind: 'waits', at: 'plan', on: [architect] }))).toEqual({
-      tone: 'quiet',
-      word: 'Waiting for the architect',
-      cell: 'plan',
-    });
     // A work that waits for the calls of tools the engine carries out is neither running nor done: it waits for each
     // tool by its name, where it runs, in the yellow of a call (decision a-call-waited-for-is-no-run).
     const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } };
@@ -240,6 +251,7 @@ describe('what a work does now, in words', () => {
       checked: null,
       until: { kind: 'checked', at: 0 },
       holds: true,
+      mayMove: false,
     });
     expect(said).toMatch(
       /^The agents' command line cannot run since \d\d-\d\d \d\d:\d\d\. No agent's round begins until it runs again\.$/,
@@ -289,21 +301,21 @@ describe("a run in the last column of a work's history", () => {
 describe('why a run ran, in words', () => {
   it('says each kind of cause, and a run is a way round when every reason was written by a cell after it', () => {
     expect(causeWords({ kind: 'noRecord' })).toBe('it had not run before');
-    expect(causeWords({ kind: 'changed', block: 'plan', was: null, behind: false })).toBe('plan new to it');
+    expect(causeWords({ kind: 'changed', block: 'plan', workedFrom: null, behind: false })).toBe('plan new to it');
     expect(causeWords({ kind: 'results', calls: [4, 5, 6] })).toBe('the results of the 3 calls it asked for came back');
-    const behind = { kind: 'changed', block: 'opinions', was: 12, behind: true } as const;
-    expect(causeWords(behind, true)).toBe('opinions changed since the v12 it last saw, written by a cell after it: a way round');
+    const behind = { kind: 'changed', block: 'opinions', workedFrom: 12, behind: true } as const;
+    expect(causeWords(behind, true)).toBe('opinions changed since the v12 it last worked from, written by a cell after it: a way round');
     expect(isWayRound({ because: [behind] })).toBe(true);
     expect(isWayRound({ because: [] })).toBe(false);
   });
 
   it('calls a run with one cause from a cell after it among others from before no way round', () => {
-    const behind = { kind: 'changed', block: 'opinions', was: 12, behind: true } as const;
-    const because = [behind, { kind: 'changed', block: 'plan', was: 3, behind: false } as const];
+    const behind = { kind: 'changed', block: 'opinions', workedFrom: 12, behind: true } as const;
+    const because = [behind, { kind: 'changed', block: 'plan', workedFrom: 3, behind: false } as const];
     expect(isWayRound({ because })).toBe(false);
     expect(because.map((c) => causeWords(c, isWayRound({ because })))).toEqual([
-      'opinions changed since the v12 it last saw, written by a cell after it',
-      'plan changed since the v3 it last saw',
+      'opinions changed since the v12 it last worked from, written by a cell after it',
+      'plan changed since the v3 it last worked from',
     ]);
   });
 
@@ -312,59 +324,6 @@ describe('why a run ran, in words', () => {
     expect(callState(row)).toBe(`made ${clock(0)}, no result yet`);
     expect(callState(row, true)).toBe(`made ${clock(0)}, withdrawn with its run`);
     expect(callState({ ...row, done: 12_000, chars: 3 }, true)).toBe(`made ${clock(0)}, done in 12s`);
-  });
-
-  it('says why a return was sent back', () => {
-    expect(unmetWords({ kind: 'asksNothing' })).toBe('it asked for calls and named none');
-    expect(unmetWords({ kind: 'notAnOutput', block: 'code' })).toBe('it handed in code, which the cell may not write');
-    expect(unmetWords({ kind: 'writtenTwice', block: 'code' })).toBe('it handed in code twice');
-    expect(unmetWords({ kind: 'noValue', block: 'ci' })).toBe('it handed in ci, a choice, with no value');
-    expect(unmetWords({ kind: 'notAValue', block: 'ci', value: 'amber' })).toBe(
-      'it handed in ci as amber, which is not one of its values',
-    );
-    expect(unmetWords({ kind: 'notAChoice', block: 'plan' })).toBe('it handed in plan with a value, but it is not a choice');
-    expect(unmetWords({ kind: 'notHandedIn', block: 'verdict' })).toBe(
-      'it did not hand in verdict, which the cell must hand in every time',
-    );
-    expect(
-      unmetWords({ kind: 'nothingBut', block: 'deep_needed', value: 'yes', besides: ['plan_owner', 'r1_questions'] }),
-    ).toBe('it handed in deep_needed as yes, and plan_owner, r1_questions besides, which no return of that value holds');
-    expect(unmetWords({ kind: 'notWatched', name: 'on_nothing' })).toBe(
-      'it said it dealt with on_nothing, which does not run the cell',
-    );
-    expect(unmetWords({ kind: 'notATool', name: 'browse' })).toBe(
-      'it asked for browse, which is not a tool the cell may ask for',
-    );
-    expect(unmetWords({ kind: 'unchangedNotWritten', block: 'plan' })).toBe(
-      'it named plan as unchanged in meaning, and did not write it',
-    );
-    expect(unmetWords({ kind: 'unexplained', path: 'AGENTS.md' })).toBe(
-      'it left AGENTS.md, a file the project protects, changed, and said not why',
-    );
-    expect(unmetWords({ kind: 'unanswered', block: 'check' })).toBe(
-      'it dealt with check, and committed nothing and asked nothing',
-    );
-    expect(unmetWords({ kind: 'notATest', path: 'src/lib.rs' })).toBe(
-      'it changed src/lib.rs, which is none of the project\'s tests',
-    );
-    expect(unmetWords({ kind: 'uncommitted', changes: ' M src/lib.rs' })).toBe(
-      'it ended its round with changes to tracked files that are not committed',
-    );
-    expect(unmetWords({ kind: 'merging', changes: 'M  src/lib.rs' })).toBe(
-      'it ended its round with a merge under way that is not committed',
-    );
-    expect(unmetWords({ kind: 'treeUnchanged', name: 'placement' })).toBe(
-      'it handed in the change, which changes nothing in the design tree, while placement, marked tree, has the owner\'s answer',
-    );
-    expect(unmetWords({ kind: 'notAnEntry', line: 'decision no-such-entry' })).toBe(
-      'it named decision no-such-entry, which is no entry of the design tree on the work\'s branch',
-    );
-    expect(unmetWords({ kind: 'wordOwed', name: 'review', watched: ['code', 'title'] })).toBe(
-      'it dealt with review, woken by a point in it, and answered none of its points, changed none of code, title, and asked no question the work waits for',
-    );
-    expect(unmetWords({ kind: 'noPoint', block: 'review_ok', value: 'no', name: 'review' })).toBe(
-      'it handed in review_ok as no, which does not pass, and gave no review',
-    );
   });
 });
 

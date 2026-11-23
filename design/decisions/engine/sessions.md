@@ -9,7 +9,7 @@ No line's session is forked from another line's, or from a session of another wo
 - rejected: the owner proposed keeping a session that holds the whole tree, and forking it to pick the entries for each work that starts on the same tree; the owner rejected it, because a larger project's tree would overflow that session, and the research would lose the reading R0 leaves in its own.
 
 ### decision a-line-goes-on-in-its-session-under-another-account
-A line goes on in its session after the owner switches to another account: a change of account starts no new session, and the line's next round writes the session to the new account's cache.
+A line goes on in its session after the account in use changes, the owner switching or the engine moving: a change of account starts no new session, and the next round writes the new account's cache.
 - replaced: Starting a new session for each line whose rounds came to run under another account was on main; the owner changed it, because with every account's sessions in one directory a line can go on in its own session, at the cost of one cache write.
 
 ### decision no-act-begins-a-session-anew
@@ -64,3 +64,9 @@ A fork of a round's session runs through the engine on the session's whole comma
 A fork is sent a fixed first message, the same for every fork of the round, and then its question, so that the first fork writes the session's history to the cache and later forks read it.
 - rejected: an agent proposed making a base fork when the cache has let the session go, which later questions fork from; the owner rejected it, because it needs the base fork's session id kept and a judgement whether its cache is alive, one more state (data: `research/fork-cache-shared-history.md`).
 - rejected: an agent proposed a keep-warm ping in the session itself before the fork; the owner rejected it, because it helps only a fork at the session's end, not one at an earlier round's end, and writes one more round into the real session (data: `research/fork-cache-shared-history.md`).
+
+### decision a-round-takes-the-session-its-line-was-in-as-it-began
+A round runs in the session its line was in as it began; one recorded later, even on opening an older store, is the next round's, so a flagged round of such a store is retried in its own session.
+- replaced: Running a round under way as an older store opened, for a flag no session followed, in the session that flag began was on main; the owner changed it, because a round's session would then follow from when its first try was recorded, not where the round began: a case handled apart.
+- rejected: an agent proposed counting a session of a flagged, guarded or too-long failure for a round that began before it; the owner rejected it, because a round's session would then follow from why a session began, not from where the round began: a case handled apart.
+- rejected: an agent proposed no longer beginning a session on opening for a failed round of an older store that no session follows; the owner rejected it, because that store's works would then need handling by hand before each restart.

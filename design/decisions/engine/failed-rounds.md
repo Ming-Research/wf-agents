@@ -17,14 +17,14 @@ When a round fails for a cause outside all works and the same for all of them, t
 - rejected: an agent proposed trying no round once the agents' program could not run, until the owner pressed a button to go on; the owner rejected it, because the engine can find out by itself that the outside works again, and every work then goes on without anyone pressing anything.
 
 ### decision the-engine-checks-the-outside-itself
-While the agents' wait lasts, the engine checks the outside with no round and in no work's session: half a minute after the round that met it, then twice as long each time, up to five minutes.
+While the agents' wait lasts, the engine checks the outside under the account in use, with no round, half a minute after the round that met it, then twice as long each time, up to five minutes.
 - replaced: Starting the agents' command line again and again while the network was down was on main; the owner changed it, because each try wrote the round's whole input into its session again, 27 copies in one outage.
 - rejected: an agent proposed trying a round again every half minute, or less and less often up to every half hour; the owner rejected it, because every try writes the round's whole message into its session again, three tries making three copies, whether signed out or out of usage.
 - rejected: an agent proposed checking only the sign-in, with the program's own command for it; the owner rejected it, because the sign-in is not all that fails: the service may go down, and the network may be lost.
 - rejected: an agent proposed trying a service's error again after half a minute, then twice as long each time, pausing after two tries; the owner rejected it, because an overload should be tried again soon, then less and less often, never more than five minutes apart.
 
 ### decision the-acts-host-is-tried-by-a-look
-While the host the acts use cannot be reached, the engine checks it every half minute, and every act goes on once a check reaches it; no act is sent to test it.
+While the host the acts use cannot be reached, the engine checks it every half minute, and once a check reaches it one act goes first; no act is sent only to test it.
 - rejected: an agent proposed checking a lost network after a minute, then twice as long each time, up to fifteen minutes; the owner rejected it, because the engine can keep watching the network itself, checking at least every half minute.
 
 ### decision an-unread-return-is-sent-back
@@ -32,5 +32,10 @@ A return that could not be read is sent back to the agent in its session, like a
 - replaced: Closing the brackets of a return that is not JSON and having the cheapest model fix its syntax was on main; the owner changed it, because the agent in its session knows what it meant to write, while a repair only guesses.
 
 ### decision a-flagged-round-begins-a-new-session
-A round that the service's safety check flagged is given again at once in a new session of its line; if it is flagged again in the same run, with only failures in between, its work is paused.
+A flagged round is retried in a new session of its line, but not one under way as an older store opens (decision a-round-takes-the-session-its-line-was-in-as-it-began); a second flag pauses its work.
 - replaced: Treating a flagged round as a passing failure and trying it again after a wait was on main; the owner changed it, because a round flagged again and again would then be tried again forever.
+
+### decision one-goes-first-after-a-wait
+Once a check finds the outside well, or a look reaches the acts' host, one held round goes first, of the work that met the wait first; the rest begin once it comes back or is answered.
+- replaced: Letting every held round begin at once was on main; the owner changed it, because while the network came and went, every work failed again at the same time and each failure counted toward its pause.
+- rejected: an agent proposed slots for the engine's acts, as the agents' rounds have; the owner rejected it, because they would hold the acts back at all times, add a number for the owner to set, and still let as many fail together as there are slots.

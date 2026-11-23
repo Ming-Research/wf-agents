@@ -1,12 +1,15 @@
 // The observations: what agents came across beyond their works, each a text of a return its run kept as it finished,
-// the newest first. A row is the text, cut to three lines and whole on pointing at it, with where it came from on the line
-// under it: its number, the work's run and round, which opens the work with that run chosen, the cell, the item and
-// when it was kept. One the owner has not read is marked, and has the button that marks it read; one read is muted and
-// says when. The list is read again on each change of a work, since a run that finishes keeps the observations of its
-// return, and whenever the stream of changes opens again; a read that fails keeps the list as it was and says so.
+// and what an architect added, the newest first. A row is the text, cut to three lines and whole on pointing at it,
+// the number of an item in it a link to the item (`itemNumbers.tsx`), with where it came from on the line under it: its
+// number, and for one a run kept the work's run and round, which opens the work with that run chosen, the cell and the
+// item, or for one an architect added the project that reported it, and when it was kept. One the owner has not read
+// is marked, and has the button that marks it read; one read is muted and says when. The list is read again on each
+// change the stream tells of, since a run that finishes keeps the observations of its return and an architect adds and
+// changes them, and whenever the stream of changes opens again; a read that fails keeps the list as it was and says so.
 
 import { useCallback, useState } from 'react';
 
+import { linkItemNumbers, useItemTitles } from '../itemNumbers';
 import { Legend, UnreadMark } from '../marks';
 import { usesFixtures } from '../mock-data';
 import {
@@ -17,7 +20,7 @@ import {
 } from '../observations-api';
 import { Attr, Button } from '../parts';
 import { useChanges, useReading } from '../works/source';
-import { clock, fullTime } from '../works/words';
+import { clock, fullTime, itemName, workName } from '../works/words';
 
 /// Where the view reads the observations from, and sends the owner's reading of one.
 export interface ObservationsSource {
@@ -127,22 +130,33 @@ export function ObservationsList({ page, failed = null, source, onRead }: {
 /// read, or when it was read.
 function Row({ o, sending, onMarkRead }: { o: Observation; sending: boolean; onMarkRead: () => void }) {
   const unread = o.read === null;
+  const titles = useItemTitles();
   return (
     <li className={unread ? 'observation' : 'observation observation-read'} data-observation={o.number}>
       <span className="observation-mark">{unread && <UnreadMark />}</span>
       <div className="observation-body">
         <p className="observation-text" title={o.text}>
-          {o.text}
+          {linkItemNumbers(o.text, titles)}
         </p>
         <p className="observation-facts">
           <span className="mono">O{o.number}</span>
-          <a className="link mono" href={`#/works/${o.work}/runs/${o.run}`} title="Open the work with this run chosen">
-            W{o.work}
-          </a>
-          <Attr name="cell" value={o.cell} />
-          <span className="observation-item" title={o.title}>
-            <span className="mono">#{o.item}</span> {o.title}
-          </span>
+          {o.round !== null ? (
+            <>
+              <a
+                className="link mono"
+                href={`#/works/${o.round.work}/runs/${o.round.run}`}
+                title="Open the work with this run chosen"
+              >
+                {workName(o.round.work)}
+              </a>
+              <Attr name="cell" value={o.round.cell} />
+              <span className="observation-item" title={o.round.itemTitle}>
+                <span className="mono">{itemName(o.round.item)}</span> {o.round.itemTitle}
+              </span>
+            </>
+          ) : (
+            <Attr name="reported by" value={o.reportedBy} />
+          )}
           <span title={fullTime(o.kept)}>
             <Attr name="kept" value={clock(o.kept)} />
           </span>

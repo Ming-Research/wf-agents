@@ -1,0 +1,7 @@
+# What the engine's act `start` writes into the block its cell writes, once it has made the work's branch, and its
+# worktree: `text` where the branch was made from the head of main, `continued` where the work's item continues a branch
+# or a pull request and the branch was made from its head. Filled in a run: `{branch}` the work's branch, `{worktree}`
+# the worktree's directory, `{from}` the latest commit of main the branch holds, `{main}` the main branch's name,
+# and in `continued` `{continues}` what the item continues, as `the branch <name>` or `pull request <number>`.
+text = "The work is done on the branch {branch} in the worktree {worktree}, which started from the commit {from} of {main}."
+continued = "The work is done on the branch {branch} in the worktree {worktree}. It continues {continues}: it started from the head of that, which holds the commit {from} of {main}."

@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited, Who};
+use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited};
 use driver::{Asked, DEPENDENCIES, Driver, Failed, Fault, FirstWrite, Found, MERGED, NewItem, Todo, WAITING};
 use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Moment, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
@@ -49,6 +49,16 @@ pub fn has() -> Has {
     }
 }
 
+/// The words the engine says to the owner, as the files beside the repository's flows have them: what a flow compiled
+/// without them says in their places is nothing, as the engine refuses to start on.
+pub fn beside() -> BTreeMap<String, String> {
+    [(
+        flow::waits_file(),
+        include_str!("../../../../flow/agents/waits.toml").to_string(),
+    )]
+    .into()
+}
+
 /// A flow compiled from the text of its files, beside it the words the engine says to the owner, as beside the
 /// repository's flows.
 pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
@@ -57,11 +67,7 @@ pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
         cells: (cells.iter())
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
-        files: [(
-            flow::waits_file(),
-            include_str!("../../../../flow/agents/waits.toml").to_string(),
-        )]
-        .into(),
+        files: beside(),
         ..Default::default()
     };
     compile(&source, &has()).expect("the definition compiles")
@@ -239,6 +245,42 @@ pub fn plain() -> Compiled {
         outputs = ["merged"]
     "#;
     compiled(&flow, &[("write", write), ("merge", merge)])
+}
+
+/// A flow whose first cell is the engine's act that starts a work, which makes the work's branch, and then the merge:
+/// the flow of a work whose item may continue a branch or a pull request. It is not among [`flows`], and a test that
+/// needs it opens the driver on it.
+pub fn placing() -> Compiled {
+    let flow = format!(
+        r#"
+        name = "placing"
+        order = ["place", "merge"]
+        [limits]
+        runs = 2
+        returns = 2
+        calls = 3
+        [lines.main]
+        [blocks.place]
+        shown = true
+        [blocks.merged]
+        shown = true
+        {START_BLOCK}"#
+    );
+    let place = r#"
+        title = "Place"
+        kind = "engine"
+        act = "start"
+        watches = ["start"]
+        outputs = ["place"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        watches = ["place"]
+        outputs = ["merged"]
+    "#;
+    compiled(&flow, &[("place", place), ("merge", merge)])
 }
 
 /// Every flow the driver is given.
@@ -479,12 +521,28 @@ impl Storage for Failing {
         self.store.keep_warm(warm, at)
     }
 
+    fn moving_on(&self) -> Result<bool, store::Fault> {
+        self.store.moving_on()
+    }
+
+    fn set_moving_on(&mut self, moving: bool, at: Time) -> Result<(), store::Fault> {
+        self.store.set_moving_on(moving, at)
+    }
+
     fn accounts(&self) -> Result<Vec<store::AccountRecord>, store::Fault> {
         self.store.accounts()
     }
 
     fn keep_account(&mut self, record: &store::AccountRecord) -> Result<(), store::Fault> {
         self.store.keep_account(record)
+    }
+
+    fn stops(&self) -> Result<Vec<store::StopRecord>, store::Fault> {
+        self.store.stops()
+    }
+
+    fn keep_stop(&mut self, record: &store::StopRecord) -> Result<(), store::Fault> {
+        self.store.keep_stop(record)
     }
 
     fn keep_flow(&mut self, kept: &store::KeptFlow) -> Result<(), store::Fault> {
@@ -576,6 +634,7 @@ pub fn new_item(title: &str, depends_on: &[ItemNumber], flow: &str) -> NewItem {
         project: PROJECT.to_string(),
         depends_on: depends_on.to_vec(),
         tags: Vec::new(),
+        continues: None,
         flow: flow.to_string(),
         writes: Vec::new(),
     }
@@ -1082,7 +1141,8 @@ impl H {
             };
             assert!(
                 self.kept_as_pending(todo),
-                "given as the driver opened before the store holds that it is to be done: {todo:?}"
+                "given as the driver opened before the store holds that it is to be done: {todo:?}; the store holds {:?}",
+                self.kept_pending(todo.work)
             );
         }
         self.outstanding = todos.clone();
@@ -1092,16 +1152,21 @@ impl H {
         todos
     }
 
-    /// Whether the store holds that the todo is to be done: it is pending of the work as the store keeps it.
-    fn kept_as_pending(&self, todo: &Todo) -> bool {
-        let kept = self.reader.load(todo.work).expect("the work loads");
+    /// What the store holds as to be done for the work: what is pending of the work as the store keeps it.
+    fn kept_pending(&self, work: WorkNumber) -> Vec<Effect> {
+        let kept = self.reader.load(work).expect("the work loads");
         let head = (self.reader.works().expect("the works are read").into_iter())
-            .find(|head| head.number == todo.work)
+            .find(|head| head.number == work)
             .expect("the work is kept");
         let flow = (self.flows.iter())
             .find(|f| f.name == head.flow)
             .expect("the work's flow");
-        engine::pending(flow, &kept).contains(&todo.effect)
+        engine::pending(flow, &kept)
+    }
+
+    /// Whether the store holds that the todo is to be done.
+    fn kept_as_pending(&self, todo: &Todo) -> bool {
+        self.kept_pending(todo.work).contains(&todo.effect)
     }
 
     /// What the event answers is answered: the round it ends, or the call it gives the result of.
@@ -1206,7 +1271,8 @@ impl H {
             }
             assert!(
                 self.kept_as_pending(todo),
-                "given before the store holds that it is to be done: {todo:?}"
+                "given before the store holds that it is to be done: {todo:?}; the store holds {:?}",
+                self.kept_pending(todo.work)
             );
             self.outstanding.push(todo.clone());
         }
@@ -1531,6 +1597,23 @@ impl H {
         spent(self.ended)
     }
 
+    /// The round of the work under way, and the two after it, return nothing and ask for nothing, so that each is sent
+    /// back until the run reaches its limit of returns: the owner's call, which the third return makes.
+    pub fn at_limit(&mut self, work: WorkNumber) -> CallId {
+        for _ in 0..2 {
+            self.returns(work, Came::asks(vec![]));
+        }
+        let todos = self.returns(work, Came::asks(vec![]));
+        let calls: Vec<CallId> = (todos.iter())
+            .filter_map(|todo| match &todo.effect {
+                Effect::Call { call, .. } => Some(*call),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls.len(), 1, "the limit of returns was not reached: {todos:?}");
+        calls[0]
+    }
+
     /// The call has its result.
     pub fn answer(&mut self, work: WorkNumber, call: CallId) -> Vec<Todo> {
         let result = format!("the result of {}", call.0);
@@ -1558,6 +1641,9 @@ impl H {
     /// outside well and each look reaching what it looks at; gives what is to be done.
     pub fn wake_up(&mut self) -> Option<Vec<Todo>> {
         let wake = self.d().wake()?;
+        if let Some(account) = &wake.candidate {
+            return Some(self.tick_candidate(wake.at, account, Found::Well));
+        }
         let under = self.d().accounts().in_use().map(str::to_string);
         Some(self.ticked(
             wake.at,
@@ -1577,6 +1663,30 @@ impl H {
     /// agents' rounds taken under this account found; gives what is to be done.
     pub fn tick_under(&mut self, at: Time, under: Option<&str>, found: Found) -> Vec<Todo> {
         self.ticked(at, Some((under.map(str::to_string), found)), None)
+    }
+
+    /// The driver is told what a check under this account, asked for to move to it, found, at this time, which the
+    /// harness's clock takes on to; gives what is to be done.
+    pub fn tick_candidate(&mut self, at: Time, account: &str, found: Found) -> Vec<Todo> {
+        self.clock = self.clock.max(at.0);
+        let todos = (self.dm().tick_candidate(at, account, found)).expect("the driver takes the check");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
+    /// The owner lets the engine move to another account at a usage limit, or does not, which the driver must take;
+    /// gives what is to be done.
+    pub fn set_moving_on(&mut self, moving: bool) -> Vec<Todo> {
+        let now = self.now();
+        let todos = (self.dm().set_moving_on(now, moving)).expect("the switch is set");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
     }
 
     /// The driver is told the time it asked for, a look at the acts' host having found it reached or not.
@@ -1963,13 +2073,6 @@ pub fn tool(name: &str) -> Ask {
     Ask::Tool {
         name: name.to_string(),
         input: format!("what {name} is run on"),
-    }
-}
-
-pub fn question(who: Who) -> Ask {
-    Ask::Person {
-        who,
-        question: "which way?".to_string(),
     }
 }
 

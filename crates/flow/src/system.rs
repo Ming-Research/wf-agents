@@ -1,5 +1,5 @@
 //! The system prompt of a line's session, made from the files beside the flows: the parts `agents/session.toml` names,
-//! in the order it names them. A file of the project that `project.toml` names, headed as `session.toml` says; the
+//! in the order it names them. A file of the project that its declaration names, headed as `session.toml` says; the
 //! sets of rules for the agents that the line takes; a text of the engine's own words; and how a cell returns, made from
 //! `agents/return/` with the words of each field and of each tool the flow names. It is the same for every cell of a
 //! line, whose sets of rules are the line's, and holds only what the line shares (principle
@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::agents::{
-    AGENTS_DIR, Agents, Installation, LinePart, OUTPUTS, OfTheLine, PROJECT_FILE, Project, RULES_FILE, ReturnsPart,
+    AGENTS_DIR, Agents, DECLARATION, Declaration, Installation, LinePart, OUTPUTS, OfTheLine, RULES_FILE, ReturnsPart,
     SessionPart, ToldAs, WordsPart, YOUR_LINE_FILE,
 };
 use crate::{CellSpec, Compiled, Kind};
@@ -51,7 +51,7 @@ pub enum Of {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Part {
     pub of: Of,
-    /// Its key in the files: a file of the project by its name in `project.toml`, a set of rules by its name in
+    /// Its key in the files: a file of the project by its name in its declaration, a set of rules by its name in
     /// `rules.toml`, a text of the engine's by its file in `agents/`, how a cell returns as `session.toml` names it.
     pub name: String,
     /// The file its words come from: a file of the project by its path in the project's checkout; any other by its
@@ -87,14 +87,16 @@ pub enum Piece {
 
 /// The parts of the system prompt of the session of the cell's line, in their order. A file of the project is read by
 /// `read`, by its path in the project's checkout: its text, nothing where there is nothing to read it in, or why it
-/// cannot be read. Or everything that keeps it from being made, as [`made`] says it.
+/// cannot be read. Or everything that keeps it from being made, as [`made`] says it. `declaration` is the project's;
+/// where there is none, a file of the project is a part with nothing in it, since nothing says where it is.
 pub fn parts(
     agents: &Agents,
+    declaration: Option<&Declaration>,
     flow: &Compiled,
     cell: &CellSpec,
     read: impl Fn(&str) -> Result<Option<String>, String>,
 ) -> Result<Vec<Part>, Vec<String>> {
-    let (parts, wrong) = made(agents, flow, cell, read);
+    let (parts, wrong) = made(agents, declaration, flow, cell, read);
     if wrong.is_empty() { Ok(parts) } else { Err(wrong) }
 }
 
@@ -103,6 +105,7 @@ pub fn parts(
 /// a tool the flow names that nothing beside the flows defines.
 pub fn made(
     agents: &Agents,
+    declaration: Option<&Declaration>,
     flow: &Compiled,
     cell: &CellSpec,
     read: impl Fn(&str) -> Result<Option<String>, String>,
@@ -114,9 +117,19 @@ pub fn made(
         match part {
             SessionPart::Project(_) => {
                 let project = part.file().unwrap_or_default().to_string();
-                let Some(file) = agents.project.files.get(&project) else {
+                let Some(declaration) = declaration else {
+                    out.push(Part {
+                        of: Of::Project,
+                        name: project.clone(),
+                        source: project,
+                        pieces: Vec::new(),
+                        texts: Vec::new(),
+                    });
+                    continue;
+                };
+                let Some(file) = declaration.files.get(&project) else {
                     wrong.push(format!(
-                        "{PROJECT_FILE} has no file `{project}`, which session.toml names"
+                        "{DECLARATION} has no file `{project}`, which session.toml names"
                     ));
                     continue;
                 };
@@ -288,7 +301,6 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<Said>, Vec<Str
             }
         }
     }
-    put(ret.clone(), "\n\n", told.every_time.trim_end());
     let listed: Vec<(&String, _)> = (told.listed.iter())
         .filter_map(|n| agents.fields.get(n).map(|f| (n, f)))
         .collect();
@@ -343,6 +355,15 @@ fn returning(agents: &Agents, flow: &Compiled) -> (Vec<Said>, Vec<Said>, Vec<Str
     (said, filling, wrong)
 }
 
+/// The start of the names of the project's own settings: a fault that names one of them as having no value is the
+/// project's fault, and one that names any other is the flow's.
+pub const PROJECT_SETTINGS: &str = "project.";
+
+/// Whether the fault, as [`check`] says it, is of a setting of the project's that has no value.
+pub fn lacks_project_setting(fault: &str) -> bool {
+    fault.contains(&format!("names the setting `{PROJECT_SETTINGS}"))
+}
+
 /// What is wrong with the texts the parts are made of, each with the file that holds it, each once: a place that
 /// `fills` says the engine does not fill, and, but in what heads a file of the project, a setting a text names that
 /// has no value.
@@ -378,7 +399,7 @@ pub fn check(parts: &[Part], settings: &Settings, fills: impl Fn(&str) -> bool) 
 
 /// The flow's own texts that a message sends its agent cells, each with what of the flow it is: each agent cell's
 /// task, what it does when each datum it watches is new, and the words of each block, what it is and what a cell that
-/// writes it is told of writing it.
+/// writes it is told of writing it, and, where the cell hands in a block every time, besides.
 pub fn flow_texts(flow: &Compiled) -> Vec<Said> {
     let mut out = Vec::new();
     for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
@@ -415,12 +436,22 @@ pub fn flow_texts(flow: &Compiled) -> Vec<Said> {
                 places: false,
             });
         }
+        if let Some(words) = &block.words_if_marked {
+            out.push(Said {
+                source: format!(
+                    "block {}, what its writer is told if it hands in a block every time",
+                    name.as_str()
+                ),
+                text: words.clone(),
+                places: false,
+            });
+        }
     }
     out
 }
 
 /// The names the parts of a line's system prompt that are not the line's sets of rules are given, as
-/// `agents/session.toml` names them: a file of the project by its name in `project.toml`, a text of the engine's by its
+/// `agents/session.toml` names them: a file of the project by its name in its declaration, a text of the engine's by its
 /// file, how a cell returns by its name. A set of rules that took one of them would be told apart from it by nothing.
 pub fn reserved(agents: &Agents) -> Vec<String> {
     (agents.session.parts.iter())
@@ -434,19 +465,23 @@ pub fn reserved(agents: &Agents) -> Vec<String> {
 }
 
 /// The settings a text sent to an agent may name, each by its name, with its value, or with none where the
-/// installation has none for it: the project's, in `[project]` of `project.toml`, each as `project.<name>`; and the
+/// installation has none for it: the project's, in `[project]` of its declaration, each as `project.<name>`; and the
 /// installation's that `names` in `agents/installation.toml` beside the flows lists, whose values the installation
 /// holds.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Settings(BTreeMap<String, Option<String>>);
 
 impl Settings {
-    /// The settings `project.toml` gives, and those of the installation `names` lists, each with the value `value`
-    /// gives it.
-    pub fn of(project: &Project, names: &Installation, installation: impl Fn(&str) -> Option<String>) -> Settings {
+    /// The settings the project's declaration gives, none where there is none, and those of the installation `names`
+    /// lists, each with the value `value` gives it.
+    pub fn of(
+        project: Option<&Declaration>,
+        names: &Installation,
+        installation: impl Fn(&str) -> Option<String>,
+    ) -> Settings {
         let mut values = BTreeMap::new();
-        for (name, value) in &project.project {
-            values.insert(format!("project.{name}"), Some(value.clone()));
+        for (name, value) in project.iter().flat_map(|p| &p.project) {
+            values.insert(format!("{PROJECT_SETTINGS}{name}"), Some(value.clone()));
         }
         for name in &names.names {
             values.entry(name.clone()).or_insert_with(|| installation(name));
@@ -591,6 +626,14 @@ pub fn as_written(pieces: &[Piece]) -> String {
         .collect()
 }
 
+/// The text in a fenced block, so that nothing it holds reads as the structure of the words around it, a heading or a
+/// list: the fence is longer than any run of backquotes in it, and at least three.
+pub fn fenced(text: &str) -> String {
+    let longest = (text.split(|c| c != '`')).map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(longest.max(2) + 1);
+    format!("{fence}\n{text}\n{fence}")
+}
+
 /// A text sent as written, or nothing where there is none.
 pub fn written(text: &str) -> Vec<Piece> {
     if text.is_empty() {
@@ -679,9 +722,9 @@ mod tests {
     /// The settings of the tests: the project's `research` and `test_names`, and the installation's `owner.language`,
     /// `agents.subagents.most` and `github.checks`, the last with no value.
     fn settings() -> Settings {
-        let project: Project = toml::from_str(
+        let project: Declaration = toml::from_str(
             "tree = \"design/\"\n[files]\n[project]\nresearch = \"research/\"\ntest_names = \"By its own name.\"\n\
-             [heavy]\ncommands = []\n",
+             [heavy]\ncommands = []\n[environment]\n",
         )
         .unwrap();
         let names = Installation {
@@ -690,7 +733,7 @@ mod tests {
                 .to_vec(),
             ..Default::default()
         };
-        Settings::of(&project, &names, |name| match name {
+        Settings::of(Some(&project), &names, |name| match name {
             "owner.language" => Some("Chinese".to_string()),
             "agents.subagents.most" => Some("3".to_string()),
             _ => None,

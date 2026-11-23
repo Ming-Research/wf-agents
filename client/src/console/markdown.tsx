@@ -1,12 +1,13 @@
 // A passage of Markdown as the item window shows it, drawn with the page's own parts by a parser of its own (decision
 // the-page-draws-markdown-itself): headings, each a small heading whatever its level (principle
-// an-agents-heading-is-small); paragraphs; lists, every one numbered (the design of the owner's page, 14), each item
+// an-agents-heading-is-small); paragraphs; lists, every one numbered (decision every-list-is-drawn-numbered), each item
 // holding blocks of its own; quotes; tables, in the page's table; rules; and blocks of code between fences, a change of
 // files among them drawn as the text it changes (`diff.tsx`), a diagram drawn (`diagram.tsx`), and the words of one in
 // a language the page knows coloured by their kind (`code.tsx`). In a line: `code`, **strong**, *stressed* and
 // ~~struck~~ words, links, pictures, breaks, and a pointer to a question of the work, `{{name}}`, as the words of a
-// cell's questions tell its agent to write one (decision a-question-stands-where-a-text-points-to-it). What stands in
-// code is text, a pointer too. Nothing written becomes markup the page did not mean (principle agent-writing-is-data):
+// cell's questions tell its agent to write one (decision a-question-stands-where-a-text-points-to-it). The number of
+// an item in words that stand in no link is a link to the item (`itemNumbers.tsx`). What stands in code is text, a
+// pointer too. Nothing written becomes markup the page did not mean (principle agent-writing-is-data):
 // a link leads only to the web or to a view of the page, a picture is drawn only from the web or the page's own
 // server, and any other is shown as it was written.
 
@@ -14,6 +15,7 @@ import { Fragment, type ReactNode } from 'react';
 
 import { CodeBlock, grammarNamed } from '../code';
 import { Diagram, diagramKind } from '../diagram';
+import { linkItemNumbers, useItemTitles } from '../itemNumbers';
 import { Diff } from './diff';
 
 /// How a piece of a line is set: strong, stressed, struck, and the link it stands in, none where it stands in none.
@@ -429,6 +431,9 @@ export type Pointers = {
   link: (name: string) => ReactNode | null;
 };
 
+/// The titles of the items the page has read, by their numbers.
+type Titles = ReadonlyMap<number, string>;
+
 const sameMarks = (a: Marks, b: Marks) =>
   a.strong === b.strong && a.stressed === b.stressed && a.struck === b.struck && a.href === b.href;
 
@@ -455,15 +460,17 @@ function marked(marks: Marks, words: ReactNode[], key: number): ReactNode {
 }
 
 /// The words of a line, each run of pieces set alike in one part.
-function words(pieces: Inline[], pointers: Pointers | undefined): ReactNode[] {
+function words(pieces: Inline[], pointers: Pointers | undefined, titles: Titles): ReactNode[] {
   const out: ReactNode[] = [];
   for (let i = 0; i < pieces.length; ) {
     const first = pieces[i];
     const run: ReactNode[] = [];
     for (; i < pieces.length && sameMarks(pieces[i], first); i++) {
       const p = pieces[i];
-      if (p.kind === 'text') run.push(p.text);
-      else if (p.kind === 'code') run.push(<code key={i}>{p.text}</code>);
+      if (p.kind === 'text') {
+        // Words in a link are its words: a link to an item cannot stand inside another.
+        run.push(p.href === null ? <Fragment key={i}>{linkItemNumbers(p.text, titles)}</Fragment> : p.text);
+      } else if (p.kind === 'code') run.push(<code key={i}>{p.text}</code>);
       else if (p.kind === 'break') run.push(<br key={i} />);
       else if (p.kind === 'picture') {
         run.push(<img key={i} src={p.src} alt={p.alt} title={p.title ?? undefined} />);
@@ -482,7 +489,7 @@ function words(pieces: Inline[], pointers: Pointers | undefined): ReactNode[] {
 const says = (pieces: Inline[]) => pieces.some((p) => (p.kind === 'text' ? p.text.trim() !== '' : p.kind !== 'break'));
 
 /// Draws the blocks of a passage. `held` is the questions it drew a card of: a pointer to one again is a link.
-function drawBlocks(blocks: Block[], pointers: Pointers | undefined, held: Set<string>): ReactNode[] {
+function drawBlocks(blocks: Block[], pointers: Pointers | undefined, held: Set<string>, titles: Titles): ReactNode[] {
   const drawn: ReactNode[] = [];
   for (const block of blocks) {
     const key = drawn.length;
@@ -503,7 +510,7 @@ function drawBlocks(blocks: Block[], pointers: Pointers | undefined, held: Set<s
       case 'heading':
         drawn.push(
           <p key={key} className="cw-md-head">
-            {words(block.pieces, pointers)}
+            {words(block.pieces, pointers, titles)}
           </p>,
         );
         break;
@@ -513,7 +520,7 @@ function drawBlocks(blocks: Block[], pointers: Pointers | undefined, held: Set<s
       case 'quote':
         drawn.push(
           <blockquote key={key} className="cw-quote">
-            {drawBlocks(block.blocks, pointers, held)}
+            {drawBlocks(block.blocks, pointers, held, titles)}
           </blockquote>,
         );
         break;
@@ -521,7 +528,7 @@ function drawBlocks(blocks: Block[], pointers: Pointers | undefined, held: Set<s
         drawn.push(
           <ol key={key} start={block.start === 1 ? undefined : block.start}>
             {block.items.map((item, i) => (
-              <li key={i}>{drawBlocks(item, pointers, held)}</li>
+              <li key={i}>{drawBlocks(item, pointers, held, titles)}</li>
             ))}
           </ol>,
         );
@@ -533,7 +540,7 @@ function drawBlocks(blocks: Block[], pointers: Pointers | undefined, held: Set<s
               <tr>
                 {block.head.map((cell, c) => (
                   <th key={c} scope="col" className="label" style={{ textAlign: block.align[c] ?? undefined }}>
-                    {words(cell, pointers)}
+                    {words(cell, pointers, titles)}
                   </th>
                 ))}
               </tr>
@@ -543,7 +550,7 @@ function drawBlocks(blocks: Block[], pointers: Pointers | undefined, held: Set<s
                 <tr key={r}>
                   {row.map((cell, c) => (
                     <td key={c} style={{ textAlign: block.align[c] ?? undefined }}>
-                      {words(cell, pointers)}
+                      {words(cell, pointers, titles)}
                     </td>
                   ))}
                 </tr>
@@ -556,7 +563,7 @@ function drawBlocks(blocks: Block[], pointers: Pointers | undefined, held: Set<s
         // A paragraph is ended before each card it holds and begun again after it, so that no card stands inside one.
         let line: Inline[] = [];
         const end = () => {
-          if (says(line)) drawn.push(<p key={drawn.length}>{words(line, pointers)}</p>);
+          if (says(line)) drawn.push(<p key={drawn.length}>{words(line, pointers, titles)}</p>);
           line = [];
         };
         for (const piece of block.pieces) {
@@ -581,5 +588,6 @@ function drawBlocks(blocks: Block[], pointers: Pointers | undefined, held: Set<s
 }
 
 export function Markdown({ text, pointers }: { text: string; pointers?: Pointers }) {
-  return <div className="cw-md">{drawBlocks(parse(text), pointers, new Set())}</div>;
+  const titles = useItemTitles();
+  return <div className="cw-md">{drawBlocks(parse(text), pointers, new Set(), titles)}</div>;
 }

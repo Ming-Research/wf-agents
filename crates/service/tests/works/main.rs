@@ -10,11 +10,13 @@
 mod accounts;
 mod acts;
 mod cancelling;
+mod continuing;
 mod contract;
 mod dependencies;
 mod failing;
 mod forking;
 mod going;
+mod moving_on;
 mod pausing;
 mod pinging;
 mod shared_wait;
@@ -48,6 +50,7 @@ pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
         project: "trial".to_string(),
         depends_on: depends_on.iter().copied().map(ItemNumber).collect(),
         tags: Vec::new(),
+        continues: None,
         flow: "trial".to_string(),
         writes: vec![FirstWrite {
             block: "request".into(),
@@ -139,6 +142,8 @@ pub struct Trial {
     forks: Forks,
     /// The check of the outside of the agents' rounds, where it is not the script's, which always finds it well.
     outside: Option<Arc<dyn service::Outside>>,
+    /// The result a call the engine ends itself has, in the carriers' words.
+    calls: flow::agents::Calls,
 }
 
 /// The keep-warm pings handed out and not yet answered, each with its reply.
@@ -166,28 +171,74 @@ impl Trial {
         Trial::opened(script, None, Some(outside))
     }
 
+    /// The loop with the trial's script, on an empty store, the result of a call the engine ends itself being these
+    /// words.
+    pub fn with_calls(calls: flow::agents::Calls) -> Trial {
+        Trial::opened_with(trial_script(), (None, None), calls)
+    }
+
+    /// The loop with this script, on an empty store, the result of a call the engine ends itself being these words.
+    pub fn with_script_and_calls(script: Script, calls: flow::agents::Calls) -> Trial {
+        Trial::opened_with(script, (None, None), calls)
+    }
+
     /// The loop with the trial's script, on an empty store, whose agents' rounds run in sessions kept warm: every round
     /// runs on one model, and a line that waits has its session pinged 55 minutes after its last call, at most twice
     /// in a wait. The owner has taken an account, which a session is kept warm only under.
     pub fn warm() -> Trial {
         let mut trial = Trial::opened(trial_script(), Some(Pings::default()), None);
-        for what in [store::AccountAct::Added, store::AccountAct::Taken] {
-            let (reply, mut answer) = oneshot::channel();
-            trial.take(Message::Account {
-                name: ACCOUNT.to_string(),
-                what,
-                reply,
-            });
-            (answer.try_recv())
-                .expect("the loop answers at once")
-                .expect("the account is taken");
-        }
+        trial.take_account(ACCOUNT);
         trial
+    }
+
+    /// The loop as [`Trial::warm`] has it, with this script, the outside of the agents' rounds checked by this.
+    pub fn warm_with(script: Script, outside: Arc<dyn service::Outside>) -> Trial {
+        let mut trial = Trial::opened(script, Some(Pings::default()), Some(outside));
+        trial.take_account(ACCOUNT);
+        trial
+    }
+
+    /// The owner adds an account of this name, and takes it as the one the agents run under.
+    fn take_account(&mut self, name: &str) {
+        for what in [store::AccountAct::Added, store::AccountAct::Taken] {
+            self.account(name, what);
+        }
+    }
+
+    /// The owner adds, removes or takes the account of this name.
+    pub fn account(&mut self, name: &str, what: store::AccountAct) {
+        let (reply, mut answer) = oneshot::channel();
+        self.take(Message::Account {
+            name: name.to_string(),
+            what,
+            reply,
+        });
+        (answer.try_recv())
+            .expect("the loop answers at once")
+            .expect("the account is done");
+    }
+
+    /// The owner lets the engine move to another account at a usage limit, or does not.
+    pub fn set_moving_on(&mut self, moving: bool) {
+        let (reply, mut answer) = oneshot::channel();
+        self.take(Message::SetMovingOn { moving, reply });
+        (answer.try_recv())
+            .expect("the loop answers at once")
+            .expect("the switch is set");
     }
 
     /// The loop with this script, on an empty store, its sessions kept warm where `pings` holds the pings in hand, and
     /// the outside checked by `outside` where one is given.
     fn opened(script: Script, pings: Option<Pings>, outside: Option<Arc<dyn service::Outside>>) -> Trial {
+        Trial::opened_with(script, (pings, outside), Scripted::calls())
+    }
+
+    /// The loop as [`Trial::opened`] opens it, the result of a call the engine ends itself being these words.
+    fn opened_with(
+        script: Script,
+        (pings, outside): (Option<Pings>, Option<Arc<dyn service::Outside>>),
+        calls: flow::agents::Calls,
+    ) -> Trial {
         let dir = tempfile::tempdir().expect("a directory for the store");
         let path = dir.path().join("store.sqlite");
         let clock = Arc::new(TokioClock::new(START));
@@ -195,7 +246,7 @@ impl Trial {
         let paused = Told::default();
         let forks = Forks::default();
         let carried = (pings.as_ref(), outside.as_ref(), &forks);
-        let (service, inbox) = open(&path, &script, &clock, (&handed, &paused), carried);
+        let (service, inbox) = open(&path, &script, &clock, (&handed, &paused), carried, &calls);
         let trial = Trial {
             _dir: dir,
             path,
@@ -210,6 +261,7 @@ impl Trial {
             pings,
             forks,
             outside,
+            calls,
         };
         trial.check();
         trial
@@ -250,7 +302,7 @@ impl Trial {
         }
         let recorded = (&self.handed, &self.paused);
         let carried = (self.pings.as_ref(), self.outside.as_ref(), &self.forks);
-        let (service, inbox) = open(&self.path, &self.script, &self.clock, recorded, carried);
+        let (service, inbox) = open(&self.path, &self.script, &self.clock, recorded, carried, &self.calls);
         self.service = service;
         self.inbox = inbox;
         self.check();
@@ -393,7 +445,23 @@ impl Trial {
         }
     }
 
-    /// Takes the work to its end, answering the owner's questions as they come.
+    /// Takes what comes until the work waits for the owner's call, and gives it: the plan's run reaches its limit of
+    /// returns after its first three rounds.
+    pub async fn to_the_owners_call(&mut self, work: WorkNumber) -> CallId {
+        loop {
+            if let Some(call) = self.owners_call(work) {
+                return call;
+            }
+            if self.step().await.is_none() {
+                panic!(
+                    "nothing more comes, and work {} waits for no call of the owner's",
+                    work.0
+                );
+            }
+        }
+    }
+
+    /// Takes the work to its end, answering the owner's calls as they come.
     pub async fn drive(&mut self, work: WorkNumber) -> Decision {
         loop {
             let decision = self.decision(work);
@@ -526,6 +594,7 @@ fn open(
     clock: &Arc<TokioClock>,
     (handed, paused): (&Arc<Mutex<BTreeSet<Unit>>>, &Told),
     (pings, outside, forks): (Option<&Pings>, Option<&Arc<dyn service::Outside>>, &Forks),
+    calls: &flow::agents::Calls,
 ) -> (Service, Inbox) {
     let store = Store::open(path).expect("the store opens");
     let recording = Arc::new(Recording {
@@ -550,6 +619,7 @@ fn open(
         host: Some(Arc::new(recording.scripted.clone())),
         slots: SLOTS,
         tokens: Arc::new(service::KeptTokens::new()),
+        calls: calls.clone(),
     };
     let clock: Arc<dyn service::Clock> = clock.clone();
     Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens")

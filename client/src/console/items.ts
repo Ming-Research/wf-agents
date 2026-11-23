@@ -7,9 +7,8 @@
 // goes on, whether the work has begun, and how many of the things its work waits for wait for the owner; and a work's
 // age and what it has taken, as a card and the item's window say them. Pure, so that it is tested on its own.
 //
-// Brought over from the console of the engine on `old-main` (`client/src/console/items.ts`), reading the items as
-// `works-api.ts` gives them. The interface does not say which of an item's dependents is its main one: the first of
-// them by number is.
+// It reads the items as `works-api.ts` gives them. The interface does not say which of an item's dependents is its
+// main one: the first of them by number is.
 
 import type { CellNow, Item, Items, Now, Pauser, Summary, Wait } from '../works-api';
 import { mocksShown } from '../mock-data';

@@ -747,6 +747,79 @@ fn no_source_names_a_cell_line_group_or_block_of_a_flow() {
     );
 }
 
+/// Whether a text puts a number after the noun it numbers with a place that names nothing, as `work {}` or `Items {}`:
+/// a number the engine writes in words is written by one writer (`store::WorkNumber`, `store::ItemNumber`), named for
+/// what it is where the place stands, as `{work}` or `{item}` is.
+fn written_bare(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    ["work", "item", "works", "items"]
+        .iter()
+        .any(|noun| (lower.match_indices(&format!("{noun} {{}}"))).any(|(at, _)| !lower[..at].ends_with(ident)))
+}
+
+/// Whether a text writes by hand the letter a work's or an item's number is written with, before a place: `W{}` or
+/// `#{item}`, which the one writer of each number does (`store::WorkNumber`, `store::ItemNumber`).
+fn written_by_hand(text: &str) -> bool {
+    text.contains("#{") || (text.match_indices("W{")).any(|(at, _)| !text[..at].ends_with(ident))
+}
+
+/// The file of the one writer of a work's number and of an item's, which is the one place that writes their letters.
+const WRITER: &str = "crates/store/src/items.rs";
+
+#[test]
+fn no_source_writes_the_number_of_a_work_or_an_item_into_a_sentence_by_a_place_that_names_nothing() {
+    let root = root();
+    let mut found = Vec::new();
+    let mut read = 0;
+    for (path, scanned) in rust_sources() {
+        let at = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
+        read += scanned.literals.len();
+        let by_hand = at != WRITER;
+        let bad = |text: &str| written_bare(text) || (by_hand && written_by_hand(text));
+        for literal in scanned.literals.iter().filter(|l| bad(&l.text)) {
+            found.push(format!("{at}:{}: \"{}\"", literal.line, literal.text));
+        }
+    }
+    assert!(read > 1000, "the sources are read: {read} literals");
+    assert!(
+        found.is_empty(),
+        "these sentences write a number bare or with its letter by hand, which the engine writes as `W5` and `#5` by \
+         one writer, whatever is filled in:\n{}",
+        found.join("\n")
+    );
+}
+
+#[test]
+fn the_letter_of_a_number_written_by_hand_before_a_place_is_found_and_other_uses_are_not() {
+    for by_hand in ["W{} is paused.", "of W{work}: it", "#{item} cancelled", "see (#{})"] {
+        assert!(written_by_hand(by_hand), "{by_hand}");
+    }
+    for fine in ["{work} is paused.", "{item} cancelled", "NEW{}", "a {w} b"] {
+        assert!(!written_by_hand(fine), "{fine}");
+    }
+}
+
+#[test]
+fn a_noun_followed_by_a_place_that_names_nothing_is_found_and_a_named_place_is_not() {
+    for bare in [
+        "Work {} is paused.",
+        "the items {} merged",
+        "of item {}: it",
+        "no WORK {}",
+    ] {
+        assert!(written_bare(bare), "{bare}");
+    }
+    for fine in [
+        "Work {work} is paused.",
+        "a network {}",
+        "{} has no version",
+        "the item {item} merged",
+        "framework {}",
+    ] {
+        assert!(!written_bare(fine), "{fine}");
+    }
+}
+
 #[test]
 fn a_name_is_found_in_rust_code_and_not_in_its_comments_its_tests_or_its_characters() {
     let text = r####"

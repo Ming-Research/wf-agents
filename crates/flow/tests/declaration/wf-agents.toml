@@ -1,0 +1,23 @@
+# The declaration of the project of the tests: the files of it the engine gives every agent, and the settings the words
+# may name.
+
+# The directory that holds the project's design tree, which the engine looks at on each work's branch.
+tree = "design/"
+
+[files.guide]
+path = "AGENTS.md"
+
+[files.constitution]
+path = "design/constitution.md"
+
+[project]
+research = "research/"
+
+[protected]
+paths = ["AGENTS.md", "flow/"]
+
+[heavy]
+commands = ["cargo", "npm"]
+
+[environment]
+RUSTUP_AUTO_INSTALL = "0"

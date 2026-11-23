@@ -7,18 +7,20 @@
 //!
 //! Every change but a reopen is refused once the item's work has ended: nothing of the work goes on, and the item is
 //! what it ended as. Its title, level and tags change until then; what it depends on only while its work has started
-//! no run (decision `dependencies-until-the-work-starts`). A cancel takes away no dependency on the item, and an item
-//! may come to depend on a cancelled one: a dependency on a cancelled item holds as one on a merged item does
-//! (decision `a-cancelled-item-keeps-its-place`). Two relations between items hold whatever is changed: an item that
-//! has merged depends on no item that has not ended, and a reopen makes no work wait that has started and not ended.
+//! no run, and what it continues only until its work's branch is made (decision
+//! `dependencies-until-the-work-starts`). A cancel takes away no dependency on the item, and an item may come to
+//! depend on a cancelled one: a dependency on a cancelled item holds as one on a merged item does (decision
+//! `a-cancelled-item-keeps-its-place`). Two relations between items hold whatever is changed: an item that has merged
+//! depends on no item that has not ended, and a reopen makes no work wait that has started and not ended.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::End;
-use store::{Item, ItemChange, ItemNumber};
+use flow::Compiled;
+use store::{Continues, Item, ItemChange, ItemNumber};
+use work::Work;
 
-/// The longest a tag may be, in characters.
-pub const TAG_CHARS: usize = 40;
+pub use store::TAG_CHARS;
 
 /// A change of an item, as whoever plans the work asks for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,6 +44,10 @@ pub struct Planned {
     pub ended: Option<End>,
     /// Whether its work's end is letting go of what it held, which a reopen would leave half done.
     pub letting_go: bool,
+    /// Whether its work has made its branch: the cell of its flow that starts a work has handed in a return.
+    pub placed: bool,
+    /// Whether its flow has a cell that starts a work, which is what reads what an item continues.
+    pub starts: bool,
 }
 
 impl Planned {
@@ -72,6 +78,8 @@ pub enum Unchangeable {
     Ended(End),
     /// Its work has started a run: what the item depends on is what its work started on.
     Started,
+    /// Its work has made its branch: what an item continues is what its branch was made from.
+    Placed,
     /// It would depend on an item that depends on it already, by this way: from the item it was to depend on,
     /// through each item the one before depends on, to the item itself. An item that was to depend on itself is the
     /// way of that one item.
@@ -102,6 +110,10 @@ pub enum Refused {
     BlankTitle,
     /// The tag is not one an item may carry: it is empty, longer than [`TAG_CHARS`], or holds a space or a comma.
     BadTag(String),
+    /// What it was to continue is no branch name or pull request number an item may name.
+    BadContinues(Continues),
+    /// It was to continue something, and its flow has no cell that starts a work, which would read it.
+    NoStart,
     Unchangeable(Unchangeable),
 }
 
@@ -142,8 +154,50 @@ pub fn judge(
 
 /// Whether the tag is one an item may carry; why not, where it is not.
 pub fn tag_fault(tag: &str) -> Option<Refused> {
-    let bad = tag.is_empty() || tag.chars().count() > TAG_CHARS || tag.chars().any(|c| c.is_whitespace() || c == ',');
-    bad.then(|| Refused::BadTag(tag.to_string()))
+    store::tag_is_bad(tag).then(|| Refused::BadTag(tag.to_string()))
+}
+
+/// Whether the item may continue this: a pull request of a number, or a branch of a name git takes for one
+/// (`git check-ref-format`: no part between slashes begins with a dot or ends with `.lock`, and no space, control
+/// character, `..`, `//`, `@{`, a backslash or any of ~ ^ : ? * [) and a command takes for no option.
+pub fn continues_fault(continues: &Continues) -> Option<Refused> {
+    let bad = match continues {
+        Continues::Pull(number) => *number == 0,
+        Continues::Branch(name) => {
+            name.is_empty()
+                || name.starts_with(['-', '/'])
+                || name.ends_with(['/', '.'])
+                || name.contains("..")
+                || name.contains("//")
+                || name.contains("@{")
+                || name == "@"
+                || name
+                    .split('/')
+                    .any(|part| part.starts_with('.') || part.ends_with(".lock"))
+                || name
+                    .chars()
+                    .any(|c| c <= ' ' || c == '\u{7f}' || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
+        }
+    };
+    bad.then(|| Refused::BadContinues(continues.clone()))
+}
+
+/// Whether the flow has a cell whose act starts a work: the act that reads what an item continues.
+pub fn starts(flow: &Compiled) -> bool {
+    flow.cells.iter().any(|cell| cell.act.as_deref() == Some("start"))
+}
+
+/// Whether the work has made its branch: a run of a cell whose act starts a work has handed in its return. A run that
+/// failed, or was refused, has not.
+pub fn placed(flow: &Compiled, work: &Work) -> bool {
+    let records = &work.records;
+    records.started.iter().any(|started| {
+        let starts = flow
+            .cells
+            .iter()
+            .any(|cell| cell.id == started.cell && cell.act.as_deref() == Some("start"));
+        starts && records.finished.iter().any(|finished| finished.run == started.run)
+    })
 }
 
 /// Whether one change makes the item other than it is, or why it is refused.
@@ -213,6 +267,18 @@ fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &
                 refused(Unchangeable::NotDependent(*on))
             }
             ItemChange::NoLongerDependsOn(_) => Ok(true),
+            ItemChange::Continues(continues) => {
+                if let Some(fault) = continues.as_ref().and_then(continues_fault) {
+                    return Err(fault);
+                }
+                if planned.placed {
+                    return refused(Unchangeable::Placed);
+                }
+                if continues.is_some() && !planned.starts {
+                    return Err(Refused::NoStart);
+                }
+                Ok(item.continues != *continues)
+            }
         },
     }
 }
