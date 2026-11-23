@@ -520,6 +520,10 @@ async fn a_look_at_the_entries_that_cannot_be_made_says_why() {
 // empty file as empty, a path the commit lacks as none, and a file whose text looks like such a header, or whose path
 // holds a space, as its own bytes, each object after it read from where the one before ends. A path that holds a line
 // break, which that input cannot carry, is refused.
+//
+// Alone it takes 0.07 s in CI. It is the only test that holds the framing of `--batch` against git's own words, where
+// the tests of the entries pass with any reading that happens to fit the files they write; five paths are the fewest
+// that put an empty file, a missing one and a header-like one each between two others.
 #[tokio::test]
 async fn the_files_of_a_commit_are_read_in_one_batch_as_git_frames_them_an_empty_or_missing_one_or_one_like_a_header() {
     let (_repo, place) = started().await;
@@ -569,6 +573,12 @@ fn files_under(root: &Path, dir: &Path, into: &mut Vec<(String, String)>) {
 // up to a blank line or the file's end. Each is given under its file, the principles' files before the decisions', in
 // the order of their paths (acceptance 2), and none of the names is unknown. The rules' own templates, which
 // `design/README.md` writes as headings in its code fences, are no entry: that file is under neither directory.
+//
+// Alone it takes 0.34 s in CI, copying the whole tree (55 files, 313 KB when it was written) into a repository of its
+// own, and grows with the tree. It is the only test of the real declaration against the real tree, which the tests of
+// the format each write by hand: a heading form, a directory or the words of `given.toml` that no longer match the
+// tree would pass them all. It cannot take a sample of the tree, since an entry the format misses could be in any file,
+// and it is no part of another test, whose small trees are what make their faults readable.
 #[tokio::test]
 async fn this_repository_s_declaration_finds_and_gives_whole_every_entry_of_its_own_design_tree() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
