@@ -11,8 +11,9 @@
 // the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
 // browser's own. They pin as well what the old console did not do: a click on an item's funnel folds what is under it
 // into a dot and a click on the dot shows it again, both selecting nothing, the fold turning over its time; the
-// console keeps that choice over its own rule; a lit way turns into the cards it joins along its own curve; and the way
-// to a work the engine runs a call for is lit, as to one whose round runs.
+// console keeps that choice over its own rule; a lit way turns into the cards it joins along its own curve; the way to
+// a work the engine runs a call for is lit, as to one whose round runs; and the item selected flashes once when asked,
+// as a click on its title in the panel asks, and then draws nothing that stands again while only the lights move.
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
@@ -31,7 +32,7 @@ import { CONSOLE_MARKS } from './help';
 import type { Heard } from './source';
 import { ConsolePage } from './index';
 import type { Shown, ShownWork } from './items';
-import { DOT_AT, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, RUN, SnapScene, themed, UNFOLD_MS } from './snap';
+import { DOT_AT, FLASH_MS, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, RUN, SnapScene, themed, UNFOLD_MS } from './snap';
 
 const WIDTH = 1000;
 const HEIGHT = 640;
@@ -337,6 +338,45 @@ describe('the tree in columns', () => {
     move(50, line);
     scene.step();
     expect(scene.stats.redraws).toBe(redraws + 1);
+  });
+
+  it('flashes the soft light of the item selected once, in view, without moving the tree, and once it has come to rest draws nothing that stands again while only the lights move', () => {
+    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    scene.select(2);
+    settle(scene);
+    // Frames a second long bring the dimming of the items not selected, and all else that eases, to rest.
+    for (let k = 0; k < 3; k += 1) scene.step(1000);
+    const place = JSON.stringify(scene.place());
+    const rest = scene.chosenLight() as { id: number; out: number; alpha: number };
+    expect(rest.id).toBe(2);
+    let redraws = scene.stats.redraws;
+    scene.step(50);
+    expect(scene.stats.redraws).toBe(redraws);
+    // Item 2 is in view: brought into view, it stays where it is, and its light as it was.
+    scene.reveal(2, WIDTH);
+    scene.step();
+    expect(JSON.stringify(scene.place())).toBe(place);
+    expect(scene.chosenLight()).toEqual(rest);
+    // Flashed, its light is wider and stronger from the next frame, more than twice as wide at its height, and back at
+    // rest by the end of the flash's time, the tree unmoved.
+    scene.flash(2);
+    const lights: { out: number; alpha: number }[] = [];
+    for (let k = 0; k < FLASH_MS / 16; k += 1) {
+      scene.step(16);
+      lights.push(scene.chosenLight() as { out: number; alpha: number });
+    }
+    expect(lights[0].out).toBeGreaterThan(rest.out);
+    expect(lights[0].alpha).toBeGreaterThan(rest.alpha);
+    expect(Math.max(...lights.map((l) => l.out))).toBeGreaterThan(2 * rest.out);
+    expect(scene.chosenLight()).toEqual(rest);
+    expect(JSON.stringify(scene.place())).toBe(place);
+    // Then the light runs down the way into item 2 frame after frame, and nothing that stands is drawn again.
+    redraws = scene.stats.redraws;
+    for (let k = 0; k < 10; k += 1) {
+      scene.step(50);
+      expect(scene.litWays().map((w) => w.id)).toEqual([2]);
+    }
+    expect(scene.stats.redraws).toBe(redraws);
   });
 
   it('moves only the light down a way from frame to frame, what stands of the way built once where it stands, and again where it moves', () => {
@@ -1252,12 +1292,20 @@ describe('the console page', () => {
     expect(getComputedStyle(frame('answer-stale-runs') as HTMLElement).borderTopColor).toBe(colour('--red'));
   });
 
-  it('brings the panel out with the item selected, and on Escape lets the item go and folds the panel', async () => {
+  it('brings the panel out with the item selected, flashes its card at a click on its title, and on Escape lets the item go and folds the panel', async () => {
     const scene = await drawn();
     expect(folded()).toBe(true);
     scene.select(12);
     await expect.poll(title).toBe('Show the cost of a work');
     expect(folded()).toBe(false);
+    // Once the tree stands where the panel brought the item, its soft light is at rest; a click on the title, which
+    // leaves the keys where they were, flashes it, wider at the next frame.
+    settle(scene);
+    const rest = scene.chosenLight() as { id: number; out: number };
+    expect(rest.id).toBe(12);
+    (container.querySelector('.drawer-title button') as HTMLButtonElement).click();
+    scene.step();
+    expect(scene.chosenLight()?.out).toBeGreaterThan(rest.out);
     await userEvent.keyboard('{Escape}');
     await expect.poll(folded).toBe(true);
     expect(title()).toBeNull();
