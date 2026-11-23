@@ -2172,9 +2172,7 @@ impl Summary {
             held,
             &every.outages,
             along,
-            &driver.items_waited_for(number),
-            &driver.items_paused_for(number),
-            driver.turn_waited_at(number, &every.at_once),
+            &Others::of(driver, number, &every.at_once),
         )?;
         // The cell the work waits at for a tool's call the engine runs.
         let calling = match &now {
@@ -2504,6 +2502,26 @@ fn bar(kept: Kept<'_>, all: &HeldAll, now: Time) -> String {
         .collect()
 }
 
+/// What other works decide for a work, which holds it back or says what it waits for: the items its item depends on
+/// that it waits for, the items its pause waits for, and whose the project's turn to check and merge is, with since
+/// when the work has wanted it.
+pub(crate) struct Others {
+    waited_for: Vec<ItemNumber>,
+    paused_for: Vec<ItemNumber>,
+    turn: Option<(store::WorkNumber, Time)>,
+}
+
+impl Others {
+    /// What the driver says of them for this work, at once with every other work.
+    pub(crate) fn of(driver: &Driver, work: store::WorkNumber, at_once: &driver::AtOnce) -> Others {
+        Others {
+            waited_for: driver.items_waited_for(work),
+            paused_for: driver.items_paused_for(work),
+            turn: driver.turn_waited_at(work, at_once),
+        }
+    }
+}
+
 impl Now {
     /// The cell the work stands at, as what it does now names it; none where it names none, as a work that ended or
     /// whose records are at fault.
@@ -2519,18 +2537,17 @@ impl Now {
 
     /// What the work does now. Of what holds it back, its own pause is said first, then the owner's pause of
     /// everything, then the stop of the engine, then the wait every work shares, then the turn to check and merge,
-    /// which `turn` says whose it is and since when the work has wanted it, then a slot.
+    /// which `others` says whose it is and since when the work has wanted it, then a slot.
     pub(crate) fn of(
         kept: Kept<'_>,
         decision: &Decision,
         held: Option<Holder>,
         outages: &Outages,
         along: &[(Under, &Along)],
-        waited_for: &[ItemNumber],
-        paused_for: &[ItemNumber],
-        turn: Option<(store::WorkNumber, Time)>,
+        others: &Others,
     ) -> Result<Now, Broken> {
         let work = kept.work;
+        let (waited_for, paused_for, turn) = (&others.waited_for[..], &others.paused_for[..], others.turn);
         // Held by the pause of everything, which holds while the driver says it holds the work.
         let everything = |at: &CellId| -> Result<Now, Broken> {
             let by = (outages.everything).ok_or_else(|| Broken("the pause of everything holds no work".to_string()))?;
@@ -2610,7 +2627,9 @@ impl Now {
                 stopped(at).ok_or_else(|| Broken("no stop stands".to_string()))?
             }
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if shared(cell) => waits_shared(cell),
-            Decision::Wait { at, on } if on == &[WaitedOf::Slot] && shared(at) => waits_shared(at),
+            Decision::Wait { at, on } if (on == &[WaitedOf::Slot] || on == &[WaitedOf::Turn]) && shared(at) => {
+                waits_shared(at)
+            }
             Decision::GoOn { cell, .. } if held == Some(Holder::Turn) => Now::Waits {
                 at: cell.to_string(),
                 on: vec![turned()?],

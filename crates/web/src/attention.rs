@@ -26,7 +26,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::time::Instant;
 
 use crate::interface::{fail, refused};
-use crate::works::{Broken, Now, Outage, Outages, Pauser, Wait};
+use crate::works::{Broken, Now, Others, Outage, Outages, Pauser, Wait};
 
 /// What needs the planner since the mark it gave, most pressing first.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,9 +146,7 @@ impl Attention {
                 held,
                 &outages,
                 &driver.along_of(work),
-                &driver.items_waited_for(work),
-                &driver.items_paused_for(work),
-                driver.turn_waited_at(work, &at_once),
+                &Others::of(driver, work, &at_once),
             )?;
             Ok((of, now, view, held))
         };
