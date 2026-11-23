@@ -986,6 +986,17 @@ mod tests {
             (started.faults, started.held),
             (Vec::<String>::new(), Vec::<String>::new())
         );
+        // The program the installation names is refused as an entry is, so that one holding a `*` would refuse more than
+        // it names: the start is kept from going on, and says the setting.
+        let mut starred = settings.clone();
+        starred.agents.command = "co*dex".to_string();
+        let started = start(&starred, &beside, &compiled);
+        assert_eq!(started.faults.len(), 1, "{:?}", started.faults);
+        assert!(
+            started.faults[0].starts_with("agents.command: "),
+            "{:?}",
+            started.faults
+        );
         beside.session.heading = "# `{path}` {where}\n\n{text}".to_string();
         let mut lines: Vec<&str> = compiled[0].cells.iter().filter_map(|c| c.line.as_deref()).collect();
         lines.sort();
