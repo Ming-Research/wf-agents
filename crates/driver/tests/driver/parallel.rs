@@ -199,15 +199,27 @@ fn after_a_restart_every_list_is_given_again() {
 
 // A work that is cancelled leaves the list and, once its item is reopened, is on it again: it is a work that has not
 // ended and has started a run, which is all the list asks (reference: the module documentation of `driver::parallel`).
-// Fails where a work cancelled once stays off the list for good. Milliseconds.
+// The cancelled work's run is returned and its hold let go before the item is reopened, as the work's records of a
+// cancel and a reopen are made. Fails where a work cancelled once stays off the list for good. Milliseconds.
 #[test]
 fn a_cancelled_work_is_on_its_projects_list_again_once_its_item_is_reopened() {
     let mut h = H::with(vec![planned()]);
     let (item, a) = h.add_let_on(planned_item("a", "one"));
     let (_, b) = h.add_let_on(planned_item("b", "one"));
     h.dm().parallel();
+    let (run, ..) = h.round(a);
     h.changes(vec![(item, driver::Asked::Cancel)])
         .expect("the item is cancelled");
+    let spent = h.spent();
+    let todos = h.on(
+        a,
+        Event::Returned {
+            run,
+            came: Came::default(),
+            spent,
+        },
+    );
+    h.released(todos);
     let asks = h.dm().parallel();
     assert_eq!(asks.len(), 1, "{asks:?}");
     assert_eq!(listed(&asks[0]).iter().map(|w| w.0).collect::<Vec<_>>(), [b.0]);

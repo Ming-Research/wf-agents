@@ -1062,20 +1062,20 @@ fn works_under_way(file: &str) -> String {
 }
 
 // The design review's message holds the list of the works under way, only its latest version, named with its number:
-// where the loop has written two lists, the review is sent the second and no word of the first. Fails where the list is
-// not among what the review is given, or is given as every version, or its version is not named (reference: the
-// message's own form, `## `<block>`, version <n>`, as the other test of this file reads it; and `flow/engineer/cells/
-// P1.toml`, which reads `parallel` as its latest version). Milliseconds.
+// where the loop has written two lists before the review's round begins, the review is sent the second and no word of
+// the first (a round is sent what the records held as it began). Fails where the list is not among what the review is
+// given, or is given as every version, or its version is not named (reference: the message's own form,
+// `## `<block>`, version <n>`, as the other test of this file reads it; and `flow/engineer/cells/P1.toml`, which reads
+// `parallel` as its latest version). Milliseconds.
 #[test]
 fn the_design_review_is_sent_the_latest_list_of_the_works_under_way_and_no_earlier_one() {
-    let (mut sim, review) = until("P1");
+    let (mut sim, better) = until("R2");
     sim.wrote("parallel", &works_under_way("old.rs"), None, Outsider::Outside);
     sim.wrote("parallel", &works_under_way("new.rs"), None, Outsider::Outside);
-    assert_eq!(
-        sim.round().as_ref(),
-        Some(&review),
-        "the list changed which round is given"
-    );
+    tried(&mut sim, &better);
+    sim.hands_in(&better, &[]);
+    let review = sim.round().expect("the design review is given");
+    assert_eq!(sim.cell(&review).id.as_str(), "P1");
     let entered = sim.enter(&review, sim.begins(&review));
     let given = record_given(&entered.text, "parallel");
     assert_eq!(given.len(), 1, "{}", entered.text);
