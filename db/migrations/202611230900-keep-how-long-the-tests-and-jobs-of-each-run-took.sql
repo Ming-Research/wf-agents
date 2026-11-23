@@ -32,4 +32,4 @@ CREATE TABLE timed_tests (
     PRIMARY KEY (work, at, test),
     FOREIGN KEY (work, at) REFERENCES timed (work, at)
 );
-UPDATE schema_version SET version = 25;
+UPDATE schema_version SET version = 26;
