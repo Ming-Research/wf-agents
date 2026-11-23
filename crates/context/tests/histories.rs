@@ -1228,7 +1228,7 @@ fn written(sim: &Sim) -> (BTreeSet<String>, usize) {
     let mut lines = BTreeSet::new();
     let mut after_read = 0;
     for cell in sim.flow.cells.iter().filter(|c| c.kind == flow::Kind::Agent) {
-        let all = context::situations::situations(&sim.flow, &sim.words, cell, REOPENED, &sim.compared);
+        let all = context::situations::situations(&sim.flow, &sim.words, cell, &sim.compared);
         for named in all {
             assert!(
                 !named.situation.data.contains_key("guide") && !named.situation.holds.iter().any(|h| h == "guide"),
@@ -1242,9 +1242,6 @@ fn written(sim: &Sim) -> (BTreeSet<String>, usize) {
     }
     (lines, after_read)
 }
-
-/// The source that writes a block of a line as its session begins anew, and none of the small flow's blocks.
-const REOPENED: &str = "session";
 
 /// The lines in the first set and not in the second, cut to how many a failure says.
 fn missing(a: &BTreeSet<String>, b: &BTreeSet<String>) -> String {

@@ -73,7 +73,6 @@ pub(crate) fn the_engine_s(_: &flow::Source) -> flow::Has {
             "dependencies",
             "handed_in",
             "main",
-            "session",
             "start",
             "head",
             "tree",

@@ -8,16 +8,13 @@ use context::situations::{Named, combinations, situations};
 use flow::CellSpec;
 use support::{compared, flow, words};
 
-/// The source no block of the small flow is written by.
-const REOPENED: &str = "session";
-
 fn cell<'a>(flow: &'a flow::Compiled, id: &str) -> &'a CellSpec {
     flow.cells.iter().find(|c| c.id.as_str() == id).expect("the cell")
 }
 
 fn of(cell_id: &str) -> Vec<Named> {
     let (flow, words) = (flow(), words());
-    situations(&flow, &words, cell(&flow, cell_id), REOPENED, &compared())
+    situations(&flow, &words, cell(&flow, cell_id), &compared())
 }
 
 fn holding(named: &Named) -> bool {
@@ -150,7 +147,7 @@ fn a_session_reopened_after_another_cell_of_its_line_was_read_in_it_holds_what_t
 fn every_situation_is_written_once_and_every_datum_s_own_state_is_counted() {
     let (flow, words) = (flow(), words());
     for id in ["plan", "build", "review", "close"] {
-        let all = situations(&flow, &words, cell(&flow, id), REOPENED, &compared());
+        let all = situations(&flow, &words, cell(&flow, id), &compared());
         for (n, named) in all.iter().enumerate() {
             let again = all[..n].iter().find(|o| o.situation == named.situation);
             assert!(
@@ -160,10 +157,7 @@ fn every_situation_is_written_once_and_every_datum_s_own_state_is_counted() {
                 again.map_or("", |o| &o.name)
             );
         }
-        assert!(
-            combinations(&flow, &words, cell(&flow, id), REOPENED, &compared()) > 0,
-            "{id}"
-        );
+        assert!(combinations(&flow, &words, cell(&flow, id), &compared()) > 0, "{id}");
     }
 }
 

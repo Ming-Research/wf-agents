@@ -2,15 +2,11 @@
 
 When a line of a work goes on in its session of the agents' program, what a session starts with, how sessions are kept warm and compacted, and how a session is forked.
 
-### decision a-new-session-loads-again-through-its-line-s-datum
-A new session of a line writes the line's own `session` datum, which only the engineer's line has and which R0 watches, so that R0 reads the tree into the session before the line goes on.
-- replaced: One `session` datum for the whole work, not one for each line, was on main; the owner changed it, because every line's session reopens on its own, and the cells of another line were not told that their session was new.
-- replaced: Running the deep research again on every new session of its line was on main; the owner changed it, because R0 reads the tree again, and the cells after it go on in that session without each one reading from the start.
-
 ### decision each-line-begins-its-own-session
-No line's session is forked from another line's: each line begins its own session and reads the tree there for itself.
+No line's session is forked from another line's, or from a session of another work: each line begins its own session.
 - rejected: an agent proposed forking the other lines from R0's session once it had read the tree, as the design had it; the owner rejected it, because no fork was needed yet.
 - rejected: an agent proposed forking the plan's reviewer from R0's session, as the old tree had it; the owner rejected it, because a line one level above its item cannot be forked from the session of a lower line.
+- rejected: the owner proposed keeping a session that holds the whole tree, and forking it to pick the entries for each work that starts on the same tree; the owner rejected it, because a larger project's tree would overflow that session, and the research would lose the reading R0 leaves in its own.
 
 ### decision a-line-goes-on-in-its-session-under-another-account
 A line goes on in its session after the owner switches to another account: a change of account starts no new session, and the line's next round writes the session to the new account's cache.
@@ -39,7 +35,7 @@ Every round's command line gives the agents' program `sessions.compact_at`, the 
 - replaced: The number named `sessions.context_limit` was on main; the owner changed it, because the name no longer said that it is where the program compacts the session.
 
 ### decision a-compaction-reopens-the-session-under-its-id
-When a line's session is compacted during a round, the engine records it as the session reopened, which writes the line's `session` datum if it has one, and the session goes on under its id.
+When a line's session is compacted during a round, the engine records it as the session reopened, which runs no cell, and the session goes on under its id.
 - replaced: The engine at once running again, in the new session, a round cut off by a reopened session was on main; the owner changed it, because the engine knows nothing about sessions: it picks the next cell to run, and the rest is left to the filling.
 
 ### decision the-projects-files-as-the-work-has-them

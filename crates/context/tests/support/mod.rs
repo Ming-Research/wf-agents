@@ -354,6 +354,7 @@ impl Sim {
             main: main.as_ref(),
             compared: &self.compared,
             changes,
+            given_as: &BTreeMap::new(),
             named: &self.named,
             results: &BTreeMap::new(),
         };
@@ -593,7 +594,6 @@ pub fn engineer() -> Compiled {
             "dependencies",
             "handed_in",
             "main",
-            "session",
             "start",
             "head",
             "tree",
