@@ -1001,17 +1001,13 @@ fn recommended(name: &str) -> Question {
     }
 }
 
-/// The research asks three questions it does not wait for, the owner answers them while the work is paused, each by
-/// the option given, and the research is entered for the answers: gives what it is sent. The questions are versions 1 to
-/// 3 of its questions and the answers versions 4 to 6; an answer by option 1, which the question recommends, changes
-/// nothing in meaning.
+/// The research asks three questions it does not wait for; the owner answers them, each by the option given, while the
+/// search for a better way, which runs after the research, has its round; the research is entered for the answers once
+/// that round is handed in: gives what it is sent. The questions are versions 1 to 3 of its questions and the answers
+/// versions 4 to 6; an answer by option 1, which the question recommends, changes nothing in meaning.
 fn entered_for_answers(options: [u64; 3]) -> context::Entered {
     let (mut sim, round) = until("R1");
     tried(&mut sim, &round);
-    sim.take(Event::Paused {
-        by: Pauser::Owner,
-        why: None,
-    });
     let mut came = Came::hands_in(vec![
         handed("deep_needed", "", Some("no")),
         handed("plan_owner", "Greet by name.", None),
@@ -1021,6 +1017,9 @@ fn entered_for_answers(options: [u64; 3]) -> context::Entered {
     let names = ["naming", "ending", "tone"];
     came.said.questions = names.iter().map(|name| recommended(name)).collect();
     sim.returns(&round, came, 0);
+    let better = sim.round().expect("the search for a better way is given a round");
+    assert_eq!(better.cell.as_str(), "R2");
+    tried(&mut sim, &better);
     // Each question is the next version of the research's questions, the first, second and third.
     for (i, (name, option)) in names.iter().zip(options).enumerate() {
         sim.take(Event::Answer {
@@ -1029,7 +1028,7 @@ fn entered_for_answers(options: [u64; 3]) -> context::Entered {
             option,
         });
     }
-    sim.take(Event::Resumed);
+    sim.hands_in(&better, &[]);
     let round = sim.round().expect("the research is entered for the answers");
     assert_eq!(round.cell.as_str(), "R1");
     let entered = sim.enter(&round, sim.begins(&round));
