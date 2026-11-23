@@ -461,8 +461,8 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
                     eprintln!("{fault}");
                     wrong = true;
                 }
-                for held in start.held {
-                    eprintln!("{held}");
+                for line in start.held.into_iter().chain(start.warned) {
+                    eprintln!("{line}");
                 }
                 Some(Read::Settings(Box::new(settings), Box::new(beside)))
             }
@@ -487,6 +487,9 @@ struct Start {
     /// What keeps a project's works from being carried out, each said with the project's key: the project is held, its
     /// works are paused with the reason, and the other projects go on.
     held: Vec<String>,
+    /// What the owner is told of a project that is carried, each said with the project's key: where what its
+    /// declaration would do is not done, as an agent that writes updating no lock file where it names no lock command.
+    warned: Vec<String>,
 }
 
 /// What keeps the real carriers from carrying out the flows, every fault at once: what the acts need of a flow and of
@@ -514,7 +517,19 @@ fn start(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Com
             ))
         })
         .collect();
-    Start { faults, held }
+    let warned = (declared.iter())
+        .filter_map(|(name, declared)| {
+            let declared = declared.as_ref().ok()?;
+            declared.declaration.heavy.locks.is_empty().then(|| {
+                format!(
+                    "projects.{name}: {} [heavy] locks names no command that updates a lock file, so an agent that \
+                     writes may update none.",
+                    flow::agents::DECLARATION
+                )
+            })
+        })
+        .collect();
+    Start { faults, held, warned }
 }
 
 /// What is written beside the flows, read from the directory that holds them, with the form of return of each line of
@@ -830,9 +845,24 @@ mod tests {
         let fast_limit = |limit: &str| good.replacen("too_long = \"2h\"", &format!("too_long = \"{limit}\""), 1);
         with_project(&mut settings, dir.path(), "short", Some(&fast_limit("5m")), true);
         with_project(&mut settings, dir.path(), "exact", Some(&fast_limit("10m")), true);
+        // A project that names no lock command is carried, and the owner is told that its agents may update no lock file.
+        let no_locks = good.replace(
+            "locks = [\"cargo update\", \"cargo add\", \"npm install --package-lock-only --ignore-scripts\"]",
+            "locks = []",
+        );
+        assert_ne!(no_locks, good, "the lock commands are written as the test expects");
+        with_project(&mut settings, dir.path(), "nolocks", Some(&no_locks), false);
         let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
         let started = start(&settings, &beside, &[engineer()]);
         assert_eq!(started.faults, Vec::<String>::new());
+        assert_eq!(
+            started.warned,
+            [
+                "projects.nolocks: wf-agents.toml [heavy] locks names no command that updates a lock file, so an agent \
+                 that writes may update none."
+            ],
+            "only a project that is carried and names none is warned of"
+        );
         let names: Vec<&str> = started
             .held
             .iter()

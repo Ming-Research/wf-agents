@@ -30,3 +30,8 @@ A declaration whose `[protected]` paths do not hold `wf-agents.toml` holds its p
 ### decision a-held-projects-declaration-is-read-as-the-engine-starts
 A held project's declaration is read again only as the engine starts: the owner mends it and starts the engine again.
 - rejected: an agent proposed reading a held project's declaration again when its main moves, and carrying the project out at once; the owner rejected it, because the engine would then set up a project's whole carrying while running, a kind of state it has none of, with much more code and tests.
+
+### decision a-start-warns-of-a-project-that-names-no-lock-command
+As the engine starts it says, for each carried project whose declaration names no lock command, that an agent that writes may update no lock file; the project is not held.
+- replaced: The start-up warning for the installation's empty `agents.permissions.locks` was on main; the owner changed it, because the lock commands are the project's now, so the warning is said for each project whose declaration names none.
+- rejected: an agent proposed no warning, since a project with no lock file names no lock command and its agents are told what they may run; the owner rejected it, because the engine would then pass in silence a lock file that no agent can update.
