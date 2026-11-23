@@ -19,6 +19,8 @@ use crate::settings::Project;
 #[derive(Clone, Debug)]
 pub struct Local {
     project: Project,
+    /// The shell command whose exit with 0 means the work passes, from the project's declaration (`[local] check`).
+    check: String,
     /// The variables of the engine's environment the check command is given beside those always given.
     env: Vec<String>,
     /// What `run_tests` says here, from the tool's file beside the flows.
@@ -26,9 +28,10 @@ pub struct Local {
 }
 
 impl Local {
-    pub fn new(project: Project) -> Local {
+    pub fn new(project: Project, check: String) -> Local {
         Local {
             project,
+            check,
             env: Vec::new(),
             words: None,
         }
@@ -52,15 +55,19 @@ impl Local {
             .ok_or_else(|| "the words of run_tests (agents/tools/run_tests.toml) have no [local]".to_string())
     }
 
-    /// Runs the check command in the directory, and says whether it passed with what it said; none where it was told
-    /// to stop.
-    async fn run(&self, dir: &Path, stop: &mut Stop) -> Result<Option<String>, String> {
+    /// Runs the check command in the directory for what asks, and says whether it passed with what it said; none where
+    /// it was told to stop. What the command left running in its group is said ([`Stop::left_behind`]).
+    async fn run(&self, dir: &Path, asking: Asking, stop: &mut Stop) -> Result<Option<String>, String> {
         let words = self.words()?;
-        let check = &self.project.check;
+        let check = &self.check;
         let ran = process::run(process::shell(check, dir, &self.env), None, None, stop).await?;
-        let Ran::Ended { status, stdout, .. } = ran else {
+        let Ran::Ended {
+            status, stdout, left, ..
+        } = ran
+        else {
             return Ok(None);
         };
+        stop.left_behind(asking, left);
         let outcome = if status.success() {
             words.passed.clone()
         } else {
@@ -100,11 +107,11 @@ impl Host for Local {
         branch: &Branch<'_>,
         commit: &str,
         _: &str,
-        _: Asking,
+        asking: Asking,
         repository: &Mutex<()>,
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
-        let check = &self.project.check;
+        let check = &self.check;
         let dir = {
             let _held = repository.lock().await;
             git::check_out(&self.project, branch.place, commit).await?
@@ -115,7 +122,11 @@ impl Host for Local {
             git::take_away_check(&self.project, branch.place).await
         }
         .map_err(|why| format!("the checkout the check ran on could not be taken away: {why}"));
-        let failed = match ran? {
+        let ran = ran?;
+        if let Ran::Ended { left, .. } = &ran {
+            stop.left_behind(asking, *left);
+        }
+        let failed = match ran {
             Ran::Ended { status, stdout, .. } if !status.success() => Some(format!(
                 "The check `{check}` failed ({status}). The end of what it said:\n{}",
                 process::tail(&stdout)
@@ -145,20 +156,33 @@ impl Host for Local {
         &self,
         branch: &Branch<'_>,
         named: &Named,
-        _: Asking,
+        asking: Asking,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
         let words = self.words()?;
+        // The command runs the project's tests alone, so a measurement named is none that could be run.
+        if !named.measure.is_empty() {
+            return Ok(Some(words.no_measure.clone()));
+        }
         // The command runs on the worktree as it is, so a commit named is no commit that could be run.
         if named.commit.is_some() {
             return Ok(Some(words.no_commit.clone()));
         }
+        // The command reads no JUnit: this host gives no time of any test, which the work's records say.
+        stop.timed(work::Reading {
+            asking: asking.name(),
+            source: work::Source::Command,
+            commit: String::new(),
+            workflow: String::new(),
+            jobs: Vec::new(),
+            tests: Vec::new(),
+        });
         let ran = match git::worktree(branch.place) {
-            Ok(dir) => self.run(&dir, stop).await,
+            Ok(dir) => self.run(&dir, asking, stop).await,
             Err(why) => Err(why),
         };
         // What could not be run is said with the command, as what ran is.
-        let check = &self.project.check;
+        let check = &self.check;
         let said = ran.unwrap_or_else(|why| Some(fill(&words.could_not, &[("command", check), ("why", &why)])));
         // The tests and checks named are not run apart: the whole command runs.
         Ok(said.map(|said| {

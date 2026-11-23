@@ -18,6 +18,8 @@ fn failed(refused: NotMerged) -> String {
 pub(crate) struct Repo {
     _dir: tempfile::TempDir,
     pub project: Project,
+    /// The command that checks the project where its repository is the host, as its declaration names it.
+    pub check: String,
     pub data: PathBuf,
 }
 
@@ -71,12 +73,12 @@ impl Repo {
             project: Project {
                 repo,
                 main: "main".to_string(),
-                check: check.to_string(),
                 allowed_config: Vec::new(),
                 github: None,
                 commits: crate::acts::writes().commits,
                 tree: "design/".to_string(),
             },
+            check: check.to_string(),
             data,
         }
     }

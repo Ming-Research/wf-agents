@@ -309,7 +309,7 @@ describe('the list of works', () => {
     await settle();
     expect(page.querySelectorAll('tbody tr.work-row')).toHaveLength(10);
     fail = true;
-    act(() => source.changed({ works: [41], items: true, copies: false, accounts: false }));
+    act(() => source.changed({ works: [41], items: true, copies: false, accounts: false, observations: false }));
     await settle();
     expect(page.querySelectorAll('tbody tr.work-row')).toHaveLength(10);
     expect(page.querySelector('.read-failed')?.textContent).toContain('the server went away');
@@ -329,7 +329,7 @@ describe("a work's line", () => {
     expect(line.querySelector('a.link')?.getAttribute('href')).toBe('#/works');
     expect(texts(line, '.view-title > *')).toEqual([
       '← Back',
-      '#141',
+      'W41 #141',
       'Show the cost of each round on the works page',
     ]);
     expect(texts(line, '.legend li').slice(0, 2)).toEqual(['wakes', 'way back']);
@@ -346,14 +346,14 @@ describe('a work as it is read', () => {
   it('says it is reading, then shows the work, and reads it again when it changed', async () => {
     const source = fixtureSource();
     const page = draw(<WorkView work={41} />, source);
-    expect(page.textContent).toContain('Reading work 41');
+    expect(page.textContent).toContain('Reading W41');
     await settle();
     expect(page.querySelector('.view-name')?.textContent).toBe('Show the cost of each round on the works page');
-    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect(source.reads.work).toBe(2);
     // A change to another work does not read this one again.
-    act(() => source.changed({ works: [42], items: false, copies: false, accounts: false }));
+    act(() => source.changed({ works: [42], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect(source.reads.work).toBe(2);
   });
@@ -366,7 +366,7 @@ describe('a work as it is read', () => {
     const page = draw(<WorkView work={41} />, source);
     await settle();
     fail = true;
-    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
     await settle();
     expect(page.querySelector('.read-failed')?.textContent).toBe(
       'The work could not be read again: the server went away. What is shown is from before.',
@@ -390,9 +390,9 @@ describe('a work as it is read', () => {
     const page = draw(<WorkView work={41} />, source);
     answers[0].resolve(fixtureWork(41));
     await settle();
-    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false }));
-    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false }));
-    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
     expect(answers).toHaveLength(2);
     answers[1].resolve({ ...fixtureWork(41), title: 'Older' });
     await settle();
@@ -586,7 +586,14 @@ describe("the Step of the work's item window", () => {
   it('shows why a return was sent back, and a way round', async () => {
     const { page } = await drawWork(41);
     await chooseRun(page, 1);
-    expect(step(page).textContent).toContain('it handed in code, which the cell may not write');
+    // The reason is its key in `sent_back.toml` and the value recorded under its name, with no sentence of the page's own.
+    const reason = step(page).querySelector('.reasons li');
+    expect(Array.from(reason?.querySelectorAll('.mono') ?? []).map((e) => e.textContent)).toEqual([
+      'not_an_output',
+      'block',
+      'code',
+    ]);
+    expect(step(page).textContent).not.toContain('which the cell may not write');
     await chooseRun(page, 7);
     expect(step(page).querySelector('.way-back')?.textContent).toContain('by a cell after it: a way round');
   });

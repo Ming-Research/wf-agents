@@ -16,6 +16,7 @@ check = "Merge {main} at {head} into the work's branch"
 merge = "Merge {branch}"
 # The name of a work's merge, where the work has written none.
 unnamed = "Work {work}"
-# The two lines every commit of a work ends with. Filled in a run: `{item}`, `{work}` the numbers.
-item_line = "Item: {item}"
-work_line = "Work: W{work}"
+# The two lines every commit of a work ends with. Filled in a run: `{item_number}` the item's number alone, `{work}` the
+# work's number as it is written everywhere.
+item_line = "Item: {item_number}"
+work_line = "Work: {work}"

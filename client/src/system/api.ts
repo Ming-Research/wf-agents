@@ -127,7 +127,45 @@ export interface System {
   past: Past[];
   /// The rounds and the calls of tools under way now, the oldest first.
   underWay: UnderWay[];
+  /// What the merged checks of each project say of how long its tests and jobs took. The page draws none of it: it is
+  /// given in the data and by `wf-agents system`.
+  tests?: TestTimes[];
+  /// The stop the engine was asked for, while it stands, with how much longer it is expected to run. Absent from an
+  /// engine that keeps none.
+  stopping?: Stop | null;
 }
+
+/// What the merged checks of a project say of the time of its tests and jobs; each work named is the one whose merge
+/// the thing was measured at.
+export interface TestTimes {
+  project: string | null;
+  /// How many merged checks the project has.
+  checks: number;
+  /// The tests that took longer than their own history says in the latest merged check and in the one before.
+  slowed: { work: number; unit: string; name: string; millis: number; median: number; line: number }[];
+  /// The series of the CI's times that grew: `tests` is the sum of the tests' times, any other is a job's name.
+  grown: { of: string; work: number; before: number; after: number; above: number; n: number; needed: number }[];
+  /// The latest merges, the earliest first.
+  merges: {
+    work: number;
+    jobs: { name: string; millis: number }[];
+    testsMillis: number;
+    added: number;
+    addedMillis: number;
+  }[];
+}
+
+/// A stop of the engine that stands: since when it was asked for, whether at once, and how much longer the engine is
+/// expected to run, which is the longest rest of the rounds under way.
+export interface Stop {
+  since: number;
+  atOnce: boolean;
+  rest: Rest;
+}
+
+/// How much longer something under way is expected to take, by its history: about this many milliseconds more, or
+/// longer than anything of its history took.
+export type Rest = { kind: 'expected'; ms: number } | { kind: 'longer' };
 
 /// What ended past the line of its history: a round whose cost or time went past its line, and a call of a tool whose
 /// time or whose result's size did.
@@ -159,6 +197,8 @@ export type UnderWay =
       began: number;
       time: Against | null;
       bounds: Bounds | null;
+      /// How much longer it is expected to take. Absent from an engine that says none.
+      rest?: Rest | null;
     }
   | {
       kind: 'call';

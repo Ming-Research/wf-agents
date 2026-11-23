@@ -25,7 +25,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use decide::{BlockId, CallId, Records, RunId, Seq, VersionView, Writer};
+use decide::{BlockId, CallId, InputView, Records, RunId, Seq, VersionView, Writer};
 use flow::agents::{Agents, Part};
 use flow::{CellSpec, Compiled, InputKind, Listed};
 use work::sessions::{began_at, number_at, of_line, of_round, start};
@@ -36,11 +36,12 @@ use crate::message::{self, By, Called, Datum, Form, Main, NewVersions, Run, Sent
 use crate::text::as_written;
 use decide::run::Unmet;
 
-/// Which work a round is of, and the item it is done for, by their numbers, with the item's title.
+/// Which work a round is of, and the item it is done for, by their numbers as the engine writes them (`W1`, `#1`),
+/// with the item's title.
 #[derive(Clone, Copy, Debug)]
 pub struct For<'a> {
-    pub work: u64,
-    pub item: u64,
+    pub work: &'a str,
+    pub item: &'a str,
     pub title: &'a str,
 }
 
@@ -240,26 +241,29 @@ pub fn enter(
         filling.insert(block, fills);
     }
     // What the cell watches that is new to it this entry: each datum, or group of which a block, ran the round, with
-    // the version the cell last worked from and the latest (design document `data-and-context`, 11).
+    // the version the cell last worked from and each version new to it that changed its meaning, as the walk reads
+    // them (design document `data-and-context`, 10 and 11).
     let ran_by = decide::told(&flow.flow, &records, run)
         .map(|t| t.ran_by)
         .unwrap_or_default();
+    let seen = decide::view(&flow.flow, &records);
+    let inputs: Vec<&InputView> = (seen.cells.iter())
+        .find(|c| c.cell == cell.id)
+        .map_or_else(Vec::new, |c| c.runs_on.iter().collect());
     for watched in cell.ran(&ran_by) {
-        let latest = (watched.blocks.iter())
-            .filter_map(|b| versions.get(b).and_then(|vs| vs.last()).map(|v| v.at))
-            .max();
-        let of = |b: &BlockId| versions.get(b).map_or(&[][..], Vec::as_slice);
-        let last = (watched.blocks.iter())
-            .filter_map(|b| last_worked_from(flow, &records, cell, b, of(b)))
-            .max();
+        let of = (inputs.iter()).filter(|i| watched.blocks.contains(&i.block));
+        let last = of.clone().filter_map(|i| i.worked).max();
+        let mut changed: Vec<Seq> = of.flat_map(|i| i.new_versions.iter().copied()).collect();
+        changed.sort();
+        changed.dedup();
         // Of a group, among the versions of the group: each place that wrote any of its blocks is one.
-        if let Some(latest) = latest {
-            let new = NewVersions {
-                last: last.map(|at| numbered(&records, &watched.blocks, at)).transpose()?,
-                latest: numbered(&records, &watched.blocks, latest)?,
-            };
-            values.new.insert(watched.name.clone(), new);
-        }
+        let new = NewVersions {
+            last: last.map(|at| numbered(&records, &watched.blocks, at)).transpose()?,
+            changed: (changed.into_iter())
+                .map(|at| numbered(&records, &watched.blocks, at))
+                .collect::<Result<_, String>>()?,
+        };
+        values.new.insert(watched.name.clone(), new);
         situation.new.push(watched.name.clone());
     }
     // The results the run's rounds are given, and why what its earlier rounds returned was sent back, that the session

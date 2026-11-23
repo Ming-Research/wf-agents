@@ -13,8 +13,11 @@
 //! while its account is in use; taking another ends the wait at once, and taking it back before its reset holds the
 //! rounds again. From the first round that failed so, no agent's round of any work begins, and no work's
 //! session is touched: the engine checks the outside by itself instead ([`Found`]), with no round, until a check finds
-//! it well. Then every work goes on from where it was, the round that met the failure run again; a round that fails so
-//! again holds every round again, until the next check finds it well. The checks are spaced from half a minute after
+//! it well. Then one round goes first (decision `one-goes-first-after-a-wait`): the first to begin, the driver giving
+//! the turn first to the work whose round met the failure first in the wait. While it is under way the wait holds every
+//! other round; once it comes back, or the service answers it, the wait is over and every work goes on from where it
+//! was. A round that fails so again holds every round again, until the next check finds it well; one that fails for a
+//! cause of its own work lets the next go first. The checks are spaced from half a minute after
 //! the latest round that failed so, each next one twice as long after the one before, up to [`LONGEST_CHECK`], and
 //! counted over the whole wait: a cause the check does not find, which the rounds meet again, is met no more often
 //! than the checks are taken. At a usage limit whose reset was said, by the round that met it or by the latest check,
@@ -24,9 +27,9 @@
 //! another account that a check under it found well ([`move_on`]): the others are checked one at a time, in the order
 //! added, each check kept with the `since` of the wait it was taken in.
 //!
-//! The acts' wait stands from the latest act, of any work, that failed for want of the network, until a look at the
-//! acts' host, taken every half minute, reaches it: a look is what an act tries, at no cost, and every act goes on
-//! once it answers. An act that comes back after it ends it too.
+//! The acts' wait stands from the latest act, of any work, that failed for want of the network, until an act that began
+//! after it comes back. A look at the acts' host is taken every half minute: a look is what an act tries, at no cost,
+//! and once one reaches the host one act goes first, as one agent's round does once a check finds the outside well.
 //!
 //! A check of the outside, and a look at the network, is no record: it is what the outside says at a moment, which the
 //! driver keeps only while its wait stands. Lost in a stop, it is taken again.
@@ -127,6 +130,12 @@ pub struct Outage {
     /// found before was of another account, and the outside is checked at once under this one. The agents' wait alone
     /// has it.
     pub switched: Option<Time>,
+    /// The work whose round met the failure first in the wait: once the outside is found well, the driver gives it the
+    /// first turn to go first.
+    pub first: WorkNumber,
+    /// The work whose round of the service is under way, begun after the latest round that failed so: the one that went
+    /// first, while it has not come back. None where no such round is under way.
+    pub trying: Option<WorkNumber>,
     /// Whether the owner has let the engine move to another account at a usage limit and some other account may yet be
     /// moved to in this wait ([`may_move`]); the agents' wait alone has it.
     pub may_move: bool,
@@ -180,6 +189,19 @@ impl Outage {
                 }
             }
         }
+    }
+
+    /// Whether it holds every round it would hold now but one, which goes first: a check of the outside found it well,
+    /// or a look at the acts' host reached it, after the latest round that failed so, and that one has begun.
+    pub fn goes_first(&self) -> bool {
+        !self.holds() && self.trying.is_some()
+    }
+
+    /// Whether it holds the rounds of the service now: until a check of the outside finds it well, or a look at the
+    /// acts' host reaches it, after the latest round that failed so; and then, while the round that goes first is
+    /// under way, every other round ([`Outage::goes_first`]).
+    pub fn holds_now(&self) -> bool {
+        self.holds() || self.trying.is_some()
     }
 
     /// When the usage limit resets, as the later of the round that met it and the latest check of the outside said,
@@ -389,6 +411,12 @@ pub fn outage<'a>(
     let key = |m: &&Met| (m.time, m.round.work, m.at);
     let latest = standing.iter().max_by_key(key)?;
     let first = standing.iter().min_by_key(key)?;
+    // A round under way that began after the latest: as a round that came back ends the wait, one of another work that
+    // began at the same time may have begun before it ended.
+    let trying = (rounds.iter())
+        .filter(|r| r.ended.is_none())
+        .find(|r| r.began > latest.time || (r.work == latest.round.work && r.began_at > latest.at))
+        .map(|r| r.work);
     Some(Outage {
         service,
         failure: latest.failure,
@@ -402,6 +430,8 @@ pub fn outage<'a>(
         checked: None,
         reached: None,
         switched: None,
+        first: first.round.work,
+        trying,
         may_move: false,
     })
 }
@@ -552,6 +582,8 @@ mod tests {
             checked: None,
             reached: None,
             switched: None,
+            first: WorkNumber(1),
+            trying: None,
             may_move: false,
         }
     }

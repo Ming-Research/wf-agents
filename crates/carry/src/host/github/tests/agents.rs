@@ -107,7 +107,53 @@ async fn the_agents_run_says_no_pull_request_for_the_work_to_keep() {
         .await)
         .expect("run")
         .expect("nothing stopped it");
-    assert_eq!(super::ends::heard(&mut said), Vec::<engine::Event>::new());
+    assert_eq!(super::ends::pulls(&mut said), Vec::<engine::Event>::new());
+}
+
+// The run of a call says how long its jobs and its tests took, as a run of the fast workflow asked for by the call, and
+// only the tests that ran: a test that was skipped has no time to say.
+#[tokio::test]
+async fn the_agents_run_says_how_long_its_jobs_and_tests_took_as_the_fast_workflow() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let xml = r#"<testsuites><testsuite name="carry">
+  <testcase name="tools::tests::a" time="0.12"/>
+  <testcase name="tools::tests::b" time="2.5"><failure message="no"/></testcase>
+  <testcase name="tools::tests::c"><skipped/></testcase>
+</testsuite></testsuites>"#;
+    hub.github().fast(
+        &head,
+        vec![passed("test")],
+        Some(("test-results", vec![("test.xml".to_string(), xml.as_bytes().to_vec())])),
+    );
+    let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+    let reply = service::CallReply::new(WORK, CallId(1), to);
+    let mut stop = Stop::never().hosting(reply.hosting());
+    let place = hub.place();
+    let asked = named(&["tools::tests::a", "tools::tests::b", "tools::tests::c"], &[]);
+    (hub.host.run_tests(&branch(&place), &asked, hub.call(), &mut stop).await)
+        .expect("run")
+        .expect("nothing stopped it");
+    let test = |name: &str, passed, millis| work::timed::Test {
+        unit: "carry".to_string(),
+        name: name.to_string(),
+        passed,
+        millis,
+    };
+    assert_eq!(
+        super::ends::timed(&mut said),
+        [work::Reading {
+            asking: "call/1".to_string(),
+            source: work::Source::Fast,
+            commit: head,
+            workflow: "fast.yml".to_string(),
+            jobs: vec![work::timed::Job {
+                name: "test".to_string(),
+                millis: 60_000
+            }],
+            tests: vec![test("tools::tests::a", true, 120), test("tools::tests::b", false, 2500)],
+        }]
+    );
 }
 
 // A commit no branch holds, as an agent makes one to show a test red on the code before its change, is the commit run:

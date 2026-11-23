@@ -37,10 +37,21 @@ pub struct Whose {
 }
 
 impl Whose {
+    /// The two lines, the item's number written alone, as the host would link a `#`, and the work's as everywhere.
+    fn lines(&self, commits: &Commits) -> (String, String) {
+        commits.lines(&self.item.0.to_string(), &self.work.to_string())
+    }
+
     /// The message with the two lines at its end.
     pub fn ending(&self, commits: &Commits, message: &str) -> String {
-        commits.ending(message, self.item.0, self.work.0)
+        commits.ending(message, &self.item.0.to_string(), &self.work.to_string())
     }
+}
+
+/// Whether the line is the line that names an item or the line that names a work, of any item or any work.
+fn is_one_of_the_lines(commits: &Commits, line: &str) -> bool {
+    let item = |number: &str| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit());
+    commits.is_one_of_the_lines(line, item, |number| WorkNumber::from_written(number).is_some())
 }
 
 /// The directory the hook is in, in the data directory.
@@ -91,7 +102,7 @@ fn make_executable(_: &Path) -> Result<(), String> {
 /// for this work: the hook's directory as git's `core.hooksPath`, by git's own variables, which change no configuration
 /// of the repository, and the two lines.
 pub fn environment(data: &Path, commits: &Commits, whose: Whose) -> Vec<(String, String)> {
-    let (item, work) = commits.lines(whose.item.0, whose.work.0);
+    let (item, work) = whose.lines(commits);
     vec![
         ("GIT_CONFIG_COUNT".to_string(), "1".to_string()),
         ("GIT_CONFIG_KEY_0".to_string(), "core.hooksPath".to_string()),
@@ -110,7 +121,7 @@ pub fn environment(data: &Path, commits: &Commits, whose: Whose) -> Vec<(String,
 /// host reads them, before the work's own two lines. `tidy` is given each piece the commits' agents wrote, to make it
 /// fit to publish.
 pub fn squashed(commits: &Commits, whose: Whose, messages: &[String], tidy: &dyn Fn(&str) -> String) -> String {
-    let (item_line, work_line) = commits.lines(whose.item.0, whose.work.0);
+    let (item_line, work_line) = whose.lines(commits);
     let mut co_authors: Vec<String> = Vec::new();
     let mut parts: Vec<(String, String)> = Vec::new();
     for message in messages {
@@ -118,7 +129,7 @@ pub fn squashed(commits: &Commits, whose: Whose, messages: &[String], tidy: &dyn
         let mut rest: Vec<&str> = Vec::new();
         for line in message.lines() {
             let said = line.trim_end();
-            if commits.is_one_of_the_lines(said) {
+            if is_one_of_the_lines(commits, said) {
                 continue;
             }
             if let Some(author) = co_author(said, tidy) {

@@ -21,6 +21,7 @@ unnamed = "Work {work}"
 
 # The two lines every commit of a work ends with, the agents' commits and the engine's alike, so that the item and the
 # work are found from a commit by `git log --grep='^Item: 36$'`. They follow the message after a blank line. Filled in
-# a run: `{item}` the item's number, `{work}` the work's number.
-item_line = "Item: {item}"
-work_line = "Work: W{work}"
+# a run: `{item_number}` the item's number alone, without the `#` its other mentions have, which the host would link to
+# a pull request; `{work}` the work's number as it is written everywhere, `W12`.
+item_line = "Item: {item_number}"
+work_line = "Work: {work}"

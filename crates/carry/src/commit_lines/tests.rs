@@ -228,6 +228,20 @@ fn the_squash_of_one_commit_says_its_body_and_ends_with_the_lines_once() {
     assert_eq!(said, "The body.\nMore of it.\n\nItem: 36\nWork: W12");
 }
 
+// Reference: the numbers as the engine writes them (`ItemNumber` bare in a commit's line, `WorkNumber` as `W12`): a line
+// of a commit's text that has the form of one of the lines but not such a number is the agents' own text, and is kept.
+#[test]
+fn the_squash_keeps_a_line_that_has_the_form_of_one_of_the_lines_but_no_number_of_its_kind() {
+    let said = squash(
+        &["Make it so\n\nItem: W3\nWork: 3\nItem: #3\nItem: x\nWork: W3x"],
+        &as_it_is,
+    );
+    assert_eq!(
+        said,
+        "Item: W3\nWork: 3\nItem: #3\nItem: x\nWork: W3x\n\nItem: 36\nWork: W12"
+    );
+}
+
 #[test]
 fn the_squash_of_a_commit_with_no_body_is_the_lines_alone() {
     assert_eq!(squash(&["Make it so"], &as_it_is), "Item: 36\nWork: W12");
