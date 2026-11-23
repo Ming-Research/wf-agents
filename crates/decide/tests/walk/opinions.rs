@@ -169,3 +169,67 @@ fn a_cause_records_the_version_last_worked_from_beside_the_one_consumed_counting
         vec![changed_worked("opinions", Some(first_point), Some(second_point), false)]
     );
 }
+
+// The version a cause records as last worked from, judged by the histories' own reading of the records, which is
+// written from the design text (`data-and-context`, 10) and calls none of the walk: where the owner ruled on a judge's
+// point, the reading and the walk agree and both name the ruled version; where the cell then wrote an answer of its own
+// after it, both name that answer. The histories reach no run whose version worked from is one the owner ruled on, so
+// this is the one place the reading's ruled case is checked against the walk's. In memory, milliseconds.
+#[test]
+fn the_independent_reading_names_the_same_version_worked_from_as_the_walk_where_the_owner_ruled_and_then_the_cell_wrote()
+ {
+    use reading::{Reading, Reason};
+
+    let mut review = cell("review", &["code", "opinions"], &["verdict", "opinions"]);
+    review.verdicts = BTreeMap::from([(
+        "verdict".into(),
+        decide::Verdict {
+            fails: "no".to_string(),
+            dialogue: "opinions".into(),
+        },
+    )]);
+    let cells = vec![cell("implement", &["plan", "opinions"], &["code", "opinions"]), review];
+    let mut w = World::with_gate(cells);
+    w.person_writes("plan");
+    w.run("implement", &[("code", Matters)]);
+    let first_point = w.run("review", &[("verdict", Value("no")), ("opinions", Matters)]);
+    let answer = w.run("implement", &[("code", Matters), ("opinions", Matters)]);
+    let second_point = w.run("review", &[("verdict", Value("no")), ("opinions", Matters)]);
+    w.person_sets("verdict", "yes");
+    let note = w.person_writes("opinions");
+
+    // What the reading and the walk give for the next run of the implementation, as its cause.
+    let agreed = |w: &mut World| -> (Option<Seq>, Option<Seq>) {
+        let place = w.tick();
+        let implement = (w.flow.cells().iter()).find(|c| c.id.as_str() == "implement").unwrap();
+        let read = Reading::new(&w.flow, &w.records).reasons(implement, place);
+        let Decision::Run { because, .. } = w.decide() else {
+            panic!("the walk runs nothing: {:?}", w.decide())
+        };
+        let walked: Vec<Reason> = (because.iter())
+            .map(|c| match c {
+                Cause::Changed { block, was, worked, .. } => Reason::Changed {
+                    block: block.clone(),
+                    was: *was,
+                    worked: *worked,
+                },
+                other => panic!("an unexpected cause {other:?}"),
+            })
+            .collect();
+        assert_eq!(read, walked);
+        match &walked[..] {
+            [Reason::Changed { was, worked, .. }] => (*was, *worked),
+            other => panic!("one block is new to the cell: {other:?}"),
+        }
+    };
+    assert!(answer > first_point && second_point > answer && note > second_point);
+    // The owner ruled on the second point, which the cell had not consumed: it is the version worked from.
+    assert_eq!(agreed(&mut w), (Some(first_point), Some(second_point)));
+
+    // The implementation takes the owner's note and answers in the dialogue: its own answer is the later version it
+    // worked from, and the next note is new to it.
+    let answer_two = w.run("implement", &[("code", Matters), ("opinions", Matters)]);
+    let note_two = w.person_writes("opinions");
+    assert!(note_two > answer_two && answer_two > note);
+    assert_eq!(agreed(&mut w), (Some(note), Some(answer_two)));
+}
