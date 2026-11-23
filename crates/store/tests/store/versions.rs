@@ -113,6 +113,7 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
     history(&mut d);
     let (old, new) = kept_in_21(&d.work);
     let store = old.open();
+    // The file ends at the schema of this build, whichever migrations follow the one that makes the tables below.
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     assert_eq!(
         columns(&old.path),
@@ -132,10 +133,10 @@ fn kept_in_21(work: &Work) -> (Db, Db) {
 }
 
 #[test]
-fn a_file_of_version_22_is_migrated_with_no_fork_kept() {
+fn a_file_of_version_23_is_migrated_with_no_fork_kept() {
     let mut d = Driver::new();
     history(&mut d);
-    let (old, new) = super::opening::kept_in(22, &d.work);
+    let (old, new) = super::opening::kept_in(23, &d.work);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     assert_eq!(

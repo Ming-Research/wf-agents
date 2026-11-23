@@ -2309,7 +2309,8 @@ fn words(base: &Path) -> Words {
 }
 
 /// What the owner said to a round under way, as its session is given it: in the words of `said` in the message's
-/// file, with what the cell does when its words are new as the part of what is new says it.
+/// file, with what the cell does when its words are new as the part of what is new says it; or, for a round told to
+/// hand in what it has for the owner turning to a cell before its own, in the words of `hurried`.
 fn said(beside: &Beside, told: &Telling) -> String {
     let message = &beside.message;
     let part = message.parts.iter().find(|p| p.part == flow::agents::Part::New);
@@ -2324,7 +2325,8 @@ fn said(beside: &Beside, told: &Telling) -> String {
         ("number", number.as_str()),
         ("do", does.as_str()),
     ];
-    flow::agents::fill(&message.said, &places)
+    let text = if told.hurry { &message.hurried } else { &message.said };
+    flow::agents::fill(text, &places)
 }
 
 /// Writes the file, making its directory where there is none.
@@ -2473,6 +2475,29 @@ mod tests {
             resets: None,
         };
         assert_eq!(chars_of(&failed), 0);
+    }
+
+    // What a round under way is told is in the words of the message's file: the owner's own words to its cell ask for
+    // its answer, and the owner turning to a cell before its own asks it to hand in what it has.
+    #[test]
+    fn a_round_is_told_in_the_words_of_its_telling_which_ask_for_an_answer_or_for_what_it_has() {
+        let (_, beside) = engineer();
+        let telling = |hurry: bool| Telling {
+            entry: "The owner: Shorter, please.".to_string(),
+            block: "d1_words".into(),
+            number: 2,
+            does: None,
+            versions: vec![("d1_words".into(), Seq(5))],
+            hurry,
+        };
+        let heading = "## `d1_words`, version 2, said while this round is running\n\nThe owner: Shorter, please.";
+        let own = said(&beside, &telling(false));
+        assert!(own.starts_with(heading), "{own}");
+        assert!(own.contains("hand in your answer now"), "{own}");
+        let hurried = said(&beside, &telling(true));
+        assert!(hurried.starts_with(heading), "{hurried}");
+        assert!(hurried.contains("hand in what you have now"), "{hurried}");
+        assert!(!hurried.contains("your answer"), "{hurried}");
     }
 
     /// The engineer's flow as the repository defines it, and what is written beside it.

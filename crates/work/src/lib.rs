@@ -90,6 +90,7 @@ impl Work {
             .chain(r.finished.iter().map(|e| e.at))
             .chain(r.abandoned.iter().map(|e| e.at))
             .chain(r.put_in.iter().map(|e| e.at))
+            .chain(r.hurried.iter().map(|e| e.at))
             .chain(r.written.iter().map(|e| e.at))
             .chain(r.questions.iter().map(|e| e.at))
             .chain(r.answers.iter().map(|e| e.at))

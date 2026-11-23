@@ -73,9 +73,9 @@ fn a_question_withdrawn_holds_the_work_no_more() {
 }
 
 #[test]
-fn a_question_the_cell_waits_for_holds_the_work_at_the_cell_while_the_cell_is_skipped() {
-    // Design document `data-and-context`, 32: no later cell runs while it stands unanswered, whether or not its cell
-    // applies now.
+fn a_question_the_cell_waits_for_holds_the_work_no_more_while_the_cell_is_skipped_and_holds_it_again_once_it_applies() {
+    // A question of a cell that is skipped is folded away: it holds the work at no place, as its cell does not run to
+    // take the answer.
     let mut w = World::with_gate(vec![
         cell("research", &["brief"], &["plan"]),
         when("deep", "yes", cell("design", &["plan"], &["design"])),
@@ -88,8 +88,11 @@ fn a_question_the_cell_waits_for_holds_the_work_at_the_cell_while_the_cell_is_sk
     let version = w.questions("design", "how", true);
     assert_eq!(w.decide(), waits_for("design", "how"));
     w.person_sets("deep", "no");
+    // The cell is skipped now: its question stands, and the work goes on after it.
+    assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "implement"));
+    // The cell applies again: its question, which still stands unanswered, holds the work at it again.
+    w.person_sets("deep", "yes");
     assert_eq!(w.decide(), waits_for("design", "how"));
-    // Once answered, the skipped cell is passed, and the work goes on after it.
     w.answers("how", version, 1);
     assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "implement"));
 }

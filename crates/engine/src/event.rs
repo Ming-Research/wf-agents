@@ -65,8 +65,8 @@ pub enum Event {
     /// The owner says these words to a cell of the work's flow, or to a line of it: to the cell the engine chooses
     /// (crate module `spoken`).
     Said { to: To, words: String },
-    /// What the owner said reached the round of this run that is under way, after a use of one of its program's own
-    /// tools: these versions, which the engine gave its carrier to tell the round ([`Effect::Tell`]), are put into it.
+    /// What the owner said or answered reached the round of this run that is under way, after a use of one of its
+    /// program's own tools: these versions, which the engine gave its carrier to tell the round ([`Effect::Tell`]), are put into it.
     SaidToRound { run: RunId, versions: Vec<(BlockId, Seq)> },
     /// The owner answers this version of the question, by its number among the versions of its cell's questions,
     /// taking this option, counted from one, and nothing else (design document `data-and-context`, 30).
@@ -191,10 +191,10 @@ pub enum Effect {
     /// It is to be done until the call is said to have its result, which is then that it was withdrawn, or whatever
     /// came back before it could be.
     Withdraw { call: CallId },
-    /// What the owner said is to be told to the round of this run under way, after its next use of one of its
-    /// program's own tools ([`Telling`]). Once the round was given it, its carrier says so with its `versions`
-    /// ([`Event::SaidToRound`]); words that reached no round before it ended stay new to the cell, which runs again for
-    /// them. It is not given again after the engine stops.
+    /// What the owner said, or the turning of the owner to a cell before the run's, is to be told to the round of this
+    /// run under way, after its next use of one of its program's own tools ([`Telling`]). Once the round was given it,
+    /// its carrier says so with its `versions` ([`Event::SaidToRound`]); what reached no round before it ended stays
+    /// new to the cell, which runs again for it. It is not given again after the engine stops.
     Tell { run: RunId, telling: Box<Telling> },
     /// The round of this run that is under way is stopped: the run was abandoned, with its work cancelled or for a
     /// cell before it that the owner turned to. It is to be done until the round is said to have ended; what comes

@@ -1,4 +1,4 @@
--- From version 22 of the schema to version 23: each fork of a round's session asked a question is kept with what it
+-- From version 23 of the schema to version 24: each fork of a round's session asked a question is kept with what it
 -- took, as a keep-warm ping is. A work kept before has none. The version's one row is replaced last.
 CREATE TABLE forked (
     work INTEGER NOT NULL REFERENCES works (number),
@@ -11,4 +11,4 @@ CREATE TABLE forked (
     output_tokens INTEGER NOT NULL,
     PRIMARY KEY (work, at)
 );
-UPDATE schema_version SET version = 23;
+UPDATE schema_version SET version = 24;

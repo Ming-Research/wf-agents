@@ -17,9 +17,9 @@ use std::time::{Duration, Instant};
 
 use decide::run::{self, Hold, Requires, Step};
 use decide::{
-    Abandoned, Answered, BlockId, CallId, Called, Cause, CellId, Condition, Decision, Done, End, Finished, LetGo,
-    Maker, PutIn, Questioned, Records, Returned, Round, RunId, Seq, Stalling, Started, Unrun, Waited, Who, decide,
-    told,
+    Abandoned, Answered, BlockId, CallId, Called, Cause, CellId, Condition, Decision, Done, End, Finished, Hurried,
+    LetGo, Maker, PutIn, Questioned, Records, Returned, Round, RunId, Seq, Stalling, Started, Unrun, Waited, Who,
+    decide, told,
 };
 
 use crate::model::{
@@ -338,6 +338,34 @@ impl Explorer<'_> {
                     if !self.go_on(&mut s, &cell, run) {
                         return None;
                     }
+                }
+                Decision::Hurry {
+                    cell,
+                    run,
+                    turned_to,
+                    block,
+                    version,
+                } => {
+                    self.reach(HURRIED.to_string());
+                    s.trace = s.trace.then(
+                        s.spent,
+                        format!("the engine tells the round of {cell} to hand in what it has: the owner turned to {turned_to}"),
+                    );
+                    // The round is told after its next use of a tool, and it was given the text by then.
+                    let at = s.world.tick();
+                    s.world.records.hurried.push(Hurried {
+                        run,
+                        block: block.clone(),
+                        version,
+                        at,
+                    });
+                    let at = s.world.tick();
+                    s.world.records.put_in.push(PutIn {
+                        run,
+                        block,
+                        version,
+                        at,
+                    });
                 }
                 Decision::Abandon { cell, run, because } => {
                     s.trace = s
@@ -937,6 +965,7 @@ impl Explorer<'_> {
                 (log.rounds.len(), log.let_go).hash(&mut h);
             }
             s.returning.get(&st.run).hash(&mut h);
+            records.hurried.iter().any(|h| h.run == st.run).hash(&mut h);
             for cause in &st.because {
                 match cause {
                     Cause::Changed { block, .. } => block.hash(&mut h),
@@ -1418,6 +1447,9 @@ pub const MAIN_WHILE_THE_CHECK_WAITS: &str = "main moved while the check waited 
 pub const WAITED_FOR_THE_OWNER: &str = "the work waited for the owner or the outside";
 pub const STALLED_SHOWN: &str = "a stalled work was shown as waiting for the owner";
 pub const A_QUESTION_WAITED: &str = "a question waited for the owner";
+/// A round was told to hand in what it has, as the owner turned to a cell before its own.
+pub const HURRIED: &str = "a round was told to hand in what it has, as the owner turned to a cell before its own";
+
 pub const WRITTEN_OVER: &str = "a return was sent back as it would write over what its round was not told of";
 
 /// A return of the cell's choices or content that leaves the next word owed, sent back for it.
