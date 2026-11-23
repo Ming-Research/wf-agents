@@ -57,8 +57,9 @@ pub struct InputView {
     /// The version the cell last worked from: the latest of the one it consumed, one a run of it wrote and one the
     /// owner ruled on, which a message names and a cause records (design document `data-and-context`, 10).
     pub worked: Option<Seq>,
-    /// Whether the block is new to the cell.
-    pub new: bool,
+    /// The versions of the block that are new to the cell, the earliest first: later than the one it consumed,
+    /// changing the block's meaning, and written by no run of the cell itself; none where the block is not new.
+    pub new_versions: Vec<Seq>,
 }
 
 /// A version of a block.
@@ -108,14 +109,15 @@ pub fn view_in(flow: &Flow, records: &Records, room: Room) -> View {
                 });
             let needs = walk.needs(i);
             let runs_on = (cell.runs_on.iter())
-                .map(|block| InputView {
-                    block: block.clone(),
-                    current: walk.current(block).map(|v| v.at),
-                    consumed: walk.consumed(&cell.id, block),
-                    worked: walk.worked(&cell.id, block),
-                    new: needs
-                        .iter()
-                        .any(|c| matches!(c, Cause::Changed { block: b, .. } if b == block)),
+                .map(|block| {
+                    let (consumed, new) = walk.new_to(&cell.id, block);
+                    InputView {
+                        block: block.clone(),
+                        current: walk.current(block).map(|v| v.at),
+                        consumed,
+                        worked: walk.worked(&cell.id, block),
+                        new_versions: new.iter().map(|v| v.at).collect(),
+                    }
                 })
                 .collect();
             CellView {

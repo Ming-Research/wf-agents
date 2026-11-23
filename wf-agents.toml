@@ -1,0 +1,132 @@
+# A project's declaration, `wf-agents.toml` at the root of its repository, read from its main branch as the engine starts:
+# each project an installation names has its own. It holds what is the project's: its design tree; its files, which the
+# agents of its works are given as they are in the work's checkout; its settings, which the words sent to the agents
+# name as `project.<name>`; its tests and workflows; its heavy commands and the commands that update its lock files; and
+# how its host checks and merges. This one is the declaration of the project whose repository holds the flows. A path
+# is from the root of the project's checkout.
+
+# The directory that holds the project's design tree, which the engine looks at on each work's branch.
+tree = "design/"
+
+# How an entry of the design tree is found and referred to, as the tree's rules write them: each kind with the directory
+# under `tree` that holds its files, in the order the rules read them; the line an entry begins with, running to the
+# line before the next such line or to its file's end; and how a text refers to an entry, as a line of a block whose
+# file says `names_tree_entries` names one. `{kind}` stands for a kind, `{name}` for the entry's name.
+[tree_format]
+kinds = [{ kind = "principle", dir = "principles/" }, { kind = "decision", dir = "decisions/" }]
+heading = "### {kind} {name}"
+reference = "{kind} {name}"
+
+# The project's guide for its agents.
+[files.guide]
+path = "AGENTS.md"
+
+# The constitution of the project's design tree.
+[files.constitution]
+path = "design/constitution.md"
+
+# The rules of the project's design tree.
+[files.tree_rules]
+path = "design/README.md"
+
+[project]
+# Where an agent keeps what it makes for research, committed.
+research = "research/"
+# How an agent names a measurement to `run_tests`: by the file of `measure/` that times it.
+measure_names = '''
+A measurement is named by its file in `measure/`: `design-lint` times `measure/design-lint`. A name holds letters, digits,
+`_` and `-`.'''
+# The command that checks the design tree's files, which an agent runs after changing the tree, before the project's
+# check.
+tree_check = "python3 design/lint.py"
+# How an agent names a test to `run_tests`, by the name the project's test runners give it: one phrase, which the
+# tool's words follow the setting's name with.
+test_names = "a Rust test as nextest names it, such as `tests::a_row`, with no test binary; a page test as vitest lists it, its describes and its title joined by ` > `; a binary, module, file or describe alone names none"
+
+# Where the project's tests are, as git pathspecs, which are all a line that changes only the tests (`tests_only` in its
+# file) may change; and the data its tests expect.
+[tests]
+paths = [
+  ":(glob)crates/**/tests/**",
+  ":(glob)crates/**/tests.rs",
+  ":(glob)client/**/*.test.ts",
+  ":(glob)client/**/*.test.tsx",
+  ":(glob)client/**/testing.ts",
+  ":(glob)client/**/fixtures.ts",
+]
+expected = ["crates/carry/tests/fixtures/", "crates/flow/tests/project/"]
+
+# The project's workflows, which the engine runs by hand on main's file with a commit given: the fast and the full, and
+# the one that measures. Each reports every test, or every timing, as JUnit XML, named as an agent asks for it, in the
+# artifact `test-results`.
+[ci.fast]
+# Builds and runs only the tests and checks it is given.
+workflow = "fast.yml"
+runner = "14900k"
+checks = ["lint"]
+# A run not complete by then is cancelled, and said as what it found.
+too_long = "2h"
+
+[ci.full]
+# Every job required to merge, run once before the merge.
+workflows = ["ci.yml"]
+runner = "14900k"
+too_long = "2h"
+
+# The workflow that times the measurements an agent's `run_tests` names, each on the commit the work's change began from and
+# on the work's commit, in one run. It reports every timing as JUnit XML in the artifact `test-results`. Its job holds the
+# machine's lock while it times, and its time limit counts the wait, so `too_long` is the job's `timeout-minutes`.
+[ci.measure]
+workflow = "measure.yml"
+runner = "14900k"
+too_long = "30m"
+
+# How a pull request of the project is merged where GitHub is its host: squash, merge or rebase; and whether a work's
+# branch on GitHub is deleted once it is merged.
+[pull_request]
+merge_method = "squash"
+delete_branch = true
+
+# The paths that govern the project's agents, which the owner changes: where a work's change against main touches one,
+# the work says why each such change is needed (`flow/agents/return/fields/protected_changes.toml`) or takes it back,
+# and the engine asks the owner whether the change stays (`flow/agents/asks.toml`). A path ending in `/` is a
+# directory and everything in it. The declaration is listed, since it names commands the engine runs.
+[protected]
+paths = ["AGENTS.md", "design/constitution.md", "design/principles/", "flow/", ".github/workflows/", "wf-agents.toml"]
+
+# The project's heavy commands, which take the host's processor, such as building, testing and measuring, each a command
+# with the start of its arguments: no agent runs them, and the project's tests are had through `run_tests` (principle
+# refuse-as-little-as-must-be). What every agent is refused whatever its project is `flow/agents/refused.toml`.
+[heavy]
+commands = ["cargo", "rustc", "rustup", "npm", "npx", "node --test", "tsc", "vitest", "hyperfine"]
+# Commands that update the project's lock files and build, run and install nothing, which an agent that writes may run
+# though a heavy command covers them: `cargo update` and `cargo add` resolve the dependencies and write Cargo.lock
+# without compiling; `npm install --package-lock-only --ignore-scripts` writes package-lock.json and leaves
+# node_modules alone and runs none of the package's scripts.
+locks = ["cargo update", "cargo add", "npm install --package-lock-only --ignore-scripts"]
+# The uses of those that are refused all the same: npm's options that would undo `--package-lock-only` or
+# `--ignore-scripts` or install elsewhere, as a later npm option overrides an earlier one: a negated option, which npm
+# reads in any case; any option given a value after `=`; a flag turned off by a separate `false`; and `-g`, `--global`,
+# `--location`, `--prefix` and `-C`, written out or shortened, and the short ones with two dashes.
+locks_except = [
+  "npm install *-no-*",
+  "npm install *-NO-*",
+  "npm install *-No-*",
+  "npm install *-nO-*",
+  "npm install *=*",
+  "npm install * false*",
+  "npm install * -g*",
+  "npm install *--g*",
+  "npm install *--loc*",
+  "npm install *--pref*",
+  "npm install * -C*",
+  "npm install *--C*",
+]
+
+# The variables every agent's command line of the project's works is given beside the engine's own, by name: what the
+# project's toolchain reads, so that a command an agent may run reaches no further than its worktree. Rustup installs no
+# Rust toolchain that a command asks for and the machine lacks: the command fails instead of downloading one, which
+# would write beyond the worktree. The engine's own variables, the installation's `agents.env` and the agents' program's
+# (`CLAUDE_*`, `ANTHROPIC_*`) are refused here.
+[environment]
+RUSTUP_AUTO_INSTALL = "0"

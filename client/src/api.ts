@@ -388,6 +388,8 @@ export type Given =
       /// What each engine's cell's act writes, by the cell's id.
       acts: Record<string, ActWords>;
       unknown: Unknown[];
+      /// What was not checked for want of the project's declaration, and why; none where it was read.
+      unchecked: string | null;
     }
   | { state: 'notCompiled' }
   | { state: 'unread'; why: string };
