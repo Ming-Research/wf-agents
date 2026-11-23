@@ -413,21 +413,22 @@ impl Declaration {
     }
 }
 
-/// A time such as `90m`, `2h`, `30s` or `1d`; or why it is none.
+/// A time such as `90m`, `2h`, `30s` or `1d`; or why it is none: one whose seconds do not fit in a `u64` is none, so
+/// that a declaration, which agents write, cannot make the engine overflow or wrap to a short time.
 pub fn span(text: &str) -> Result<std::time::Duration, String> {
     let text = text.trim();
+    let none = || format!("{text:?} is no time such as 90m or 2h");
     let (number, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len()));
-    let number: u64 = number
-        .parse()
-        .map_err(|_| format!("{text:?} is no time such as 90m or 2h"))?;
-    let seconds = match unit {
+    let number: u64 = number.parse().map_err(|_| none())?;
+    let seconds: u64 = match unit {
         "s" => 1,
         "m" => 60,
         "h" => 3600,
         "d" => 86_400,
-        _ => return Err(format!("{text:?} is no time such as 90m or 2h")),
+        _ => return Err(none()),
     };
-    Ok(std::time::Duration::from_secs(number * seconds))
+    let seconds = number.checked_mul(seconds).ok_or_else(none)?;
+    Ok(std::time::Duration::from_secs(seconds))
 }
 
 /// `[tree_format]` of the declaration: how an entry of the project's design tree is found and referred to, so that the
