@@ -1,4 +1,4 @@
--- From version 23 of the schema to version 24: each time an account was taken as the one the agents run under says who
+-- From version 24 of the schema to version 25: each time an account was taken as the one the agents run under says who
 -- took it, the owner or the engine, and, where the engine took it, when the usage limit of the account it left resets,
 -- where that was said; every row kept before was the owner's, and says no reset. Whether the engine may move to another
 -- account at a usage limit is its own state, kept here, off until the owner switches it on. The version's one row is
