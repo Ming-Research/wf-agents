@@ -147,6 +147,8 @@ struct Reached {
     outputs: usize,
     /// The owner's word to a run at its limit.
     at_limit: usize,
+    /// What the rounds of the scripted histories were sent and handed in.
+    log: Vec<String>,
     /// What the entries of real rounds stood in, by [`stood`].
     real: BTreeSet<String>,
 }
@@ -359,6 +361,7 @@ impl History {
         self.drain(reached);
         // A version of the request that changes nothing in meaning runs no cell before the build, whose session then
         // lacks it though it holds the one the build last worked from.
+        reached.log.push("== the version that changes nothing".to_string());
         self.put("plan");
         self.under_way("build");
         let content = self.content("request");
@@ -406,10 +409,16 @@ impl History {
         let going_on = self.sim.enter(round, false);
         let anew = self.sim.enter(round, true);
         if self.forced.is_some() {
-            eprintln!(
-                "scripted {} round {}: new {:?}, data {:?}",
-                round.cell, round.number, going_on.situation.new, going_on.situation.data
-            );
+            reached.log.push(format!(
+                "{} round {} (lost or not, run {}): new {:?}, data {:?}, results {:?}, sent back {}",
+                round.cell,
+                round.number,
+                round.run.0,
+                going_on.situation.new,
+                going_on.situation.data,
+                going_on.situation.results,
+                going_on.situation.sent_back
+            ));
         }
         self.check(round, &going_on, &held, reached);
         self.check(round, &anew, &Held::default(), reached);
@@ -458,7 +467,10 @@ impl History {
         let compactions = u32::from(self.rng.chance(10));
         let came = self.came(round);
         if self.forced.is_some() {
-            eprintln!("  {} round {} came {:?}", round.cell, round.number, came);
+            let blocks: Vec<&str> = came.writes.iter().map(|w| w.block.as_str()).collect();
+            reached
+                .log
+                .push(format!("  came: writes {blocks:?}, asks {}", came.asks.len()));
         }
         self.sim.returns(round, came, compactions);
         if compactions > 0 {
@@ -1112,7 +1124,8 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
     let (gaps, nothing) = (missing(&reached.real, &written), missing(&written, &reached.real));
     assert!(
         reached.real.is_subset(&written) && written.is_subset(&reached.real),
-        "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}"
+        "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}\n\n{}",
+        reached.log.join("\n")
     );
 }
 
