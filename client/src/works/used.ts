@@ -96,12 +96,23 @@ export interface Usage {
   tools: ToolRow[];
 }
 
-const nothing = (): Spent => ({ usdMicros: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 0 });
+const nothing = (): Spent => ({
+  usdMicros: 0,
+  inputTokens: 0,
+  cacheWrittenTokens: 0,
+  unsplitTokens: 0,
+  cachedTokens: 0,
+  outputTokens: 0,
+  workingMs: 0,
+  rounds: 0,
+});
 
 function add(a: Spent, b: Spent): Spent {
   return {
     usdMicros: a.usdMicros + b.usdMicros,
     inputTokens: a.inputTokens + b.inputTokens,
+    cacheWrittenTokens: a.cacheWrittenTokens + b.cacheWrittenTokens,
+    unsplitTokens: a.unsplitTokens + b.unsplitTokens,
     cachedTokens: a.cachedTokens + b.cachedTokens,
     outputTokens: a.outputTokens + b.outputTokens,
     workingMs: a.workingMs + b.workingMs,
