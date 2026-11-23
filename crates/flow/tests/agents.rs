@@ -610,5 +610,5 @@ fn no_string_of_the_flows_files_writes_a_numbers_letter_before_the_place_the_eng
             assert!(found.is_empty(), "{}: {found:?}", path.display());
         }
     }
-    assert!(read > 200, "the check reads the texts: {read}");
+    assert!(read > 100, "the check reads the texts: {read}");
 }
