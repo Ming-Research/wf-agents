@@ -384,7 +384,13 @@ fn why_a_return_changes_each_protected_file_is_read_for_the_look_at_the_branch()
         ("flow/cell.toml".to_string(), " Needed. ".to_string()),
     ]);
     assert_eq!(said.protected.as_ref(), Some(&expected));
-    assert_eq!(said.came, worked(), "it changes nothing else of the reading");
+    // The reasons stand in what the run keeps of the return, for a return that completes it to be held to them, and
+    // nothing else of the reading changes.
+    let kept = Came {
+        protected: expected.clone(),
+        ..worked()
+    };
+    assert_eq!(said.came, kept, "it changes nothing else of the reading");
     // Left out, null, or written as a string that holds it.
     assert_eq!(reading(&work()).protected, Some(BTreeMap::new()));
     r["outcome"]["protected_changes"] = Value::Null;
