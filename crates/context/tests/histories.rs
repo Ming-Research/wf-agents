@@ -516,18 +516,29 @@ impl History {
         self.put("request");
         self.forced = Some(vec![Forced::Wrong]);
         self.drain(reached);
-        // The close, run by the finish, reads the verdict, and its run ends the work: it asks for a tool run on
-        // something and on nothing, and a question, is sent back twice, so that it reaches the limit of its returns,
-        // and the owner lets it go on; its rounds are given each result.
-        let close = vec![tool("x"), tool(""), question, Forced::Wrong, Forced::Wrong, tool("y")];
-        self.forced = Some(close);
+        // A build asks for a tool run on something and on nothing, and a question, is sent back twice, so that it
+        // reaches the limit of its returns, and the owner lets it go on; its rounds are given each result.
+        self.put("plan");
+        self.under_way("build");
+        self.forced = Some(vec![
+            tool("x"),
+            tool(""),
+            question,
+            Forced::Wrong,
+            Forced::Wrong,
+            tool("y"),
+        ]);
+        self.drain(reached);
+        // The close, run by the finish, reads the verdict, and its run ends the work once it hands in or asks for a
+        // call: its first return is sent back, which is at the limit of its returns.
+        self.forced = Some(vec![Forced::Wrong]);
         self.put("verdict");
         self.put("finish");
         self.under_way("close");
         let round = self.sim.round().expect("the close's round");
         self.carry(&round, reached);
-        // While it rests at the call, the request is written: the plan and the build, which hand in what they write, are
-        // run before its next round, which the session holds as the build's hand-in last.
+        // While the owner is to let it go on, the request is written: the plan and the build, which hand in what they
+        // write, are run before its next round, which the session holds as the build's hand-in last.
         let close = self.forced.replace(vec![Forced::All, Forced::All, Forced::Must]);
         self.put("request");
         self.note("after the request");
