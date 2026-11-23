@@ -1,3 +1,0 @@
-what = "The files the change will touch, one path per line, a directory or a pattern where a list would be long, and nothing else."
-words = '''
-`plan_files`: write it with the plan, every time the plan changes which files it touches.'''

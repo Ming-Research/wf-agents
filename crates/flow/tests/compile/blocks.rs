@@ -3,7 +3,7 @@
 
 use flow::{FLOW_FILE, FaultKind::*, Has};
 
-use crate::support::{at, compiled, edit, faults, faults_with, has, names, unreadable, valid};
+use crate::support::{at, compiled, edit, faults, faults_with, has, unreadable, valid};
 
 const PLAN_WATCHES: &str = r#"watches = ["request", "opinions"]"#;
 
@@ -20,39 +20,6 @@ fn a_block_handed_in_only_with_the_answers_in_the_tree_is_compiled_so() {
     let compiled = compiled(&source);
     assert!(compiled.blocks[&"design".into()].answers_in_the_tree);
     assert!(!compiled.blocks[&"plan".into()].answers_in_the_tree);
-}
-
-// The block the source of the works under way writes says in what block of the flow a work's plan names the files it will
-// touch (`planned_in`), which the engine reads of each work by that name and not by one of its own; a name the flow
-// does not declare is refused where it is written, and a block that says nothing of it names none.
-#[test]
-fn a_block_says_in_what_block_a_plan_names_its_files_and_the_block_must_be_declared() {
-    let has = Has {
-        sources: names(&["main", "parallel"]),
-        ..has()
-    };
-    let listed = |planned_in: &str| {
-        edit(
-            valid(),
-            FLOW_FILE,
-            "[blocks.main]\noutside = \"main\"",
-            &format!("[blocks.main]\noutside = \"parallel\"\nplanned_in = \"{planned_in}\""),
-        )
-    };
-    let compiled = match flow::compile(&listed("plan"), &has) {
-        Ok(compiled) => compiled,
-        Err(faults) => panic!("the definition should compile: {faults:#?}"),
-    };
-    assert_eq!(compiled.blocks[&"main".into()].planned_in, Some("plan".into()));
-    assert_eq!(compiled.blocks[&"plan".into()].planned_in, None);
-
-    let what = NoSuchBlock {
-        block: "nowhere".to_string(),
-    };
-    assert_eq!(
-        faults_with(&listed("nowhere"), &has),
-        [at(FLOW_FILE, "blocks.main.planned_in", what)]
-    );
 }
 
 // A block whose lines name entries of the design tree says so in its file (`names_tree_entries`), and is compiled so.
@@ -365,7 +332,6 @@ fn the_blocks_entries_are_added_to_are_each_cell_s_own_questions_and_words() {
             "asked",
             "dependencies",
             "handed_in",
-            "parallel",
             "main",
             "start",
             "head",
@@ -408,7 +374,6 @@ fn a_datum_of_a_cell_s_own_named_only_in_a_condition_is_made_for_that_cell() {
             "asked",
             "dependencies",
             "handed_in",
-            "parallel",
             "main",
             "start",
             "head",
@@ -446,7 +411,6 @@ fn the_engineers_flow_is_refused_where_a_cell_that_asks_cannot_be_spoken_to() {
             "asked",
             "dependencies",
             "handed_in",
-            "parallel",
             "main",
             "start",
             "head",

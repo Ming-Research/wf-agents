@@ -34,7 +34,6 @@ fn engineer() -> Compiled {
             "asked",
             "dependencies",
             "handed_in",
-            "parallel",
             "main",
             "start",
             "head",
@@ -1120,60 +1119,4 @@ fn an_answer_to_the_questions_of_a_cell_since_skipped_runs_the_cell_in_charge() 
         "{:?}",
         entered.situation.new
     );
-}
-
-/// What the engine's loop writes into `parallel` of the work, as the list of the works under way reads.
-fn works_under_way(file: &str) -> String {
-    format!("W9 (#9)\nchanged:\n{file}\nplanned:\nnot stated")
-}
-
-// The design review's message holds the list of the works under way, only its latest version, named with its number:
-// where the loop has written two lists before the review's round begins, the review is sent the second and no word of
-// the first (a round is sent what the records held as it began). Fails where the list is not among what the review is
-// given, or is given as every version, or its version is not named (reference: the message's own form,
-// `## `<block>`, version <n>`, as the other test of this file reads it; and `flow/engineer/cells/P1.toml`, which reads
-// `parallel` as its latest version). Milliseconds.
-#[test]
-fn the_design_review_is_sent_the_latest_list_of_the_works_under_way_and_no_earlier_one() {
-    let (mut sim, better) = until("R2");
-    sim.wrote("parallel", &works_under_way("old.rs"), None, Outsider::Outside);
-    sim.wrote("parallel", &works_under_way("new.rs"), None, Outsider::Outside);
-    tried(&mut sim, &better);
-    sim.hands_in(&better, &[]);
-    let review = sim.round().expect("the design review is given");
-    assert_eq!(sim.cell(&review).id.as_str(), "P1");
-    let entered = sim.enter(&review, sim.begins(&review));
-    let given = record_given(&entered.text, "parallel");
-    assert_eq!(given.len(), 1, "{}", entered.text);
-    assert!(given[0].contains("new.rs"), "{}", given[0]);
-    assert!(!entered.text.contains("old.rs"), "{}", entered.text);
-    let named = format!("## `parallel`, version {}", sim.number("parallel"));
-    assert!(entered.text.contains(&named), "{named} is not in:\n{}", entered.text);
-}
-
-// A new version of the list of the works under way runs no cell: the work that has gone on past the design review to
-// the implementation is written new lists while the implementation's round is under way, and the round that comes after
-// the implementation is the same as where no list was written. A round under way is never replaced, so it is the next
-// round that shows a cell run by the list. Fails where a cell watches the list, so that the review, or another, is run
-// by it (reference: design document `data-and-context`, 5: a datum a cell only reads runs nothing). Milliseconds.
-#[test]
-fn a_new_list_of_the_works_under_way_given_after_the_review_runs_no_cell() {
-    let after_the_implementation = |lists: bool| {
-        let (mut sim, implementation) = until("I1");
-        if lists {
-            sim.wrote("parallel", &works_under_way("a.rs"), None, Outsider::Outside);
-            sim.wrote("parallel", &works_under_way("b.rs"), None, Outsider::Outside);
-        }
-        assert_eq!(sim.round().as_ref(), Some(&implementation));
-        tried(&mut sim, &implementation);
-        sim.hands_in(&implementation, &[("code", "abc", None)]);
-        let next = sim.round().expect("a round is given after the implementation");
-        sim.cell(&next).id.as_str().to_string()
-    };
-    let without = after_the_implementation(false);
-    assert_ne!(
-        without, "P1",
-        "the review runs again after the implementation with no list"
-    );
-    assert_eq!(after_the_implementation(true), without);
 }

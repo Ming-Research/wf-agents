@@ -100,8 +100,6 @@ pub mod judged;
 
 pub mod owner;
 
-pub mod parallel;
-
 pub mod sessions;
 
 pub mod time;
@@ -153,21 +151,19 @@ pub const MERGED: &str = "merged";
 pub const START: &str = "start";
 
 /// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
-/// the block: a block of [`DEPENDENCIES`], of [`START`], of [`engine::asked::ASKED`], of
-/// [`engine::handed_in::HANDED_IN`] or of [`parallel::PARALLEL`], and each cell's own words and questions, which the sources of the owner's words
+/// the block: a block of [`DEPENDENCIES`], of [`START`], of [`engine::asked::ASKED`] or of
+/// [`engine::handed_in::HANDED_IN`], and each cell's own words and questions, which the sources of the owner's words
 /// and of the answers write and the cell writes too, gives in its `writes` each text the engine fills, so that none is
 /// written empty; and the words beside the flows ([`flow::waits_file`]) give every reason the engine says to the owner.
-/// The block of [`parallel::PARALLEL`] also says in `planned_in` where a plan names its files, and no other block does.
 /// A flow with any of these is not run.
 pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
     use engine::handed_in::HANDED_IN;
-    let needs: [(&str, &[&str]); 5] = [
+    let needs: [(&str, &[&str]); 4] = [
         (DEPENDENCIES, &[MERGED, WAITING, "between"]),
         (START, &["text"]),
         (ASKED, &[ANSWERED, UNANSWERED, "between"]),
         (HANDED_IN, &["text"]),
-        (parallel::PARALLEL, &parallel::WORDS),
     ];
     // The dialogues the sources of the owner's turning write versions of, each a cell's own: its words, the owner's
     // versions and the cell's answers; its questions, each kind of version.
@@ -177,18 +173,6 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
     ];
     let mut faults = Vec::new();
     for (name, block) in &flow.blocks {
-        // The block of the works under way says in what block a plan names its files, and no other block does.
-        let lists = block.writers.outside.as_deref() == Some(parallel::PARALLEL);
-        if lists != block.planned_in.is_some() {
-            let what = match lists {
-                true => "its file must give planned_in".to_string(),
-                false => format!("only a block from {} gives planned_in", parallel::PARALLEL),
-            };
-            faults.push(format!(
-                "the flow {}, {}: the block {name}: {what}",
-                flow.name, block.file
-            ));
-        }
         let found = needs
             .iter()
             .find(|(source, _)| block.writers.outside.as_deref() == Some(*source));
@@ -305,10 +289,6 @@ pub struct Driver {
     /// outside says at a moment, kept only in memory and read by nothing that decides: lost in a stop, it is said again
     /// at the next call under each account, or the next look.
     usage: Usages,
-    /// The list of each project's works under way last given to be made ([`parallel`]), by the project. What is made
-    /// of what the records say, kept only in memory: lost in a stop, the lists are given again and written where they
-    /// differ.
-    parallel_given: BTreeMap<String, Vec<parallel::Listed>>,
 }
 
 /// A stretch the pause of everything held: from when it was set and by whom, to when it was lifted; none while it
@@ -677,7 +657,6 @@ impl Driver {
             pinging: BTreeSet::new(),
             along: BTreeMap::new(),
             usage: Usages::default(),
-            parallel_given: BTreeMap::new(),
         };
         let items = driver.store.items().map_err(Fault::Store)?;
         let heads = driver.store.works().map_err(Fault::Store)?;
