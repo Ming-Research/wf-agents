@@ -18,6 +18,8 @@ fn holding(records: &[(&str, AccountAct)]) -> (tempfile::TempDir, Store) {
             name: name.to_string(),
             what: *what,
             at: Time(START.0 + n),
+            taker: store::AccountTaker::Owner,
+            left_resets: None,
         };
         store.keep_account(&record).expect("the record is kept");
     }
