@@ -46,6 +46,10 @@ The agents' program keeps its settings and sessions in the engine's `profile/` i
 - replaced: A directory for the program named by the installation's `agents.config_dir`, under the data directory's `agents/`, was on main; the owner changed it, because he did not want to keep that `agents` directory.
 - replaced: The program's own cleanup, deleting a session after thirty days, was on main; the owner changed it, because it deleted the agents' transcripts, which he wanted kept.
 
+### decision the-agents-git-runs-the-engines-hook-only
+An agent's git runs only the engine's hook, found through git's own environment variables; the repository's own hooks do not run for the agents' commits, and no configuration is written.
+- rejected: an agent proposed a forwarding script for each of git's hook names, calling the repository's own hook; the owner rejected it, because a heavy hook would run on the host's processor, and the engine's own git runs no hooks.
+
 ### decision agents-run-as-the-engines-user
 The agents' program runs as the engine's own system user, and nothing the engine does keeps it out of the data directory; only the program's own rules do.
 - rejected: an agent proposed another system user for the agents, or else refusing the data directory to their file tools by path and dropping the shell commands that read files; the owner rejected it, because an agent works in its own worktree, and only some harmless commands were to be allowed.
