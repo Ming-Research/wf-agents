@@ -530,13 +530,15 @@ impl History {
         ]);
         self.drain(reached);
         // The close, run by the finish, reads the verdict, and its run ends the work once it hands in or asks for a
-        // call: its first return is sent back, which is at the limit of its returns.
-        self.forced = Some(vec![Forced::Wrong]);
+        // call: its first two returns are sent back, which is the limit of its returns.
+        self.forced = Some(vec![Forced::Wrong, Forced::Wrong]);
         self.put("verdict");
         self.put("finish");
         self.under_way("close");
-        let round = self.sim.round().expect("the close's round");
-        self.carry(&round, reached);
+        for _ in 0..2 {
+            let round = self.sim.round().expect("the close's round");
+            self.carry(&round, reached);
+        }
         // While the owner is to let it go on, the request is written: the plan and the build, which hand in what they
         // write, are run before its next round, which the session holds as the build's hand-in last.
         let close = self.forced.replace(vec![Forced::All, Forced::All, Forced::Must]);
