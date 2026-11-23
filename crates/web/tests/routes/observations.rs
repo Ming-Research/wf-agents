@@ -412,8 +412,9 @@ async fn the_reading_of_an_observation_stays_through_changes_and_a_batch_that_ca
     assert_eq!(listed["observations"][0]["read"], read["read"]);
     assert_eq!(listed["observations"][0]["title"], json!("Renamed"));
     assert_eq!(listed["observations"][0]["tags"], json!(["tests"]));
-    // None of these makes anything: the first cannot be read as a change, the second names an observation that is no
-    // number, the third has a title past the words the settings allow, the fourth a title of no words, which the store
+    // None of these makes anything. Three cannot be read (400): the first is a title change with no title, the second
+    // names an observation by a number below zero, the third has a field the route does not know. Two are refused
+    // (422): the fourth has a title past the words the settings allow, the fifth a title of no words, which the store
     // refuses after the route has read it.
     let good = json!({ "kind": "tag", "observation": 3, "tag": "late" });
     let long = "a b c d e f g h i j k l m n o p q r s t u";
