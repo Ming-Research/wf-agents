@@ -2151,11 +2151,9 @@ impl Summary {
         };
         let cells = match &view.decision {
             Decision::Ended(_) => {
-                (OutlineView::of(kept.on.outline(), &work.records, &|id| kept.came_from(id).cloned())
-                    .cells
-                    .into_iter())
-                .map(|cell| ended(&cell.id))
-                .collect()
+                let came_from = |id: &CellId| kept.came_from(id).cloned();
+                let outline = OutlineView::of(kept.on.outline(), &kept.flow.card, &work.records, &came_from);
+                outline.cells.into_iter().map(|cell| ended(&cell.id)).collect()
             }
             _ => (view.cells.iter())
                 .map(|cell| CellNow {
@@ -2907,7 +2905,9 @@ impl WorkPage {
             project: kept.item.project.clone(),
             tags: kept.item.tags.clone(),
             history: ItemHistory::of(kept.item),
-            outline: OutlineView::of(kept.on.outline(), records, &|id| kept.came_from(id).cloned()),
+            outline: OutlineView::of(kept.on.outline(), &kept.flow.card, records, &|id| {
+                kept.came_from(id).cloned()
+            }),
             flow: (!ended).then(|| Flow::of(kept.flow)),
             cells: if ended { Vec::new() } else { cells },
             blocks,

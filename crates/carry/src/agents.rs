@@ -2593,7 +2593,6 @@ mod tests {
                 "asked",
                 "dependencies",
                 "handed_in",
-                "parallel",
                 "main",
                 "start",
                 "head",
