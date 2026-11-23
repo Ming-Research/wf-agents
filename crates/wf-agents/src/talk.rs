@@ -1047,13 +1047,14 @@ fn pulls_said(pulls: &Pulls, from: Option<u64>, now: u64) -> String {
 fn pull_line(pull: &OpenPull, now: u64) -> String {
     let draft = if pull.draft { " (draft)" } else { "" };
     let keeper = match &pull.work {
-        Some(work) => format!(
-            "{} of item {}: {} ({})",
-            work_number(work.work),
-            item_number(work.item),
-            self::now(&work.now),
-            last_said(work.last, now)
-        ),
+        Some(kept) => {
+            let (work, item) = (work_number(kept.work), item_number(kept.item));
+            format!(
+                "{work} of item {item}: {} ({})",
+                self::now(&kept.now),
+                last_said(kept.last, now)
+            )
+        }
         None => "no work keeps it.".to_string(),
     };
     format!(

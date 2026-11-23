@@ -98,10 +98,7 @@ fn failed_words(failed: &Failed) -> String {
         }
         Failed::BlankTitle => blank_title().to_string(),
         Failed::WaitsForItself(item) => {
-            format!(
-                "a pause cannot wait for item #{} of its own work, which would wait for ever",
-                item.0
-            )
+            format!("a pause cannot wait for item {item} of its own work, which would wait for ever")
         }
         Failed::BadTag(tag) => bad_tag(tag),
         Failed::BadContinues(continues) => bad_continues(continues),

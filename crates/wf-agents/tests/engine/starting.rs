@@ -135,7 +135,8 @@ fn a_flow_the_program_does_not_carry_keeps_the_engine_from_starting_and_changes_
         .arg("run")
         .arg("--data")
         .arg(place.data())
-        .args(["--program-flow", "nowhere", "--port", "0"])
+        // The data directory holds no store yet, which `--new` makes, so that the flow is what refuses it.
+        .args(["--new", "--program-flow", "nowhere", "--port", "0"])
         .arg("--script")
         .arg(place.script())
         .output()
