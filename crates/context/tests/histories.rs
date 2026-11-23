@@ -343,7 +343,10 @@ impl History {
             for block in written {
                 self.put(block);
             }
-            self.forced = Some(vec![Forced::Wrong]);
+            // Its first return is sent back, and so is the second, at the limit of its returns, which the owner lets
+            // pass: the round after the second holds what the first round, which began before they were written, never
+            // was sent.
+            self.forced = Some(vec![Forced::Wrong, Forced::Wrong]);
             self.drain(reached);
         }
         // The build is run by a plan a person writes, and the request is written while its run is under way.
@@ -352,6 +355,20 @@ impl History {
         self.put("plan");
         self.under_way("build");
         self.put("request");
+        self.forced = Some(vec![Forced::Wrong]);
+        self.drain(reached);
+        // A version of the request that changes nothing in meaning runs no cell before the build, whose session then
+        // lacks it though it holds the one the build last worked from.
+        self.put("plan");
+        self.under_way("build");
+        let content = self.content("request");
+        self.sim.take(Event::Wrote {
+            block: "request".into(),
+            by: Outsider::Person,
+            content,
+            matters: false,
+            value: None,
+        });
         self.forced = Some(vec![Forced::Wrong]);
         self.drain(reached);
         // The close, run by the finish, reads the verdict, and its run ends the work: it asks for a tool run on
