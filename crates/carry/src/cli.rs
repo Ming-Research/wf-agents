@@ -945,7 +945,7 @@ impl Stream {
                 }));
             }
         };
-        let mut spent = spent_of_result(&result, &self.earlier, usd_micros);
+        let spent = spent_of_result(&result, &self.earlier, usd_micros);
         if !result.is_error {
             // The agent may stop trying after the command line refused its attempts, and end its turn: its last
             // attempt is read as one the command line gave up on is.
@@ -1671,7 +1671,7 @@ mod tests {
         let calls = |lines: usize| STREAM.lines().take(lines).collect::<Vec<_>>().join("\n");
         let cut = read(calls(2).as_bytes(), &program()).expect_err("a stream with no result is not taken");
         assert_eq!(cut.spent, None);
-        let begun = read(calls(5).as_bytes()).expect_err("a stream with no result is not taken");
+        let begun = read(calls(5).as_bytes(), &program()).expect_err("a stream with no result is not taken");
         assert_eq!(begun.spent.map(|s| s.usd_micros), Some(2071));
         let bare = r#"{"type":"result","is_error":false,"result":"hello","total_cost_usd":0.1}"#;
         assert!(
@@ -1989,7 +1989,7 @@ mod tests {
     // before. A few milliseconds, in memory.
     #[test]
     fn a_round_after_an_interrupted_one_costs_only_itself() {
-        let got = read(with_cost(72.8774, 0.1832).join("\n").as_bytes()).expect("it reads");
+        let got = read(with_cost(72.8774, 0.1832).join("\n").as_bytes(), &program()).expect("it reads");
         assert_eq!(got.spent.usd_micros, 183_200);
         let stream = feed(&with_cost(72.8774, 0.1832));
         assert_eq!(stream.cost(), (183_200, false), "told by the program, none priced");

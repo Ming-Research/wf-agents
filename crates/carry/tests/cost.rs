@@ -108,7 +108,10 @@ fn a_result_of_several_models_costs_the_sum_of_theirs() {
         result["total_cost_usd"] = json!(99.0);
     });
     assert_eq!(feed(&lines).cost(), (1_750_000, false));
-    assert_eq!(feed(&lines).read().expect("it reads").spent.usd_micros, 1_750_000);
+    assert_eq!(
+        feed(&lines).read(&program()).expect("it reads").spent.usd_micros,
+        1_750_000
+    );
 }
 
 // A result that names a model with no cost does not say what the program spent: the calls are priced and the stream
